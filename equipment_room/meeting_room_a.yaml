@@ -1,0 +1,7 @@
+# 会议室 A — 默认会议室设备
+name: "会议室A"
+type: "meeting_room"
+description: "可容纳6人的标准会议室，配备投影仪和白板。"
+capacity: 6
+position: [1, 8]
+sprite: "meeting_room"
