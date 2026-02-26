@@ -1,0 +1,24 @@
+# 员工档案
+
+name: "{name}"
+nickname: "{nickname}"
+employee_number: "{employee_number}"
+level: {level}
+title: "{title}"
+department: "{department}"
+role: "{role}"
+desk_position: [{desk_x}, {desk_y}]
+sprite: "{sprite}"
+
+# LLM 配置
+llm_model: "{llm_model}"
+temperature: {temperature}
+
+# 绩效记录
+current_quarter_tasks: {current_quarter_tasks}
+performance_history:
+{performance_history}
+
+# skills 列表 — 每项对应 skills/ 目录下的同名文件
+skills:
+{skills}

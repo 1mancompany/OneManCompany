@@ -1,0 +1,27 @@
+# 员工档案
+
+name: "Rowan Park"
+nickname: "小朴"
+employee_number: "00008"
+level: 1
+title: "初级工程师"
+department: "技术研发部"
+role: "Engineer"
+desk_position: [2, 5]
+sprite: "employee_blue"
+
+# LLM 配置
+llm_model: "moonshotai/kimi-k2.5"
+temperature: 0.7
+
+# 绩效记录
+current_quarter_tasks: 0
+performance_history:
+  []
+
+# skills 列表 — 每项对应 skills/ 目录下的同名文件
+skills:
+  - fastapi
+  - databases
+  - python
+  - algorithms
