@@ -31,11 +31,6 @@ from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
 from onemancompany.core.config import (
     DEFAULT_DEPARTMENT,
-    DESK_GRID_COLS,
-    DESK_SPACING_X,
-    DESK_SPACING_Y,
-    DESK_START_X,
-    DESK_START_Y,
     FOUNDING_LEVEL,
     HR_ID,
     MAX_NORMAL_LEVEL,
@@ -56,6 +51,7 @@ from onemancompany.core.config import (
     update_employee_level,
     update_employee_performance,
 )
+from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
 from onemancompany.core.state import Employee, LEVEL_NAMES, company_state
 
 # ===== LangChain tools for hiring (simulating Boss Online recruitment platform) =====
@@ -71,13 +67,15 @@ def search_candidates(job_description: str, count: int = 10) -> list[dict]:
     This simulates the external Boss Online (recruitment platform) service.
     Returns N candidates with full profiles including system_prompt, skill_set, tool_set.
 
+    Request schema:  CandidateSearchRequest { job_description: str, count: int }
+    Response schema: list[CandidateProfile] — see boss_online.py for full field definitions.
+
     Args:
         job_description: The job requirements / description text.
         count: Number of candidates to fetch (default 10).
 
     Returns:
-        A list of candidate dicts with id, name, role, experience_years,
-        personality_tags, system_prompt, skill_set, tool_set, sprite, jd_relevance.
+        A list of CandidateProfile dicts sorted by jd_relevance descending.
     """
     from onemancompany.mcp_server.boss_online import search_candidates as _search
     return _search(job_description, count)
@@ -189,7 +187,8 @@ class HRAgent(BaseAgentRunner):
         prompt = (
             HR_SYSTEM_PROMPT
             + self._get_skills_prompt_section()
-            + self._get_culture_wall_prompt_section()
+            + self._get_tools_prompt_section()
+            + self._get_company_culture_prompt_section()
             + self._get_work_principles_prompt_section()
             + self._get_guidance_prompt_section()
         )
@@ -272,13 +271,14 @@ class HRAgent(BaseAgentRunner):
 
             elif data.get("action") == "hire" and "employee" in data:
                 emp_data = data["employee"]
-                desk_pos = self._next_desk_position()
                 nickname = emp_data.get("nickname", "")
                 department = emp_data.get("department", "")
 
                 # Auto-assign department based on role if not provided
                 if not department:
                     department = ROLE_DEPARTMENT_MAP.get(emp_data.get("role", ""), DEFAULT_DEPARTMENT)
+
+                desk_pos = get_next_desk_for_department(company_state, department)
 
                 emp_num = company_state.next_employee_number()
                 emp = Employee(
@@ -295,6 +295,10 @@ class HRAgent(BaseAgentRunner):
                 )
                 company_state.employees[emp_num] = emp
                 self._create_employee_folder(emp)
+
+                # Recompute layout (zones may resize) and persist all positions
+                compute_layout(company_state)
+                persist_all_desk_positions(company_state)
 
                 company_state.activity_log.append(
                     {"type": "employee_hired", "name": emp.name,
@@ -341,6 +345,11 @@ class HRAgent(BaseAgentRunner):
                     company_state.ex_employees[emp_id] = emp
                     del company_state.employees[emp_id]
                     move_employee_to_ex(emp_id)
+
+                    # Recompute layout (zones may shrink) and persist all positions
+                    compute_layout(company_state)
+                    persist_all_desk_positions(company_state)
+
                     company_state.activity_log.append({
                         "type": "employee_fired",
                         "name": emp.name,
@@ -376,6 +385,9 @@ class HRAgent(BaseAgentRunner):
                     continue  # no actual promotion
                 # Persist new level/title to profile.yaml
                 update_employee_level(emp.id, emp.level, emp.title)
+                # Recompute layout (level change affects vertical ordering)
+                compute_layout(company_state)
+                persist_all_desk_positions(company_state)
                 company_state.activity_log.append({
                     "type": "promotion",
                     "name": emp.name,
@@ -431,16 +443,9 @@ class HRAgent(BaseAgentRunner):
         save_work_principles(emp.id, initial_principles)
         emp.work_principles = initial_principles
 
-    def _next_desk_position(self) -> tuple[int, int]:
-        occupied = {tuple(e.desk_position) for e in company_state.employees.values()}
-        slot = 0
-        while True:
-            row = slot // DESK_GRID_COLS
-            col = slot % DESK_GRID_COLS
-            pos = (DESK_START_X + col * DESK_SPACING_X, DESK_START_Y + row * DESK_SPACING_Y)
-            if pos not in occupied:
-                return pos
-            slot += 1
+    def _next_desk_position(self, department: str = "") -> tuple[int, int]:
+        """Get next desk position using department-based layout."""
+        return get_next_desk_for_department(company_state, department or "General")
 
 
 hr_agent = HRAgent()

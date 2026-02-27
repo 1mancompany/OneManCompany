@@ -3,14 +3,133 @@
 Input: Job Description (JD)
 Output: N candidates, each with profile, system_prompt, skill_set, tool_set.
 Runs as a subprocess via stdio transport.
+
+All request/response data formats are defined as Pydantic models below,
+serving as the formal interface protocol between our system and Boss Online.
 """
+
+from __future__ import annotations
 
 import random
 import uuid
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("BossOnline")
+
+
+# ============================================================================
+# Interface Protocol — Pydantic models for Boss Online <-> OneManCompany
+# ============================================================================
+
+# --- Shared enums / literals ---
+
+RoleType = Literal["Engineer", "Designer", "Analyst", "DevOps", "QA", "Marketing"]
+
+SpriteType = Literal[
+    "employee_blue", "employee_red", "employee_green",
+    "employee_purple", "employee_orange",
+]
+
+
+# --- Candidate data returned by Boss Online ---
+
+class CandidateSkill(BaseModel):
+    """A skill the candidate possesses, with a code sample demonstrating proficiency."""
+    name: str = Field(description="Skill identifier, e.g. 'python', 'figma'")
+    description: str = Field(description="Human-readable skill description")
+    code: str = Field(description="Example code snippet showing proficiency")
+
+
+class CandidateTool(BaseModel):
+    """A tool the candidate can operate, with a code sample."""
+    name: str = Field(description="Tool identifier, e.g. 'code_review', 'debugger'")
+    description: str = Field(description="What the tool does")
+    code: str = Field(description="Example code snippet showing tool usage")
+
+
+class CandidateProfile(BaseModel):
+    """Full candidate profile returned by Boss Online search.
+
+    This is the core data structure exchanged between Boss Online and our system.
+    HR receives this, filters/shortlists, and forwards to CEO for selection.
+    """
+    id: str = Field(description="Unique candidate ID (8-char UUID prefix)")
+    name: str = Field(description="Full name, e.g. 'Alex Chen'")
+    role: RoleType = Field(description="Primary role the candidate is applying for")
+    experience_years: int = Field(ge=0, le=30, description="Years of work experience")
+    personality_tags: list[str] = Field(description="Personality traits, e.g. ['self-motivated', 'team player']")
+    system_prompt: str = Field(description="LLM persona prompt for this candidate (used in interviews)")
+    skill_set: list[CandidateSkill] = Field(description="Skills with code samples (3-4 items)")
+    tool_set: list[CandidateTool] = Field(description="Tools with code samples (1-2 items)")
+    sprite: SpriteType = Field(description="Pixel art avatar type for office visualization")
+    llm_model: str = Field(description="LLM model to use when this candidate becomes an employee")
+    jd_relevance: float = Field(ge=0.0, le=1.0, description="JD match score (0.0-1.0, higher is better)")
+
+
+# --- Request: what we send to Boss Online ---
+
+class CandidateSearchRequest(BaseModel):
+    """Search request sent to Boss Online recruitment platform."""
+    job_description: str = Field(description="Job description / requirements text")
+    count: int = Field(default=10, ge=1, le=50, description="Number of candidates to return")
+
+
+# --- Response: what Boss Online returns ---
+
+class CandidateSearchResponse(BaseModel):
+    """Search response from Boss Online — a ranked list of candidates."""
+    candidates: list[CandidateProfile] = Field(description="Candidates sorted by jd_relevance descending")
+
+
+# --- HR -> CEO: shortlist for selection ---
+
+class CandidateShortlist(BaseModel):
+    """HR-curated shortlist sent to CEO for visual selection on the frontend."""
+    batch_id: str = Field(description="Batch ID for tracking this shortlist")
+    jd: str = Field(description="The original job description")
+    candidates: list[CandidateProfile] = Field(max_length=5, description="Top 5 candidates selected by HR")
+
+
+# --- CEO -> Backend: hire request ---
+
+class HireRequest(BaseModel):
+    """CEO's decision to hire a specific candidate from the shortlist."""
+    batch_id: str = Field(description="Batch ID from the shortlist")
+    candidate_id: str = Field(description="ID of the selected candidate")
+    nickname: str = Field(default="", description="Optional 花名 (2 Chinese chars); auto-generated if empty")
+
+
+class HireResponse(BaseModel):
+    """Response after successfully hiring a candidate."""
+    status: str = Field(default="hired")
+    employee_id: str = Field(description="Assigned 5-digit employee number")
+    name: str = Field(description="Employee's full name")
+    nickname: str = Field(description="Assigned 花名")
+
+
+# --- CEO -> Backend: interview request ---
+
+class InterviewRequest(BaseModel):
+    """CEO's interview question for a candidate."""
+    question: str = Field(description="The interview question text")
+    candidate: CandidateProfile = Field(description="Full candidate profile for context")
+    images: list[str] = Field(default_factory=list, description="Optional base64-encoded images (max 3)")
+
+
+class InterviewResponse(BaseModel):
+    """Candidate's answer to the interview question."""
+    candidate_id: str = Field(description="ID of the interviewed candidate")
+    question: str = Field(description="The original question")
+    answer: str = Field(description="Candidate's LLM-generated answer")
+
+
+# ============================================================================
+# Candidate generation data
+# ============================================================================
 
 FIRST_NAMES = [
     "Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Drew",
@@ -23,7 +142,7 @@ LAST_NAMES = [
     "Zhao", "Singh", "Tanaka", "Park", "Fernandez",
 ]
 
-SPRITES = [
+SPRITES: list[SpriteType] = [
     "employee_blue", "employee_red", "employee_green",
     "employee_purple", "employee_orange",
 ]
@@ -41,7 +160,7 @@ LLM_MODELS = [
 ]
 
 # Rich role definitions with system prompts, skills (with code), and tools (with code)
-ROLE_PROFILES = {
+ROLE_PROFILES: dict[str, dict] = {
     "Engineer": {
         "skills": [
             {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
@@ -152,8 +271,22 @@ PERSONALITY_TAGS = [
     "detail-oriented", "big-picture thinker", "creative", "resilient", "cross-disciplinary",
 ]
 
+# JD keyword -> role mapping for auto-detection
+ROLE_KEYWORDS: dict[str, list[str]] = {
+    "Engineer": ["engineer", "backend", "frontend", "develop", "code", "工程", "开发", "编程", "python", "java"],
+    "Designer": ["design", "ui", "ux", "figma", "设计", "交互", "视觉"],
+    "Analyst": ["analyst", "data", "sql", "分析", "数据", "报表"],
+    "DevOps": ["devops", "infrastructure", "deploy", "docker", "运维", "部署", "容器"],
+    "QA": ["qa", "test", "quality", "测试", "质量"],
+    "Marketing": ["marketing", "content", "seo", "growth", "营销", "推广", "增长"],
+}
 
-def _generate_one_candidate(role: str, jd: str) -> dict:
+
+# ============================================================================
+# Candidate generation
+# ============================================================================
+
+def _generate_one_candidate(role: str) -> CandidateProfile:
     """Generate a single rich candidate profile."""
     profile = ROLE_PROFILES.get(role, ROLE_PROFILES["Engineer"])
 
@@ -171,32 +304,42 @@ def _generate_one_candidate(role: str, jd: str) -> dict:
 
     # Select 3-4 skills with code
     n_skills = random.randint(3, len(profile["skills"]))
-    skills = random.sample(profile["skills"], k=n_skills)
+    skills = [CandidateSkill(**s) for s in random.sample(profile["skills"], k=n_skills)]
 
     # Select 1-2 tools with code
     n_tools = random.randint(1, len(profile["tools"]))
-    tools = random.sample(profile["tools"], k=n_tools)
+    tools = [CandidateTool(**t) for t in random.sample(profile["tools"], k=n_tools)]
 
     # Pick personality tags
     tags = random.sample(PERSONALITY_TAGS, k=random.randint(2, 4))
 
-    # Experience (years)
-    experience = random.randint(1, 8)
+    return CandidateProfile(
+        id=str(uuid.uuid4())[:8],
+        name=name,
+        role=role,
+        experience_years=random.randint(1, 8),
+        personality_tags=tags,
+        system_prompt=system_prompt,
+        skill_set=skills,
+        tool_set=tools,
+        sprite=random.choice(SPRITES),
+        llm_model=random.choice(LLM_MODELS),
+        jd_relevance=round(random.uniform(0.5, 1.0), 2),
+    )
 
-    return {
-        "id": str(uuid.uuid4())[:8],
-        "name": name,
-        "role": role,
-        "experience_years": experience,
-        "personality_tags": tags,
-        "system_prompt": system_prompt,
-        "skill_set": skills,
-        "tool_set": tools,
-        "sprite": random.choice(SPRITES),
-        "llm_model": random.choice(LLM_MODELS),
-        "jd_relevance": round(random.uniform(0.5, 1.0), 2),  # simulated relevance
-    }
 
+def _detect_role(jd: str) -> str:
+    """Detect the target role from JD text using keyword matching."""
+    jd_lower = jd.lower()
+    for role, keywords in ROLE_KEYWORDS.items():
+        if any(kw in jd_lower for kw in keywords):
+            return role
+    return random.choice(list(ROLE_PROFILES.keys()))
+
+
+# ============================================================================
+# MCP tool (the actual Boss Online API endpoint)
+# ============================================================================
 
 @mcp.tool()
 def search_candidates(job_description: str, count: int = 10) -> list[dict]:
@@ -210,38 +353,22 @@ def search_candidates(job_description: str, count: int = 10) -> list[dict]:
         A list of candidate dicts, each with id, name, role, experience_years,
         personality_tags, system_prompt, skill_set, tool_set, sprite, jd_relevance.
     """
-    # Detect role from JD keywords
-    jd_lower = job_description.lower()
-    role_keywords = {
-        "Engineer": ["engineer", "backend", "frontend", "develop", "code", "工程", "开发", "编程", "python", "java"],
-        "Designer": ["design", "ui", "ux", "figma", "设计", "交互", "视觉"],
-        "Analyst": ["analyst", "data", "sql", "分析", "数据", "报表"],
-        "DevOps": ["devops", "infrastructure", "deploy", "docker", "运维", "部署", "容器"],
-        "QA": ["qa", "test", "quality", "测试", "质量"],
-        "Marketing": ["marketing", "content", "seo", "growth", "营销", "推广", "增长"],
-    }
-
-    matched_role = None
-    for role, keywords in role_keywords.items():
-        if any(kw in jd_lower for kw in keywords):
-            matched_role = role
-            break
-
-    if not matched_role:
-        matched_role = random.choice(list(ROLE_PROFILES.keys()))
+    matched_role = _detect_role(job_description)
 
     # Generate candidates — mix of target role + some random roles
-    candidates = []
+    candidates: list[CandidateProfile] = []
     for i in range(count):
         if i < count * 0.7:  # 70% target role
             r = matched_role
         else:
             r = random.choice(list(ROLE_PROFILES.keys()))
-        candidates.append(_generate_one_candidate(r, job_description))
+        candidates.append(_generate_one_candidate(r))
 
     # Sort by jd_relevance descending
-    candidates.sort(key=lambda c: c["jd_relevance"], reverse=True)
-    return candidates
+    candidates.sort(key=lambda c: c.jd_relevance, reverse=True)
+
+    # Return as dicts for MCP JSON serialization
+    return [c.model_dump() for c in candidates]
 
 
 if __name__ == "__main__":

@@ -1,7 +1,0 @@
-# 项目会议室2 — 项目总结会专用
-name: "项目会议室2"
-type: "meeting_room"
-description: "可容纳30人的项目会议室，用于项目总结会和复盘。"
-capacity: 30
-position: [14, 10]
-sprite: "meeting_room"

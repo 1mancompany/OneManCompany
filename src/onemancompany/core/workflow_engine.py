@@ -1,11 +1,11 @@
 """Workflow Engine — parses markdown workflow documents and executes their steps.
 
-Each workflow .md file in company_rules/ defines a sequence of stages (phases).
+Each workflow .md file in business/workflows/ defines a sequence of stages (phases).
 The engine extracts structured step definitions from the markdown and provides
 an executor that runs each step dynamically, using the _chat() and _publish()
 helpers for real-time frontend updates.
 
-Markdown format expected (by convention used in company_rules/):
+Markdown format expected (by convention used in business/workflows/):
 
     # Workflow Title
 

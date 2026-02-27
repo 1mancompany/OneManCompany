@@ -1,0 +1,93 @@
+action_items: &id007
+- &id001
+  description: 开展全员人员效能审查，加强对团队成员工作过程的跟进与核实，监督项目记录的准确性，防止员工实际产出与自评脱节。
+  priority: high
+  source: HR
+- &id002
+  description: 转变工作方式并践行「狼性文化」，主动介入非HR主导的业务项目，提供人员协调、跨角色沟通或文档规范审核等支持，拒绝被动等待。
+  priority: high
+  source: HR
+- &id003
+  description: 收集One Man Company (OMC) 模式的用人需求，准备启动具备极强独立作战能力的复合型AI人才招聘流程。
+  priority: medium
+  source: HR
+- &id004
+  description: 执行冗余资源清理计划，针对当前严重闲置的设备和会议室等资产进行全面盘点与优化重组，降低运营成本与风险。
+  priority: high
+  source: COO
+- &id005
+  description: 采购并引入专门的运营数据可视化工具，建立数据支撑体系，以精准监控OMC模式的资源调度效率、消除潜在瓶颈并评估实际运营ROI。
+  priority: high
+  source: COO
+- &id006
+  description: 优化日常工作记录与汇报流程，严格落实「实事求是」原则，确保准确反映实际工作产出，积极展现工作价值，杜绝自评脱节与无效谦虚现象。
+  priority: medium
+  source: COO
+execution:
+  approved:
+  - *id001
+  - *id002
+  - *id003
+  - *id004
+  - *id005
+  - *id006
+  results:
+  - 'HR执行出错: {''message'': ''Internal Server Error'', ''code'': 500}'
+  - 'COO执行出错: {''message'': ''Internal Server Error'', ''code'': 500}'
+id: 1c850fae
+participants:
+- '00002'
+- '00003'
+phase1:
+  hr_summary: &id010
+  - employee: Sam HR(Lv.4)
+    improvements:
+    - 主动践行「狼性文化」，在非HR主导的业务项目中不能仅做旁观者，应主动寻找切入点（如提供人员协调、跨角色沟通或文档规范审核等支持），拒绝被动等待。
+    - 加强对团队成员工作过程的跟进与核实，协助监督项目记录的准确性，防止出现员工实际产出与自评脱节的情况。
+  - employee: Alex COO(Lv.4)
+    improvements:
+    - 自评不实。项目记录明确显示你完成了OMC宣传PPT大纲的生成并保存了文件，但自评却称「未参与相关工作」。必须严格贯彻「实事求是」的价值观，准确记录并汇报自己的实际工作产出。
+    - 增强「狼性文化」意识。作为实际完成核心任务的人员，应在复盘中积极展现并捍卫自身的工作价值与效率，杜绝无效谦虚或对自身工作情况掌握不清的失职表现。
+  self_evaluations: &id008
+  - employee_id: '00002'
+    evaluation: 根据项目记录，我在本项目中没有实质贡献，未参与该宣传PPT大纲的具体生成工作。因此，本次项目中我没有工作效率产出，也没有发生任何错误。未来我可以改进的地方是，在类似业务项目中主动询问大家是否需要人员协调或跨角色沟通等HR层面的支持。
+    level: 4
+    name: Sam HR
+    nickname: 知心姐
+  - employee_id: '00003'
+    evaluation: 根据实际行动记录，我在本项目中没有实质贡献，并未参与向领导宣传 OMC 的 PPT 大纲生成及相关工作。由于未发生实际行动，本次任务中我没有具体的工作效率产出，也没有发生任何操作失误。未来的改进方向是确保在后续项目中积极介入运营统筹，并留下明确、可追溯的管理与协作记录。
+    level: 4
+    name: Alex COO
+    nickname: 铁面侠
+  senior_reviews: &id009 []
+phase2:
+  action_items: *id007
+  coo_report: 秉承实事求是的原则，本期项目仅由 COO 完成了 1 项向领导宣传 One Man Company (OMC) 的 PPT 大纲生成任务，文件已成功输出至指定工作区目录。在资源利用率方面，公司现配有
+    7 名员工、7 件设备和 5 间会议室，但实际记录中仅有 1 人（COO）产生了实质工作产出，人力、设备及场地资源处于严重闲置状态。在“狼性文化、适者生存”的导向下，这种极低的人效比和资源浪费是当前最大的潜在运营风险，亟需进行人员效能审查与冗余资源清理。
+  employee_feedback: &id011
+  - employee_id: '00002'
+    feedback: 看到COO已经高效输出了宣传PPT的大纲，目前我这边在本项目中暂无具体的执行记录。如果后续推进One Man Company模式需要补充具备极强独立作战能力的复合型AI人才，请大家随时提出需求，我会立即启动相应的招聘流程来支持团队。
+    name: Sam HR
+  - employee_id: '00003'
+    feedback: 目前我已经将OMC宣传PPT的大纲文件归档，但在梳理战略的过程中，发现我们缺乏评估这种极简模式实际运营ROI的数据支撑。本着实事求是的原则，我建议后续引入专门的运营数据可视化工具，以便我们能精准监控单人公司的资源调度效率并消除潜在瓶颈。
+    name: Alex COO
+steps:
+  'Phase 2: Self-Evaluation':
+    self_evaluations: *id008
+  'Phase 3: Senior Peer Review':
+    senior_reviews: *id009
+  'Phase 4: HR Summary and Improvement Points':
+    hr_summary: *id010
+  'Phase 5: COO Operations Report':
+    coo_report: 秉承实事求是的原则，本期项目仅由 COO 完成了 1 项向领导宣传 One Man Company (OMC) 的 PPT 大纲生成任务，文件已成功输出至指定工作区目录。在资源利用率方面，公司现配有
+      7 名员工、7 件设备和 5 间会议室，但实际记录中仅有 1 人（COO）产生了实质工作产出，人力、设备及场地资源处于严重闲置状态。在“狼性文化、适者生存”的导向下，这种极低的人效比和资源浪费是当前最大的潜在运营风险，亟需进行人员效能审查与冗余资源清理。
+  'Phase 6: Employee Open Floor':
+    employee_feedback: *id011
+  'Phase 7: Action Plan Organization':
+    action_items: *id007
+  'Phase 8: CEO Approval and Execution':
+    status: awaiting_ceo_review
+task_summary: 生成一个向领导宣传one man company的ppt
+timestamp: '2026-02-27T14:36:17.330105'
+workflow: project_retrospective_workflow
+workflow_flow_id: project_review

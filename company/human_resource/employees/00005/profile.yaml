@@ -1,0 +1,20 @@
+current_quarter_tasks: 2
+department: Engineering
+desk_position:
+- 4
+- 1
+employee_number: '00005'
+level: 1
+llm_model: google/gemini-3.1-pro-preview
+name: Casey Ivanov
+nickname: 代码精
+performance_history: []
+role: Engineer
+skills:
+- python
+- fastapi
+- databases
+- algorithms
+sprite: employee_orange
+temperature: 0.7
+title: 初级工程师

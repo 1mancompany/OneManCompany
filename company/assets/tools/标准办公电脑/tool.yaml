@@ -1,0 +1,11 @@
+added_by: COO
+allowed_users:
+- '00007'
+- 00009
+description: 标准配置的办公笔记本电脑，满足日常办公、数据处理及基础开发需求，符合高ROI原则的新员工标配硬件。
+desk_position:
+- 5
+- 14
+id: 6931cf0d
+name: 标准办公电脑
+sprite: desk_equipment

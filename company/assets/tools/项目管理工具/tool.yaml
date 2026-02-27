@@ -1,0 +1,16 @@
+added_by: COO
+allowed_users:
+- '00007'
+- 00009
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- 00008
+description: 提升团队协作效率的工具，例如Trello或Slack。
+desk_position:
+- 15
+- 11
+id: d37a9c5e
+name: 项目管理工具
+sprite: desk_equipment

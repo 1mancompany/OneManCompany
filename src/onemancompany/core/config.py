@@ -7,18 +7,23 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+COMPANY_DIR = PROJECT_ROOT / "company"
 
 # ---------------------------------------------------------------------------
-# Directory paths
+# Directory paths (all company data lives under company/)
 # ---------------------------------------------------------------------------
-EMPLOYEES_DIR = PROJECT_ROOT / "employees"
-EX_EMPLOYEES_DIR = PROJECT_ROOT / "ex-employees"
-ASSETS_DIR = PROJECT_ROOT / "assets"
+HR_DIR = COMPANY_DIR / "human_resource"
+EMPLOYEES_DIR = HR_DIR / "employees"
+EX_EMPLOYEES_DIR = HR_DIR / "ex-employees"
+ASSETS_DIR = COMPANY_DIR / "assets"
 TOOLS_DIR = ASSETS_DIR / "tools"
 ROOMS_DIR = ASSETS_DIR / "rooms"
-RULES_DIR = PROJECT_ROOT / "company_rules"
-PROJECTS_DIR = PROJECT_ROOT / "projects"
-CULTURE_WALL_FILE = PROJECT_ROOT / "culture_wall.yaml"
+BUSINESS_DIR = COMPANY_DIR / "business"
+WORKFLOWS_DIR = BUSINESS_DIR / "workflows"
+PROJECTS_DIR = BUSINESS_DIR / "projects"
+REPORTS_DIR = BUSINESS_DIR / "reports"
+MEETING_REPORTS_DIR = REPORTS_DIR / "meeting_reports"
+COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
 # ---------------------------------------------------------------------------
@@ -57,14 +62,14 @@ STATUS_IN_MEETING = "in_meeting"
 # Role-to-department mapping
 # ---------------------------------------------------------------------------
 ROLE_DEPARTMENT_MAP: dict[str, str] = {
-    "Engineer": "技术研发部",
-    "DevOps": "技术研发部",
-    "QA": "技术研发部",
-    "Designer": "设计部",
-    "Analyst": "数据分析部",
-    "Marketing": "市场营销部",
+    "Engineer": "Engineering",
+    "DevOps": "Engineering",
+    "QA": "Engineering",
+    "Designer": "Design",
+    "Analyst": "Analytics",
+    "Marketing": "Marketing",
 }
-DEFAULT_DEPARTMENT = "综合部"
+DEFAULT_DEPARTMENT = "General"
 
 # ---------------------------------------------------------------------------
 # Prompt truncation limits (characters)
@@ -75,13 +80,55 @@ MAX_WORKFLOW_CONTEXT_LEN = 800
 MAX_DISCUSSION_SUMMARY_LEN = 500
 
 # ---------------------------------------------------------------------------
-# Desk position grid layout
+# Desk position grid layout (legacy — kept for compatibility)
 # ---------------------------------------------------------------------------
 DESK_GRID_COLS = 5
 DESK_START_X = 2
 DESK_START_Y = 2
 DESK_SPACING_X = 3
 DESK_SPACING_Y = 3
+
+# ---------------------------------------------------------------------------
+# Department-based office layout
+# ---------------------------------------------------------------------------
+EXEC_ROW_GY = 0          # grid-Y for executive row
+DEPT_START_ROW = 1        # first grid-Y for department zones
+DEPT_END_ROW = 7          # last grid-Y for department zones
+DEPT_MIN_ZONE_WIDTH = 3   # minimum columns per department zone
+DEPT_DESK_SPACING_X = 3   # horizontal spacing between desks within a zone
+DEPT_DESK_ROWS = [1, 4, 7]  # grid-Y rows where desks can be placed
+
+# Stable left-to-right ordering of departments
+DEPT_ORDER = [
+    "Engineering",
+    "Design",
+    "Analytics",
+    "Marketing",
+    "General",
+]
+
+# Department zone colors: department -> (floor1, floor2, label_color)
+DEPT_COLORS: dict[str, tuple[str, str, str]] = {
+    "Engineering": ("#1a2a3e", "#162636", "#4488cc"),   # blue tones
+    "Design":      ("#2a1a3e", "#261636", "#aa44cc"),   # purple tones
+    "Analytics":   ("#1a3a2e", "#163626", "#44cc88"),   # green tones
+    "Marketing":   ("#3a2a1a", "#362616", "#cc8844"),   # orange tones
+    "General":     ("#2a2a2a", "#262626", "#888888"),   # gray tones
+}
+
+# Legacy Chinese → English department mapping (for migrating old profiles)
+DEPT_CN_TO_EN: dict[str, str] = {
+    "技术研发部": "Engineering",
+    "设计部": "Design",
+    "数据分析部": "Analytics",
+    "市场营销部": "Marketing",
+    "综合部": "General",
+    "人力资源部": "HR",
+    "运营管理部": "Operations",
+}
+
+# Executive row floor colors
+EXEC_FLOOR_COLORS = ("#2a2a20", "#26261e")  # gold tones
 
 # ---------------------------------------------------------------------------
 # Task routing keywords
@@ -102,7 +149,7 @@ class EmployeeConfig(BaseModel):
     nickname: str = ""  # Chinese alias
     level: int = 1  # 1-3 normal, 4 founding, 5 CEO
     department: str = ""  # assigned by HR
-    desk_position: list[int]
+    desk_position: list[int] = []
     sprite: str = "employee_default"
     llm_model: str = ""  # empty = use default
     temperature: float = 0.7
@@ -277,16 +324,53 @@ def update_employee_level(employee_id: str, level: int, title: str) -> None:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
+def slugify_tool_name(name: str) -> str:
+    """Convert a tool name to a folder-safe slug.
+
+    Lowercase, spaces→underscores, keep CJK chars and alphanumerics,
+    remove other special characters.
+    """
+    import re as _re
+    slug = name.lower().strip()
+    slug = slug.replace(" ", "_")
+    # Keep word chars (includes CJK via Unicode) and underscores
+    slug = _re.sub(r'[^\w]', '', slug)
+    # Collapse multiple underscores
+    slug = _re.sub(r'_+', '_', slug).strip('_')
+    return slug or "unnamed_tool"
+
+
 def load_assets() -> tuple[dict, dict]:
-    """Scan assets/tools/ and assets/rooms/ directories. Returns (tools_dict, rooms_dict)."""
+    """Scan assets/tools/ and assets/rooms/ directories. Returns (tools_dict, rooms_dict).
+
+    Tools can be either:
+    - **Folder-based** (new): tools/{slug_name}/tool.yaml
+    - **Flat YAML** (legacy): tools/{uuid}.yaml  — tagged with _legacy=True
+    """
     tools: dict[str, dict] = {}
     meeting_rooms: dict[str, dict] = {}
     if TOOLS_DIR.exists():
-        for f in sorted(TOOLS_DIR.iterdir()):
-            if f.suffix == ".yaml" and f.is_file():
-                with open(f) as fh:
+        for entry in sorted(TOOLS_DIR.iterdir()):
+            if entry.is_dir():
+                # New folder-based format
+                tool_yaml = entry / "tool.yaml"
+                if tool_yaml.exists():
+                    with open(tool_yaml) as fh:
+                        data = yaml.safe_load(fh) or {}
+                    data["_folder_name"] = entry.name
+                    # List extra files in the folder (excluding tool.yaml)
+                    data["_files"] = [
+                        f.name for f in sorted(entry.iterdir())
+                        if f.is_file() and f.name != "tool.yaml"
+                    ]
+                    tool_id = data.get("id", entry.name)
+                    tools[tool_id] = data
+            elif entry.suffix == ".yaml" and entry.is_file():
+                # Legacy flat YAML format
+                with open(entry) as fh:
                     data = yaml.safe_load(fh) or {}
-                tools[f.stem] = data
+                data["_legacy"] = True
+                tools[entry.stem] = data
     if ROOMS_DIR.exists():
         for f in sorted(ROOMS_DIR.iterdir()):
             if f.suffix == ".yaml" and f.is_file():
@@ -296,21 +380,57 @@ def load_assets() -> tuple[dict, dict]:
     return tools, meeting_rooms
 
 
+def migrate_legacy_tool(tool_id: str, data: dict, used_slugs: set[str] | None = None) -> tuple[str, str]:
+    """Migrate a flat assets/tools/{uuid}.yaml to assets/tools/{slug}/tool.yaml.
+
+    Returns (folder_name, new_tool_id) after migration.
+    Handles slug collisions by appending the UUID suffix.
+    """
+    import shutil
+
+    if used_slugs is None:
+        used_slugs = set()
+
+    name = data.get("name", tool_id)
+    slug = slugify_tool_name(name)
+
+    # Handle collision
+    if slug in used_slugs:
+        slug = f"{slug}_{tool_id}"
+    used_slugs.add(slug)
+
+    folder = TOOLS_DIR / slug
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # Write tool.yaml with id field
+    tool_data = {k: v for k, v in data.items() if not k.startswith("_")}
+    tool_data["id"] = tool_id
+    with open(folder / "tool.yaml", "w") as f:
+        yaml.dump(tool_data, f, allow_unicode=True, default_flow_style=False)
+
+    # Remove old flat file
+    old_path = TOOLS_DIR / f"{tool_id}.yaml"
+    if old_path.exists():
+        old_path.unlink()
+
+    return slug, tool_id
+
+
 def load_workflows() -> dict[str, str]:
-    """Load all workflow .md files from company_rules/ as {filename_stem: content}."""
-    if not RULES_DIR.exists():
+    """Load all workflow .md files from business/workflows/ as {filename_stem: content}."""
+    if not WORKFLOWS_DIR.exists():
         return {}
     result: dict[str, str] = {}
-    for f in sorted(RULES_DIR.iterdir()):
+    for f in sorted(WORKFLOWS_DIR.iterdir()):
         if f.suffix == ".md" and f.is_file():
             result[f.stem] = f.read_text(encoding="utf-8")
     return result
 
 
 def save_workflow(name: str, content: str) -> None:
-    """Save a workflow .md file to company_rules/."""
-    RULES_DIR.mkdir(parents=True, exist_ok=True)
-    path = RULES_DIR / f"{name}.md"
+    """Save a workflow .md file to business/workflows/."""
+    WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
+    path = WORKFLOWS_DIR / f"{name}.md"
     path.write_text(content, encoding="utf-8")
 
 
@@ -369,20 +489,20 @@ def move_ex_employee_back(employee_id: str) -> bool:
     return True
 
 
-def load_culture_wall() -> list[dict]:
-    """Load culture wall items from culture_wall.yaml."""
-    if not CULTURE_WALL_FILE.exists():
+def load_company_culture() -> list[dict]:
+    """Load company culture items from company_culture.yaml."""
+    if not COMPANY_CULTURE_FILE.exists():
         return []
-    with open(CULTURE_WALL_FILE) as f:
+    with open(COMPANY_CULTURE_FILE) as f:
         data = yaml.safe_load(f)
     if isinstance(data, list):
         return data
     return []
 
 
-def save_culture_wall(items: list[dict]) -> None:
-    """Persist culture wall items to culture_wall.yaml."""
-    with open(CULTURE_WALL_FILE, "w") as f:
+def save_company_culture(items: list[dict]) -> None:
+    """Persist company culture items to company_culture.yaml."""
+    with open(COMPANY_CULTURE_FILE, "w") as f:
         yaml.dump(items, f, allow_unicode=True, default_flow_style=False)
 
 

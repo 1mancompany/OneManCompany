@@ -11,11 +11,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from onemancompany.agents.base import BaseAgentRunner
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
-    DESK_GRID_COLS,
-    DESK_SPACING_X,
-    DESK_SPACING_Y,
-    DESK_START_X,
-    DESK_START_Y,
     FOUNDING_LEVEL,
     HR_ID,
     HR_KEYWORDS,
@@ -24,6 +19,7 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.mcp_server.boss_online import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import TaskEntry, company_state
 
 router = APIRouter()
@@ -45,6 +41,7 @@ async def _run_agent_safe(
                 t.current_owner = owner_id
                 break
 
+    agent_error = False
     try:
         result = await coro
         # Record agent output in project timeline
@@ -53,6 +50,7 @@ async def _run_agent_safe(
             append_action(project_id, agent_name.lower(), f"{agent_name} task completed", summary)
             _sync_task_owner(agent_name.lower())
     except Exception as e:
+        agent_error = True
         traceback.print_exc()
         if project_id:
             append_action(project_id, agent_name.lower(), f"{agent_name} error", str(e)[:MAX_SUMMARY_LEN])
@@ -63,14 +61,16 @@ async def _run_agent_safe(
                 agent=agent_name,
             )
         )
-        return  # don't run routine after error
 
+    # Always run routine (retrospective is valuable even after errors)
     if run_routine_after:
         try:
             from onemancompany.core.routine import run_post_task_routine
             await run_post_task_routine(run_routine_after, project_id=project_id)
         except Exception as e:
             traceback.print_exc()
+            if project_id:
+                append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
             await event_bus.publish(
                 CompanyEvent(
                     type="agent_done",
@@ -79,19 +79,25 @@ async def _run_agent_safe(
                 )
             )
 
-    # Reset all employees to idle after task + routine completes
+    # Cleanup always runs — reset employees, remove tasks, complete project
     for emp in company_state.employees.values():
         emp.status = STATUS_IDLE
 
-    # Remove from active tasks
     if project_id:
         company_state.active_tasks = [
             t for t in company_state.active_tasks if t.project_id != project_id
         ]
 
-    # Mark project completed after routine
     if project_id:
-        complete_project(project_id, run_routine_after or "Task completed")
+        label = run_routine_after or "Task completed"
+        if agent_error:
+            label = f"{label} (with errors)"
+        complete_project(project_id, label)
+
+    # Broadcast updated state so frontend sees idle employees and cleared tasks
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
 
 
 @router.get("/api/state")
@@ -104,7 +110,7 @@ async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent."""
     from onemancompany.agents.coo_agent import coo_agent
     from onemancompany.agents.hr_agent import hr_agent
-    from onemancompany.core.project_archive import create_project
+    from onemancompany.core.project_archive import create_project, get_project_dir
 
     task = body.get("task", "")
     if not task:
@@ -126,77 +132,166 @@ async def ceo_submit_task(body: dict) -> dict:
     task_lower = task.lower()
     if any(w in task_lower for w in HR_KEYWORDS):
         pid = create_project(task, "HR", [e.id for e in company_state.employees.values()])
-        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="HR"))
+        pdir = get_project_dir(pid)
+        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="HR", project_dir=pdir))
+        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
-            _run_agent_safe(hr_agent.run(task), "HR", run_routine_after=task, project_id=pid)
+            _run_agent_safe(hr_agent.run(task_with_ctx), "HR", run_routine_after=task, project_id=pid)
         )
-        return {"routed_to": "HR", "status": "processing", "project_id": pid}
+        return {"routed_to": "HR", "status": "processing", "project_id": pid, "project_dir": pdir}
     else:
         pid = create_project(task, "COO", [e.id for e in company_state.employees.values()])
-        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="COO"))
+        pdir = get_project_dir(pid)
+        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="COO", project_dir=pdir))
+        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
-            _run_agent_safe(coo_agent.run(task), "COO", run_routine_after=task, project_id=pid)
+            _run_agent_safe(coo_agent.run(task_with_ctx), "COO", run_routine_after=task, project_id=pid)
         )
-        return {"routed_to": "COO", "status": "processing", "project_id": pid}
+        return {"routed_to": "COO", "status": "processing", "project_id": pid, "project_dir": pdir}
 
 
-@router.post("/api/ceo/guidance")
-async def ceo_give_guidance(body: dict) -> dict:
-    """CEO gives guidance to a specific agent. The agent listens, records, and acknowledges."""
-    from onemancompany.agents.coo_agent import coo_agent
-    from onemancompany.agents.hr_agent import hr_agent
+@router.post("/api/oneonone/chat")
+async def oneonone_chat(body: dict) -> dict:
+    """Per-message 1-on-1 chat. Frontend manages history, backend returns LLM response."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    from onemancompany.agents.base import make_llm
 
     employee_id = body.get("employee_id", "")
-    guidance = body.get("guidance", "")
-    if not employee_id or not guidance:
-        return {"error": "Missing employee_id or guidance"}
+    message = body.get("message", "")
+    history = body.get("history", [])
 
-    if employee_id not in company_state.employees:
+    if not employee_id or not message:
+        return {"error": "Missing employee_id or message"}
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
         return {"error": f"Employee '{employee_id}' not found"}
 
-    # Route to the right agent
-    from onemancompany.core.config import COO_ID, HR_ID
-    agent_map: dict[str, BaseAgentRunner] = {
-        HR_ID: hr_agent,
-        COO_ID: coo_agent,
-    }
-
-    agent = agent_map.get(employee_id)
-    if agent:
-        asyncio.create_task(
-            _run_agent_safe(agent.receive_guidance(guidance), agent.role)
+    # On first message (empty history), mark employee as in meeting
+    if not history:
+        emp.is_listening = True
+        await event_bus.publish(
+            CompanyEvent(
+                type="guidance_start",
+                payload={"employee_id": employee_id, "name": emp.name},
+                agent="CEO",
+            )
         )
-        return {"status": "listening", "employee_id": employee_id}
 
-    # For dynamically hired employees that don't have a dedicated agent,
-    # still record the guidance note directly
-    emp = company_state.employees[employee_id]
-    emp.guidance_notes.append(guidance)
-    company_state.activity_log.append(
-        {"type": "guidance", "employee": emp.name, "note": guidance}
+    # Build persona prompt
+    from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt
+
+    skills_str = ", ".join(emp.skills) if emp.skills else "general"
+    principles_section = f"\nYour work principles:\n{emp.work_principles}" if emp.work_principles else ""
+    culture_items = company_state.company_culture
+    culture_section = ""
+    if culture_items:
+        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
+        culture_section = f"\nCompany culture:\n{rules}"
+
+    skills_section = get_employee_skills_prompt(employee_id)
+    tools_section = get_employee_tools_prompt(employee_id)
+
+    system_prompt = (
+        f"You are {emp.name} ({emp.nickname}), a {emp.role} in {emp.department}. "
+        f"Skills: {skills_str}. "
+        f"You are in a private 1-on-1 meeting with the CEO. "
+        f"Respond naturally, 2-4 sentences. Be yourself — share thoughts honestly."
+        f"{principles_section}{culture_section}"
+        f"{skills_section}{tools_section}"
     )
+
+    # Convert history to LangChain messages
+    messages = [SystemMessage(content=system_prompt)]
+    for entry in history:
+        if entry.get("role") == "ceo":
+            messages.append(HumanMessage(content=entry["content"]))
+        elif entry.get("role") == "employee":
+            messages.append(AIMessage(content=entry["content"]))
+    messages.append(HumanMessage(content=message))
+
+    llm = make_llm(employee_id)
+    result = await llm.ainvoke(messages)
+
+    return {"response": result.content}
+
+
+@router.post("/api/oneonone/end")
+async def oneonone_end(body: dict) -> dict:
+    """End meeting. LLM reflects on transcript and conditionally updates work principles."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from onemancompany.agents.base import make_llm
+    from onemancompany.core.config import save_work_principles
+
+    employee_id = body.get("employee_id", "")
+    history = body.get("history", [])
+
+    if not employee_id:
+        return {"error": "Missing employee_id"}
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"error": f"Employee '{employee_id}' not found"}
+
+    principles_updated = False
+
+    if history:
+        # Build transcript
+        transcript_lines = []
+        for entry in history:
+            speaker = "CEO" if entry.get("role") == "ceo" else emp.name
+            transcript_lines.append(f"{speaker}: {entry['content']}")
+        transcript = "\n".join(transcript_lines)
+
+        current_principles = emp.work_principles or "(No work principles yet)"
+
+        reflection_prompt = (
+            f"You are {emp.name} ({emp.nickname}, {emp.role}, Department: {emp.department}).\n\n"
+            f"You just had a 1-on-1 meeting with the CEO. Here is the conversation transcript:\n\n"
+            f"{transcript}\n\n"
+            f"Your current work principles:\n{current_principles}\n\n"
+            f"Reflect: Did the CEO convey any actionable guidance, directives, or expectations "
+            f"that should be incorporated into your work principles?\n\n"
+            f"If YES — output UPDATED: followed by the complete updated work principles in Markdown format. "
+            f"Keep existing principles that are still valid, incorporate the new guidance, "
+            f"and resolve any conflicts (new guidance takes precedence).\n\n"
+            f"If NO (it was casual chat, no actionable guidance) — output exactly: NO_UPDATE"
+        )
+
+        llm = make_llm(employee_id)
+        result = await llm.ainvoke([
+            SystemMessage(content="You are an employee reflecting on a meeting with the CEO."),
+            HumanMessage(content=reflection_prompt),
+        ])
+        response_text = result.content.strip()
+
+        if response_text.startswith("UPDATED:"):
+            new_principles = response_text[len("UPDATED:"):].strip()
+            emp.work_principles = new_principles
+            save_work_principles(employee_id, new_principles)
+            principles_updated = True
+
+    # End the meeting
+    emp.is_listening = False
     await event_bus.publish(
         CompanyEvent(
-            type="guidance_noted",
+            type="guidance_end",
             payload={
                 "employee_id": employee_id,
                 "name": emp.name,
-                "guidance": guidance,
-                "acknowledgment": f"{emp.name} has noted the guidance.",
+                "principles_updated": principles_updated,
             },
             agent="CEO",
         )
     )
-    return {"status": "noted", "employee_id": employee_id}
 
-
-@router.get("/api/employee/{employee_id}/guidance")
-async def get_employee_guidance(employee_id: str) -> dict:
-    """Get all guidance notes for a specific employee."""
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
-    return {"employee_id": employee_id, "name": emp.name, "guidance_notes": emp.guidance_notes}
+    return {
+        "status": "ended",
+        "employee_id": employee_id,
+        "principles_updated": principles_updated,
+    }
 
 
 @router.get("/api/meeting_rooms")
@@ -449,20 +544,20 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     return {"status": "updated", "employee_id": employee_id, "model": model_id}
 
 
-# ===== Culture Wall =====
+# ===== Company Culture =====
 
-@router.get("/api/culture-wall")
-async def get_culture_wall() -> dict:
-    """Get all culture wall items."""
-    return {"items": company_state.culture_wall}
+@router.get("/api/company-culture")
+async def get_company_culture() -> dict:
+    """Get all company culture items."""
+    return {"items": company_state.company_culture}
 
 
-@router.post("/api/culture-wall")
+@router.post("/api/company-culture")
 async def add_culture_item(body: dict) -> dict:
-    """CEO adds a new item to the culture wall. Applies to all employees."""
+    """CEO adds a new item to the company culture. Applies to all employees."""
     from datetime import datetime
 
-    from onemancompany.core.config import save_culture_wall
+    from onemancompany.core.config import save_company_culture
 
     content = body.get("content", "").strip()
     if not content:
@@ -472,34 +567,34 @@ async def add_culture_item(body: dict) -> dict:
         "content": content,
         "created_at": datetime.now().isoformat(),
     }
-    company_state.culture_wall.append(item)
-    save_culture_wall(company_state.culture_wall)
+    company_state.company_culture.append(item)
+    save_company_culture(company_state.company_culture)
 
     await event_bus.publish(
         CompanyEvent(
-            type="culture_wall_updated",
-            payload={"item": item, "total": len(company_state.culture_wall)},
+            type="company_culture_updated",
+            payload={"item": item, "total": len(company_state.company_culture)},
             agent="CEO",
         )
     )
-    return {"status": "added", "item": item, "total": len(company_state.culture_wall)}
+    return {"status": "added", "item": item, "total": len(company_state.company_culture)}
 
 
-@router.delete("/api/culture-wall/{index}")
+@router.delete("/api/company-culture/{index}")
 async def remove_culture_item(index: int) -> dict:
-    """CEO removes a culture wall item by index."""
-    from onemancompany.core.config import save_culture_wall
+    """CEO removes a company culture item by index."""
+    from onemancompany.core.config import save_company_culture
 
-    if index < 0 or index >= len(company_state.culture_wall):
+    if index < 0 or index >= len(company_state.company_culture):
         return {"error": "Invalid index"}
 
-    removed = company_state.culture_wall.pop(index)
-    save_culture_wall(company_state.culture_wall)
+    removed = company_state.company_culture.pop(index)
+    save_company_culture(company_state.company_culture)
 
     await event_bus.publish(
         CompanyEvent(
-            type="culture_wall_updated",
-            payload={"removed": removed, "total": len(company_state.culture_wall)},
+            type="company_culture_updated",
+            payload={"removed": removed, "total": len(company_state.company_culture)},
             agent="CEO",
         )
     )
@@ -568,11 +663,13 @@ async def get_projects() -> dict:
 
 @router.get("/api/projects/{project_id}")
 async def get_project_detail(project_id: str) -> dict:
-    """Get full project detail including timeline."""
-    from onemancompany.core.project_archive import load_project
+    """Get full project detail including timeline and workspace files."""
+    from onemancompany.core.project_archive import get_project_dir, list_project_files, load_project
     doc = load_project(project_id)
     if not doc:
         return {"error": "Project not found"}
+    doc["project_dir"] = get_project_dir(project_id)
+    doc["files"] = list_project_files(project_id)
     return doc
 
 
@@ -607,16 +704,9 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     guidance = load_employee_guidance(employee_id)
     principles = load_work_principles(employee_id)
 
-    # Find next available desk position
-    occupied = {tuple(e.desk_position) for e in company_state.employees.values()}
-    slot = 0
-    while True:
-        row = slot // DESK_GRID_COLS
-        col = slot % DESK_GRID_COLS
-        desk_pos = (DESK_START_X + col * DESK_SPACING_X, DESK_START_Y + row * DESK_SPACING_Y)
-        if desk_pos not in occupied:
-            break
-        slot += 1
+    # Find next available desk position using department-based layout
+    from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
+    desk_pos = get_next_desk_for_department(company_state, ex_emp.department)
 
     # Restore to active employees with reset performance
     emp = Employee(
@@ -636,6 +726,10 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     )
     company_state.employees[employee_id] = emp
     del company_state.ex_employees[employee_id]
+
+    # Recompute layout and persist all desk positions
+    compute_layout(company_state)
+    persist_all_desk_positions(company_state)
 
     company_state.activity_log.append({
         "type": "employee_rehired",
@@ -662,16 +756,15 @@ async def rehire_ex_employee(employee_id: str) -> dict:
 # ===== Candidate Selection =====
 
 @router.post("/api/candidates/hire")
-async def hire_candidate(body: dict) -> dict:
-    """CEO selects a candidate to hire from the shortlist."""
+async def hire_candidate(body: HireRequest) -> dict:
+    """CEO selects a candidate to hire from the shortlist.
+
+    Request body validated by HireRequest (see boss_online.py for schema).
+    """
     from onemancompany.agents.hr_agent import hr_agent, pending_candidates
 
-    batch_id = body.get("batch_id", "")
-    candidate_id = body.get("candidate_id", "")
-    nickname = body.get("nickname", "")
-
-    candidates = pending_candidates.get(batch_id, [])
-    candidate = next((c for c in candidates if c.get("id") == candidate_id), None)
+    candidates = pending_candidates.get(body.batch_id, [])
+    candidate = next((c for c in candidates if c.get("id") == body.candidate_id), None)
     if not candidate:
         return {"error": "Candidate not found"}
 
@@ -679,7 +772,7 @@ async def hire_candidate(body: dict) -> dict:
     next_num = f"{company_state._next_employee_number:05d}"
 
     # Auto-generate 花名 (nickname) if not provided — let the "employee" pick their own
-    nickname = body.get("nickname", "")
+    nickname = body.nickname
     if not nickname:
         from onemancompany.agents.base import make_llm
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -723,7 +816,7 @@ async def hire_candidate(body: dict) -> dict:
         },
     })
     await hr_agent._apply_results(f"```json\n{hire_json}\n```")
-    pending_candidates.pop(batch_id, None)
+    pending_candidates.pop(body.batch_id, None)
 
     # Explicit state broadcast to ensure frontend updates
     await event_bus.publish(
@@ -740,34 +833,28 @@ async def hire_candidate(body: dict) -> dict:
 
 
 @router.post("/api/candidates/interview")
-async def interview_candidate(body: dict) -> dict:
-    """CEO interviews a candidate by asking a question. Supports text and image input."""
-    question = body.get("question", "")
-    candidate = body.get("candidate", {})
-    images = body.get("images", [])  # list of base64-encoded image strings
+async def interview_candidate(body: InterviewRequest) -> InterviewResponse:
+    """CEO interviews a candidate by asking a question. Supports text and image input.
 
-    if not question or not candidate:
-        return {"error": "Missing question or candidate data"}
-
+    Request body validated by InterviewRequest (see boss_online.py for schema).
+    Returns InterviewResponse.
+    """
     from onemancompany.agents.base import make_llm
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    system_prompt = candidate.get("system_prompt", "You are a job candidate.")
-    skill_desc = ", ".join(
-        s["name"] if isinstance(s, dict) else s
-        for s in candidate.get("skill_set", [])
-    )
+    candidate = body.candidate
+    skill_desc = ", ".join(s.name for s in candidate.skill_set)
     full_prompt = (
-        f"{system_prompt}\n\n"
-        f"You are in an interview. Your name is {candidate.get('name', 'Candidate')}, "
-        f"your role is {candidate.get('role', 'Engineer')}, "
+        f"{candidate.system_prompt}\n\n"
+        f"You are in an interview. Your name is {candidate.name}, "
+        f"your role is {candidate.role}, "
         f"and your skills include: {skill_desc}.\n"
         f"Answer the interview question thoughtfully and demonstrate your expertise."
     )
 
     # Build message content — text + optional images
-    content: list = [{"type": "text", "text": question}]
-    for img_b64 in images[:3]:  # limit to 3 images per message
+    content: list = [{"type": "text", "text": body.question}]
+    for img_b64 in body.images[:3]:  # limit to 3 images per message
         content.append({
             "type": "image_url",
             "image_url": {"url": f"data:image/png;base64,{img_b64}"},
@@ -776,14 +863,14 @@ async def interview_candidate(body: dict) -> dict:
     llm = make_llm(HR_ID)
     result = await llm.ainvoke([
         SystemMessage(content=full_prompt),
-        HumanMessage(content=content if images else question),
+        HumanMessage(content=content if body.images else body.question),
     ])
 
-    return {
-        "candidate_id": candidate.get("id", ""),
-        "question": question,
-        "answer": result.content,
-    }
+    return InterviewResponse(
+        candidate_id=candidate.id,
+        question=body.question,
+        answer=result.content,
+    )
 
 
 @router.websocket("/ws")

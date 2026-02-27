@@ -1,0 +1,19 @@
+current_quarter_tasks: 0
+department: HR
+desk_position:
+- 5
+- 0
+employee_number: '00002'
+level: 4
+llm_model: google/gemini-3.1-pro-preview
+name: Sam HR
+nickname: 知心姐
+performance_history: []
+role: HR
+skills:
+- hiring
+- reviews
+- people_management
+sprite: hr
+temperature: 0.7
+title: 创始

@@ -45,7 +45,7 @@
           <span class="status-item" id="room-count">&#127970; 0/0</span>
           <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="1-on-1 Meeting">&#127891;</button>
           <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
-          <button id="culture-wall-toolbar-btn" class="toolbar-icon-btn" title="Culture Wall">&#127988;</button>
+          <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
         </div>
@@ -101,28 +101,42 @@
     </div>
   </div>
 
-  <!-- Guidance Modal (moved from inline CEO console) -->
-  <div id="guidance-modal" class="modal-overlay hidden">
-    <div class="modal-content guidance-modal-content">
-      <div class="modal-header">
-        <h3 class="pixel-title">&#127891; 1-on-1 Meeting</h3>
-        <button id="guidance-close-btn" class="modal-close">&#10005;</button>
-      </div>
-      <div class="modal-body guidance-modal-body">
-        <div class="guidance-controls">
+  <!-- 1-on-1 Meeting Modal (conversational chat) -->
+  <div id="oneonone-modal" class="modal-overlay hidden">
+    <div class="modal-content oneonone-modal-content">
+      <!-- Phase 1: Select employee -->
+      <div id="oneonone-setup" class="oneonone-phase">
+        <div class="modal-header">
+          <h3 class="pixel-title">&#127891; 1-on-1 Meeting</h3>
+          <button id="oneonone-close-btn" class="modal-close">&#10005;</button>
+        </div>
+        <div class="modal-body" style="flex-direction:column;padding:12px;">
           <label class="guidance-label">Select Employee:</label>
-          <select id="guidance-target">
+          <select id="oneonone-target">
             <option value="">-- Select Employee --</option>
           </select>
-          <label class="guidance-label">Guidance:</label>
-          <textarea id="guidance-input"
-                    placeholder="Share your guidance with this employee..."
-                    rows="4"></textarea>
-          <button id="guidance-btn" class="pixel-btn guidance" disabled>&#127891; Send</button>
+          <button id="oneonone-start-btn" class="pixel-btn guidance" disabled style="margin-top:10px;">&#127891; Start Meeting</button>
         </div>
-        <div id="guidance-notes-display" class="hidden">
-          <div class="guidance-notes-header">Recorded Notes:</div>
-          <div id="guidance-notes-list"></div>
+      </div>
+      <!-- Phase 2: Chat -->
+      <div id="oneonone-chat-phase" class="oneonone-phase hidden">
+        <div class="modal-header">
+          <h3 class="pixel-title" id="oneonone-chat-title">&#127891; 1-on-1 Meeting</h3>
+          <button id="oneonone-close-btn2" class="modal-close">&#10005;</button>
+        </div>
+        <div class="chat-container">
+          <div id="oneonone-chat" class="chat-messages"></div>
+          <div id="oneonone-typing" class="chat-typing hidden">
+            <div class="typing-avatar">&#129302;</div>
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+          </div>
+        </div>
+        <div class="chat-input-area">
+          <textarea id="oneonone-input" class="chat-textarea" placeholder="Type a message..." rows="1"></textarea>
+          <button id="oneonone-send-btn" class="chat-send-btn" title="Send">&#9654;</button>
+        </div>
+        <div class="oneonone-actions">
+          <button id="oneonone-end-btn" class="pixel-btn secondary">&#128308; End Meeting</button>
         </div>
       </div>
     </div>
@@ -325,19 +339,19 @@
     </div>
   </div>
 
-  <!-- Culture Wall Modal -->
-  <div id="culture-wall-modal" class="modal-overlay hidden">
-    <div class="modal-content culture-wall-modal-content">
+  <!-- Company Culture Modal -->
+  <div id="company-culture-modal" class="modal-overlay hidden">
+    <div class="modal-content company-culture-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#127988; Culture Wall</h3>
-        <button id="culture-wall-close-btn" class="modal-close">&#10005;</button>
+        <h3 class="pixel-title">&#127988; Company Culture</h3>
+        <button id="company-culture-close-btn" class="modal-close">&#10005;</button>
       </div>
-      <div class="modal-body culture-wall-body">
-        <div class="culture-wall-input-area">
-          <textarea id="culture-wall-input" placeholder="Add a new culture entry..." rows="2"></textarea>
-          <button id="culture-wall-add-btn" class="pixel-btn">&#10010; Add</button>
+      <div class="modal-body company-culture-body">
+        <div class="company-culture-input-area">
+          <textarea id="company-culture-input" placeholder="Add a new culture entry..." rows="2"></textarea>
+          <button id="company-culture-add-btn" class="pixel-btn">&#10010; Add</button>
         </div>
-        <div id="culture-wall-list" class="culture-wall-list"></div>
+        <div id="company-culture-list" class="company-culture-list"></div>
       </div>
     </div>
   </div>

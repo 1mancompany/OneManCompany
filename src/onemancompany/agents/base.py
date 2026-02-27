@@ -5,9 +5,6 @@ from langchain_openai import ChatOpenAI
 from onemancompany.core.config import (
     employee_configs,
     load_employee_skills,
-    load_work_principles,
-    save_employee_guidance,
-    save_work_principles,
     settings,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -33,6 +30,63 @@ def make_llm(employee_id: str = "") -> ChatOpenAI:
     )
 
 
+# ---------------------------------------------------------------------------
+# Standalone prompt builders — usable by any code that invokes an employee
+# ---------------------------------------------------------------------------
+
+def get_employee_skills_prompt(employee_id: str) -> str:
+    """Build a skills prompt section from employees/{id}/skills/*.md files."""
+    skills = load_employee_skills(employee_id)
+    if not skills:
+        return ""
+    parts = ["\n\n## Your Skills & Knowledge:"]
+    for name, content in skills.items():
+        parts.append(f"\n### {name}\n{content}")
+    return "\n".join(parts)
+
+
+def get_employee_tools_prompt(employee_id: str) -> str:
+    """Build a prompt section listing all tools this employee is authorized to use.
+
+    Open-access tools (empty allowed_users) are available to everyone.
+    Restricted tools are only shown if employee_id is in allowed_users.
+    """
+    from onemancompany.core.config import TOOLS_DIR
+
+    authorized: list[dict] = []
+    for t in company_state.tools.values():
+        if t.allowed_users and employee_id not in t.allowed_users:
+            continue  # restricted and employee not authorized
+        entry: dict = {"name": t.name, "description": t.description, "folder": t.folder_name}
+        # Include file contents from tool folder
+        if t.folder_name and t.files:
+            file_contents: dict[str, str] = {}
+            tool_folder = TOOLS_DIR / t.folder_name
+            for fname in t.files:
+                fpath = tool_folder / fname
+                if fpath.is_file():
+                    try:
+                        file_contents[fname] = fpath.read_text(encoding="utf-8")
+                    except (UnicodeDecodeError, ValueError):
+                        file_contents[fname] = f"[binary, {fpath.stat().st_size} bytes]"
+            if file_contents:
+                entry["files"] = file_contents
+        authorized.append(entry)
+
+    if not authorized:
+        return ""
+
+    parts = ["\n\n## Your Authorized Tools & Equipment:"]
+    for tool_info in authorized:
+        parts.append(f"\n### {tool_info['name']}")
+        parts.append(f"{tool_info['description']}")
+        if tool_info.get("files"):
+            parts.append("Files:")
+            for fname, content in tool_info["files"].items():
+                parts.append(f"  - {fname}:\n```\n{content}\n```")
+    return "\n".join(parts)
+
+
 class BaseAgentRunner:
     """Thin wrapper around create_react_agent that publishes events."""
 
@@ -52,13 +106,11 @@ class BaseAgentRunner:
 
     def _get_skills_prompt_section(self) -> str:
         """Load skill files from employees/{id}/skills/ and build a prompt section."""
-        skills = load_employee_skills(self.employee_id)
-        if not skills:
-            return ""
-        parts = ["\n\n## Your Skills & Knowledge:"]
-        for name, content in skills.items():
-            parts.append(f"\n### {name}\n{content}")
-        return "\n".join(parts)
+        return get_employee_skills_prompt(self.employee_id)
+
+    def _get_tools_prompt_section(self) -> str:
+        """Build a prompt section listing authorized tools for this agent."""
+        return get_employee_tools_prompt(self.employee_id)
 
     def _get_guidance_prompt_section(self) -> str:
         """Build a prompt section from CEO guidance notes for this agent."""
@@ -79,84 +131,13 @@ class BaseAgentRunner:
             f"\n\n## Your Work Principles (follow strictly):\n{emp.work_principles}\n"
         )
 
-    def _get_culture_wall_prompt_section(self) -> str:
-        """Build a prompt section from company culture wall items."""
-        items = company_state.culture_wall
+    def _get_company_culture_prompt_section(self) -> str:
+        """Build a prompt section from company culture items."""
+        items = company_state.company_culture
         if not items:
             return ""
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
         return (
-            f"\n\n## Company Culture Wall (values and guidelines all employees must follow):\n{rules}\n"
+            f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
         )
 
-    async def receive_guidance(self, guidance: str) -> str:
-        """CEO provides guidance to this agent. Record it, update work principles, and acknowledge."""
-        emp = company_state.employees.get(self.employee_id)
-        if not emp:
-            return "Employee not found."
-
-        emp.is_listening = True
-        await self._publish(
-            "guidance_start",
-            {"employee_id": self.employee_id, "name": emp.name},
-        )
-
-        emp.guidance_notes.append(guidance)
-        company_state.activity_log.append(
-            {"type": "guidance", "employee": emp.name, "note": guidance}
-        )
-
-        # Persist to employees/{id}/guidance.yaml
-        save_employee_guidance(self.employee_id, emp.guidance_notes)
-
-        # Use LLM to update work principles based on new guidance
-        llm = make_llm(self.employee_id)
-
-        current_principles = emp.work_principles or "(No work principles yet)"
-        update_prompt = (
-            f"You are {emp.name} ({emp.nickname}, {emp.role}, Department: {emp.department}).\n"
-            f"The CEO just gave you new guidance:\n\n\"{guidance}\"\n\n"
-            f"Your current work principles are:\n{current_principles}\n\n"
-            f"Update your work principles based on the CEO's new guidance. Requirements:\n"
-            f"1. Keep existing principles that are still valid\n"
-            f"2. Incorporate the core requirements from the new guidance\n"
-            f"3. If new guidance conflicts with old principles, the new guidance takes precedence\n"
-            f"4. Maintain Markdown format with clear structure\n"
-            f"5. Principles should be concise and actionable\n\n"
-            f"Output the updated complete work principles (Markdown format) directly, with no additional explanation."
-        )
-        principles_resp = await llm.ainvoke(update_prompt)
-        new_principles = principles_resp.content
-
-        # Persist updated work principles
-        emp.work_principles = new_principles
-        save_work_principles(self.employee_id, new_principles)
-
-        # Acknowledge the guidance
-        ack_prompt = (
-            f"You are {emp.name} ({emp.role}). The CEO just gave you guidance:\n\n"
-            f'"{guidance}"\n\n'
-            f"You have incorporated it into your work principles. Briefly respond to the CEO in 1-2 sentences, "
-            f"confirming you understood and updated your work principles."
-        )
-        response = await llm.ainvoke(ack_prompt)
-        ack_text = response.content
-
-        await self._publish(
-            "guidance_noted",
-            {
-                "employee_id": self.employee_id,
-                "name": emp.name,
-                "guidance": guidance,
-                "acknowledgment": ack_text,
-                "principles_updated": True,
-            },
-        )
-
-        emp.is_listening = False
-        await self._publish(
-            "guidance_end",
-            {"employee_id": self.employee_id, "name": emp.name},
-        )
-
-        return ack_text

@@ -1,37 +1,50 @@
-"""Project Archive — 项目留痕系统
+"""Project Archive — project record and workspace system.
 
-Persists all project data to `projects/{project_id}.yaml` for review.
-Each project records:
-  - task input (CEO's original request)
-  - participants
-  - timeline of actions (who did what, in order)
-  - final output / deliverables
-  - status (in_progress / completed)
+Each project is a directory under company/business/projects/{project_id}/ containing:
+  - project.yaml  — metadata, timeline, status
+  - Any other files produced during the project (code, results, media, etc.)
+
+Employees can save artifacts to their project workspace via save_project_file().
 """
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 
 from onemancompany.core.config import PROJECTS_DIR
 
 
-def _ensure_projects_dir() -> None:
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+def _project_dir(project_id: str) -> Path:
+    """Return the directory path for a given project."""
+    return PROJECTS_DIR / project_id
+
+
+def _project_yaml(project_id: str) -> Path:
+    """Return the project.yaml path for a given project."""
+    return _project_dir(project_id) / "project.yaml"
+
+
+def _ensure_project_dir(project_id: str) -> Path:
+    """Ensure the project directory exists and return it."""
+    d = _project_dir(project_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def create_project(task: str, routed_to: str, participants: list[str] | None = None) -> str:
     """Create a new project record. Returns the project_id."""
-    _ensure_projects_dir()
     project_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    project_dir = _ensure_project_dir(project_id)
     doc = {
         "project_id": project_id,
+        "project_dir": str(project_dir),
         "task": task,
         "routed_to": routed_to,
         "participants": participants or [],
-        "current_owner": routed_to.lower(),  # 当前任务归属人
+        "current_owner": routed_to.lower(),
         "status": "in_progress",
         "created_at": datetime.now().isoformat(),
         "completed_at": None,
@@ -51,9 +64,8 @@ def append_action(project_id: str, employee_id: str, action: str, detail: str = 
         "time": datetime.now().isoformat(),
         "employee_id": employee_id,
         "action": action,
-        "detail": detail[:500],  # cap detail length
+        "detail": detail[:500],
     })
-    # Update current owner to whoever just performed an action
     if employee_id:
         doc["current_owner"] = employee_id
     _save_project(project_id, doc)
@@ -67,9 +79,8 @@ def complete_project(project_id: str, output: str = "") -> None:
     doc["status"] = "completed"
     doc["completed_at"] = datetime.now().isoformat()
     doc["output"] = output
-    doc["current_owner"] = ""  # no owner after completion
+    doc["current_owner"] = ""
 
-    # Prune participants to only those who actually contributed (have timeline entries)
     actual_contributors = {
         entry["employee_id"]
         for entry in doc.get("timeline", [])
@@ -86,24 +97,72 @@ def complete_project(project_id: str, output: str = "") -> None:
 
 def load_project(project_id: str) -> dict | None:
     """Load a single project record."""
-    path = PROJECTS_DIR / f"{project_id}.yaml"
+    path = _project_yaml(project_id)
     if not path.exists():
         return None
     with open(path) as f:
         return yaml.safe_load(f) or {}
 
 
+def get_project_dir(project_id: str) -> str:
+    """Return the absolute path of a project's workspace directory."""
+    return str(_project_dir(project_id))
+
+
+def save_project_file(project_id: str, filename: str, content: str | bytes) -> dict:
+    """Save a file into the project workspace directory.
+
+    Args:
+        project_id: The project ID.
+        filename: File name or relative sub-path (e.g. "report.md" or "code/main.py").
+        content: File content (str for text, bytes for binary).
+
+    Returns:
+        A dict with status and the saved file path.
+    """
+    project_dir = _ensure_project_dir(project_id)
+    file_path = project_dir / filename
+
+    # Security: ensure the resolved path stays within the project directory
+    resolved = file_path.resolve()
+    if not str(resolved).startswith(str(project_dir.resolve())):
+        return {"status": "error", "message": f"Path escapes project directory: {filename}"}
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(content, bytes):
+        file_path.write_bytes(content)
+    else:
+        file_path.write_text(content, encoding="utf-8")
+
+    return {"status": "ok", "path": str(file_path), "relative": filename}
+
+
+def list_project_files(project_id: str) -> list[str]:
+    """List all files in a project workspace (excluding project.yaml)."""
+    project_dir = _project_dir(project_id)
+    if not project_dir.exists():
+        return []
+    files = []
+    for p in sorted(project_dir.rglob("*")):
+        if p.is_file() and p.name != "project.yaml":
+            files.append(str(p.relative_to(project_dir)))
+    return files
+
+
 def list_projects() -> list[dict]:
-    """List all projects (summary only: id, task, status, created_at)."""
-    _ensure_projects_dir()
+    """List all projects (summary only)."""
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     projects = []
-    for f in sorted(PROJECTS_DIR.iterdir(), reverse=True):
-        if f.suffix != ".yaml" or not f.is_file():
+    for d in sorted(PROJECTS_DIR.iterdir(), reverse=True):
+        if not d.is_dir():
             continue
-        with open(f) as fh:
+        yaml_path = d / "project.yaml"
+        if not yaml_path.exists():
+            continue
+        with open(yaml_path) as fh:
             doc = yaml.safe_load(fh) or {}
         projects.append({
-            "project_id": doc.get("project_id", f.stem),
+            "project_id": doc.get("project_id", d.name),
             "task": doc.get("task", ""),
             "status": doc.get("status", "unknown"),
             "routed_to": doc.get("routed_to", ""),
@@ -112,12 +171,13 @@ def list_projects() -> list[dict]:
             "completed_at": doc.get("completed_at"),
             "participant_count": len(doc.get("participants", [])),
             "action_count": len(doc.get("timeline", [])),
+            "file_count": len(list_project_files(d.name)),
         })
     return projects
 
 
 def _save_project(project_id: str, doc: dict) -> None:
-    _ensure_projects_dir()
-    path = PROJECTS_DIR / f"{project_id}.yaml"
+    _ensure_project_dir(project_id)
+    path = _project_yaml(project_id)
     with open(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
