@@ -16,6 +16,7 @@ class TaskEntry:
     project_id: str
     task: str
     routed_to: str  # "HR" or "COO"
+    project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
     status: str = "running"  # running / queued
     created_at: str = ""
@@ -31,6 +32,7 @@ class TaskEntry:
             "project_id": self.project_id,
             "task": self.task,
             "routed_to": self.routed_to,
+            "project_dir": self.project_dir,
             "current_owner": self.current_owner,
             "status": self.status,
             "created_at": self.created_at,
@@ -66,22 +68,22 @@ class MeetingRoom:
         }
 
 
-LEVEL_NAMES = {1: "初级", 2: "中级", 3: "高级", 4: "创始", 5: "CEO"}
+LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
 
 ROLE_TITLES = {
-    "Engineer": "工程师", "DevOps": "工程师", "QA": "工程师",
-    "Designer": "设计师", "Analyst": "研究员", "Marketing": "营销专员",
+    "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
+    "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
     "HR": "HR", "COO": "COO",
 }
 
 
 def make_title(level: int, role: str) -> str:
-    """Generate title like '初级工程师', '中级研究员'."""
+    """Generate title like 'Junior Engineer', 'Mid Analyst'."""
     if level >= FOUNDING_LEVEL:
         return LEVEL_NAMES.get(level, "")
     prefix = LEVEL_NAMES.get(level, f"Lv.{level}")
     role_name = ROLE_TITLES.get(role, role)
-    return f"{prefix}{role_name}"
+    return f"{prefix} {role_name}"
 
 
 @dataclass
@@ -145,6 +147,8 @@ class OfficeTool:
     desk_position: tuple[int, int] = (0, 0)
     sprite: str = "desk_equipment"
     allowed_users: list[str] = field(default_factory=list)  # empty = open access
+    files: list[str] = field(default_factory=list)  # filenames in tool folder (excl. tool.yaml)
+    folder_name: str = ""  # slug used as folder name
 
     def to_dict(self) -> dict:
         return {
@@ -155,6 +159,8 @@ class OfficeTool:
             "desk_position": list(self.desk_position),
             "sprite": self.sprite,
             "allowed_users": self.allowed_users,
+            "files": self.files,
+            "folder_name": self.folder_name,
         }
 
 
@@ -167,7 +173,8 @@ class CompanyState:
     ceo_tasks: list[str] = field(default_factory=list)
     active_tasks: list[TaskEntry] = field(default_factory=list)
     activity_log: list[dict] = field(default_factory=list)
-    culture_wall: list[dict] = field(default_factory=list)
+    company_culture: list[dict] = field(default_factory=list)
+    office_layout: dict = field(default_factory=dict)
     _next_employee_number: int = 0  # auto-increment counter
 
     def to_json(self) -> dict:
@@ -179,7 +186,8 @@ class CompanyState:
             "ceo_tasks": self.ceo_tasks[-10:],
             "active_tasks": [t.to_dict() for t in self.active_tasks],
             "activity_log": self.activity_log[-20:],
-            "culture_wall": self.culture_wall,
+            "company_culture": self.company_culture,
+            "office_layout": self.office_layout,
         }
 
     def next_employee_number(self) -> str:
@@ -205,13 +213,13 @@ def _seed_employees() -> None:
         company_state.employees[HR_ID] = Employee(
             id=HR_ID, name="Sam HR", role="HR",
             skills=["hiring", "reviews", "people_management"],
-            department="人力资源部", employee_number=HR_ID,
+            department="HR", employee_number=HR_ID,
             desk_position=(3, 2), sprite="hr",
         )
         company_state.employees[COO_ID] = Employee(
             id=COO_ID, name="Alex COO", role="COO",
             skills=["operations", "tool_management", "strategy"],
-            department="运营管理部", employee_number=COO_ID,
+            department="Operations", employee_number=COO_ID,
             desk_position=(6, 2), sprite="coo",
         )
         return
@@ -268,13 +276,17 @@ def _seed_ex_employees() -> None:
         )
 
 
-def _seed_culture_wall() -> None:
-    """Load culture wall items from culture_wall.yaml."""
-    from onemancompany.core.config import load_culture_wall
+def _seed_company_culture() -> None:
+    """Load company culture items from company_culture.yaml."""
+    from onemancompany.core.config import load_company_culture
 
-    company_state.culture_wall = load_culture_wall()
+    company_state.company_culture = load_company_culture()
 
 
 _seed_employees()
 _seed_ex_employees()
-_seed_culture_wall()
+_seed_company_culture()
+
+# Compute initial department-based office layout
+from onemancompany.core.layout import compute_layout  # noqa: E402
+compute_layout(company_state)

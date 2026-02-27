@@ -1,6 +1,6 @@
-"""File Editor — 文件编辑工具（需CEO审批）
+"""File Editor — file editing tool (requires CEO approval).
 
-Agent 提出文件编辑请求 → 存入待审队列 → CEO 审批 → 备份原文件 → 执行编辑。
+Agent proposes a file edit → queued for approval → CEO approves → backup original → execute edit.
 """
 from __future__ import annotations
 
@@ -9,22 +9,22 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import PROJECT_ROOT
+from onemancompany.core.config import COMPANY_DIR, PROJECT_ROOT
 from onemancompany.core.events import CompanyEvent, event_bus
 
-# Backup directory for file edits
-BACKUPS_DIR = PROJECT_ROOT / "backups"
+# Backup subfolder name (created alongside the modified file)
+BACKUP_FOLDER_NAME = ".backups"
 
 # In-memory pending edits awaiting CEO approval
 pending_file_edits: dict[str, dict] = {}
 
 
 def _resolve_path(file_path: str) -> Path | None:
-    """Resolve a file path relative to PROJECT_ROOT. Returns None if outside root."""
+    """Resolve a file path relative to COMPANY_DIR. Returns None if outside root."""
     try:
         p = Path(file_path)
         if not p.is_absolute():
-            p = PROJECT_ROOT / p
+            p = COMPANY_DIR / p
         p = p.resolve()
         # Security: must stay within PROJECT_ROOT
         if not str(p).startswith(str(PROJECT_ROOT.resolve())):
@@ -43,7 +43,7 @@ def propose_edit(
     """Create a pending file edit request. Returns edit metadata."""
     resolved = _resolve_path(file_path)
     if resolved is None:
-        return {"status": "error", "message": f"路径不合法或超出项目范围: {file_path}"}
+        return {"status": "error", "message": f"Invalid path or outside project scope: {file_path}"}
 
     # Read current content for diff display
     old_content = ""
@@ -51,13 +51,13 @@ def propose_edit(
         try:
             old_content = resolved.read_text(encoding="utf-8")
         except Exception:
-            old_content = "(无法读取原文件)"
+            old_content = "(unable to read original file)"
 
     edit_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
-    # Use relative path for display
+    # Use relative path for display (relative to company/)
     try:
-        rel_path = str(resolved.relative_to(PROJECT_ROOT))
+        rel_path = str(resolved.relative_to(COMPANY_DIR))
     except ValueError:
         rel_path = str(resolved)
 
@@ -76,23 +76,21 @@ def propose_edit(
 
 
 def execute_edit(edit_id: str) -> dict:
-    """Execute an approved file edit: backup original, write new content."""
+    """Execute an approved file edit: backup original in-place, write new content."""
     edit = pending_file_edits.pop(edit_id, None)
     if not edit:
-        return {"status": "error", "message": "编辑请求未找到或已过期"}
+        return {"status": "error", "message": "Edit request not found or expired"}
 
     file_path = Path(edit["file_path"])
     rel_path = edit["rel_path"]
     backup_path = None
 
-    # Backup original file if it exists
+    # Backup original file into a .backups/ subfolder next to the file
     if file_path.exists():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Mirror the directory structure under backups/
-        backup_rel = Path(rel_path)
-        backup_dir = BACKUPS_DIR / backup_rel.parent
+        backup_dir = file_path.parent / BACKUP_FOLDER_NAME
         backup_dir.mkdir(parents=True, exist_ok=True)
-        backup_name = f"{backup_rel.stem}_{timestamp}{backup_rel.suffix}"
+        backup_name = f"{file_path.stem}_{timestamp}{file_path.suffix}"
         backup_path = backup_dir / backup_name
         shutil.copy2(str(file_path), str(backup_path))
 
@@ -111,7 +109,7 @@ def reject_edit(edit_id: str) -> dict:
     """Reject and discard a pending file edit."""
     edit = pending_file_edits.pop(edit_id, None)
     if not edit:
-        return {"status": "error", "message": "编辑请求未找到或已过期"}
+        return {"status": "error", "message": "Edit request not found or expired"}
     return {"status": "rejected", "rel_path": edit["rel_path"]}
 
 

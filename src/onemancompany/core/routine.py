@@ -1,7 +1,7 @@
 """Company Routine — workflow-driven post-task meeting system.
 
 After a task completes, this routine orchestrates meetings by dynamically
-loading and executing workflow documents from company_rules/.  Each workflow
+loading and executing workflow documents from business/workflows/.  Each workflow
 .md file defines a sequence of stages that the engine parses and runs.
 
 If no workflow document is found for a given routine, the system falls back
@@ -22,7 +22,7 @@ from typing import Any, Callable, Awaitable
 
 import yaml
 
-from onemancompany.agents.base import make_llm
+from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm
 from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
@@ -31,7 +31,7 @@ from onemancompany.core.config import (
     MAX_PRINCIPLES_LEN,
     MAX_SUMMARY_LEN,
     MAX_WORKFLOW_CONTEXT_LEN,
-    PROJECT_ROOT,
+    MEETING_REPORTS_DIR,
     STATUS_IDLE,
     STATUS_IN_MEETING,
     load_workflows,
@@ -48,7 +48,7 @@ from onemancompany.core.workflow_engine import (
 
 logger = logging.getLogger(__name__)
 
-REPORTS_DIR = PROJECT_ROOT / "meeting_reports"
+REPORTS_DIR = MEETING_REPORTS_DIR
 
 
 def _set_participants_status(participant_ids: list[str], status: str) -> None:
@@ -128,13 +128,13 @@ class StepContext:
             lines.append(f"- [{name}] {action}: {detail}")
         return "\n".join(lines)
 
-    def format_culture_wall(self) -> str:
-        """Format culture wall items as a prompt section."""
-        items = company_state.culture_wall
+    def format_company_culture(self) -> str:
+        """Format company culture items as a prompt section."""
+        items = company_state.company_culture
         if not items:
             return ""
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
-        return f"\n\n【公司文化墙 — 全员必须遵守】\n{rules}\n"
+        return f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
 
     def get_employee_actions(self, emp_id: str) -> str:
         """Extract only the actions performed by a specific employee."""
@@ -214,14 +214,19 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         if emp.work_principles:
             principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+        skills_ctx = get_employee_skills_prompt(emp_id)
+        tools_ctx = get_employee_tools_prompt(emp_id)
+
         my_actions = ctx.get_employee_actions(emp_id)
 
-        culture_ctx = ctx.format_culture_wall()
+        culture_ctx = ctx.format_company_culture()
 
         prompt = (
             f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
             f"级别: Lv.{emp.level}，角色: {emp.role}）。\n"
             f"{principles_ctx}"
+            f"{skills_ctx}"
+            f"{tools_ctx}"
             f"{culture_ctx}"
             f"刚刚完成的任务概要: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
@@ -289,7 +294,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         if timeline_text:
             timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
 
-        culture_ctx = ctx.format_culture_wall()
+        culture_ctx = ctx.format_company_culture()
 
         prompt = (
             f"你是 {senior.name}（花名: {senior.nickname}，Lv.{senior.level}，{senior.role}）。\n"
@@ -361,7 +366,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     if timeline_text:
         timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
 
-    culture_ctx = ctx.format_culture_wall()
+    culture_ctx = ctx.format_company_culture()
 
     hr_prompt = (
         f"你是 HR 经理，负责总结本次评审会。\n"
@@ -437,7 +442,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     if timeline_text:
         timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
 
-    culture_ctx = ctx.format_culture_wall()
+    culture_ctx = ctx.format_company_culture()
 
     coo_prompt = (
         f"你是 COO，负责出具公司运营情况报告。\n"
@@ -480,6 +485,9 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         if emp.work_principles:
             principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+        skills_ctx = get_employee_skills_prompt(emp_id)
+        tools_ctx = get_employee_tools_prompt(emp_id)
+
         timeline_ctx = ""
         timeline_text = ctx.format_project_timeline()
         if timeline_text:
@@ -487,12 +495,14 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
         my_actions = ctx.get_employee_actions(emp_id)
 
-        culture_ctx = ctx.format_culture_wall()
+        culture_ctx = ctx.format_company_culture()
 
         prompt = (
             f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，"
             f"{emp.role}，Lv.{emp.level}）。\n"
             f"{principles_ctx}"
+            f"{skills_ctx}"
+            f"{tools_ctx}"
             f"{culture_ctx}"
             f"任务概要: {ctx.task_summary}\n"
             f"{timeline_ctx}"
@@ -698,7 +708,7 @@ async def run_post_task_routine(
 ) -> None:
     """Run the full post-task routine. Called after a task completes.
 
-    Dynamically loads and executes the project_retrospective_workflow from company_rules/.
+    Dynamically loads and executes the project_retrospective_workflow from business/workflows/.
     Falls back to the hardcoded two-phase meeting if no workflow document exists.
     """
     all_employees = list(company_state.employees.values())
@@ -972,10 +982,15 @@ async def _run_phase1_legacy(
         if emp.work_principles:
             principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+        skills_ctx = get_employee_skills_prompt(emp_id)
+        tools_ctx = get_employee_tools_prompt(emp_id)
+
         prompt = (
             f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
             f"级别: Lv.{emp.level}，角色: {emp.role}）。\n"
             f"{principles_ctx}"
+            f"{skills_ctx}"
+            f"{tools_ctx}"
             f"刚刚完成的任务概要: {task_summary}\n\n"
             f"请对自己在这项任务中的表现进行简要自评（2-3句话），包括:\n"
             f"- 你的贡献是什么\n"
@@ -1152,10 +1167,15 @@ async def _run_phase2_legacy(
         if emp.work_principles:
             principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+        skills_ctx = get_employee_skills_prompt(emp_id)
+        tools_ctx = get_employee_tools_prompt(emp_id)
+
         prompt = (
             f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，"
             f"{emp.role}，Lv.{emp.level}）。\n"
             f"{principles_ctx}"
+            f"{skills_ctx}"
+            f"{tools_ctx}"
             f"任务概要: {task_summary}\n"
             f"现在是会议的自由发言环节，你可以提出:\n"
             f"- 工作中遇到的困难\n"
@@ -1389,10 +1409,15 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             if emp.work_principles:
                 principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+            skills_ctx = get_employee_skills_prompt(emp.id)
+            tools_ctx = get_employee_tools_prompt(emp.id)
+
             prompt = (
                 f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
                 f"Lv.{emp.level}，{emp.role}）。\n"
                 f"{principles_ctx}"
+                f"{skills_ctx}"
+                f"{tools_ctx}"
                 f"CEO刚在全员大会上发表了以下指示:\n\n"
                 f'"{ceo_message}"\n\n'
                 f"请用1-2句中文总结你从这次大会中领悟到的会议精神，"

@@ -25,7 +25,7 @@ EventType = Literal[
     "routine_phase",
     "workflow_updated",
     "candidates_ready",
-    "culture_wall_updated",
+    "company_culture_updated",
     "file_edit_proposed",
     "file_edit_applied",
     "file_edit_rejected",

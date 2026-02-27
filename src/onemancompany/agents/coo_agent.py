@@ -16,20 +16,23 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, load_assets
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, load_assets, migrate_legacy_tool, slugify_tool_name
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 
 COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of a startup called "One Man Company".
 
 You manage the company's assets, which includes:
-1. **Tools & Equipment** — servers, devices, and capabilities. Each tool has access control — only authorized employees can use it.
+1. **Tools & Equipment** — servers, devices, and capabilities. Each tool is stored as a folder under assets/tools/ with its own files. Each tool has access control — only authorized employees can use it.
 2. **Meeting Rooms** — employees MUST book a meeting room through you before communicating with each other (including founding employees and the CEO).
 
 ## Your Responsibilities:
 
-### Tool & Equipment Management
-- When the CEO or employees request new tools, call add_tool() to register them.
-- Use list_tools() to see current tools and their access permissions.
+### Tool & Equipment Management (Asset Intake)
+- **All new tools must go through the official intake process via register_asset()**.
+  This applies to both newly created tools AND tools purchased/produced by projects.
+- register_asset() creates a tool folder with metadata (tool.yaml) and optionally copies
+  associated files (code, scripts, configs) from a project workspace into the tool folder.
+- Use list_tools() to see current tools, their access permissions, and associated files.
 - Use grant_tool_access() and revoke_tool_access() to manage who can use each tool.
 - By default, new tools are open to everyone (empty allowed_users = open access).
 
@@ -60,12 +63,34 @@ Be concise and action-oriented.
 
 
 def _load_assets_from_disk() -> None:
-    """Load existing assets from assets/tools/ and assets/rooms/ into company_state."""
+    """Load existing assets from assets/tools/ and assets/rooms/ into company_state.
+
+    Legacy flat YAML files are auto-migrated to folder-based format on first load.
+    """
     tools_data, rooms_data = load_assets()
+
+    # First pass: migrate any legacy flat YAML tools to folder-based format
+    used_slugs: set[str] = set()
+    # Collect existing folder names so we don't collide
+    if TOOLS_DIR.exists():
+        for entry in TOOLS_DIR.iterdir():
+            if entry.is_dir():
+                used_slugs.add(entry.name)
+
+    legacy_items = [(tid, d) for tid, d in tools_data.items() if d.get("_legacy")]
+    for tool_id, data in legacy_items:
+        folder_name, _ = migrate_legacy_tool(tool_id, data, used_slugs)
+        # Update entry in-place for loading below
+        data.pop("_legacy", None)
+        data["_folder_name"] = folder_name
+        data["_files"] = []
+        data["id"] = tool_id
 
     count = 0
     for tool_id, data in tools_data.items():
         if tool_id not in company_state.tools:
+            folder_name = data.get("_folder_name", "")
+            files = data.get("_files", [])
             company_state.tools[tool_id] = OfficeTool(
                 id=tool_id,
                 name=data.get("name", tool_id),
@@ -74,6 +99,8 @@ def _load_assets_from_disk() -> None:
                 desk_position=tuple(data.get("desk_position", [5 + (count % 3) * 5, 8 + (count // 3) * 3])),
                 sprite=data.get("sprite", "desk_equipment"),
                 allowed_users=data.get("allowed_users", []),
+                files=files,
+                folder_name=folder_name,
             )
             count += 1
 
@@ -97,12 +124,16 @@ _load_assets_from_disk()
 
 
 def _persist_tool(t: OfficeTool) -> None:
-    """Write a tool's data to assets/tools/{id}.yaml."""
-    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
-    path = TOOLS_DIR / f"{t.id}.yaml"
+    """Write a tool's data to assets/tools/{folder_name}/tool.yaml."""
+    if not t.folder_name:
+        t.folder_name = slugify_tool_name(t.name)
+    folder = TOOLS_DIR / t.folder_name
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "tool.yaml"
     with open(path, "w") as f:
         yaml.dump(
             {
+                "id": t.id,
                 "name": t.name,
                 "description": t.description,
                 "added_by": t.added_by,
@@ -117,21 +148,39 @@ def _persist_tool(t: OfficeTool) -> None:
 
 
 @tool
-def add_tool(name: str, description: str) -> dict:
-    """Add a new tool or device to the company's assets.
+def register_asset(
+    name: str,
+    description: str,
+    source_project_dir: str = "",
+    source_files: list[str] | None = None,
+) -> dict:
+    """Register a new tool/asset through the official intake process.
 
-    This will appear as equipment in the pixel art office visualization
-    and be saved to the assets/tools/ directory. By default, the tool
-    is accessible to all employees (open access).
+    All new tools — whether newly created or produced by a project — must go through
+    this intake. Creates a tool folder under assets/tools/{slug_name}/ containing
+    tool.yaml and any associated files.
 
     Args:
-        name: Short name for the equipment (e.g. 'Code Review Bot', 'CI/CD Pipeline')
-        description: What this equipment does for the company.
+        name: Short name for the tool (e.g. 'Code Review Bot', 'CI/CD Pipeline').
+        description: What this tool does for the company.
+        source_project_dir: (Optional) Absolute path to a project workspace directory.
+            If provided, source_files will be copied from this directory into the tool folder.
+        source_files: (Optional) List of filenames (relative to source_project_dir) to copy
+            into the tool folder. Only used when source_project_dir is provided.
 
     Returns:
-        Confirmation with equipment id and position.
+        Confirmation with tool id, folder name, and copied files.
     """
+    import shutil
+    from pathlib import Path
+
     eq_id = str(uuid.uuid4())[:8]
+    folder_name = slugify_tool_name(name)
+
+    # Handle slug collision with existing folders
+    if (TOOLS_DIR / folder_name).exists():
+        folder_name = f"{folder_name}_{eq_id}"
+
     count = len(company_state.tools)
     row = count // 3
     col = count % 3
@@ -144,16 +193,52 @@ def add_tool(name: str, description: str) -> dict:
         added_by="COO",
         desk_position=desk_pos,
         sprite="desk_equipment",
-        allowed_users=[],  # open access by default
-    )
-    company_state.tools[eq_id] = office_tool
-    company_state.activity_log.append(
-        {"type": "tool_added", "name": name, "description": description}
+        allowed_users=[],
+        files=[],
+        folder_name=folder_name,
     )
 
+    # Create tool folder and write tool.yaml
     _persist_tool(office_tool)
 
-    return {"status": "success", "id": eq_id, "name": name, "position": list(desk_pos)}
+    # Copy files from project workspace if provided
+    copied_files: list[str] = []
+    if source_project_dir and source_files:
+        src_dir = Path(source_project_dir)
+        # Security check: source must be under PROJECTS_DIR
+        try:
+            src_dir.resolve().relative_to(PROJECTS_DIR.resolve())
+        except ValueError:
+            return {"status": "error", "message": f"Source directory must be under projects/: {source_project_dir}"}
+
+        tool_folder = TOOLS_DIR / folder_name
+        for fname in source_files:
+            src_file = src_dir / fname
+            # Prevent path traversal
+            try:
+                src_file.resolve().relative_to(src_dir.resolve())
+            except ValueError:
+                continue
+            if src_file.exists() and src_file.is_file():
+                dst_file = tool_folder / Path(fname).name
+                shutil.copy2(str(src_file), str(dst_file))
+                copied_files.append(Path(fname).name)
+
+        office_tool.files = copied_files
+
+    company_state.tools[eq_id] = office_tool
+    company_state.activity_log.append(
+        {"type": "tool_added", "name": name, "description": description, "folder": folder_name}
+    )
+
+    return {
+        "status": "success",
+        "id": eq_id,
+        "name": name,
+        "folder_name": folder_name,
+        "position": list(desk_pos),
+        "files": copied_files,
+    }
 
 
 @tool
@@ -167,6 +252,8 @@ def list_tools() -> list[dict]:
             "added_by": t.added_by,
             "allowed_users": t.allowed_users,
             "access": "restricted" if t.allowed_users else "open",
+            "folder_name": t.folder_name,
+            "files": t.files,
         }
         for t in company_state.tools.values()
     ]
@@ -408,7 +495,7 @@ class COOAgent(BaseAgentRunner):
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
             tools=[
-                add_tool,
+                register_asset,
                 list_tools,
                 grant_tool_access,
                 revoke_tool_access,
@@ -427,7 +514,8 @@ class COOAgent(BaseAgentRunner):
         prompt = (
             COO_SYSTEM_PROMPT
             + self._get_skills_prompt_section()
-            + self._get_culture_wall_prompt_section()
+            + self._get_tools_prompt_section()
+            + self._get_company_culture_prompt_section()
             + self._get_work_principles_prompt_section()
             + self._get_guidance_prompt_section()
         )

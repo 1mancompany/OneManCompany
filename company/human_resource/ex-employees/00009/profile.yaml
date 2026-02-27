@@ -1,0 +1,19 @@
+current_quarter_tasks: 0
+department: Analytics
+desk_position:
+- 15
+- 1
+employee_number: 00009
+level: 1
+llm_model: moonshotai/kimi-k2.5
+name: Casey Chen
+nickname: 知微
+performance_history: []
+role: Analyst
+skills:
+- sql
+- visualization
+- reporting
+sprite: employee_blue
+temperature: 0.7
+title: Junior Analyst

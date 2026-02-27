@@ -12,7 +12,7 @@ import re
 
 from langchain_core.tools import tool
 
-from onemancompany.agents.base import make_llm
+from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm
 from onemancompany.core.config import HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
@@ -33,13 +33,13 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 
 @tool
 def read_file(file_path: str) -> dict:
-    """Read the contents of a file under the project directory.
+    """Read the contents of a file under the company directory.
 
-    Can read any project file, including employee profiles, config files, company rules, etc.
-    The path can be relative to the project root or an absolute path.
+    Can read any company file, including employee profiles, config files, workflows, etc.
+    The path can be relative to the company/ root or an absolute path.
 
     Args:
-        file_path: File path, e.g. "employees/hr/profile.yaml" or "company_rules/xxx.md"
+        file_path: File path, e.g. "human_resource/employees/00002/profile.yaml" or "business/workflows/xxx.md"
 
     Returns:
         A dict containing the file contents, or an error message.
@@ -62,10 +62,10 @@ def read_file(file_path: str) -> dict:
 
 @tool
 def list_directory(dir_path: str = "") -> dict:
-    """List files and subdirectories under the project directory.
+    """List files and subdirectories under the company directory.
 
     Args:
-        dir_path: Directory path relative to the project root. An empty string means the project root.
+        dir_path: Directory path relative to the company/ root. An empty string means the company root.
 
     Returns:
         A dict containing the list of entries.
@@ -100,13 +100,15 @@ async def propose_file_edit(
 ) -> dict:
     """Propose a file edit request (requires CEO approval before execution).
 
-    Can edit any file under the project directory, including:
-    - Employee profiles (employees/xxx/profile.yaml)
-    - Work principles (employees/xxx/work_principles.md)
-    - Skill files (employees/xxx/skills/xxx.md)
-    - Company rules (company_rules/xxx.md)
+    Can edit any file under the company directory, including:
+    - Employee profiles (human_resource/employees/xxx/profile.yaml)
+    - Work principles (human_resource/employees/xxx/work_principles.md)
+    - Skill files (human_resource/employees/xxx/skills/xxx.md)
+    - Business workflows (business/workflows/xxx.md)
+    - Business projects (business/projects/xxx.yaml)
+    - Meeting reports (business/reports/meeting_reports/xxx.yaml)
     - Asset configuration (assets/tools/xxx.yaml, assets/rooms/xxx.yaml)
-    - Company culture wall (culture_wall.yaml)
+    - Company culture (company_culture.yaml)
     - Any other project file
 
     After submission, the CEO will see a diff comparison on the frontend.
@@ -114,7 +116,7 @@ async def propose_file_edit(
     The original file is backed up (timestamped) before execution for easy rollback.
 
     Args:
-        file_path: File path relative to the project root
+        file_path: File path relative to the company/ root
         new_content: The complete new file content after editing
         reason: Explanation for the edit
 
@@ -143,6 +145,56 @@ async def propose_file_edit(
         })
 
     return result
+
+
+@tool
+def save_to_project(project_dir: str, filename: str, content: str) -> dict:
+    """Save a file to the current project workspace directory.
+
+    Use this to persist any output, code, report, or intermediate result for the project.
+    The project_dir is provided in the task description as [Project workspace: ...].
+
+    Args:
+        project_dir: The project workspace path (from the task context).
+        filename: File name or relative sub-path (e.g. "report.md", "code/main.py").
+        content: The text content to save.
+
+    Returns:
+        A dict with status and the saved file path.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import PROJECTS_DIR
+
+    # Extract project_id from the directory path
+    project_path = Path(project_dir)
+    if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
+        return {"status": "error", "message": "Invalid project directory"}
+
+    project_id = project_path.name
+    from onemancompany.core.project_archive import save_project_file
+    return save_project_file(project_id, filename, content)
+
+
+@tool
+def list_project_workspace(project_dir: str) -> dict:
+    """List all files in the current project workspace.
+
+    Args:
+        project_dir: The project workspace path (from the task context).
+
+    Returns:
+        A dict with the list of files in the project workspace.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import PROJECTS_DIR
+
+    project_path = Path(project_dir)
+    if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
+        return {"status": "error", "message": "Invalid project directory"}
+
+    project_id = project_path.name
+    from onemancompany.core.project_archive import list_project_files
+    return {"status": "ok", "project_id": project_id, "files": list_project_files(project_id)}
 
 
 @tool
@@ -244,9 +296,14 @@ async def pull_meeting(
             if emp.work_principles:
                 principles_ctx = f"\nYour work principles:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
+            skills_ctx = get_employee_skills_prompt(emp.id)
+            tools_ctx = get_employee_tools_prompt(emp.id)
+
             prompt = (
                 f"You are {emp.name} ({emp.nickname}, Department: {emp.department}, {emp.role}, Lv.{emp.level}).\n"
                 f"{principles_ctx}"
+                f"{skills_ctx}"
+                f"{tools_ctx}"
                 f"You are attending a focused meeting.\n"
                 f"Meeting topic: {topic}\n"
             )
@@ -327,11 +384,85 @@ async def pull_meeting(
         })
 
 
+@tool
+def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
+    """Use a company tool — checks authorization and returns tool details + file contents.
+
+    Employees must be authorized (in allowed_users) to use restricted tools.
+    Open-access tools (empty allowed_users) are available to everyone.
+
+    Args:
+        tool_name_or_id: The tool's ID, name (case-insensitive), or folder_name.
+        employee_id: The employee ID requesting access.
+
+    Returns:
+        Tool metadata and file contents if authorized, or an access-denied message.
+    """
+    from pathlib import Path
+    from onemancompany.core.config import TOOLS_DIR
+
+    # Look up tool: by ID first, then name, then folder_name
+    found: "OfficeTool | None" = None
+    found = company_state.tools.get(tool_name_or_id)
+    if not found:
+        needle = tool_name_or_id.lower()
+        for t in company_state.tools.values():
+            if t.name.lower() == needle:
+                found = t
+                break
+        if not found:
+            for t in company_state.tools.values():
+                if t.folder_name == tool_name_or_id:
+                    found = t
+                    break
+
+    if not found:
+        return {"status": "error", "message": f"Tool '{tool_name_or_id}' not found."}
+
+    # Auth check
+    if found.allowed_users and employee_id not in found.allowed_users:
+        return {
+            "status": "denied",
+            "message": f"Access denied: employee {employee_id} is not authorized to use '{found.name}'.",
+            "allowed_users": found.allowed_users,
+        }
+
+    # Build result with tool metadata
+    result: dict = {
+        "status": "ok",
+        "id": found.id,
+        "name": found.name,
+        "description": found.description,
+        "folder_name": found.folder_name,
+        "files": {},
+    }
+
+    # Read file contents from the tool folder
+    if found.folder_name:
+        tool_folder = TOOLS_DIR / found.folder_name
+        if tool_folder.is_dir():
+            for fname in found.files:
+                fpath = tool_folder / fname
+                if not fpath.is_file():
+                    continue
+                # Skip binary files — just report size
+                try:
+                    content = fpath.read_text(encoding="utf-8")
+                    result["files"][fname] = content
+                except (UnicodeDecodeError, ValueError):
+                    result["files"][fname] = f"[binary file, {fpath.stat().st_size} bytes]"
+
+    return result
+
+
 # All common tools that every employee agent gets access to
 COMMON_TOOLS = [
     read_file,
     list_directory,
     propose_file_edit,
+    save_to_project,
+    list_project_workspace,
     list_colleagues,
     pull_meeting,
+    use_tool,
 ]

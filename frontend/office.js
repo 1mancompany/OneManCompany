@@ -251,9 +251,37 @@ class OfficeRenderer {
   // ===== Environment =====
   drawFloor() {
     const ctx = this.ctx;
+    const layout = this.state.office_layout || {};
+    const zones = layout.zones || [];
+    const execRow = layout.executive_row != null ? layout.executive_row : -1;
+    const execColors = layout.exec_floor_colors || null;
+    const deptStartRow = layout.dept_start_row != null ? layout.dept_start_row : 1;
+    const deptEndRow = layout.dept_end_row != null ? layout.dept_end_row : 7;
+
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        ctx.fillStyle = (r + c) % 2 === 0 ? PALETTE.floor1 : PALETTE.floor2;
+        // Canvas row to grid-Y: rows 0-2 are wall/decorations, grid-Y 0 starts at canvas row 3
+        const gy = r - 3;
+        let f1 = PALETTE.floor1;
+        let f2 = PALETTE.floor2;
+
+        // Executive row
+        if (gy === execRow && execColors) {
+          f1 = execColors[0];
+          f2 = execColors[1];
+        }
+        // Department zone area
+        else if (gy >= deptStartRow && gy <= deptEndRow) {
+          for (const zone of zones) {
+            if (c >= zone.start_col && c < zone.end_col) {
+              f1 = zone.floor1;
+              f2 = zone.floor2;
+              break;
+            }
+          }
+        }
+
+        ctx.fillStyle = (r + c) % 2 === 0 ? f1 : f2;
         ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
       }
     }
@@ -303,6 +331,65 @@ class OfficeRenderer {
     this._rect(x + 14 + sway, y + 4, 6, 12, '#28bb4c');
   }
 
+  // ===== Department Labels & Zone Dividers =====
+  drawDepartmentLabels() {
+    const ctx = this.ctx;
+    const layout = this.state.office_layout || {};
+    const zones = layout.zones || [];
+    const execRow = layout.executive_row != null ? layout.executive_row : 0;
+    const deptStartRow = layout.dept_start_row != null ? layout.dept_start_row : 1;
+    const deptEndRow = layout.dept_end_row != null ? layout.dept_end_row : 7;
+
+    if (zones.length === 0) return;
+
+    // Large watermark-style department names rendered ON the zone area
+    const zoneMidCanvasY = ((deptStartRow + deptEndRow) / 2 + 3) * TILE + TILE / 2;
+
+    for (let i = 0; i < zones.length; i++) {
+      const zone = zones[i];
+      const zoneWidthPx = (zone.end_col - zone.start_col) * TILE;
+      const centerX = ((zone.start_col + zone.end_col) / 2) * TILE;
+
+      // Fit font size to zone width (large but capped)
+      const label = zone.label_en || zone.department;
+      const fontSize = Math.min(Math.floor(zoneWidthPx / label.length * 1.6), 32);
+
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = zone.label_color || '#888';
+      ctx.font = `bold ${fontSize}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, centerX, zoneMidCanvasY);
+      ctx.restore();
+
+      // Dashed vertical divider between zones (not before the first)
+      if (i > 0) {
+        const divX = zone.start_col * TILE;
+        ctx.strokeStyle = zone.label_color || '#555';
+        ctx.globalAlpha = 0.25;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(divX, (deptStartRow + 3) * TILE);
+        ctx.lineTo(divX, (deptEndRow + 4) * TILE);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // "Executive" watermark on exec row
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = '#c0b060';
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Executive', 10 * TILE, (execRow + 3) * TILE + TILE / 2);
+    ctx.restore();
+  }
+
   // ===== Bulletin Board (Company Rules) =====
   drawBulletinBoard() {
     const ctx = this.ctx;
@@ -346,9 +433,9 @@ class OfficeRenderer {
 
     // Label below
     ctx.fillStyle = PALETTE.boardPaper;
-    ctx.font = '4px monospace';
+    ctx.font = '7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Rules', bx + TILE * 1.5, by + TILE + 2);
+    ctx.fillText('Rules', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
   }
 
@@ -394,9 +481,9 @@ class OfficeRenderer {
 
     // Label below
     ctx.fillStyle = PALETTE.projectCard;
-    ctx.font = '4px monospace';
+    ctx.font = '7px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Projects', bx + TILE * 1.5, by + TILE + 2);
+    ctx.fillText('Projects', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
   }
 
@@ -526,21 +613,21 @@ class OfficeRenderer {
       // Guidance count badge
       const noteCount = (data.guidance_notes || []).length;
       if (noteCount > 0) {
-        this._rect(bx + 20, by - 2, 8, 8, '#aa66ff');
+        this._rect(bx + 20, by - 2, 10, 10, '#aa66ff');
         ctx.fillStyle = '#fff';
-        ctx.font = '5px monospace';
+        ctx.font = '7px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(String(noteCount), bx + 24, by + 5);
+        ctx.fillText(String(noteCount), bx + 25, by + 6);
         ctx.textAlign = 'left';
       }
     } else if ((data.guidance_notes || []).length > 0) {
       // Small badge showing guidance count even when not listening
       const noteCount = data.guidance_notes.length;
-      this._rect(bx + 20, by, 8, 8, '#6633aa');
+      this._rect(bx + 20, by, 10, 10, '#6633aa');
       ctx.fillStyle = '#fff';
-      ctx.font = '5px monospace';
+      ctx.font = '7px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(String(noteCount), bx + 24, by + 6);
+      ctx.fillText(String(noteCount), bx + 25, by + 8);
       ctx.textAlign = 'left';
     }
 
@@ -565,23 +652,23 @@ class OfficeRenderer {
         const zAlpha = 0.4 + Math.sin(this.animFrame * 0.04 + hash) * 0.3;
         ctx.globalAlpha = zAlpha;
         ctx.fillStyle = '#8888aa';
-        ctx.font = '6px monospace';
+        ctx.font = '8px monospace';
         ctx.fillText('z', iconX + 14, iconY + 2 - drift * 4);
-        ctx.font = '5px monospace';
-        ctx.fillText('z', iconX + 18, iconY - 2 - drift * 4);
-        ctx.font = '4px monospace';
-        ctx.fillText('z', iconX + 21, iconY - 5 - drift * 4);
+        ctx.font = '7px monospace';
+        ctx.fillText('z', iconX + 19, iconY - 2 - drift * 4);
+        ctx.font = '6px monospace';
+        ctx.fillText('z', iconX + 23, iconY - 5 - drift * 4);
         ctx.globalAlpha = 1;
       }
     }
 
     // Name tag — show nickname if available, with level
     ctx.fillStyle = labelColor;
-    ctx.font = '5px monospace';
+    ctx.font = '8px monospace';
     ctx.textAlign = 'center';
     const displayName = data.nickname || (data.name || data.role || '').substring(0, 8);
     const lvlTag = data.level ? ` L${data.level}` : '';
-    ctx.fillText(displayName + lvlTag, px + 12, gy * TILE + 34);
+    ctx.fillText(displayName + lvlTag, px + 12, gy * TILE + 36);
     ctx.textAlign = 'left';
   }
 
@@ -619,10 +706,10 @@ class OfficeRenderer {
 
     // Label
     this.ctx.fillStyle = PALETTE.led1;
-    this.ctx.font = '4px monospace';
+    this.ctx.font = '7px monospace';
     this.ctx.textAlign = 'center';
     const label = (toolData.name || 'TOOL').substring(0, 8).toUpperCase();
-    this.ctx.fillText(label, px + 16, py + 34);
+    this.ctx.fillText(label, px + 16, py + 36);
     this.ctx.textAlign = 'left';
   }
 
@@ -677,13 +764,13 @@ class OfficeRenderer {
 
     // Label
     ctx.fillStyle = statusColor;
-    ctx.font = '4px monospace';
+    ctx.font = '7px monospace';
     ctx.textAlign = 'center';
     const label = (roomData.name || 'Meeting Room').substring(0, 8);
-    ctx.fillText(label, px + TILE, py + TILE * 2 + 10);
+    ctx.fillText(label, px + TILE, py + TILE * 2 + 12);
     if (roomData.is_booked) {
       ctx.fillStyle = PALETTE.meetingBooked;
-      ctx.fillText('In Use', px + TILE, py + TILE * 2 + 17);
+      ctx.fillText('In Use', px + TILE, py + TILE * 2 + 20);
     }
     ctx.textAlign = 'left';
   }
@@ -704,8 +791,9 @@ class OfficeRenderer {
       tooltipText = '📋 Project Wall\nClick to view project history';
     }
 
-    // Check CEO (fixed at 9, 2)
-    if (x === 9 && (y === 2 || y === 3 || y === 4)) {
+    // Check CEO (executive row, center)
+    const ceoCanvasRow = ((this.state.office_layout || {}).executive_row || 0) + 3;
+    if (x === 9 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
       tooltipText = 'CEO (You)\nRole: Chief Executive\nInput tasks below';
     }
 
@@ -773,6 +861,7 @@ class OfficeRenderer {
     this.drawBulletinBoard();
     this.drawProjectWall();
     this.drawPlants();
+    this.drawDepartmentLabels();
 
     // Build set of employees currently in a meeting room
     const inMeeting = {};  // emp_id -> room position
@@ -788,10 +877,11 @@ class OfficeRenderer {
       }
     }
 
-    // CEO desk (fixed center-top)
-    this.drawDesk(9, 3, true);
+    // CEO desk (executive row center)
+    const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + 3;
+    this.drawDesk(9, execRowCanvas, true);
     if (!inMeeting['ceo']) {
-      this.drawCharacter(9, 3, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
+      this.drawCharacter(9, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
 
     // AI Employees — draw desk always, avatar at desk OR meeting room

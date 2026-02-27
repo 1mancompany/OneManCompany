@@ -1,0 +1,20 @@
+current_quarter_tasks: 2
+department: Analytics
+desk_position:
+- 13
+- 1
+employee_number: '00007'
+level: 1
+llm_model: moonshotai/kimi-k2.5
+name: Quinn Müller
+nickname: 数据
+performance_history: []
+role: Analyst
+skills:
+- data_analysis
+- sql
+- reporting
+- visualization
+sprite: employee_orange
+temperature: 0.7
+title: 初级研究员

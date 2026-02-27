@@ -1,0 +1,17 @@
+completed_at: null
+created_at: '2026-02-27T13:07:58.360011'
+current_owner: hr
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00007'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260227_130758_ffd5b4
+project_id: 20260227_130758_ffd5b4
+routed_to: HR
+status: in_progress
+task: 实现一个文件查询tool，供所有员工使用，可以查看所有公司的文件、信息、代码、工具、财产，但是有鉴权，有权限的员工才能访问
+timeline: []

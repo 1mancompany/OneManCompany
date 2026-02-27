@@ -73,18 +73,15 @@ class AppController {
         `🏢 ${freeRooms}/${rooms.length}`;
       this.updateRoster(msg.state.employees);
       this.updateTaskPanel(msg.state.active_tasks || []);
-      this.updateGuidanceDropdown(msg.state.employees);
-      // Refresh guidance notes display if an employee is selected
-      const sel = document.getElementById('guidance-target');
-      if (sel.value) this.showGuidanceNotes(sel.value);
+      this.updateOneononeDropdown(msg.state.employees);
       // Refresh meeting modal if open
       if (this.viewingRoomId) {
         const room = rooms.find(r => r.id === this.viewingRoomId);
         if (room) this._refreshMeetingModalStatus(room);
       }
-      // Refresh culture wall if modal is open
-      if (!document.getElementById('culture-wall-modal').classList.contains('hidden')) {
-        this._renderCultureWall();
+      // Refresh company culture if modal is open
+      if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
+        this._renderCompanyCulture();
       }
     }
 
@@ -353,41 +350,28 @@ class AppController {
       if (el) el.addEventListener('change', () => this._onRosterFilterChange());
     });
 
-    // Guidance modal bindings
-    const guidanceToolbarBtn = document.getElementById('guidance-toolbar-btn');
-    const guidanceCloseBtn = document.getElementById('guidance-close-btn');
-    const guidanceModal = document.getElementById('guidance-modal');
-    const guidanceTarget = document.getElementById('guidance-target');
-    const guidanceInput = document.getElementById('guidance-input');
-    const guidanceBtn = document.getElementById('guidance-btn');
-
-    guidanceToolbarBtn.addEventListener('click', () => {
-      guidanceModal.classList.remove('hidden');
+    // 1-on-1 meeting modal bindings
+    const oneononeModal = document.getElementById('oneonone-modal');
+    document.getElementById('guidance-toolbar-btn').addEventListener('click', () => {
+      oneononeModal.classList.remove('hidden');
     });
-
-    guidanceCloseBtn.addEventListener('click', () => {
-      guidanceModal.classList.add('hidden');
+    document.getElementById('oneonone-close-btn').addEventListener('click', () => this.closeOneononeModal());
+    document.getElementById('oneonone-close-btn2').addEventListener('click', () => this.closeOneononeModal());
+    oneononeModal.addEventListener('click', (e) => {
+      if (e.target === oneononeModal) this.closeOneononeModal();
     });
-
-    guidanceModal.addEventListener('click', (e) => {
-      if (e.target === guidanceModal) {
-        guidanceModal.classList.add('hidden');
+    document.getElementById('oneonone-target').addEventListener('change', () => {
+      document.getElementById('oneonone-start-btn').disabled = !document.getElementById('oneonone-target').value;
+    });
+    document.getElementById('oneonone-start-btn').addEventListener('click', () => this.startOneonone());
+    document.getElementById('oneonone-send-btn').addEventListener('click', () => this.sendOneononeMessage());
+    document.getElementById('oneonone-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendOneononeMessage();
       }
     });
-
-    guidanceTarget.addEventListener('change', () => {
-      const empId = guidanceTarget.value;
-      guidanceBtn.disabled = !empId;
-      this.showGuidanceNotes(empId);
-    });
-
-    guidanceBtn.addEventListener('click', () => this.submitGuidance());
-
-    guidanceInput.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        this.submitGuidance();
-      }
-    });
+    document.getElementById('oneonone-end-btn').addEventListener('click', () => this.endOneononeMeeting());
 
     // Review queue panel bindings
     document.getElementById('review-approve-btn').addEventListener('click', () => this._reviewApprove());
@@ -438,14 +422,14 @@ class AppController {
       }
     });
 
-    // Culture wall modal bindings
-    document.getElementById('culture-wall-toolbar-btn').addEventListener('click', () => this.openCultureWall());
-    document.getElementById('culture-wall-close-btn').addEventListener('click', () => this.closeCultureWall());
-    document.getElementById('culture-wall-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'culture-wall-modal') this.closeCultureWall();
+    // Company culture modal bindings
+    document.getElementById('company-culture-toolbar-btn').addEventListener('click', () => this.openCompanyCulture());
+    document.getElementById('company-culture-close-btn').addEventListener('click', () => this.closeCompanyCulture());
+    document.getElementById('company-culture-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'company-culture-modal') this.closeCompanyCulture();
     });
-    document.getElementById('culture-wall-add-btn').addEventListener('click', () => this.addCultureItem());
-    document.getElementById('culture-wall-input').addEventListener('keydown', (e) => {
+    document.getElementById('company-culture-add-btn').addEventListener('click', () => this.addCultureItem());
+    document.getElementById('company-culture-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.addCultureItem(); }
     });
 
@@ -477,11 +461,10 @@ class AppController {
     });
   }
 
-  // ===== Guidance =====
-  updateGuidanceDropdown(employees) {
-    const select = document.getElementById('guidance-target');
+  // ===== 1-on-1 Meeting (Conversational Chat) =====
+  updateOneononeDropdown(employees) {
+    const select = document.getElementById('oneonone-target');
     const currentVal = select.value;
-    // Keep first placeholder option
     select.innerHTML = '<option value="">-- Select Employee --</option>';
     for (const emp of employees) {
       const opt = document.createElement('option');
@@ -491,65 +474,173 @@ class AppController {
       if (emp.is_listening) opt.textContent += ' 📖';
       select.appendChild(opt);
     }
-    // Restore selection
     if (currentVal) select.value = currentVal;
   }
 
-  showGuidanceNotes(empId) {
-    const display = document.getElementById('guidance-notes-display');
-    const list = document.getElementById('guidance-notes-list');
-    if (!empId) {
-      display.classList.add('hidden');
-      return;
-    }
-    // Find employee in current state
-    const emp = (window.officeRenderer?.state?.employees || []).find(e => e.id === empId);
-    if (!emp || !(emp.guidance_notes || []).length) {
-      display.classList.add('hidden');
-      return;
-    }
-    display.classList.remove('hidden');
-    list.innerHTML = '';
-    for (const note of emp.guidance_notes) {
-      const item = document.createElement('div');
-      item.className = 'guidance-note-item md-rendered';
-      item.innerHTML = this._renderMarkdown(note);
-      list.appendChild(item);
-    }
+  startOneonone() {
+    const select = document.getElementById('oneonone-target');
+    const empId = select.value;
+    if (!empId) return;
+
+    const emp = (this._lastEmployees || []).find(e => e.id === empId);
+    if (!emp) return;
+
+    this._oneononeEmployeeId = empId;
+    this._oneononeHistory = [];  // [{role: 'ceo'|'employee', content}]
+
+    // Switch to chat phase
+    document.getElementById('oneonone-setup').classList.add('hidden');
+    document.getElementById('oneonone-chat-phase').classList.remove('hidden');
+    const nn = emp.nickname ? ` (${emp.nickname})` : '';
+    document.getElementById('oneonone-chat-title').textContent =
+      `🎓 1-on-1: ${emp.name}${nn}`;
+
+    // Clear chat
+    const chat = document.getElementById('oneonone-chat');
+    chat.innerHTML = '';
+    this._addOneononeSystemMsg(`1-on-1 meeting with ${emp.name}${nn} started. Chat naturally — when done, click "End Meeting".`);
+
+    // Reset input
+    const textarea = document.getElementById('oneonone-input');
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    textarea.oninput = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    };
+    textarea.focus();
   }
 
-  submitGuidance() {
-    const targetSelect = document.getElementById('guidance-target');
-    const guidanceInput = document.getElementById('guidance-input');
-    const guidanceBtn = document.getElementById('guidance-btn');
+  _addOneononeSystemMsg(text) {
+    const chat = document.getElementById('oneonone-chat');
+    const div = document.createElement('div');
+    div.className = 'chat-msg-system';
+    div.textContent = text;
+    chat.appendChild(div);
+    this._scrollOneononeToBottom();
+  }
 
-    const empId = targetSelect.value;
-    const guidance = guidanceInput.value.trim();
-    if (!empId || !guidance) return;
+  _addOneononeBubble(sender, text, type) {
+    const chat = document.getElementById('oneonone-chat');
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${type}`;
+    const avatar = type === 'outgoing' ? '👔' : '🤖';
+    bubble.innerHTML = `
+      <div class="bubble-avatar">${avatar}</div>
+      <div class="bubble-content">
+        <div class="bubble-sender">${this._escapeHtml(sender)}</div>
+        <div class="bubble-text">${this._escapeHtml(text)}</div>
+      </div>
+    `;
+    chat.appendChild(bubble);
+    this._scrollOneononeToBottom();
+  }
 
-    guidanceBtn.disabled = true;
+  _scrollOneononeToBottom() {
+    const container = document.querySelector('#oneonone-chat-phase .chat-container');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
 
-    fetch('/api/ceo/guidance', {
+  sendOneononeMessage() {
+    const textarea = document.getElementById('oneonone-input');
+    const message = textarea.value.trim();
+    if (!message || !this._oneononeEmployeeId) return;
+
+    // Show CEO bubble
+    this._addOneononeBubble('CEO', message, 'outgoing');
+    textarea.value = '';
+    textarea.style.height = 'auto';
+
+    // Show typing
+    const typing = document.getElementById('oneonone-typing');
+    typing.classList.remove('hidden');
+    this._scrollOneononeToBottom();
+    const sendBtn = document.getElementById('oneonone-send-btn');
+    sendBtn.disabled = true;
+
+    fetch('/api/oneonone/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: empId, guidance }),
+      body: JSON.stringify({
+        employee_id: this._oneononeEmployeeId,
+        message,
+        history: this._oneononeHistory,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        typing.classList.add('hidden');
+        if (data.error) {
+          this._addOneononeSystemMsg(`Error: ${data.error}`);
+        } else {
+          // Record history
+          this._oneononeHistory.push({ role: 'ceo', content: message });
+          this._oneononeHistory.push({ role: 'employee', content: data.response });
+
+          const emp = (this._lastEmployees || []).find(e => e.id === this._oneononeEmployeeId);
+          const name = emp ? emp.name : 'Employee';
+          this._addOneononeBubble(name, data.response, 'incoming');
+        }
+      })
+      .catch(err => {
+        typing.classList.add('hidden');
+        this._addOneononeSystemMsg(`Error: ${err.message}`);
+      })
+      .finally(() => { sendBtn.disabled = false; });
+  }
+
+  endOneononeMeeting() {
+    if (!this._oneononeEmployeeId) return;
+
+    const endBtn = document.getElementById('oneonone-end-btn');
+    endBtn.disabled = true;
+    this._addOneononeSystemMsg('Ending meeting... reflecting on conversation...');
+
+    fetch('/api/oneonone/end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employee_id: this._oneononeEmployeeId,
+        history: this._oneononeHistory,
+      }),
     })
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `Error: ${data.error}`, 'system');
+          this._addOneononeSystemMsg(`Error: ${data.error}`);
         } else {
-          this.logEntry('CEO', `📖 1-on-1 note sent to ${empId}`, 'ceo');
+          if (data.principles_updated) {
+            this._addOneononeSystemMsg('Meeting concluded. Work principles have been updated based on the conversation.');
+            this.logEntry('CEO', `🎓 1-on-1 ended — principles updated`, 'guidance');
+          } else {
+            this._addOneononeSystemMsg('Meeting concluded. No principle updates needed.');
+            this.logEntry('CEO', `🎓 1-on-1 ended — casual chat`, 'guidance');
+          }
         }
       })
       .catch(err => {
-        this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
+        this._addOneononeSystemMsg(`Error: ${err.message}`);
       })
       .finally(() => {
-        setTimeout(() => { guidanceBtn.disabled = false; }, 3000);
+        endBtn.disabled = false;
+        this._oneononeEmployeeId = null;
+        this._oneononeHistory = [];
       });
+  }
 
-    guidanceInput.value = '';
+  closeOneononeModal() {
+    // If in a meeting, end it first
+    if (this._oneononeEmployeeId && this._oneononeHistory && this._oneononeHistory.length > 0) {
+      this.endOneononeMeeting();
+    } else if (this._oneononeEmployeeId) {
+      // Reset meeting state without calling end (no history = nothing to reflect on)
+      this._oneononeEmployeeId = null;
+      this._oneononeHistory = [];
+    }
+    document.getElementById('oneonone-modal').classList.add('hidden');
+    // Reset to setup phase for next time
+    document.getElementById('oneonone-setup').classList.remove('hidden');
+    document.getElementById('oneonone-chat-phase').classList.add('hidden');
   }
 
   // ===== Employee Detail Modal =====
@@ -1803,19 +1894,19 @@ class AppController {
     `;
   }
 
-  // ===== Culture Wall =====
-  openCultureWall() {
-    document.getElementById('culture-wall-modal').classList.remove('hidden');
-    this._renderCultureWall();
+  // ===== Company Culture =====
+  openCompanyCulture() {
+    document.getElementById('company-culture-modal').classList.remove('hidden');
+    this._renderCompanyCulture();
   }
 
-  closeCultureWall() {
-    document.getElementById('culture-wall-modal').classList.add('hidden');
+  closeCompanyCulture() {
+    document.getElementById('company-culture-modal').classList.add('hidden');
   }
 
-  _renderCultureWall() {
-    const list = document.getElementById('culture-wall-list');
-    const items = window.officeRenderer?.state?.culture_wall || [];
+  _renderCompanyCulture() {
+    const list = document.getElementById('company-culture-list');
+    const items = window.officeRenderer?.state?.company_culture || [];
     if (!items.length) {
       list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">No culture entries yet. CEO can add above.</div>';
       return;
@@ -1823,30 +1914,30 @@ class AppController {
     list.innerHTML = items.map((item, idx) => {
       const date = item.created_at ? new Date(item.created_at).toLocaleDateString('zh-CN') : '';
       return `
-        <div class="culture-wall-card">
-          <div class="culture-wall-card-num">${idx + 1}</div>
-          <div class="culture-wall-card-content">${this._escapeHtml(item.content)}</div>
-          <div class="culture-wall-card-meta">
-            <span class="culture-wall-card-date">${date}</span>
-            <button class="culture-wall-delete-btn" data-index="${idx}" title="Delete">✕</button>
+        <div class="company-culture-card">
+          <div class="company-culture-card-num">${idx + 1}</div>
+          <div class="company-culture-card-content">${this._escapeHtml(item.content)}</div>
+          <div class="company-culture-card-meta">
+            <span class="company-culture-card-date">${date}</span>
+            <button class="company-culture-delete-btn" data-index="${idx}" title="Delete">✕</button>
           </div>
         </div>`;
     }).join('');
     // Bind delete buttons
-    list.querySelectorAll('.culture-wall-delete-btn').forEach(btn => {
+    list.querySelectorAll('.company-culture-delete-btn').forEach(btn => {
       btn.addEventListener('click', () => this.removeCultureItem(parseInt(btn.dataset.index)));
     });
   }
 
   addCultureItem() {
-    const input = document.getElementById('culture-wall-input');
+    const input = document.getElementById('company-culture-input');
     const content = input.value.trim();
     if (!content) return;
 
-    const btn = document.getElementById('culture-wall-add-btn');
+    const btn = document.getElementById('company-culture-add-btn');
     btn.disabled = true;
 
-    fetch('/api/culture-wall', {
+    fetch('/api/company-culture', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -1856,7 +1947,7 @@ class AppController {
         if (data.error) {
           this.logEntry('SYSTEM', `Add failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `Culture wall added: ${content.slice(0, 40)}`, 'ceo');
+          this.logEntry('CEO', `Company culture added: ${content.slice(0, 40)}`, 'ceo');
           input.value = '';
           // State will be refreshed via WebSocket push
         }
@@ -1866,13 +1957,13 @@ class AppController {
   }
 
   removeCultureItem(index) {
-    fetch(`/api/culture-wall/${index}`, { method: 'DELETE' })
+    fetch(`/api/company-culture/${index}`, { method: 'DELETE' })
       .then(r => r.json())
       .then(data => {
         if (data.error) {
           this.logEntry('SYSTEM', `Delete failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `Culture wall removed: ${data.removed?.content?.slice(0, 40) || ''}`, 'ceo');
+          this.logEntry('CEO', `Company culture removed: ${data.removed?.content?.slice(0, 40) || ''}`, 'ceo');
           // State will be refreshed via WebSocket push
         }
       })
