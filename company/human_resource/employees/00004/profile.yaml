@@ -4,7 +4,7 @@ desk_position:
 - 1
 - 1
 employee_number: '00004'
-level: 1
+level: 2
 llm_model: google/gemini-3.1-pro-preview
 name: Taylor Osei
 nickname: 飞鹰
@@ -17,4 +17,8 @@ skills:
 - algorithms
 sprite: employee_red
 temperature: 0.7
-title: 初级工程师
+title: Senior Engineer
+permissions:
+- company_file_access
+- web_search
+- backend_code_maintenance

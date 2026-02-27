@@ -16,4 +16,8 @@ skills:
 - people_management
 sprite: hr
 temperature: 0.7
-title: 创始
+title: Founding
+permissions:
+- company_file_access
+- web_search
+- hr_management

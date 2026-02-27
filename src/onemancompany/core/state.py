@@ -102,6 +102,7 @@ class Employee:
     sprite: str = "employee_default"
     guidance_notes: list[str] = field(default_factory=list)
     work_principles: str = ""  # loaded from employees/{id}/work_principles.md
+    permissions: list[str] = field(default_factory=list)  # access control: company_file_access, web_search, backend_code_maintenance, etc.
     status: str = STATUS_IDLE
     is_listening: bool = False
 
@@ -133,6 +134,7 @@ class Employee:
             "sprite": self.sprite,
             "guidance_notes": self.guidance_notes,
             "work_principles": self.work_principles,
+            "permissions": self.permissions,
             "status": self.status,
             "is_listening": self.is_listening,
         }
@@ -252,6 +254,7 @@ def _seed_employees() -> None:
             sprite=cfg.sprite,
             guidance_notes=guidance,
             work_principles=principles,
+            permissions=list(cfg.permissions),
         )
 
 

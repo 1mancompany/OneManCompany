@@ -193,8 +193,74 @@ class AppController {
         <div class="task-card-text">${t.task.substring(0, 60)}${t.task.length > 60 ? '...' : ''}</div>
         <div class="task-card-route" style="color:${routeColor};">${t.routed_to} · <span class="task-card-owner">Current: ${ownerLabel}</span></div>
       `;
+      if (t.project_id) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => this.openTaskLog(t.project_id));
+      }
       panel.appendChild(card);
     }
+  }
+
+  openTaskLog(projectId) {
+    const modal = document.getElementById('project-modal');
+    const listEl = document.getElementById('project-list');
+    const detailEl = document.getElementById('project-detail');
+    const contentEl = document.getElementById('project-detail-content');
+
+    // Open project modal directly in detail view (skip the list)
+    modal.classList.remove('hidden');
+    listEl.classList.add('hidden');
+    detailEl.classList.remove('hidden');
+    contentEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading task log...</div>';
+
+    fetch(`/api/projects/${encodeURIComponent(projectId)}`)
+      .then(r => r.json())
+      .then(doc => {
+        if (doc.error) {
+          contentEl.innerHTML = `<div style="color:var(--pixel-red);">${doc.error}</div>`;
+          return;
+        }
+        let html = `<h4 style="color:var(--pixel-yellow);font-size:8px;margin:6px 0;">${doc.task || ''}</h4>`;
+        html += `<div style="font-size:6px;color:var(--text-dim);margin-bottom:8px;">`;
+        html += `Status: <span style="color:var(--pixel-green);">${doc.status}</span> | Routed to: ${doc.routed_to} | Started: ${(doc.created_at || '').substring(11, 19)}`;
+        if (doc.completed_at) html += ` | Completed: ${doc.completed_at.substring(11, 19)}`;
+        html += `</div>`;
+
+        // Timeline (live task log)
+        const timeline = doc.timeline || [];
+        if (timeline.length > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 4px;">Task Log (${timeline.length} entries):</div>`;
+          for (const entry of timeline) {
+            const time = (entry.time || '').substring(11, 19);
+            const ownerColor = entry.employee_id === 'hr' ? 'var(--pixel-blue)' :
+                               entry.employee_id === 'coo' ? 'var(--pixel-orange)' : 'var(--pixel-green)';
+            html += `<div style="font-size:6px;line-height:1.8;border-left:2px solid var(--border);padding-left:6px;margin:2px 0;">`;
+            html += `<span style="color:var(--text-dim);">[${time}]</span> `;
+            html += `<span style="color:${ownerColor};">${entry.employee_id}</span> `;
+            html += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
+            if (entry.detail) {
+              html += `<div style="color:var(--pixel-white);margin-top:1px;">${entry.detail.substring(0, 300)}${entry.detail.length > 300 ? '...' : ''}</div>`;
+            }
+            html += `</div>`;
+          }
+        } else {
+          html += `<div style="font-size:6px;color:var(--text-dim);">No log entries yet — task is still initializing...</div>`;
+        }
+
+        // Workspace files
+        const files = doc.files || [];
+        if (files.length > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Workspace Files (${files.length}):</div>`;
+          for (const f of files) {
+            html += `<div style="font-size:6px;color:var(--pixel-white);padding:1px 0;">📄 ${f}</div>`;
+          }
+        }
+
+        contentEl.innerHTML = html;
+      })
+      .catch(err => {
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${err.message}</div>`;
+      });
   }
 
   // ===== Roster =====
@@ -660,6 +726,15 @@ class AppController {
     document.getElementById('emp-detail-level').textContent = `Lv.${emp.level}`;
     document.getElementById('emp-detail-skills').textContent =
       (emp.skills || []).join(', ') || '-';
+
+    // Permissions — render as tags
+    const permsEl = document.getElementById('emp-detail-permissions');
+    const perms = emp.permissions || [];
+    if (perms.length) {
+      permsEl.innerHTML = perms.map(p => `<span class="perm-tag perm-${p}">${p}</span>`).join(' ');
+    } else {
+      permsEl.textContent = '-';
+    }
 
     // Performance history — quarter cards
     const perfEl = document.getElementById('emp-detail-perf-wrapper');

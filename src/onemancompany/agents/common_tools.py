@@ -32,23 +32,31 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 
 
 @tool
-def read_file(file_path: str) -> dict:
-    """Read the contents of a file under the company directory.
+def read_file(file_path: str, employee_id: str = "") -> dict:
+    """Read the contents of a file.
 
-    Can read any company file, including employee profiles, config files, workflows, etc.
-    The path can be relative to the company/ root or an absolute path.
+    Access scope depends on your permissions:
+    - company/ files: available to all employees with company_file_access
+    - src/ files: requires backend_code_maintenance permission (use "src/..." path)
 
     Args:
-        file_path: File path, e.g. "human_resource/employees/00002/profile.yaml" or "business/workflows/xxx.md"
+        file_path: File path, e.g. "human_resource/employees/00002/profile.yaml" or "src/onemancompany/api/routes.py"
+        employee_id: Your employee ID (for permission check)
 
     Returns:
         A dict containing the file contents, or an error message.
     """
     from onemancompany.core.file_editor import _resolve_path
 
-    resolved = _resolve_path(file_path)
+    permissions = []
+    if employee_id:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            permissions = emp.permissions
+
+    resolved = _resolve_path(file_path, permissions=permissions)
     if resolved is None:
-        return {"status": "error", "message": f"Invalid path or outside project scope: {file_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
     if not resolved.exists():
         return {"status": "error", "message": f"File not found: {file_path}"}
     if not resolved.is_file():
@@ -61,20 +69,31 @@ def read_file(file_path: str) -> dict:
 
 
 @tool
-def list_directory(dir_path: str = "") -> dict:
-    """List files and subdirectories under the company directory.
+def list_directory(dir_path: str = "", employee_id: str = "") -> dict:
+    """List files and subdirectories.
+
+    Access scope depends on your permissions:
+    - company/ directories: available to all employees
+    - src/ directories: requires backend_code_maintenance permission (use "src/..." path)
 
     Args:
-        dir_path: Directory path relative to the company/ root. An empty string means the company root.
+        dir_path: Directory path, e.g. "business/projects" or "src/onemancompany/core". Empty = company root.
+        employee_id: Your employee ID (for permission check)
 
     Returns:
         A dict containing the list of entries.
     """
     from onemancompany.core.file_editor import _resolve_path
 
-    resolved = _resolve_path(dir_path or ".")
+    permissions = []
+    if employee_id:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            permissions = emp.permissions
+
+    resolved = _resolve_path(dir_path or ".", permissions=permissions)
     if resolved is None:
-        return {"status": "error", "message": f"Invalid path: {dir_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {dir_path}"}
     if not resolved.exists() or not resolved.is_dir():
         return {"status": "error", "message": f"Directory not found: {dir_path}"}
     try:
@@ -97,37 +116,37 @@ async def propose_file_edit(
     new_content: str,
     reason: str,
     proposed_by: str = "",
+    employee_id: str = "",
 ) -> dict:
     """Propose a file edit request (requires CEO approval before execution).
 
-    Can edit any file under the company directory, including:
-    - Employee profiles (human_resource/employees/xxx/profile.yaml)
-    - Work principles (human_resource/employees/xxx/work_principles.md)
-    - Skill files (human_resource/employees/xxx/skills/xxx.md)
-    - Business workflows (business/workflows/xxx.md)
-    - Business projects (business/projects/xxx.yaml)
-    - Meeting reports (business/reports/meeting_reports/xxx.yaml)
-    - Asset configuration (assets/tools/xxx.yaml, assets/rooms/xxx.yaml)
-    - Company culture (company_culture.yaml)
-    - Any other project file
+    Can edit files under the company directory. Employees with backend_code_maintenance
+    permission can also propose edits to files under src/ (use "src/..." path).
 
     After submission, the CEO will see a diff comparison on the frontend.
     The edit is executed automatically once approved.
     The original file is backed up (timestamped) before execution for easy rollback.
 
     Args:
-        file_path: File path relative to the company/ root
+        file_path: File path relative to the company/ root, or "src/..." for backend code
         new_content: The complete new file content after editing
         reason: Explanation for the edit
+        employee_id: Your employee ID (for permission check)
 
     Returns:
         Edit request status (pending_approval means submitted and awaiting approval).
     """
     from onemancompany.core.file_editor import propose_edit
 
+    permissions = []
+    if employee_id:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            permissions = emp.permissions
+
     # Determine who is proposing (from the call context, default to unknown)
     # The agent name will be injected by the caller
-    result = propose_edit(file_path, new_content, reason, proposed_by=proposed_by or "agent")
+    result = propose_edit(file_path, new_content, reason, proposed_by=proposed_by or "agent", permissions=permissions)
     if result["status"] == "error":
         return result
 
