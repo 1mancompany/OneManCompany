@@ -94,10 +94,28 @@ async def _run_agent_safe(
             label = f"{label} (with errors)"
         complete_project(project_id, label)
 
+    # Flush any deferred reloads now that this task is done
+    from onemancompany.core.state import flush_pending_reload
+    flush_result = flush_pending_reload()
+    if flush_result:
+        updated = flush_result.get("employees_updated", [])
+        added = flush_result.get("employees_added", [])
+        if updated or added:
+            print(f"[hot-reload] Post-task flush: {len(updated)} updated, {len(added)} added")
+
     # Broadcast updated state so frontend sees idle employees and cleared tasks
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
+
+
+@router.post("/api/admin/reload")
+async def admin_reload() -> dict:
+    """Manual soft-reload: re-read all disk data into company_state."""
+    from onemancompany.core.state import reload_all_from_disk
+
+    changes = reload_all_from_disk()
+    return {"status": "reloaded", **changes}
 
 
 @router.get("/api/state")
