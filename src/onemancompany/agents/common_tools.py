@@ -1,6 +1,6 @@
-"""Common tools available to ALL employees — 每个员工默认拥有的工具。
+"""Common tools available to ALL employees — default tools every employee has.
 
-The main tool here is `pull_meeting` (拉人对齐): any employee can pull
+The main tool here is `pull_meeting` (pull meeting / sync-up): any employee can pull
 relevant colleagues into a meeting room for a focused discussion.
 """
 
@@ -13,6 +13,7 @@ import re
 from langchain_core.tools import tool
 
 from onemancompany.agents.base import make_llm
+from onemancompany.core.config import HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 
@@ -32,50 +33,50 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 
 @tool
 def read_file(file_path: str) -> dict:
-    """读取项目目录下的文件内容。
+    """Read the contents of a file under the project directory.
 
-    可以读取任何项目文件，包括员工档案、配置文件、规章制度等。
-    路径可以是相对于项目根目录的相对路径，也可以是绝对路径。
+    Can read any project file, including employee profiles, config files, company rules, etc.
+    The path can be relative to the project root or an absolute path.
 
     Args:
-        file_path: 文件路径，如 "employees/hr/profile.yaml" 或 "company_rules/xxx.md"
+        file_path: File path, e.g. "employees/hr/profile.yaml" or "company_rules/xxx.md"
 
     Returns:
-        包含文件内容的 dict，或错误信息。
+        A dict containing the file contents, or an error message.
     """
     from onemancompany.core.file_editor import _resolve_path
 
     resolved = _resolve_path(file_path)
     if resolved is None:
-        return {"status": "error", "message": f"路径不合法或超出项目范围: {file_path}"}
+        return {"status": "error", "message": f"Invalid path or outside project scope: {file_path}"}
     if not resolved.exists():
-        return {"status": "error", "message": f"文件不存在: {file_path}"}
+        return {"status": "error", "message": f"File not found: {file_path}"}
     if not resolved.is_file():
-        return {"status": "error", "message": f"不是文件: {file_path}"}
+        return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
         content = resolved.read_text(encoding="utf-8")
         return {"status": "ok", "path": file_path, "content": content}
     except Exception as e:
-        return {"status": "error", "message": f"读取失败: {e}"}
+        return {"status": "error", "message": f"Read failed: {e}"}
 
 
 @tool
 def list_directory(dir_path: str = "") -> dict:
-    """列出项目目录下的文件和子目录。
+    """List files and subdirectories under the project directory.
 
     Args:
-        dir_path: 目录路径，相对于项目根目录。空字符串表示项目根目录。
+        dir_path: Directory path relative to the project root. An empty string means the project root.
 
     Returns:
-        包含文件列表的 dict。
+        A dict containing the list of entries.
     """
     from onemancompany.core.file_editor import _resolve_path
 
     resolved = _resolve_path(dir_path or ".")
     if resolved is None:
-        return {"status": "error", "message": f"路径不合法: {dir_path}"}
+        return {"status": "error", "message": f"Invalid path: {dir_path}"}
     if not resolved.exists() or not resolved.is_dir():
-        return {"status": "error", "message": f"目录不存在: {dir_path}"}
+        return {"status": "error", "message": f"Directory not found: {dir_path}"}
     try:
         entries = []
         for item in sorted(resolved.iterdir()):
@@ -87,7 +88,7 @@ def list_directory(dir_path: str = "") -> dict:
             })
         return {"status": "ok", "path": dir_path or ".", "entries": entries}
     except Exception as e:
-        return {"status": "error", "message": f"读取目录失败: {e}"}
+        return {"status": "error", "message": f"Failed to read directory: {e}"}
 
 
 @tool
@@ -97,27 +98,28 @@ async def propose_file_edit(
     reason: str,
     proposed_by: str = "",
 ) -> dict:
-    """提出文件编辑请求（需要CEO审批后才会执行）。
+    """Propose a file edit request (requires CEO approval before execution).
 
-    可以编辑项目目录下的任何文件，包括：
-    - 员工档案 (employees/xxx/profile.yaml)
-    - 工作准则 (employees/xxx/work_principles.md)
-    - 技能文件 (employees/xxx/skills/xxx.md)
-    - 规章制度 (company_rules/xxx.md)
-    - 设备配置 (equipment_room/xxx.yaml)
-    - 公司文化墙 (culture_wall.yaml)
-    - 其他任何项目文件
+    Can edit any file under the project directory, including:
+    - Employee profiles (employees/xxx/profile.yaml)
+    - Work principles (employees/xxx/work_principles.md)
+    - Skill files (employees/xxx/skills/xxx.md)
+    - Company rules (company_rules/xxx.md)
+    - Asset configuration (assets/tools/xxx.yaml, assets/rooms/xxx.yaml)
+    - Company culture wall (culture_wall.yaml)
+    - Any other project file
 
-    编辑请求提交后，CEO会在前端看到变更对比，审批通过后自动执行。
-    执行前会自动备份原文件（按时间戳），方便回滚。
+    After submission, the CEO will see a diff comparison on the frontend.
+    The edit is executed automatically once approved.
+    The original file is backed up (timestamped) before execution for easy rollback.
 
     Args:
-        file_path: 文件路径，相对于项目根目录
-        new_content: 修改后的完整文件内容
-        reason: 编辑原因说明
+        file_path: File path relative to the project root
+        new_content: The complete new file content after editing
+        reason: Explanation for the edit
 
     Returns:
-        编辑请求状态（pending_approval 表示已提交等待审批）。
+        Edit request status (pending_approval means submitted and awaiting approval).
     """
     from onemancompany.core.file_editor import propose_edit
 
@@ -145,7 +147,7 @@ async def propose_file_edit(
 
 @tool
 def list_colleagues() -> list[dict]:
-    """列出所有同事信息，用于确定该拉谁开会。
+    """List information about all colleagues, useful for deciding who to invite to a meeting.
 
     Returns:
         A list of dicts with id, name, nickname, role, department, level, skills.
@@ -171,19 +173,19 @@ async def pull_meeting(
     agenda: str = "",
     initiator_id: str = "",
 ) -> dict:
-    """拉人对齐 — 发起一个聚焦会议，拉取相关同事讨论特定议题。
+    """Pull meeting / sync-up — initiate a focused meeting, pulling relevant colleagues to discuss a specific topic.
 
-    会自动预约会议室，组织参会人员进行讨论，并输出会议结论。
-    任何员工都可以使用此工具。
+    Automatically books a meeting room, organizes participants for discussion, and outputs meeting conclusions.
+    Any employee can use this tool.
 
     Args:
-        topic: 会议主题，例如"讨论新功能技术方案"
-        participant_ids: 需要参会的同事ID列表
-        agenda: 可选的会议议程
-        initiator_id: 发起人ID（自动填充，可留空）
+        topic: Meeting topic, e.g. "Discuss technical plan for new feature"
+        participant_ids: List of colleague IDs who should attend
+        agenda: Optional meeting agenda
+        initiator_id: Initiator's ID (auto-filled, can be left empty)
 
     Returns:
-        会议结果，包含讨论摘要和行动项。
+        Meeting result, including discussion summary and action items.
     """
     # Validate participants
     valid_participants = []
@@ -193,7 +195,7 @@ async def pull_meeting(
             valid_participants.append(emp)
 
     if not valid_participants:
-        return {"status": "error", "message": "没有找到有效的参会人员。请检查员工ID。"}
+        return {"status": "error", "message": "No valid participants found. Please check employee IDs."}
 
     # Find a free meeting room
     room = None
@@ -209,7 +211,7 @@ async def pull_meeting(
     if not room:
         return {
             "status": "denied",
-            "message": "目前没有空闲的会议室，请稍后再试或先处理其他工作。",
+            "message": "No meeting rooms available. Please try again later or work on other tasks.",
         }
 
     # Publish booking event
@@ -219,44 +221,44 @@ async def pull_meeting(
         "participants": room.participants,
     })
 
-    initiator_name = "发起人"
+    initiator_name = "Initiator"
     if initiator_id:
         ini_emp = company_state.employees.get(initiator_id)
         if ini_emp:
             initiator_name = ini_emp.nickname or ini_emp.name
 
     await _chat(room.id, initiator_name, "employee",
-                f"大家好，我发起了这个会议。主题：{topic}")
+                f"Hello everyone, I've initiated this meeting. Topic: {topic}")
 
     if agenda:
-        await _chat(room.id, initiator_name, "employee", f"议程：{agenda}")
+        await _chat(room.id, initiator_name, "employee", f"Agenda: {agenda}")
 
     try:
         # Run focused discussion
-        llm = make_llm(initiator_id or "hr")
+        llm = make_llm(initiator_id or HR_ID)
         discussion_entries: list[dict] = []
 
         # Each participant speaks on the topic
         for emp in valid_participants:
             principles_ctx = ""
             if emp.work_principles:
-                principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:300]}\n"
+                principles_ctx = f"\nYour work principles:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
             prompt = (
-                f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，{emp.role}，Lv.{emp.level}）。\n"
+                f"You are {emp.name} ({emp.nickname}, Department: {emp.department}, {emp.role}, Lv.{emp.level}).\n"
                 f"{principles_ctx}"
-                f"你正在参加一个聚焦会议。\n"
-                f"会议主题: {topic}\n"
+                f"You are attending a focused meeting.\n"
+                f"Meeting topic: {topic}\n"
             )
             if agenda:
-                prompt += f"会议议程: {agenda}\n"
+                prompt += f"Meeting agenda: {agenda}\n"
             if discussion_entries:
                 recent = discussion_entries[-3:]  # last 3 comments for context
                 context = "\n".join(f"  {d['name']}: {d['comment']}" for d in recent)
-                prompt += f"\n之前的发言:\n{context}\n"
+                prompt += f"\nPrevious comments:\n{context}\n"
             prompt += (
-                f"\n请根据你的专业领域和工作准则，就会议主题发表简要观点（2-3句话中文）。"
-                f"重点关注你能贡献什么、有什么建议或担忧。"
+                f"\nBased on your expertise and work principles, share your brief perspective on the meeting topic (2-3 sentences). "
+                f"Focus on what you can contribute, any suggestions, or concerns."
             )
 
             resp = await llm.ainvoke(prompt)
@@ -274,20 +276,19 @@ async def pull_meeting(
             for d in discussion_entries
         )
         summary_prompt = (
-            f"你是会议记录员，请总结以下聚焦会议的讨论结果。\n\n"
-            f"会议主题: {topic}\n"
-            f"参会人员: {', '.join(e.nickname or e.name for e in valid_participants)}\n\n"
-            f"讨论内容:\n{all_comments}\n\n"
-            f"请输出:\n"
-            f"1. 会议结论（2-3句话）\n"
-            f"2. 行动项（JSON数组格式）: "
-            f'[{{"assignee": "负责人", "action": "具体行动"}}]\n'
-            f"请用中文回答。"
+            f"You are the meeting note-taker. Summarize the following focused meeting discussion.\n\n"
+            f"Meeting topic: {topic}\n"
+            f"Participants: {', '.join(e.nickname or e.name for e in valid_participants)}\n\n"
+            f"Discussion:\n{all_comments}\n\n"
+            f"Please output:\n"
+            f"1. Meeting conclusions (2-3 sentences)\n"
+            f"2. Action items (JSON array format): "
+            f'[{{"assignee": "person responsible", "action": "specific action"}}]\n'
         )
         summary_resp = await llm.ainvoke(summary_prompt)
         summary_text = summary_resp.content
 
-        await _chat(room.id, "会议记录", "HR", f"[会议总结] {summary_text[:200]}")
+        await _chat(room.id, "Meeting Notes", "HR", f"[Meeting Summary] {summary_text[:200]}")
 
         # Parse action items
         action_items = []
@@ -312,7 +313,7 @@ async def pull_meeting(
             "topic": topic,
             "participants": [e.nickname or e.name for e in valid_participants],
             "discussion": discussion_entries,
-            "summary": summary_text[:500],
+            "summary": summary_text[:MAX_DISCUSSION_SUMMARY_LEN],
             "action_items": action_items,
         }
 
@@ -326,7 +327,7 @@ async def pull_meeting(
         })
 
 
-# All common tools that every employee agent gets
+# All common tools that every employee agent gets access to
 COMMON_TOOLS = [
     read_file,
     list_directory,

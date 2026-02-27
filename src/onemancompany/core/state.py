@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from onemancompany.core.config import (
+    FOUNDING_LEVEL,
+    STATUS_IDLE,
+)
+
 
 @dataclass
 class TaskEntry:
@@ -11,7 +16,7 @@ class TaskEntry:
     project_id: str
     task: str
     routed_to: str  # "HR" or "COO"
-    current_owner: str = ""  # 当前任务归属人 (employee_id)
+    current_owner: str = ""  # employee_id of current owner
     status: str = "running"  # running / queued
     created_at: str = ""
 
@@ -34,7 +39,7 @@ class TaskEntry:
 
 @dataclass
 class MeetingRoom:
-    """会议室 — 员工沟通前需要先预约。"""
+    """Meeting room — must be booked before use."""
 
     id: str
     name: str
@@ -72,7 +77,7 @@ ROLE_TITLES = {
 
 def make_title(level: int, role: str) -> str:
     """Generate title like '初级工程师', '中级研究员'."""
-    if level >= 4:
+    if level >= FOUNDING_LEVEL:
         return LEVEL_NAMES.get(level, "")
     prefix = LEVEL_NAMES.get(level, f"Lv.{level}")
     role_name = ROLE_TITLES.get(role, role)
@@ -85,17 +90,17 @@ class Employee:
     name: str
     role: str
     skills: list[str]
-    nickname: str = ""  # 花名 — 创始员工三字，其他两字
-    level: int = 1  # 级别: 1-3 普通员工, 4 创始员工, 5 CEO
-    department: str = ""  # 部门 — 由HR分配
-    employee_number: str = ""  # 工号 — 5位数字字符串，如 "00000"
-    current_quarter_tasks: int = 0  # 当前季度已完成任务数 (0-3)
-    performance_history: list[dict] = field(default_factory=list)  # 过去3季度: [{"score": 3.5, "tasks": 3}, ...]
+    nickname: str = ""  # Chinese alias
+    level: int = 1  # 1-3 normal, 4 founding, 5 CEO
+    department: str = ""  # assigned by HR
+    employee_number: str = ""  # 5-digit string e.g. "00008"
+    current_quarter_tasks: int = 0
+    performance_history: list[dict] = field(default_factory=list)
     desk_position: tuple[int, int] = (0, 0)
     sprite: str = "employee_default"
     guidance_notes: list[str] = field(default_factory=list)
-    work_principles: str = ""  # 工作准则 — 从 employees/{id}/work_principles.md 加载
-    status: str = "idle"  # idle / working / in_meeting
+    work_principles: str = ""  # loaded from employees/{id}/work_principles.md
+    status: str = STATUS_IDLE
     is_listening: bool = False
 
     @property
@@ -139,6 +144,7 @@ class OfficeTool:
     added_by: str
     desk_position: tuple[int, int] = (0, 0)
     sprite: str = "desk_equipment"
+    allowed_users: list[str] = field(default_factory=list)  # empty = open access
 
     def to_dict(self) -> dict:
         return {
@@ -148,20 +154,21 @@ class OfficeTool:
             "added_by": self.added_by,
             "desk_position": list(self.desk_position),
             "sprite": self.sprite,
+            "allowed_users": self.allowed_users,
         }
 
 
 @dataclass
 class CompanyState:
     employees: dict[str, Employee] = field(default_factory=dict)
-    ex_employees: dict[str, Employee] = field(default_factory=dict)  # 离职员工
+    ex_employees: dict[str, Employee] = field(default_factory=dict)
     tools: dict[str, OfficeTool] = field(default_factory=dict)
     meeting_rooms: dict[str, MeetingRoom] = field(default_factory=dict)
     ceo_tasks: list[str] = field(default_factory=list)
-    active_tasks: list[TaskEntry] = field(default_factory=list)  # 任务队列
+    active_tasks: list[TaskEntry] = field(default_factory=list)
     activity_log: list[dict] = field(default_factory=list)
-    culture_wall: list[dict] = field(default_factory=list)  # 公司文化墙条目
-    _next_employee_number: int = 0  # 工号计数器
+    culture_wall: list[dict] = field(default_factory=list)
+    _next_employee_number: int = 0  # auto-increment counter
 
     def to_json(self) -> dict:
         return {
@@ -187,48 +194,43 @@ company_state = CompanyState()
 
 
 def _seed_employees() -> None:
-    """Seed employees from employees/{id}/profile.yaml + guidance.yaml + work_principles.md.
+    """Seed employees from employees/{emp_num}/profile.yaml + guidance.yaml + work_principles.md.
 
-    Also loads ex-employees from ex-employees/ directory.
+    Folder names ARE employee numbers (e.g., employees/00002/).
     """
-    from onemancompany.core.config import employee_configs, load_employee_guidance, load_work_principles
+    from onemancompany.core.config import HR_ID, COO_ID, employee_configs, load_employee_guidance, load_work_principles
 
     if not employee_configs:
         # Fallback defaults if no employee folders exist
-        company_state.employees["hr"] = Employee(
-            id="hr", name="Sam HR", role="HR",
+        company_state.employees[HR_ID] = Employee(
+            id=HR_ID, name="Sam HR", role="HR",
             skills=["hiring", "reviews", "people_management"],
-            department="人力资源部",
+            department="人力资源部", employee_number=HR_ID,
             desk_position=(3, 2), sprite="hr",
         )
-        company_state.employees["coo"] = Employee(
-            id="coo", name="Alex COO", role="COO",
+        company_state.employees[COO_ID] = Employee(
+            id=COO_ID, name="Alex COO", role="COO",
             skills=["operations", "tool_management", "strategy"],
-            department="运营管理部",
+            department="运营管理部", employee_number=COO_ID,
             desk_position=(6, 2), sprite="coo",
         )
         return
 
-    # Assign employee numbers: CEO=00001, HR=00002, COO=00003, others=00004+
-    FIXED_NUMBERS = {"hr": "00002", "coo": "00003"}
     company_state._next_employee_number = 4  # start after founding employees
 
-    for emp_id, cfg in employee_configs.items():
-        guidance = load_employee_guidance(emp_id)
-        principles = load_work_principles(emp_id)
-        emp_num = cfg.employee_number or FIXED_NUMBERS.get(emp_id, "")
-        if not emp_num:
-            emp_num = company_state.next_employee_number()
-        else:
-            # Ensure counter stays ahead of any assigned numbers
-            try:
-                num_val = int(emp_num)
-                if num_val >= company_state._next_employee_number:
-                    company_state._next_employee_number = num_val + 1
-            except ValueError:
-                pass
-        company_state.employees[emp_id] = Employee(
-            id=emp_id,
+    for emp_num, cfg in employee_configs.items():
+        # Folder name IS the employee number — use it as both id and employee_number
+        guidance = load_employee_guidance(emp_num)
+        principles = load_work_principles(emp_num)
+        # Ensure counter stays ahead of any assigned numbers
+        try:
+            num_val = int(emp_num)
+            if num_val >= company_state._next_employee_number:
+                company_state._next_employee_number = num_val + 1
+        except ValueError:
+            pass
+        company_state.employees[emp_num] = Employee(
+            id=emp_num,
             name=cfg.name,
             nickname=cfg.nickname,
             level=cfg.level,
@@ -246,18 +248,19 @@ def _seed_employees() -> None:
 
 
 def _seed_ex_employees() -> None:
-    """Seed ex-employees from ex-employees/ directory."""
+    """Seed ex-employees from ex-employees/ directory (folders named by employee_number)."""
     from onemancompany.core.config import load_ex_employee_configs
 
-    for emp_id, cfg in load_ex_employee_configs().items():
-        company_state.ex_employees[emp_id] = Employee(
-            id=emp_id,
+    for emp_num, cfg in load_ex_employee_configs().items():
+        company_state.ex_employees[emp_num] = Employee(
+            id=emp_num,
             name=cfg.name,
             nickname=cfg.nickname,
             level=cfg.level,
             department=cfg.department,
             role=cfg.role,
             skills=cfg.skills,
+            employee_number=emp_num,
             current_quarter_tasks=cfg.current_quarter_tasks,
             performance_history=list(cfg.performance_history),
             desk_position=tuple(cfg.desk_position),

@@ -1,7 +1,8 @@
-"""COO Agent — manages the 设备间 (equipment room): tools and meeting rooms.
+"""COO Agent — manages company assets: tools and meeting rooms.
 
-Equipment (tools + meeting rooms) are stored as YAML in equipment_room/ at project root.
-Meeting rooms must be booked via the COO before agents can communicate with each other.
+Assets are stored as YAML under assets/ at project root:
+  - assets/tools/   — equipment with access control
+  - assets/rooms/   — meeting rooms (must be booked before agents communicate)
 """
 
 from __future__ import annotations
@@ -15,22 +16,24 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
-from onemancompany.core.config import EQUIPMENT_DIR, load_equipment
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, load_assets
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 
 COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of a startup called "One Man Company".
 
-You manage the company's 设备间 (equipment room), which includes:
-1. **Tools & Equipment** — servers, devices, and capabilities the company uses.
-2. **Meeting Rooms (会议室)** — employees MUST book a meeting room through you before communicating with each other (including founding employees and the CEO).
+You manage the company's assets, which includes:
+1. **Tools & Equipment** — servers, devices, and capabilities. Each tool has access control — only authorized employees can use it.
+2. **Meeting Rooms** — employees MUST book a meeting room through you before communicating with each other (including founding employees and the CEO).
 
 ## Your Responsibilities:
 
-### Equipment Management
-- When the CEO or employees request new tools, call add_equipment() to register them.
-- Use list_equipment() to see current tools and meeting rooms.
+### Tool & Equipment Management
+- When the CEO or employees request new tools, call add_tool() to register them.
+- Use list_tools() to see current tools and their access permissions.
+- Use grant_tool_access() and revoke_tool_access() to manage who can use each tool.
+- By default, new tools are open to everyone (empty allowed_users = open access).
 
-### Meeting Room Booking (会议室管理)
+### Meeting Room Booking
 - When an employee needs to communicate with another employee, they must first request a meeting room.
 - Call book_meeting_room() to reserve a room for the requester.
 - Call release_meeting_room() when a meeting is done.
@@ -40,25 +43,25 @@ You manage the company's 设备间 (equipment room), which includes:
 ### Adding New Meeting Rooms
 - Only add new meeting rooms when the CEO explicitly requests it via add_meeting_room().
 
-## Cross-team Collaboration (拉人对齐)
+## Cross-team Collaboration
 You can call list_colleagues() to see all employees, then call pull_meeting() to organize
 a focused meeting with relevant colleagues when you need alignment on operational decisions,
 resource allocation, or process improvements.
 
-## File Editing (文件编辑)
+## File Editing
 You can read and edit any file in the project directory:
 - Use read_file() to read file contents, list_directory() to browse directories.
 - Use propose_file_edit() to propose changes — the CEO must approve before they take effect.
   Always set proposed_by="COO" when calling propose_file_edit.
 - Files are automatically backed up before editing, so changes can be rolled back.
 
-Be concise and action-oriented. Respond in Chinese when possible.
+Be concise and action-oriented.
 """
 
 
-def _load_equipment_from_disk() -> None:
-    """Load existing equipment from equipment_room/ directory into company_state."""
-    tools_data, rooms_data = load_equipment()
+def _load_assets_from_disk() -> None:
+    """Load existing assets from assets/tools/ and assets/rooms/ into company_state."""
+    tools_data, rooms_data = load_assets()
 
     count = 0
     for tool_id, data in tools_data.items():
@@ -70,6 +73,7 @@ def _load_equipment_from_disk() -> None:
                 added_by=data.get("added_by", "COO"),
                 desk_position=tuple(data.get("desk_position", [5 + (count % 3) * 5, 8 + (count // 3) * 3])),
                 sprite=data.get("sprite", "desk_equipment"),
+                allowed_users=data.get("allowed_users", []),
             )
             count += 1
 
@@ -85,19 +89,40 @@ def _load_equipment_from_disk() -> None:
             )
 
 
-# Load persisted equipment on import
-_load_equipment_from_disk()
+# Load persisted assets on import
+_load_assets_from_disk()
 
 
 # ===== LangChain tools for the COO agent =====
 
 
+def _persist_tool(t: OfficeTool) -> None:
+    """Write a tool's data to assets/tools/{id}.yaml."""
+    TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+    path = TOOLS_DIR / f"{t.id}.yaml"
+    with open(path, "w") as f:
+        yaml.dump(
+            {
+                "name": t.name,
+                "description": t.description,
+                "added_by": t.added_by,
+                "desk_position": list(t.desk_position),
+                "sprite": t.sprite,
+                "allowed_users": t.allowed_users,
+            },
+            f,
+            allow_unicode=True,
+            default_flow_style=False,
+        )
+
+
 @tool
-def add_equipment(name: str, description: str) -> dict:
-    """Add a new tool or device to the company's equipment room (设备间).
+def add_tool(name: str, description: str) -> dict:
+    """Add a new tool or device to the company's assets.
 
     This will appear as equipment in the pixel art office visualization
-    and be saved to the equipment_room/ directory.
+    and be saved to the assets/tools/ directory. By default, the tool
+    is accessible to all employees (open access).
 
     Args:
         name: Short name for the equipment (e.g. 'Code Review Bot', 'CI/CD Pipeline')
@@ -119,41 +144,100 @@ def add_equipment(name: str, description: str) -> dict:
         added_by="COO",
         desk_position=desk_pos,
         sprite="desk_equipment",
+        allowed_users=[],  # open access by default
     )
     company_state.tools[eq_id] = office_tool
     company_state.activity_log.append(
         {"type": "tool_added", "name": name, "description": description}
     )
 
-    # Persist to equipment_room/{id}.yaml
-    EQUIPMENT_DIR.mkdir(parents=True, exist_ok=True)
-    eq_path = EQUIPMENT_DIR / f"{eq_id}.yaml"
-    with open(eq_path, "w") as f:
-        yaml.dump(
-            {
-                "name": name,
-                "description": description,
-                "added_by": "COO",
-                "desk_position": list(desk_pos),
-                "sprite": "desk_equipment",
-            },
-            f,
-            allow_unicode=True,
-            default_flow_style=False,
-        )
+    _persist_tool(office_tool)
 
     return {"status": "success", "id": eq_id, "name": name, "position": list(desk_pos)}
 
 
 @tool
-def list_equipment() -> list[dict]:
-    """List all tools and equipment currently in the equipment room (设备间)."""
+def list_tools() -> list[dict]:
+    """List all tools and equipment currently in the company's assets."""
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "description": t.description,
+            "added_by": t.added_by,
+            "allowed_users": t.allowed_users,
+            "access": "restricted" if t.allowed_users else "open",
+        }
+        for t in company_state.tools.values()
+    ]
+
+
+@tool
+def grant_tool_access(tool_id: str, employee_id: str) -> dict:
+    """Grant an employee access to a specific tool.
+
+    If the tool currently has open access (empty allowed_users), granting access
+    to one employee will restrict it to ONLY that employee. To keep it open while
+    also tracking, add all relevant employees.
+
+    Args:
+        tool_id: The ID of the tool.
+        employee_id: The employee ID to grant access to.
+
+    Returns:
+        Updated access list.
+    """
+    t = company_state.tools.get(tool_id)
+    if not t:
+        return {"status": "error", "message": f"Tool '{tool_id}' not found."}
+    if employee_id not in t.allowed_users:
+        t.allowed_users.append(employee_id)
+        _persist_tool(t)
+    return {
+        "status": "success",
+        "tool": t.name,
+        "allowed_users": t.allowed_users,
+    }
+
+
+@tool
+def revoke_tool_access(tool_id: str, employee_id: str) -> dict:
+    """Revoke an employee's access to a specific tool.
+
+    If the allowed_users list becomes empty after revocation, the tool
+    reverts to open access (everyone can use it).
+
+    Args:
+        tool_id: The ID of the tool.
+        employee_id: The employee ID to revoke access from.
+
+    Returns:
+        Updated access list.
+    """
+    t = company_state.tools.get(tool_id)
+    if not t:
+        return {"status": "error", "message": f"Tool '{tool_id}' not found."}
+    if employee_id in t.allowed_users:
+        t.allowed_users.remove(employee_id)
+        _persist_tool(t)
+    return {
+        "status": "success",
+        "tool": t.name,
+        "allowed_users": t.allowed_users,
+        "access": "restricted" if t.allowed_users else "open",
+    }
+
+
+@tool
+def list_assets() -> list[dict]:
+    """List all company assets — both tools and meeting rooms."""
     items = [
-        {"id": t.id, "name": t.name, "description": t.description, "type": "tool"}
+        {"id": t.id, "name": t.name, "description": t.description,
+         "type": "tool", "access": "restricted" if t.allowed_users else "open"}
         for t in company_state.tools.values()
     ]
     items += [
-        {"id": m.id, "name": m.name, "description": m.description, "type": "meeting_room",
+        {"id": m.id, "name": m.name, "description": m.description, "type": "room",
          "capacity": m.capacity, "is_booked": m.is_booked, "booked_by": m.booked_by}
         for m in company_state.meeting_rooms.values()
     ]
@@ -191,7 +275,6 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
     Returns:
         Booking result — success with room details, or denied if no rooms free.
     """
-    # Find a free meeting room
     for room in company_state.meeting_rooms.values():
         if not room.is_booked:
             all_participants = [employee_id] + participants
@@ -212,10 +295,9 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
                 "room_id": room.id,
                 "room_name": room.name,
                 "participants": all_participants,
-                "message": f"会议室 {room.name} 已预约成功。",
+                "message": f"Meeting room {room.name} booked successfully.",
             }
 
-    # No free rooms
     company_state.activity_log.append({
         "type": "meeting_denied",
         "requested_by": employee_id,
@@ -223,7 +305,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
     })
     return {
         "status": "denied",
-        "message": "目前没有空闲的会议室。请先处理其他可执行的任务或完善当前工作，稍后再试。",
+        "message": "No meeting rooms available. Please work on other tasks first and try again later.",
     }
 
 
@@ -239,9 +321,9 @@ def release_meeting_room(room_id: str) -> dict:
     """
     room = company_state.meeting_rooms.get(room_id)
     if not room:
-        return {"status": "error", "message": f"会议室 '{room_id}' 不存在。"}
+        return {"status": "error", "message": f"Meeting room '{room_id}' does not exist."}
     if not room.is_booked:
-        return {"status": "error", "message": f"会议室 {room.name} 当前未被预约。"}
+        return {"status": "error", "message": f"Meeting room {room.name} is not currently booked."}
 
     old_participants = room.participants.copy()
     room.is_booked = False
@@ -255,16 +337,16 @@ def release_meeting_room(room_id: str) -> dict:
     return {
         "status": "released",
         "room_name": room.name,
-        "message": f"会议室 {room.name} 已释放。",
+        "message": f"Meeting room {room.name} released.",
     }
 
 
 @tool
 def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dict:
-    """Add a new meeting room to the equipment room (CEO authorization required).
+    """Add a new meeting room (CEO authorization required).
 
     Args:
-        name: Name for the meeting room (e.g. '会议室B', '大会议厅').
+        name: Name for the meeting room (e.g. 'Meeting Room B', 'Main Conference Hall').
         capacity: Maximum number of people.
         description: Brief description of the room.
 
@@ -278,16 +360,16 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
     room = MeetingRoom(
         id=room_id,
         name=name,
-        description=description or f"可容纳{capacity}人的会议室。",
+        description=description or f"Meeting room with capacity for {capacity} people.",
         capacity=capacity,
         position=pos,
         sprite="meeting_room",
     )
     company_state.meeting_rooms[room_id] = room
 
-    # Persist to equipment_room/
-    EQUIPMENT_DIR.mkdir(parents=True, exist_ok=True)
-    room_path = EQUIPMENT_DIR / f"{room_id}.yaml"
+    # Persist to assets/rooms/
+    ROOMS_DIR.mkdir(parents=True, exist_ok=True)
+    room_path = ROOMS_DIR / f"{room_id}.yaml"
     with open(room_path, "w") as f:
         yaml.dump(
             {
@@ -306,7 +388,7 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
     company_state.activity_log.append({
         "type": "tool_added",
         "name": name,
-        "description": f"新会议室（容量{capacity}人）",
+        "description": f"New meeting room (capacity: {capacity})",
     })
 
     return {
@@ -320,14 +402,17 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
 
 class COOAgent(BaseAgentRunner):
     role = "COO"
-    employee_id = "coo"
+    employee_id = COO_ID
 
     def __init__(self) -> None:
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
             tools=[
-                add_equipment,
-                list_equipment,
+                add_tool,
+                list_tools,
+                grant_tool_access,
+                revoke_tool_access,
+                list_assets,
                 list_meeting_rooms,
                 book_meeting_room,
                 release_meeting_room,
@@ -336,8 +421,8 @@ class COOAgent(BaseAgentRunner):
         )
 
     async def run(self, task: str) -> str:
-        self._set_status("working")
-        await self._publish("agent_thinking", {"message": f"COO 分析中: {task[:80]}"})
+        self._set_status(STATUS_WORKING)
+        await self._publish("agent_thinking", {"message": f"COO analyzing: {task[:80]}"})
 
         prompt = (
             COO_SYSTEM_PROMPT
@@ -355,8 +440,8 @@ class COOAgent(BaseAgentRunner):
         )
 
         final = result["messages"][-1].content
-        self._set_status("idle")
-        await self._publish("agent_done", {"role": "COO", "summary": final[:300]})
+        self._set_status(STATUS_IDLE)
+        await self._publish("agent_done", {"role": "COO", "summary": final[:MAX_SUMMARY_LEN]})
         return final
 
 

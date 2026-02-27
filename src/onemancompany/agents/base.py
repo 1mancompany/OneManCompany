@@ -76,7 +76,7 @@ class BaseAgentRunner:
         if not emp or not emp.work_principles:
             return ""
         return (
-            f"\n\n## 你的工作准则 (Work Principles — 严格遵守):\n{emp.work_principles}\n"
+            f"\n\n## Your Work Principles (follow strictly):\n{emp.work_principles}\n"
         )
 
     def _get_culture_wall_prompt_section(self) -> str:
@@ -86,7 +86,7 @@ class BaseAgentRunner:
             return ""
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
         return (
-            f"\n\n## 公司文化墙 (Company Culture — 全员必须遵守的价值观和行为准则):\n{rules}\n"
+            f"\n\n## Company Culture Wall (values and guidelines all employees must follow):\n{rules}\n"
         )
 
     async def receive_guidance(self, guidance: str) -> str:
@@ -112,18 +112,18 @@ class BaseAgentRunner:
         # Use LLM to update work principles based on new guidance
         llm = make_llm(self.employee_id)
 
-        current_principles = emp.work_principles or "（暂无工作准则）"
+        current_principles = emp.work_principles or "(No work principles yet)"
         update_prompt = (
-            f"你是 {emp.name}（{emp.nickname}，{emp.role}，部门: {emp.department}）。\n"
-            f"CEO刚对你下达了新的指导:\n\n\"{guidance}\"\n\n"
-            f"你当前的工作准则如下:\n{current_principles}\n\n"
-            f"请根据CEO的新指导，更新你的工作准则。要求:\n"
-            f"1. 保留原有仍然有效的准则\n"
-            f"2. 将新指导的核心要求融入准则中\n"
-            f"3. 如果新指导与旧准则冲突，以新指导为准\n"
-            f"4. 保持 Markdown 格式，结构清晰\n"
-            f"5. 准则应简洁可执行，不要空话\n\n"
-            f"直接输出更新后的完整工作准则（Markdown格式），不要添加额外解释。"
+            f"You are {emp.name} ({emp.nickname}, {emp.role}, Department: {emp.department}).\n"
+            f"The CEO just gave you new guidance:\n\n\"{guidance}\"\n\n"
+            f"Your current work principles are:\n{current_principles}\n\n"
+            f"Update your work principles based on the CEO's new guidance. Requirements:\n"
+            f"1. Keep existing principles that are still valid\n"
+            f"2. Incorporate the core requirements from the new guidance\n"
+            f"3. If new guidance conflicts with old principles, the new guidance takes precedence\n"
+            f"4. Maintain Markdown format with clear structure\n"
+            f"5. Principles should be concise and actionable\n\n"
+            f"Output the updated complete work principles (Markdown format) directly, with no additional explanation."
         )
         principles_resp = await llm.ainvoke(update_prompt)
         new_principles = principles_resp.content
@@ -134,9 +134,10 @@ class BaseAgentRunner:
 
         # Acknowledge the guidance
         ack_prompt = (
-            f"你是 {emp.name}（{emp.role}）。CEO刚对你下达了指导:\n\n"
+            f"You are {emp.name} ({emp.role}). The CEO just gave you guidance:\n\n"
             f'"{guidance}"\n\n'
-            f"你已将其融入工作准则。用1-2句中文简要回应CEO，表示你已理解并更新了工作准则。"
+            f"You have incorporated it into your work principles. Briefly respond to the CEO in 1-2 sentences, "
+            f"confirming you understood and updated your work principles."
         )
         response = await llm.ainvoke(ack_prompt)
         ack_text = response.content

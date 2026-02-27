@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,9 +27,9 @@
       </div>
       <div id="roster-body" class="collapsible-body">
         <div id="roster-filters" class="roster-filters">
-          <select id="roster-filter-role" class="roster-filter-select"><option value="">全部职责</option></select>
-          <select id="roster-filter-dept" class="roster-filter-select"><option value="">全部部门</option></select>
-          <select id="roster-filter-level" class="roster-filter-select"><option value="">全部级别</option></select>
+          <select id="roster-filter-role" class="roster-filter-select"><option value="">All Roles</option></select>
+          <select id="roster-filter-dept" class="roster-filter-select"><option value="">All Departments</option></select>
+          <select id="roster-filter-level" class="roster-filter-select"><option value="">All Levels</option></select>
         </div>
         <div id="roster-list"></div>
       </div>
@@ -43,10 +43,10 @@
           <span class="status-item" id="employee-count">&#128101; 2</span>
           <span class="status-item" id="tool-count">&#128295; 0</span>
           <span class="status-item" id="room-count">&#127970; 0/0</span>
-          <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="领导教诲模式">&#127891;</button>
-          <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="历史员工墙">&#128220;</button>
-          <button id="culture-wall-toolbar-btn" class="toolbar-icon-btn" title="公司文化墙">&#127988;</button>
-          <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="运营情况板">&#128202;</button>
+          <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="1-on-1 Meeting">&#127891;</button>
+          <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
+          <button id="culture-wall-toolbar-btn" class="toolbar-icon-btn" title="Culture Wall">&#127988;</button>
+          <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
         </div>
       </div>
@@ -67,25 +67,25 @@
             <span class="ceo-label">YOU</span>
           </div>
           <textarea id="task-input"
-                    placeholder="输入任务或目标...&#10;例如: '招聘一名Python工程师'&#10;     '添加代码审查工具'&#10;     '查看所有员工表现'"
+                    placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"
                     rows="3"></textarea>
           <div class="btn-row">
-            <button id="submit-btn" class="pixel-btn">&#9654; 提交任务</button>
-            <button id="hr-review-btn" class="pixel-btn secondary">&#128203; 季度评价</button>
+            <button id="submit-btn" class="pixel-btn">&#9654; Submit Task</button>
+            <button id="hr-review-btn" class="pixel-btn secondary">&#128203; Quarterly Review</button>
           </div>
         </div>
       </div>
 
-      <!-- Unified Review Queue (逐个审核，显示计数) -->
+      <!-- Unified Review Queue -->
       <div id="review-queue-section" class="hidden">
         <div class="review-queue-header">
-          <h3 class="pixel-title small" id="review-queue-title">&#128203; 待审批</h3>
+          <h3 class="pixel-title small" id="review-queue-title">&#128203; Pending Review</h3>
           <span id="review-queue-counter" class="review-counter"></span>
         </div>
         <div id="review-queue-content"></div>
         <div class="btn-row" style="margin-top:6px;">
-          <button id="review-approve-btn" class="pixel-btn">&#9989; 批准</button>
-          <button id="review-reject-btn" class="pixel-btn secondary">&#10005; 拒绝</button>
+          <button id="review-approve-btn" class="pixel-btn">&#9989; Approve</button>
+          <button id="review-reject-btn" class="pixel-btn secondary">&#10005; Reject</button>
         </div>
       </div>
 
@@ -105,23 +105,23 @@
   <div id="guidance-modal" class="modal-overlay hidden">
     <div class="modal-content guidance-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#127891; 领导教诲模式</h3>
+        <h3 class="pixel-title">&#127891; 1-on-1 Meeting</h3>
         <button id="guidance-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body guidance-modal-body">
         <div class="guidance-controls">
-          <label class="guidance-label">选择员工:</label>
+          <label class="guidance-label">Select Employee:</label>
           <select id="guidance-target">
-            <option value="">-- 选择员工 --</option>
+            <option value="">-- Select Employee --</option>
           </select>
-          <label class="guidance-label">输入指导:</label>
+          <label class="guidance-label">Guidance:</label>
           <textarea id="guidance-input"
-                    placeholder="输入对该员工的指导..."
+                    placeholder="Share your guidance with this employee..."
                     rows="4"></textarea>
-          <button id="guidance-btn" class="pixel-btn guidance" disabled>&#127891; 发布教诲</button>
+          <button id="guidance-btn" class="pixel-btn guidance" disabled>&#127891; Send</button>
         </div>
         <div id="guidance-notes-display" class="hidden">
-          <div class="guidance-notes-header">已记录的教诲:</div>
+          <div class="guidance-notes-header">Recorded Notes:</div>
           <div id="guidance-notes-list"></div>
         </div>
       </div>
@@ -132,42 +132,42 @@
   <div id="employee-modal" class="modal-overlay hidden">
     <div class="modal-content employee-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title" id="emp-modal-title">员工详情</h3>
+        <h3 class="pixel-title" id="emp-modal-title">Employee Details</h3>
         <button id="employee-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body employee-modal-body">
         <div class="emp-detail-grid">
           <div class="emp-detail-left">
             <div class="emp-detail-row">
-              <span class="emp-detail-label">工号</span>
+              <span class="emp-detail-label">Employee #</span>
               <span class="emp-detail-value" id="emp-detail-number"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">姓名</span>
+              <span class="emp-detail-label">Name</span>
               <span class="emp-detail-value" id="emp-detail-name"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">花名</span>
+              <span class="emp-detail-label">Nickname</span>
               <span class="emp-detail-value" id="emp-detail-nickname"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">部门</span>
+              <span class="emp-detail-label">Department</span>
               <span class="emp-detail-value" id="emp-detail-department"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">职位</span>
+              <span class="emp-detail-label">Role</span>
               <span class="emp-detail-value" id="emp-detail-role"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">等级</span>
+              <span class="emp-detail-label">Level</span>
               <span class="emp-detail-value" id="emp-detail-level"></span>
             </div>
             <div class="emp-detail-row">
-              <span class="emp-detail-label">技能</span>
+              <span class="emp-detail-label">Skills</span>
               <span class="emp-detail-value" id="emp-detail-skills"></span>
             </div>
             <div class="emp-detail-row perf-row">
-              <span class="emp-detail-label">绩效</span>
+              <span class="emp-detail-label">Performance</span>
               <div class="emp-detail-value" id="emp-detail-perf-wrapper">
                 <!-- Dynamically populated with quarter cards -->
               </div>
@@ -175,20 +175,20 @@
           </div>
           <div class="emp-detail-right">
             <div class="emp-detail-section">
-              <div class="emp-detail-section-title">LLM 模型</div>
+              <div class="emp-detail-section-title">LLM Model</div>
               <div class="emp-detail-section-content emp-model-section">
                 <select id="emp-detail-model" class="emp-model-select">
-                  <option value="">加载中...</option>
+                  <option value="">Loading...</option>
                 </select>
-                <button id="emp-model-save-btn" class="pixel-btn small" disabled>保存</button>
+                <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
               </div>
             </div>
             <div class="emp-detail-section">
-              <div class="emp-detail-section-title">工作准则</div>
+              <div class="emp-detail-section-title">Work Principles</div>
               <div class="emp-detail-section-content" id="emp-detail-principles"></div>
             </div>
             <div class="emp-detail-section">
-              <div class="emp-detail-section-title">领导教诲</div>
+              <div class="emp-detail-section-title">1-on-1 Notes</div>
               <div class="emp-detail-section-content" id="emp-detail-guidance"></div>
             </div>
           </div>
@@ -201,19 +201,21 @@
   <div id="workflow-modal" class="modal-overlay hidden">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#128203; 规章制度 — 公司工作流</h3>
+        <h3 class="pixel-title">&#128203; Company Rules — Workflows</h3>
         <button id="workflow-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body">
         <div id="workflow-list" class="workflow-sidebar"></div>
         <div id="workflow-editor" class="workflow-main">
-          <div id="workflow-placeholder" class="workflow-placeholder">&#8592; 选择一个工作流查看</div>
+          <div id="workflow-placeholder" class="workflow-placeholder">&#8592; Select a workflow to view</div>
+          <div id="workflow-rendered" class="workflow-rendered hidden"></div>
           <textarea id="workflow-content" class="workflow-textarea hidden" rows="20"></textarea>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="workflow-save-btn" class="pixel-btn" disabled>&#128190; 保存修改</button>
-        <button id="workflow-cancel-btn" class="pixel-btn secondary">取消</button>
+        <button id="workflow-edit-btn" class="pixel-btn" disabled>&#9998; Edit</button>
+        <button id="workflow-save-btn" class="pixel-btn hidden" disabled>&#128190; Save Changes</button>
+        <button id="workflow-cancel-btn" class="pixel-btn secondary">Cancel</button>
       </div>
     </div>
   </div>
@@ -222,10 +224,10 @@
   <div id="meeting-modal" class="modal-overlay hidden">
     <div class="modal-content meeting-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title" id="meeting-modal-title">&#127970; 会议室</h3>
+        <h3 class="pixel-title" id="meeting-modal-title">&#127970; Meeting Room</h3>
         <div class="meeting-modal-status">
           <span id="meeting-modal-status-led" class="status-led free"></span>
-          <span id="meeting-modal-status-text" class="status-text">空闲</span>
+          <span id="meeting-modal-status-text" class="status-text">Available</span>
         </div>
         <button id="meeting-close-btn" class="modal-close">&#10005;</button>
       </div>
@@ -233,17 +235,17 @@
         <!-- Left: Room info + participants -->
         <div id="meeting-info-panel" class="meeting-info">
           <div class="meeting-info-block">
-            <div class="meeting-info-label">容量</div>
-            <div id="meeting-capacity" class="meeting-info-value">6人</div>
+            <div class="meeting-info-label">Capacity</div>
+            <div id="meeting-capacity" class="meeting-info-value">6 people</div>
           </div>
           <div class="meeting-info-block">
-            <div class="meeting-info-label">参会人员</div>
-            <div id="meeting-participants" class="meeting-participants-list">暂无</div>
+            <div class="meeting-info-label">Participants</div>
+            <div id="meeting-participants" class="meeting-participants-list">None</div>
           </div>
         </div>
         <!-- Right: Chat panel -->
         <div id="meeting-chat-panel" class="meeting-chat">
-          <div class="meeting-chat-header">实时会议记录</div>
+          <div class="meeting-chat-header">Live Meeting Log</div>
           <div id="meeting-chat-messages" class="meeting-chat-messages"></div>
         </div>
       </div>
@@ -254,7 +256,7 @@
   <div id="candidate-modal" class="modal-overlay hidden">
     <div class="modal-content candidate-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#128100; Boss Online — 候选人选择</h3>
+        <h3 class="pixel-title">&#128100; Boss Online — Candidate Selection</h3>
         <button id="candidate-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body candidate-modal-body">
@@ -264,34 +266,44 @@
     </div>
   </div>
 
-  <!-- Interview Chatbot Modal (separate from candidate selection) -->
+  <!-- Interview Chatbot Modal -->
   <div id="interview-modal" class="modal-overlay hidden">
     <div class="modal-content interview-modal-content">
-      <div class="modal-header">
-        <h3 class="pixel-title" id="interview-modal-title">&#128172; 面试</h3>
+      <div class="modal-header interview-header">
+        <div class="interview-header-info">
+          <h3 class="pixel-title" id="interview-modal-title">&#128172; Interview</h3>
+          <span class="interview-model-badge" id="interview-model-badge"></span>
+        </div>
         <button id="interview-close-btn" class="modal-close">&#10005;</button>
       </div>
-      <div class="interview-chat-area">
-        <div id="interview-chat" class="interview-chat"></div>
+      <div class="chat-container">
+        <div id="interview-chat" class="chat-messages"></div>
+        <div id="interview-typing" class="chat-typing hidden">
+          <div class="typing-avatar">&#129302;</div>
+          <div class="typing-dots"><span></span><span></span><span></span></div>
+        </div>
       </div>
-      <div class="interview-bottom">
-        <div class="interview-input-row">
-          <input type="text" id="interview-question" placeholder="输入面试问题..." />
-          <button id="interview-ask-btn" class="pixel-btn small">发送</button>
-        </div>
-        <div class="interview-actions">
-          <button id="interview-hire-btn" class="pixel-btn">&#9989; 录用此人</button>
-          <button id="interview-back-btn" class="pixel-btn secondary">&#8592; 返回候选人</button>
-        </div>
+      <div id="interview-preview-bar" class="chat-preview-bar hidden"></div>
+      <div class="chat-input-area">
+        <label class="chat-attach-btn" title="Attach file or image">
+          <input type="file" id="interview-file-input" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md" hidden />
+          &#128206;
+        </label>
+        <textarea id="interview-question" class="chat-textarea" placeholder="Type a message..." rows="1"></textarea>
+        <button id="interview-ask-btn" class="chat-send-btn" title="Send">&#9654;</button>
+      </div>
+      <div class="interview-actions">
+        <button id="interview-hire-btn" class="pixel-btn">&#9989; Hire</button>
+        <button id="interview-back-btn" class="pixel-btn secondary">&#8592; Back to Candidates</button>
       </div>
     </div>
   </div>
 
-  <!-- Ex-Employee Wall Modal (历史员工墙) -->
+  <!-- Ex-Employee Wall Modal -->
   <div id="ex-employee-modal" class="modal-overlay hidden">
     <div class="modal-content ex-employee-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#128220; 历史员工墙</h3>
+        <h3 class="pixel-title">&#128220; Ex-Employee Wall</h3>
         <button id="ex-employee-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body">
@@ -300,11 +312,11 @@
     </div>
   </div>
 
-  <!-- Operations Dashboard Modal (运营情况板) -->
+  <!-- Operations Dashboard Modal -->
   <div id="dashboard-modal" class="modal-overlay hidden">
     <div class="modal-content dashboard-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#128202; 运营情况板</h3>
+        <h3 class="pixel-title">&#128202; Dashboard</h3>
         <button id="dashboard-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body">
@@ -313,17 +325,17 @@
     </div>
   </div>
 
-  <!-- Culture Wall Modal (公司文化墙) -->
+  <!-- Culture Wall Modal -->
   <div id="culture-wall-modal" class="modal-overlay hidden">
     <div class="modal-content culture-wall-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#127988; 公司文化墙</h3>
+        <h3 class="pixel-title">&#127988; Culture Wall</h3>
         <button id="culture-wall-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body culture-wall-body">
         <div class="culture-wall-input-area">
-          <textarea id="culture-wall-input" placeholder="输入新的公司文化条目..." rows="2"></textarea>
-          <button id="culture-wall-add-btn" class="pixel-btn">&#10010; 添加</button>
+          <textarea id="culture-wall-input" placeholder="Add a new culture entry..." rows="2"></textarea>
+          <button id="culture-wall-add-btn" class="pixel-btn">&#10010; Add</button>
         </div>
         <div id="culture-wall-list" class="culture-wall-list"></div>
       </div>
@@ -334,13 +346,13 @@
   <div id="project-modal" class="modal-overlay hidden">
     <div class="modal-content project-modal-content">
       <div class="modal-header">
-        <h3 class="pixel-title">&#128203; 项目墙 — 全部任务</h3>
+        <h3 class="pixel-title">&#128203; Project Wall — All Tasks</h3>
         <button id="project-close-btn" class="modal-close">&#10005;</button>
       </div>
       <div class="modal-body">
         <div id="project-list" class="project-list"></div>
         <div id="project-detail" class="project-detail hidden">
-          <button id="project-back-btn" class="pixel-btn small">&#8592; 返回列表</button>
+          <button id="project-back-btn" class="pixel-btn small">&#8592; Back to List</button>
           <div id="project-detail-content"></div>
         </div>
       </div>

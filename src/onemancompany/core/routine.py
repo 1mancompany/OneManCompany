@@ -23,7 +23,20 @@ from typing import Any, Callable, Awaitable
 import yaml
 
 from onemancompany.agents.base import make_llm
-from onemancompany.core.config import PROJECT_ROOT, load_workflows, update_employee_performance
+from onemancompany.core.config import (
+    CEO_ID,
+    COO_ID,
+    FOUNDING_LEVEL,
+    HR_ID,
+    MAX_PRINCIPLES_LEN,
+    MAX_SUMMARY_LEN,
+    MAX_WORKFLOW_CONTEXT_LEN,
+    PROJECT_ROOT,
+    STATUS_IDLE,
+    STATUS_IN_MEETING,
+    load_workflows,
+    update_employee_performance,
+)
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.workflow_engine import (
@@ -88,7 +101,7 @@ class StepContext:
         self.room_id = room_id
         self.workflow = workflow
         self.meeting_doc = meeting_doc
-        self.project_record = project_record or {}  # 项目留痕记录，供复盘参考
+        self.project_record = project_record or {}  # Project audit trail for retrospective reference
         # Accumulate results from each step so later steps can reference earlier ones
         self.results: dict[str, Any] = {}
         # Accumulated data buckets (matching old structure)
@@ -176,7 +189,7 @@ async def _handle_meeting_prep(step: WorkflowStep, ctx: StepContext) -> dict:
 
 async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
     """Each participating employee self-evaluates their work."""
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
 
     step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
     workflow_ctx = ""
@@ -199,7 +212,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
         principles_ctx = ""
         if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:400]}\n"
+            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         my_actions = ctx.get_employee_actions(emp_id)
 
@@ -242,7 +255,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
 async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
     """Higher-level employees review lower-level employees' work."""
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": "高级员工开始互评"})
 
@@ -323,7 +336,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
 
 async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     """HR summarizes improvement points per employee."""
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": "HR正在总结改进点"})
 
@@ -406,7 +419,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
 
 async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO produces a company operations report."""
-    llm = make_llm("coo")
+    llm = make_llm(COO_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": "COO正在出具运营报告"})
 
@@ -449,7 +462,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
 
 async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> dict:
     """Employee open discussion — everyone speaks freely."""
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": "员工自由发言开始"})
 
@@ -465,7 +478,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
         principles_ctx = ""
         if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:400]}\n"
+            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         timeline_ctx = ""
         timeline_text = ctx.format_project_timeline()
@@ -510,7 +523,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
 async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO + HR summarize action items from the meeting."""
-    llm = make_llm("coo")
+    llm = make_llm(COO_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": "COO和HR正在整理行动计划"})
 
@@ -574,7 +587,7 @@ async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
 
     Uses LLM to produce a summary based on the step definition.
     """
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
 
     step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
 
@@ -599,20 +612,20 @@ async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
 # Register handlers — title-keyword matching (checked first, more specific)
 # ---------------------------------------------------------------------------
 
-# Title keywords map to specific handlers for 项目复盘工作流 steps
-_register_title_handler("评审会准备", _handle_meeting_prep)
-_register_title_handler("员工自评", _handle_self_evaluation)
-_register_title_handler("高级员工互评", _handle_senior_review)
-_register_title_handler("互评", _handle_senior_review)
-_register_title_handler("HR总结", _handle_hr_summary)
-_register_title_handler("总结改进", _handle_hr_summary)
-_register_title_handler("COO运营报告", _handle_coo_report)
-_register_title_handler("运营报告", _handle_coo_report)
-_register_title_handler("员工自由发言", _handle_employee_open_floor)
-_register_title_handler("自由发言", _handle_employee_open_floor)
-_register_title_handler("行动计划", _handle_action_plan)
-_register_title_handler("CEO审批", _handle_ceo_review)
-_register_title_handler("审批与执行", _handle_ceo_review)
+# Title keywords map to specific handlers for project retrospective workflow steps
+_register_title_handler("Review Preparation", _handle_meeting_prep)
+_register_title_handler("Self-Evaluation", _handle_self_evaluation)
+_register_title_handler("Senior Peer Review", _handle_senior_review)
+_register_title_handler("Peer Review", _handle_senior_review)
+_register_title_handler("HR Summary", _handle_hr_summary)
+_register_title_handler("Summary", _handle_hr_summary)
+_register_title_handler("COO Operations Report", _handle_coo_report)
+_register_title_handler("Operations Report", _handle_coo_report)
+_register_title_handler("Employee Open Floor", _handle_employee_open_floor)
+_register_title_handler("Open Floor", _handle_employee_open_floor)
+_register_title_handler("Action Plan", _handle_action_plan)
+_register_title_handler("CEO Approval", _handle_ceo_review)
+_register_title_handler("Approval", _handle_ceo_review)
 
 # Owner-based fallback handlers
 _register_owner_handler("employees", _handle_self_evaluation)
@@ -685,7 +698,7 @@ async def run_post_task_routine(
 ) -> None:
     """Run the full post-task routine. Called after a task completes.
 
-    Dynamically loads and executes the 项目复盘工作流 from company_rules/.
+    Dynamically loads and executes the project_retrospective_workflow from company_rules/.
     Falls back to the hardcoded two-phase meeting if no workflow document exists.
     """
     all_employees = list(company_state.employees.values())
@@ -709,19 +722,19 @@ async def run_post_task_routine(
         }
         if actual_contributors:
             # Always include HR and COO (they participate in retrospective regardless)
-            actual_contributors.update({"hr", "coo"})
+            actual_contributors.update({HR_ID, COO_ID})
             participants = [pid for pid in participants if pid in actual_contributors]
 
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
         emp = company_state.employees.get(pid)
-        if emp and emp.level < 4:  # only track for normal employees
+        if emp and emp.level < FOUNDING_LEVEL:  # only track for normal employees
             emp.current_quarter_tasks += 1
             update_employee_performance(pid, emp.current_quarter_tasks, emp.performance_history)
 
     # Load workflow documents
     workflows = load_workflows()
-    workflow_doc = workflows.get("项目复盘工作流", "")
+    workflow_doc = workflows.get("project_retrospective_workflow", "")
 
     # If no workflow document, fall back to hardcoded behavior
     if not workflow_doc:
@@ -729,7 +742,7 @@ async def run_post_task_routine(
         return
 
     # Parse the workflow into structured steps
-    workflow = parse_workflow("项目复盘工作流", workflow_doc)
+    workflow = parse_workflow("project_retrospective_workflow", workflow_doc)
     if not workflow.steps:
         # Malformed document — fall back
         await _run_post_task_routine_fallback(task_summary, participants)
@@ -756,8 +769,8 @@ async def run_post_task_routine(
     for r in company_state.meeting_rooms.values():
         if not r.is_booked:
             r.is_booked = True
-            r.booked_by = "hr"
-            r.participants = list(dict.fromkeys(participants + ["hr", "coo"]))
+            r.booked_by = HR_ID
+            r.participants = list(dict.fromkeys(participants + [HR_ID, COO_ID]))
             room = r
             break
 
@@ -773,7 +786,7 @@ async def run_post_task_routine(
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, "in_meeting")
+    _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         # Create the execution context (with project record for retrospective)
@@ -786,10 +799,10 @@ async def run_post_task_routine(
             project_record=project_record,
         )
 
-        # Execute workflow steps dynamically (skip the first "准备" step since
+        # Execute workflow steps dynamically (skip the first "preparation" step since
         # room booking was already handled above)
         steps_to_run = workflow.steps
-        if steps_to_run and "准备" in steps_to_run[0].title:
+        if steps_to_run and ("Preparation" in steps_to_run[0].title or "Prep" in steps_to_run[0].title):
             steps_to_run = steps_to_run[1:]
 
         # Build a workflow with the remaining steps and execute
@@ -838,17 +851,17 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get("id", ""), "自评", ev.get("evaluation", "")[:300])
+                append_action(project_id, ev.get("id", ""), "自评", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
-                append_action(project_id, rv.get("reviewer_id", ""), "高级评审", rv.get("review", "")[:300])
+                append_action(project_id, rv.get("reviewer_id", ""), "高级评审", rv.get("review", "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:
-                append_action(project_id, "coo", "运营报告", ctx.coo_report[:300])
+                append_action(project_id, COO_ID, "运营报告", ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
-                append_action(project_id, ai.get("source", ""), "改进项", ai.get("description", "")[:300])
+                append_action(project_id, ai.get("source", ""), "改进项", ai.get("description", "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room
-        _set_participants_status(room.participants, "idle")
+        _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
@@ -862,7 +875,7 @@ async def run_post_task_routine(
 async def _run_post_task_routine_fallback(task_summary: str, participants: list[str]) -> None:
     """Original hardcoded two-phase meeting, used when no workflow doc is available."""
     workflows = load_workflows()
-    workflow_doc = workflows.get("项目复盘工作流", "")
+    workflow_doc = workflows.get("project_retrospective_workflow", "")
 
     report_id = str(uuid.uuid4())[:8]
     meeting_doc: dict = {
@@ -882,8 +895,8 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
     for r in company_state.meeting_rooms.values():
         if not r.is_booked:
             r.is_booked = True
-            r.booked_by = "hr"
-            r.participants = list(dict.fromkeys(participants + ["hr", "coo"]))
+            r.booked_by = HR_ID
+            r.participants = list(dict.fromkeys(participants + [HR_ID, COO_ID]))
             room = r
             break
 
@@ -899,7 +912,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, "in_meeting")
+    _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         # PHASE 1: Review Meeting
@@ -931,7 +944,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         })
 
     finally:
-        _set_participants_status(room.participants, "idle")
+        _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
@@ -942,12 +955,12 @@ async def _run_phase1_legacy(
     task_summary: str, participants: list[str], workflow_doc: str = "", room_id: str = ""
 ) -> dict:
     """Legacy Phase 1: Employee self-evaluation, senior reviews junior, HR summarizes."""
-    llm = make_llm("hr")
+    llm = make_llm(HR_ID)
     result: dict = {"self_evaluations": [], "senior_reviews": [], "hr_summary": []}
 
     workflow_ctx = ""
     if workflow_doc:
-        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:800]}\n请按照以上工作流规范执行。\n"
+        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\n请按照以上工作流规范执行。\n"
 
     # Step 1: Employee self-evaluations
     for emp_id in participants:
@@ -957,7 +970,7 @@ async def _run_phase1_legacy(
 
         principles_ctx = ""
         if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:400]}\n"
+            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         prompt = (
             f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
@@ -1103,12 +1116,12 @@ async def _run_phase2_legacy(
     room_id: str = "",
 ) -> dict:
     """Legacy Phase 2: COO report, employee feedback, action items for CEO."""
-    llm = make_llm("coo")
+    llm = make_llm(COO_ID)
     result: dict = {"coo_report": "", "employee_feedback": [], "action_items": []}
 
     workflow_ctx = ""
     if workflow_doc:
-        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:800]}\n请按照以上工作流规范执行。\n"
+        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\n请按照以上工作流规范执行。\n"
 
     # Step 1: COO operations report
     emp_count = len(company_state.employees)
@@ -1137,7 +1150,7 @@ async def _run_phase2_legacy(
 
         principles_ctx = ""
         if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:400]}\n"
+            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         prompt = (
             f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，"
@@ -1260,6 +1273,12 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     """CEO approved certain action items. HR and COO execute them."""
     doc = pending_reports.pop(report_id, None)
     if not doc:
+        # Fallback: try loading from disk (survives server restart)
+        report_path = REPORTS_DIR / f"{report_id}.yaml"
+        if report_path.exists():
+            with open(report_path) as f:
+                doc = yaml.safe_load(f)
+    if not doc:
         return "Report not found."
 
     action_items = doc.get("action_items", [])
@@ -1305,7 +1324,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
             results.append(f"COO执行出错: {e}")
 
     summary = "; ".join(results) if results else "无需执行的行动"
-    await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:300]})
+    await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
 
     doc["execution"] = {"approved": approved, "results": results}
     _save_report(doc["id"], doc)
@@ -1332,8 +1351,8 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
     for r in sorted(company_state.meeting_rooms.values(), key=lambda x: x.capacity, reverse=True):
         if not r.is_booked:
             r.is_booked = True
-            r.booked_by = "ceo"
-            r.participants = ["ceo"] + [e.id for e in all_employees]
+            r.booked_by = CEO_ID
+            r.participants = [CEO_ID] + [e.id for e in all_employees]
             room = r
             break
 
@@ -1349,7 +1368,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, "in_meeting")
+    _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         await _publish("routine_phase", {
@@ -1363,12 +1382,12 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         })
         await _chat(room.id, "CEO", "CEO", ceo_message)
 
-        llm = make_llm("hr")
+        llm = make_llm(HR_ID)
 
         for emp in all_employees:
             principles_ctx = ""
             if emp.work_principles:
-                principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:400]}\n"
+                principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
             prompt = (
                 f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
@@ -1415,7 +1434,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         _save_report(report_id, doc)
 
     finally:
-        _set_participants_status(room.participants, "idle")
+        _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []

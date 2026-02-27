@@ -10,6 +10,19 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from onemancompany.agents.base import BaseAgentRunner
 from onemancompany.api.websocket import ws_manager
+from onemancompany.core.config import (
+    DESK_GRID_COLS,
+    DESK_SPACING_X,
+    DESK_SPACING_Y,
+    DESK_START_X,
+    DESK_START_Y,
+    FOUNDING_LEVEL,
+    HR_ID,
+    HR_KEYWORDS,
+    MAX_SUMMARY_LEN,
+    STATUS_IDLE,
+    STATUS_WORKING,
+)
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import TaskEntry, company_state
 
@@ -36,13 +49,13 @@ async def _run_agent_safe(
         result = await coro
         # Record agent output in project timeline
         if project_id and result:
-            summary = result[:500] if isinstance(result, str) else str(result)[:500]
-            append_action(project_id, agent_name.lower(), f"{agent_name} 完成任务", summary)
+            summary = result[:MAX_SUMMARY_LEN] if isinstance(result, str) else str(result)[:MAX_SUMMARY_LEN]
+            append_action(project_id, agent_name.lower(), f"{agent_name} task completed", summary)
             _sync_task_owner(agent_name.lower())
     except Exception as e:
         traceback.print_exc()
         if project_id:
-            append_action(project_id, agent_name.lower(), f"{agent_name} 出错", str(e)[:300])
+            append_action(project_id, agent_name.lower(), f"{agent_name} error", str(e)[:MAX_SUMMARY_LEN])
         await event_bus.publish(
             CompanyEvent(
                 type="agent_done",
@@ -68,7 +81,7 @@ async def _run_agent_safe(
 
     # Reset all employees to idle after task + routine completes
     for emp in company_state.employees.values():
-        emp.status = "idle"
+        emp.status = STATUS_IDLE
 
     # Remove from active tasks
     if project_id:
@@ -78,7 +91,7 @@ async def _run_agent_safe(
 
     # Mark project completed after routine
     if project_id:
-        complete_project(project_id, run_routine_after or "任务完成")
+        complete_project(project_id, run_routine_after or "Task completed")
 
 
 @router.get("/api/state")
@@ -106,15 +119,12 @@ async def ceo_submit_task(body: dict) -> dict:
 
     # Set all normal employees to "working" during task
     for emp in company_state.employees.values():
-        if emp.level < 4:
-            emp.status = "working"
+        if emp.level < FOUNDING_LEVEL:
+            emp.status = STATUS_WORKING
 
     # Simple keyword-based routing
     task_lower = task.lower()
-    hr_keywords = ["hire", "recruit", "employee", "staff", "review", "performance",
-                    "fire", "dismiss", "terminate",
-                    "招聘", "员工", "评价", "评估", "花名", "晋升", "开除", "解雇", "辞退"]
-    if any(w in task_lower for w in hr_keywords):
+    if any(w in task_lower for w in HR_KEYWORDS):
         pid = create_project(task, "HR", [e.id for e in company_state.employees.values()])
         company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="HR"))
         asyncio.create_task(
@@ -145,9 +155,10 @@ async def ceo_give_guidance(body: dict) -> dict:
         return {"error": f"Employee '{employee_id}' not found"}
 
     # Route to the right agent
+    from onemancompany.core.config import COO_ID, HR_ID
     agent_map: dict[str, BaseAgentRunner] = {
-        "hr": hr_agent,
-        "coo": coo_agent,
+        HR_ID: hr_agent,
+        COO_ID: coo_agent,
     }
 
     agent = agent_map.get(employee_id)
@@ -171,7 +182,7 @@ async def ceo_give_guidance(body: dict) -> dict:
                 "employee_id": employee_id,
                 "name": emp.name,
                 "guidance": guidance,
-                "acknowledgment": f"{emp.name} 已记录领导指示。",
+                "acknowledgment": f"{emp.name} has noted the guidance.",
             },
             agent="CEO",
         )
@@ -209,13 +220,13 @@ async def book_meeting(body: dict) -> dict:
         return {"error": "Missing employee_id"}
 
     task = (
-        f"员工 {employee_id} 申请预约会议室，"
-        f"参会人员: {', '.join(participants) if participants else '无'}，"
-        f"会议目的: {purpose or '未说明'}。"
-        f"请检查是否有空闲会议室并处理此请求。"
+        f"Employee {employee_id} requests to book a meeting room. "
+        f"Participants: {', '.join(participants) if participants else 'none'}. "
+        f"Purpose: {purpose or 'not specified'}. "
+        f"Please check availability and process this request."
     )
     asyncio.create_task(_run_agent_safe(coo_agent.run(task), "COO"))
-    return {"status": "processing", "message": "COO 正在处理会议室申请"}
+    return {"status": "processing", "message": "COO is processing the meeting room request"}
 
 
 @router.post("/api/meeting/release")
@@ -263,7 +274,7 @@ async def start_routine(body: dict) -> dict:
     """Trigger the post-task company routine (review meeting + operations review)."""
     from onemancompany.core.routine import run_post_task_routine
 
-    task_summary = body.get("task_summary", "常规任务完成")
+    task_summary = body.get("task_summary", "Routine task completed")
     participants = body.get("participants")  # None = all employees
     asyncio.create_task(
         _run_agent_safe(run_post_task_routine(task_summary, participants), "ROUTINE")
@@ -429,7 +440,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
             type="agent_done",
             payload={
                 "role": "CEO",
-                "summary": f"已将 {emp.name}({emp.nickname}) 的模型更新为 {model_id}",
+                "summary": f"Updated {emp.name} ({emp.nickname})'s model to {model_id}",
             },
             agent="CEO",
         )
@@ -438,7 +449,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     return {"status": "updated", "employee_id": employee_id, "model": model_id}
 
 
-# ===== Culture Wall (公司文化墙) =====
+# ===== Culture Wall =====
 
 @router.get("/api/culture-wall")
 async def get_culture_wall() -> dict:
@@ -495,7 +506,7 @@ async def remove_culture_item(index: int) -> dict:
     return {"status": "removed", "removed": removed}
 
 
-# ===== File Editor (文件编辑 — CEO审批) =====
+# ===== File Editor (CEO Approval) =====
 
 @router.get("/api/file-edits")
 async def get_pending_edits() -> dict:
@@ -546,7 +557,7 @@ async def reject_file_edit(edit_id: str) -> dict:
     return result
 
 
-# ===== Project Archive (项目墙) =====
+# ===== Project Archive =====
 
 @router.get("/api/projects")
 async def get_projects() -> dict:
@@ -565,7 +576,7 @@ async def get_project_detail(project_id: str) -> dict:
     return doc
 
 
-# ===== Ex-Employees (离职员工) =====
+# ===== Ex-Employees =====
 
 @router.get("/api/ex-employees")
 async def get_ex_employees() -> dict:
@@ -596,11 +607,16 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     guidance = load_employee_guidance(employee_id)
     principles = load_work_principles(employee_id)
 
-    # Find next desk position
-    count = len(company_state.employees)
-    row = count // 5
-    col = count % 5
-    desk_pos = (2 + col * 3, 2 + row * 3)
+    # Find next available desk position
+    occupied = {tuple(e.desk_position) for e in company_state.employees.values()}
+    slot = 0
+    while True:
+        row = slot // DESK_GRID_COLS
+        col = slot % DESK_GRID_COLS
+        desk_pos = (DESK_START_X + col * DESK_SPACING_X, DESK_START_Y + row * DESK_SPACING_Y)
+        if desk_pos not in occupied:
+            break
+        slot += 1
 
     # Restore to active employees with reset performance
     emp = Employee(
@@ -635,10 +651,15 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         )
     )
 
-    return {"status": "rehired", "employee_id": employee_id, "name": emp.name}
+    return {
+        "status": "rehired",
+        "employee_id": employee_id,
+        "name": emp.name,
+        "state": company_state.to_json(),
+    }
 
 
-# ===== Candidate Selection (Boss Online → CEO) =====
+# ===== Candidate Selection =====
 
 @router.post("/api/candidates/hire")
 async def hire_candidate(body: dict) -> dict:
@@ -654,12 +675,46 @@ async def hire_candidate(body: dict) -> dict:
     if not candidate:
         return {"error": "Candidate not found"}
 
-    # Build hire JSON and let HR apply it
+    # Peek at next employee number before hire to know the assigned id
+    next_num = f"{company_state._next_employee_number:05d}"
+
+    # Auto-generate 花名 (nickname) if not provided — let the "employee" pick their own
+    nickname = body.get("nickname", "")
+    if not nickname:
+        from onemancompany.agents.base import make_llm
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        gen_llm = make_llm(HR_ID)
+        gen_prompt = (
+            f"You are {candidate['name']}, a {candidate['role']}, "
+            f"about to join a company. The company has a 花名 (nickname) culture — every employee picks a 花名 (two Chinese characters).\n"
+            f"Requirements for your 花名:\n"
+            f"- Exactly two Chinese characters\n"
+            f"- Reflects your personality, expertise, or aspirations\n"
+            f"- Meaningful and catchy\n"
+            f"- Reference style: 飞鱼, 星辰, 雷鸣, 云帆, 青松, 铁锤, 晓风, 墨竹\n\n"
+            f"Reply with ONLY your 花名 (two Chinese characters), nothing else."
+        )
+        gen_result = await gen_llm.ainvoke([
+            SystemMessage(content="You are a new employee about to join the company. Pick a 花名 (nickname) for yourself."),
+            HumanMessage(content=gen_prompt),
+        ])
+        nickname = gen_result.content.strip()
+        # Clean up — extract exactly 2 Chinese characters
+        import re
+        chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
+        if len(chinese_chars) >= 2:
+            nickname = ''.join(chinese_chars[:2])
+        elif chinese_chars:
+            nickname = ''.join(chinese_chars)
+        else:
+            nickname = ""  # fallback — no valid nickname generated
+
+    # Build hire JSON and let HR apply it (id is assigned by HR as employee_number)
     skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
     hire_json = json.dumps({
         "action": "hire",
         "employee": {
-            "id": candidate["id"],
             "name": candidate["name"],
             "nickname": nickname or "",
             "role": candidate["role"],
@@ -675,38 +730,53 @@ async def hire_candidate(body: dict) -> dict:
         CompanyEvent(type="state_snapshot", payload={}, agent="CEO")
     )
 
-    return {"status": "hired", "employee_id": candidate["id"], "name": candidate["name"]}
+    return {
+        "status": "hired",
+        "employee_id": next_num,
+        "name": candidate["name"],
+        "nickname": nickname,
+        "state": company_state.to_json(),
+    }
 
 
 @router.post("/api/candidates/interview")
 async def interview_candidate(body: dict) -> dict:
-    """CEO interviews a candidate by asking a question. Returns the candidate's answer."""
+    """CEO interviews a candidate by asking a question. Supports text and image input."""
     question = body.get("question", "")
     candidate = body.get("candidate", {})
+    images = body.get("images", [])  # list of base64-encoded image strings
 
     if not question or not candidate:
         return {"error": "Missing question or candidate data"}
 
-    # Use the candidate's system_prompt to generate an answer
     from onemancompany.agents.base import make_llm
     from langchain_core.messages import HumanMessage, SystemMessage
 
-    system_prompt = candidate.get("system_prompt", "你是一名求职者。")
+    system_prompt = candidate.get("system_prompt", "You are a job candidate.")
     skill_desc = ", ".join(
-        s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])
+        s["name"] if isinstance(s, dict) else s
+        for s in candidate.get("skill_set", [])
     )
     full_prompt = (
         f"{system_prompt}\n\n"
-        f"你正在面试，你的名字是 {candidate.get('name', '候选人')}，"
-        f"你的角色是 {candidate.get('role', '工程师')}，"
-        f"你的技能包括: {skill_desc}。\n"
-        f"请认真回答面试问题，展示你的专业能力。用中文回答。"
+        f"You are in an interview. Your name is {candidate.get('name', 'Candidate')}, "
+        f"your role is {candidate.get('role', 'Engineer')}, "
+        f"and your skills include: {skill_desc}.\n"
+        f"Answer the interview question thoughtfully and demonstrate your expertise."
     )
 
-    llm = make_llm("hr")  # use HR's model for simulation
+    # Build message content — text + optional images
+    content: list = [{"type": "text", "text": question}]
+    for img_b64 in images[:3]:  # limit to 3 images per message
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+        })
+
+    llm = make_llm(HR_ID)
     result = await llm.ainvoke([
         SystemMessage(content=full_prompt),
-        HumanMessage(content=question),
+        HumanMessage(content=content if images else question),
     ])
 
     return {

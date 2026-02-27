@@ -1,0 +1,20 @@
+current_quarter_tasks: 0
+department: 技术研发部
+desk_position:
+- 5
+- 5
+employee_number: 00008
+level: 1
+llm_model: google/gemini-3.1-flash-image-preview
+name: Rowan Park
+nickname: 小朴
+performance_history: []
+role: Engineer
+skills:
+- fastapi
+- databases
+- python
+- algorithms
+sprite: employee_blue
+temperature: 0.7
+title: 初级工程师

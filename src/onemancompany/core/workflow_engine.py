@@ -9,20 +9,20 @@ Markdown format expected (by convention used in company_rules/):
 
     # Workflow Title
 
-    - **流程ID**: some_id
-    - **责任人**: HR（知心姐）
-    - **协作人**: COO（铁面侠）、项目全体成员
-    - **触发条件**: ...
+    - **Flow ID**: some_id
+    - **Owner**: HR (知心姐)
+    - **Collaborators**: COO (铁面侠), all project members
+    - **Trigger**: ...
 
     ---
 
-    ## 阶段一：Step Title
+    ## Phase 1: Step Title
 
-    - **负责人**: HR / COO / 每位参与员工 / ...
-    - **步骤**:
+    - **Responsible**: HR / COO / Each participating employee / ...
+    - **Steps**:
       1. Do something
       2. Do something else
-    - **产出**: Description of output
+    - **Output**: Description of output
 
 The engine parses these into WorkflowStep objects and executes them via
 pluggable step handlers.
@@ -39,12 +39,12 @@ class WorkflowStep:
     """A single stage/phase parsed from a workflow markdown document."""
 
     index: int  # 0-based position in the workflow
-    title: str  # e.g., "阶段一：评审会准备"
-    owner: str  # e.g., "HR", "COO", "每位参与员工", "COO + HR"
+    title: str  # e.g., "Phase 1: Review Preparation"
+    owner: str  # e.g., "HR", "COO", "Each participating employee", "COO + HR"
     instructions: list[str]  # numbered sub-steps
     output_description: str  # what this step produces
     raw_text: str  # full markdown text of this section
-    collaborators: str = ""  # optional 协作人 at step level
+    collaborators: str = ""  # optional collaborators at step level
 
 
 @dataclass
@@ -52,10 +52,10 @@ class WorkflowDefinition:
     """A fully parsed workflow document."""
 
     name: str  # workflow title from the H1 header
-    flow_id: str  # 流程ID
-    owner: str  # 责任人
-    collaborators: str  # 协作人
-    trigger: str  # 触发条件
+    flow_id: str  # Flow ID
+    owner: str  # Owner
+    collaborators: str  # Collaborators
+    trigger: str  # Trigger
     steps: list[WorkflowStep] = field(default_factory=list)
     raw_text: str = ""  # full original markdown
 
@@ -79,19 +79,19 @@ def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
     if header_match:
         header_text = header_match.group(1)
         # Parse metadata fields
-        flow_id_match = re.search(r"\*\*流程ID\*\*:\s*(.+)", header_text)
+        flow_id_match = re.search(r"\*\*Flow ID\*\*:\s*(.+)", header_text)
         if flow_id_match:
             wf.flow_id = flow_id_match.group(1).strip()
 
-        owner_match = re.search(r"\*\*责任人\*\*:\s*(.+)", header_text)
+        owner_match = re.search(r"\*\*Owner\*\*:\s*(.+)", header_text)
         if owner_match:
             wf.owner = owner_match.group(1).strip()
 
-        collab_match = re.search(r"\*\*协作人\*\*:\s*(.+)", header_text)
+        collab_match = re.search(r"\*\*Collaborators\*\*:\s*(.+)", header_text)
         if collab_match:
             wf.collaborators = collab_match.group(1).strip()
 
-        trigger_match = re.search(r"\*\*触发条件\*\*:\s*(.+)", header_text)
+        trigger_match = re.search(r"\*\*Trigger\*\*:\s*(.+)", header_text)
         if trigger_match:
             wf.trigger = trigger_match.group(1).strip()
 
@@ -116,25 +116,25 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     title = lines[0].strip()
     full_text = "## " + section_text
 
-    # Extract owner (负责人)
+    # Extract owner (Responsible)
     owner = ""
-    owner_match = re.search(r"\*\*负责人\*\*:\s*(.+)", section_text)
+    owner_match = re.search(r"\*\*Responsible\*\*:\s*(.+)", section_text)
     if owner_match:
         owner = owner_match.group(1).strip()
 
     # Extract collaborators at step level
     collaborators = ""
-    collab_match = re.search(r"\*\*协作人\*\*:\s*(.+)", section_text)
+    collab_match = re.search(r"\*\*Collaborators\*\*:\s*(.+)", section_text)
     if collab_match:
         collaborators = collab_match.group(1).strip()
 
-    # Extract numbered instructions from the 步骤 section
+    # Extract numbered instructions from the Steps section
     instructions: list[str] = []
     in_steps = False
     for line in lines:
         stripped = line.strip()
-        # Detect start of the 步骤 block
-        if "**步骤**:" in stripped or "**步骤**：" in stripped:
+        # Detect start of the Steps block
+        if "**Steps**:" in stripped or "**Steps**:" in stripped:
             in_steps = True
             continue
         # Detect end: another **keyword**: field or a new section
@@ -149,9 +149,9 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
             elif stripped.startswith("- "):
                 instructions.append(stripped[2:].strip())
 
-    # Extract output description (产出)
+    # Extract output description (Output)
     output_desc = ""
-    output_match = re.search(r"\*\*产出\*\*:\s*(.+)", section_text)
+    output_match = re.search(r"\*\*Output\*\*:\s*(.+)", section_text)
     if output_match:
         output_desc = output_match.group(1).strip()
 
@@ -180,15 +180,15 @@ def classify_step_owner(owner_text: str) -> str:
         return "hr"
     if "coo" in text:
         return "coo"
-    # Chinese patterns
-    if "每位" in owner_text or "全体" in owner_text or "参与员工" in owner_text or "参会人员" in owner_text:
+    # English patterns
+    if "each" in text or "all" in text or "participating" in text or "attendees" in text:
         return "employees"
-    if "高级" in owner_text or "上级" in owner_text:
+    if "senior" in text or "supervisor" in text:
         return "senior"
-    if "申请人" in owner_text:
+    if "applicant" in text or "requester" in text:
         return "applicant"
-    if "项目负责人" in owner_text:
+    if "projectlead" in text:
         return "coo"  # project lead is under COO
-    if "候选员工" in owner_text:
+    if "candidate" in text:
         return "senior"
     return "unknown"
