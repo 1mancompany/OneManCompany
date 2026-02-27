@@ -115,6 +115,10 @@ def execute_edit(edit_id: str) -> dict:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(edit["new_content"], encoding="utf-8")
 
+    # Request soft-reload — runs immediately if idle, defers if agents are busy
+    from onemancompany.core.state import request_reload
+    request_reload()
+
     return {
         "status": "applied",
         "rel_path": rel_path,

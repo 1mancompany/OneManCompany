@@ -293,3 +293,184 @@ _seed_company_culture()
 # Compute initial department-based office layout
 from onemancompany.core.layout import compute_layout  # noqa: E402
 compute_layout(company_state)
+
+
+# Whether a reload is pending (deferred because agents were busy)
+_reload_pending: bool = False
+
+
+def is_idle() -> bool:
+    """Return True if no agent tasks are currently running."""
+    return len(company_state.active_tasks) == 0
+
+
+def request_reload() -> dict:
+    """Request a soft reload — executes immediately if idle, defers if busy.
+
+    Returns the reload summary if executed, or a deferred notice.
+    """
+    global _reload_pending
+    if is_idle():
+        _reload_pending = False
+        return reload_all_from_disk()
+    else:
+        _reload_pending = True
+        return {"status": "deferred", "reason": "agents are busy"}
+
+
+def flush_pending_reload() -> dict | None:
+    """If a reload was deferred, execute it now. Called when agents finish."""
+    global _reload_pending
+    if _reload_pending:
+        _reload_pending = False
+        return reload_all_from_disk()
+    return None
+
+
+def reload_all_from_disk() -> dict:
+    """Re-read all disk data into company_state in-place (soft reload).
+
+    Preserves runtime state (status, is_listening) for existing employees.
+    Returns a summary dict of what changed.
+
+    Prefer calling request_reload() which checks idle state first.
+    """
+    from onemancompany.core.config import (
+        load_company_culture,
+        load_employee_configs,
+        load_employee_guidance,
+        load_ex_employee_configs,
+        load_work_principles,
+    )
+    import onemancompany.core.config as config_module
+
+    summary: dict = {"employees_updated": [], "employees_added": [], "culture_reloaded": False, "assets_reloaded": False}
+
+    # --- 1. Reload employee configs from disk ---
+    fresh_configs = load_employee_configs()
+    # Update the module-level employee_configs dict in-place
+    config_module.employee_configs.clear()
+    config_module.employee_configs.update(fresh_configs)
+
+    seen_ids: set[str] = set()
+    for emp_num, cfg in fresh_configs.items():
+        seen_ids.add(emp_num)
+        guidance = load_employee_guidance(emp_num)
+        principles = load_work_principles(emp_num)
+
+        if emp_num in company_state.employees:
+            # Update mutable fields, preserve runtime state
+            emp = company_state.employees[emp_num]
+            changed_fields = []
+            if emp.name != cfg.name:
+                emp.name = cfg.name
+                changed_fields.append("name")
+            if emp.nickname != cfg.nickname:
+                emp.nickname = cfg.nickname
+                changed_fields.append("nickname")
+            if emp.level != cfg.level:
+                emp.level = cfg.level
+                changed_fields.append("level")
+            if emp.department != cfg.department:
+                emp.department = cfg.department
+                changed_fields.append("department")
+            if emp.role != cfg.role:
+                emp.role = cfg.role
+                changed_fields.append("role")
+            if emp.skills != cfg.skills:
+                emp.skills = cfg.skills
+                changed_fields.append("skills")
+            if emp.current_quarter_tasks != cfg.current_quarter_tasks:
+                emp.current_quarter_tasks = cfg.current_quarter_tasks
+                changed_fields.append("current_quarter_tasks")
+            if emp.performance_history != cfg.performance_history:
+                emp.performance_history = list(cfg.performance_history)
+                changed_fields.append("performance_history")
+            if list(cfg.permissions) != emp.permissions:
+                emp.permissions = list(cfg.permissions)
+                changed_fields.append("permissions")
+            if guidance != emp.guidance_notes:
+                emp.guidance_notes = guidance
+                changed_fields.append("guidance_notes")
+            if principles != emp.work_principles:
+                emp.work_principles = principles
+                changed_fields.append("work_principles")
+            if changed_fields:
+                summary["employees_updated"].append({"id": emp_num, "fields": changed_fields})
+        else:
+            # New employee added to disk — seed into company_state
+            try:
+                num_val = int(emp_num)
+                if num_val >= company_state._next_employee_number:
+                    company_state._next_employee_number = num_val + 1
+            except ValueError:
+                pass
+            company_state.employees[emp_num] = Employee(
+                id=emp_num,
+                name=cfg.name,
+                nickname=cfg.nickname,
+                level=cfg.level,
+                department=cfg.department,
+                role=cfg.role,
+                skills=cfg.skills,
+                employee_number=emp_num,
+                current_quarter_tasks=cfg.current_quarter_tasks,
+                performance_history=list(cfg.performance_history),
+                desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
+                sprite=cfg.sprite,
+                guidance_notes=guidance,
+                work_principles=principles,
+                permissions=list(cfg.permissions),
+            )
+            summary["employees_added"].append(emp_num)
+
+    # NOTE: Don't remove employees missing from disk mid-session
+
+    # --- 2. Reload ex-employees ---
+    fresh_ex = load_ex_employee_configs()
+    for emp_num, cfg in fresh_ex.items():
+        if emp_num not in company_state.ex_employees:
+            company_state.ex_employees[emp_num] = Employee(
+                id=emp_num,
+                name=cfg.name,
+                nickname=cfg.nickname,
+                level=cfg.level,
+                department=cfg.department,
+                role=cfg.role,
+                skills=cfg.skills,
+                employee_number=emp_num,
+                current_quarter_tasks=cfg.current_quarter_tasks,
+                performance_history=list(cfg.performance_history),
+                desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
+                sprite=cfg.sprite,
+            )
+
+    # --- 3. Reload company culture ---
+    company_state.company_culture = load_company_culture()
+    summary["culture_reloaded"] = True
+
+    # --- 4. Reload assets (tools + meeting rooms) ---
+    from onemancompany.agents.coo_agent import _load_assets_from_disk
+    _load_assets_from_disk()
+    summary["assets_reloaded"] = True
+
+    # --- 5. Recompute office layout ---
+    compute_layout(company_state)
+
+    # --- 6. Broadcast state_snapshot to all WebSocket clients ---
+    from onemancompany.core.events import CompanyEvent, event_bus
+    import asyncio
+
+    async def _broadcast():
+        await event_bus.publish(
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        )
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_broadcast())
+    except RuntimeError:
+        # No running event loop — skip broadcast (e.g., called during startup)
+        pass
+
+    return summary

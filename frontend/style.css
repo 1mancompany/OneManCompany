@@ -2257,3 +2257,35 @@ body {
   border-top: 1px solid var(--border);
   margin: 4px 0;
 }
+
+/* ===== Reconnecting Overlay ===== */
+.reconnecting-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  pointer-events: none;
+}
+
+.reconnecting-overlay.hidden {
+  display: none;
+}
+
+.reconnecting-text {
+  background: rgba(255, 136, 68, 0.9);
+  color: #000;
+  padding: 6px 16px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-family: 'Press Start 2P', monospace;
+  animation: reconnect-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes reconnect-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

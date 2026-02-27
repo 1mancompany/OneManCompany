@@ -32,6 +32,8 @@ class AppController {
       const statusEl = document.getElementById('connection-status');
       statusEl.textContent = '● ONLINE';
       statusEl.classList.add('online');
+      // Hide reconnecting overlay
+      document.getElementById('reconnecting-overlay').classList.add('hidden');
     };
 
     this.ws.onmessage = (evt) => {
@@ -47,6 +49,8 @@ class AppController {
       const statusEl = document.getElementById('connection-status');
       statusEl.textContent = '● OFFLINE';
       statusEl.classList.remove('online');
+      // Show reconnecting overlay
+      document.getElementById('reconnecting-overlay').classList.remove('hidden');
       setTimeout(() => this.connect(), this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 10000);
     };
@@ -455,6 +459,9 @@ class AppController {
       if (e.target.id === 'employee-modal') this.closeEmployeeDetail();
     });
     document.getElementById('emp-model-save-btn').addEventListener('click', () => this.saveEmployeeModel());
+
+    // Reload data button
+    document.getElementById('reload-toolbar-btn').addEventListener('click', () => this.adminReload());
 
     // Operations dashboard modal bindings
     document.getElementById('dashboard-toolbar-btn').addEventListener('click', () => this.openDashboard());
@@ -2111,6 +2118,27 @@ class AppController {
       });
 
     input.value = '';
+  }
+
+  // ===== Admin Reload =====
+  adminReload() {
+    const btn = document.getElementById('reload-toolbar-btn');
+    btn.disabled = true;
+    btn.title = 'Reloading...';
+    fetch('/api/admin/reload', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        const updated = (data.employees_updated || []).length;
+        const added = (data.employees_added || []).length;
+        this.logEntry('SYSTEM', `Reloaded: ${updated} updated, ${added} added`, 'system');
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Reload failed: ${err.message}`, 'system');
+      })
+      .finally(() => {
+        btn.disabled = false;
+        btn.title = 'Reload Data';
+      });
   }
 }
 
