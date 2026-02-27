@@ -22,3 +22,10 @@ performance_history:
 # skills 列表 — 每项对应 skills/ 目录下的同名文件
 skills:
 {skills}
+
+# 权限列表 — 控制员工对工具和资源的访问权
+# company_file_access: 公司项目文件读写
+# web_search: 网络搜索
+# backend_code_maintenance: 后端代码维护（可访问 src/ 目录）
+permissions:
+{permissions}

@@ -156,6 +156,7 @@ class EmployeeConfig(BaseModel):
     employee_number: str = ""  # 5-digit ID string
     current_quarter_tasks: int = 0
     performance_history: list[dict] = []
+    permissions: list[str] = []  # e.g. ["company_file_access", "web_search", "backend_code_maintenance"]
 
 
 class Settings(BaseSettings):
@@ -271,6 +272,7 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
         else:
             perf_lines = "  []"
         from onemancompany.core.state import make_title
+        perms_lines = "\n".join(f"  - {p}" for p in config.permissions) if config.permissions else "  []"
         rendered = template_text.format(
             name=config.name,
             nickname=config.nickname,
@@ -287,6 +289,7 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
             current_quarter_tasks=config.current_quarter_tasks,
             performance_history=perf_lines,
             skills=skills_lines,
+            permissions=perms_lines,
         )
         profile_path.write_text(rendered, encoding="utf-8")
     else:

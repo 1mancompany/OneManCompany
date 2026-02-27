@@ -19,17 +19,33 @@ BACKUP_FOLDER_NAME = ".backups"
 pending_file_edits: dict[str, dict] = {}
 
 
-def _resolve_path(file_path: str) -> Path | None:
-    """Resolve a file path relative to COMPANY_DIR. Returns None if outside root."""
+def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path | None:
+    """Resolve a file path. Access scope depends on employee permissions.
+
+    - All employees can access company/ (default scope).
+    - ``backend_code_maintenance`` permission extends access to src/.
+    """
     try:
         p = Path(file_path)
         if not p.is_absolute():
-            p = COMPANY_DIR / p
+            # Paths starting with "src/" resolve relative to PROJECT_ROOT
+            if file_path.startswith("src/"):
+                p = PROJECT_ROOT / p
+            else:
+                p = COMPANY_DIR / p
         p = p.resolve()
-        # Security: must stay within PROJECT_ROOT
-        if not str(p).startswith(str(PROJECT_ROOT.resolve())):
-            return None
-        return p
+
+        # All employees can access company/
+        if str(p).startswith(str(COMPANY_DIR.resolve())):
+            return p
+
+        # backend_code_maintenance allows access to src/
+        if permissions and "backend_code_maintenance" in permissions:
+            src_dir = (PROJECT_ROOT / "src").resolve()
+            if str(p).startswith(str(src_dir)):
+                return p
+
+        return None
     except Exception:
         return None
 
@@ -39,9 +55,10 @@ def propose_edit(
     new_content: str,
     reason: str,
     proposed_by: str,
+    permissions: list[str] | None = None,
 ) -> dict:
     """Create a pending file edit request. Returns edit metadata."""
-    resolved = _resolve_path(file_path)
+    resolved = _resolve_path(file_path, permissions=permissions)
     if resolved is None:
         return {"status": "error", "message": f"Invalid path or outside project scope: {file_path}"}
 

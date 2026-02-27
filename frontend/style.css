@@ -1089,6 +1089,23 @@ body {
   word-break: break-all;
 }
 
+/* Permission tags */
+.perm-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  margin: 1px 2px;
+  background: var(--pixel-dark);
+  color: var(--pixel-gray);
+  border: 1px solid var(--pixel-gray);
+}
+.perm-tag.perm-company_file_access { color: #6ec6ff; border-color: #3a7ab5; }
+.perm-tag.perm-web_search { color: #a8e6cf; border-color: #5ba87a; }
+.perm-tag.perm-backend_code_maintenance { color: #ffb347; border-color: #b5793a; }
+.perm-tag.perm-hr_management { color: #dda0dd; border-color: #8b5e8b; }
+.perm-tag.perm-asset_management { color: #f0e68c; border-color: #8b8b5e; }
+
 /* Performance quarter cards */
 .perf-row {
   flex-direction: column;
@@ -1847,6 +1864,11 @@ body {
   margin-bottom: 3px;
   background: var(--bg-dark);
   font-size: 6px;
+  transition: background 0.15s;
+}
+.task-card[style*="cursor: pointer"]:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-left-width: 4px;
 }
 
 .task-card.running {
