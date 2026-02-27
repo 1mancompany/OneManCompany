@@ -8,6 +8,7 @@ EventType = Literal[
     "employee_hired",
     "employee_fired",
     "employee_reviewed",
+    "employee_rehired",
     "tool_added",
     "ceo_task_submitted",
     "agent_thinking",
@@ -19,11 +20,15 @@ EventType = Literal[
     "meeting_booked",
     "meeting_released",
     "meeting_denied",
-    "routine_phase",
-    "meeting_report_ready",
     "meeting_chat",
+    "meeting_report_ready",
+    "routine_phase",
     "workflow_updated",
-    "employee_rehired",
+    "candidates_ready",
+    "culture_wall_updated",
+    "file_edit_proposed",
+    "file_edit_applied",
+    "file_edit_rejected",
 ]
 
 

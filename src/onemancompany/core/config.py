@@ -7,13 +7,90 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
+# ---------------------------------------------------------------------------
+# Directory paths
+# ---------------------------------------------------------------------------
 EMPLOYEES_DIR = PROJECT_ROOT / "employees"
-EX_EMPLOYEES_DIR = PROJECT_ROOT / "ex-employees"  # 离职员工档案
-EQUIPMENT_DIR = PROJECT_ROOT / "equipment_room"  # 设备间
-RULES_DIR = PROJECT_ROOT / "company_rules"  # 规章制度
-PROJECTS_DIR = PROJECT_ROOT / "projects"  # 项目档案
-CULTURE_WALL_FILE = PROJECT_ROOT / "culture_wall.yaml"  # 公司文化墙
+EX_EMPLOYEES_DIR = PROJECT_ROOT / "ex-employees"
+ASSETS_DIR = PROJECT_ROOT / "assets"
+TOOLS_DIR = ASSETS_DIR / "tools"
+ROOMS_DIR = ASSETS_DIR / "rooms"
+RULES_DIR = PROJECT_ROOT / "company_rules"
+PROJECTS_DIR = PROJECT_ROOT / "projects"
+CULTURE_WALL_FILE = PROJECT_ROOT / "culture_wall.yaml"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
+
+# ---------------------------------------------------------------------------
+# Founding member IDs (permanent employee numbers)
+# ---------------------------------------------------------------------------
+CEO_ID = "00001"
+HR_ID = "00002"
+COO_ID = "00003"
+
+# ---------------------------------------------------------------------------
+# Employee level system
+# ---------------------------------------------------------------------------
+MAX_NORMAL_LEVEL = 3        # highest level for regular employees
+FOUNDING_LEVEL = 4          # founding employees
+CEO_LEVEL = 5               # CEO
+
+# ---------------------------------------------------------------------------
+# Performance & quarterly review
+# ---------------------------------------------------------------------------
+TASKS_PER_QUARTER = 3                          # tasks needed before a review
+VALID_SCORES = {3.25, 3.5, 3.75}              # allowed performance tiers
+SCORE_NEEDS_IMPROVEMENT = 3.25
+SCORE_QUALIFIED = 3.5
+SCORE_EXCELLENT = 3.75
+QUARTERS_FOR_PROMOTION = 3                     # consecutive excellent quarters
+MAX_PERFORMANCE_HISTORY = 3                    # quarters of history to keep
+
+# ---------------------------------------------------------------------------
+# Employee status
+# ---------------------------------------------------------------------------
+STATUS_IDLE = "idle"
+STATUS_WORKING = "working"
+STATUS_IN_MEETING = "in_meeting"
+
+# ---------------------------------------------------------------------------
+# Role-to-department mapping
+# ---------------------------------------------------------------------------
+ROLE_DEPARTMENT_MAP: dict[str, str] = {
+    "Engineer": "技术研发部",
+    "DevOps": "技术研发部",
+    "QA": "技术研发部",
+    "Designer": "设计部",
+    "Analyst": "数据分析部",
+    "Marketing": "市场营销部",
+}
+DEFAULT_DEPARTMENT = "综合部"
+
+# ---------------------------------------------------------------------------
+# Prompt truncation limits (characters)
+# ---------------------------------------------------------------------------
+MAX_SUMMARY_LEN = 300
+MAX_PRINCIPLES_LEN = 400
+MAX_WORKFLOW_CONTEXT_LEN = 800
+MAX_DISCUSSION_SUMMARY_LEN = 500
+
+# ---------------------------------------------------------------------------
+# Desk position grid layout
+# ---------------------------------------------------------------------------
+DESK_GRID_COLS = 5
+DESK_START_X = 2
+DESK_START_Y = 2
+DESK_SPACING_X = 3
+DESK_SPACING_Y = 3
+
+# ---------------------------------------------------------------------------
+# Task routing keywords
+# ---------------------------------------------------------------------------
+HR_KEYWORDS = [
+    "hire", "recruit", "employee", "staff", "review", "performance",
+    "fire", "dismiss", "terminate",
+    "招聘", "员工", "评价", "评估", "花名", "晋升", "开除", "解雇", "辞退",
+]
 
 
 class EmployeeConfig(BaseModel):
@@ -22,14 +99,14 @@ class EmployeeConfig(BaseModel):
     name: str
     role: str
     skills: list[str]
-    nickname: str = ""  # 花名 — 创始员工三个字，其他员工两个字
-    level: int = 1  # 级别: 1-3 普通, 4 创始, 5 CEO
-    department: str = ""  # 部门 — 由HR分配
+    nickname: str = ""  # Chinese alias
+    level: int = 1  # 1-3 normal, 4 founding, 5 CEO
+    department: str = ""  # assigned by HR
     desk_position: list[int]
     sprite: str = "employee_default"
-    llm_model: str = ""  # empty → use default
+    llm_model: str = ""  # empty = use default
     temperature: float = 0.7
-    employee_number: str = ""  # 工号 — 5位数字
+    employee_number: str = ""  # 5-digit ID string
     current_quarter_tasks: int = 0
     performance_history: list[dict] = []
 
@@ -170,6 +247,9 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
         with open(profile_path, "w") as f:
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
+    # Keep in-memory employee_configs in sync
+    employee_configs[employee_id] = config
+
 
 def update_employee_performance(employee_id: str, current_quarter_tasks: int, performance_history: list[dict]) -> None:
     """Persist performance fields into an existing employee profile.yaml."""
@@ -197,22 +277,22 @@ def update_employee_level(employee_id: str, level: int, title: str) -> None:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
-def load_equipment() -> tuple[dict, dict]:
-    """Scan equipment_room/ directory. Returns (tools_dict, meeting_rooms_dict) of raw dicts."""
+def load_assets() -> tuple[dict, dict]:
+    """Scan assets/tools/ and assets/rooms/ directories. Returns (tools_dict, rooms_dict)."""
     tools: dict[str, dict] = {}
     meeting_rooms: dict[str, dict] = {}
-    if not EQUIPMENT_DIR.exists():
-        return tools, meeting_rooms
-    for eq_file in sorted(EQUIPMENT_DIR.iterdir()):
-        if eq_file.suffix != ".yaml" or not eq_file.is_file():
-            continue
-        with open(eq_file) as f:
-            data = yaml.safe_load(f) or {}
-        eq_id = eq_file.stem
-        if data.get("type") == "meeting_room":
-            meeting_rooms[eq_id] = data
-        else:
-            tools[eq_id] = data
+    if TOOLS_DIR.exists():
+        for f in sorted(TOOLS_DIR.iterdir()):
+            if f.suffix == ".yaml" and f.is_file():
+                with open(f) as fh:
+                    data = yaml.safe_load(fh) or {}
+                tools[f.stem] = data
+    if ROOMS_DIR.exists():
+        for f in sorted(ROOMS_DIR.iterdir()):
+            if f.suffix == ".yaml" and f.is_file():
+                with open(f) as fh:
+                    data = yaml.safe_load(fh) or {}
+                meeting_rooms[f.stem] = data
     return tools, meeting_rooms
 
 

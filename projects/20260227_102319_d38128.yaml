@@ -1,0 +1,16 @@
+completed_at: null
+created_at: '2026-02-27T10:23:19.446256'
+current_owner: coo
+output: null
+participants:
+- '00002'
+- '00003'
+- '00005'
+- '00006'
+- '00007'
+- 00008
+project_id: 20260227_102319_d38128
+routed_to: COO
+status: in_progress
+task: 我想做flappy bird游戏，现在的人才够吗？不够的话，帮我招需要的人
+timeline: []

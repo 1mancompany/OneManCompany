@@ -1,4 +1,4 @@
-"""Boss Online — 模拟招聘平台 MCP Server
+"""Boss Online — Simulated Recruitment Platform MCP Server
 
 Input: Job Description (JD)
 Output: N candidates, each with profile, system_prompt, skill_set, tool_set.
@@ -28,116 +28,128 @@ SPRITES = [
     "employee_purple", "employee_orange",
 ]
 
+LLM_MODELS = [
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o",
+    "anthropic/claude-3.5-sonnet",
+    "anthropic/claude-3-haiku",
+    "google/gemini-2.0-flash-001",
+    "google/gemini-2.5-pro-preview",
+    "meta-llama/llama-3.1-70b-instruct",
+    "deepseek/deepseek-chat-v3-0324:free",
+    "qwen/qwen-2.5-72b-instruct",
+]
+
 # Rich role definitions with system prompts, skills (with code), and tools (with code)
 ROLE_PROFILES = {
     "Engineer": {
         "skills": [
-            {"name": "python", "description": "Python 编程", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
-            {"name": "fastapi", "description": "FastAPI 后端开发", "code": "app = FastAPI()\n@app.get('/api/data')\nasync def get_data(): ..."},
-            {"name": "databases", "description": "数据库设计与优化", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"},
-            {"name": "algorithms", "description": "算法与数据结构", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
+            {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
+            {"name": "fastapi", "description": "FastAPI backend development", "code": "app = FastAPI()\n@app.get('/api/data')\nasync def get_data(): ..."},
+            {"name": "databases", "description": "Database design & optimization", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"},
+            {"name": "algorithms", "description": "Algorithms & data structures", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
         ],
         "tools": [
-            {"name": "code_review", "description": "代码审查工具", "code": "def review(pr_id): diff = get_diff(pr_id); return analyze_quality(diff)"},
-            {"name": "debugger", "description": "调试排错工具", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"},
+            {"name": "code_review", "description": "Code review tool", "code": "def review(pr_id): diff = get_diff(pr_id); return analyze_quality(diff)"},
+            {"name": "debugger", "description": "Debugging tool", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"},
         ],
-        "system_prompt_template": "你是一名{trait}的软件工程师，擅长{specialty}。你的编码风格{style}，注重{focus}。",
-        "traits": ["严谨", "高效", "创新", "全栈", "注重细节"],
-        "specialties": ["后端架构", "API设计", "性能优化", "分布式系统", "微服务"],
-        "styles": ["简洁明了", "充分注释", "测试驱动", "函数式风格", "面向对象"],
-        "focuses": ["代码质量", "系统稳定性", "可维护性", "执行效率", "用户体验"],
+        "system_prompt_template": "You are a {trait} software engineer skilled in {specialty}. Your coding style is {style}, focusing on {focus}.",
+        "traits": ["rigorous", "efficient", "innovative", "full-stack", "detail-oriented"],
+        "specialties": ["backend architecture", "API design", "performance optimization", "distributed systems", "microservices"],
+        "styles": ["clean & concise", "well-commented", "test-driven", "functional", "object-oriented"],
+        "focuses": ["code quality", "system stability", "maintainability", "execution efficiency", "user experience"],
     },
     "Designer": {
         "skills": [
-            {"name": "figma", "description": "Figma 设计", "code": "// Auto Layout + Component variants for responsive design"},
-            {"name": "css", "description": "CSS/前端样式", "code": ".card { display: grid; gap: 1rem; border-radius: var(--radius); }"},
-            {"name": "user_research", "description": "用户研究", "code": "def conduct_interview(user): questions = generate_questions(persona); ..."},
-            {"name": "prototyping", "description": "原型设计", "code": "wireframe -> mockup -> interactive_prototype -> user_test"},
+            {"name": "figma", "description": "Figma design", "code": "// Auto Layout + Component variants for responsive design"},
+            {"name": "css", "description": "CSS/frontend styling", "code": ".card { display: grid; gap: 1rem; border-radius: var(--radius); }"},
+            {"name": "user_research", "description": "User research", "code": "def conduct_interview(user): questions = generate_questions(persona); ..."},
+            {"name": "prototyping", "description": "Prototyping", "code": "wireframe -> mockup -> interactive_prototype -> user_test"},
         ],
         "tools": [
-            {"name": "design_system", "description": "设计系统管理", "code": "def sync_tokens(): colors = load_tokens(); apply_to_components(colors)"},
-            {"name": "usability_test", "description": "可用性测试", "code": "def test(prototype, users): metrics = measure_task_completion(users); ..."},
+            {"name": "design_system", "description": "Design system management", "code": "def sync_tokens(): colors = load_tokens(); apply_to_components(colors)"},
+            {"name": "usability_test", "description": "Usability testing", "code": "def test(prototype, users): metrics = measure_task_completion(users); ..."},
         ],
-        "system_prompt_template": "你是一名{trait}的设计师，擅长{specialty}。你的设计理念是{style}，关注{focus}。",
-        "traits": ["像素级精准", "用户至上", "创意丰富", "数据驱动", "极简主义"],
-        "specialties": ["UI设计", "UX研究", "交互设计", "品牌设计", "信息架构"],
-        "styles": ["Less is more", "以用户为中心", "情感化设计", "一致性优先", "大胆创新"],
-        "focuses": ["视觉一致性", "交互流畅度", "可访问性", "转化率", "品牌统一"],
+        "system_prompt_template": "You are a {trait} designer skilled in {specialty}. Your design philosophy is {style}, focusing on {focus}.",
+        "traits": ["pixel-perfect", "user-first", "highly creative", "data-driven", "minimalist"],
+        "specialties": ["UI design", "UX research", "interaction design", "brand design", "information architecture"],
+        "styles": ["less is more", "user-centered", "emotional design", "consistency-first", "bold & innovative"],
+        "focuses": ["visual consistency", "interaction fluidity", "accessibility", "conversion rate", "brand coherence"],
     },
     "Analyst": {
         "skills": [
-            {"name": "data_analysis", "description": "数据分析", "code": "df.groupby('dept').agg({'revenue': 'sum', 'cost': 'mean'}).sort_values('revenue')"},
-            {"name": "sql", "description": "SQL 查询", "code": "WITH metrics AS (SELECT date, SUM(sales) FROM orders GROUP BY date) SELECT * FROM metrics"},
-            {"name": "reporting", "description": "报告撰写", "code": "def generate_report(data): insights = extract_insights(data); return format_report(insights)"},
-            {"name": "visualization", "description": "数据可视化", "code": "fig = px.scatter(df, x='x', y='y', color='category', size='value')"},
+            {"name": "data_analysis", "description": "Data analysis", "code": "df.groupby('dept').agg({'revenue': 'sum', 'cost': 'mean'}).sort_values('revenue')"},
+            {"name": "sql", "description": "SQL querying", "code": "WITH metrics AS (SELECT date, SUM(sales) FROM orders GROUP BY date) SELECT * FROM metrics"},
+            {"name": "reporting", "description": "Report writing", "code": "def generate_report(data): insights = extract_insights(data); return format_report(insights)"},
+            {"name": "visualization", "description": "Data visualization", "code": "fig = px.scatter(df, x='x', y='y', color='category', size='value')"},
         ],
         "tools": [
-            {"name": "dashboard", "description": "仪表盘构建", "code": "def build_dashboard(metrics): charts = [create_chart(m) for m in metrics]; ..."},
-            {"name": "ab_testing", "description": "A/B测试分析", "code": "def analyze_test(control, variant): p_value = ttest(control, variant); ..."},
+            {"name": "dashboard", "description": "Dashboard building", "code": "def build_dashboard(metrics): charts = [create_chart(m) for m in metrics]; ..."},
+            {"name": "ab_testing", "description": "A/B test analysis", "code": "def analyze_test(control, variant): p_value = ttest(control, variant); ..."},
         ],
-        "system_prompt_template": "你是一名{trait}的数据分析师，擅长{specialty}。你的分析方法{style}，注重{focus}。",
-        "traits": ["严谨", "洞察力强", "善于沟通", "业务导向", "全面"],
-        "specialties": ["商业分析", "用户行为分析", "财务分析", "运营优化", "市场研究"],
-        "styles": ["数据驱动", "假设检验", "多维分析", "趋势预测", "对比分析"],
-        "focuses": ["数据准确性", "可操作洞察", "业务影响", "数据安全", "实时监控"],
+        "system_prompt_template": "You are a {trait} data analyst skilled in {specialty}. Your analytical approach is {style}, focusing on {focus}.",
+        "traits": ["rigorous", "insightful", "communicative", "business-oriented", "thorough"],
+        "specialties": ["business analytics", "user behavior analysis", "financial analysis", "operations optimization", "market research"],
+        "styles": ["data-driven", "hypothesis-testing", "multi-dimensional analysis", "trend forecasting", "comparative analysis"],
+        "focuses": ["data accuracy", "actionable insights", "business impact", "data security", "real-time monitoring"],
     },
     "DevOps": {
         "skills": [
-            {"name": "docker", "description": "容器化", "code": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt"},
-            {"name": "kubernetes", "description": "容器编排", "code": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: app"},
-            {"name": "ci_cd", "description": "持续集成/部署", "code": "stages: [test, build, deploy]\njobs:\n  test: pytest --cov"},
-            {"name": "monitoring", "description": "监控告警", "code": "alert: HighErrorRate\nexpr: rate(http_errors[5m]) > 0.05"},
+            {"name": "docker", "description": "Containerization", "code": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt"},
+            {"name": "kubernetes", "description": "Container orchestration", "code": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: app"},
+            {"name": "ci_cd", "description": "CI/CD pipelines", "code": "stages: [test, build, deploy]\njobs:\n  test: pytest --cov"},
+            {"name": "monitoring", "description": "Monitoring & alerting", "code": "alert: HighErrorRate\nexpr: rate(http_errors[5m]) > 0.05"},
         ],
         "tools": [
-            {"name": "infra_provisioner", "description": "基础设施管理", "code": "def provision(config): terraform_apply(config); validate_health()"},
-            {"name": "incident_handler", "description": "故障处理", "code": "def handle_incident(alert): diagnose(alert); mitigate(); post_mortem()"},
+            {"name": "infra_provisioner", "description": "Infrastructure management", "code": "def provision(config): terraform_apply(config); validate_health()"},
+            {"name": "incident_handler", "description": "Incident handling", "code": "def handle_incident(alert): diagnose(alert); mitigate(); post_mortem()"},
         ],
-        "system_prompt_template": "你是一名{trait}的DevOps工程师，擅长{specialty}。你的运维理念是{style}，注重{focus}。",
-        "traits": ["自动化优先", "稳定可靠", "快速响应", "全链路", "安全意识强"],
-        "specialties": ["CI/CD", "容器编排", "云架构", "监控体系", "安全加固"],
-        "styles": ["基础设施即代码", "GitOps", "不可变基础设施", "渐进式发布", "混沌工程"],
-        "focuses": ["系统可用性", "部署频率", "故障恢复速度", "安全合规", "成本优化"],
+        "system_prompt_template": "You are a {trait} DevOps engineer skilled in {specialty}. Your operational philosophy is {style}, focusing on {focus}.",
+        "traits": ["automation-first", "reliable", "fast-responding", "full-stack", "security-conscious"],
+        "specialties": ["CI/CD", "container orchestration", "cloud architecture", "monitoring systems", "security hardening"],
+        "styles": ["infrastructure as code", "GitOps", "immutable infrastructure", "progressive delivery", "chaos engineering"],
+        "focuses": ["system availability", "deployment frequency", "incident recovery speed", "security compliance", "cost optimization"],
     },
     "QA": {
         "skills": [
-            {"name": "testing", "description": "测试策略", "code": "def test_plan(feature): unit + integration + e2e + performance"},
-            {"name": "automation", "description": "自动化测试", "code": "def test_login():\n  page.fill('#email', 'test@example.com')\n  page.click('button[type=submit]')"},
-            {"name": "quality", "description": "质量保证", "code": "def quality_gate(build): coverage > 80% and bugs == 0 and perf < 200ms"},
-            {"name": "selenium", "description": "浏览器自动化", "code": "driver = webdriver.Chrome()\ndriver.get(url)\nassert title in driver.title"},
+            {"name": "testing", "description": "Test strategy", "code": "def test_plan(feature): unit + integration + e2e + performance"},
+            {"name": "automation", "description": "Test automation", "code": "def test_login():\n  page.fill('#email', 'test@example.com')\n  page.click('button[type=submit]')"},
+            {"name": "quality", "description": "Quality assurance", "code": "def quality_gate(build): coverage > 80% and bugs == 0 and perf < 200ms"},
+            {"name": "selenium", "description": "Browser automation", "code": "driver = webdriver.Chrome()\ndriver.get(url)\nassert title in driver.title"},
         ],
         "tools": [
-            {"name": "test_reporter", "description": "测试报告", "code": "def report(results): summary = aggregate(results); generate_html(summary)"},
-            {"name": "bug_tracker", "description": "缺陷追踪", "code": "def file_bug(title, steps, expected, actual): create_issue(severity, assignee)"},
+            {"name": "test_reporter", "description": "Test reporting", "code": "def report(results): summary = aggregate(results); generate_html(summary)"},
+            {"name": "bug_tracker", "description": "Bug tracking", "code": "def file_bug(title, steps, expected, actual): create_issue(severity, assignee)"},
         ],
-        "system_prompt_template": "你是一名{trait}的QA工程师，擅长{specialty}。你的测试理念是{style}，注重{focus}。",
-        "traits": ["细致入微", "追求完美", "逻辑严密", "用户视角", "效率优先"],
-        "specialties": ["自动化测试", "性能测试", "安全测试", "回归测试", "探索性测试"],
-        "styles": ["左移测试", "风险驱动", "行为驱动", "持续测试", "质量内建"],
-        "focuses": ["覆盖率", "回归风险", "用户体验", "性能基线", "缺陷预防"],
+        "system_prompt_template": "You are a {trait} QA engineer skilled in {specialty}. Your testing philosophy is {style}, focusing on {focus}.",
+        "traits": ["meticulous", "perfectionist", "logically rigorous", "user-perspective", "efficiency-first"],
+        "specialties": ["test automation", "performance testing", "security testing", "regression testing", "exploratory testing"],
+        "styles": ["shift-left testing", "risk-driven", "behavior-driven", "continuous testing", "built-in quality"],
+        "focuses": ["coverage", "regression risk", "user experience", "performance baselines", "defect prevention"],
     },
     "Marketing": {
         "skills": [
-            {"name": "content", "description": "内容营销", "code": "def content_calendar(month): topics = research_trends(); plan = schedule(topics); ..."},
-            {"name": "seo", "description": "搜索引擎优化", "code": "def optimize(page): keywords = research(); meta_tags = generate(keywords); ..."},
-            {"name": "social_media", "description": "社交媒体运营", "code": "def campaign(platform, audience): creative = design(); schedule_posts(creative)"},
-            {"name": "analytics", "description": "营销数据分析", "code": "def roi_analysis(campaign): cost = total_spend(); revenue = attribution(); return revenue/cost"},
+            {"name": "content", "description": "Content marketing", "code": "def content_calendar(month): topics = research_trends(); plan = schedule(topics); ..."},
+            {"name": "seo", "description": "Search engine optimization", "code": "def optimize(page): keywords = research(); meta_tags = generate(keywords); ..."},
+            {"name": "social_media", "description": "Social media management", "code": "def campaign(platform, audience): creative = design(); schedule_posts(creative)"},
+            {"name": "analytics", "description": "Marketing analytics", "code": "def roi_analysis(campaign): cost = total_spend(); revenue = attribution(); return revenue/cost"},
         ],
         "tools": [
-            {"name": "campaign_manager", "description": "营销活动管理", "code": "def launch(campaign): audience = segment(); creative = ab_test(); deploy(creative)"},
-            {"name": "growth_tracker", "description": "增长追踪", "code": "def track_funnel(stages): conversion = [rate(s) for s in stages]; find_bottleneck()"},
+            {"name": "campaign_manager", "description": "Campaign management", "code": "def launch(campaign): audience = segment(); creative = ab_test(); deploy(creative)"},
+            {"name": "growth_tracker", "description": "Growth tracking", "code": "def track_funnel(stages): conversion = [rate(s) for s in stages]; find_bottleneck()"},
         ],
-        "system_prompt_template": "你是一名{trait}的营销专员，擅长{specialty}。你的营销策略是{style}，注重{focus}。",
-        "traits": ["创意无限", "数据敏感", "善于沟通", "结果导向", "全渠道"],
-        "specialties": ["内容营销", "增长黑客", "品牌建设", "社交媒体", "付费获客"],
-        "styles": ["内容为王", "数据驱动增长", "社区运营", "病毒传播", "精准投放"],
-        "focuses": ["用户获取", "品牌认知", "转化率", "用户留存", "ROI"],
+        "system_prompt_template": "You are a {trait} marketing specialist skilled in {specialty}. Your marketing strategy is {style}, focusing on {focus}.",
+        "traits": ["endlessly creative", "data-sensitive", "communicative", "results-driven", "omni-channel"],
+        "specialties": ["content marketing", "growth hacking", "brand building", "social media", "paid acquisition"],
+        "styles": ["content is king", "data-driven growth", "community building", "viral marketing", "precision targeting"],
+        "focuses": ["user acquisition", "brand awareness", "conversion rate", "user retention", "ROI"],
     },
 }
 
 # Personality traits for generating unique bios
 PERSONALITY_TAGS = [
-    "自驱力强", "团队协作", "快速学习", "善于沟通", "结果导向",
-    "细节控", "大局观", "创新思维", "抗压能力强", "跨领域能力",
+    "self-motivated", "team player", "fast learner", "strong communicator", "results-driven",
+    "detail-oriented", "big-picture thinker", "creative", "resilient", "cross-disciplinary",
 ]
 
 
@@ -181,6 +193,7 @@ def _generate_one_candidate(role: str, jd: str) -> dict:
         "skill_set": skills,
         "tool_set": tools,
         "sprite": random.choice(SPRITES),
+        "llm_model": random.choice(LLM_MODELS),
         "jd_relevance": round(random.uniform(0.5, 1.0), 2),  # simulated relevance
     }
 

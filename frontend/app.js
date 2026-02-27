@@ -27,7 +27,7 @@ class AppController {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      this.logEntry('SYSTEM', '已连接到公司服务器', 'system');
+      this.logEntry('SYSTEM', 'Connected to company server', 'system');
       this.reconnectDelay = 1000;
       const statusEl = document.getElementById('connection-status');
       statusEl.textContent = '● ONLINE';
@@ -90,31 +90,31 @@ class AppController {
 
     // Log the event
     const formatters = {
-      'state_snapshot':     () => ({ text: '状态已加载', cls: 'system', agent: 'SYSTEM' }),
-      'ceo_task_submitted': (p) => ({ text: `📋 任务: ${p.task}`, cls: 'ceo', agent: 'CEO' }),
+      'state_snapshot':     () => ({ text: 'State loaded', cls: 'system', agent: 'SYSTEM' }),
+      'ceo_task_submitted': (p) => ({ text: `📋 Task: ${p.task}`, cls: 'ceo', agent: 'CEO' }),
       'agent_thinking':     (p) => ({ text: `💭 ${p.message}`, cls: (msg.agent || '').toLowerCase(), agent: msg.agent }),
-      'agent_done':         (p) => ({ text: `✅ ${p.role} 完成: ${p.summary}`, cls: (p.role || '').toLowerCase(), agent: p.role }),
-      'employee_hired':     (p) => ({ text: `🎉 新员工入职: ${p.name} (${p.role})`, cls: 'hr', agent: 'HR' }),
-      'employee_fired':     (p) => ({ text: `🚪 员工离职: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} — ${p.reason || ''}`, cls: 'hr', agent: 'HR' }),
-      'employee_rehired':   (p) => ({ text: `🔄 员工回归: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} (${p.role})`, cls: 'hr', agent: 'CEO' }),
-      'employee_reviewed':  (p) => ({ text: `📊 季度评价: ${p.id} — 绩效: ${p.score}`, cls: 'hr', agent: 'HR' }),
-      'tool_added':         (p) => ({ text: `🔧 新工具: ${p.name}`, cls: 'coo', agent: 'COO' }),
-      'guidance_start':     (p) => ({ text: `📖 ${p.name} 正在聆听领导教诲...`, cls: 'guidance', agent: 'CEO' }),
+      'agent_done':         (p) => ({ text: `✅ ${p.role} done: ${p.summary}`, cls: (p.role || '').toLowerCase(), agent: p.role }),
+      'employee_hired':     (p) => ({ text: `🎉 New hire: ${p.name} (${p.role})`, cls: 'hr', agent: 'HR' }),
+      'employee_fired':     (p) => ({ text: `🚪 Departure: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} — ${p.reason || ''}`, cls: 'hr', agent: 'HR' }),
+      'employee_rehired':   (p) => ({ text: `🔄 Rehired: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} (${p.role})`, cls: 'hr', agent: 'CEO' }),
+      'employee_reviewed':  (p) => ({ text: `📊 Quarterly review: ${p.id} — Score: ${p.score}`, cls: 'hr', agent: 'HR' }),
+      'tool_added':         (p) => ({ text: `🔧 New tool: ${p.name}`, cls: 'coo', agent: 'COO' }),
+      'guidance_start':     (p) => ({ text: `📖 ${p.name} is in a 1-on-1 meeting...`, cls: 'guidance', agent: 'CEO' }),
       'guidance_noted':     (p) => ({ text: `🎓 ${p.name}: ${p.acknowledgment}`, cls: 'guidance', agent: p.name }),
-      'guidance_end':       (p) => ({ text: `📖 ${p.name} 教诲记录完毕`, cls: 'guidance', agent: 'CEO' }),
+      'guidance_end':       (p) => ({ text: `📖 ${p.name}'s 1-on-1 meeting concluded`, cls: 'guidance', agent: 'CEO' }),
       'meeting_booked':     (p) => {
         if (p.room_id) this.meetingChats[p.room_id] = [];
-        return { text: `🏢 会议室已预约: ${p.room_name || ''}`, cls: 'coo', agent: 'COO' };
+        return { text: `🏢 Room booked: ${p.room_name || ''}`, cls: 'coo', agent: 'COO' };
       },
       'meeting_released':   (p) => {
         // Keep chat history for viewing after meeting ends
-        return { text: `🏢 会议室已释放: ${p.room_name || ''}`, cls: 'coo', agent: 'COO' };
+        return { text: `🏢 Room released: ${p.room_name || ''}`, cls: 'coo', agent: 'COO' };
       },
-      'meeting_denied':     (p) => ({ text: `🚫 会议室申请被拒: 无空闲会议室`, cls: 'coo', agent: 'COO' }),
+      'meeting_denied':     (p) => ({ text: `🚫 Room request denied: no rooms available`, cls: 'coo', agent: 'COO' }),
       'routine_phase':      (p) => ({ text: `🔄 ${p.phase}: ${p.message}`, cls: 'system', agent: 'ROUTINE' }),
       'meeting_report_ready': (p) => {
         this._enqueueReviewItems(p);
-        return { text: `📄 会议报告已生成，等待CEO审批`, cls: 'ceo', agent: 'SYSTEM' };
+        return { text: `📄 Meeting report ready for CEO review`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'meeting_chat':       (p) => {
         const roomId = p.room_id || '';
@@ -132,17 +132,17 @@ class AppController {
         }
         return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
       },
-      'workflow_updated':    (p) => ({ text: `📋 工作流已更新: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
+      'workflow_updated':    (p) => ({ text: `📋 Workflow updated: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
       'candidates_ready':   (p) => {
         this.showCandidateSelection(p);
-        return { text: `📋 HR 筛选完毕: ${(p.candidates || []).length} 名候选人待CEO选择`, cls: 'hr', agent: 'HR' };
+        return { text: `📋 HR screening done: ${(p.candidates || []).length} candidates for CEO selection`, cls: 'hr', agent: 'HR' };
       },
       'file_edit_proposed':  (p) => {
         this._enqueueFileEdit(p);
-        return { text: `📝 文件编辑请求: ${p.rel_path} — ${p.reason}`, cls: 'ceo', agent: p.proposed_by || 'AGENT' };
+        return { text: `📝 File edit request: ${p.rel_path} — ${p.reason}`, cls: 'ceo', agent: p.proposed_by || 'AGENT' };
       },
-      'file_edit_applied':   (p) => ({ text: `✅ 文件已更新: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
-      'file_edit_rejected':  (p) => ({ text: `❌ 文件编辑已拒绝: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
+      'file_edit_applied':   (p) => ({ text: `✅ File updated: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
+      'file_edit_rejected':  (p) => ({ text: `❌ File edit rejected: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
     };
 
     const formatter = formatters[msg.type];
@@ -176,7 +176,7 @@ class AppController {
   updateTaskPanel(tasks) {
     const panel = document.getElementById('task-panel-list');
     if (!tasks || tasks.length === 0) {
-      panel.innerHTML = '<div class="task-empty">暂无进行中的任务</div>';
+      panel.innerHTML = '<div class="task-empty">No active tasks</div>';
       return;
     }
     panel.innerHTML = '';
@@ -184,7 +184,7 @@ class AppController {
       const card = document.createElement('div');
       card.className = `task-card ${t.status}`;
       const icon = t.status === 'running' ? '🔄' : '⏳';
-      const label = t.status === 'running' ? '进行中' : '排队中';
+      const label = t.status === 'running' ? 'Running' : 'Queued';
       const routeColor = t.routed_to === 'HR' ? 'var(--pixel-blue)' : 'var(--pixel-orange)';
       // Resolve current owner display name
       const ownerEmp = (this._lastEmployees || []).find(e => e.id === t.current_owner);
@@ -194,7 +194,7 @@ class AppController {
       card.innerHTML = `
         <div class="task-card-status">${icon} ${label}</div>
         <div class="task-card-text">${t.task.substring(0, 60)}${t.task.length > 60 ? '...' : ''}</div>
-        <div class="task-card-route" style="color:${routeColor};">${t.routed_to} · <span class="task-card-owner">当前: ${ownerLabel}</span></div>
+        <div class="task-card-route" style="color:${routeColor};">${t.routed_to} · <span class="task-card-owner">Current: ${ownerLabel}</span></div>
       `;
       panel.appendChild(card);
     }
@@ -247,11 +247,11 @@ class AppController {
       card.className = 'roster-card';
       const roleIcon = emp.role === 'HR' ? '💼' : emp.role === 'COO' ? '⚙️' : '🤖';
       const listeningBadge = emp.is_listening
-        ? '<span class="roster-listening">📖 聆听中...</span>'
+        ? '<span class="roster-listening">📖 In meeting...</span>'
         : '';
       const guidanceCount = (emp.guidance_notes || []).length;
       const guidanceBadge = guidanceCount > 0
-        ? `<span style="color: #aa66ff; font-size: 6px;"> [${guidanceCount}条教诲]</span>`
+        ? `<span style="color: #aa66ff; font-size: 6px;"> [${guidanceCount} notes]</span>`
         : '';
       const nn = emp.nickname ? `(${emp.nickname})` : '';
       const empNum = emp.employee_number ? `#${emp.employee_number}` : '';
@@ -265,7 +265,7 @@ class AppController {
         <div class="roster-info">
           <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}</div>
           <div class="roster-role"><span class="roster-empnum">${empNum}</span> ${title} — ${(emp.skills || []).slice(0, 3).join(', ')}</div>
-          <div class="roster-quarter">Q任务: ${qTasks}/3</div>
+          <div class="roster-quarter">Q Tasks: ${qTasks}/3</div>
           ${listeningBadge}
         </div>
         <div class="roster-score${scoreClass}">${latestScore}</div>
@@ -291,13 +291,13 @@ class AppController {
     const depts = [...new Set(employees.map(e => e.department).filter(Boolean))].sort();
     const levels = [...new Set(employees.map(e => e.level))].sort((a, b) => a - b);
 
-    const LEVEL_NAMES = {1: '初级', 2: '中级', 3: '高级', 4: '创始', 5: 'CEO'};
+    const LEVEL_NAMES = {1: 'Junior', 2: 'Mid', 3: 'Senior', 4: 'Founding', 5: 'CEO'};
 
-    roleSelect.innerHTML = '<option value="">全部职责</option>' +
+    roleSelect.innerHTML = '<option value="">All Roles</option>' +
       roles.map(r => `<option value="${r}"${r === curRole ? ' selected' : ''}>${r}</option>`).join('');
-    deptSelect.innerHTML = '<option value="">全部部门</option>' +
+    deptSelect.innerHTML = '<option value="">All Departments</option>' +
       depts.map(d => `<option value="${d}"${d === curDept ? ' selected' : ''}>${d}</option>`).join('');
-    levelSelect.innerHTML = '<option value="">全部级别</option>' +
+    levelSelect.innerHTML = '<option value="">All Levels</option>' +
       levels.map(l => `<option value="${l}"${String(l) === curLevel ? ' selected' : ''}>${LEVEL_NAMES[l] || 'Lv.' + l}</option>`).join('');
   }
 
@@ -335,14 +335,14 @@ class AppController {
 
     hrBtn.addEventListener('click', () => {
       hrBtn.disabled = true;
-      this.logEntry('CEO', '🔄 触发季度评价...', 'ceo');
+      this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
       fetch('/api/hr/review', { method: 'POST' })
         .then(r => r.json())
         .then(() => {
           setTimeout(() => { hrBtn.disabled = false; }, 5000);
         })
         .catch(err => {
-          this.logEntry('SYSTEM', `错误: ${err.message}`, 'system');
+          this.logEntry('SYSTEM', `Error: ${err.message}`, 'system');
           hrBtn.disabled = false;
         });
     });
@@ -427,7 +427,10 @@ class AppController {
     document.getElementById('interview-back-btn').addEventListener('click', () => this.closeInterviewModal());
     document.getElementById('interview-ask-btn').addEventListener('click', () => this.askInterviewQuestion());
     document.getElementById('interview-question').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.askInterviewQuestion();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.askInterviewQuestion();
+      }
     });
     document.getElementById('interview-hire-btn').addEventListener('click', () => {
       if (this._interviewingCandidate) {
@@ -466,6 +469,7 @@ class AppController {
     // Workflow modal bindings
     document.getElementById('workflow-close-btn').addEventListener('click', () => this.closeWorkflowPanel());
     document.getElementById('workflow-cancel-btn').addEventListener('click', () => this.closeWorkflowPanel());
+    document.getElementById('workflow-edit-btn').addEventListener('click', () => this.toggleWorkflowEdit());
     document.getElementById('workflow-save-btn').addEventListener('click', () => this.saveWorkflow());
     // Close modal on overlay click
     document.getElementById('workflow-modal').addEventListener('click', (e) => {
@@ -478,7 +482,7 @@ class AppController {
     const select = document.getElementById('guidance-target');
     const currentVal = select.value;
     // Keep first placeholder option
-    select.innerHTML = '<option value="">-- 选择员工 --</option>';
+    select.innerHTML = '<option value="">-- Select Employee --</option>';
     for (const emp of employees) {
       const opt = document.createElement('option');
       opt.value = emp.id;
@@ -508,8 +512,8 @@ class AppController {
     list.innerHTML = '';
     for (const note of emp.guidance_notes) {
       const item = document.createElement('div');
-      item.className = 'guidance-note-item';
-      item.textContent = note;
+      item.className = 'guidance-note-item md-rendered';
+      item.innerHTML = this._renderMarkdown(note);
       list.appendChild(item);
     }
   }
@@ -533,13 +537,13 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `错误: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Error: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `📖 向 ${empId} 发布教诲`, 'ceo');
+          this.logEntry('CEO', `📖 1-on-1 note sent to ${empId}`, 'ceo');
         }
       })
       .catch(err => {
-        this.logEntry('SYSTEM', `提交失败: ${err.message}`, 'system');
+        this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
       })
       .finally(() => {
         setTimeout(() => { guidanceBtn.disabled = false; }, 3000);
@@ -556,7 +560,7 @@ class AppController {
 
     // Populate data
     const roleIcon = emp.role === 'HR' ? '💼' : emp.role === 'COO' ? '⚙️' : '🤖';
-    document.getElementById('emp-modal-title').textContent = `${roleIcon} ${emp.name || ''} 详情`;
+    document.getElementById('emp-modal-title').textContent = `${roleIcon} ${emp.name || ''} Details`;
     document.getElementById('emp-detail-number').textContent = emp.employee_number || '-';
     document.getElementById('emp-detail-name').textContent = emp.name || '-';
     document.getElementById('emp-detail-nickname').textContent = emp.nickname || '-';
@@ -582,32 +586,32 @@ class AppController {
       }
     }
     perfHtml += '</div>';
-    perfHtml += `<div class="perf-current-q">当前季度: ${qTasks}/3 任务</div>`;
+    perfHtml += `<div class="perf-current-q">Current quarter: ${qTasks}/3 tasks</div>`;
     perfEl.innerHTML = perfHtml;
 
-    // Work principles
+    // Work principles (rendered as Markdown)
     const principlesEl = document.getElementById('emp-detail-principles');
     const principles = emp.work_principles || '';
     if (principles) {
-      principlesEl.textContent = principles;
+      principlesEl.innerHTML = `<div class="md-rendered">${this._renderMarkdown(principles)}</div>`;
       principlesEl.classList.remove('empty-hint');
     } else {
-      principlesEl.innerHTML = '<span class="empty-hint">暂无工作准则</span>';
+      principlesEl.innerHTML = '<span class="empty-hint">No work principles yet</span>';
     }
 
-    // Guidance notes
+    // Guidance notes (rendered as Markdown)
     const guidanceEl = document.getElementById('emp-detail-guidance');
     const notes = emp.guidance_notes || [];
     if (notes.length > 0) {
       guidanceEl.innerHTML = '';
       for (const note of notes) {
         const item = document.createElement('div');
-        item.className = 'guidance-note-item';
-        item.textContent = note;
+        item.className = 'guidance-note-item md-rendered';
+        item.innerHTML = this._renderMarkdown(note);
         guidanceEl.appendChild(item);
       }
     } else {
-      guidanceEl.innerHTML = '<span class="empty-hint">暂无领导教诲</span>';
+      guidanceEl.innerHTML = '<span class="empty-hint">No 1-on-1 notes yet</span>';
     }
 
     // Load model dropdown
@@ -624,7 +628,7 @@ class AppController {
   async _loadModelDropdown(empId) {
     const select = document.getElementById('emp-detail-model');
     const saveBtn = document.getElementById('emp-model-save-btn');
-    select.innerHTML = '<option value="">加载中...</option>';
+    select.innerHTML = '<option value="">Loading...</option>';
     saveBtn.disabled = true;
 
     try {
@@ -642,7 +646,7 @@ class AppController {
         this.cachedModels = models;
       }
 
-      select.innerHTML = '<option value="">-- 使用默认模型 --</option>';
+      select.innerHTML = '<option value="">-- Use default model --</option>';
       for (const m of models) {
         const opt = document.createElement('option');
         opt.value = m.id;
@@ -652,7 +656,7 @@ class AppController {
       }
       saveBtn.disabled = false;
     } catch (err) {
-      select.innerHTML = '<option value="">加载失败</option>';
+      select.innerHTML = '<option value="">Load failed</option>';
       console.error('Model list error:', err);
     }
   }
@@ -674,12 +678,12 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `模型更新失败: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Model update failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `✅ 已更新模型: ${data.model || '默认'}`, 'ceo');
+          this.logEntry('CEO', `✅ Model updated: ${data.model || 'default'}`, 'ceo');
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `更新失败: ${err.message}`, 'system'))
+      .catch(err => this.logEntry('SYSTEM', `Update failed: ${err.message}`, 'system'))
       .finally(() => { saveBtn.disabled = false; });
   }
 
@@ -693,7 +697,7 @@ class AppController {
     const jdEl = document.getElementById('candidate-jd');
     const cardsEl = document.getElementById('candidate-cards');
 
-    jdEl.innerHTML = '<div style="font-size:7px;color:var(--pixel-yellow);margin-bottom:4px;">JD 岗位描述</div>' +
+    jdEl.innerHTML = '<div style="font-size:7px;color:var(--pixel-yellow);margin-bottom:4px;">JD — Job Description</div>' +
       (payload.jd || '').replace(/\n/g, '<br>');
     cardsEl.innerHTML = '';
 
@@ -712,14 +716,16 @@ class AppController {
       const prompt = (c.system_prompt || '').substring(0, 80);
       const relevance = c.jd_relevance ? `${(c.jd_relevance * 100).toFixed(0)}%` : '-';
 
+      const llmModel = c.llm_model || 'default';
       card.innerHTML = `
         <div class="card-inner">
           <div class="card-front">
             <div class="card-avatar">${emoji}</div>
             <div class="card-name">${c.name}</div>
-            <div class="card-role">${c.role} (${c.experience_years || '?'}年)</div>
+            <div class="card-role">${c.role} (${c.experience_years || '?'}yr)</div>
+            <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
             <div class="card-tags">${tags}</div>
-            <div class="card-relevance">匹配度: ${relevance}</div>
+            <div class="card-relevance">Match: ${relevance}</div>
           </div>
           <div class="card-back">
             <div class="card-detail-title">System Prompt</div>
@@ -728,9 +734,11 @@ class AppController {
             <div class="card-detail-text">${skills}</div>
             <div class="card-detail-title">Tools</div>
             <div class="card-detail-text">${tools}</div>
+            <div class="card-detail-title">LLM Model</div>
+            <div class="card-detail-text">${c.llm_model || 'default'}</div>
             <div class="card-actions">
-              <button class="pixel-btn hire" data-id="${c.id}">录用</button>
-              <button class="pixel-btn interview" data-id="${c.id}">面试</button>
+              <button class="pixel-btn hire" data-id="${c.id}">Hire</button>
+              <button class="pixel-btn interview" data-id="${c.id}">Interview</button>
             </div>
           </div>
         </div>
@@ -760,42 +768,190 @@ class AppController {
   }
 
   hireCandidate(candidate) {
-    const nickname = prompt(`为 ${candidate.name} 取一个两字中文花名:`) || '';
-    if (nickname !== null) {
-      fetch('/api/candidates/hire', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          batch_id: this._candidateBatchId,
-          candidate_id: candidate.id,
-          nickname,
-        }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) {
-            this.logEntry('SYSTEM', `录用失败: ${data.error}`, 'system');
-          } else {
-            this.logEntry('CEO', `🎉 已录用: ${data.name}`, 'ceo');
-            this.closeCandidateModal();
-            this.closeInterviewModal();
+    // Nickname is auto-generated by the employee themselves
+    fetch('/api/candidates/hire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_id: this._candidateBatchId,
+        candidate_id: candidate.id,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Hire failed: ${data.error}`, 'system');
+        } else {
+          const nn = data.nickname ? ` (${data.nickname})` : '';
+          this.logEntry('CEO', `🎉 Hired: ${data.name}${nn}`, 'ceo');
+          if (data.state) {
+            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
           }
-        })
-        .catch(err => this.logEntry('SYSTEM', `错误: ${err.message}`, 'system'));
-    }
+          this.closeCandidateModal();
+          this.closeInterviewModal();
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
   }
 
   // ===== Interview Chatbot (separate modal) =====
   startInterview(candidate) {
     this._interviewingCandidate = candidate;
+    this._pendingFiles = [];  // files to attach to next message
+
     const modal = document.getElementById('interview-modal');
     document.getElementById('interview-modal-title').textContent =
-      `💬 面试: ${candidate.name} (${candidate.role})`;
-    document.getElementById('interview-chat').innerHTML =
-      `<div class="a" style="color:var(--text-dim);">系统: 面试已开始，请输入问题。候选人将根据其专业背景回答。</div>`;
-    document.getElementById('interview-question').value = '';
+      `💬 Interview: ${candidate.name} (${candidate.role})`;
+
+    // Show model badge
+    const badge = document.getElementById('interview-model-badge');
+    badge.textContent = candidate.llm_model || 'default';
+
+    // Clear chat
+    const chat = document.getElementById('interview-chat');
+    chat.innerHTML = '';
+    this._addChatSystemMsg(`Interview with ${candidate.name} started. Ask questions and the candidate will respond based on their expertise.`);
+
+    // Reset input
+    const textarea = document.getElementById('interview-question');
+    textarea.value = '';
+    textarea.style.height = 'auto';
+
+    // Clear previews
+    this._pendingFiles = [];
+    this._updatePreviewBar();
+
+    // Setup file input
+    const fileInput = document.getElementById('interview-file-input');
+    fileInput.value = '';
+    fileInput.onchange = () => this._handleFileSelect(fileInput.files);
+
+    // Setup drag-and-drop on chat container
+    const container = modal.querySelector('.chat-container');
+    container.ondragover = (e) => { e.preventDefault(); container.style.borderColor = 'var(--pixel-cyan)'; };
+    container.ondragleave = () => { container.style.borderColor = ''; };
+    container.ondrop = (e) => {
+      e.preventDefault();
+      container.style.borderColor = '';
+      if (e.dataTransfer.files.length) this._handleFileSelect(e.dataTransfer.files);
+    };
+
+    // Auto-resize textarea
+    textarea.oninput = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
+    };
+
     modal.classList.remove('hidden');
-    document.getElementById('interview-question').focus();
+    textarea.focus();
+  }
+
+  _addChatSystemMsg(text) {
+    const chat = document.getElementById('interview-chat');
+    const div = document.createElement('div');
+    div.className = 'chat-msg-system';
+    div.textContent = text;
+    chat.appendChild(div);
+    this._scrollChatToBottom();
+  }
+
+  _addChatBubble(sender, text, type, attachments = []) {
+    const chat = document.getElementById('interview-chat');
+    const bubble = document.createElement('div');
+    bubble.className = `chat-bubble ${type}`;
+
+    const avatar = type === 'outgoing' ? '👔' : '🤖';
+
+    let attachHtml = '';
+    for (const att of attachments) {
+      if (att.type === 'image') {
+        attachHtml += `<img class="bubble-image" src="${att.dataUrl}" alt="attachment" onclick="window.open(this.src)" />`;
+      } else if (att.type === 'video') {
+        attachHtml += `<video class="bubble-image" src="${att.dataUrl}" controls style="max-height:120px;"></video>`;
+      } else {
+        attachHtml += `<div class="bubble-file">${att.name}</div>`;
+      }
+    }
+
+    bubble.innerHTML = `
+      <div class="bubble-avatar">${avatar}</div>
+      <div class="bubble-content">
+        <div class="bubble-sender">${sender}</div>
+        <div class="bubble-text">${this._escapeHtml(text)}</div>
+        ${attachHtml}
+      </div>
+    `;
+    chat.appendChild(bubble);
+    this._scrollChatToBottom();
+  }
+
+  _scrollChatToBottom() {
+    const container = document.querySelector('.chat-container');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  _showTypingIndicator() {
+    const typing = document.getElementById('interview-typing');
+    if (typing) typing.classList.remove('hidden');
+    this._scrollChatToBottom();
+  }
+
+  _hideTypingIndicator() {
+    const typing = document.getElementById('interview-typing');
+    if (typing) typing.classList.add('hidden');
+  }
+
+  _handleFileSelect(files) {
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        let type = 'file';
+        if (file.type.startsWith('image/')) type = 'image';
+        else if (file.type.startsWith('video/')) type = 'video';
+
+        this._pendingFiles.push({
+          name: file.name,
+          type,
+          dataUrl: e.target.result,
+          // Extract base64 from data URL for API
+          base64: e.target.result.split(',')[1] || '',
+          mimeType: file.type,
+        });
+        this._updatePreviewBar();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  _updatePreviewBar() {
+    const bar = document.getElementById('interview-preview-bar');
+    if (!this._pendingFiles.length) {
+      bar.classList.add('hidden');
+      bar.innerHTML = '';
+      return;
+    }
+    bar.classList.remove('hidden');
+    bar.innerHTML = '';
+    this._pendingFiles.forEach((f, idx) => {
+      const item = document.createElement('div');
+      item.className = 'chat-preview-item';
+      if (f.type === 'image') {
+        item.innerHTML = `<img class="chat-preview-thumb" src="${f.dataUrl}" alt="${f.name}" />`;
+      } else if (f.type === 'video') {
+        item.innerHTML = `<div class="chat-preview-file">🎬<br>${f.name.substring(0, 8)}</div>`;
+      } else {
+        item.innerHTML = `<div class="chat-preview-file">📄<br>${f.name.substring(0, 8)}</div>`;
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'chat-preview-remove';
+      removeBtn.textContent = '×';
+      removeBtn.onclick = () => {
+        this._pendingFiles.splice(idx, 1);
+        this._updatePreviewBar();
+      };
+      item.appendChild(removeBtn);
+      bar.appendChild(item);
+    });
   }
 
   closeInterviewModal() {
@@ -803,14 +959,25 @@ class AppController {
   }
 
   askInterviewQuestion() {
-    const input = document.getElementById('interview-question');
-    const question = input.value.trim();
-    if (!question || !this._interviewingCandidate) return;
+    const textarea = document.getElementById('interview-question');
+    const question = textarea.value.trim();
+    if ((!question && !this._pendingFiles.length) || !this._interviewingCandidate) return;
 
-    const chat = document.getElementById('interview-chat');
-    chat.innerHTML += `<div class="q">CEO: ${question}</div>`;
-    input.value = '';
+    // Gather attachments
+    const attachments = [...this._pendingFiles];
+    const imageB64s = attachments.filter(f => f.type === 'image').map(f => f.base64);
 
+    // Show CEO message with attachments
+    this._addChatBubble('CEO', question || '(attachment)', 'outgoing', attachments);
+
+    // Clear input and previews
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    this._pendingFiles = [];
+    this._updatePreviewBar();
+
+    // Show typing indicator
+    this._showTypingIndicator();
     const askBtn = document.getElementById('interview-ask-btn');
     askBtn.disabled = true;
 
@@ -818,21 +985,27 @@ class AppController {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        question,
+        question: question || 'Please look at the attached content.',
         candidate: this._interviewingCandidate,
+        images: imageB64s,
       }),
     })
       .then(r => r.json())
       .then(data => {
+        this._hideTypingIndicator();
         if (data.error) {
-          chat.innerHTML += `<div class="a">系统: ${data.error}</div>`;
+          this._addChatSystemMsg(`Error: ${data.error}`);
         } else {
-          chat.innerHTML += `<div class="a">${this._interviewingCandidate.name}: ${data.answer}</div>`;
+          this._addChatBubble(
+            this._interviewingCandidate.name,
+            data.answer,
+            'incoming'
+          );
         }
-        chat.scrollTop = chat.scrollHeight;
       })
       .catch(err => {
-        chat.innerHTML += `<div class="a">系统错误: ${err.message}</div>`;
+        this._hideTypingIndicator();
+        this._addChatSystemMsg(`Error: ${err.message}`);
       })
       .finally(() => { askBtn.disabled = false; });
   }
@@ -856,7 +1029,7 @@ class AppController {
 
   loadProjectList() {
     const listEl = document.getElementById('project-list');
-    listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">加载中...</div>';
+    listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading...</div>';
     listEl.classList.remove('hidden');
     document.getElementById('project-detail').classList.add('hidden');
 
@@ -865,7 +1038,7 @@ class AppController {
       .then(data => {
         const projects = data.projects || [];
         if (projects.length === 0) {
-          listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">暂无项目记录</div>';
+          listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">No project records</div>';
           return;
         }
         listEl.innerHTML = '';
@@ -880,7 +1053,7 @@ class AppController {
               <span class="project-card-date">${date}</span>
             </div>
             <div class="project-card-meta">
-              ${p.routed_to}${p.current_owner && p.status !== 'completed' ? ' · 当前: ' + p.current_owner : ''} | ${p.participant_count}人参与 | ${p.action_count}条记录
+              ${p.routed_to}${p.current_owner && p.status !== 'completed' ? ' · Current: ' + p.current_owner : ''} | ${p.participant_count} participants | ${p.action_count} entries
             </div>
           `;
           card.style.cursor = 'pointer';
@@ -889,7 +1062,7 @@ class AppController {
         }
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">加载失败: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
       });
   }
 
@@ -900,7 +1073,7 @@ class AppController {
 
     listEl.classList.add('hidden');
     detailEl.classList.remove('hidden');
-    contentEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">加载中...</div>';
+    contentEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading...</div>';
 
     fetch(`/api/projects/${encodeURIComponent(projectId)}`)
       .then(r => r.json())
@@ -911,14 +1084,14 @@ class AppController {
         }
         let html = `<h4 style="color:var(--pixel-yellow);font-size:8px;margin:6px 0;">${doc.task || ''}</h4>`;
         html += `<div style="font-size:6px;color:var(--text-dim);margin-bottom:8px;">`;
-        html += `状态: ${doc.status} | 路由: ${doc.routed_to} | 创建: ${(doc.created_at || '').substring(0, 19)}`;
-        if (doc.completed_at) html += ` | 完成: ${doc.completed_at.substring(0, 19)}`;
+        html += `Status: ${doc.status} | Routed to: ${doc.routed_to} | Created: ${(doc.created_at || '').substring(0, 19)}`;
+        if (doc.completed_at) html += ` | Completed: ${doc.completed_at.substring(0, 19)}`;
         html += `</div>`;
 
         // Timeline
         const timeline = doc.timeline || [];
         if (timeline.length > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 4px;">时间线 (${timeline.length}条):</div>`;
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 4px;">Timeline (${timeline.length} entries):</div>`;
           for (const entry of timeline) {
             const time = (entry.time || '').substring(11, 19);
             html += `<div style="font-size:6px;line-height:1.8;border-left:2px solid var(--border);padding-left:6px;margin:2px 0;">`;
@@ -934,18 +1107,18 @@ class AppController {
 
         // Output
         if (doc.output) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">最终产出:</div>`;
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Final Output:</div>`;
           html += `<div style="font-size:6px;color:var(--pixel-white);background:var(--bg-dark);padding:6px;border:1px solid var(--border);">${doc.output}</div>`;
         }
 
         contentEl.innerHTML = html;
       })
       .catch(err => {
-        contentEl.innerHTML = `<div style="color:var(--pixel-red);">加载失败: ${err.message}</div>`;
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${err.message}</div>`;
       });
   }
 
-  // ===== Review Queue (逐个审核) =====
+  // ===== Review Queue =====
 
   /**
    * Enqueue meeting report action items — each becomes a separate review entry.
@@ -1029,26 +1202,26 @@ class AppController {
     counter.textContent = `${this._reviewIndex + 1}/${this.reviewQueue.length}`;
 
     if (item.type === 'report_summary') {
-      title.innerHTML = '&#128196; 会议报告';
+      title.innerHTML = '&#128196; Meeting Report';
       content.innerHTML = `
-        <div class="review-summary">${(item.data.summary || '').replace(/\n/g, '<br>')}</div>
+        <div class="review-summary md-rendered">${this._renderMarkdown(item.data.summary || '')}</div>
       `;
     } else if (item.type === 'action_item') {
-      title.innerHTML = '&#128203; 改进项';
+      title.innerHTML = '&#128203; Improvement Items';
       content.innerHTML = `
         <div class="review-action-item" style="padding:4px 6px;">
-          <div style="font-size:6px;color:var(--pixel-cyan);margin-bottom:2px;">来源: ${this._escapeHtml(item.data.source)}</div>
-          <div style="font-size:7px;color:var(--pixel-white);line-height:1.8;">${this._escapeHtml(item.data.description)}</div>
+          <div style="font-size:6px;color:var(--pixel-cyan);margin-bottom:2px;">Source: ${this._escapeHtml(item.data.source)}</div>
+          <div class="md-rendered" style="font-size:7px;">${this._renderMarkdown(item.data.description)}</div>
         </div>
       `;
     } else if (item.type === 'file_edit') {
-      title.innerHTML = '&#128221; 文件编辑';
+      title.innerHTML = '&#128221; File Edit';
       const p = item.data;
       let html = `
         <div class="file-edit-meta">
-          <div class="file-edit-info"><span class="fe-label">文件</span><span class="fe-value">${this._escapeHtml(p.rel_path || '')}</span></div>
-          <div class="file-edit-info"><span class="fe-label">提出者</span><span class="fe-value">${this._escapeHtml(p.proposed_by || 'agent')}</span></div>
-          <div class="file-edit-info"><span class="fe-label">原因</span><span class="fe-value">${this._escapeHtml(p.reason || '')}</span></div>
+          <div class="file-edit-info"><span class="fe-label">File</span><span class="fe-value">${this._escapeHtml(p.rel_path || '')}</span></div>
+          <div class="file-edit-info"><span class="fe-label">Proposed by</span><span class="fe-value">${this._escapeHtml(p.proposed_by || 'agent')}</span></div>
+          <div class="file-edit-info"><span class="fe-label">Reason</span><span class="fe-value">${this._escapeHtml(p.reason || '')}</span></div>
         </div>
       `;
       html += this._buildDiffView(p.old_content || '', p.new_content || '');
@@ -1065,7 +1238,7 @@ class AppController {
     const truncAt = 60;
 
     let html = '<div class="file-edit-diff">';
-    html += '<div class="fe-diff-header"><span class="fe-diff-old-h">原内容</span><span class="fe-diff-new-h">新内容</span></div>';
+    html += '<div class="fe-diff-header"><span class="fe-diff-old-h">Original</span><span class="fe-diff-new-h">New</span></div>';
     html += '<div class="fe-diff-body">';
     html += '<div class="fe-diff-col fe-diff-old">';
     for (let i = 0; i < Math.min(oldLines.length, truncAt); i++) {
@@ -1094,12 +1267,12 @@ class AppController {
 
     if (item.type === 'report_summary') {
       // Just acknowledge the summary, move to next
-      this.logEntry('CEO', '已阅会议报告', 'ceo');
+      this.logEntry('CEO', 'Meeting report reviewed', 'ceo');
       this._advanceReview();
 
     } else if (item.type === 'action_item') {
       this._recordActionDecision(item.data.report_id, item.data.index, true);
-      this.logEntry('CEO', `✅ 批准: ${item.data.description.substring(0, 40)}`, 'ceo');
+      this.logEntry('CEO', `✅ Approved: ${item.data.description.substring(0, 40)}`, 'ceo');
       this._advanceReview();
 
     } else if (item.type === 'file_edit') {
@@ -1108,14 +1281,14 @@ class AppController {
         .then(r => r.json())
         .then(data => {
           if (data.status === 'error') {
-            this.logEntry('SYSTEM', `审批失败: ${data.message}`, 'system');
+            this.logEntry('SYSTEM', `Approval failed: ${data.message}`, 'system');
           } else {
-            this.logEntry('CEO', `✅ 文件编辑已批准: ${data.rel_path}`, 'ceo');
+            this.logEntry('CEO', `✅ File edit approved: ${data.rel_path}`, 'ceo');
           }
           this._advanceReview();
         })
         .catch(err => {
-          this.logEntry('SYSTEM', `审批失败: ${err.message}`, 'system');
+          this.logEntry('SYSTEM', `Approval failed: ${err.message}`, 'system');
           this._advanceReview();
         });
     }
@@ -1129,12 +1302,12 @@ class AppController {
     if (!item) return;
 
     if (item.type === 'report_summary') {
-      this.logEntry('CEO', '已关闭会议报告', 'ceo');
+      this.logEntry('CEO', 'Meeting report dismissed', 'ceo');
       this._advanceReview();
 
     } else if (item.type === 'action_item') {
       this._recordActionDecision(item.data.report_id, item.data.index, false);
-      this.logEntry('CEO', `❌ 否决: ${item.data.description.substring(0, 40)}`, 'ceo');
+      this.logEntry('CEO', `❌ Rejected: ${item.data.description.substring(0, 40)}`, 'ceo');
       this._advanceReview();
 
     } else if (item.type === 'file_edit') {
@@ -1143,14 +1316,14 @@ class AppController {
         .then(r => r.json())
         .then(data => {
           if (data.status === 'error') {
-            this.logEntry('SYSTEM', `操作失败: ${data.message}`, 'system');
+            this.logEntry('SYSTEM', `Action failed: ${data.message}`, 'system');
           } else {
-            this.logEntry('CEO', `❌ 文件编辑已拒绝: ${data.rel_path}`, 'ceo');
+            this.logEntry('CEO', `❌ File edit rejected: ${data.rel_path}`, 'ceo');
           }
           this._advanceReview();
         })
         .catch(err => {
-          this.logEntry('SYSTEM', `操作失败: ${err.message}`, 'system');
+          this.logEntry('SYSTEM', `Action failed: ${err.message}`, 'system');
           this._advanceReview();
         });
     }
@@ -1218,12 +1391,12 @@ class AppController {
             .then(r => r.json())
             .then(data => {
               if (data.error) {
-                this.logEntry('SYSTEM', `执行失败: ${data.error}`, 'system');
+                this.logEntry('SYSTEM', `Execution failed: ${data.error}`, 'system');
               } else {
-                this.logEntry('CEO', `✅ 已批准 ${approved.length} 项改进，开始执行`, 'ceo');
+                this.logEntry('CEO', `✅ Approved ${approved.length} improvements, executing`, 'ceo');
               }
             })
-            .catch(err => this.logEntry('SYSTEM', `执行失败: ${err.message}`, 'system'));
+            .catch(err => this.logEntry('SYSTEM', `Execution failed: ${err.message}`, 'system'));
         }
         delete this._reviewDecisions[reportId];
       }
@@ -1241,7 +1414,10 @@ class AppController {
     document.getElementById('workflow-modal').classList.add('hidden');
     this.currentWorkflowName = null;
     document.getElementById('workflow-content').classList.add('hidden');
+    document.getElementById('workflow-rendered').classList.add('hidden');
     document.getElementById('workflow-placeholder').classList.remove('hidden');
+    document.getElementById('workflow-edit-btn').disabled = true;
+    document.getElementById('workflow-save-btn').classList.add('hidden');
     document.getElementById('workflow-save-btn').disabled = true;
   }
 
@@ -1259,7 +1435,7 @@ class AppController {
           list.appendChild(item);
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `加载工作流失败: ${err.message}`, 'system'));
+      .catch(err => this.logEntry('SYSTEM', `Failed to load workflows: ${err.message}`, 'system'));
   }
 
   loadWorkflow(name) {
@@ -1271,18 +1447,47 @@ class AppController {
           return;
         }
         this.currentWorkflowName = name;
-        const textarea = document.getElementById('workflow-content');
-        textarea.value = data.content;
-        textarea.classList.remove('hidden');
+        this._currentWorkflowRaw = data.content;
+        // Show rendered markdown view (default)
+        const rendered = document.getElementById('workflow-rendered');
+        rendered.innerHTML = '<div class="md-rendered">' + this._renderMarkdown(data.content) + '</div>';
+        rendered.classList.remove('hidden');
+        document.getElementById('workflow-content').classList.add('hidden');
         document.getElementById('workflow-placeholder').classList.add('hidden');
-        document.getElementById('workflow-save-btn').disabled = false;
+        document.getElementById('workflow-edit-btn').disabled = false;
+        document.getElementById('workflow-save-btn').classList.add('hidden');
 
         // Highlight active item
         document.querySelectorAll('.workflow-item').forEach(el => {
           el.classList.toggle('active', el.textContent === name);
         });
       })
-      .catch(err => this.logEntry('SYSTEM', `加载失败: ${err.message}`, 'system'));
+      .catch(err => this.logEntry('SYSTEM', `Load failed: ${err.message}`, 'system'));
+  }
+
+  toggleWorkflowEdit() {
+    const textarea = document.getElementById('workflow-content');
+    const rendered = document.getElementById('workflow-rendered');
+    const editBtn = document.getElementById('workflow-edit-btn');
+    const saveBtn = document.getElementById('workflow-save-btn');
+
+    if (textarea.classList.contains('hidden')) {
+      // Switch to edit mode
+      textarea.value = this._currentWorkflowRaw;
+      textarea.classList.remove('hidden');
+      rendered.classList.add('hidden');
+      editBtn.textContent = '👁 Preview';
+      saveBtn.classList.remove('hidden');
+      saveBtn.disabled = false;
+    } else {
+      // Switch back to rendered view
+      this._currentWorkflowRaw = textarea.value;
+      rendered.innerHTML = '<div class="md-rendered">' + this._renderMarkdown(textarea.value) + '</div>';
+      textarea.classList.add('hidden');
+      rendered.classList.remove('hidden');
+      editBtn.textContent = '✎ Edit';
+      saveBtn.classList.add('hidden');
+    }
   }
 
   saveWorkflow() {
@@ -1296,12 +1501,20 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `保存失败: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Save failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `📋 已更新工作流: ${this.currentWorkflowName}`, 'ceo');
+          this.logEntry('CEO', `📋 Workflow updated: ${this.currentWorkflowName}`, 'ceo');
+          // Switch back to rendered view after save
+          this._currentWorkflowRaw = content;
+          const rendered = document.getElementById('workflow-rendered');
+          rendered.innerHTML = '<div class="md-rendered">' + this._renderMarkdown(content) + '</div>';
+          document.getElementById('workflow-content').classList.add('hidden');
+          rendered.classList.remove('hidden');
+          document.getElementById('workflow-edit-btn').textContent = '✎ Edit';
+          document.getElementById('workflow-save-btn').classList.add('hidden');
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `保存失败: ${err.message}`, 'system'));
+      .catch(err => this.logEntry('SYSTEM', `Save failed: ${err.message}`, 'system'));
   }
 
   // ===== Meeting Room Zoom =====
@@ -1318,14 +1531,14 @@ class AppController {
     const statusText = document.getElementById('meeting-modal-status-text');
     if (room.is_booked) {
       led.className = 'status-led booked';
-      statusText.textContent = '会议中';
+      statusText.textContent = 'In Meeting';
     } else {
       led.className = 'status-led free';
-      statusText.textContent = '空闲';
+      statusText.textContent = 'Available';
     }
 
     // Capacity
-    document.getElementById('meeting-capacity').textContent = `${room.capacity}人`;
+    document.getElementById('meeting-capacity').textContent = `${room.capacity} people`;
 
     // Participants
     const partEl = document.getElementById('meeting-participants');
@@ -1341,7 +1554,7 @@ class AppController {
         </div>`;
       }).join('');
     } else {
-      partEl.innerHTML = '<div style="color:var(--text-dim)">暂无参会人员</div>';
+      partEl.innerHTML = '<div style="color:var(--text-dim)">No participants</div>';
     }
 
     // Load chat history
@@ -1349,7 +1562,7 @@ class AppController {
     chatEl.innerHTML = '';
     const history = this.meetingChats[room.id] || [];
     if (history.length === 0) {
-      chatEl.innerHTML = '<div class="chat-empty">暂无会议记录</div>';
+      chatEl.innerHTML = '<div class="chat-empty">No meeting logs</div>';
     } else {
       for (const msg of history) {
         this._appendChatMessage(msg);
@@ -1362,10 +1575,10 @@ class AppController {
     const statusText = document.getElementById('meeting-modal-status-text');
     if (room.is_booked) {
       led.className = 'status-led booked';
-      statusText.textContent = '会议中';
+      statusText.textContent = 'In Meeting';
     } else {
       led.className = 'status-led free';
-      statusText.textContent = '空闲';
+      statusText.textContent = 'Available';
     }
     // Update participants
     const partEl = document.getElementById('meeting-participants');
@@ -1381,7 +1594,7 @@ class AppController {
         </div>`;
       }).join('');
     } else {
-      partEl.innerHTML = '<div style="color:var(--text-dim)">暂无参会人员</div>';
+      partEl.innerHTML = '<div style="color:var(--text-dim)">No participants</div>';
     }
   }
 
@@ -1408,7 +1621,7 @@ class AppController {
     chatEl.scrollTop = chatEl.scrollHeight;
   }
 
-  // ===== Ex-Employee Wall (历史员工墙) =====
+  // ===== Ex-Employee Wall =====
   openExEmployeeWall() {
     const modal = document.getElementById('ex-employee-modal');
     modal.classList.remove('hidden');
@@ -1421,7 +1634,7 @@ class AppController {
 
   loadExEmployees() {
     const listEl = document.getElementById('ex-employee-list');
-    listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">加载中...</div>';
+    listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading...</div>';
 
     // Use state data if available, otherwise fetch
     const exEmps = window.officeRenderer?.state?.ex_employees || [];
@@ -1435,20 +1648,20 @@ class AppController {
       .then(data => {
         const list = data.ex_employees || [];
         if (list.length === 0) {
-          listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">暂无离职员工</div>';
+          listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">No ex-employees</div>';
           return;
         }
         this._renderExEmployees(list);
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">加载失败: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
       });
   }
 
   _renderExEmployees(exEmps) {
     const listEl = document.getElementById('ex-employee-list');
     if (exEmps.length === 0) {
-      listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">暂无离职员工</div>';
+      listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">No ex-employees</div>';
       return;
     }
     listEl.innerHTML = '';
@@ -1468,7 +1681,7 @@ class AppController {
           <div class="ex-emp-role">${emp.title || emp.role} — ${emp.department || ''}</div>
           <div class="ex-emp-skills">${skills}</div>
         </div>
-        <button class="pixel-btn small rehire-btn" data-id="${emp.id}">🔄 重新录用</button>
+        <button class="pixel-btn small rehire-btn" data-id="${emp.id}">🔄 Rehire</button>
       `;
       card.querySelector('.rehire-btn').addEventListener('click', () => this.rehireEmployee(emp));
       listEl.appendChild(card);
@@ -1476,7 +1689,7 @@ class AppController {
   }
 
   rehireEmployee(emp) {
-    if (!confirm(`确认重新录用 ${emp.name}${emp.nickname ? '(' + emp.nickname + ')' : ''}？\n将从 Lv.1 重新开始。`)) return;
+    if (!confirm(`Confirm rehire ${emp.name}${emp.nickname ? '(' + emp.nickname + ')' : ''}? Will restart from Lv.1.`)) return;
 
     fetch(`/api/ex-employees/${encodeURIComponent(emp.id)}/rehire`, {
       method: 'POST',
@@ -1485,16 +1698,19 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `重新录用失败: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Rehire failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `🔄 已重新录用: ${data.name}`, 'ceo');
+          this.logEntry('CEO', `🔄 Rehired: ${data.name}`, 'ceo');
+          if (data.state) {
+            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
+          }
           this.loadExEmployees(); // Refresh the list
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `错误: ${err.message}`, 'system'));
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
   }
 
-  // ===== Operations Dashboard (运营情况板) =====
+  // ===== Operations Dashboard =====
   openDashboard() {
     const modal = document.getElementById('dashboard-modal');
     modal.classList.remove('hidden');
@@ -1509,7 +1725,7 @@ class AppController {
     const content = document.getElementById('dashboard-content');
     const state = window.officeRenderer?.state;
     if (!state) {
-      content.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">暂无数据</div>';
+      content.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">No data</div>';
       return;
     }
 
@@ -1528,7 +1744,7 @@ class AppController {
     // Department breakdown
     const depts = {};
     for (const e of employees) {
-      const d = e.department || '未分配';
+      const d = e.department || 'Unassigned';
       depts[d] = (depts[d] || 0) + 1;
     }
 
@@ -1546,48 +1762,48 @@ class AppController {
 
     content.innerHTML = `
       <div class="dash-section">
-        <div class="dash-title">人员总览</div>
+        <div class="dash-title">Staff Overview</div>
         <div class="dash-stats">
-          <div class="dash-stat"><span class="dash-num">${employees.length}</span><span class="dash-label">在职</span></div>
-          <div class="dash-stat"><span class="dash-num">${exEmployees.length}</span><span class="dash-label">离职</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${workingCount}</span><span class="dash-label">工作中</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-gray);">${idleCount}</span><span class="dash-label">空闲</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-cyan);">${meetingCount}</span><span class="dash-label">会议中</span></div>
+          <div class="dash-stat"><span class="dash-num">${employees.length}</span><span class="dash-label">Active</span></div>
+          <div class="dash-stat"><span class="dash-num">${exEmployees.length}</span><span class="dash-label">Departed</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${workingCount}</span><span class="dash-label">Working</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-gray);">${idleCount}</span><span class="dash-label">Idle</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-cyan);">${meetingCount}</span><span class="dash-label">In Meeting</span></div>
         </div>
       </div>
       <div class="dash-section">
-        <div class="dash-title">设备 & 会议室</div>
+        <div class="dash-title">Equipment & Meeting Rooms</div>
         <div class="dash-stats">
-          <div class="dash-stat"><span class="dash-num">${tools.length}</span><span class="dash-label">工具</span></div>
-          <div class="dash-stat"><span class="dash-num">${rooms.length}</span><span class="dash-label">会议室</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${freeRooms}</span><span class="dash-label">空闲</span></div>
+          <div class="dash-stat"><span class="dash-num">${tools.length}</span><span class="dash-label">Tools</span></div>
+          <div class="dash-stat"><span class="dash-num">${rooms.length}</span><span class="dash-label">Rooms</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${freeRooms}</span><span class="dash-label">Available</span></div>
         </div>
       </div>
       <div class="dash-section">
-        <div class="dash-title">任务状态</div>
+        <div class="dash-title">Task Status</div>
         <div class="dash-stats">
-          <div class="dash-stat"><span class="dash-num">${tasks.filter(t => t.status === 'running').length}</span><span class="dash-label">进行中</span></div>
-          <div class="dash-stat"><span class="dash-num">${tasks.filter(t => t.status === 'queued').length}</span><span class="dash-label">排队中</span></div>
+          <div class="dash-stat"><span class="dash-num">${tasks.filter(t => t.status === 'running').length}</span><span class="dash-label">Running</span></div>
+          <div class="dash-stat"><span class="dash-num">${tasks.filter(t => t.status === 'queued').length}</span><span class="dash-label">Queued</span></div>
         </div>
       </div>
       <div class="dash-section">
-        <div class="dash-title">部门分布</div>
+        <div class="dash-title">Dept Distribution</div>
         <div class="dash-dept-list">
-          ${Object.entries(depts).map(([d, c]) => `<div class="dash-dept-item"><span>${d}</span><span>${c}人</span></div>`).join('')}
+          ${Object.entries(depts).map(([d, c]) => `<div class="dash-dept-item"><span>${d}</span><span>${c}</span></div>`).join('')}
         </div>
       </div>
       <div class="dash-section">
-        <div class="dash-title">绩效分布</div>
+        <div class="dash-title">Performance Distribution</div>
         <div class="dash-stats">
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${perf375}</span><span class="dash-label">3.75 优秀</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">${perf350}</span><span class="dash-label">3.5 合格</span></div>
-          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-red);">${perf325}</span><span class="dash-label">3.25 待改进</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-green);">${perf375}</span><span class="dash-label">3.75 Excellent</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">${perf350}</span><span class="dash-label">3.5 Qualified</span></div>
+          <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-red);">${perf325}</span><span class="dash-label">3.25 Needs Improvement</span></div>
         </div>
       </div>
     `;
   }
 
-  // ===== Culture Wall (公司文化墙) =====
+  // ===== Culture Wall =====
   openCultureWall() {
     document.getElementById('culture-wall-modal').classList.remove('hidden');
     this._renderCultureWall();
@@ -1601,7 +1817,7 @@ class AppController {
     const list = document.getElementById('culture-wall-list');
     const items = window.officeRenderer?.state?.culture_wall || [];
     if (!items.length) {
-      list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">暂无文化条目，CEO可在上方添加。</div>';
+      list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">No culture entries yet. CEO can add above.</div>';
       return;
     }
     list.innerHTML = items.map((item, idx) => {
@@ -1612,7 +1828,7 @@ class AppController {
           <div class="culture-wall-card-content">${this._escapeHtml(item.content)}</div>
           <div class="culture-wall-card-meta">
             <span class="culture-wall-card-date">${date}</span>
-            <button class="culture-wall-delete-btn" data-index="${idx}" title="删除">✕</button>
+            <button class="culture-wall-delete-btn" data-index="${idx}" title="Delete">✕</button>
           </div>
         </div>`;
     }).join('');
@@ -1638,14 +1854,14 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `添加失败: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Add failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `文化墙新增: ${content.slice(0, 40)}`, 'ceo');
+          this.logEntry('CEO', `Culture wall added: ${content.slice(0, 40)}`, 'ceo');
           input.value = '';
           // State will be refreshed via WebSocket push
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `错误: ${err.message}`, 'system'))
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'))
       .finally(() => { btn.disabled = false; });
   }
 
@@ -1654,19 +1870,54 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('SYSTEM', `删除失败: ${data.error}`, 'system');
+          this.logEntry('SYSTEM', `Delete failed: ${data.error}`, 'system');
         } else {
-          this.logEntry('CEO', `文化墙移除: ${data.removed?.content?.slice(0, 40) || ''}`, 'ceo');
+          this.logEntry('CEO', `Culture wall removed: ${data.removed?.content?.slice(0, 40) || ''}`, 'ceo');
           // State will be refreshed via WebSocket push
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `错误: ${err.message}`, 'system'));
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
   }
 
   _escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  /**
+   * Lightweight Markdown → HTML renderer.
+   * Handles: headers, bold, italic, inline code, code blocks, lists, links, newlines.
+   */
+  _renderMarkdown(md) {
+    if (!md) return '';
+    let html = this._escapeHtml(md);
+    // Code blocks (```...```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="md-code-block"><code>$2</code></pre>');
+    // Headers (# to ####)
+    html = html.replace(/^####\s+(.+)$/gm, '<div class="md-h4">$1</div>');
+    html = html.replace(/^###\s+(.+)$/gm, '<div class="md-h3">$1</div>');
+    html = html.replace(/^##\s+(.+)$/gm, '<div class="md-h2">$1</div>');
+    html = html.replace(/^#\s+(.+)$/gm, '<div class="md-h1">$1</div>');
+    // Bold (**text**)
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic (*text*)
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Inline code (`code`)
+    html = html.replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>');
+    // Unordered lists (- item)
+    html = html.replace(/^(\s*)[-*]\s+(.+)$/gm, '$1<div class="md-li">$2</div>');
+    // Ordered lists (1. item)
+    html = html.replace(/^\s*\d+\.\s+(.+)$/gm, '<div class="md-li md-oli">$1</div>');
+    // Horizontal rule (--- or ***)
+    html = html.replace(/^[-*]{3,}$/gm, '<hr class="md-hr">');
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    // Clean up double <br> after block elements
+    html = html.replace(/<\/div><br>/g, '</div>');
+    html = html.replace(/<\/pre><br>/g, '</pre>');
+    html = html.replace(/<hr class="md-hr"><br>/g, '<hr class="md-hr">');
+    return html;
   }
 
   submitTask() {
@@ -1684,10 +1935,10 @@ class AppController {
     })
       .then(r => r.json())
       .then(data => {
-        this.logEntry('CEO', `任务已分配给 ${data.routed_to}`, 'ceo');
+        this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
       })
       .catch(err => {
-        this.logEntry('SYSTEM', `提交失败: ${err.message}`, 'system');
+        this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
       })
       .finally(() => {
         setTimeout(() => { submitBtn.disabled = false; }, 2000);

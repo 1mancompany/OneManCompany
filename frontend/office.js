@@ -303,7 +303,7 @@ class OfficeRenderer {
     this._rect(x + 14 + sway, y + 4, 6, 12, '#28bb4c');
   }
 
-  // ===== Bulletin Board (规章制度) =====
+  // ===== Bulletin Board (Company Rules) =====
   drawBulletinBoard() {
     const ctx = this.ctx;
     const bx = 5 * TILE;
@@ -348,11 +348,11 @@ class OfficeRenderer {
     ctx.fillStyle = PALETTE.boardPaper;
     ctx.font = '4px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('规章制度', bx + TILE * 1.5, by + TILE + 2);
+    ctx.fillText('Rules', bx + TILE * 1.5, by + TILE + 2);
     ctx.textAlign = 'left';
   }
 
-  // ===== Project Wall (项目墙) =====
+  // ===== Project Wall =====
   drawProjectWall() {
     const ctx = this.ctx;
     const bx = 12 * TILE;
@@ -396,7 +396,7 @@ class OfficeRenderer {
     ctx.fillStyle = PALETTE.projectCard;
     ctx.font = '4px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('项目墙', bx + TILE * 1.5, by + TILE + 2);
+    ctx.fillText('Projects', bx + TILE * 1.5, by + TILE + 2);
     ctx.textAlign = 'left';
   }
 
@@ -679,11 +679,11 @@ class OfficeRenderer {
     ctx.fillStyle = statusColor;
     ctx.font = '4px monospace';
     ctx.textAlign = 'center';
-    const label = (roomData.name || '会议室').substring(0, 8);
+    const label = (roomData.name || 'Meeting Room').substring(0, 8);
     ctx.fillText(label, px + TILE, py + TILE * 2 + 10);
     if (roomData.is_booked) {
       ctx.fillStyle = PALETTE.meetingBooked;
-      ctx.fillText('使用中', px + TILE, py + TILE * 2 + 17);
+      ctx.fillText('In Use', px + TILE, py + TILE * 2 + 17);
     }
     ctx.textAlign = 'left';
   }
@@ -697,11 +697,11 @@ class OfficeRenderer {
 
     // Check bulletin board (tiles 5-7, row 0-1)
     if (x >= 5 && x <= 7 && y <= 1) {
-      tooltipText = '📋 规章制度 / Company Rules\n点击查看和编辑工作流文档';
+      tooltipText = '📋 Company Rules\nClick to view and edit workflows';
     }
 
     if (x >= 12 && x <= 14 && y <= 1) {
-      tooltipText = '📋 项目墙 / Project Wall\n点击查看历史项目';
+      tooltipText = '📋 Project Wall\nClick to view project history';
     }
 
     // Check CEO (fixed at 9, 2)
@@ -710,7 +710,7 @@ class OfficeRenderer {
     }
 
     // Check employees
-    const LEVEL_NAMES = {1: '初级', 2: '中级', 3: '高级', 4: '创始', 5: 'CEO'};
+    const LEVEL_NAMES = {1: 'Junior', 2: 'Mid', 3: 'Senior', 4: 'Founding', 5: 'CEO'};
     for (const emp of this.state.employees) {
       const [ex, ey] = emp.desk_position || [0, 0];
       if (x === ex && (y === ey + 2 || y === ey + 3 || y === ey + 4)) {
@@ -719,11 +719,11 @@ class OfficeRenderer {
         const title = emp.title || `${lvl}${emp.role}`;
         const hist = emp.performance_history || [];
         const latestScore = hist.length > 0 ? hist[hist.length - 1].score : '-';
-        tooltipText = `${emp.name}${nn}\n${title}\nSkills: ${(emp.skills || []).join(', ')}\n绩效: ${latestScore}`;
+        tooltipText = `${emp.name}${nn}\n${title}\nSkills: ${(emp.skills || []).join(', ')}\nPerformance: ${latestScore}`;
         if (emp.is_listening) {
-          tooltipText += '\n📖 正在聆听领导教诲...';
+          tooltipText += '\n📖 In 1-on-1 meeting...';
         }
-        tooltipText += '\n\n(点击查看详情)';
+        tooltipText += '\n\n(Click for details)';
         break;
       }
     }
@@ -741,10 +741,10 @@ class OfficeRenderer {
     for (const room of (this.state.meeting_rooms || [])) {
       const [rx, ry] = room.position || [0, 0];
       if (x >= rx && x <= rx + 1 && y >= ry + 3 && y <= ry + 5) {
-        const status = room.is_booked ? '🔴 使用中' : '🟢 空闲';
-        tooltipText = `🏢 ${room.name}\n${room.description}\n容量: ${room.capacity}人\n状态: ${status}`;
+        const status = room.is_booked ? '🔴 In Use' : '🟢 Available';
+        tooltipText = `🏢 ${room.name}\n${room.description}\nCapacity: ${room.capacity}\nStatus: ${status}`;
         if (room.is_booked && room.participants && room.participants.length > 0) {
-          tooltipText += `\n参会: ${room.participants.join(', ')}`;
+          tooltipText += `\nParticipants: ${room.participants.join(', ')}`;
         }
         break;
       }
