@@ -1,0 +1,13 @@
+completed_at: null
+created_at: '2026-03-02T11:41:41.614538'
+current_owner: pending
+output: null
+participants:
+- '00002'
+- '00003'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_114141_64ec4c
+project_id: 20260302_114141_64ec4c
+routed_to: pending
+status: in_progress
+task: 清理asset，把opensandbox之外的tool都删掉
+timeline: []

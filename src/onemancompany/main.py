@@ -196,6 +196,33 @@ async def _start_file_watcher() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Periodic reload fallback (safety net for when watchdog misses events)
+# ---------------------------------------------------------------------------
+
+async def _periodic_reload_loop() -> None:
+    """Periodically check for disk changes and reload if idle.
+
+    macOS watchdog can miss file events (atomic writes, IDE temp files),
+    so this acts as a fallback to keep memory in sync with disk.
+    """
+    from onemancompany.core.state import is_idle, reload_all_from_disk
+
+    INTERVAL = 30  # seconds
+
+    while True:
+        await asyncio.sleep(INTERVAL)
+        try:
+            if is_idle():
+                result = reload_all_from_disk()
+                updated = result.get("employees_updated", [])
+                added = result.get("employees_added", [])
+                if updated or added:
+                    print(f"[periodic-reload] {len(updated)} updated, {len(added)} added")
+        except Exception as e:
+            print(f"[periodic-reload] Error: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
@@ -217,6 +244,9 @@ async def lifespan(app: FastAPI):
 
     # Start file watcher for soft reload
     watcher_task = asyncio.create_task(_start_file_watcher())
+
+    # Start periodic reload as watchdog fallback
+    periodic_task = asyncio.create_task(_periodic_reload_loop())
 
     print(f"🏢 One Man Company HQ is open!")
     print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
