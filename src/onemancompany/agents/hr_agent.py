@@ -547,6 +547,12 @@ class HRAgent(BaseAgentRunner):
                 )
                 await self._publish("employee_hired", emp.to_dict())
 
+                # Register and start an agent loop for the new employee
+                from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
+                if not get_agent_loop(emp_num):
+                    from onemancompany.agents.base import EmployeeAgent
+                    await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
+
             elif data.get("action") == "review" and "reviews" in data:
                 for review in data["reviews"]:
                     emp_id = review.get("id")

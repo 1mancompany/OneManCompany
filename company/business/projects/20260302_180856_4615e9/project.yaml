@@ -1,0 +1,68 @@
+acceptance_criteria:
+- 技术路线确定并落地：选择 SpriteKit + Swift（macOS）或 Unity 2D；仓库/目录结构与构建方式在 README 中明确且可复现
+- 项目 workspace 内具备清晰结构：/App(或Xcode项目)/Sources /Resources /Levels /docs /scripts；README、构建脚本与资源许可清单齐全
+- macOS 可运行的简化愤怒小鸟克隆：弹弓拉伸瞄准发射；SpriteKit 物理模拟（重力/碰撞/弹性/摩擦）；可倒塌障碍物（至少2种材质或耐久度差异）；至少1个可玩关卡
+- 胜利条件可完成且可判定：例如“全部猪被击倒/血量归零”或“目标区达成”；具备重新开始/下一关或胜利界面反馈
+- 产物或一键构建：提供 xcodebuild 脚本（或 Unity batch build 脚本）可生成 .app；README 给出从零到运行的命令步骤
+- 交付证据：docs/ 或 media/ 内含截图（至少2张）与录屏（或GIF）；并在 README 中链接
+- 资源合规：docs/ASSET_LICENSES.md 完整列出第三方图片/音效/字体来源与许可证；未列出的资源不得进入 Resources 目录
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.2
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-02T18:08:56.921524'
+current_owner: '00003'
+dispatches:
+- completed_at: '2026-03-02T18:13:20.028248'
+  description: 负责项目交付与整体推进：确定技术路线（优先Unity 2D或SpriteKit/Swift），制定里程碑与目录结构；在项目workspace组织代码、资源、README、构建脚本/说明；最终验收对齐标准：可运行macOS版简化愤怒小鸟克隆（弹弓发射、物理、可倒塌障碍、至少1关卡、可完成胜利条件、产物或一键构建、截图/录屏、资源许可）。
+  dispatched_at: '2026-03-02T18:09:22.694273'
+  employee_id: '00003'
+  status: completed
+- description: 补充：原计划分派给工程同事00008进行具体编码，但当前系统提示其无agent loop无法接单。请你（COO）直接承担编码实现或在工程侧找到可接单的执行人，确保按验收标准交付。
+  dispatched_at: '2026-03-02T18:09:32.058545'
+  employee_id: '00003'
+  status: in_progress
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_180856_4615e9
+project_id: 20260302_180856_4615e9
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 写一个愤怒的小鸟游戏，mac os版本
+timeline:
+- action: EA task completed
+  detail: "任务分析：这是一个**产品/工程交付型**任务（macOS 上可运行的小游戏），属于**运营/项目执行**域，需由 **COO（00003）**\
+    \ 负责整体推进与交付验收。\n\n已完成动作（按流程）：\n1) **预算已设定**：USD **0.20**（复杂工程实现+文档+构建，约50k+ tokens量级）。\n\
+    2) **验收标准已设定**（负责人：COO 00003）：\n- workspace内提供可运行的macOS版简化愤怒小鸟克隆（物理抛射+弹弓发射+可倒塌/可破坏障碍+至少1关卡）源码与工程文件\
+    \  \n- README完整：环境/依赖/从零构建与运行步骤 + 操作说明  \n- 产物：可启动并"
+  employee_id: '00004'
+  time: '2026-03-02T18:09:40.183781'
+- action: COO task completed
+  detail: '技术路线与交付推进我已定版并在 workspace 落地：**选择 SpriteKit + Swift（macOS）**，并把可运行的简化 Angry
+    Birds 克隆（弹弓发射 + 物理 + 可倒塌障碍 + 1 关卡 + 胜利条件 + 一键构建脚本 + 资源许可文档）组织进项目目录。
+
+
+    ## 1) 技术路线（已确定）
+
+    - **SpriteKit + Swift（macOS）**
+
+    - 取舍：原生 2D + 内建物理；不依赖 Unity 工程/资源链；交付更轻、脚本化构建更直接。
+
+
+    ## 2) 里程碑与验收标准（已对齐并登记）
+
+    我已将本项目的验收 criteria 录入系统（包括：技术路线与结构'
+  employee_id: '00003'
+  time: '2026-03-02T18:13:20.021613'

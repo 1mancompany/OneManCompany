@@ -1,0 +1,10 @@
+# SwiftPM
+.build/
+Packages/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Build outputs
+build/

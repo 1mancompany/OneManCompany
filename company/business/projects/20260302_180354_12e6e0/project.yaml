@@ -1,0 +1,58 @@
+acceptance_criteria:
+- 在项目workspace中提交可运行的macOS版“愤怒的小鸟”最小可用版本（MVP），包含README与运行/打包步骤
+- 核心玩法可用：拖拽弹弓发射小鸟、基础物理碰撞、至少3个关卡、胜负判定与重开
+- 代码可编译通过：Xcode工程或可执行构建脚本（如Swift + SpriteKit），在macOS 13+上测试通过
+- 资产与版权合规：仅使用自制或开源许可素材，并在README中列明来源与许可
+- 交付物结构清晰：包含源代码、资源目录、构建产物说明及演示截图/录屏链接（可选）
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 35.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-02T18:03:54.424573'
+current_owner: pending
+dispatches:
+- description: 负责整体项目交付：制定macOS版愤怒的小鸟MVP技术路线（建议Swift+SpriteKit/SceneKit或Unity但优先原生）、项目结构、里程碑；协调工程同学开发与集成；确保满足验收标准并将最终交付物保存到项目workspace。
+  dispatched_at: '2026-03-02T18:04:17.714878'
+  employee_id: '00003'
+  status: in_progress
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00006'
+- '00007'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_180354_12e6e0
+project_id: 20260302_180354_12e6e0
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 写一个愤怒的小鸟游戏，mac os版本
+timeline: []
+-02T18:04:17.714878'
+  employee_id: '00003'
+  status: in_progress
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00006'
+- '00007'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_180354_12e6e0
+project_id: 20260302_180354_12e6e0
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 写一个愤怒的小鸟游戏，mac os版本
+timeline: []

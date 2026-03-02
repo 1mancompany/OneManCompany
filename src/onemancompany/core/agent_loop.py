@@ -726,6 +726,13 @@ async def start_all_loops() -> None:
         await loop.start()
 
 
+async def register_and_start_agent(employee_id: str, agent_runner: "BaseAgentRunner") -> PersistentAgentLoop:
+    """Register a new agent and start its loop immediately. Used for newly hired employees."""
+    loop = register_agent(employee_id, agent_runner)
+    await loop.start()
+    return loop
+
+
 async def stop_all_loops() -> None:
     """Stop all registered agent loops. Called from lifespan shutdown."""
     for loop in agent_loops.values():
