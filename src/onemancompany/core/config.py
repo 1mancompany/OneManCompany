@@ -37,6 +37,8 @@ TALENTS_DIR = TALENT_MARKET_DIR / "talents"
 CEO_ID = "00001"
 HR_ID = "00002"
 COO_ID = "00003"
+EA_ID = "00004"
+CSO_ID = "00005"
 
 # ---------------------------------------------------------------------------
 # Employee level system
@@ -142,6 +144,11 @@ HR_KEYWORDS = [
     "hire", "recruit", "employee", "staff", "review", "performance",
     "fire", "dismiss", "terminate",
     "招聘", "员工", "评价", "评估", "花名", "晋升", "开除", "解雇", "辞退",
+]
+
+SALES_KEYWORDS = [
+    "sales", "sell", "client", "customer", "contract", "deal", "revenue",
+    "销售", "客户", "合同", "订单", "营收", "商务", "签约",
 ]
 
 

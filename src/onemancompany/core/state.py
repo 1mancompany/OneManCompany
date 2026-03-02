@@ -10,6 +10,42 @@ from onemancompany.core.config import (
 
 
 @dataclass
+class SalesTask:
+    """An external sales task from a client."""
+
+    id: str
+    client_name: str
+    description: str
+    requirements: str = ""
+    budget_tokens: int = 0
+    status: str = "pending"  # pending / accepted / in_production / delivered / settled
+    assigned_to: str = ""    # sales employee ID
+    contract_approved: bool = False
+    delivery: str = ""
+    settlement_tokens: int = 0
+    created_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.created_at:
+            self.created_at = datetime.now().isoformat()
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "client_name": self.client_name,
+            "description": self.description,
+            "requirements": self.requirements,
+            "budget_tokens": self.budget_tokens,
+            "status": self.status,
+            "assigned_to": self.assigned_to,
+            "contract_approved": self.contract_approved,
+            "delivery": self.delivery,
+            "settlement_tokens": self.settlement_tokens,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
 class TaskEntry:
     """A tracked task in the task queue."""
 
@@ -73,7 +109,7 @@ LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
 ROLE_TITLES = {
     "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
     "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
-    "HR": "HR", "COO": "COO",
+    "HR": "HR", "COO": "COO", "EA": "EA", "CSO": "CSO",
 }
 
 
@@ -183,6 +219,8 @@ class CompanyState:
     activity_log: list[dict] = field(default_factory=list)
     company_culture: list[dict] = field(default_factory=list)
     office_layout: dict = field(default_factory=dict)
+    sales_tasks: dict[str, SalesTask] = field(default_factory=dict)
+    company_tokens: int = 0
     _next_employee_number: int = 0  # auto-increment counter
 
     def to_json(self) -> dict:
@@ -196,6 +234,8 @@ class CompanyState:
             "activity_log": self.activity_log[-20:],
             "company_culture": self.company_culture,
             "office_layout": self.office_layout,
+            "sales_tasks": [t.to_dict() for t in self.sales_tasks.values()],
+            "company_tokens": self.company_tokens,
         }
 
     def next_employee_number(self) -> str:
@@ -214,7 +254,7 @@ def _seed_employees() -> None:
 
     Folder names ARE employee numbers (e.g., employees/00002/).
     """
-    from onemancompany.core.config import HR_ID, COO_ID, employee_configs, load_employee_guidance, load_work_principles
+    from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID, employee_configs, load_employee_guidance, load_work_principles
 
     if not employee_configs:
         # Fallback defaults if no employee folders exist
@@ -230,9 +270,21 @@ def _seed_employees() -> None:
             department="Operations", employee_number=COO_ID,
             desk_position=(6, 2), sprite="coo",
         )
+        company_state.employees[EA_ID] = Employee(
+            id=EA_ID, name="Pat EA", role="EA",
+            skills=["task_analysis", "task_routing", "project_management"],
+            department="CEO Office", employee_number=EA_ID,
+            desk_position=(7, 0), sprite="ea",
+        )
+        company_state.employees[CSO_ID] = Employee(
+            id=CSO_ID, name="Morgan CSO", role="CSO",
+            skills=["sales_management", "contract_review", "client_relations"],
+            department="Sales", employee_number=CSO_ID,
+            desk_position=(15, 0), sprite="cso",
+        )
         return
 
-    company_state._next_employee_number = 4  # start after founding employees
+    company_state._next_employee_number = 6  # start after founding employees
 
     for emp_num, cfg in employee_configs.items():
         # Folder name IS the employee number — use it as both id and employee_number

@@ -18,14 +18,21 @@ Performance system:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import random
 import re
+import sys
 import uuid
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
+from mcp import ClientSession
+from mcp.client.stdio import stdio_client, StdioServerParameters
+
+logger = logging.getLogger(__name__)
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
@@ -101,28 +108,104 @@ def _talent_to_candidate(talent: dict) -> dict:
     }
 
 
-@tool
-def search_candidates(job_description: str) -> list[dict]:
-    """Search the talent market for available candidates.
+# ---------------------------------------------------------------------------
+# Persistent Boss Online MCP client
+# ---------------------------------------------------------------------------
 
-    Scans all talent packages under talent_market/talents/ and returns them
-    as candidate profiles that the CEO can review and hire.
+_boss_session: ClientSession | None = None
+_boss_cleanup: asyncio.Task | None = None
+
+
+async def start_boss_online() -> None:
+    """Start the Boss Online MCP server as a persistent subprocess.
+
+    Called once during app lifespan startup.  The session is stored in
+    module-level ``_boss_session`` so ``search_candidates`` can reuse it.
+    """
+    global _boss_session, _boss_cleanup
+
+    from pathlib import Path
+
+    boss_online_path = str(
+        Path(__file__).resolve().parent.parent / "talent_market" / "boss_online.py"
+    )
+    server_params = StdioServerParameters(
+        command=sys.executable,
+        args=[boss_online_path],
+    )
+
+    # stdio_client is an async context manager that starts the subprocess.
+    # We enter it manually and store the exit stack so we can clean up later.
+    from contextlib import AsyncExitStack
+    stack = AsyncExitStack()
+    read, write = await stack.enter_async_context(stdio_client(server_params))
+    session = await stack.enter_async_context(ClientSession(read, write))
+    await session.initialize()
+
+    _boss_session = session
+    # Store the stack so stop_boss_online can tear it down
+    _boss_session._exit_stack = stack  # type: ignore[attr-defined]
+    logger.info("Boss Online MCP server started (persistent)")
+
+
+async def stop_boss_online() -> None:
+    """Shut down the persistent Boss Online MCP server."""
+    global _boss_session
+    if _boss_session is not None:
+        stack = getattr(_boss_session, "_exit_stack", None)
+        _boss_session = None
+        if stack:
+            await stack.aclose()
+        logger.info("Boss Online MCP server stopped")
+
+
+async def _call_boss_online(job_description: str, count: int = 10) -> list[dict]:
+    """Call the persistent Boss Online MCP session."""
+    if _boss_session is None:
+        raise RuntimeError("Boss Online MCP server is not running")
+
+    result = await _boss_session.call_tool(
+        "search_candidates",
+        arguments={"job_description": job_description, "count": count},
+    )
+    candidates = []
+    for item in result.content:
+        try:
+            candidates.append(json.loads(item.text))
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    return candidates
+
+
+@tool
+async def search_candidates(job_description: str) -> list[dict]:
+    """Search the Boss Online recruitment platform for candidates matching a job description.
+
+    Connects to the Boss Online MCP server, which generates candidate profiles
+    based on the job description. Returns ranked candidates with full profiles
+    including skills, tools, system prompts, and JD relevance scores.
 
     Args:
-        job_description: The job requirements / description text (used for context).
+        job_description: The job requirements / description text.
 
     Returns:
-        A list of candidate dicts from available talent packages.
+        A list of candidate dicts sorted by JD relevance (highest first).
     """
-    from onemancompany.core.config import list_available_talents, load_talent_profile
-
-    talents = list_available_talents()
-    candidates = []
-    for t in talents:
-        profile = load_talent_profile(t["id"])
-        if profile:
-            candidates.append(_talent_to_candidate(profile))
-    return candidates
+    try:
+        candidates = await _call_boss_online(job_description)
+        logger.info("Boss Online returned %d candidates for JD: %s", len(candidates), job_description[:80])
+        return candidates
+    except Exception as e:
+        logger.error("Boss Online MCP call failed: %s", e)
+        # Fallback to local talent packages
+        from onemancompany.core.config import list_available_talents, load_talent_profile
+        talents = list_available_talents()
+        candidates = []
+        for t in talents:
+            profile = load_talent_profile(t["id"])
+            if profile:
+                candidates.append(_talent_to_candidate(profile))
+        return candidates
 
 
 @tool
@@ -149,8 +232,9 @@ Your responsibilities:
 1. Review employee performance -- give each employee a score from three tiers: 3.25 / 3.5 / 3.75.
 2. Hire new employees when needed, using the available tools.
 3. Assign a Chinese nickname (花名) to each new hire -- exactly TWO Chinese characters.
-   The nickname should be creative, memorable, and relate to their role or skills.
-   Examples: 飞鱼, 星辰, 雷鸣, 云帆, 青松, 铁锤
+   The nickname MUST have a wuxia (martial arts / jianghu) flavor -- think swordsmen, heroes, legendary figures.
+   Examples: 逍遥, 追风, 凌霄, 青锋, 玄冥, 飞鸿, 破军, 惊鸿
+   Founding employees (level 4) get THREE characters: 铁面侠, 暖心侠, 玲珑阁, 金算盘
 
 ## Performance System
 - Three score tiers ONLY: 3.25 (needs improvement), 3.5 (meets expectations), 3.75 (excellent)
@@ -216,6 +300,49 @@ You can read and edit any file in the project directory:
 
 Be concise and professional.
 """
+
+async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
+    """Generate a wuxia-themed Chinese nickname (花名) for an employee.
+
+    Founding employees (level 4) get 3-character nicknames.
+    Normal employees (level 1-3) get 2-character nicknames.
+    All nicknames must have a wuxia (martial arts / jianghu) flavor.
+
+    Args:
+        name: The employee's real name.
+        role: The employee's role (e.g. Engineer, Designer).
+        is_founding: True for founding employees (3-char nickname).
+
+    Returns:
+        A Chinese nickname string.
+    """
+    char_count = 3 if is_founding else 2
+    gen_llm = make_llm(HR_ID)
+    gen_prompt = (
+        f"You are a wuxia novelist naming a character.\n"
+        f"Give a 花名 (nickname) for: {name}, role: {role}.\n\n"
+        f"Requirements:\n"
+        f"- Exactly {char_count} Chinese characters\n"
+        f"- Must have a wuxia/martial arts/jianghu flavor — think swordsmen, heroes, legendary figures\n"
+        f"- Should sound like a person's name or title in the jianghu, not an object\n"
+        f"- Creative, memorable, and fitting for their role\n"
+        f"- Reference style: 独孤求败, 风清扬, 令狐冲, 段誉, 黄蓉, 小龙女, 逍遥子, 天山童姥\n"
+        f"- For {char_count}-char names: 铁面侠, 暖心侠, 玲珑阁, 金算盘, 逍遥子, 追风客\n\n"
+        f"Reply with ONLY the {char_count}-character 花名, nothing else."
+    )
+    result = await gen_llm.ainvoke([
+        SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
+        HumanMessage(content=gen_prompt),
+    ])
+    nickname = result.content.strip()
+    # Extract exactly the right number of Chinese characters
+    chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
+    if len(chinese_chars) >= char_count:
+        return ''.join(chinese_chars[:char_count])
+    elif chinese_chars:
+        return ''.join(chinese_chars)
+    return ""
+
 
 HIRING_TOOLS = [search_candidates, list_open_positions] + COMMON_TOOLS
 

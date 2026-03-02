@@ -1,23 +1,22 @@
 current_quarter_tasks: 0
-department: HR
+department: CEO Office
 desk_position:
-- 5
+- 7
 - 0
-employee_number: '00002'
+employee_number: '00004'
 level: 4
 llm_model: openai/gpt-5.2
-name: Sam HR
-nickname: 暖心侠
+name: Pat EA
+nickname: 玲珑阁
 performance_history: []
 permissions:
 - company_file_access
 - web_search
-- hr_management
-role: HR
+role: EA
 skills:
-- hiring
-- reviews
-- people_management
-sprite: hr
+- task_analysis
+- task_routing
+- project_management
+sprite: ea
 temperature: 0.7
 title: Founding

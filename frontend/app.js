@@ -575,10 +575,39 @@ class AppController {
     });
     document.getElementById('oneonone-start-btn').addEventListener('click', () => this.startOneonone());
     document.getElementById('oneonone-send-btn').addEventListener('click', () => this.sendOneononeMessage());
+    this._oneononeInputHistory = [];   // CEO messages sent this session
+    this._oneononeHistoryIdx = -1;     // -1 = not browsing history
+    this._oneononeSavedDraft = '';      // save current draft when browsing
     document.getElementById('oneonone-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.sendOneononeMessage();
+      } else if (e.key === 'ArrowUp' && !e.shiftKey) {
+        const ta = e.target;
+        // Only intercept if cursor is at the start (no multiline navigation needed)
+        if (ta.selectionStart === 0 && this._oneononeInputHistory.length > 0) {
+          e.preventDefault();
+          if (this._oneononeHistoryIdx === -1) {
+            this._oneononeSavedDraft = ta.value;
+            this._oneononeHistoryIdx = this._oneononeInputHistory.length - 1;
+          } else if (this._oneononeHistoryIdx > 0) {
+            this._oneononeHistoryIdx--;
+          }
+          ta.value = this._oneononeInputHistory[this._oneononeHistoryIdx];
+        }
+      } else if (e.key === 'ArrowDown' && !e.shiftKey) {
+        const ta = e.target;
+        if (this._oneononeHistoryIdx !== -1) {
+          e.preventDefault();
+          if (this._oneononeHistoryIdx < this._oneononeInputHistory.length - 1) {
+            this._oneononeHistoryIdx++;
+            ta.value = this._oneononeInputHistory[this._oneononeHistoryIdx];
+          } else {
+            // Back to draft
+            this._oneononeHistoryIdx = -1;
+            ta.value = this._oneononeSavedDraft;
+          }
+        }
       }
     });
     document.getElementById('oneonone-end-btn').addEventListener('click', () => this.endOneononeMeeting());
@@ -713,6 +742,8 @@ class AppController {
 
     this._oneononeEmployeeId = empId;
     this._oneononeHistory = [];  // [{role: 'ceo'|'employee', content}]
+    this._oneononeInputHistory = [];
+    this._oneononeHistoryIdx = -1;
 
     // Switch to chat phase
     document.getElementById('oneonone-setup').classList.add('hidden');
@@ -772,8 +803,11 @@ class AppController {
     const message = textarea.value.trim();
     if (!message || !this._oneononeEmployeeId) return;
 
-    // Show CEO bubble
+    // Show CEO bubble and record in input history
     this._addOneononeBubble('CEO', message, 'outgoing');
+    this._oneononeInputHistory.push(message);
+    this._oneononeHistoryIdx = -1;
+    this._oneononeSavedDraft = '';
     textarea.value = '';
     textarea.style.height = 'auto';
 

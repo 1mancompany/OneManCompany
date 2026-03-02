@@ -239,14 +239,22 @@ async def lifespan(app: FastAPI):
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
-    # Register agent loops for HR and COO
+    # Register agent loops for all founding employees
     from onemancompany.core.agent_loop import register_agent, start_all_loops, stop_all_loops
-    from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID
+    from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID, EA_ID as _EA_ID, CSO_ID as _CSO_ID
     from onemancompany.agents.hr_agent import HRAgent
     from onemancompany.agents.coo_agent import COOAgent
+    from onemancompany.agents.ea_agent import EAAgent
+    from onemancompany.agents.cso_agent import CSOAgent
+
+    # Start Boss Online MCP server (persistent subprocess)
+    from onemancompany.agents.hr_agent import start_boss_online, stop_boss_online
+    await start_boss_online()
 
     register_agent(_HR_ID, HRAgent())
     register_agent(_COO_ID, COOAgent())
+    register_agent(_EA_ID, EAAgent())
+    register_agent(_CSO_ID, CSOAgent())
     await start_all_loops()
 
     # Start background WebSocket event broadcaster
@@ -264,6 +272,9 @@ async def lifespan(app: FastAPI):
 
     # Stop agent loops
     await stop_all_loops()
+
+    # Stop Boss Online MCP server
+    await stop_boss_online()
 
     # Save ephemeral state before shutdown
     _save_ephemeral_state()

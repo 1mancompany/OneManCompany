@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
+    CSO_ID,
     DEPT_CN_TO_EN,
     DEPT_COLORS,
     DEPT_DESK_ROWS,
@@ -19,11 +20,15 @@ from onemancompany.core.config import (
     DEPT_MIN_ZONE_WIDTH,
     DEPT_ORDER,
     DEPT_START_ROW,
+    EA_ID,
     EXEC_FLOOR_COLORS,
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
 )
+
+# All executive IDs (excluded from department layout)
+_EXEC_IDS = {HR_ID, COO_ID, EA_ID, CSO_ID}
 
 
 @dataclass
@@ -64,7 +69,7 @@ def compute_layout(company_state) -> dict:
     # Separate executives from department employees
     dept_groups: dict[str, list[Employee]] = {}
     for emp in company_state.employees.values():
-        if emp.id in (HR_ID, COO_ID):
+        if emp.id in _EXEC_IDS:
             continue  # executives handled separately
         dept = emp.department or "General"
         dept_groups.setdefault(dept, []).append(emp)
@@ -190,19 +195,19 @@ def _assign_desks_in_zone(zone: DeptZone, employees: list) -> None:
 
 
 def _assign_executive_positions(company_state) -> None:
-    """Place CEO, HR, COO in the executive row."""
-    # CEO at center
-    # (CEO is not in the employees dict, drawn separately by frontend)
+    """Place CEO, HR, EA, COO, CSO in the executive row."""
+    # CEO at center (grid-x 9) — drawn separately by frontend
 
-    # HR at left of exec row
-    hr = company_state.employees.get(HR_ID)
-    if hr:
-        hr.desk_position = (5, EXEC_ROW_GY)
-
-    # COO at right of exec row
-    coo = company_state.employees.get(COO_ID)
-    if coo:
-        coo.desk_position = (13, EXEC_ROW_GY)
+    exec_positions = {
+        HR_ID: (3, EXEC_ROW_GY),
+        EA_ID: (7, EXEC_ROW_GY),
+        COO_ID: (11, EXEC_ROW_GY),
+        CSO_ID: (15, EXEC_ROW_GY),
+    }
+    for emp_id, pos in exec_positions.items():
+        emp = company_state.employees.get(emp_id)
+        if emp:
+            emp.desk_position = pos
 
 
 def get_next_desk_for_department(company_state, department: str) -> tuple[int, int]:
@@ -214,7 +219,7 @@ def get_next_desk_for_department(company_state, department: str) -> tuple[int, i
     # Build current department groups (excluding executives)
     dept_groups: dict[str, list] = {}
     for emp in company_state.employees.values():
-        if emp.id in (HR_ID, COO_ID):
+        if emp.id in _EXEC_IDS:
             continue
         dept = emp.department or "General"
         dept_groups.setdefault(dept, []).append(emp)

@@ -16,6 +16,8 @@ from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
+    CSO_ID,
+    EA_ID,
     FOUNDING_LEVEL,
     HR_ID,
     HR_KEYWORDS,
@@ -36,7 +38,7 @@ class InquirySession:
     session_id: str
     task: str
     room_id: str
-    agent_role: str  # "HR" or "COO"
+    agent_role: str  # "HR", "COO", "EA", or "CSO"
     participants: list[str]
     history: list[dict]  # [{role: 'ceo'|'agent', speaker: str, content: str}]
 
@@ -200,37 +202,20 @@ async def get_state() -> dict:
     return company_state.to_json()
 
 
-async def _classify_task(task: str) -> str:
-    """Use a short LLM call to classify a CEO task as 'inquiry' or 'project'."""
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from onemancompany.agents.base import make_llm
-
-    llm = make_llm(COO_ID)
-    result = await llm.ainvoke([
-        SystemMessage(content=(
-            "You classify CEO tasks. Reply with EXACTLY one word: 'inquiry' or 'project'.\n"
-            "- 'inquiry': The CEO is asking a question, seeking information, or wants to discuss/understand something. "
-            "Examples: 'tell me about employee X', 'what are our current tools?', 'how is project Y going?'\n"
-            "- 'project': The CEO wants work done — hiring, creating tools, running processes, building things. "
-            "Examples: 'hire a Python engineer', 'add a code review tool', 'review all employees'\n"
-            "If ambiguous, default to 'project'."
-        )),
-        HumanMessage(content=task),
-    ])
-    answer = result.content.strip().lower()
-    return "inquiry" if "inquiry" in answer else "project"
-
-
 async def _start_inquiry(task: str) -> dict:
     """Start an inquiry session: book a room, get initial answer, return session info."""
     from langchain_core.messages import HumanMessage, SystemMessage
     from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt
 
-    # Route to HR or COO via keyword logic
+    # Route to the best agent via keyword logic
+    from onemancompany.core.config import SALES_KEYWORDS
     task_lower = task.lower()
     if any(w in task_lower for w in HR_KEYWORDS):
         agent_role = "HR"
         agent_id = HR_ID
+    elif any(w in task_lower for w in SALES_KEYWORDS):
+        agent_role = "CSO"
+        agent_id = CSO_ID
     else:
         agent_role = "COO"
         agent_id = COO_ID
@@ -383,58 +368,41 @@ async def ceo_submit_task(body: dict) -> dict:
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
-    # Classify as inquiry vs project
-    task_type = await _classify_task(task)
-    if task_type == "inquiry":
-        # Remove the placeholder task entry — inquiries don't use the task queue
-        company_state.active_tasks = [
-            t for t in company_state.active_tasks if t.project_id != pid
-        ]
-        return await _start_inquiry(task)
-
-    # --- Project flow ---
-    # Set all normal employees to "working" during task
-    for emp in company_state.employees.values():
-        if emp.level < FOUNDING_LEVEL:
-            emp.status = STATUS_WORKING
-
-    # Simple keyword-based routing → push to agent's persistent loop
-    task_lower = task.lower()
-    if any(w in task_lower for w in HR_KEYWORDS):
-        task_entry.routed_to = "HR"
-        loop = get_agent_loop(HR_ID)
-        if loop:
-            loop.push_task(task, project_id=pid, project_dir=pdir)
-        else:
-            # Fallback: direct fire-and-forget (should not happen)
-            from onemancompany.agents.hr_agent import HRAgent
-            _hr = HRAgent()
-            task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
-            asyncio.create_task(
-                _run_agent_safe(_hr.run(task_with_ctx), "HR", run_routine_after=task, project_id=pid)
-            )
-        return {"routed_to": "HR", "status": "processing", "project_id": pid, "project_dir": pdir}
+    # ALL CEO tasks go to EA for classification and routing
+    task_entry.routed_to = "EA"
+    loop = get_agent_loop(EA_ID)
+    if loop:
+        ea_task = (
+            f"CEO下发了新任务，请分析并分派给合适的负责人:\n\n"
+            f"任务: {task}\n\n"
+            f"[Project ID: {pid}] [Project workspace: {pdir}]"
+        )
+        loop.push_task(ea_task, project_id=pid, project_dir=pdir)
     else:
-        task_entry.routed_to = "COO"
-        loop = get_agent_loop(COO_ID)
-        if loop:
-            loop.push_task(task, project_id=pid, project_dir=pdir)
-        else:
-            from onemancompany.agents.coo_agent import COOAgent
-            _coo = COOAgent()
-            task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
-            asyncio.create_task(
-                _run_agent_safe(_coo.run(task_with_ctx), "COO", run_routine_after=task, project_id=pid)
-            )
-        return {"routed_to": "COO", "status": "processing", "project_id": pid, "project_dir": pdir}
+        # Fallback: direct fire-and-forget (should not happen)
+        from onemancompany.agents.ea_agent import EAAgent
+        _ea = EAAgent()
+        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
+        asyncio.create_task(
+            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=pid)
+        )
+    return {"routed_to": "EA", "status": "processing", "project_id": pid, "project_dir": pdir}
 
 
 @router.post("/api/oneonone/chat")
 async def oneonone_chat(body: dict) -> dict:
-    """Per-message 1-on-1 chat. Frontend manages history, backend returns LLM response."""
+    """Per-message 1-on-1 chat.
+
+    For founding employees with a registered agent loop, the CEO message is
+    pushed as a task to the agent's task board so the agent can use its tools
+    (e.g. HR can call search_candidates via Boss Online MCP).
+
+    For normal employees (no agent loop), falls back to a plain LLM call.
+    """
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
+    from onemancompany.core.agent_loop import get_agent_loop
 
     employee_id = body.get("employee_id", "")
     message = body.get("message", "")
@@ -458,7 +426,43 @@ async def oneonone_chat(body: dict) -> dict:
             )
         )
 
-    # Build persona prompt
+    # --- Agent path: founding employees with a registered agent loop ---
+    loop = get_agent_loop(employee_id)
+    if loop:
+        context = ""
+        if history:
+            context = "以下是你和CEO的对话历史:\n" + "\n".join(
+                f"{'CEO' if e.get('role') == 'ceo' else '你'}: {e['content']}"
+                for e in history
+            ) + "\n\n"
+        task_desc = (
+            f"[1-on-1 Meeting] CEO对你说:\n{context}"
+            f"CEO: {message}\n\n"
+            f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
+        )
+        agent_task = loop.push_task(task_desc)
+        # Wait for the task to complete (poll with timeout)
+        import asyncio
+        for _ in range(120):  # up to 60 seconds
+            await asyncio.sleep(0.5)
+            t = loop.board.get_task(agent_task.id)
+            if t and t.status in ("completed", "failed"):
+                break
+        # Extract the result from logs
+        t = loop.board.get_task(agent_task.id)
+        if t:
+            # Prefer the result field (set on task completion)
+            if t.result:
+                return {"response": t.result}
+            # Fallback: find the last llm_output in logs
+            if t.logs:
+                for log_entry in reversed(t.logs):
+                    if log_entry.get("type") in ("llm_output", "result"):
+                        return {"response": log_entry["content"]}
+                return {"response": t.logs[-1].get("content", "（处理完成）")}
+        return {"response": "（任务已提交，正在处理中）"}
+
+    # --- Fallback: plain LLM for normal employees without agent loop ---
     from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt
 
     skills_str = ", ".join(emp.skills) if emp.skills else "general"
@@ -662,7 +666,8 @@ async def inquiry_chat(body: dict) -> dict:
     if not session:
         return {"error": "Inquiry session not found"}
 
-    agent_id = HR_ID if session.agent_role == "HR" else COO_ID
+    _inquiry_agent_map = {"HR": HR_ID, "COO": COO_ID, "CSO": CSO_ID, "EA": EA_ID}
+    agent_id = _inquiry_agent_map.get(session.agent_role, COO_ID)
     emp = company_state.employees.get(agent_id)
     speaker_name = emp.name if emp else session.agent_role
 
@@ -717,7 +722,8 @@ async def inquiry_end(body: dict) -> dict:
     if not session:
         return {"error": "Inquiry session not found"}
 
-    agent_id = HR_ID if session.agent_role == "HR" else COO_ID
+    _inquiry_agent_map = {"HR": HR_ID, "COO": COO_ID, "CSO": CSO_ID, "EA": EA_ID}
+    agent_id = _inquiry_agent_map.get(session.agent_role, COO_ID)
 
     # Release the meeting room
     room = company_state.meeting_rooms.get(session.room_id)
@@ -1387,37 +1393,11 @@ async def hire_candidate(body: HireRequest) -> dict:
     # Peek at next employee number before hire to know the assigned id
     next_num = f"{company_state._next_employee_number:05d}"
 
-    # Auto-generate 花名 (nickname) if not provided — let the "employee" pick their own
+    # Auto-generate wuxia-themed 花名 (nickname) if not provided
     nickname = body.nickname
     if not nickname:
-        from onemancompany.agents.base import make_llm
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        gen_llm = make_llm(HR_ID)
-        gen_prompt = (
-            f"You are {candidate['name']}, a {candidate['role']}, "
-            f"about to join a company. The company has a 花名 (nickname) culture — every employee picks a 花名 (two Chinese characters).\n"
-            f"Requirements for your 花名:\n"
-            f"- Exactly two Chinese characters\n"
-            f"- Reflects your personality, expertise, or aspirations\n"
-            f"- Meaningful and catchy\n"
-            f"- Reference style: 飞鱼, 星辰, 雷鸣, 云帆, 青松, 铁锤, 晓风, 墨竹\n\n"
-            f"Reply with ONLY your 花名 (two Chinese characters), nothing else."
-        )
-        gen_result = await gen_llm.ainvoke([
-            SystemMessage(content="You are a new employee about to join the company. Pick a 花名 (nickname) for yourself."),
-            HumanMessage(content=gen_prompt),
-        ])
-        nickname = gen_result.content.strip()
-        # Clean up — extract exactly 2 Chinese characters
-        import re
-        chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
-        if len(chinese_chars) >= 2:
-            nickname = ''.join(chinese_chars[:2])
-        elif chinese_chars:
-            nickname = ''.join(chinese_chars)
-        else:
-            nickname = ""  # fallback — no valid nickname generated
+        from onemancompany.agents.hr_agent import generate_nickname
+        nickname = await generate_nickname(candidate["name"], candidate["role"], is_founding=False)
 
     # Build hire JSON and let HR apply it (id is assigned by HR as employee_number)
     skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
@@ -1614,6 +1594,165 @@ async def get_tool_definition(tool_id: str):
         "files": tool.files,
         "yaml_content": raw,
         "has_icon": tool.has_icon,
+    }
+
+
+# ===== Sales Protocol (External Client API) =====
+
+@router.post("/api/sales/submit")
+async def sales_submit_task(body: dict) -> dict:
+    """External clients submit tasks via the sales protocol."""
+    from onemancompany.core.state import SalesTask
+
+    client_name = body.get("client_name", "")
+    description = body.get("description", "")
+    if not client_name or not description:
+        return {"error": "Missing client_name or description"}
+
+    task_id = _uuid.uuid4().hex[:12]
+    sales_task = SalesTask(
+        id=task_id,
+        client_name=client_name,
+        description=description,
+        requirements=body.get("requirements", ""),
+        budget_tokens=body.get("budget_tokens", 0),
+    )
+    company_state.sales_tasks[task_id] = sales_task
+
+    company_state.activity_log.append({
+        "type": "sales_task_submitted",
+        "task_id": task_id,
+        "client": client_name,
+    })
+
+    # Notify CSO about new external task
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    cso_loop = get_agent_loop(CSO_ID)
+    if cso_loop:
+        cso_notification = (
+            f"New external task from client '{client_name}'.\n"
+            f"Task ID: {task_id}\n"
+            f"Description: {description}\n"
+            f"Requirements: {body.get('requirements', 'none')}\n"
+            f"Budget tokens: {body.get('budget_tokens', 0)}\n\n"
+            f"Please review this contract using review_contract()."
+        )
+        cso_loop.push_task(cso_notification)
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="sales_task_submitted",
+            payload=sales_task.to_dict(),
+            agent="SALES",
+        )
+    )
+
+    return {
+        "status": "submitted",
+        "task_id": task_id,
+        "message": f"Task submitted. CSO will review your contract.",
+    }
+
+
+@router.get("/api/sales/tasks")
+async def sales_list_tasks() -> dict:
+    """List all sales tasks."""
+    return {
+        "tasks": [t.to_dict() for t in company_state.sales_tasks.values()]
+    }
+
+
+@router.get("/api/sales/tasks/{task_id}")
+async def sales_get_task(task_id: str) -> dict:
+    """Get details of a specific sales task."""
+    task = company_state.sales_tasks.get(task_id)
+    if not task:
+        return {"error": f"Sales task '{task_id}' not found"}
+    return task.to_dict()
+
+
+@router.post("/api/sales/tasks/{task_id}/deliver")
+async def sales_deliver_task(task_id: str, body: dict) -> dict:
+    """Mark a sales task as delivered."""
+    task = company_state.sales_tasks.get(task_id)
+    if not task:
+        return {"error": f"Sales task '{task_id}' not found"}
+    if task.status != "in_production":
+        return {"error": f"Task status is '{task.status}', expected 'in_production'"}
+
+    task.status = "delivered"
+    task.delivery = body.get("delivery_summary", "")
+    company_state.activity_log.append({
+        "type": "task_delivered",
+        "task_id": task_id,
+        "client": task.client_name,
+    })
+    return {"status": "delivered", "task_id": task_id}
+
+
+@router.post("/api/sales/tasks/{task_id}/settle")
+async def sales_settle_task(task_id: str) -> dict:
+    """Collect settlement tokens for a delivered task."""
+    task = company_state.sales_tasks.get(task_id)
+    if not task:
+        return {"error": f"Sales task '{task_id}' not found"}
+    if task.status != "delivered":
+        return {"error": f"Task status is '{task.status}', must be 'delivered' to settle"}
+
+    tokens = task.budget_tokens
+    task.settlement_tokens = tokens
+    task.status = "settled"
+    company_state.company_tokens += tokens
+    return {
+        "status": "settled",
+        "task_id": task_id,
+        "tokens_earned": tokens,
+        "company_total_tokens": company_state.company_tokens,
+    }
+
+
+@router.get("/api/sales/protocol")
+async def sales_protocol() -> dict:
+    """Return the sales protocol documentation (JSON schema for external clients)."""
+    return {
+        "protocol_version": "1.0",
+        "description": "OneManCompany External Task Protocol",
+        "endpoints": {
+            "submit_task": {
+                "method": "POST",
+                "path": "/api/sales/submit",
+                "body": {
+                    "client_name": "string (required) — your company/name",
+                    "description": "string (required) — what you need done",
+                    "requirements": "string (optional) — detailed requirements",
+                    "budget_tokens": "int (optional) — token budget for this task",
+                },
+            },
+            "list_tasks": {
+                "method": "GET",
+                "path": "/api/sales/tasks",
+                "description": "List all your submitted tasks",
+            },
+            "get_task": {
+                "method": "GET",
+                "path": "/api/sales/tasks/{task_id}",
+                "description": "Get task details and current status",
+            },
+            "deliver": {
+                "method": "POST",
+                "path": "/api/sales/tasks/{task_id}/deliver",
+                "body": {"delivery_summary": "string — summary of deliverable"},
+            },
+            "settle": {
+                "method": "POST",
+                "path": "/api/sales/tasks/{task_id}/settle",
+                "description": "Collect settlement tokens after delivery",
+            },
+        },
+        "task_statuses": [
+            "pending", "accepted", "in_production", "delivered", "settled", "rejected",
+        ],
     }
 
 
