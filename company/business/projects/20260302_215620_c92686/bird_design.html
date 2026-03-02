@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Angry Birds UI Design Assets</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .card h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        .svg-container {
+            width: 150px;
+            height: 150px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #e0e0e0;
+            border-radius: 8px;
+            background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+                              linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                              linear-gradient(45deg, transparent 75%, #ccc 75%),
+                              linear-gradient(-45deg, transparent 75%, #ccc 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        svg {
+            width: 100px;
+            height: 100px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Angry Birds UI Design Assets</h1>
+    <p>Preview of bird and block damage states</p>
+    
+    <div class="container" id="gallery"></div>
+
+    <script src="assets.js"></script>
+    <script>
+        const gallery = document.getElementById('gallery');
+        
+        function addCard(title, svgContent) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `
+                <h3>${title}</h3>
+                <div class="svg-container">
+                    ${svgContent}
+                </div>
+            `;
+            gallery.appendChild(card);
+        }
+
+        // Add Bird
+        addCard('Red Bird', window.GameAssets.bird.red);
+
+        // Add Wood Blocks
+        addCard('Wood Block (Normal)', window.GameAssets.blocks.wood.normal);
+        addCard('Wood Block (Light Damage)', window.GameAssets.blocks.wood.lightDamage);
+        addCard('Wood Block (Heavy Damage)', window.GameAssets.blocks.wood.heavyDamage);
+
+        // Add Ice Blocks
+        addCard('Ice Block (Normal)', window.GameAssets.blocks.ice.normal);
+        addCard('Ice Block (Light Damage)', window.GameAssets.blocks.ice.lightDamage);
+        addCard('Ice Block (Heavy Damage)', window.GameAssets.blocks.ice.heavyDamage);
+    </script>
+</body>
+</html>

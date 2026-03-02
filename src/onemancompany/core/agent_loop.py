@@ -17,6 +17,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from langgraph.errors import GraphRecursionError
+
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.core.config import (
     MAX_SUMMARY_LEN,
@@ -286,6 +288,11 @@ class PersistentAgentLoop:
                     result = await self.agent.run_streamed(task_with_ctx, on_log=_on_log)
                     last_err = None
                     break
+                except GraphRecursionError as rec_err:
+                    # Don't retry — the agent will just loop again
+                    last_err = rec_err
+                    self._log(task, "error", f"Agent hit recursion limit: {rec_err!s}")
+                    break
                 except Exception as run_err:
                     last_err = run_err
                     if attempt < MAX_RETRIES - 1:
@@ -474,19 +481,16 @@ class PersistentAgentLoop:
         if not verification_instructions:
             # Fallback: generic verification requirement
             verification_instructions = (
-                "  - For code/software: Build and run it. Fix all errors until it runs successfully.\n"
-                "  - For documents/reports: Re-read and verify all claims, data, and formatting.\n"
-                "  - For any deliverable: Test it as a real end-user would.\n"
-                "  - Do NOT report a task as complete unless you have personally verified it works.\n"
+                "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
+                "  - For documents/reports: Proofread your output before submitting.\n"
             )
 
         return (
-            "[MANDATORY — Self-Verification Before Completion]\n"
-            "According to the company project workflow, you MUST verify your work before "
-            "reporting it as complete:\n"
+            "[Self-Verification Before Completion]\n"
+            "Verify your work once before reporting complete:\n"
             f"{verification_instructions}"
-            "Include verification evidence (test output, run logs, or screenshots) in your result.\n"
-            "If verification fails, fix the issues and re-verify until everything works."
+            "Include a brief verification note in your result.\n"
+            "Do NOT re-read files you have already read. Do NOT loop — verify once, then finish."
         )
 
     async def _execute_subtask(self, sub: AgentTask, depth: int = 1) -> None:
@@ -643,6 +647,7 @@ class PersistentAgentLoop:
         project = load_project(project_id)
         acceptance_criteria = project.get("acceptance_criteria", []) if project else []
         acceptance_result = project.get("acceptance_result") if project else None
+        ea_review_result = project.get("ea_review_result") if project else None
 
         # --- CASE A: Has criteria, not yet accepted → check dispatches ---
         if acceptance_criteria and not acceptance_result:
@@ -660,9 +665,39 @@ class PersistentAgentLoop:
             await self._minimal_cleanup(project_id)
             return
 
-        # --- CASE B: Acceptance result exists and accepted → full cleanup + retrospective ---
+        # --- CASE B: Officer accepted → check EA review gate ---
         if acceptance_result and acceptance_result.get("accepted"):
-            await self._full_cleanup(task, agent_error, project_id)
+            if not ea_review_result:
+                # Officer accepted but EA hasn't reviewed yet → push EA review
+                from onemancompany.core.config import EA_ID
+                self._push_ea_review_task(
+                    EA_ID, project_id,
+                    task.project_dir or task.original_project_dir,
+                    acceptance_criteria, acceptance_result, project,
+                )
+                await self._minimal_cleanup(project_id)
+                return
+
+            if ea_review_result.get("approved"):
+                # Both officer and EA approved → full cleanup + retrospective
+                await self._full_cleanup(task, agent_error, project_id)
+                return
+
+            # EA rejected → push rectification back to officer
+            from onemancompany.core.config import COO_ID
+            officer_id = project.get("responsible_officer") or COO_ID
+            ea_notes = ea_review_result.get("notes", "")
+            self._push_rectification_task(
+                officer_id, project_id,
+                task.project_dir or task.original_project_dir,
+                acceptance_criteria, ea_notes, project,
+            )
+            # Clear acceptance/EA results so the cycle can repeat
+            from onemancompany.core.project_archive import _save_project
+            project["acceptance_result"] = None
+            project["ea_review_result"] = None
+            _save_project(project_id, project)
+            await self._minimal_cleanup(project_id)
             return
 
         # --- CASE C: No criteria at all → old behavior, full cleanup + retrospective ---
@@ -796,6 +831,89 @@ class PersistentAgentLoop:
         )
         officer_loop.push_task(acceptance_task, project_id=project_id, project_dir=project_dir)
         print(f"[acceptance] Pushed acceptance task to officer {officer_id} for project {project_id}")
+
+    def _push_ea_review_task(
+        self,
+        ea_id: str,
+        project_id: str,
+        project_dir: str,
+        criteria: list[str],
+        acceptance_result: dict,
+        project: dict,
+    ) -> None:
+        """Push a final quality review task to EA on behalf of CEO."""
+        ea_loop = get_agent_loop(ea_id)
+        if not ea_loop:
+            print(f"[ea-review] WARNING: No agent loop for EA {ea_id}")
+            return
+
+        criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
+        officer_notes = acceptance_result.get("notes", "(无备注)")
+        officer_id = acceptance_result.get("officer_id", "?")
+
+        timeline = project.get("timeline", [])
+        timeline_lines = []
+        for entry in timeline[-10:]:
+            emp = entry.get("employee_id", "?")
+            action = entry.get("action", "")
+            detail = entry.get("detail", "")[:100]
+            timeline_lines.append(f"  - [{emp}] {action}: {detail}")
+        timeline_text = "\n".join(timeline_lines) if timeline_lines else "  (no entries)"
+
+        ea_review_task = (
+            f"CEO质量把关任务（EA代表CEO进行最终审核）\n\n"
+            f"项目任务: {project.get('task', '')}\n\n"
+            f"验收标准:\n{criteria_text}\n\n"
+            f"负责人({officer_id})验收意见: {officer_notes}\n\n"
+            f"项目记录摘要:\n{timeline_text}\n\n"
+            f"⚠️ 你作为EA，代表CEO对项目进行最终质量把关。\n"
+            f"负责人已经通过了验收，但CEO需要你再次确认：\n\n"
+            f"1. 逐条核对验收标准: 每一条是否真正达成？不能只看报告，要验证实际交付物\n"
+            f"2. 实际验证交付物:\n"
+            f"   - 代码/软件: 检查项目workspace中的文件，确认代码存在且可运行\n"
+            f"   - 文档: 阅读实际文档内容，确认质量达标\n"
+            f"   - 检查是否有遗漏、敷衍了事、或明显质量问题\n"
+            f"3. 对照CEO原始需求: 确认交付物真正满足CEO最初提出的要求\n"
+            f"4. 审核决定:\n"
+            f"   - 通过: 调用 ea_review_project(approved=true, review_notes='验证详情...')\n"
+            f"   - 不通过: 调用 ea_review_project(approved=false, review_notes='具体问题...')\n"
+            f"     不通过时，相关负责人将收到整改通知并重新验收\n\n"
+            f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
+        )
+        ea_loop.push_task(ea_review_task, project_id=project_id, project_dir=project_dir)
+        print(f"[ea-review] Pushed EA quality review task for project {project_id}")
+
+    def _push_rectification_task(
+        self,
+        officer_id: str,
+        project_id: str,
+        project_dir: str,
+        criteria: list[str],
+        ea_rejection_notes: str,
+        project: dict,
+    ) -> None:
+        """Push a rectification task back to the officer after EA rejects."""
+        officer_loop = get_agent_loop(officer_id)
+        if not officer_loop:
+            print(f"[rectification] WARNING: No agent loop for officer {officer_id}")
+            return
+
+        criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
+
+        rectification_task = (
+            f"项目整改通知（EA代CEO驳回）\n\n"
+            f"项目任务: {project.get('task', '')}\n\n"
+            f"验收标准:\n{criteria_text}\n\n"
+            f"EA驳回理由:\n{ea_rejection_notes}\n\n"
+            f"⚠️ EA代表CEO认为项目交付物未达标，需要整改。\n"
+            f"请根据以上驳回理由:\n"
+            f"1. 分析具体哪些问题需要修复\n"
+            f"2. 将整改任务 dispatch_task() 给相关员工执行\n"
+            f"3. 整改完成后重新进行验收\n\n"
+            f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
+        )
+        officer_loop.push_task(rectification_task, project_id=project_id, project_dir=project_dir)
+        print(f"[rectification] Pushed rectification task to officer {officer_id} for project {project_id}")
 
     def _log(self, task: AgentTask, log_type: str, content: str) -> None:
         """Append a log entry to the task + publish agent_log event."""

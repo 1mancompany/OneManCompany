@@ -106,6 +106,8 @@ def _talent_to_candidate(talent: dict) -> dict:
         "tool_set": tool_set,
         "sprite": random.choice(sprites),
         "llm_model": talent.get("llm_model", ""),
+        "temperature": talent.get("temperature", 0.7),
+        "image_model": talent.get("image_model", ""),
         "jd_relevance": 1.0,
         "remote": talent.get("remote", False),
         "talent_id": talent_id,
@@ -513,10 +515,13 @@ class HRAgent(BaseAgentRunner):
                 if not department:
                     department = ROLE_DEPARTMENT_MAP.get(emp_data.get("role", ""), DEFAULT_DEPARTMENT)
 
-                desk_pos = get_next_desk_for_department(company_state, department)
+                is_remote = emp_data.get("remote", False)
+                if is_remote:
+                    desk_pos = (-1, -1)
+                else:
+                    desk_pos = get_next_desk_for_department(company_state, department)
 
                 emp_num = company_state.next_employee_number()
-                is_remote = emp_data.get("remote", False)
                 emp = Employee(
                     id=emp_num,
                     name=emp_data.get("name", "Unknown"),
@@ -535,6 +540,8 @@ class HRAgent(BaseAgentRunner):
                 self._create_employee_folder(
                     emp, talent_id=talent_id,
                     llm_model=emp_data.get("llm_model", ""),
+                    temperature=emp_data.get("temperature", 0.7),
+                    image_model=emp_data.get("image_model", ""),
                 )
 
                 # Recompute layout (zones may resize) and persist all positions
@@ -547,11 +554,12 @@ class HRAgent(BaseAgentRunner):
                 )
                 await self._publish("employee_hired", emp.to_dict())
 
-                # Register and start an agent loop for the new employee
-                from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
-                if not get_agent_loop(emp_num):
-                    from onemancompany.agents.base import EmployeeAgent
-                    await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
+                # Register and start an agent loop for the new employee (skip remote)
+                if not is_remote:
+                    from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
+                    if not get_agent_loop(emp_num):
+                        from onemancompany.agents.base import EmployeeAgent
+                        await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
 
             elif data.get("action") == "review" and "reviews" in data:
                 for review in data["reviews"]:
@@ -649,7 +657,10 @@ class HRAgent(BaseAgentRunner):
                      "summary": f"Promotion: {emp.name} ({emp.nickname}) {LEVEL_NAMES.get(old_level, '')} -> {emp.title}"},
                 )
 
-    def _create_employee_folder(self, emp: Employee, talent_id: str = "", llm_model: str = "") -> None:
+    def _create_employee_folder(
+        self, emp: Employee, talent_id: str = "", llm_model: str = "",
+        temperature: float = 0.7, image_model: str = "",
+    ) -> None:
         """Create employees/{id}/ directory with profile.yaml, skill stubs, and work_principles.md.
 
         If *talent_id* is provided and the employee is on-site (not remote),
@@ -676,6 +687,8 @@ class HRAgent(BaseAgentRunner):
             sprite=emp.sprite,
             remote=emp.remote,
             llm_model=llm_model,
+            temperature=temperature,
+            image_model=image_model,
             permissions=default_perms,
             salary_per_1m_tokens=salary,
         )
@@ -683,6 +696,19 @@ class HRAgent(BaseAgentRunner):
 
         emp_dir = ensure_employee_dir(emp.id)
         skills_dir = emp_dir / "skills"
+
+        # For remote employees, write connection config so the worker can auto-discover
+        if emp.remote:
+            import json as _json
+            from onemancompany.core.config import settings
+            connection = {
+                "employee_id": emp.id,
+                "company_url": f"http://{settings.host}:{settings.port}",
+                "talent_id": talent_id,
+            }
+            (emp_dir / "connection.json").write_text(
+                _json.dumps(connection, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
 
         # If sourced from a talent and on-site, copy talent skills + tools
         if talent_id and not emp.remote:

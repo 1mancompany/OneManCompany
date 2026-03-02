@@ -5,7 +5,7 @@ desk_position:
 - 0
 employee_number: '00004'
 level: 4
-llm_model: openai/gpt-5.2
+llm_model: google/gemini-3.1-pro-preview-customtools
 name: Pat EA
 nickname: 玲珑阁
 performance_history: []
@@ -13,7 +13,7 @@ permissions:
 - company_file_access
 - web_search
 role: EA
-salary_per_1m_tokens: 5.0
+salary_per_1m_tokens: 7.0
 skills:
 - task_analysis
 - task_routing

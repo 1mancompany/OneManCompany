@@ -71,6 +71,8 @@ def compute_layout(company_state) -> dict:
     for emp in company_state.employees.values():
         if emp.id in _EXEC_IDS:
             continue  # executives handled separately
+        if emp.remote:
+            continue  # remote employees don't occupy office desks
         dept = emp.department or "General"
         dept_groups.setdefault(dept, []).append(emp)
 
@@ -221,6 +223,8 @@ def get_next_desk_for_department(company_state, department: str) -> tuple[int, i
     for emp in company_state.employees.values():
         if emp.id in _EXEC_IDS:
             continue
+        if emp.remote:
+            continue  # remote employees don't occupy office desks
         dept = emp.department or "General"
         dept_groups.setdefault(dept, []).append(emp)
 

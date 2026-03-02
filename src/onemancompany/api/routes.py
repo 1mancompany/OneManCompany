@@ -64,11 +64,14 @@ async def _run_agent_safe(
     from onemancompany.core.project_archive import append_action, complete_project
     import uuid as _uuid
 
+    def _match_task(t, pid):
+        return t.project_id == pid or (t.iteration_id and t.iteration_id == pid)
+
     # --- Ensure a TaskEntry exists for this run ---
     if not project_id:
         project_id = f"_auto_{_uuid.uuid4().hex[:8]}"
     # Only add if not already tracked (CEO task route may have added one)
-    already_tracked = any(t.project_id == project_id for t in company_state.active_tasks)
+    already_tracked = any(_match_task(t, project_id) for t in company_state.active_tasks)
     if not already_tracked:
         company_state.active_tasks.append(
             TaskEntry(
@@ -86,7 +89,7 @@ async def _run_agent_safe(
     def _sync_task_owner(owner_id: str) -> None:
         """Sync current_owner on the in-memory TaskEntry."""
         for t in company_state.active_tasks:
-            if t.project_id == project_id:
+            if _match_task(t, project_id):
                 t.current_owner = owner_id
                 break
 
@@ -151,7 +154,7 @@ async def _run_agent_safe(
         emp.status = STATUS_IDLE
 
     company_state.active_tasks = [
-        t for t in company_state.active_tasks if t.project_id != project_id
+        t for t in company_state.active_tasks if not _match_task(t, project_id)
     ]
 
     if not project_id.startswith("_auto_"):
@@ -345,19 +348,48 @@ async def _start_inquiry(task: str) -> dict:
 async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent via persistent loop."""
     from onemancompany.core.agent_loop import get_agent_loop
-    from onemancompany.core.project_archive import create_project, get_project_dir
+    from onemancompany.core.project_archive import (
+        create_iteration,
+        create_named_project,
+        create_project,
+        get_project_dir,
+        get_project_workspace,
+    )
 
     task = body.get("task", "")
     if not task:
         return {"error": "Empty task"}
 
+    project_id = body.get("project_id", "")
+    project_name = body.get("project_name", "")
+
     company_state.ceo_tasks.append(task)
     company_state.activity_log.append({"type": "ceo_task", "task": task})
 
-    # Create project + task entry immediately so frontend sees it in the queue
-    pid = create_project(task, "pending", [e.id for e in company_state.employees.values()])
-    pdir = get_project_dir(pid)
-    task_entry = TaskEntry(project_id=pid, task=task, routed_to="pending", project_dir=pdir)
+    iter_id = ""
+    if project_id:
+        # Continue an existing named project with a new iteration
+        iter_id = create_iteration(project_id, task, "pending")
+        pdir = get_project_workspace(project_id)
+        pid = project_id
+    elif project_name:
+        # Create a new named project + first iteration
+        project_id = create_named_project(project_name)
+        iter_id = create_iteration(project_id, task, "pending")
+        pdir = get_project_workspace(project_id)
+        pid = project_id
+    else:
+        # No project association — legacy one-shot project
+        pid = create_project(task, "pending", [e.id for e in company_state.employees.values()])
+        pdir = get_project_dir(pid)
+
+    task_entry = TaskEntry(
+        project_id=pid,
+        iteration_id=iter_id,
+        task=task,
+        routed_to="pending",
+        project_dir=pdir,
+    )
     company_state.active_tasks.append(task_entry)
 
     await event_bus.publish(
@@ -368,6 +400,9 @@ async def ceo_submit_task(body: dict) -> dict:
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
+    # The context ID that flows through the agent system
+    ctx_id = iter_id or pid
+
     # ALL CEO tasks go to EA for classification and routing
     task_entry.routed_to = "EA"
     loop = get_agent_loop(EA_ID)
@@ -375,18 +410,24 @@ async def ceo_submit_task(body: dict) -> dict:
         ea_task = (
             f"CEO下发了新任务，请分析并分派给合适的负责人:\n\n"
             f"任务: {task}\n\n"
-            f"[Project ID: {pid}] [Project workspace: {pdir}]"
+            f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
         )
-        loop.push_task(ea_task, project_id=pid, project_dir=pdir)
+        loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
     else:
         # Fallback: direct fire-and-forget (should not happen)
         from onemancompany.agents.ea_agent import EAAgent
         _ea = EAAgent()
         task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
-            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=pid)
+            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=ctx_id)
         )
-    return {"routed_to": "EA", "status": "processing", "project_id": pid, "project_dir": pdir}
+    return {
+        "routed_to": "EA",
+        "status": "processing",
+        "project_id": pid,
+        "iteration_id": iter_id,
+        "project_dir": pdir,
+    }
 
 
 @router.post("/api/oneonone/chat")
@@ -995,9 +1036,10 @@ async def abort_task(project_id: str) -> dict:
             loop._publish_task_update(t)
         total_cancelled += len(cancelled)
 
-    # Remove from company-level active_tasks
+    # Remove from company-level active_tasks (match both project_id and iteration_id)
     company_state.active_tasks = [
-        t for t in company_state.active_tasks if t.project_id != project_id
+        t for t in company_state.active_tasks
+        if t.project_id != project_id and (not t.iteration_id or t.iteration_id != project_id)
     ]
 
     # Broadcast state
@@ -1283,11 +1325,71 @@ async def execute_deferred(resolution_id: str, edit_id: str) -> dict:
 
 # ===== Project Archive =====
 
+@router.get("/api/dashboard/costs")
+async def get_dashboard_costs() -> dict:
+    from onemancompany.core.project_archive import get_cost_summary
+    return get_cost_summary()
+
+
 @router.get("/api/projects")
 async def get_projects() -> dict:
-    """List all projects (summary view for the project wall)."""
+    """List all projects (v1 + v2 summary view for the project wall)."""
     from onemancompany.core.project_archive import list_projects
     return {"projects": list_projects()}
+
+
+@router.post("/api/projects")
+async def create_project_endpoint(body: dict) -> dict:
+    """Create a new named project."""
+    from onemancompany.core.project_archive import create_named_project
+
+    name = body.get("name", "").strip()
+    if not name:
+        return {"error": "Missing project name"}
+    project_id = create_named_project(name)
+    return {"project_id": project_id, "name": name}
+
+
+@router.get("/api/projects/named")
+async def list_named_projects_endpoint() -> dict:
+    """List all named projects (v2)."""
+    from onemancompany.core.project_archive import list_named_projects
+    return {"projects": list_named_projects()}
+
+
+@router.get("/api/projects/named/{project_id}")
+async def get_named_project_detail(project_id: str) -> dict:
+    """Get a named project's details with all its iterations."""
+    from onemancompany.core.project_archive import load_iteration, load_named_project
+    proj = load_named_project(project_id)
+    if not proj:
+        return {"error": "Named project not found"}
+    # Load iteration summaries
+    iterations = []
+    for iter_id in proj.get("iterations", []):
+        iter_doc = load_iteration(project_id, iter_id)
+        if iter_doc:
+            iterations.append({
+                "iteration_id": iter_doc.get("iteration_id", iter_id),
+                "task": iter_doc.get("task", ""),
+                "status": iter_doc.get("status", ""),
+                "created_at": iter_doc.get("created_at", ""),
+                "completed_at": iter_doc.get("completed_at"),
+                "current_owner": iter_doc.get("current_owner", ""),
+            })
+    proj["iteration_details"] = iterations
+    return proj
+
+
+@router.post("/api/projects/{project_id}/archive")
+async def archive_project_endpoint(project_id: str) -> dict:
+    """Archive a named project."""
+    from onemancompany.core.project_archive import archive_project, load_named_project
+    proj = load_named_project(project_id)
+    if not proj:
+        return {"error": "Named project not found"}
+    archive_project(project_id)
+    return {"status": "archived", "project_id": project_id}
 
 
 @router.get("/api/projects/{project_id}")
@@ -1335,7 +1437,11 @@ async def rehire_ex_employee(employee_id: str) -> dict:
 
     # Find next available desk position using department-based layout
     from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
-    desk_pos = get_next_desk_for_department(company_state, ex_emp.department)
+    is_remote = ex_emp.remote
+    if is_remote:
+        desk_pos = (-1, -1)
+    else:
+        desk_pos = get_next_desk_for_department(company_state, ex_emp.department)
 
     # Restore to active employees with reset performance
     emp = Employee(
@@ -1360,6 +1466,13 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     # Recompute layout and persist all desk positions
     compute_layout(company_state)
     persist_all_desk_positions(company_state)
+
+    # Register agent loop for on-site employees only
+    if not is_remote:
+        from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
+        if not get_agent_loop(employee_id):
+            from onemancompany.agents.base import EmployeeAgent
+            await register_and_start_agent(employee_id, EmployeeAgent(employee_id))
 
     company_state.activity_log.append({
         "type": "employee_rehired",
@@ -1421,6 +1534,8 @@ async def hire_candidate(body: HireRequest) -> dict:
             "remote": candidate.get("remote", False),
             "talent_id": candidate.get("talent_id", ""),
             "llm_model": candidate.get("llm_model", ""),
+            "temperature": candidate.get("temperature", 0.7),
+            "image_model": candidate.get("image_model", ""),
             "system_prompt": candidate.get("system_prompt", ""),
             "personality_tags": candidate.get("personality_tags", []),
         },
@@ -1441,9 +1556,10 @@ async def hire_candidate(body: HireRequest) -> dict:
     if pid:
         append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {next_num}")
         complete_project(pid, f"Hired {candidate['name']}")
-        # Remove from active tasks
+        # Remove from active tasks (match both project_id and iteration_id)
         company_state.active_tasks = [
-            t for t in company_state.active_tasks if t.project_id != pid
+            t for t in company_state.active_tasks
+            if t.project_id != pid and (not t.iteration_id or t.iteration_id != pid)
         ]
         # Run retrospective in background
         from onemancompany.core.routine import run_post_task_routine

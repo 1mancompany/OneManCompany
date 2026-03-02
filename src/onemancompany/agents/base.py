@@ -135,7 +135,9 @@ class BaseAgentRunner:
         total_output_tokens = 0
         model_used = ""
 
-        async for event in self._agent.astream_events(messages_input, version="v2"):
+        async for event in self._agent.astream_events(
+            messages_input, version="v2", config={"recursion_limit": 15},
+        ):
             kind = event.get("event", "")
             data = event.get("data", {})
             if kind == "on_chat_model_start":
@@ -258,13 +260,19 @@ class EmployeeAgent(BaseAgentRunner):
 
     def __init__(self, employee_id: str) -> None:
         from onemancompany.agents.common_tools import COMMON_TOOLS
+        from onemancompany.core.config import load_employee_custom_tools
 
         self.employee_id = employee_id
         emp = company_state.employees.get(employee_id)
         self.role = emp.role if emp else "Employee"
+
+        # Combine shared tools + employee-specific custom tools (from tools/ dir)
+        custom_tools = load_employee_custom_tools(employee_id)
+        all_tools = list(COMMON_TOOLS) + custom_tools
+
         self._agent = create_react_agent(
             model=make_llm(employee_id),
-            tools=list(COMMON_TOOLS),
+            tools=all_tools,
         )
 
     def _build_prompt(self) -> str:
@@ -276,12 +284,11 @@ class EmployeeAgent(BaseAgentRunner):
             f"a {emp.role} in {emp.department} (Lv.{emp.level}).\n"
             f"Follow instructions from your managers, complete tasks thoroughly, "
             f"and collaborate with colleagues when needed.\n\n"
-            f"CRITICAL RULE: You must ALWAYS verify your work before reporting completion.\n"
-            f"- For code: build and run it, fix all errors until it works\n"
-            f"- For documents: re-read and verify all content\n"
-            f"- For any output: test it as a real end-user would\n"
-            f"- Include verification evidence in your result\n"
-            f"- NEVER report a task as complete without personal verification"
+            f"## Tool Usage Rules\n"
+            f"- read_file / list_directory: only use when the task EXPLICITLY requires reading "
+            f"or modifying files. Do NOT explore the filesystem to 'gather context' or 'verify'.\n"
+            f"- If you have already read a file, do NOT re-read it.\n"
+            f"- Focus on PRODUCING output, not on reading everything you can find.\n"
         )
         return (
             header
