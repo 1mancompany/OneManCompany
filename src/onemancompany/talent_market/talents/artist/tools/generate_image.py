@@ -89,10 +89,12 @@ def generate_image(
     output_dir = Path("/tmp") / "generated_images"
     if task_id:
         task = loop.board.get_task(task_id)
-        if task and task.project_id:
-            proj_dir = PROJECTS_DIR / task.project_id
-            if proj_dir.exists():
-                output_dir = proj_dir
+        if task:
+            # Use project_dir (resolved workspace path) — dispatch_task() may
+            # clear project_id but preserves original_project_dir
+            pdir = task.project_dir or task.original_project_dir
+            if pdir and Path(pdir).exists():
+                output_dir = Path(pdir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build the prompt for the image model

@@ -1,0 +1,108 @@
+action_items: &id001
+- description: 建立明确的项目进度跟进机制，设定每日代码检查点或阶段性里程碑，并严格落实执行端“跨节点任务进度看板”的状态更新。
+  priority: high
+  source: COO
+- description: 制定代码开发异常处理预案，针对代码无法运行、验收不达标或进度延期等潜在交付风险设定具体的应对策略。
+  priority: high
+  source: COO
+- description: 启动专业QA测试人员的招聘需求，填补团队目前仅有开发节点而缺乏测试验证闭环的人员空缺。
+  priority: high
+  source: HR
+- description: 建立并完善项目预算数据、Token消耗明细、实际开销金额及文件修改清单的记录与追踪机制，以便进行开销分析与合规性审查。
+  priority: high
+  source: COO
+- description: 将“适者生存”狼性文化与结果导向纳入员工绩效考核指标，重点考核员工在时间节点把控、汇报机制执行及最终交付质量上的表现。
+  priority: high
+  source: HR
+- description: 规范“版本控制与资产管理工具”的使用流程，确保项目workspace整洁，杜绝因代码覆盖带来的资源浪费。
+  priority: medium
+  source: COO
+- description: 优化任务路由说明标准，要求分配任务时必须补充明确的时间节点与汇报机制，并引入自动化或测试工具补充QA环节。
+  priority: medium
+  source: COO
+- description: 组织关于任务记录格式与协作规范的内部培训，要求提交记录前进行内容完整性检查，彻底消除文本截断等低级失误，提升专业度。
+  priority: medium
+  source: HR
+- description: 盘点当前闲置的3件设备与5间会议室，建立明确的物理与IT资源占用记录，提升资源利用率。
+  priority: low
+  source: COO
+id: 65a2a4ba
+participants:
+- '00003'
+- '00004'
+phase1:
+  hr_summary: &id004
+  - employee: Pat EA(玲珑阁)
+    improvements:
+    - 提交任务记录前务必进行严格的格式与内容完整性检查，彻底消除路由说明中出现文本截断（如“- **”）的低级失误，确保信息传递的专业与严谨。
+    - 在制定路由说明时，除目标、负责人和验收标准外，需进一步补充明确的时间节点与汇报机制，以强化狼性文化中的紧迫感和结果导向。
+  - employee: Alex COO(铁面侠)
+    improvements:
+    - 下达开发任务时不能仅停留在“初步分配”层面，必须同步建立明确的进度跟进机制（如设定每日代码检查点或阶段性里程碑），确保开发资源调度后能产出实际结果。
+    - 针对工程师的代码编写任务，需提前设定异常处理预案（如代码无法运行或进度延期时的应对策略），践行“适者生存”的狼性文化，保障最终交付质量。
+  self_evaluations: &id002
+  - employee_id: '00003'
+    evaluation: 在本次项目中，我具体将“愤怒的小鸟”游戏的代码编写任务明确分派给了工程师（Claude Code Agent，员工号：00010），并下达了代码需可运行且存入项目workspace的验收标准，完成了开发资源的基础调度。此举有效保障了当前开发任务的准确下发，但不足之处在于本次仅完成了任务的初步分配，后续需结合“跨节点任务进度看板”对该工程师的代码产出进度进行持续跟进，以消除潜在的执行停滞风险。
+    level: 4
+    name: Alex COO
+    nickname: 铁面侠
+  - employee_id: '00004'
+    evaluation: 在本项目中，我将“愤怒的小鸟”游戏开发任务准确分类为【项目开发/执行】，明确了代码保存与可运行的验收标准，并将其路由分派给 COO
+      (00003)。此举使得任务目标清晰并顺利流转至对应的统筹负责人，保障了后续开发工作的开展。但在路由说明的记录末尾出现了明显的文本截断（“- **”），未能完整呈现所有信息，今后需加强对输出记录完整性的检查与确认。
+    level: 4
+    name: Pat EA
+    nickname: 玲珑阁
+  senior_reviews: &id003 []
+phase2:
+  action_items: *id001
+  coo_report: '本阶段公司运营情况报告如下：
+
+
+    首先，在项目完成进度上，EA（玲珑阁）已精准完成任务路由，我（COO铁面侠）已将“愤怒的小鸟”代码编写任务明确下达给工程师（00010），目前处于等待工程师交付代码的执行阶段。
+
+
+    其次，公司7名员工中已有3人（EA、COO、工程师）参与到该任务的调度与执行链路中，人力资源已初步盘活，但3件设备与5间会议室暂无明确占用记录。
+
+
+    再次，贯彻公司“适者生存”的狼性文化与结果导向，当前最大的潜在风险是尚未收到工程师的最终代码产出，存在代码无法运行、验收不达标以及修改文件偏离任务目标的交付风险。
+
+
+    最后，秉持“实事求是”的原则，由于当前项目记录中完全缺乏预算数据、Token消耗明细、实际开销金额以及具体的文件修改清单，目前客观上无法进行项目开销分析、预算超支评估及文件修改合规性审查。'
+  employee_feedback: &id005
+  - employee_id: '00003'
+    feedback: 我已经将“愤怒的小鸟”代码开发任务明确派发给00010号工程师进行执行。鉴于验收标准要求代码必须可运行，目前团队仅有开发节点，还缺少专业的QA测试人员或自动化测试工具来闭环验证最终的代码质量。建议在开发阶段严格规范使用现有的“版本控制与资产管理工具”，确保项目workspace的整洁，杜绝因代码覆盖带来的资源浪费。
+    name: Alex COO
+  - employee_id: '00004'
+    feedback: 在本次“愤怒的小鸟”开发任务中，我已顺利完成任务拆解，将其路由给COO，目前COO也已精准对接到工程师00010进行代码编写。为了避免这种跨多节点（EA-COO-工程师）协作时出现进度黑盒，我建议执行端在后续开发中严格落实“跨节点任务进度看板”的状态更新。这样能有效消除执行停滞风险，确保代码存入workspace并可运行的验收标准得到严格闭环。
+    name: Pat EA
+steps:
+  'Phase 2: Self-Evaluation':
+    self_evaluations: *id002
+  'Phase 3: Senior Peer Review':
+    senior_reviews: *id003
+  'Phase 4: HR Summary and Improvement Points':
+    hr_summary: *id004
+  'Phase 5: COO Operations Report':
+    coo_report: '本阶段公司运营情况报告如下：
+
+
+      首先，在项目完成进度上，EA（玲珑阁）已精准完成任务路由，我（COO铁面侠）已将“愤怒的小鸟”代码编写任务明确下达给工程师（00010），目前处于等待工程师交付代码的执行阶段。
+
+
+      其次，公司7名员工中已有3人（EA、COO、工程师）参与到该任务的调度与执行链路中，人力资源已初步盘活，但3件设备与5间会议室暂无明确占用记录。
+
+
+      再次，贯彻公司“适者生存”的狼性文化与结果导向，当前最大的潜在风险是尚未收到工程师的最终代码产出，存在代码无法运行、验收不达标以及修改文件偏离任务目标的交付风险。
+
+
+      最后，秉持“实事求是”的原则，由于当前项目记录中完全缺乏预算数据、Token消耗明细、实际开销金额以及具体的文件修改清单，目前客观上无法进行项目开销分析、预算超支评估及文件修改合规性审查。'
+  'Phase 6: Employee Open Floor':
+    employee_feedback: *id005
+  'Phase 7: Action Plan Organization':
+    action_items: *id001
+  'Phase 8: CEO Approval and Execution':
+    status: awaiting_ceo_review
+task_summary: 继续完成“愤怒的小鸟”游戏的开发。请协调开发资源（如工程师），完成当前阶段的代码编写，确保代码可运行并保存在项目workspace中。
+timestamp: '2026-03-02T23:33:26.530199'
+workflow: project_retrospective_workflow
+workflow_flow_id: project_review
