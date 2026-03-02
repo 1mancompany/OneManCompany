@@ -9,6 +9,10 @@ llm_model: google/gemini-3.1-pro-preview
 name: Sam HR
 nickname: 知心姐
 performance_history: []
+permissions:
+- company_file_access
+- web_search
+- hr_management
 role: HR
 skills:
 - hiring
@@ -17,7 +21,3 @@ skills:
 sprite: hr
 temperature: 0.7
 title: Founding
-permissions:
-- company_file_access
-- web_search
-- hr_management

@@ -1,7 +1,7 @@
 current_quarter_tasks: 0
 department: Engineering
 desk_position:
-- 7
+- 1
 - 1
 employee_number: 00008
 level: 1
@@ -9,6 +9,9 @@ llm_model: google/gemini-3.1-flash-image-preview
 name: Rowan Park
 nickname: 小朴
 performance_history: []
+permissions:
+- company_file_access
+- web_search
 role: Engineer
 skills:
 - fastapi
@@ -18,6 +21,3 @@ skills:
 sprite: employee_blue
 temperature: 0.7
 title: Junior Engineer
-permissions:
-- company_file_access
-- web_search

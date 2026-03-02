@@ -5,7 +5,7 @@ description: >
   Can write, run, and debug code in isolated sandbox environments.
 role: Engineer
 remote: false
-llm_model: google/gemini-3.1-pro-preview
+llm_model: google/gemini-3.1-pro-preview-customtools
 temperature: 0.7
 skills:
   - sandbox_coding

@@ -356,16 +356,30 @@ async def ceo_submit_task(body: dict) -> dict:
     company_state.ceo_tasks.append(task)
     company_state.activity_log.append({"type": "ceo_task", "task": task})
 
+    # Create project + task entry immediately so frontend sees it in the queue
+    pid = create_project(task, "pending", [e.id for e in company_state.employees.values()])
+    pdir = get_project_dir(pid)
+    task_entry = TaskEntry(project_id=pid, task=task, routed_to="pending", project_dir=pdir)
+    company_state.active_tasks.append(task_entry)
+
     await event_bus.publish(
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
+    )
+    # Broadcast so frontend sees the queued task immediately
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
     # Classify as inquiry vs project
     task_type = await _classify_task(task)
     if task_type == "inquiry":
+        # Remove the placeholder task entry — inquiries don't use the task queue
+        company_state.active_tasks = [
+            t for t in company_state.active_tasks if t.project_id != pid
+        ]
         return await _start_inquiry(task)
 
-    # --- Project flow (unchanged) ---
+    # --- Project flow ---
     # Set all normal employees to "working" during task
     for emp in company_state.employees.values():
         if emp.level < FOUNDING_LEVEL:
@@ -374,18 +388,14 @@ async def ceo_submit_task(body: dict) -> dict:
     # Simple keyword-based routing
     task_lower = task.lower()
     if any(w in task_lower for w in HR_KEYWORDS):
-        pid = create_project(task, "HR", [e.id for e in company_state.employees.values()])
-        pdir = get_project_dir(pid)
-        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="HR", project_dir=pdir))
+        task_entry.routed_to = "HR"
         task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
             _run_agent_safe(hr_agent.run(task_with_ctx), "HR", run_routine_after=task, project_id=pid)
         )
         return {"routed_to": "HR", "status": "processing", "project_id": pid, "project_dir": pdir}
     else:
-        pid = create_project(task, "COO", [e.id for e in company_state.employees.values()])
-        pdir = get_project_dir(pid)
-        company_state.active_tasks.append(TaskEntry(project_id=pid, task=task, routed_to="COO", project_dir=pdir))
+        task_entry.routed_to = "COO"
         task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
             _run_agent_safe(coo_agent.run(task_with_ctx), "COO", run_routine_after=task, project_id=pid)
