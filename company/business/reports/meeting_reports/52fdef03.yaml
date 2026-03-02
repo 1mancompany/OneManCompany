@@ -1,0 +1,123 @@
+action_items: &id013
+- &id001
+  description: 组织“用人需求澄清会”（与业务/技术负责人对齐：岗位目标、Must-have/Plus、级别、预算区间、到岗时间、试用期目标），并形成可签字确认的需求结论记录
+  priority: high
+  source: COO
+- &id002
+  description: 基于需求澄清输出完整《岗位画像+JD》并在项目记录中归档（含职责、硬技能/软技能、考核点、薪资范围、工作地点/形式、面试轮次建议）
+  priority: high
+  source: HR
+- &id003
+  description: 建立招聘项目“统一需求文档+进度看板”（状态字段至少含：渠道/候选人池、筛选、面试1/2/终面、offer、入职；并明确更新时间与负责人）
+  priority: high
+  source: HR
+- &id004
+  description: 明确 Operations 侧协作责任边界并写入项目记录：用人需求确认人、每轮面试官、面试反馈SLA（如24小时内）、入职准备对接人
+  priority: high
+  source: COO
+- &id005
+  description: 补齐并结构化招聘交付物清单与验收标准（JD/岗位画像、面试流程、题库/作业、评分表、offer模板、入职清单），修复当前记录中“面试题库/作…”描述截断问题
+  priority: high
+  source: HR
+- &id006
+  description: 制定候选人获取策略与渠道计划（内推、猎头、招聘平台、社群等），并设定首批候选人到达时间目标（例如T+7天产出首批合格候选人列表）
+  priority: high
+  source: HR
+- &id007
+  description: 定义面试评估标准与权重（技术、交付能力、自驱沟通、协作），并与面试官统一口径，确保“能独立交付的全栈/后端优先”等优先级落地
+  priority: high
+  source: COO
+- &id008
+  description: 完成面试流程排期机制：面试官日历锁定、会议室预留规则、候选人沟通模板；并在看板中记录每位候选人的下一步安排与截止日期
+  priority: high
+  source: HR
+- &id009
+  description: 建立资源利用/排期基础记录（4名员工、设备、5间会议室）：至少对“面试占用会议室与面试官时间”做可追踪登记，用于后续计算利用率与冲突预警
+  priority: medium
+  source: COO
+- &id010
+  description: 设定招聘节奏里程碑并周度复盘（如：T+3天JD定稿、T+7天首批候选人、T+14天完成首轮面试），在项目记录“实际行动记录”持续更新
+  priority: high
+  source: HR
+- &id011
+  description: 入职落地准备流程优化：提前确认账号/权限、设备发放、试用期目标、导师/对接人，形成《入职准备清单》并指定负责人
+  priority: medium
+  source: COO
+- &id012
+  description: 为项目记录建立最低可追溯标准：每个关键动作必须记录“分类依据-拆解-分派-时间节点-产出链接-验收状态”，避免仅出现“EA task
+    completed”
+  priority: medium
+  source: HR
+execution:
+  approved:
+  - *id001
+  - *id002
+  - *id003
+  - *id004
+  - *id005
+  - *id006
+  - *id007
+  - *id008
+  - *id009
+  - *id010
+  - *id011
+  - *id012
+  results:
+  - 已推送 12 项批准行动到COO任务板
+id: 52fdef03
+participants:
+- '00004'
+phase1:
+  hr_summary: &id016
+  - employee: Pat EA(Lv.4)
+    improvements:
+    - 将关键动作写入项目记录的「实际行动记录」：至少覆盖任务分类依据、拆解结果、分派对象与责任边界、时间节点（避免仅留一句“EA task completed”导致不可追溯）
+    - 把分派内容补全并结构化：当前记录中对 HR 负责事项描述截断（“面试题库/作…”未完成），需补齐完整交付物清单与验收标准（如 JD、岗位画像、面试流程与题库、offer/入职准备清单）
+    - 分派后建立跟进机制并记录：明确下一步里程碑（需求澄清会/首批候选人时间/面试安排）并在记录中持续更新推进状态，确保“完成分派”可闭环到“招聘启动”
+  self_evaluations: &id014
+  - employee_id: '00004'
+    evaluation: "从「实际行动记录」来看，我在本项目中没有任何行动记录，因此我在本项目中没有实质贡献，也无法评估产出效果。  \n问题与改进点：我未将任务分析与分派等关键动作写入行动记录，导致过程不可追溯；后续需在完成每一步（如分类、拆解、分派、跟进）时同步更新项目记录，确保可审计与可复盘。"
+    level: 4
+    name: Pat EA
+    nickname: 玲珑阁
+  senior_reviews: &id015 []
+phase2:
+  action_items: *id013
+  coo_report: "1) **项目完成情况**：本项目记录显示，EA 已完成“任务分析与分派”，并明确该任务（招聘代码工程师）以 **HR/People\
+    \ 为主、Operations 为辅**；同时给出分派结果：由 **HR（00002 / Sam HR）作为招聘主负责人**推进端到端招聘。当前记录未提供更进一步的执行结果（如\
+    \ JD 是否产出、候选人进展、面试安排等），因此本阶段仅能确认“分析与分派”已完成。  \n2) **资源利用率**：公司现有 **4 名员工、1 件设备、5\
+    \ 间会议室**；项目记录未包含任何资源占用/排期信息，无法据此计算或判断人员、设备与会议室的实际利用率。  \n3) **潜在风险**：任务紧急度被标注为**中高**且“招聘周期长需尽快启动”，若后续执行未及时推进，存在招聘周期拉长的风险；此外当前仅完成分派，若\
+    \ Operations 侧的“用人需求澄清、面试评估与入职准备”协作不到位，可能影响招聘质量与入职落地。  \n4) **验收失败/整改**：项目记录中未出现验收失败或整改项的客观记录。"
+  employee_feedback: &id017
+  - employee_id: '00004'
+    feedback: 我在该项目里目前没有可追溯的个人行动记录，因此无法就“已做了哪些推进”做事实性复盘。建议补齐招聘任务的统一需求文档与进度看板（含岗位画像、面试官分工、时间线），避免信息只停留在口头同步。人才方面建议明确优先级：能独立交付的全栈/后端工程师优先，具备快速落地与自驱沟通能力。
+    name: Pat EA
+steps:
+  'Phase 2: Self-Evaluation':
+    self_evaluations: *id014
+  'Phase 3: Senior Peer Review':
+    senior_reviews: *id015
+  'Phase 4: HR Summary and Improvement Points':
+    hr_summary: *id016
+  'Phase 5: COO Operations Report':
+    coo_report: "1) **项目完成情况**：本项目记录显示，EA 已完成“任务分析与分派”，并明确该任务（招聘代码工程师）以 **HR/People\
+      \ 为主、Operations 为辅**；同时给出分派结果：由 **HR（00002 / Sam HR）作为招聘主负责人**推进端到端招聘。当前记录未提供更进一步的执行结果（如\
+      \ JD 是否产出、候选人进展、面试安排等），因此本阶段仅能确认“分析与分派”已完成。  \n2) **资源利用率**：公司现有 **4 名员工、1 件设备、5\
+      \ 间会议室**；项目记录未包含任何资源占用/排期信息，无法据此计算或判断人员、设备与会议室的实际利用率。  \n3) **潜在风险**：任务紧急度被标注为**中高**且“招聘周期长需尽快启动”，若后续执行未及时推进，存在招聘周期拉长的风险；此外当前仅完成分派，若\
+      \ Operations 侧的“用人需求澄清、面试评估与入职准备”协作不到位，可能影响招聘质量与入职落地。  \n4) **验收失败/整改**：项目记录中未出现验收失败或整改项的客观记录。"
+  'Phase 6: Employee Open Floor':
+    employee_feedback: *id017
+  'Phase 7: Action Plan Organization':
+    action_items: *id013
+  'Phase 8: CEO Approval and Execution':
+    status: awaiting_ceo_review
+task_summary: 'CEO下发了新任务，请分析并分派给合适的负责人:
+
+
+  任务: 招聘一个代码工程师
+
+
+  [Project ID: 20260302_151828_b6b266] [Project workspace: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_151828_b6b266]'
+timestamp: '2026-03-02T15:18:45.540385'
+workflow: project_retrospective_workflow
+workflow_flow_id: project_review

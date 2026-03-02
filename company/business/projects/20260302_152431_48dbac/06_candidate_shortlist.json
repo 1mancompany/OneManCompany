@@ -1,0 +1,106 @@
+{
+  "action": "shortlist",
+  "jd": "Role: Engineer (Code Engineer) at One Man Company (OMC)\nLevel: Lv.1 (Junior Engineer) but expected to operate independently in a lean team.\nResponsibilities:\n- Build and maintain backend services/APIs for internal AI-agent-driven products.\n- Implement LLM/agent workflows (prompting, tool calling, RAG, evaluation).\n- Ship features end-to-end: design, code, test, deploy, monitor.\n- Improve code quality: testing, CI, refactoring, documentation.\nRequirements:\n- Strong Python engineering (FastAPI/Flask), typing, async, packaging.\n- Practical experience with LLM ecosystems (OpenAI/Anthropic/Qwen), prompt engineering, embeddings/vector DB.\n- Solid Git, Linux, Docker; CI/CD familiarity.\n- Good communication, ownership, bias for action; comfortable with ambiguity.\nNice to have: Kubernetes/Terraform, Observability, Security basics.",
+  "candidates": [
+    {
+      "id": "41d5ef14",
+      "name": "Drew Kim",
+      "role": "Engineer",
+      "experience_years": 6,
+      "personality_tags": ["creative", "self-motivated"],
+      "system_prompt": "You are a innovative software engineer skilled in API design. Your coding style is functional, focusing on system stability.",
+      "skill_set": [
+        {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
+        {"name": "algorithms", "description": "Algorithms & data structures", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
+        {"name": "databases", "description": "Database design & optimization", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"}
+      ],
+      "tool_set": [
+        {"name": "debugger", "description": "Debugging tool", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"},
+        {"name": "code_review", "description": "Code review tool", "code": "def review(pr_id): diff = get_diff(pr_id); return analyze_quality(diff)"}
+      ],
+      "sprite": "employee_orange",
+      "llm_model": "anthropic/claude-3.5-sonnet",
+      "jd_relevance": 0.95
+    },
+    {
+      "id": "5a8831a7",
+      "name": "Reese Chen",
+      "role": "Engineer",
+      "experience_years": 7,
+      "personality_tags": ["team player", "fast learner"],
+      "system_prompt": "You are a full-stack software engineer skilled in API design. Your coding style is object-oriented, focusing on maintainability.",
+      "skill_set": [
+        {"name": "databases", "description": "Database design & optimization", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"},
+        {"name": "algorithms", "description": "Algorithms & data structures", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
+        {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
+        {"name": "fastapi", "description": "FastAPI backend development", "code": "app = FastAPI()\n@app.get('/api/data')\nasync def get_data(): ..."}
+      ],
+      "tool_set": [
+        {"name": "debugger", "description": "Debugging tool", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"},
+        {"name": "code_review", "description": "Code review tool", "code": "def review(pr_id): diff = get_diff(pr_id); return analyze_quality(diff)"}
+      ],
+      "sprite": "employee_green",
+      "llm_model": "anthropic/claude-3.5-sonnet",
+      "jd_relevance": 0.93
+    },
+    {
+      "id": "bb5285ee",
+      "name": "Jamie Müller",
+      "role": "DevOps",
+      "experience_years": 6,
+      "personality_tags": ["detail-oriented", "team player", "resilient", "results-driven"],
+      "system_prompt": "You are a automation-first DevOps engineer skilled in monitoring systems. Your operational philosophy is infrastructure as code, focusing on system availability.",
+      "skill_set": [
+        {"name": "docker", "description": "Containerization", "code": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install -r requirements.txt"},
+        {"name": "monitoring", "description": "Monitoring & alerting", "code": "alert: HighErrorRate\nexpr: rate(http_errors[5m]) > 0.05"},
+        {"name": "ci_cd", "description": "CI/CD pipelines", "code": "stages: [test, build, deploy]\njobs:\n  test: pytest --cov"}
+      ],
+      "tool_set": [
+        {"name": "incident_handler", "description": "Incident handling", "code": "def handle_incident(alert): diagnose(alert); mitigate(); post_mortem()"}
+      ],
+      "sprite": "employee_orange",
+      "llm_model": "google/gemini-2.0-flash-001",
+      "jd_relevance": 0.94
+    },
+    {
+      "id": "6ec5316e",
+      "name": "Blake Smith",
+      "role": "Engineer",
+      "experience_years": 6,
+      "personality_tags": ["results-driven", "team player", "cross-disciplinary", "detail-oriented"],
+      "system_prompt": "You are a full-stack software engineer skilled in distributed systems. Your coding style is test-driven, focusing on system stability.",
+      "skill_set": [
+        {"name": "algorithms", "description": "Algorithms & data structures", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
+        {"name": "databases", "description": "Database design & optimization", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"},
+        {"name": "fastapi", "description": "FastAPI backend development", "code": "app = FastAPI()\n@app.get('/api/data')\nasync def get_data(): ..."},
+        {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"}
+      ],
+      "tool_set": [
+        {"name": "debugger", "description": "Debugging tool", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"}
+      ],
+      "sprite": "employee_red",
+      "llm_model": "qwen/qwen-2.5-72b-instruct",
+      "jd_relevance": 0.78
+    },
+    {
+      "id": "30185218",
+      "name": "Avery Johnson",
+      "role": "Engineer",
+      "experience_years": 5,
+      "personality_tags": ["fast learner", "strong communicator", "detail-oriented", "cross-disciplinary"],
+      "system_prompt": "You are a full-stack software engineer skilled in API design. Your coding style is well-commented, focusing on maintainability.",
+      "skill_set": [
+        {"name": "python", "description": "Python programming", "code": "def solve(problem): return analyze(problem) + implement(solution)"},
+        {"name": "algorithms", "description": "Algorithms & data structures", "code": "def binary_search(arr, target): lo, hi = 0, len(arr)-1; ..."},
+        {"name": "fastapi", "description": "FastAPI backend development", "code": "app = FastAPI()\n@app.get('/api/data')\nasync def get_data(): ..."},
+        {"name": "databases", "description": "Database design & optimization", "code": "SELECT * FROM employees WHERE level >= 2 ORDER BY performance DESC"}
+      ],
+      "tool_set": [
+        {"name": "debugger", "description": "Debugging tool", "code": "def debug(error): trace = get_stacktrace(); return find_root_cause(trace)"}
+      ],
+      "sprite": "employee_red",
+      "llm_model": "openai/gpt-4o",
+      "jd_relevance": 0.7
+    }
+  ]
+}

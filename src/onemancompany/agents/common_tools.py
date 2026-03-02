@@ -508,6 +508,32 @@ def create_subtask(description: str) -> dict:
     return {"status": "queued", "subtask_id": sub.id, "description": description}
 
 
+@tool
+def dispatch_task(employee_id: str, task_description: str) -> dict:
+    """Dispatch a task to another employee's agent task board.
+
+    Use this to delegate work to other agents (e.g. assign HR-sourced actions to the HR agent).
+    The task will be queued on the target agent's board and executed autonomously.
+
+    Args:
+        employee_id: The target employee's ID (e.g. '00002' for HR).
+        task_description: Clear description of what the employee should do.
+
+    Returns:
+        Confirmation that the task was pushed, or an error.
+    """
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    loop = get_agent_loop(employee_id)
+    if not loop:
+        return {"status": "error", "message": f"Agent loop not found for employee {employee_id}"}
+
+    emp = company_state.employees.get(employee_id)
+    emp_name = emp.name if emp else employee_id
+    loop.push_task(task_description)
+    return {"status": "dispatched", "employee": emp_name, "task": task_description[:200]}
+
+
 # All common tools that every employee agent gets access to
 COMMON_TOOLS = [
     read_file,
@@ -519,4 +545,5 @@ COMMON_TOOLS = [
     pull_meeting,
     use_tool,
     create_subtask,
+    dispatch_task,
 ] + SANDBOX_TOOLS

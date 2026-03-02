@@ -1,7 +1,7 @@
 # 超大会议室 — CEO全员大会专用
 name: "全员大会厅"
 type: "meeting_room"
-description: "可容纳100人的超大会议厅，配备大屏幕和音响系统。用于CEO发布公司性指示和教导，所有参会人员会后需吸收总结会议精神。"
+description: "可容纳100人的超大会议厅，配备大屏幕和音响系统。用于CEO发布公司性指示和教导，所有参会人员会后需吸收总结会议精神。不可作为项目或部门会议室使用。"
 capacity: 100
 position: [5, 10]
 sprite: "meeting_room"

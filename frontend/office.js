@@ -37,6 +37,8 @@ const PALETTE = {
   ceoGold: '#ffd700',
   hrBlue: '#4488ff',
   cooOrange: '#ff8844',
+  eaGreen: '#44cc88',
+  csoPurple: '#aa44ff',
   // Meeting Room
   meetingTable: '#5c4420',
   meetingTableLight: '#7a5c2e',
@@ -542,10 +544,17 @@ class OfficeRenderer {
   }
 
   // ===== Character drawing =====
-  drawCharacter(gx, gy, data, isCEO = false, isHR = false, isCOO = false) {
+  drawCharacter(gx, gy, data, isCEO = false) {
     const ctx = this.ctx;
     const px = gx * TILE + 4;
     const py = gy * TILE - TILE + 4;
+
+    const ROLE_COLORS = {
+      'HR': PALETTE.hrBlue,
+      'COO': PALETTE.cooOrange,
+      'EA': PALETTE.eaGreen,
+      'CSO': PALETTE.csoPurple,
+    };
 
     // Determine colors based on ID for variety
     const hash = this._hashStr(data.id || 'default');
@@ -556,15 +565,13 @@ class OfficeRenderer {
     let shirtColor = PALETTE.shirt[shirtIdx];
     let labelColor = PALETTE.led1;
 
+    const roleColor = ROLE_COLORS[data.role];
     if (isCEO) {
       shirtColor = PALETTE.ceoGold;
       labelColor = PALETTE.ceoGold;
-    } else if (isHR) {
-      shirtColor = PALETTE.hrBlue;
-      labelColor = PALETTE.hrBlue;
-    } else if (isCOO) {
-      shirtColor = PALETTE.cooOrange;
-      labelColor = PALETTE.cooOrange;
+    } else if (roleColor) {
+      shirtColor = roleColor;
+      labelColor = roleColor;
     }
 
     // Body bounce animation
@@ -912,17 +919,15 @@ class OfficeRenderer {
     // AI Employees — draw desk always, avatar at desk OR meeting room
     for (const emp of this.state.employees) {
       const [gx, gy] = emp.desk_position || [0, 0];
-      const isHR = emp.role === 'HR';
-      const isCOO = emp.role === 'COO';
       this.drawDesk(gx, gy + 3, true);
 
       if (inMeeting[emp.id]) {
         // Draw small avatar at meeting room position
         const pos = inMeeting[emp.id];
-        this.drawCharacter(pos.x, pos.y, emp, false, isHR, isCOO);
+        this.drawCharacter(pos.x, pos.y, emp);
       } else {
         // Draw at desk
-        this.drawCharacter(gx, gy + 3, emp, false, isHR, isCOO);
+        this.drawCharacter(gx, gy + 3, emp);
       }
     }
 

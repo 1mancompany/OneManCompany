@@ -26,6 +26,7 @@ from onemancompany.agents.base import get_employee_skills_prompt, get_employee_t
 from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
+    EA_ID,
     FOUNDING_LEVEL,
     HR_ID,
     MAX_PRINCIPLES_LEN,
@@ -721,8 +722,10 @@ async def run_post_task_routine(
             if entry.get("employee_id")
         }
         if actual_contributors:
-            # Always include HR and COO (they participate in retrospective regardless)
-            actual_contributors.update({HR_ID, COO_ID})
+            # EA always attends (dispatched the task, needs full context).
+            # HR always attends (hosts review & writes summary).
+            # Everyone else only joins if they actually contributed.
+            actual_contributors.update({EA_ID, HR_ID})
             participants = [pid for pid in participants if pid in actual_contributors]
 
     # Increment current_quarter_tasks for participating normal employees
@@ -770,7 +773,7 @@ async def run_post_task_routine(
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [HR_ID, COO_ID]))
+            r.participants = list(dict.fromkeys(participants + [EA_ID, HR_ID]))
             room = r
             break
 
@@ -896,7 +899,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [HR_ID, COO_ID]))
+            r.participants = list(dict.fromkeys(participants + [EA_ID, HR_ID]))
             room = r
             break
 
@@ -1300,44 +1303,33 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     unrouted = [a for a in approved if id(a) not in routed]
     coo_actions.extend(unrouted)
 
-    results = []
+    # COO is responsible for receiving all approved actions and dispatching them.
+    # Build a task description with all actions and their sources, then push to COO.
+    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.config import COO_ID
 
-    if hr_actions:
-        from onemancompany.core.agent_loop import get_agent_loop
-        from onemancompany.core.config import HR_ID
-        hr_task = "CEO已批准以下HR行动计划，请立即执行:\n" + "\n".join(
-            f"- {a['description']}" for a in hr_actions
-        )
-        hr_loop = get_agent_loop(HR_ID)
-        if hr_loop:
-            try:
-                hr_result = await hr_loop.agent.run(hr_task)
-                results.append(f"HR执行结果: {hr_result[:200]}")
-            except Exception as e:
-                results.append(f"HR执行出错: {e}")
-        else:
-            results.append("HR执行出错: agent loop not found")
+    action_lines = []
+    for a in approved:
+        source = a.get("source", "COO")
+        action_lines.append(f"- [{source}] {a['description']}")
 
-    if coo_actions:
-        from onemancompany.core.agent_loop import get_agent_loop
-        from onemancompany.core.config import COO_ID
-        coo_task = "CEO已批准以下COO行动计划，请立即执行:\n" + "\n".join(
-            f"- {a['description']}" for a in coo_actions
-        )
-        coo_loop = get_agent_loop(COO_ID)
-        if coo_loop:
-            try:
-                coo_result = await coo_loop.agent.run(coo_task)
-                results.append(f"COO执行结果: {coo_result[:200]}")
-            except Exception as e:
-                results.append(f"COO执行出错: {e}")
-        else:
-            results.append("COO执行出错: agent loop not found")
+    coo_task = (
+        "CEO已批准以下行动计划。请按source字段分配执行：\n"
+        "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+        "- source=COO的行动：由你自己执行\n\n"
+        "行动计划:\n" + "\n".join(action_lines)
+    )
 
-    summary = "; ".join(results) if results else "无需执行的行动"
+    coo_loop = get_agent_loop(COO_ID)
+    if coo_loop:
+        coo_loop.push_task(coo_task)
+        summary = f"已推送 {len(approved)} 项批准行动到COO任务板"
+    else:
+        summary = "COO agent loop not found"
+
     await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
 
-    doc["execution"] = {"approved": approved, "results": results}
+    doc["execution"] = {"approved": approved, "results": [summary]}
     _save_report(doc["id"], doc)
 
     return summary
