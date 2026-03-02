@@ -1,0 +1,69 @@
+acceptance_criteria:
+- 在 workspace 中存在可打开的 Xcode 工程 `FlingBirds.xcodeproj`，并包含 SwiftUI+SpriteKit 实现代码（不依赖外部素材）。
+- Xcode 15+ 在 macOS 上选择 `My Mac` 运行成功，进入可玩场景。
+- 核心玩法闭环：鼠标拖拽蓄力→松开发射→物理碰撞→目标（绿色圆形）可被摧毁→胜利/失败提示→可 Restart/Prev/Next。
+- 关卡数量≥3，且可通过 UI 切换关卡。
+- README.md 包含构建步骤、玩法说明、合规/非侵权声明。
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.2
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-02T20:15:52.199803'
+current_owner: 00008
+dispatches:
+- description: 负责该项目整体交付与验收组织：制定macOS版愤怒小鸟（近似玩法）实现方案（建议SpriteKit/SwiftUI+SpriteKit），拆分里程碑（物理/关卡/构建产物/README），把代码与文档产出保存到项目workspace
+    /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_201552_b
+  dispatched_at: '2026-03-02T20:16:16.000037'
+  employee_id: '00003'
+  status: in_progress
+- completed_at: '2026-03-02T20:20:04.895778'
+  description: 实现macOS版愤怒小鸟（近似玩法）可运行原型：使用Swift + SpriteKit（Xcode工程），实现弹弓拖拽发射、基础刚体/碰撞、简单目标结构（方块/猪用占位形状）、至少2关或关卡数据结构；提供README（构建/运行/操作）。所有源代码与文档保存到项目workspace
+    /Users/yuzhengxu/projects/OneManCompany/company/business/p
+  dispatched_at: '2026-03-02T20:16:26.406385'
+  employee_id: 00008
+  status: completed
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_201552_ba880c
+project_id: 20260302_201552_ba880c
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 写一个愤怒的小鸟游戏，mac os版本
+timeline:
+- action: EA task completed
+  detail: '已完成任务分析并分派负责人（macOS 版“愤怒的小鸟”近似玩法游戏开发，属工程交付/项目执行范畴，默认由 COO 负责落地与验收）。
+
+
+    ## 预算估算
+
+    - 已设置项目预算：**$0.20**（复杂度偏高：需要Xcode工程 + 物理/关卡/可运行产物 + 文档）
+
+
+    ## 验收标准（已设置，负责人：COO 00003）
+
+    1. workspace 内包含可运行的 macOS 版“愤怒的小鸟”（或近似玩法）**源代码 + 构建说明 README**
+
+    2. 提供可一键运行的开发环境说明（Xcode版本/依赖/运行步骤），并在干净环境下可编译通过
+
+    3. 核心玩法可用：弹弓发射小鸟、基础物理碰撞、至少 '
+  employee_id: '00004'
+  time: '2026-03-02T20:16:37.005808'
+- action: Engineer task completed
+  detail: "我已经按照要求，使用 Swift + SpriteKit 为你编写了 macOS 版的愤怒的小鸟（近似玩法）原型。所有的源代码及文档都已保存到指定的项目工作区\
+    \ `/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_201552_ba880c`\
+    \ 中。\n\n以下是实现的主要内容：\n\n1. **项目结构（Swift Package Manager）**\n   - `Package.swift`:\
+    \ Swift 包定义，将其配置为 macOS 可执行目标。\n   - `Sources/main.swift`:"
+  employee_id: 00008
+  time: '2026-03-02T20:20:04.891499'

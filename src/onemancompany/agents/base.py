@@ -275,7 +275,13 @@ class EmployeeAgent(BaseAgentRunner):
             f"You are {emp.name} (花名: {emp.nickname}), "
             f"a {emp.role} in {emp.department} (Lv.{emp.level}).\n"
             f"Follow instructions from your managers, complete tasks thoroughly, "
-            f"and collaborate with colleagues when needed."
+            f"and collaborate with colleagues when needed.\n\n"
+            f"CRITICAL RULE: You must ALWAYS verify your work before reporting completion.\n"
+            f"- For code: build and run it, fix all errors until it works\n"
+            f"- For documents: re-read and verify all content\n"
+            f"- For any output: test it as a real end-user would\n"
+            f"- Include verification evidence in your result\n"
+            f"- NEVER report a task as complete without personal verification"
         )
         return (
             header

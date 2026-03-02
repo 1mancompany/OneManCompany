@@ -1,0 +1,48 @@
+acceptance_criteria:
+- 在项目workspace内交付可运行的macOS版本愤怒的小鸟简化版源码与构建说明（README）
+- 提供可执行的打包产物（.app 或可通过一条命令构建生成.app），并在README中写明运行步骤
+- 核心玩法可用：弹弓拖拽/蓄力/发射、至少2种物理交互（重力+碰撞）、关卡中存在目标（猪/方块）可被击倒并判定胜利
+- 至少包含3个可玩的关卡（可用JSON/脚本配置），并支持重开/下一关
+- 代码可在macOS本机（Apple Silicon优先）用Xcode或指定引擎版本成功编译，无需付费依赖
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.25
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-02T20:10:17.137142'
+current_owner: '00004'
+dispatches:
+- description: 负责该项目整体交付与集成：选择技术路线（优先SpriteKit/Swift或Unity/Godot但需macOS可跑）、制定里程碑与目录结构；确保满足验收标准（3关卡、拖拽发射、物理碰撞/胜利判定、可构建.app、README）。最终将源码与构建步骤保存到workspace并输出打包产物或一条命令构建产物。
+  dispatched_at: '2026-03-02T20:10:42.144402'
+  employee_id: '00003'
+  status: in_progress
+- description: 补充：工程实现资源目前仅能由你方执行/协调（尝试分派给00008失败：该员工未接入agent loop）。请你亲自完成核心代码，或在需要时提出外包/招聘需求给HR。优先采用SpriteKit+Swift实现简化版愤怒的小鸟，并按验收标准交付。
+  dispatched_at: '2026-03-02T20:10:51.630893'
+  employee_id: '00003'
+  status: in_progress
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- 00008
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_201017_68b793
+project_id: 20260302_201017_68b793
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 写一个愤怒的小鸟游戏，mac os版本
+timeline:
+- action: EA task completed
+  detail: "任务分析：这是一个**工程交付型**任务（macOS端游戏开发、构建打包、README说明），属于**运营/项目执行**范畴，主要负责人应为\
+    \ **COO（00003）** 统筹落地。\n\n已完成的动作（按流程）：\n\n1) **预算估算已设置**\n- 复杂度：中高（玩法+物理+关卡+打包）\n\
+    - 已设预算：**$0.25**\n\n2) **验收标准已设置**（负责人：**COO 00003**）\n- 在workspace交付可运行的macOS版简化“愤怒的小鸟”源码与README\
+    \  \n- 提供可执行产物（.app）或一条命令可构建生成.app，并在README写明步骤  \n- 核心玩法可用：弹弓拖拽/"
+  employee_id: '00004'
+  time: '2026-03-02T20:10:59.901265'

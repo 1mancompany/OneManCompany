@@ -90,7 +90,12 @@ def start_sandbox_server() -> None:
         # Brief wait for server readiness
         time.sleep(2)
         if _server_process.poll() is not None:
+            stderr_out = ""
+            if _server_process.stderr:
+                stderr_out = _server_process.stderr.read().decode(errors="replace")[-500:]
             print(f"[sandbox] Server exited immediately with code {_server_process.returncode}")
+            if stderr_out:
+                print(f"[sandbox] stderr: {stderr_out}")
             _server_process = None
         else:
             print(f"[sandbox] Server started at {server_url} (pid={_server_process.pid})")

@@ -255,6 +255,17 @@ async def lifespan(app: FastAPI):
     register_agent(_COO_ID, COOAgent())
     register_agent(_EA_ID, EAAgent())
     register_agent(_CSO_ID, CSOAgent())
+
+    # Restore agent loops for all non-founding hired employees
+    from onemancompany.agents.base import EmployeeAgent
+    from onemancompany.core.config import FOUNDING_LEVEL
+    from onemancompany.core.state import company_state
+    founding_ids = {_HR_ID, _COO_ID, _EA_ID, _CSO_ID, "00001"}
+    for emp_id, emp in company_state.employees.items():
+        if emp_id not in founding_ids and emp.level < FOUNDING_LEVEL and not emp.remote:
+            register_agent(emp_id, EmployeeAgent(emp_id))
+            print(f"[startup] Restored agent loop for {emp.name} ({emp_id})")
+
     await start_all_loops()
 
     # Start background WebSocket event broadcaster
