@@ -2,6 +2,9 @@
 
 from langchain_openai import ChatOpenAI
 
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from onemancompany.core.config import (
     MAX_SUMMARY_LEN,
     STATUS_IDLE,
@@ -235,4 +238,58 @@ class BaseAgentRunner:
         return (
             f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
         )
+
+
+class EmployeeAgent(BaseAgentRunner):
+    """Generic agent runner for newly hired employees.
+
+    Uses COMMON_TOOLS and builds a prompt from the employee's profile,
+    skills, tools, work principles, and company culture.
+    """
+
+    def __init__(self, employee_id: str) -> None:
+        from onemancompany.agents.common_tools import COMMON_TOOLS
+
+        self.employee_id = employee_id
+        emp = company_state.employees.get(employee_id)
+        self.role = emp.role if emp else "Employee"
+        self._agent = create_react_agent(
+            model=make_llm(employee_id),
+            tools=list(COMMON_TOOLS),
+        )
+
+    def _build_prompt(self) -> str:
+        emp = company_state.employees.get(self.employee_id)
+        if not emp:
+            return "You are a company employee."
+        header = (
+            f"You are {emp.name} (花名: {emp.nickname}), "
+            f"a {emp.role} in {emp.department} (Lv.{emp.level}).\n"
+            f"Follow instructions from your managers, complete tasks thoroughly, "
+            f"and collaborate with colleagues when needed."
+        )
+        return (
+            header
+            + self._get_skills_prompt_section()
+            + self._get_tools_prompt_section()
+            + self._get_company_culture_prompt_section()
+            + self._get_work_principles_prompt_section()
+            + self._get_guidance_prompt_section()
+        )
+
+    async def run(self, task: str) -> str:
+        self._set_status(STATUS_WORKING)
+        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
+
+        result = await self._agent.ainvoke(
+            {"messages": [
+                SystemMessage(content=self._build_prompt()),
+                HumanMessage(content=task),
+            ]}
+        )
+
+        final = result["messages"][-1].content
+        self._set_status(STATUS_IDLE)
+        await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})
+        return final
 

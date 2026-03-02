@@ -250,6 +250,66 @@ def list_colleagues() -> list[dict]:
     ]
 
 
+def _build_employee_context(emp) -> str:
+    """Build identity + skills + tools context string for an employee."""
+    principles_ctx = ""
+    if emp.work_principles:
+        principles_ctx = f"\nYour work principles:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+    skills_ctx = get_employee_skills_prompt(emp.id)
+    tools_ctx = get_employee_tools_prompt(emp.id)
+    return (
+        f"You are {emp.name} ({emp.nickname}, Department: {emp.department}, {emp.role}, Lv.{emp.level}).\n"
+        f"{principles_ctx}{skills_ctx}{tools_ctx}"
+    )
+
+
+def _format_chat_history(chat_history: list[dict]) -> str:
+    """Format chat history list into a readable string."""
+    if not chat_history:
+        return "(No discussion yet.)"
+    return "\n".join(f"  {m['speaker']}: {m['message']}" for m in chat_history)
+
+
+def _build_evaluate_prompt(emp, topic: str, agenda: str, chat_history: list[dict]) -> str:
+    """Build a prompt asking the employee whether they need to speak."""
+    ctx = _build_employee_context(emp)
+    history_text = _format_chat_history(chat_history)
+    prompt = (
+        f"{ctx}"
+        f"You are attending a focused meeting.\n"
+        f"Meeting topic: {topic}\n"
+    )
+    if agenda:
+        prompt += f"Meeting agenda: {agenda}\n"
+    prompt += (
+        f"\nDiscussion so far:\n{history_text}\n\n"
+        f"Decide whether you need to speak next. Answer YES only if you have a unique perspective, "
+        f"an important concern, or actionable advice that has NOT already been covered. "
+        f"Answer NO if the topic is outside your expertise, or your viewpoint has already been expressed by others.\n\n"
+        f"Reply with YES or NO on the first line, then optionally a brief reason."
+    )
+    return prompt
+
+
+def _build_speech_prompt(emp, topic: str, agenda: str, chat_history: list[dict]) -> str:
+    """Build a prompt for the employee to deliver their contribution."""
+    ctx = _build_employee_context(emp)
+    history_text = _format_chat_history(chat_history)
+    prompt = (
+        f"{ctx}"
+        f"You are attending a focused meeting.\n"
+        f"Meeting topic: {topic}\n"
+    )
+    if agenda:
+        prompt += f"Meeting agenda: {agenda}\n"
+    prompt += (
+        f"\nDiscussion so far:\n{history_text}\n\n"
+        f"Based on your expertise and work principles, share your brief perspective (2-3 sentences). "
+        f"Focus on what you can uniquely contribute from your role — suggestions, concerns, or actionable advice."
+    )
+    return prompt
+
+
 @tool
 async def pull_meeting(
     topic: str,
@@ -260,7 +320,8 @@ async def pull_meeting(
     """Pull meeting / sync-up — initiate a focused meeting, pulling relevant colleagues to discuss a specific topic.
 
     Automatically books a meeting room, organizes participants for discussion, and outputs meeting conclusions.
-    Any employee can use this tool.
+    Uses a token-grabbing mechanism: participants concurrently evaluate whether they need to speak,
+    and the fastest respondent gets the floor. Meeting ends naturally when no one has more to say.
 
     Args:
         topic: Meeting topic, e.g. "Discuss technical plan for new feature"
@@ -318,52 +379,84 @@ async def pull_meeting(
         await _chat(room.id, initiator_name, "employee", f"Agenda: {agenda}")
 
     try:
-        # Run focused discussion
-        llm = make_llm(initiator_id or HR_ID)
+        # --- Token-grabbing discussion loop ---
         discussion_entries: list[dict] = []
+        chat_history: list[dict] = [
+            {"speaker": initiator_name, "message": f"Topic: {topic}"},
+        ]
+        if agenda:
+            chat_history.append({"speaker": initiator_name, "message": f"Agenda: {agenda}"})
 
-        # Each participant speaks on the topic
-        for emp in valid_participants:
-            principles_ctx = ""
-            if emp.work_principles:
-                principles_ctx = f"\nYour work principles:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+        # All participants (including initiator if present) can compete to speak
+        speakers = list(valid_participants)
+        if initiator_id:
+            ini_emp = company_state.employees.get(initiator_id)
+            if ini_emp and ini_emp not in speakers:
+                speakers.append(ini_emp)
 
-            skills_ctx = get_employee_skills_prompt(emp.id)
-            tools_ctx = get_employee_tools_prompt(emp.id)
+        max_rounds = 15
+        loop = asyncio.get_running_loop()
+        rounds_used = 0
 
-            prompt = (
-                f"You are {emp.name} ({emp.nickname}, Department: {emp.department}, {emp.role}, Lv.{emp.level}).\n"
-                f"{principles_ctx}"
-                f"{skills_ctx}"
-                f"{tools_ctx}"
-                f"You are attending a focused meeting.\n"
-                f"Meeting topic: {topic}\n"
+        for round_num in range(max_rounds):
+            rounds_used = round_num + 1
+
+            # Concurrent evaluation — all participants judge whether they need to speak
+            async def _evaluate(emp):
+                prompt = _build_evaluate_prompt(emp, topic, agenda, chat_history)
+                llm = make_llm(emp.id)
+                t0 = loop.time()
+                resp = await llm.ainvoke(prompt)
+                t1 = loop.time()
+                first_line = resp.content.strip().split("\n")[0].upper()[:20]
+                wants = "YES" in first_line
+                return (emp, wants, t1)
+
+            results = await asyncio.gather(
+                *[_evaluate(e) for e in speakers],
+                return_exceptions=True,
             )
-            if agenda:
-                prompt += f"Meeting agenda: {agenda}\n"
-            if discussion_entries:
-                recent = discussion_entries[-3:]  # last 3 comments for context
-                context = "\n".join(f"  {d['name']}: {d['comment']}" for d in recent)
-                prompt += f"\nPrevious comments:\n{context}\n"
-            prompt += (
-                f"\nBased on your expertise and work principles, share your brief perspective on the meeting topic (2-3 sentences). "
-                f"Focus on what you can contribute, any suggestions, or concerns."
-            )
 
-            resp = await llm.ainvoke(prompt)
-            comment = resp.content
+            # Filter out exceptions and those who don't want to speak
+            willing = [
+                (emp, ts)
+                for r in results
+                if not isinstance(r, Exception)
+                for emp, wants, ts in [r]
+                if wants
+            ]
+
+            if not willing:
+                await _chat(room.id, "会议系统", "system", "所有人已表达完毕，会议结束。")
+                break
+
+            # Token grab — sort by timestamp, fastest wins
+            willing.sort(key=lambda x: x[1])
+            winner = willing[0][0]
+
+            # Winner delivers their speech
+            speech_prompt = _build_speech_prompt(winner, topic, agenda, chat_history)
+            resp = await make_llm(winner.id).ainvoke(speech_prompt)
+
+            display = winner.nickname or winner.name
+            await _chat(room.id, display, winner.role, resp.content)
+            chat_history.append({"speaker": display, "message": resp.content})
             discussion_entries.append({
-                "id": emp.id, "name": emp.name,
-                "nickname": emp.nickname, "comment": comment,
+                "id": winner.id,
+                "name": winner.name,
+                "nickname": winner.nickname,
+                "comment": resp.content,
             })
-            display = emp.nickname or emp.name
-            await _chat(room.id, display, emp.role, comment)
+        else:
+            # max_rounds reached
+            await _chat(room.id, "会议系统", "system", "会议已达最大轮次，自动结束。")
 
-        # Synthesize meeting conclusion
+        # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(
             f"[{d['name']}({d['nickname']})] {d['comment']}"
             for d in discussion_entries
         )
+        summary_llm = make_llm(initiator_id or HR_ID)
         summary_prompt = (
             f"You are the meeting note-taker. Summarize the following focused meeting discussion.\n\n"
             f"Meeting topic: {topic}\n"
@@ -374,7 +467,7 @@ async def pull_meeting(
             f"2. Action items (JSON array format): "
             f'[{{"assignee": "person responsible", "action": "specific action"}}]\n'
         )
-        summary_resp = await llm.ainvoke(summary_prompt)
+        summary_resp = await summary_llm.ainvoke(summary_prompt)
         summary_text = summary_resp.content
 
         await _chat(room.id, "Meeting Notes", "HR", f"[Meeting Summary] {summary_text[:200]}")
@@ -394,6 +487,7 @@ async def pull_meeting(
             "initiator": initiator_id,
             "participants": [e.id for e in valid_participants],
             "room": room.name,
+            "rounds": rounds_used,
         })
 
         return {
@@ -404,6 +498,7 @@ async def pull_meeting(
             "discussion": discussion_entries,
             "summary": summary_text[:MAX_DISCUSSION_SUMMARY_LEN],
             "action_items": action_items,
+            "rounds": rounds_used,
         }
 
     finally:
