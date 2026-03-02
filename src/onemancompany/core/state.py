@@ -49,9 +49,10 @@ class SalesTask:
 class TaskEntry:
     """A tracked task in the task queue."""
 
-    project_id: str
+    project_id: str        # v1 = timestamp ID, v2 = project slug
     task: str
     routed_to: str  # "HR" or "COO"
+    iteration_id: str = ""  # v2 = iter_XXX, v1 = empty
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
     status: str = "running"  # running / queued
@@ -66,6 +67,7 @@ class TaskEntry:
     def to_dict(self) -> dict:
         return {
             "project_id": self.project_id,
+            "iteration_id": self.iteration_id,
             "task": self.task,
             "routed_to": self.routed_to,
             "project_dir": self.project_dir,

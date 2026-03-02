@@ -13,6 +13,7 @@ import signal
 import subprocess
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from langchain_core.tools import tool
 
@@ -46,6 +47,14 @@ def load_sandbox_config() -> dict:
 def is_sandbox_enabled() -> bool:
     """Check whether the sandbox module is enabled in config."""
     return bool(load_sandbox_config().get("enabled", False))
+
+
+def _parse_server_url(server_url: str) -> tuple[str, str]:
+    """Parse server_url into (protocol, domain) for ConnectionConfig."""
+    parsed = urlparse(server_url)
+    protocol = parsed.scheme or "http"
+    domain = parsed.netloc or parsed.path  # e.g. "localhost:8080"
+    return protocol, domain
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +143,7 @@ def stop_sandbox_server() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sandbox instance management (client-side)
+# Sandbox instance management (client-side, async API)
 # ---------------------------------------------------------------------------
 
 _sandbox_instance: Any = None
@@ -149,12 +158,17 @@ async def _get_sandbox() -> Any:
         if _sandbox_instance is not None:
             return _sandbox_instance
 
-        from opensandbox import Sandbox  # type: ignore[import-untyped]
+        from opensandbox import Sandbox
+        from opensandbox.config.connection import ConnectionConfig
 
         cfg = load_sandbox_config()
+        protocol, domain = _parse_server_url(cfg["server_url"])
 
-        _sandbox_instance = Sandbox(server_url=cfg["server_url"], image=cfg["default_image"])
-        await _sandbox_instance.start()
+        conn = ConnectionConfig(protocol=protocol, domain=domain)
+        _sandbox_instance = await Sandbox.create(
+            cfg["default_image"],
+            connection_config=conn,
+        )
         return _sandbox_instance
 
 
@@ -166,11 +180,24 @@ async def cleanup_sandbox() -> None:
         if _sandbox_instance is None:
             return
         try:
-            await _sandbox_instance.stop()
+            await _sandbox_instance.kill()
         except Exception as e:
             print(f"[sandbox] Cleanup error: {e}")
         finally:
             _sandbox_instance = None
+
+
+def _collect_output(logs: Any) -> tuple[str, str]:
+    """Extract stdout/stderr strings from Execution.logs."""
+    stdout_parts = []
+    stderr_parts = []
+    if hasattr(logs, "stdout"):
+        for msg in logs.stdout:
+            stdout_parts.append(getattr(msg, "text", str(msg)))
+    if hasattr(logs, "stderr"):
+        for msg in logs.stderr:
+            stderr_parts.append(getattr(msg, "text", str(msg)))
+    return "\n".join(stdout_parts), "\n".join(stderr_parts)
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +237,27 @@ async def sandbox_execute_code(code: str, language: str = "python") -> dict:
         return _DISABLED_RESPONSE
 
     try:
-        from opensandbox_code_interpreter import CodeInterpreter  # type: ignore[import-untyped]
+        sandbox = await _get_sandbox()
+        # Write code to a temp file and execute it
+        ext_map = {"python": "py", "javascript": "js", "shell": "sh"}
+        ext = ext_map.get(language, "py")
+        file_path = f"/tmp/code.{ext}"
+        await sandbox.files.write_file(file_path, code)
 
-        cfg = load_sandbox_config()
+        cmd_map = {"python": f"python3 {file_path}", "javascript": f"node {file_path}", "shell": f"bash {file_path}"}
+        cmd = cmd_map.get(language, f"python3 {file_path}")
 
-        interpreter = CodeInterpreter(server_url=cfg["server_url"])
-        result = await interpreter.codes.run(code=code, language=language, timeout=cfg["timeout_seconds"])
+        result = await sandbox.commands.run(cmd)
+        stdout, stderr = _collect_output(result.logs)
+        exit_code = 0 if result.error is None else 1
         return {
             "status": "ok",
-            "stdout": getattr(result, "stdout", ""),
-            "stderr": getattr(result, "stderr", ""),
-            "exit_code": getattr(result, "exit_code", -1),
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
         }
     except ImportError:
-        return {"status": "error", "message": "opensandbox-code-interpreter package not installed"}
+        return {"status": "error", "message": "opensandbox package not installed"}
     except Exception as e:
         if "connect" in str(e).lower() or "refused" in str(e).lower():
             return _SERVER_ERROR_RESPONSE
@@ -248,12 +282,14 @@ async def sandbox_run_command(command: str) -> dict:
 
     try:
         sandbox = await _get_sandbox()
-        result = await sandbox.commands.run(command=command)
+        result = await sandbox.commands.run(command)
+        stdout, stderr = _collect_output(result.logs)
+        exit_code = 0 if result.error is None else 1
         return {
             "status": "ok",
-            "stdout": getattr(result, "stdout", ""),
-            "stderr": getattr(result, "stderr", ""),
-            "exit_code": getattr(result, "exit_code", -1),
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
         }
     except Exception as e:
         if "connect" in str(e).lower() or "refused" in str(e).lower():
@@ -280,7 +316,7 @@ async def sandbox_write_file(file_path: str, content: str) -> dict:
 
     try:
         sandbox = await _get_sandbox()
-        await sandbox.files.write_files([(file_path, content.encode("utf-8"))])
+        await sandbox.files.write_file(file_path, content)
         return {"status": "ok", "path": file_path}
     except Exception as e:
         if "connect" in str(e).lower() or "refused" in str(e).lower():
@@ -310,7 +346,7 @@ async def sandbox_read_file(file_path: str) -> dict:
         return {
             "status": "ok",
             "path": file_path,
-            "content": content.decode("utf-8") if isinstance(content, bytes) else content,
+            "content": content,
         }
     except Exception as e:
         if "connect" in str(e).lower() or "refused" in str(e).lower():

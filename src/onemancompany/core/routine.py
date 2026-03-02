@@ -746,6 +746,14 @@ async def run_post_task_routine(
             actual_contributors.add(EA_ID)
             participants = [pid for pid in participants if pid in actual_contributors]
 
+    # A retrospective meeting needs at least 2 participants; skip if not enough people
+    if len(participants) < 2:
+        await _publish("routine_phase", {
+            "phase": "准备",
+            "message": f"参与者不足（{len(participants)}人），跳过回顾会议。",
+        })
+        return
+
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
         emp = company_state.employees.get(pid)

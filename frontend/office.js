@@ -918,6 +918,7 @@ class OfficeRenderer {
 
     // AI Employees — draw desk always, avatar at desk OR meeting room
     for (const emp of this.state.employees) {
+      if (emp.remote) continue;  // remote employees are not rendered in the office
       const [gx, gy] = emp.desk_position || [0, 0];
       this.drawDesk(gx, gy + 3, true);
 

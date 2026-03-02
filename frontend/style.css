@@ -699,6 +699,12 @@ body {
   50% { opacity: 0.4; }
 }
 
+.roster-remote {
+  font-size: 6px;
+  color: #44cccc;
+  margin-left: 4px;
+}
+
 /* Log entry for guidance */
 .log-entry.guidance {
   border-color: var(--pixel-purple);
@@ -2031,6 +2037,80 @@ body {
   color: var(--pixel-cyan);
 }
 
+/* ===== Projects Panel ===== */
+.project-panel-card {
+  padding: 6px 8px;
+  border-left: 3px solid var(--pixel-green);
+  margin-bottom: 3px;
+  background: var(--bg-dark);
+  font-size: 6px;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.project-panel-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-left-width: 4px;
+}
+
+.project-panel-card.archived {
+  border-left-color: var(--text-dim);
+}
+
+.project-panel-name {
+  color: var(--pixel-white);
+  font-size: 7px;
+  line-height: 1.6;
+}
+
+.project-panel-meta {
+  color: var(--text-dim);
+  font-size: 5px;
+  margin-top: 2px;
+}
+
+/* ===== CEO Project Selector ===== */
+.ceo-project-selector {
+  margin-bottom: 6px;
+}
+
+.ceo-project-selector select {
+  width: 100%;
+  background: #0a0a18;
+  color: var(--pixel-white);
+  border: 2px solid var(--border);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 6px 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.ceo-project-selector select:focus {
+  border-color: var(--pixel-cyan);
+}
+
+.ceo-project-selector input {
+  width: 100%;
+  background: #0a0a18;
+  color: var(--pixel-white);
+  border: 2px solid var(--pixel-green);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 6px 8px;
+  margin-top: 4px;
+  outline: none;
+}
+
+.ceo-project-selector input:focus {
+  border-color: var(--pixel-cyan);
+  box-shadow: 0 0 8px rgba(0, 221, 255, 0.3);
+}
+
+.ceo-project-selector .hidden {
+  display: none;
+}
+
 /* ===== Operations Dashboard Modal ===== */
 .dashboard-modal-content {
   max-width: 600px;
@@ -2099,6 +2179,29 @@ body {
   padding: 3px 6px;
   background: var(--bg-dark);
   border: 1px solid var(--border);
+}
+
+.dash-cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 6px;
+}
+.dash-cost-table th {
+  text-align: left;
+  color: var(--text-dim);
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.dash-cost-table td {
+  padding: 2px 4px;
+  color: var(--pixel-white);
+  border-bottom: 1px solid var(--bg-dark);
+}
+.dash-cost-table td:first-child {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ===== Company Culture ===== */

@@ -99,11 +99,11 @@ DESK_SPACING_Y = 3
 # Department-based office layout
 # ---------------------------------------------------------------------------
 EXEC_ROW_GY = 0          # grid-Y for executive row
-DEPT_START_ROW = 1        # first grid-Y for department zones
-DEPT_END_ROW = 7          # last grid-Y for department zones
+DEPT_START_ROW = 3        # first grid-Y for department zones (gap from exec row to avoid click overlap)
+DEPT_END_ROW = 9          # last grid-Y for department zones
 DEPT_MIN_ZONE_WIDTH = 3   # minimum columns per department zone
 DEPT_DESK_SPACING_X = 3   # horizontal spacing between desks within a zone
-DEPT_DESK_ROWS = [1, 4, 7]  # grid-Y rows where desks can be placed
+DEPT_DESK_ROWS = [3, 6, 9]  # grid-Y rows where desks can be placed
 
 # Stable left-to-right ordering of departments
 DEPT_ORDER = [
@@ -165,6 +165,7 @@ class EmployeeConfig(BaseModel):
     sprite: str = "employee_default"
     llm_model: str = ""  # empty = use default
     temperature: float = 0.7
+    image_model: str = ""  # e.g. "nano-banana" for image generation
     employee_number: str = ""  # 5-digit ID string
     current_quarter_tasks: int = 0
     performance_history: list[dict] = []
@@ -576,6 +577,48 @@ def load_talent_profile(talent_id: str) -> dict:
         return {}
     with open(profile_path) as f:
         return yaml.safe_load(f) or {}
+
+
+def load_employee_custom_tools(employee_id: str) -> list:
+    """Dynamically load custom LangChain @tool functions from employees/{id}/tools/.
+
+    Reads manifest.yaml for the list of custom_tools, then imports each .py file
+    and extracts the eponymous @tool function.
+    Returns a list of callable tool objects ready for create_react_agent().
+    """
+    import importlib.util
+    import logging
+
+    from langchain_core.tools import BaseTool
+
+    tools_dir = EMPLOYEES_DIR / employee_id / "tools"
+    manifest_path = tools_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return []
+
+    with open(manifest_path) as f:
+        data = yaml.safe_load(f) or {}
+
+    custom_names: list[str] = data.get("custom_tools", [])
+    loaded = []
+    for name in custom_names:
+        py_file = tools_dir / f"{name}.py"
+        if not py_file.is_file():
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"emp_tool_{employee_id}_{name}", str(py_file)
+            )
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            func = getattr(mod, name, None)
+            if isinstance(func, BaseTool):
+                loaded.append(func)
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "Failed to load custom tool %s for %s: %s", name, employee_id, e
+            )
+    return loaded
 
 
 def load_talent_tools(talent_id: str) -> list[str]:

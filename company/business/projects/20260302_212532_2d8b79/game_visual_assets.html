@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Angry Birds - Optimized Visual Assets Preview</title>
+<style>
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #87CEEB; /* Sky blue background */
+        padding: 40px;
+        color: #333;
+    }
+    
+    .section {
+        background: rgba(255, 255, 255, 0.9);
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 10px;
+    }
+
+    /* 3. Score UI Design */
+    .score-container {
+        position: relative; 
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        font-family: 'Impact', sans-serif;
+        font-size: 38px;
+        color: #FFFFFF;
+        text-shadow: 
+            2px 2px 0 #000, 
+            -2px -2px 0 #000, 
+            2px -2px 0 #000, 
+            -2px 2px 0 #000,
+            0px 4px 4px rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, rgba(255,255,255,0.3) 0%, rgba(0,0,0,0.4) 100%);
+        padding: 10px 25px;
+        border-radius: 40px;
+        border: 2px solid rgba(255,255,255,0.6);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+
+    .score-icon {
+        color: #FFD700;
+        font-size: 45px;
+        text-shadow: 0 0 15px #FFA500, 2px 2px 0 #000;
+        animation: pulse 2s infinite;
+    }
+
+    .score-value {
+        min-width: 120px;
+        text-align: right;
+        letter-spacing: 2px;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+
+    /* 2. Obstacle Designs */
+    .obstacle-grid {
+        display: flex;
+        gap: 30px;
+        flex-wrap: wrap;
+    }
+
+    .obstacle-wrapper {
+        text-align: center;
+        font-weight: bold;
+    }
+
+    .block {
+        width: 80px;
+        height: 80px;
+        margin: 10px auto;
+        position: relative;
+        box-sizing: border-box;
+    }
+
+    /* Wood Block */
+    .wood {
+        background: repeating-linear-gradient(
+            0deg,
+            #c48b52,
+            #c48b52 8px,
+            #a66d35 8px,
+            #a66d35 16px
+        );
+        border: 3px solid #5c3a21;
+        border-radius: 4px;
+        box-shadow: inset 0 0 10px rgba(0,0,0,0.4), 2px 2px 5px rgba(0,0,0,0.3);
+    }
+    
+    /* Wood Damage 50% */
+    .wood.dmg-50::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><path d="M10,0 L25,30 L15,50 L30,80" stroke="%233e2311" stroke-width="2" fill="none" opacity="0.8"/><path d="M70,0 L60,40 L75,60" stroke="%233e2311" stroke-width="2" fill="none" opacity="0.8"/></svg>');
+    }
+
+    /* Wood Damage 10% */
+    .wood.dmg-10::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><path d="M10,0 L25,30 L15,50 L30,80 M70,0 L60,40 L75,60 M0,20 L40,40 L30,60 M80,20 L50,45 L60,80" stroke="%232b170a" stroke-width="3" fill="none" opacity="0.9"/></svg>');
+        filter: brightness(0.7) contrast(1.2);
+    }
+
+    /* Ice Block */
+    .ice {
+        background: rgba(173, 216, 230, 0.4);
+        border: 2px solid rgba(255,255,255,0.9);
+        border-radius: 4px;
+        box-shadow: inset 0 0 15px rgba(255,255,255,0.8), 2px 2px 5px rgba(0,0,0,0.2);
+        backdrop-filter: blur(3px); /* Glass effect */
+    }
+
+    /* Ice Damage 50% */
+    .ice.dmg-50::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><path d="M0,0 L80,80 M80,0 L0,80" stroke="white" stroke-width="1.5" fill="none" opacity="0.9"/></svg>');
+    }
+
+    /* Ice Damage 10% */
+    .ice.dmg-10::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80"><path d="M0,0 L80,80 M80,0 L0,80 M40,0 L40,80 M0,40 L80,40 M20,0 L60,80" stroke="white" stroke-width="2" fill="none" opacity="0.9"/></svg>');
+        background-color: rgba(255,255,255,0.2);
+        box-shadow: inset 0 0 20px rgba(255,255,255,1);
+    }
+
+</style>
+</head>
+<body>
+
+    <h1>🎮 Game Visual Assets</h1>
+
+    <div class="section">
+        <h2>1. Realistic Bird Design (SVG)</h2>
+        <p>A stylized, realistic cardinal-inspired bird. Fully scalable SVG.</p>
+        <!-- Bird SVG -->
+        <svg width="150" height="150" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(3px 5px 4px rgba(0,0,0,0.3));">
+            <!-- Tail Feathers -->
+            <path d="M 20 60 L 0 35 L 15 75 Z" fill="#8B0000"/>
+            <path d="M 25 65 L 5 45 L 20 80 Z" fill="#A52A2A"/>
+            <path d="M 30 70 L 10 55 L 25 85 Z" fill="#8B0000"/>
+            
+            <!-- Main Body -->
+            <ellipse cx="55" cy="55" rx="35" ry="30" fill="#DC143C"/>
+            
+            <!-- Belly Texture/Highlight -->
+            <path d="M 30 65 Q 55 90 80 65 Q 55 80 30 65" fill="#FFC0CB" opacity="0.5"/>
+            
+            <!-- Head / Crest -->
+            <path d="M 35 30 L 45 5 L 65 30 Z" fill="#DC143C"/>
+            <path d="M 45 30 L 55 10 L 70 30 Z" fill="#B22222"/>
+            
+            <!-- Eye Backing (Angry look) -->
+            <path d="M 55 35 Q 65 30 75 40 L 75 50 Q 65 55 55 45 Z" fill="#500000" opacity="0.3"/>
+            
+            <!-- Eye -->
+            <circle cx="65" cy="43" r="7" fill="white"/>
+            <circle cx="68" cy="43" r="3" fill="black"/>
+            <circle cx="69" cy="42" r="1" fill="white"/> <!-- Eye glint -->
+            
+            <!-- Angry Eyebrow -->
+            <line x1="52" y1="33" x2="78" y2="40" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+            
+            <!-- Beak -->
+            <polygon points="78,45 98,52 78,58" fill="#FFA500"/>
+            <!-- Beak Line -->
+            <line x1="78" y1="51" x2="92" y2="52" stroke="#CC8400" stroke-width="1.5"/>
+            
+            <!-- Wing -->
+            <path d="M 35 55 Q 50 40 65 65 Q 45 75 35 55" fill="#B22222"/>
+            <path d="M 40 58 Q 50 48 60 65 Q 48 70 40 58" fill="#8B0000"/>
+        </svg>
+    </div>
+
+    <div class="section">
+        <h2>2. Obstacle Damage States (CSS/SVG)</h2>
+        <p>Wood and Ice blocks showing varying levels of durability based on damage.</p>
+        
+        <div class="obstacle-grid">
+            <div class="obstacle-wrapper">
+                <div class="block wood"></div>
+                <div>Wood (100%)</div>
+            </div>
+            <div class="obstacle-wrapper">
+                <div class="block wood dmg-50"></div>
+                <div>Wood (50%)</div>
+            </div>
+            <div class="obstacle-wrapper">
+                <div class="block wood dmg-10"></div>
+                <div>Wood (10%)</div>
+            </div>
+        </div>
+
+        <br>
+
+        <div class="obstacle-grid">
+            <div class="obstacle-wrapper">
+                <div class="block ice"></div>
+                <div>Ice (100%)</div>
+            </div>
+            <div class="obstacle-wrapper">
+                <div class="block ice dmg-50"></div>
+                <div>Ice (50%)</div>
+            </div>
+            <div class="obstacle-wrapper">
+                <div class="block ice dmg-10"></div>
+                <div>Ice (10%)</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>3. Score Display UI</h2>
+        <p>High-contrast, arcade-style score display.</p>
+        <div class="score-container">
+            <div class="score-icon">★</div>
+            <div class="score-value">012450</div>
+        </div>
+    </div>
+
+</body>
+</html>

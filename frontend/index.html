@@ -13,6 +13,14 @@
   <div id="app">
     <!-- Left Sidebar: Task Panel + Team Roster -->
     <div id="roster-sidebar">
+      <div class="collapsible-header" data-target="projects-panel-body">
+        <span class="collapse-arrow">&#9660;</span>
+        <h3 class="pixel-title">PROJECTS</h3>
+      </div>
+      <div id="projects-panel-body" class="collapsible-body">
+        <div id="projects-panel-list"></div>
+      </div>
+
       <div class="collapsible-header" data-target="task-panel-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">TASK QUEUE</h3>
@@ -79,6 +87,13 @@
             <canvas id="ceo-avatar" width="48" height="48"></canvas>
             <span class="ceo-label">YOU</span>
             <button id="reload-toolbar-btn" class="reload-btn" title="Force reload all data from disk. WARNING: may interrupt running agent tasks!">&#128260;</button>
+          </div>
+          <div class="ceo-project-selector">
+            <select id="project-select">
+              <option value="">&#128203; New Task (no project)</option>
+              <option value="__new__">&#10133; Create New Project...</option>
+            </select>
+            <input id="new-project-name" class="hidden" placeholder="Project name..." />
           </div>
           <textarea id="task-input"
                     placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"

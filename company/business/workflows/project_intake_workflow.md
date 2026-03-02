@@ -22,7 +22,7 @@
 - **Steps**:
   1. Define quantifiable goals based on the project overview (SMART principles)
   2. Establish project milestones and delivery deadlines
-  3. Define acceptance criteria
+  3. Define acceptance criteria. **必须逐字核对原始需求并修订验收标准，确保需求全覆盖，避免遗漏任何功能点（如UI视觉表现、物理参数调整等细节）。**
 - **Output**: Project goals and milestones document
 
 ## Phase 3: Personnel Assignment
@@ -39,8 +39,8 @@
 
 - **Responsible**: Assigned Project Manager (if not exits, then COO)
 - **Steps**:
-  1. Project Manager assign tasks to teammates.
-  2. Each member executes tasks according to their assigned roles
+  1. Project Manager assign tasks to teammates. **必须完善任务分派记录机制，在项目记录中明确列出所有子任务与对应负责人的映射关系，落实权责清晰与任务闭环。**
+  2. Each member executes tasks according to their assigned roles. **执行任务时需遵循模型分级调用成本优化策略：处理UI生成等复杂任务时使用高性能模型，修改物理参数等简单任务降级使用低成本模型。**
   3. **Self-Verification (MANDATORY before reporting completion)**:
      - For code/software: Build and run it. Fix all errors until it runs successfully.
      - For documents/reports: Re-read and verify all claims, data, and formatting.
@@ -57,11 +57,12 @@
 - **Steps**:
   1. Strict Review: Review deliverables strictly against the predefined acceptance criteria defined in Phase 2.
   2. Quality Review: Organize relevant personnel to conduct a comprehensive quality review of the outputs.
-  3. Spot-check: Senior employees spot-check the work output of junior employees.
-  4. Acceptance Decision: 
+  3. **建立严格的代码变更审查机制：实事求是地把控每次代码修改的必要性，降低不同模块（如UI视觉升级与物理引擎参数修改）高耦合带来的项目延期风险。**
+  4. Spot-check: Senior employees spot-check the work output of junior employees.
+  5. Acceptance Decision: 
      - If passed: Generate an acceptance report and proceed to the next phase.
      - If not passed: Generate a Rectification Notice detailing specific issues and improvement suggestions.
-  5. Rectification Loop:
+  6. Rectification Loop:
      - The responsible employee(s) must revise their work according to the Rectification Notice.
      - Resubmit the revised deliverables for another round of Project Acceptance (repeat Phase 5).
 - **Output**: Acceptance report (if passed) or Rectification Notice (if not passed)

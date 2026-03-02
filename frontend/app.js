@@ -90,6 +90,7 @@ class AppController {
       this.updateRoster(msg.state.employees);
       this.updateTaskPanel(msg.state.active_tasks || []);
       this.updateOneononeDropdown(msg.state.employees);
+      this.updateProjectsPanel();
       // Refresh meeting modal if open
       if (this.viewingRoomId) {
         const room = rooms.find(r => r.id === this.viewingRoomId);
@@ -446,6 +447,9 @@ class AppController {
       const listeningBadge = emp.is_listening
         ? '<span class="roster-listening">📖 In meeting...</span>'
         : '';
+      const remoteBadge = emp.remote
+        ? '<span class="roster-remote">🌐 Remote</span>'
+        : '';
       const guidanceCount = (emp.guidance_notes || []).length;
       const guidanceBadge = guidanceCount > 0
         ? `<span style="color: #aa66ff; font-size: 6px;"> [${guidanceCount} notes]</span>`
@@ -460,7 +464,7 @@ class AppController {
       const qTasks = emp.current_quarter_tasks || 0;
       card.innerHTML = `
         <div class="roster-info">
-          <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}</div>
+          <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}${remoteBadge}</div>
           <div class="roster-role"><span class="roster-empnum">${empNum}</span> ${title} — ${(emp.skills || []).slice(0, 3).join(', ')}</div>
           <div class="roster-quarter">Q Tasks: ${qTasks}/3</div>
           ${listeningBadge}
@@ -546,6 +550,23 @@ class AppController {
         }
       }
     });
+
+    // Project selector toggle
+    const projectSelect = document.getElementById('project-select');
+    const newProjectName = document.getElementById('new-project-name');
+    if (projectSelect && newProjectName) {
+      projectSelect.addEventListener('change', () => {
+        if (projectSelect.value === '__new__') {
+          newProjectName.classList.remove('hidden');
+          newProjectName.focus();
+        } else {
+          newProjectName.classList.add('hidden');
+          newProjectName.value = '';
+        }
+      });
+    }
+    // Load active projects into selector on startup
+    this.loadActiveProjects();
 
     hrBtn.addEventListener('click', () => {
       hrBtn.disabled = true;
@@ -2551,6 +2572,55 @@ class AppController {
         </div>
       </div>
     `;
+
+    // Fetch cost data asynchronously and append
+    fetch('/api/dashboard/costs').then(r => r.json()).then(data => {
+      let costHtml = '';
+      // Section 1: Total cost
+      const t = data.total || {};
+      costHtml += `
+        <div class="dash-section">
+          <div class="dash-title">\u{1F4B0} Cost Overview</div>
+          <div class="dash-stats">
+            <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">$${(t.cost_usd || 0).toFixed(3)}</span><span class="dash-label">Total USD</span></div>
+            <div class="dash-stat"><span class="dash-num">${((t.total_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Total Tokens</span></div>
+            <div class="dash-stat"><span class="dash-num">${((t.input_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Input</span></div>
+            <div class="dash-stat"><span class="dash-num">${((t.output_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Output</span></div>
+          </div>
+        </div>`;
+
+      // Section 2: Per-department costs
+      const deptCosts = data.by_department || {};
+      if (Object.keys(deptCosts).length) {
+        costHtml += `
+          <div class="dash-section">
+            <div class="dash-title">\u{1F4B0} Cost by Department</div>
+            <table class="dash-cost-table">
+              <tr><th>Department</th><th>USD</th><th>Tokens</th></tr>
+              ${Object.entries(deptCosts).map(([d, v]) =>
+                `<tr><td>${d}</td><td>$${v.cost_usd.toFixed(3)}</td><td>${(v.total_tokens/1000).toFixed(1)}k</td></tr>`
+              ).join('')}
+            </table>
+          </div>`;
+      }
+
+      // Section 3: Recent 10 projects costs
+      const projects = data.recent_projects || [];
+      if (projects.length) {
+        costHtml += `
+          <div class="dash-section">
+            <div class="dash-title">\u{1F4B0} Recent Projects Cost</div>
+            <table class="dash-cost-table">
+              <tr><th>Project</th><th>USD</th><th>Tokens</th><th>Status</th></tr>
+              ${projects.map(p =>
+                `<tr><td title="${p.project_id}">${p.task || p.project_id}</td><td>$${(p.cost_usd||0).toFixed(3)}</td><td>${((p.total_tokens||0)/1000).toFixed(1)}k</td><td>${p.status}</td></tr>`
+              ).join('')}
+            </table>
+          </div>`;
+      }
+
+      content.insertAdjacentHTML('beforeend', costHtml);
+    }).catch(() => {});
   }
 
   // ===== Company Culture =====
@@ -2717,6 +2787,16 @@ class AppController {
     const task = input.value.trim();
     if (!task) return;
 
+    // Read project selector
+    const projectSelect = document.getElementById('project-select');
+    const projectId = projectSelect ? projectSelect.value : '';
+    let projectName = '';
+    if (projectId === '__new__') {
+      const nameInput = document.getElementById('new-project-name');
+      projectName = nameInput ? nameInput.value.trim() : '';
+      if (!projectName) { alert('Enter project name'); return; }
+    }
+
     // Save to input history
     if (this._inputHistory[this._inputHistory.length - 1] !== task) {
       this._inputHistory.push(task);
@@ -2729,10 +2809,14 @@ class AppController {
     const submitBtn = document.getElementById('submit-btn');
     submitBtn.disabled = true;
 
+    const reqBody = { task };
+    if (projectId && projectId !== '__new__') reqBody.project_id = projectId;
+    if (projectName) reqBody.project_name = projectName;
+
     fetch('/api/ceo/task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task }),
+      body: JSON.stringify(reqBody),
     })
       .then(r => r.json())
       .then(data => {
@@ -2741,6 +2825,8 @@ class AppController {
         } else {
           this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
         }
+        // Refresh project selector after submit
+        this.loadActiveProjects();
       })
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
@@ -2750,6 +2836,114 @@ class AppController {
       });
 
     input.value = '';
+    // Reset project selector
+    if (projectSelect) projectSelect.value = '';
+    const newNameInput = document.getElementById('new-project-name');
+    if (newNameInput) { newNameInput.value = ''; newNameInput.classList.add('hidden'); }
+  }
+
+  // ===== Projects Panel =====
+  updateProjectsPanel() {
+    const panel = document.getElementById('projects-panel-list');
+    if (!panel) return;
+    fetch('/api/projects/named')
+      .then(r => r.json())
+      .then(data => {
+        const projects = data.projects || [];
+        if (projects.length === 0) {
+          panel.innerHTML = '<div class="task-empty">No projects</div>';
+          return;
+        }
+        panel.innerHTML = '';
+        for (const p of projects) {
+          const card = document.createElement('div');
+          const isActive = p.status === 'active';
+          card.className = `project-panel-card ${isActive ? 'active' : 'archived'}`;
+          card.innerHTML = `
+            <div class="project-panel-name">${this._escHtml(p.name)}</div>
+            <div class="project-panel-meta">${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}</div>
+          `;
+          card.style.cursor = 'pointer';
+          card.addEventListener('click', () => this._openProjectDetail(p.project_id));
+          panel.appendChild(card);
+        }
+      })
+      .catch(() => {});
+  }
+
+  _openProjectDetail(projectId) {
+    fetch(`/api/projects/named/${encodeURIComponent(projectId)}`)
+      .then(r => r.json())
+      .then(proj => {
+        if (proj.error) return;
+        const modal = document.getElementById('project-modal');
+        const listEl = document.getElementById('project-list');
+        const detailEl = document.getElementById('project-detail');
+        const contentEl = document.getElementById('project-detail-content');
+        modal.classList.remove('hidden');
+        listEl.classList.add('hidden');
+        detailEl.classList.remove('hidden');
+
+        let html = `<div style="margin-bottom:8px;">
+          <span style="color:var(--pixel-cyan);font-size:8px;">${this._escHtml(proj.name || projectId)}</span>
+          <span style="color:var(--text-dim);font-size:6px;margin-left:6px;">${proj.status}</span>
+        </div>`;
+        const iters = proj.iteration_details || [];
+        if (iters.length === 0) {
+          html += '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
+        }
+        for (const it of iters) {
+          const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
+          html += `<div class="task-card" style="border-left-color:${statusColor};">
+            <div class="task-card-status" style="color:${statusColor};">${it.status === 'completed' ? '✅' : '🔄'} ${it.iteration_id}</div>
+            <div class="task-card-text">${this._escHtml((it.task || '').substring(0, 80))}</div>
+            <div class="task-card-route" style="color:var(--text-dim);">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
+          </div>`;
+        }
+        if (proj.status === 'active') {
+          html += `<div style="margin-top:8px;"><button class="pixel-btn secondary" style="font-size:6px;padding:4px 8px;" onclick="window.app._archiveProject('${projectId}')">Archive Project</button></div>`;
+        }
+        contentEl.innerHTML = html;
+      })
+      .catch(() => {});
+  }
+
+  _archiveProject(projectId) {
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/archive`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'archived') {
+          this.logEntry('CEO', `Project "${projectId}" archived`, 'ceo');
+          this.updateProjectsPanel();
+          this.loadActiveProjects();
+          document.getElementById('project-modal').classList.add('hidden');
+        }
+      })
+      .catch(() => {});
+  }
+
+  loadActiveProjects() {
+    const select = document.getElementById('project-select');
+    if (!select) return;
+    fetch('/api/projects/named')
+      .then(r => r.json())
+      .then(data => {
+        const projects = (data.projects || []).filter(p => p.status === 'active');
+        // Preserve first two static options
+        const currentVal = select.value;
+        while (select.options.length > 2) select.remove(2);
+        for (const p of projects) {
+          const opt = document.createElement('option');
+          opt.value = p.project_id;
+          opt.textContent = `📁 ${p.name} (${p.iteration_count})`;
+          select.appendChild(opt);
+        }
+        // Restore selection if still valid
+        if (currentVal && [...select.options].some(o => o.value === currentVal)) {
+          select.value = currentVal;
+        }
+      })
+      .catch(() => {});
   }
 
   // ===== Admin Reload =====

@@ -342,6 +342,17 @@ async def pull_meeting(
     if not valid_participants:
         return {"status": "error", "message": "No valid participants found. Please check employee IDs."}
 
+    # Prevent solo meetings — need at least 2 distinct people
+    all_unique = set(pid for pid in participant_ids if company_state.employees.get(pid))
+    if initiator_id:
+        all_unique.add(initiator_id)
+    if len(all_unique) < 2:
+        return {
+            "status": "error",
+            "message": "A meeting requires at least 2 participants. "
+            "Do not hold meetings alone — work on the task directly or dispatch it to someone.",
+        }
+
     # Find a free meeting room
     room = None
     all_ids = [initiator_id] + participant_ids if initiator_id else participant_ids
@@ -397,6 +408,7 @@ async def pull_meeting(
         max_rounds = 15
         loop = asyncio.get_running_loop()
         rounds_used = 0
+        last_speaker_id: str = ""  # track last speaker for no-consecutive rule
 
         for round_num in range(max_rounds):
             rounds_used = round_num + 1
@@ -432,11 +444,16 @@ async def pull_meeting(
 
             # Token grab — sort by timestamp, fastest wins
             willing.sort(key=lambda x: x[1])
+
+            # No-consecutive rule: same person cannot get the token twice in a row
             winner = willing[0][0]
+            if winner.id == last_speaker_id and len(willing) > 1:
+                winner = willing[1][0]
 
             # Winner delivers their speech
             speech_prompt = _build_speech_prompt(winner, topic, agenda, chat_history)
             resp = await make_llm(winner.id).ainvoke(speech_prompt)
+            last_speaker_id = winner.id
 
             display = winner.nickname or winner.name
             await _chat(room.id, display, winner.role, resp.content)
@@ -680,6 +697,48 @@ def accept_project(accepted: bool, notes: str = "") -> dict:
 
 
 @tool
+def ea_review_project(approved: bool, review_notes: str) -> dict:
+    """EA final quality review on behalf of CEO.
+
+    Called by the EA after the responsible officer has already accepted the project.
+    This is the CEO's quality gate — EA must verify the deliverables actually meet
+    ALL requirements before the project is truly considered complete.
+
+    If approved, the project proceeds to retrospective and completion.
+    If rejected, a rectification task is pushed back to the responsible officer.
+
+    Args:
+        approved: True if EA confirms all deliverables meet requirements
+        review_notes: Detailed review notes — what was checked, evidence of verification,
+                      and (if rejected) specific issues that need to be fixed
+    """
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.project_archive import set_ea_review_result, load_project
+
+    loop = _current_loop.get()
+    task_id = _current_task_id.get()
+    if not loop or not task_id:
+        return {"status": "error", "message": "No agent loop context."}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Current task not found."}
+
+    project_id = task.project_id or task.original_project_id
+    if not project_id:
+        return {"status": "error", "message": "No project context."}
+
+    set_ea_review_result(project_id, approved, review_notes)
+
+    status = "approved" if approved else "rejected"
+    return {
+        "status": status,
+        "project_id": project_id,
+        "review_notes": review_notes[:300],
+    }
+
+
+@tool
 def set_project_budget(budget_usd: float) -> dict:
     """Set the estimated budget for the current project (in USD).
     Call this BEFORE dispatching tasks to establish a cost baseline.
@@ -727,6 +786,38 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
 
     loop = get_agent_loop(employee_id)
     if not loop:
+        # Check if this is a remote employee — dispatch via remote task queue
+        emp = company_state.employees.get(employee_id)
+        if emp and emp.remote:
+            import uuid as _uuid
+            project_id = ""
+            project_dir = ""
+            caller_loop = _current_loop.get()
+            caller_task_id = _current_task_id.get()
+            if caller_loop and caller_task_id:
+                caller_task = caller_loop.board.get_task(caller_task_id)
+                if caller_task:
+                    project_id = caller_task.project_id or caller_task.original_project_id
+                    project_dir = caller_task.project_dir or caller_task.original_project_dir
+                    if project_id:
+                        caller_task.original_project_id = project_id
+                        caller_task.original_project_dir = project_dir
+                        caller_task.project_id = ""
+            # Record dispatch in project archive
+            if project_id:
+                from onemancompany.core.project_archive import record_dispatch
+                record_dispatch(project_id, employee_id, task_description)
+            # Push to remote task queue
+            from onemancompany.api.routes import _remote_task_queues
+            if employee_id not in _remote_task_queues:
+                _remote_task_queues[employee_id] = []
+            _remote_task_queues[employee_id].append({
+                "task_id": str(_uuid.uuid4())[:8],
+                "description": task_description,
+                "project_id": project_id,
+                "project_dir": project_dir,
+            })
+            return {"status": "dispatched_remote", "employee": emp.name, "task": task_description[:200]}
         return {"status": "error", "message": f"Agent loop not found for employee {employee_id}"}
 
     # Inherit project context — support multi-dispatch by checking original_project_id
@@ -772,5 +863,6 @@ COMMON_TOOLS = [
     dispatch_task,
     set_acceptance_criteria,
     accept_project,
+    ea_review_project,
     set_project_budget,
 ] + SANDBOX_TOOLS
