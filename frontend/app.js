@@ -17,9 +17,14 @@ class AppController {
     // Inquiry session state
     this._inquirySessionId = null;
     this._inquiryRoomId = null;
+    // Input history (up/down arrow)
+    this._inputHistory = JSON.parse(localStorage.getItem('ceo_input_history') || '[]');
+    this._historyIndex = -1;
+    this._historyDraft = '';
     this.connect();
     this.bindUI();
     this.bindCollapsibles();
+    this._initPanelDividers();
   }
 
   // ===== WebSocket =====
@@ -30,7 +35,6 @@ class AppController {
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {
-      this.logEntry('SYSTEM', 'Connected to company server', 'system');
       this.reconnectDelay = 1000;
       const statusEl = document.getElementById('connection-status');
       statusEl.textContent = '● ONLINE';
@@ -96,7 +100,12 @@ class AppController {
 
     // Log the event
     const formatters = {
-      'state_snapshot':     () => ({ text: 'State loaded', cls: 'system', agent: 'SYSTEM' }),
+      'state_snapshot':     () => {
+        const now = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const el = document.getElementById('last-sync-time');
+        if (el) el.textContent = `Sync ${now}`;
+        return null;
+      },
       'ceo_task_submitted': (p) => ({ text: `📋 Task: ${p.task}`, cls: 'ceo', agent: 'CEO' }),
       'agent_thinking':     (p) => ({ text: `💭 ${p.message}`, cls: (msg.agent || '').toLowerCase(), agent: msg.agent }),
       'agent_done':         (p) => ({ text: `✅ ${p.role} done: ${p.summary}`, cls: (p.role || '').toLowerCase(), agent: p.role }),
@@ -165,12 +174,37 @@ class AppController {
         this._endInquiryMode();
         return { text: `🔍 Inquiry ended`, cls: 'ceo', agent: 'CEO' };
       },
+      'agent_task_update':   (p) => {
+        // Refresh task board if viewing this employee
+        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
+          this._fetchTaskBoard(this.viewingEmployeeId);
+        }
+        return { text: `📋 ${p.employee_id} task: ${p.status || 'updated'}`, cls: 'system', agent: 'AGENT' };
+      },
+      'agent_log':           (p) => {
+        // Append log entry live if viewing this employee
+        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
+          const container = document.getElementById('emp-detail-logs');
+          if (container && !container.querySelector('.empty-hint')) {
+            const ts = (p.timestamp || '').substring(11, 19);
+            const cls = p.log_type || 'info';
+            container.insertAdjacentHTML('beforeend',
+              `<div class="emp-log-entry ${cls}"><span class="log-time">${ts}</span> <span class="log-content">${this._escHtml((p.content || '').substring(0, 200))}</span></div>`
+            );
+            container.scrollTop = container.scrollHeight;
+          }
+        }
+        return null;  // don't spam the activity log
+      },
     };
 
     const formatter = formatters[msg.type];
     if (formatter) {
-      const { text, cls, agent } = formatter(msg.payload || {});
-      this.logEntry(agent || 'SYSTEM', text, cls);
+      const result = formatter(msg.payload || {});
+      if (result) {
+        const { text, cls, agent } = result;
+        this.logEntry(agent || 'SYSTEM', text, cls);
+      }
     }
   }
 
@@ -192,6 +226,66 @@ class AppController {
         }
       });
     });
+  }
+
+  // ===== Panel Divider Drag =====
+  _initPanelDividers() {
+    const app = document.getElementById('app');
+    const dividerL = document.getElementById('divider-left');
+    const dividerR = document.getElementById('divider-right');
+
+    // Restore saved widths
+    const savedLeft = localStorage.getItem('panel_left_w');
+    const savedRight = localStorage.getItem('panel_right_w');
+    if (savedLeft || savedRight) {
+      const lw = parseInt(savedLeft) || 240;
+      const rw = parseInt(savedRight) || 340;
+      app.style.gridTemplateColumns = `${lw}px 6px 1fr 6px ${rw}px`;
+    }
+
+    const startDrag = (divider, side) => {
+      return (eDown) => {
+        eDown.preventDefault();
+        divider.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        const startX = eDown.clientX;
+        const cols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
+        const leftW = parseFloat(cols[0]);
+        const rightW = parseFloat(cols[4]);
+
+        const onMove = (eMove) => {
+          const dx = eMove.clientX - startX;
+          if (side === 'left') {
+            const newW = Math.max(120, Math.min(leftW + dx, window.innerWidth * 0.4));
+            app.style.gridTemplateColumns = `${newW}px 6px 1fr 6px ${rightW}px`;
+          } else {
+            const newW = Math.max(200, Math.min(rightW - dx, window.innerWidth * 0.5));
+            app.style.gridTemplateColumns = `${leftW}px 6px 1fr 6px ${newW}px`;
+          }
+        };
+
+        const onUp = () => {
+          divider.classList.remove('dragging');
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          // Save widths
+          const finalCols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
+          localStorage.setItem('panel_left_w', parseInt(finalCols[0]));
+          localStorage.setItem('panel_right_w', parseInt(finalCols[4]));
+          // Resize canvas
+          if (window.officeRenderer) window.officeRenderer._resizeCanvas();
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      };
+    };
+
+    dividerL.addEventListener('mousedown', startDrag(dividerL, 'left'));
+    dividerR.addEventListener('mousedown', startDrag(dividerR, 'right'));
   }
 
   // ===== Task Panel =====
@@ -246,9 +340,12 @@ class AppController {
           return;
         }
         let html = `<h4 style="color:var(--pixel-yellow);font-size:8px;margin:6px 0;">${doc.task || ''}</h4>`;
-        html += `<div style="font-size:6px;color:var(--text-dim);margin-bottom:8px;">`;
-        html += `Status: <span style="color:var(--pixel-green);">${doc.status}</span> | Routed to: ${doc.routed_to} | Started: ${(doc.created_at || '').substring(11, 19)}`;
-        if (doc.completed_at) html += ` | Completed: ${doc.completed_at.substring(11, 19)}`;
+        html += `<div style="font-size:6px;color:var(--text-dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;">`;
+        html += `<span>Status: <span style="color:var(--pixel-green);">${doc.status}</span> | Routed to: ${doc.routed_to} | Started: ${(doc.created_at || '').substring(11, 19)}</span>`;
+        if (doc.completed_at) html += `<span>| Completed: ${doc.completed_at.substring(11, 19)}</span>`;
+        if (doc.status !== 'completed') {
+          html += `<button class="pixel-btn small" style="background:var(--pixel-red);color:#fff;box-shadow:2px 2px 0 #991122;font-size:5px;padding:2px 6px;margin-left:auto;" onclick="window._abortTask('${doc.project_id}')">ABORT</button>`;
+        }
         html += `</div>`;
 
         // Timeline (live task log)
@@ -418,6 +515,23 @@ class AppController {
     input.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         this.submitTask();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this._inputHistory.length === 0) return;
+        if (this._historyIndex === -1) this._historyDraft = input.value;
+        if (this._historyIndex < this._inputHistory.length - 1) {
+          this._historyIndex++;
+          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this._historyIndex <= 0) {
+          this._historyIndex = -1;
+          input.value = this._historyDraft;
+        } else {
+          this._historyIndex--;
+          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
+        }
       }
     });
 
@@ -824,12 +938,135 @@ class AppController {
     // Load model dropdown
     this._loadModelDropdown(emp.id);
 
+    // Fetch and render agent task board + logs
+    this._fetchTaskBoard(emp.id);
+    this._fetchExecutionLogs(emp.id);
+
+    // Start auto-refresh for task board while modal is open
+    this._startTaskBoardPolling(emp.id);
+
     modal.classList.remove('hidden');
   }
 
   closeEmployeeDetail() {
     this.viewingEmployeeId = null;
+    this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
+  }
+
+  async _fetchTaskBoard(empId) {
+    try {
+      const resp = await fetch(`/api/employee/${empId}/taskboard`);
+      const data = await resp.json();
+      this._renderTaskBoard(data.tasks || []);
+    } catch (err) {
+      console.error('Task board fetch error:', err);
+    }
+  }
+
+  async _fetchExecutionLogs(empId) {
+    try {
+      const resp = await fetch(`/api/employee/${empId}/logs`);
+      const data = await resp.json();
+      this._renderExecutionLogs(data.logs || []);
+    } catch (err) {
+      console.error('Execution logs fetch error:', err);
+    }
+  }
+
+  _renderTaskBoard(tasks) {
+    const el = document.getElementById('emp-detail-taskboard');
+    if (!tasks || tasks.length === 0) {
+      el.innerHTML = '<span class="empty-hint">No tasks</span>';
+      return;
+    }
+
+    // Group: top-level tasks first, sub-tasks nested under parents
+    const topLevel = tasks.filter(t => !t.parent_id);
+    const subTasks = tasks.filter(t => t.parent_id);
+    const subByParent = {};
+    for (const st of subTasks) {
+      if (!subByParent[st.parent_id]) subByParent[st.parent_id] = [];
+      subByParent[st.parent_id].push(st);
+    }
+
+    const empId = this.viewingEmployeeId;
+    let html = '';
+    for (const task of topLevel) {
+      const statusCls = task.status.replace('_', '-');
+      html += `<div class="emp-taskboard-item ${statusCls}">`;
+      html += `<div class="emp-taskboard-status" style="display:flex;justify-content:space-between;align-items:center;">`;
+      html += `<span>${task.status}</span>`;
+      if (task.status === 'pending' || task.status === 'in_progress') {
+        html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${task.id}')">CANCEL</button>`;
+      }
+      html += `</div>`;
+      html += `<div class="emp-taskboard-desc">${this._escHtml(task.description.substring(0, 120))}</div>`;
+      if (task.result) {
+        html += `<div class="emp-taskboard-result">${this._escHtml(task.result.substring(0, 100))}</div>`;
+      }
+      html += '</div>';
+
+      // Render sub-tasks indented
+      const subs = subByParent[task.id] || [];
+      for (const sub of subs) {
+        const subCls = sub.status.replace('_', '-');
+        html += `<div class="emp-taskboard-item sub-task ${subCls}">`;
+        html += `<div class="emp-taskboard-status" style="display:flex;justify-content:space-between;align-items:center;">`;
+        html += `<span>${sub.status}</span>`;
+        if (sub.status === 'pending' || sub.status === 'in_progress') {
+          html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${sub.id}')">CANCEL</button>`;
+        }
+        html += `</div>`;
+        html += `<div class="emp-taskboard-desc">${this._escHtml(sub.description.substring(0, 100))}</div>`;
+        html += '</div>';
+      }
+    }
+    el.innerHTML = html;
+  }
+
+  _renderExecutionLogs(logs) {
+    const el = document.getElementById('emp-detail-logs');
+    if (!logs || logs.length === 0) {
+      el.innerHTML = '<span class="empty-hint">No logs</span>';
+      return;
+    }
+
+    let html = '';
+    for (const log of logs) {
+      const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+      const typeCls = log.type || '';
+      html += `<div class="emp-log-entry ${typeCls}">`;
+      html += `<span class="log-ts">${ts}</span>`;
+      html += `<span class="log-content">${this._escHtml((log.content || '').substring(0, 200))}</span>`;
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    // Auto-scroll to bottom
+    el.scrollTop = el.scrollHeight;
+  }
+
+  _startTaskBoardPolling(empId) {
+    this._stopTaskBoardPolling();
+    this._taskBoardPollTimer = setInterval(() => {
+      if (this.viewingEmployeeId === empId) {
+        this._fetchTaskBoard(empId);
+        this._fetchExecutionLogs(empId);
+      }
+    }, 3000);
+  }
+
+  _stopTaskBoardPolling() {
+    if (this._taskBoardPollTimer) {
+      clearInterval(this._taskBoardPollTimer);
+      this._taskBoardPollTimer = null;
+    }
+  }
+
+  _escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   async _loadModelDropdown(empId) {
@@ -2363,6 +2600,15 @@ class AppController {
     const task = input.value.trim();
     if (!task) return;
 
+    // Save to input history
+    if (this._inputHistory[this._inputHistory.length - 1] !== task) {
+      this._inputHistory.push(task);
+      if (this._inputHistory.length > 20) this._inputHistory.shift();
+      localStorage.setItem('ceo_input_history', JSON.stringify(this._inputHistory));
+    }
+    this._historyIndex = -1;
+    this._historyDraft = '';
+
     const submitBtn = document.getElementById('submit-btn');
     submitBtn.disabled = true;
 
@@ -2410,6 +2656,38 @@ class AppController {
       });
   }
 }
+
+// Global abort handler for task detail view
+window._abortTask = async function(projectId) {
+  if (!confirm('Abort this task? All related sub-tasks will be cancelled.')) return;
+  try {
+    const res = await fetch(`/api/task/${encodeURIComponent(projectId)}/abort`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      window.app.logEntry('CEO', `Task aborted (${data.cancelled} tasks cancelled)`, 'ceo');
+      // Close the project modal
+      document.getElementById('project-modal').classList.add('hidden');
+    }
+  } catch (err) {
+    console.error('Abort failed:', err);
+  }
+};
+
+// Global abort handler for individual agent task
+window._abortAgentTask = async function(employeeId, taskId) {
+  if (!confirm('Cancel this task?')) return;
+  try {
+    const res = await fetch(`/api/employee/${encodeURIComponent(employeeId)}/task/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      window.app.logEntry('CEO', `Task cancelled for ${employeeId}`, 'ceo');
+      // Refresh the task board
+      window.app._fetchTaskBoard(employeeId);
+    }
+  } catch (err) {
+    console.error('Cancel failed:', err);
+  }
+};
 
 // Boot
 window.app = new AppController();

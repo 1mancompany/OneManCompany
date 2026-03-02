@@ -1303,26 +1303,36 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     results = []
 
     if hr_actions:
-        from onemancompany.agents.hr_agent import hr_agent
+        from onemancompany.core.agent_loop import get_agent_loop
+        from onemancompany.core.config import HR_ID
         hr_task = "CEO已批准以下HR行动计划，请立即执行:\n" + "\n".join(
             f"- {a['description']}" for a in hr_actions
         )
-        try:
-            hr_result = await hr_agent.run(hr_task)
-            results.append(f"HR执行结果: {hr_result[:200]}")
-        except Exception as e:
-            results.append(f"HR执行出错: {e}")
+        hr_loop = get_agent_loop(HR_ID)
+        if hr_loop:
+            try:
+                hr_result = await hr_loop.agent.run(hr_task)
+                results.append(f"HR执行结果: {hr_result[:200]}")
+            except Exception as e:
+                results.append(f"HR执行出错: {e}")
+        else:
+            results.append("HR执行出错: agent loop not found")
 
     if coo_actions:
-        from onemancompany.agents.coo_agent import coo_agent
+        from onemancompany.core.agent_loop import get_agent_loop
+        from onemancompany.core.config import COO_ID
         coo_task = "CEO已批准以下COO行动计划，请立即执行:\n" + "\n".join(
             f"- {a['description']}" for a in coo_actions
         )
-        try:
-            coo_result = await coo_agent.run(coo_task)
-            results.append(f"COO执行结果: {coo_result[:200]}")
-        except Exception as e:
-            results.append(f"COO执行出错: {e}")
+        coo_loop = get_agent_loop(COO_ID)
+        if coo_loop:
+            try:
+                coo_result = await coo_loop.agent.run(coo_task)
+                results.append(f"COO执行结果: {coo_result[:200]}")
+            except Exception as e:
+                results.append(f"COO执行出错: {e}")
+        else:
+            results.append("COO执行出错: agent loop not found")
 
     summary = "; ".join(results) if results else "无需执行的行动"
     await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})

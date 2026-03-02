@@ -43,6 +43,8 @@
       </div>
     </div>
 
+    <div class="panel-divider" id="divider-left"></div>
+
     <!-- Center: Pixel art office -->
     <div id="office-panel">
       <div class="panel-header">
@@ -56,11 +58,14 @@
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
+          <span class="status-item" id="last-sync-time"></span>
         </div>
       </div>
       <canvas id="office-canvas" width="640" height="480"></canvas>
       <div id="tooltip" class="tooltip hidden"></div>
     </div>
+
+    <div class="panel-divider" id="divider-right"></div>
 
     <!-- Right Sidebar: CEO Console + Activity Log -->
     <div id="console-panel">
@@ -160,63 +165,83 @@
       </div>
       <div class="modal-body employee-modal-body">
         <div class="emp-detail-grid">
-          <div class="emp-detail-left">
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Employee #</span>
-              <span class="emp-detail-value" id="emp-detail-number"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Name</span>
-              <span class="emp-detail-value" id="emp-detail-name"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Nickname</span>
-              <span class="emp-detail-value" id="emp-detail-nickname"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Department</span>
-              <span class="emp-detail-value" id="emp-detail-department"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Role</span>
-              <span class="emp-detail-value" id="emp-detail-role"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Level</span>
-              <span class="emp-detail-value" id="emp-detail-level"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Skills</span>
-              <span class="emp-detail-value" id="emp-detail-skills"></span>
-            </div>
-            <div class="emp-detail-row">
-              <span class="emp-detail-label">Permissions</span>
-              <span class="emp-detail-value" id="emp-detail-permissions"></span>
-            </div>
-            <div class="emp-detail-row perf-row">
-              <span class="emp-detail-label">Performance</span>
-              <div class="emp-detail-value" id="emp-detail-perf-wrapper">
-                <!-- Dynamically populated with quarter cards -->
+          <!-- Left: Status (compact) + Work Principles + 1-on-1 Notes -->
+          <div class="emp-detail-col emp-detail-left">
+            <div class="emp-detail-status-card">
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">#</span>
+                <span class="emp-detail-value" id="emp-detail-number"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Name</span>
+                <span class="emp-detail-value" id="emp-detail-name"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Nickname</span>
+                <span class="emp-detail-value" id="emp-detail-nickname"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Dept</span>
+                <span class="emp-detail-value" id="emp-detail-department"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Role</span>
+                <span class="emp-detail-value" id="emp-detail-role"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Level</span>
+                <span class="emp-detail-value" id="emp-detail-level"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Skills</span>
+                <span class="emp-detail-value" id="emp-detail-skills"></span>
+              </div>
+              <div class="emp-detail-row">
+                <span class="emp-detail-label">Perms</span>
+                <span class="emp-detail-value" id="emp-detail-permissions"></span>
+              </div>
+              <div class="emp-detail-row perf-row">
+                <span class="emp-detail-label">Perf</span>
+                <div class="emp-detail-value" id="emp-detail-perf-wrapper"></div>
+              </div>
+              <div class="emp-detail-section emp-model-section-wrap">
+                <div class="emp-detail-section-content emp-model-section">
+                  <select id="emp-detail-model" class="emp-model-select">
+                    <option value="">Loading...</option>
+                  </select>
+                  <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="emp-detail-right">
-            <div class="emp-detail-section">
-              <div class="emp-detail-section-title">LLM Model</div>
-              <div class="emp-detail-section-content emp-model-section">
-                <select id="emp-detail-model" class="emp-model-select">
-                  <option value="">Loading...</option>
-                </select>
-                <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
-              </div>
-            </div>
-            <div class="emp-detail-section">
+
+            <div class="emp-detail-section emp-detail-flex-section">
               <div class="emp-detail-section-title">Work Principles</div>
               <div class="emp-detail-section-content" id="emp-detail-principles"></div>
             </div>
-            <div class="emp-detail-section">
+
+            <div class="emp-detail-section emp-detail-flex-section">
               <div class="emp-detail-section-title">1-on-1 Notes</div>
               <div class="emp-detail-section-content" id="emp-detail-guidance"></div>
+            </div>
+          </div>
+
+          <!-- Center: Task Board -->
+          <div class="emp-detail-col emp-detail-center">
+            <div class="emp-detail-section emp-detail-fill-section">
+              <div class="emp-detail-section-title">Task Board</div>
+              <div class="emp-detail-section-content" id="emp-detail-taskboard">
+                <span class="empty-hint">No tasks</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Execution Log -->
+          <div class="emp-detail-col emp-detail-right">
+            <div class="emp-detail-section emp-detail-fill-section">
+              <div class="emp-detail-section-title">Execution Log</div>
+              <div class="emp-detail-section-content emp-log-viewer" id="emp-detail-logs">
+                <span class="empty-hint">No logs</span>
+              </div>
             </div>
           </div>
         </div>

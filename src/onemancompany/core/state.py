@@ -106,6 +106,7 @@ class Employee:
     remote: bool = False  # True = remote worker, False = on-site employee
     status: str = STATUS_IDLE
     is_listening: bool = False
+    current_task_summary: str = ""
 
     @property
     def title(self) -> str:
@@ -139,6 +140,7 @@ class Employee:
             "remote": self.remote,
             "status": self.status,
             "is_listening": self.is_listening,
+            "current_task_summary": self.current_task_summary,
         }
 
 

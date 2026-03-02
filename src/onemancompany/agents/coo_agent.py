@@ -116,8 +116,10 @@ def _load_assets_from_disk() -> None:
             )
 
 
-# Load persisted assets on import
+# Load persisted assets on import, then recompute layout to position them
 _load_assets_from_disk()
+from onemancompany.core.layout import compute_asset_layout as _compute_asset_layout
+_compute_asset_layout(company_state, company_state.office_layout)
 
 
 # ===== LangChain tools for the COO agent =====
@@ -507,11 +509,8 @@ class COOAgent(BaseAgentRunner):
             ] + COMMON_TOOLS,
         )
 
-    async def run(self, task: str) -> str:
-        self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": f"COO analyzing: {task[:80]}"})
-
-        prompt = (
+    def _build_prompt(self) -> str:
+        return (
             COO_SYSTEM_PROMPT
             + self._get_skills_prompt_section()
             + self._get_tools_prompt_section()
@@ -520,9 +519,13 @@ class COOAgent(BaseAgentRunner):
             + self._get_guidance_prompt_section()
         )
 
+    async def run(self, task: str) -> str:
+        self._set_status(STATUS_WORKING)
+        await self._publish("agent_thinking", {"message": f"COO analyzing: {task[:80]}"})
+
         result = await self._agent.ainvoke(
             {"messages": [
-                SystemMessage(content=prompt),
+                SystemMessage(content=self._build_prompt()),
                 HumanMessage(content=task),
             ]}
         )
@@ -533,4 +536,5 @@ class COOAgent(BaseAgentRunner):
         return final
 
 
-coo_agent = COOAgent()
+# Singleton removed — agent instances are now created and registered
+# in main.py lifespan via PersistentAgentLoop.

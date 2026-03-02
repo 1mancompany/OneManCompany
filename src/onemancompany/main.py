@@ -239,6 +239,16 @@ async def lifespan(app: FastAPI):
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
+    # Register agent loops for HR and COO
+    from onemancompany.core.agent_loop import register_agent, start_all_loops, stop_all_loops
+    from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID
+    from onemancompany.agents.hr_agent import HRAgent
+    from onemancompany.agents.coo_agent import COOAgent
+
+    register_agent(_HR_ID, HRAgent())
+    register_agent(_COO_ID, COOAgent())
+    await start_all_loops()
+
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())
 
@@ -251,6 +261,9 @@ async def lifespan(app: FastAPI):
     print(f"🏢 One Man Company HQ is open!")
     print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
     yield
+
+    # Stop agent loops
+    await stop_all_loops()
 
     # Save ephemeral state before shutdown
     _save_ephemeral_state()

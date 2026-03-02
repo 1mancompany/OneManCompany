@@ -18,6 +18,9 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.tools.sandbox import SANDBOX_TOOLS
 
+# Context vars for sub-task support — set by PersistentAgentLoop during execution
+from onemancompany.core.agent_loop import _current_loop, _current_task_id
+
 
 async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> None:
     await event_bus.publish(CompanyEvent(type=event_type, payload=payload, agent=agent))
@@ -484,6 +487,27 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
     return result
 
 
+@tool
+def create_subtask(description: str) -> dict:
+    """Queue a sub-task on your task board for later processing.
+
+    Use this when you need to decompose a complex task into smaller pieces.
+    The sub-task will be executed after the current task completes.
+
+    Args:
+        description: What the sub-task should accomplish.
+
+    Returns:
+        A dict with the queued sub-task ID, or an error if no agent loop context.
+    """
+    loop = _current_loop.get()
+    parent_id = _current_task_id.get()
+    if not loop:
+        return {"error": "No agent loop context — sub-tasks require the persistent agent loop."}
+    sub = loop.board.push(description, parent_id=parent_id)
+    return {"status": "queued", "subtask_id": sub.id, "description": description}
+
+
 # All common tools that every employee agent gets access to
 COMMON_TOOLS = [
     read_file,
@@ -494,4 +518,5 @@ COMMON_TOOLS = [
     list_colleagues,
     pull_meeting,
     use_tool,
+    create_subtask,
 ] + SANDBOX_TOOLS

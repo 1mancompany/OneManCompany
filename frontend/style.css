@@ -35,10 +35,23 @@ body {
 /* ===== 3-Column Layout: Left Roster | Center Canvas | Right Console ===== */
 #app {
   display: grid;
-  grid-template-columns: 240px 1fr 340px;
+  grid-template-columns: 240px 6px 1fr 6px 340px;
   height: 100vh;
-  gap: 4px;
+  gap: 0;
   padding: 4px;
+}
+
+.panel-divider {
+  width: 6px;
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  position: relative;
+}
+
+.panel-divider:hover,
+.panel-divider.dragging {
+  background: var(--pixel-cyan);
 }
 
 /* ===== Collapsible Panels ===== */
@@ -136,7 +149,7 @@ body {
 }
 
 .pixel-title {
-  font-size: 10px;
+  font-size: 7px;
   margin: 0;
   color: var(--pixel-yellow);
   text-shadow: 2px 2px 0 rgba(0,0,0,0.5);
@@ -159,6 +172,11 @@ body {
 
 #connection-status.online {
   color: var(--pixel-green);
+}
+
+#last-sync-time {
+  font-size: 6px;
+  color: var(--text-dim);
 }
 
 #office-canvas {
@@ -371,6 +389,7 @@ body {
 
 .roster-name {
   color: var(--pixel-white);
+  font-size: 9px;
 }
 
 .roster-role {
@@ -1070,35 +1089,84 @@ body {
 
 /* ===== Employee Detail Modal ===== */
 .employee-modal-content {
-  max-width: 700px;
-  height: auto;
-  max-height: 80vh;
+  max-width: 1100px;
+  width: 90vw;
+  height: 75vh;
   border-color: var(--pixel-cyan);
   box-shadow: 0 0 40px rgba(0, 221, 255, 0.15);
 }
 
 .employee-modal-body {
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 0;
-}
-
-.emp-detail-grid {
-  display: flex;
-  gap: 0;
-  width: 100%;
+  flex: 1;
   min-height: 0;
 }
 
+.emp-detail-grid {
+  display: grid;
+  grid-template-columns: 35% 25% 1fr;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.emp-detail-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .emp-detail-left {
-  width: 50%;
-  padding: 12px;
+  padding: 10px;
   border-right: 2px solid var(--border);
+  overflow-y: auto;
+}
+
+.emp-detail-center {
+  padding: 10px;
+  border-right: 2px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .emp-detail-right {
-  width: 50%;
-  padding: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.emp-detail-status-card {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--border);
+}
+
+.emp-detail-status-card .emp-detail-row {
+  padding: 2px 0;
+  font-size: 7px;
+}
+
+.emp-detail-flex-section {
+  margin-bottom: 8px;
+}
+
+.emp-detail-fill-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.emp-detail-fill-section .emp-detail-section-content {
+  flex: 1;
+  max-height: none;
   overflow-y: auto;
 }
 
@@ -1131,9 +1199,9 @@ body {
 /* Permission tags */
 .perm-tag {
   display: inline-block;
-  padding: 1px 6px;
+  padding: 1px 4px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 6px;
   margin: 1px 2px;
   background: var(--pixel-dark);
   color: var(--pixel-gray);
@@ -1222,7 +1290,6 @@ body {
   line-height: 2;
   color: var(--pixel-white);
   white-space: pre-wrap;
-  max-height: 150px;
   overflow-y: auto;
 }
 
@@ -1234,6 +1301,10 @@ body {
 .emp-detail-section-content .empty-hint {
   color: var(--text-dim);
   font-style: italic;
+}
+
+.emp-model-section-wrap {
+  margin-bottom: 6px;
 }
 
 .emp-model-section {
@@ -2515,3 +2586,135 @@ body {
   padding: 4px 8px;
   text-align: right;
 }
+
+/* ===== Agent Task Board (Employee Detail Modal) ===== */
+.emp-taskboard-item {
+  padding: 4px 6px;
+  margin-bottom: 3px;
+  border-left: 3px solid var(--border);
+  background: var(--bg-dark);
+  font-size: 6px;
+  line-height: 1.6;
+  transition: border-color 0.2s;
+}
+
+.emp-taskboard-item.pending {
+  border-left-color: var(--pixel-yellow);
+}
+
+.emp-taskboard-item.in-progress {
+  border-left-color: var(--pixel-green);
+  animation: task-pulse 2s ease-in-out infinite;
+}
+
+.emp-taskboard-item.completed {
+  border-left-color: var(--pixel-gray);
+  opacity: 0.7;
+}
+
+.emp-taskboard-item.failed {
+  border-left-color: var(--pixel-red);
+  opacity: 0.8;
+}
+
+.emp-taskboard-item.cancelled {
+  border-left-color: var(--pixel-gray);
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.emp-task-cancel-btn {
+  background: none;
+  border: 1px solid var(--pixel-red);
+  color: var(--pixel-red);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+  border-radius: 1px;
+  transition: background 0.1s;
+}
+
+.emp-task-cancel-btn:hover {
+  background: var(--pixel-red);
+  color: #000;
+}
+
+.emp-taskboard-item.sub-task {
+  margin-left: 10px;
+  border-left-width: 2px;
+  font-size: 5.5px;
+}
+
+@keyframes task-pulse {
+  0%, 100% { background: var(--bg-dark); }
+  50% { background: rgba(0, 255, 136, 0.05); }
+}
+
+.emp-taskboard-status {
+  font-size: 5px;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+
+.emp-taskboard-item.pending .emp-taskboard-status { color: var(--pixel-yellow); }
+.emp-taskboard-item.in-progress .emp-taskboard-status { color: var(--pixel-green); }
+.emp-taskboard-item.completed .emp-taskboard-status { color: var(--pixel-gray); }
+.emp-taskboard-item.failed .emp-taskboard-status { color: var(--pixel-red); }
+.emp-taskboard-item.cancelled .emp-taskboard-status { color: var(--pixel-gray); }
+
+.emp-taskboard-desc {
+  color: var(--pixel-white);
+  word-break: break-word;
+}
+
+.emp-taskboard-result {
+  color: var(--text-dim);
+  font-size: 5px;
+  margin-top: 2px;
+}
+
+/* ===== Execution Log Viewer ===== */
+.emp-log-viewer {
+  overflow-y: auto;
+  font-size: 6px;
+}
+
+.emp-log-entry {
+  padding: 2px 6px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 2px;
+  line-height: 1.6;
+  font-size: 5.5px;
+  animation: slide-in 0.15s ease-out;
+}
+
+.emp-log-entry .log-ts {
+  color: var(--text-dim);
+  font-size: 5px;
+  margin-right: 4px;
+}
+
+.emp-log-entry .log-content {
+  color: var(--pixel-white);
+  word-break: break-word;
+}
+
+.emp-log-entry.start { border-left-color: var(--pixel-green); }
+.emp-log-entry.end { border-left-color: var(--pixel-cyan); }
+.emp-log-entry.result { border-left-color: var(--pixel-blue); }
+.emp-log-entry.error { border-left-color: var(--pixel-red); }
+.emp-log-entry.error .log-content { color: var(--pixel-red); }
+.emp-log-entry.subtask_phase { border-left-color: var(--pixel-purple); }
+.emp-log-entry.subtask_added { border-left-color: var(--pixel-purple); }
+.emp-log-entry.completion_check { border-left-color: var(--pixel-yellow); }
+.emp-log-entry.llm_input { border-left-color: var(--pixel-cyan); }
+.emp-log-entry.llm_input .log-content { color: var(--pixel-cyan); }
+.emp-log-entry.llm_output { border-left-color: var(--pixel-green); }
+.emp-log-entry.llm_output .log-content { color: var(--pixel-green); }
+.emp-log-entry.tool_call { border-left-color: var(--pixel-yellow); }
+.emp-log-entry.tool_call .log-content { color: var(--pixel-yellow); }
+.emp-log-entry.tool_result { border-left-color: var(--pixel-gray); }
+.emp-log-entry.retry { border-left-color: var(--pixel-red); }
+.emp-log-entry.retry .log-content { color: var(--pixel-red); }

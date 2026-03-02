@@ -6,7 +6,7 @@
 
 const TILE = 32;
 const COLS = 20;
-const ROWS = 15;
+let ROWS = 15;  // dynamic, updated from office_layout.canvas_rows
 
 const PALETTE = {
   // Floor
@@ -89,6 +89,8 @@ class OfficeRenderer {
 
     this._resizeCanvas();
     window.addEventListener('resize', () => this._resizeCanvas());
+    // Watch for parent container size changes (e.g. panel divider drag)
+    new ResizeObserver(() => this._resizeCanvas()).observe(this.canvas.parentElement);
     this.loop();
   }
 
@@ -113,16 +115,11 @@ class OfficeRenderer {
     const parent = this.canvas.parentElement;
     const w = parent.clientWidth;
     const h = parent.clientHeight - 45; // subtract header
-    // maintain aspect ratio
-    const aspect = COLS / ROWS;
-    let cw = w;
-    let ch = w / aspect;
-    if (ch > h) {
-      ch = h;
-      cw = h * aspect;
-    }
-    this.canvas.style.width = cw + 'px';
-    this.canvas.style.height = ch + 'px';
+    if (w <= 0 || h <= 0) return;
+
+    // Fill entire container — stretch to fit
+    this.canvas.style.width = w + 'px';
+    this.canvas.style.height = h + 'px';
 
     // Update internal resolution for hi-DPI
     const dpr = window.devicePixelRatio || 1;
@@ -131,7 +128,7 @@ class OfficeRenderer {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.imageSmoothingEnabled = false;
     this.dpr = dpr;
-    this.scale = cw / (COLS * TILE);
+    this.scale = w / (COLS * TILE);
   }
 
   _onMouseMove(e) {
@@ -199,6 +196,14 @@ class OfficeRenderer {
   updateState(newState) {
     const oldEmpCount = this.state.employees.length;
     this.state = newState;
+
+    // Dynamically expand canvas rows based on layout
+    const newRows = (newState.office_layout || {}).canvas_rows || 15;
+    if (newRows !== ROWS) {
+      ROWS = newRows;
+      this._resizeCanvas();
+    }
+
     // Spawn particles on new hire
     if (newState.employees.length > oldEmpCount) {
       const latest = newState.employees[newState.employees.length - 1];
@@ -816,11 +821,13 @@ class OfficeRenderer {
       }
     }
 
-    // Check tools
+    // Check tools (hit area: tool tile + label tile below)
     for (const tool of this.state.tools) {
       const [tx, ty] = tool.desk_position || [0, 0];
-      if (x === tx && (y === ty + 3 || y === ty + 4)) {
-        tooltipText = `🔧 ${tool.name}\n${tool.description}`;
+      const canvasY = ty + 3;
+      if (x === tx && y >= canvasY && y <= canvasY + 1) {
+        tooltipText = `🔧 ${tool.name}`;
+        if (tool.description) tooltipText += `\n${tool.description}`;
         break;
       }
     }
