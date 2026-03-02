@@ -14,6 +14,9 @@ sprite: "{sprite}"
 llm_model: "{llm_model}"
 temperature: {temperature}
 
+# 薪酬 (美元/1M tokens)
+salary_per_1m_tokens: {salary_per_1m_tokens}
+
 # 绩效记录
 current_quarter_tasks: {current_quarter_tasks}
 performance_history:

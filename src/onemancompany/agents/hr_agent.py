@@ -66,6 +66,10 @@ from onemancompany.core.state import Employee, LEVEL_NAMES, company_state
 # In-memory store for pending candidates awaiting CEO selection
 pending_candidates: dict[str, list[dict]] = {}  # batch_id -> [candidate, ...]
 
+# Stash project context when shortlist is sent, so the retrospective
+# doesn't fire until CEO actually hires (see hire_candidate endpoint).
+_pending_project_ctx: dict[str, dict] = {}  # batch_id -> {project_id, project_dir}
+
 
 def _talent_to_candidate(talent: dict) -> dict:
     """Convert a talent profile.yaml dict into a CandidateProfile-compatible dict."""
@@ -250,19 +254,16 @@ Your responsibilities:
 - Founding employees are level 4, CEO is level 5 -- they cannot be promoted this way
 
 ## Hiring Process
-When hiring:
-1. First call list_open_positions() to see what roles are needed.
-2. Call search_candidates(jd) to browse available talents from the talent market.
-   Each talent is a pre-packaged profile with skills, tools, and LLM config.
-3. Review the returned candidates — each comes from a talent package.
-4. Select candidates that best fit the need and include them in your response with a JSON block:
-
+IMPORTANT: When asked to hire, act fast — DO NOT invent extra steps or analysis. Just follow these steps:
+1. Call search_candidates(jd) with a brief job description to get candidates from Boss Online.
+2. Pick the top 5 candidates from the results.
+3. Output a JSON block to send them to CEO for selection:
 ```json
 {"action": "shortlist", "jd": "Job description...", "candidates": [<top5 candidate dicts>]}
 ```
-
-The CEO will then see the candidates as visual selection cards and choose who to hire or interview.
-Do NOT directly hire -- always send shortlist to CEO first.
+That's it. The CEO will see the candidates as visual cards and choose who to hire.
+Do NOT directly hire — always send shortlist to CEO first.
+Do NOT add unnecessary planning, analysis, or made-up workflow steps.
 
 Department assignment guidelines:
 - Engineer/DevOps/QA -> "Engineering"
@@ -301,12 +302,25 @@ You can read and edit any file in the project directory:
 Be concise and professional.
 """
 
+def _get_existing_nicknames() -> set[str]:
+    """Collect all nicknames in use by current and ex-employees."""
+    nicknames: set[str] = set()
+    for emp in company_state.employees.values():
+        if emp.nickname:
+            nicknames.add(emp.nickname)
+    for emp in company_state.ex_employees.values():
+        if emp.nickname:
+            nicknames.add(emp.nickname)
+    return nicknames
+
+
 async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
     """Generate a wuxia-themed Chinese nickname (花名) for an employee.
 
     Founding employees (level 4) get 3-character nicknames.
     Normal employees (level 1-3) get 2-character nicknames.
     All nicknames must have a wuxia (martial arts / jianghu) flavor.
+    Nicknames must be unique across all current and ex-employees.
 
     Args:
         name: The employee's real name.
@@ -317,30 +331,47 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
         A Chinese nickname string.
     """
     char_count = 3 if is_founding else 2
+    existing = _get_existing_nicknames()
     gen_llm = make_llm(HR_ID)
-    gen_prompt = (
-        f"You are a wuxia novelist naming a character.\n"
-        f"Give a 花名 (nickname) for: {name}, role: {role}.\n\n"
-        f"Requirements:\n"
-        f"- Exactly {char_count} Chinese characters\n"
-        f"- Must have a wuxia/martial arts/jianghu flavor — think swordsmen, heroes, legendary figures\n"
-        f"- Should sound like a person's name or title in the jianghu, not an object\n"
-        f"- Creative, memorable, and fitting for their role\n"
-        f"- Reference style: 独孤求败, 风清扬, 令狐冲, 段誉, 黄蓉, 小龙女, 逍遥子, 天山童姥\n"
-        f"- For {char_count}-char names: 铁面侠, 暖心侠, 玲珑阁, 金算盘, 逍遥子, 追风客\n\n"
-        f"Reply with ONLY the {char_count}-character 花名, nothing else."
-    )
-    result = await gen_llm.ainvoke([
-        SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
-        HumanMessage(content=gen_prompt),
-    ])
-    nickname = result.content.strip()
-    # Extract exactly the right number of Chinese characters
-    chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
-    if len(chinese_chars) >= char_count:
-        return ''.join(chinese_chars[:char_count])
-    elif chinese_chars:
-        return ''.join(chinese_chars)
+
+    # Try up to 5 times to get a unique nickname
+    for attempt in range(5):
+        avoid_clause = ""
+        if existing:
+            sample = list(existing)[:20]
+            avoid_clause = f"- MUST NOT be any of these existing nicknames: {', '.join(sample)}\n"
+
+        gen_prompt = (
+            f"You are a wuxia novelist naming a character.\n"
+            f"Give a 花名 (nickname) for: {name}, role: {role}.\n\n"
+            f"Requirements:\n"
+            f"- Exactly {char_count} Chinese characters\n"
+            f"- Must have a wuxia/martial arts/jianghu flavor — think swordsmen, heroes, legendary figures\n"
+            f"- Should sound like a person's name or title in the jianghu, not an object\n"
+            f"- Creative, memorable, and fitting for their role\n"
+            f"- Reference style: 独孤求败, 风清扬, 令狐冲, 段誉, 黄蓉, 小龙女, 逍遥子, 天山童姥\n"
+            f"- For {char_count}-char names: 铁面侠, 暖心侠, 玲珑阁, 金算盘, 逍遥子, 追风客\n"
+            f"{avoid_clause}\n"
+            f"Reply with ONLY the {char_count}-character 花名, nothing else."
+        )
+        result = await gen_llm.ainvoke([
+            SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
+            HumanMessage(content=gen_prompt),
+        ])
+        nickname = result.content.strip()
+        # Extract exactly the right number of Chinese characters
+        chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
+        if len(chinese_chars) >= char_count:
+            candidate = ''.join(chinese_chars[:char_count])
+        elif chinese_chars:
+            candidate = ''.join(chinese_chars)
+        else:
+            continue
+
+        if candidate not in existing:
+            return candidate
+        # Duplicate — retry
+
     return ""
 
 
@@ -366,6 +397,37 @@ class HRAgent(BaseAgentRunner):
             + self._get_work_principles_prompt_section()
             + self._get_guidance_prompt_section()
         )
+
+    async def run_streamed(self, task: str, on_log=None) -> str:
+        """Override to ensure _apply_results runs after streaming execution.
+
+        When a shortlist is created (candidates_ready), the project_id is
+        stashed so the retrospective doesn't fire prematurely.  The project
+        lifecycle resumes when CEO actually hires via /api/candidates/hire.
+        """
+        old_batches = set(pending_candidates.keys())
+        result = await super().run_streamed(task, on_log=on_log)
+        await self._apply_results(result)
+        await self._check_promotions()
+
+        # If a new shortlist batch was created, stash project context
+        # and clear it from the current task to prevent premature cleanup.
+        new_batches = set(pending_candidates.keys()) - old_batches
+        if new_batches:
+            from onemancompany.core.agent_loop import _current_loop, _current_task_id
+            loop = _current_loop.get()
+            task_id = _current_task_id.get()
+            if loop and task_id:
+                task_obj = loop.board.get_task(task_id)
+                if task_obj and task_obj.project_id:
+                    for bid in new_batches:
+                        _pending_project_ctx[bid] = {
+                            "project_id": task_obj.project_id,
+                            "project_dir": task_obj.project_dir,
+                        }
+                    task_obj.project_id = ""  # prevent premature cleanup
+
+        return result
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
@@ -470,7 +532,10 @@ class HRAgent(BaseAgentRunner):
                 )
                 company_state.employees[emp_num] = emp
                 talent_id = emp_data.get("talent_id", "")
-                self._create_employee_folder(emp, talent_id=talent_id)
+                self._create_employee_folder(
+                    emp, talent_id=talent_id,
+                    llm_model=emp_data.get("llm_model", ""),
+                )
 
                 # Recompute layout (zones may resize) and persist all positions
                 compute_layout(company_state)
@@ -578,12 +643,21 @@ class HRAgent(BaseAgentRunner):
                      "summary": f"Promotion: {emp.name} ({emp.nickname}) {LEVEL_NAMES.get(old_level, '')} -> {emp.title}"},
                 )
 
-    def _create_employee_folder(self, emp: Employee, talent_id: str = "") -> None:
+    def _create_employee_folder(self, emp: Employee, talent_id: str = "", llm_model: str = "") -> None:
         """Create employees/{id}/ directory with profile.yaml, skill stubs, and work_principles.md.
 
         If *talent_id* is provided and the employee is on-site (not remote),
         copies the talent's skill markdown files and tools into the employee folder.
         """
+        # Default permissions for new hires
+        default_perms = ["company_file_access", "web_search"]
+        emp.permissions = default_perms
+
+        # Compute salary from OpenRouter pricing
+        from onemancompany.core.model_costs import compute_salary
+        salary = compute_salary(llm_model) if llm_model else 0.0
+        emp.salary_per_1m_tokens = salary
+
         config = EmployeeConfig(
             name=emp.name,
             nickname=emp.nickname,
@@ -595,6 +669,9 @@ class HRAgent(BaseAgentRunner):
             desk_position=list(emp.desk_position),
             sprite=emp.sprite,
             remote=emp.remote,
+            llm_model=llm_model,
+            permissions=default_perms,
+            salary_per_1m_tokens=salary,
         )
         save_employee_profile(emp.id, config)
 

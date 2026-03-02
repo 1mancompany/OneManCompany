@@ -1,7 +1,7 @@
 current_quarter_tasks: 0
 department: Operations
 desk_position:
-- 13
+- 11
 - 0
 employee_number: '00003'
 level: 4
@@ -14,6 +14,7 @@ permissions:
 - web_search
 - asset_management
 role: COO
+salary_per_1m_tokens: 5.0
 skills:
 - operations
 - tool_management

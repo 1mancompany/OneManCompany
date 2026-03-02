@@ -509,11 +509,117 @@ def create_subtask(description: str) -> dict:
 
 
 @tool
+def set_acceptance_criteria(criteria: list[str], responsible_officer_id: str) -> dict:
+    """Set acceptance criteria for the current project.
+
+    The EA should call this BEFORE dispatching tasks. The responsible xxO
+    can also call this later to refine/update criteria.
+
+    Args:
+        criteria: List of specific, measurable acceptance criteria
+        responsible_officer_id: Employee ID of the xxO who will judge acceptance ('00003' for COO, '00005' for CSO)
+    """
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.project_archive import set_acceptance_criteria as _set_criteria
+
+    loop = _current_loop.get()
+    task_id = _current_task_id.get()
+    if not loop or not task_id:
+        return {"status": "error", "message": "No agent loop context."}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Current task not found."}
+
+    project_id = task.project_id or task.original_project_id
+    if not project_id:
+        return {"status": "error", "message": "No project context — acceptance criteria require a project."}
+
+    _set_criteria(project_id, criteria, responsible_officer_id)
+    return {
+        "status": "ok",
+        "project_id": project_id,
+        "criteria_count": len(criteria),
+        "responsible_officer": responsible_officer_id,
+    }
+
+
+@tool
+def accept_project(accepted: bool, notes: str = "") -> dict:
+    """Accept or reject a project after reviewing acceptance criteria.
+
+    Called by the responsible xxO during acceptance review.
+    If accepted, the project will be marked complete and retrospective will run.
+    If rejected, notes explaining what needs to be fixed are recorded.
+
+    Args:
+        accepted: True if ALL acceptance criteria are met
+        notes: Explanation of the acceptance decision
+    """
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.project_archive import set_acceptance_result, load_project
+
+    loop = _current_loop.get()
+    task_id = _current_task_id.get()
+    if not loop or not task_id:
+        return {"status": "error", "message": "No agent loop context."}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Current task not found."}
+
+    project_id = task.project_id or task.original_project_id
+    if not project_id:
+        return {"status": "error", "message": "No project context."}
+
+    officer_id = loop.agent.employee_id
+    set_acceptance_result(project_id, accepted, officer_id, notes)
+
+    status = "accepted" if accepted else "rejected"
+    return {
+        "status": status,
+        "project_id": project_id,
+        "officer_id": officer_id,
+        "notes": notes,
+    }
+
+
+@tool
+def set_project_budget(budget_usd: float) -> dict:
+    """Set the estimated budget for the current project (in USD).
+    Call this BEFORE dispatching tasks to establish a cost baseline.
+
+    Args:
+        budget_usd: Estimated budget in USD for LLM costs.
+    """
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.project_archive import set_project_budget as _set_budget
+
+    loop = _current_loop.get()
+    task_id = _current_task_id.get()
+    if not loop or not task_id:
+        return {"status": "error", "message": "No agent loop context."}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Current task not found."}
+
+    project_id = task.project_id or task.original_project_id
+    if not project_id:
+        return {"status": "error", "message": "No project context."}
+
+    _set_budget(project_id, budget_usd)
+    return {"status": "ok", "project_id": project_id, "budget_usd": budget_usd}
+
+
+@tool
 def dispatch_task(employee_id: str, task_description: str) -> dict:
     """Dispatch a task to another employee's agent task board.
 
     Use this to delegate work to other agents (e.g. assign HR-sourced actions to the HR agent).
     The task will be queued on the target agent's board and executed autonomously.
+    The project context (project_id, project_dir) is automatically inherited from
+    the current task so that post-task routines run after the *final* executor finishes.
 
     Args:
         employee_id: The target employee's ID (e.g. '00002' for HR).
@@ -522,15 +628,38 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
     Returns:
         Confirmation that the task was pushed, or an error.
     """
-    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.agent_loop import get_agent_loop, _current_loop, _current_task_id
 
     loop = get_agent_loop(employee_id)
     if not loop:
         return {"status": "error", "message": f"Agent loop not found for employee {employee_id}"}
 
+    # Inherit project context — support multi-dispatch by checking original_project_id
+    project_id = ""
+    project_dir = ""
+    caller_loop = _current_loop.get()
+    caller_task_id = _current_task_id.get()
+    caller_task = None
+    if caller_loop and caller_task_id:
+        caller_task = caller_loop.board.get_task(caller_task_id)
+        if caller_task:
+            project_id = caller_task.project_id or caller_task.original_project_id
+            project_dir = caller_task.project_dir or caller_task.original_project_dir
+            if project_id:
+                # Store original for subsequent dispatch calls
+                caller_task.original_project_id = project_id
+                caller_task.original_project_dir = project_dir
+                # Clear to prevent premature cleanup on caller
+                caller_task.project_id = ""
+
+    # Record dispatch in project archive
+    if project_id:
+        from onemancompany.core.project_archive import record_dispatch
+        record_dispatch(project_id, employee_id, task_description)
+
     emp = company_state.employees.get(employee_id)
     emp_name = emp.name if emp else employee_id
-    loop.push_task(task_description)
+    loop.push_task(task_description, project_id=project_id, project_dir=project_dir)
     return {"status": "dispatched", "employee": emp_name, "task": task_description[:200]}
 
 
@@ -546,4 +675,7 @@ COMMON_TOOLS = [
     use_tool,
     create_subtask,
     dispatch_task,
+    set_acceptance_criteria,
+    accept_project,
+    set_project_budget,
 ] + SANDBOX_TOOLS

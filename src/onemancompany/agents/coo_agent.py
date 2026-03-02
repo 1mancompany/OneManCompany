@@ -57,6 +57,14 @@ You can call list_colleagues() to see all employees, then call pull_meeting() to
 a focused meeting with relevant colleagues when you need alignment on operational decisions,
 resource allocation, or process improvements.
 
+### Project Acceptance (项目验收)
+When you receive a "项目验收任务":
+1. Review all acceptance criteria carefully
+2. Check the project timeline to verify each criterion is met
+3. If criteria need refinement, call set_acceptance_criteria() to update
+4. Call accept_project(accepted=True/False, notes="...") to complete acceptance
+5. If rejecting, clearly explain which criteria are not met and what needs to be done
+
 ## Task Dispatch
 Use dispatch_task() to assign tasks to other employees (e.g. HR). This pushes a task to
 their agent task board for autonomous execution.

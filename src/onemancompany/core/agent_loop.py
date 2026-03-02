@@ -46,11 +46,19 @@ class AgentTask:
     parent_id: str = ""  # non-empty if this is a sub-task
     project_id: str = ""  # links to company project archive
     project_dir: str = ""  # project workspace path
+    original_project_id: str = ""  # preserved across multiple dispatch_task calls
+    original_project_dir: str = ""
     sub_task_ids: list[str] = field(default_factory=list)
     logs: list[dict] = field(default_factory=list)  # [{timestamp, type, content}]
     result: str = ""
     created_at: str = ""
     completed_at: str = ""
+    # Cost tracking
+    model_used: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.created_at:
@@ -63,11 +71,17 @@ class AgentTask:
             "status": self.status,
             "parent_id": self.parent_id,
             "project_id": self.project_id,
+            "original_project_id": self.original_project_id,
             "sub_task_ids": self.sub_task_ids,
-            "logs": self.logs[-20:],  # last 20 log entries
+            "logs": self.logs[-50:],  # last 50 log entries
             "result": self.result[:MAX_SUMMARY_LEN] if self.result else "",
             "created_at": self.created_at,
             "completed_at": self.completed_at,
+            "model_used": self.model_used,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "total_tokens": self.total_tokens,
+            "estimated_cost_usd": self.estimated_cost_usd,
         }
 
 
@@ -270,7 +284,20 @@ class PersistentAgentLoop:
                 raise last_err
 
             task.result = result or ""
-            self._log(task, "result", (result or "")[:500])
+            self._log(task, "result", result or "")
+
+            # 4b. Record token usage from agent
+            usage = getattr(self.agent, '_last_usage', {})
+            if usage:
+                task.model_used = usage.get("model", "")
+                task.input_tokens += usage.get("input_tokens", 0)
+                task.output_tokens += usage.get("output_tokens", 0)
+                task.total_tokens += usage.get("total_tokens", 0)
+                from onemancompany.core.model_costs import get_model_cost
+                costs = get_model_cost(task.model_used)
+                task.estimated_cost_usd = (
+                    task.input_tokens * costs["input"] + task.output_tokens * costs["output"]
+                ) / 1_000_000
 
             # 5. Sub-task loop
             for iteration in range(MAX_SUBTASK_ITERATIONS):
@@ -329,8 +356,9 @@ class PersistentAgentLoop:
             emp.current_task_summary = ""
 
         # 8. Post-task cleanup (only for top-level tasks with project_id)
-        if task.project_id and not task.parent_id:
-            await self._post_task_cleanup(task, agent_error)
+        effective_project_id = task.project_id or task.original_project_id
+        if effective_project_id and not task.parent_id:
+            await self._post_task_cleanup(task, agent_error, effective_project_id)
 
     async def _execute_subtask(self, sub: AgentTask, depth: int = 1) -> None:
         """Execute a sub-task (depth-limited)."""
@@ -370,6 +398,25 @@ class PersistentAgentLoop:
             sub.result = result or ""
             sub.status = "completed"
             self._log(sub, "result", (result or "")[:300])
+
+            # Accumulate subtask token usage
+            usage = getattr(self.agent, '_last_usage', {})
+            if usage:
+                sub.model_used = usage.get("model", "")
+                sub.input_tokens += usage.get("input_tokens", 0)
+                sub.output_tokens += usage.get("output_tokens", 0)
+                sub.total_tokens += usage.get("total_tokens", 0)
+                # Bubble up to parent task
+                parent = self.board.get_task(sub.parent_id) if sub.parent_id else None
+                if parent:
+                    parent.input_tokens += sub.input_tokens
+                    parent.output_tokens += sub.output_tokens
+                    parent.total_tokens += sub.total_tokens
+                    from onemancompany.core.model_costs import get_model_cost
+                    costs = get_model_cost(parent.model_used or sub.model_used)
+                    parent.estimated_cost_usd = (
+                        parent.input_tokens * costs["input"] + parent.output_tokens * costs["output"]
+                    ) / 1_000_000
         except Exception as e:
             sub.status = "failed"
             sub.result = f"Error: {e!s}"
@@ -431,29 +478,78 @@ class PersistentAgentLoop:
             self._log(task, "error", f"Completion check failed: {e!s}")
             return True  # assume complete on error to avoid infinite loop
 
-    async def _post_task_cleanup(self, task: AgentTask, agent_error: bool) -> None:
-        """Cleanup after a top-level task completes (absorbed from _run_agent_safe)."""
-        from onemancompany.core.project_archive import append_action, complete_project
+    async def _post_task_cleanup(self, task: AgentTask, agent_error: bool, project_id: str = "") -> None:
+        """Cleanup after a top-level task completes — routes through acceptance flow."""
+        from onemancompany.core.project_archive import (
+            append_action, load_project,
+            record_dispatch_completion, all_dispatches_complete,
+        )
         from onemancompany.core.resolutions import create_resolution
 
-        project_id = task.project_id
+        if not project_id:
+            project_id = task.project_id
         if not project_id:
             return
 
-        # Record agent output in project timeline
+        # --- Record cost data to project archive ---
+        if task.total_tokens > 0:
+            from onemancompany.core.project_archive import record_project_cost
+            record_project_cost(
+                project_id, self.agent.employee_id,
+                task.model_used, task.input_tokens, task.output_tokens,
+                task.estimated_cost_usd,
+            )
+
+        # --- Always: record timeline entry + create resolution ---
         if not project_id.startswith("_auto_") and task.result:
             summary = task.result[:MAX_SUMMARY_LEN]
-            append_action(project_id, self.agent.role.lower(), f"{self.agent.role} task completed", summary)
+            append_action(project_id, self.agent.employee_id, f"{self.agent.role} task completed", summary)
 
-        # Create a resolution if any file edits were accumulated during main task
         resolution = create_resolution(project_id, task.description)
         if resolution:
             await event_bus.publish(
                 CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
             )
 
+        project = load_project(project_id)
+        acceptance_criteria = project.get("acceptance_criteria", []) if project else []
+        acceptance_result = project.get("acceptance_result") if project else None
+
+        # --- CASE A: Has criteria, not yet accepted → check dispatches ---
+        if acceptance_criteria and not acceptance_result:
+            record_dispatch_completion(project_id, self.agent.employee_id)
+            if all_dispatches_complete(project_id):
+                # Push acceptance task to responsible officer
+                from onemancompany.core.config import COO_ID
+                officer_id = project.get("responsible_officer") or COO_ID
+                self._push_acceptance_task(
+                    officer_id, project_id,
+                    task.project_dir or task.original_project_dir,
+                    acceptance_criteria, project,
+                )
+            # Minimal cleanup only
+            await self._minimal_cleanup(project_id)
+            return
+
+        # --- CASE B: Acceptance result exists and accepted → full cleanup + retrospective ---
+        if acceptance_result and acceptance_result.get("accepted"):
+            await self._full_cleanup(task, agent_error, project_id)
+            return
+
+        # --- CASE C: No criteria at all → old behavior, full cleanup + retrospective ---
+        if not acceptance_criteria:
+            await self._full_cleanup(task, agent_error, project_id)
+            return
+
+        # Fallback: criteria exist but rejected — just do minimal cleanup
+        await self._minimal_cleanup(project_id)
+
+    async def _full_cleanup(self, task: AgentTask, agent_error: bool, project_id: str) -> None:
+        """Full cleanup: retrospective, complete project, reset employees, broadcast."""
+        from onemancompany.core.project_archive import append_action, complete_project
+        from onemancompany.core.resolutions import create_resolution
+
         # Run post-task routine (meeting reports, etc.) with project context
-        # so that any file edits proposed during routine are collected
         from onemancompany.core.resolutions import current_project_id
         routine_ctx = current_project_id.set(project_id)
         try:
@@ -515,6 +611,53 @@ class PersistentAgentLoop:
         await event_bus.publish(
             CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
         )
+
+    async def _minimal_cleanup(self, project_id: str) -> None:
+        """Lightweight cleanup: sandbox + state broadcast (no retrospective)."""
+        from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
+        await _cleanup_sandbox()
+
+        await event_bus.publish(
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        )
+
+    def _push_acceptance_task(
+        self,
+        officer_id: str,
+        project_id: str,
+        project_dir: str,
+        criteria: list[str],
+        project: dict,
+    ) -> None:
+        """Push an acceptance review task to the responsible xxO."""
+        officer_loop = get_agent_loop(officer_id)
+        if not officer_loop:
+            print(f"[acceptance] WARNING: No agent loop for officer {officer_id}")
+            return
+
+        criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
+        timeline = project.get("timeline", [])
+        # Format recent timeline for context (last 10 entries)
+        timeline_lines = []
+        for entry in timeline[-10:]:
+            emp = entry.get("employee_id", "?")
+            action = entry.get("action", "")
+            detail = entry.get("detail", "")[:100]
+            timeline_lines.append(f"  - [{emp}] {action}: {detail}")
+        timeline_text = "\n".join(timeline_lines) if timeline_lines else "  (no entries)"
+
+        acceptance_task = (
+            f"项目验收任务\n\n"
+            f"项目任务: {project.get('task', '')}\n\n"
+            f"验收标准:\n{criteria_text}\n\n"
+            f"项目记录摘要:\n{timeline_text}\n\n"
+            f"请检查以上验收标准是否全部达成。\n"
+            f"如果需要补充或调整验收标准，请先调用 set_acceptance_criteria() 更新。\n"
+            f"然后使用 accept_project() 工具来完成验收（accepted=true 表示通过，false 表示不通过）。\n"
+            f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
+        )
+        officer_loop.push_task(acceptance_task, project_id=project_id, project_dir=project_dir)
+        print(f"[acceptance] Pushed acceptance task to officer {officer_id} for project {project_id}")
 
     def _log(self, task: AgentTask, log_type: str, content: str) -> None:
         """Append a log entry to the task + publish agent_log event."""

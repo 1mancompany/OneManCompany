@@ -1,0 +1,46 @@
+acceptance_criteria:
+- 在项目workspace中产出并保存《代码工程师招聘JD.md》（含岗位职责、必备/加分技能、工作地点/形式、薪资区间或等级、面试流程建议）
+- 在项目workspace中产出并保存《招聘渠道与时间计划.md》（至少3个渠道，含预计时间节点与成本预估）
+- 至少筛选并输出3名候选人清单《候选人初筛汇总.md》（含简历要点、匹配度评分、风险点、建议是否进入面试）
+- 提供《面试题库与评估表.md》（覆盖基础/工程能力/系统设计/代码题/文化匹配，含评分维度与录用门槛）
+acceptance_result: null
+completed_at: '2026-03-02T16:44:46.069626'
+created_at: '2026-03-02T16:41:46.215877'
+current_owner: ''
+dispatches:
+- description: 为公司招聘1名代码工程师：1) 在项目workspace产出《代码工程师招聘JD.md》（职责/必备&加分技能/工作形式/薪资区间或等级/面试流程建议）；2)
+    产出《招聘渠道与时间计划.md》（>=3渠道，含时间节点与成本预估）；3) 负责候选人搜集与初筛，输出《候选人初筛汇总.md》（>=3人，含简历要点、匹配度评分、风险点、建议）；4)
+    产出《面试题库与评估表.md》（多维度评分与录用门槛）。
+  dispatched_at: '2026-03-02T16:41:58.539796'
+  employee_id: '00002'
+  status: in_progress
+output: Hired Coding Talent
+participants:
+- '00002'
+- '00004'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_164146_6b0f84
+project_id: 20260302_164146_6b0f84
+responsible_officer: '00003'
+routed_to: pending
+status: completed
+task: 招聘一个代码工程师
+timeline:
+- action: EA task completed
+  detail: '已完成任务分析与分派（领域：HR/招聘为主，含流程与交付物管理）。
+
+
+    ## 验收标准（已设置，负责人：COO 00003）
+
+    1. 在项目workspace中保存《代码工程师招聘JD.md》（含职责、必备/加分技能、工作形式、薪资区间或等级、面试流程建议）
+
+    2. 在项目workspace中保存《招聘渠道与时间计划.md》（≥3个渠道，含时间节点与成本预估）
+
+    3. 在项目workspace中保存《候选人初筛汇总.md》（≥3名候选人，含简历要点、匹配度评分、风险点、建议是否进入面试）
+
+    4. 在项目workspace中保存《面试题库与评估表.md》（覆盖基础/工程能力/系统设计/代码题/文化匹配，含'
+  employee_id: '00004'
+  time: '2026-03-02T16:42:03.936277'
+- action: 入职完成
+  detail: Coding Talent 已入职，工号 00006
+  employee_id: '00002'
+  time: '2026-03-02T16:44:46.067675'
