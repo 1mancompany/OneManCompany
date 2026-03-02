@@ -1,0 +1,11 @@
+# Tool manifest — declares which registered LangChain tools this talent uses.
+# Names reference tools from COMMON_TOOLS or SANDBOX_TOOLS.
+builtin_tools:
+  - sandbox_execute_code
+  - sandbox_run_command
+  - sandbox_write_file
+  - sandbox_read_file
+
+# Custom .py tools in this directory (each exports a LangChain @tool function)
+custom_tools:
+  - custom_build

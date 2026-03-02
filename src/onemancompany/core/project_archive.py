@@ -50,6 +50,16 @@ def create_project(task: str, routed_to: str, participants: list[str] | None = N
         "completed_at": None,
         "timeline": [],
         "output": None,
+        "acceptance_criteria": [],
+        "responsible_officer": "",
+        "dispatches": [],
+        "acceptance_result": None,
+        "cost": {
+            "budget_estimate_usd": 0.0,
+            "actual_cost_usd": 0.0,
+            "token_usage": {"input": 0, "output": 0, "total": 0},
+            "breakdown": [],
+        },
     }
     _save_project(project_id, doc)
     return project_id
@@ -174,6 +184,115 @@ def list_projects() -> list[dict]:
             "file_count": len(list_project_files(d.name)),
         })
     return projects
+
+
+def set_acceptance_criteria(project_id: str, criteria: list[str], responsible_officer: str) -> None:
+    """Set or update acceptance criteria and responsible officer."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    doc["acceptance_criteria"] = criteria
+    doc["responsible_officer"] = responsible_officer
+    _save_project(project_id, doc)
+
+
+def record_dispatch(project_id: str, employee_id: str, description: str) -> None:
+    """Record that a task was dispatched to an agent for this project."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    dispatches = doc.get("dispatches", [])
+    dispatches.append({
+        "employee_id": employee_id,
+        "description": description[:200],
+        "status": "in_progress",
+        "dispatched_at": datetime.now().isoformat(),
+    })
+    doc["dispatches"] = dispatches
+    _save_project(project_id, doc)
+
+
+def record_dispatch_completion(project_id: str, employee_id: str) -> None:
+    """Mark a dispatch as completed."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    for d in doc.get("dispatches", []):
+        if d["employee_id"] == employee_id and d["status"] == "in_progress":
+            d["status"] = "completed"
+            d["completed_at"] = datetime.now().isoformat()
+            break
+    _save_project(project_id, doc)
+
+
+def all_dispatches_complete(project_id: str) -> bool:
+    """Check if all dispatches for a project are completed."""
+    doc = load_project(project_id)
+    if not doc:
+        return True
+    dispatches = doc.get("dispatches", [])
+    if not dispatches:
+        return True
+    return all(d["status"] == "completed" for d in dispatches)
+
+
+def set_acceptance_result(project_id: str, accepted: bool, officer_id: str, notes: str = "") -> None:
+    """Record the acceptance result."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    doc["acceptance_result"] = {
+        "accepted": accepted,
+        "officer_id": officer_id,
+        "notes": notes,
+        "timestamp": datetime.now().isoformat(),
+    }
+    _save_project(project_id, doc)
+
+
+def set_project_budget(project_id: str, budget_usd: float) -> None:
+    """Set estimated budget for a project."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    cost = doc.setdefault("cost", {})
+    cost["budget_estimate_usd"] = budget_usd
+    _save_project(project_id, doc)
+
+
+def record_project_cost(
+    project_id: str,
+    employee_id: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cost_usd: float,
+) -> None:
+    """Append a cost entry to the project breakdown and update totals."""
+    doc = load_project(project_id)
+    if not doc:
+        return
+    cost = doc.setdefault("cost", {
+        "budget_estimate_usd": 0.0,
+        "actual_cost_usd": 0.0,
+        "token_usage": {"input": 0, "output": 0, "total": 0},
+        "breakdown": [],
+    })
+    cost["actual_cost_usd"] = cost.get("actual_cost_usd", 0.0) + cost_usd
+    tokens = cost.setdefault("token_usage", {"input": 0, "output": 0, "total": 0})
+    tokens["input"] = tokens.get("input", 0) + input_tokens
+    tokens["output"] = tokens.get("output", 0) + output_tokens
+    tokens["total"] = tokens.get("total", 0) + input_tokens + output_tokens
+    breakdown = cost.setdefault("breakdown", [])
+    breakdown.append({
+        "employee_id": employee_id,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "cost_usd": cost_usd,
+    })
+    _save_project(project_id, doc)
 
 
 def _save_project(project_id: str, doc: dict) -> None:

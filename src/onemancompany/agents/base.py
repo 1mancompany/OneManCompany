@@ -97,6 +97,7 @@ class BaseAgentRunner:
     role: str = "agent"
     employee_id: str = ""  # maps to company_state.employees key
     _agent = None  # subclasses set this to a LangGraph compiled graph
+    _last_usage: dict = {}  # token usage from last run_streamed() call
 
     async def _publish(self, event_type: str, payload: dict) -> None:
         await event_bus.publish(
@@ -127,6 +128,10 @@ class BaseAgentRunner:
         }
 
         final_content = ""
+        total_input_tokens = 0
+        total_output_tokens = 0
+        model_used = ""
+
         async for event in self._agent.astream_events(messages_input, version="v2"):
             kind = event.get("event", "")
             data = event.get("data", {})
@@ -137,31 +142,52 @@ class BaseAgentRunner:
                     if hasattr(last_msg, "content"):
                         content = last_msg.content or ""
                         if isinstance(content, str):
-                            display = content[:300] + "..." if len(content) > 300 else content
-                            on_log("llm_input", f"[{type(last_msg).__name__}] {display}")
+                            on_log("llm_input", f"[{type(last_msg).__name__}] {content}")
             elif kind == "on_chat_model_end":
                 output = data.get("output", None)
-                if output and hasattr(output, "content"):
-                    content = output.content or ""
-                    if isinstance(content, str):
-                        final_content = content  # track last AI output
-                        display = content[:500] + "..." if len(content) > 500 else content
-                        on_log("llm_output", display)
-                    tool_calls = getattr(output, "tool_calls", None)
-                    if tool_calls:
-                        for tc in tool_calls:
-                            name = tc.get("name", "?")
-                            args = str(tc.get("args", {}))[:200]
-                            on_log("tool_call", f"{name}({args})")
+                if output:
+                    # Extract token usage from response_metadata
+                    meta = getattr(output, "response_metadata", {}) or {}
+                    usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
+                    if usage:
+                        total_input_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+                        total_output_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                    if not model_used:
+                        model_used = meta.get("model_name", "") or meta.get("model", "")
+
+                    if hasattr(output, "content"):
+                        content = output.content or ""
+                        if isinstance(content, str):
+                            final_content = content  # track last AI output
+                            on_log("llm_output", content)
+                        tool_calls = getattr(output, "tool_calls", None)
+                        if tool_calls:
+                            for tc in tool_calls:
+                                name = tc.get("name", "?")
+                                args = str(tc.get("args", {}))
+                                on_log("tool_call", f"{name}({args})")
             elif kind == "on_tool_end":
                 output = data.get("output", "")
                 name = event.get("name", "tool")
-                result_str = str(output)[:300]
+                result_str = str(output)
                 on_log("tool_result", f"{name} → {result_str}")
+
+        # Store usage for caller to read
+        self._last_usage = {
+            "model": model_used or self._get_model_name(),
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "total_tokens": total_input_tokens + total_output_tokens,
+        }
 
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": (final_content or "")[:MAX_SUMMARY_LEN]})
         return final_content
+
+    def _get_model_name(self) -> str:
+        """Return the LLM model name configured for this employee."""
+        cfg = employee_configs.get(self.employee_id)
+        return cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
 
     def _build_prompt(self) -> str:
         """Build the full system prompt. Override in subclasses if needed."""

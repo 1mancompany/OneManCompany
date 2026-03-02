@@ -7,6 +7,7 @@ role: Engineer
 remote: false
 llm_model: google/gemini-3.1-pro-preview-customtools
 temperature: 0.7
+hiring_fee: 0.50
 skills:
   - sandbox_coding
   - web_research

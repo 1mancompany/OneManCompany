@@ -435,17 +435,36 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
 
     culture_ctx = ctx.format_company_culture()
 
+    # Build cost context from project record
+    cost_ctx = ""
+    if ctx.project_record:
+        cost_data = ctx.project_record.get("cost", {})
+        if cost_data and (cost_data.get("actual_cost_usd", 0) > 0 or cost_data.get("budget_estimate_usd", 0) > 0):
+            budget = cost_data.get("budget_estimate_usd", 0)
+            actual = cost_data.get("actual_cost_usd", 0)
+            tokens = cost_data.get("token_usage", {})
+            breakdown = cost_data.get("breakdown", [])
+            cost_lines = [f"预算: ${budget:.4f}, 实际: ${actual:.4f}"]
+            cost_lines.append(f"Token用量: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
+            for entry in breakdown:
+                emp = company_state.employees.get(entry.get("employee_id", ""))
+                name = emp.name if emp else entry.get("employee_id", "?")
+                cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
+            cost_ctx = "\n\n项目开销数据:\n" + "\n".join(cost_lines) + "\n"
+
     coo_prompt = (
         f"你是 COO，负责出具公司运营情况报告。\n"
         f"{culture_ctx}"
         f"刚完成的任务: {ctx.task_summary}\n"
         f"{timeline_ctx}"
+        f"{cost_ctx}"
         f"公司现有员工 {emp_count} 人，设备 {tool_count} 件，会议室 {room_count} 间。\n\n"
         f"⚠️ 重要规则：报告必须严格基于项目记录中的客观事实。\n"
         f"- 只陈述项目记录中有据可查的情况，不编造、不美化\n"
         f"- 禁止空话套话，用具体数据和事实说话\n\n"
         f"请根据项目记录简要总结公司当前运营状况（3-5句话），包括:\n"
         f"- 项目完成情况（谁做了什么，效果如何）\n- 资源利用率\n- 潜在风险\n"
+        f"- 项目开销分析（如有数据），评估是否超出预算\n"
         f"请用中文回答。{workflow_ctx}"
     )
     resp = await llm.ainvoke(coo_prompt)
@@ -723,9 +742,8 @@ async def run_post_task_routine(
         }
         if actual_contributors:
             # EA always attends (dispatched the task, needs full context).
-            # HR always attends (hosts review & writes summary).
             # Everyone else only joins if they actually contributed.
-            actual_contributors.update({EA_ID, HR_ID})
+            actual_contributors.add(EA_ID)
             participants = [pid for pid in participants if pid in actual_contributors]
 
     # Increment current_quarter_tasks for participating normal employees
@@ -773,7 +791,7 @@ async def run_post_task_routine(
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [EA_ID, HR_ID]))
+            r.participants = list(dict.fromkeys(participants + [EA_ID]))
             room = r
             break
 
@@ -899,7 +917,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [EA_ID, HR_ID]))
+            r.participants = list(dict.fromkeys(participants + [EA_ID]))
             room = r
             break
 

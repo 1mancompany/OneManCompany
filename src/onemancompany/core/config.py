@@ -170,6 +170,7 @@ class EmployeeConfig(BaseModel):
     performance_history: list[dict] = []
     permissions: list[str] = []  # e.g. ["company_file_access", "web_search", "backend_code_maintenance"]
     remote: bool = False  # True = remote worker, False = on-site
+    salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens (avg of input+output cost)
 
 
 class Settings(BaseSettings):
@@ -340,6 +341,7 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
             performance_history=perf_lines,
             skills=skills_lines,
             permissions=perms_lines,
+            salary_per_1m_tokens=config.salary_per_1m_tokens,
         )
         profile_path.write_text(rendered, encoding="utf-8")
     else:

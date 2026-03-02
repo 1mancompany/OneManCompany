@@ -14,6 +14,7 @@ permissions:
 - web_search
 - sales_management
 role: CSO
+salary_per_1m_tokens: 5.0
 skills:
 - sales_management
 - contract_review

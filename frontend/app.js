@@ -193,9 +193,16 @@ class AppController {
           if (container && !container.querySelector('.empty-hint')) {
             const ts = (p.timestamp || '').substring(11, 19);
             const cls = p.log_type || 'info';
-            container.insertAdjacentHTML('beforeend',
-              `<div class="emp-log-entry ${cls}"><span class="log-time">${ts}</span> <span class="log-content">${this._escHtml((p.content || '').substring(0, 200))}</span></div>`
-            );
+            const raw = p.content || '';
+            const truncated = raw.length > 200;
+            let logHtml = `<div class="emp-log-entry ${cls}"><span class="log-time">${ts}</span> <span class="log-content">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
+            if (truncated) {
+              logHtml += `<span class="log-full" style="display:none">${this._escHtml(raw)}</span>`;
+              logHtml += `<span class="log-expand" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
+              logHtml += `<span class="log-collapse" style="display:none" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
+            }
+            logHtml += '</div>';
+            container.insertAdjacentHTML('beforeend', logHtml);
             container.scrollTop = container.scrollHeight;
           }
         }
@@ -930,6 +937,10 @@ class AppController {
       permsEl.textContent = '-';
     }
 
+    // Salary
+    const salaryEl = document.getElementById('emp-detail-salary');
+    salaryEl.textContent = emp.salary_per_1m_tokens ? `$${emp.salary_per_1m_tokens}/1M tokens` : '-';
+
     // Performance history — quarter cards
     const perfEl = document.getElementById('emp-detail-perf-wrapper');
     const hist = emp.performance_history || [];
@@ -1044,6 +1055,10 @@ class AppController {
       if (task.result) {
         html += `<div class="emp-taskboard-result">${this._escHtml(task.result.substring(0, 100))}</div>`;
       }
+      if (task.total_tokens > 0) {
+        const costStr = task.estimated_cost_usd ? `$${task.estimated_cost_usd.toFixed(4)}` : '';
+        html += `<div class="emp-taskboard-cost">${task.total_tokens} tokens ${costStr}</div>`;
+      }
       html += '</div>';
 
       // Render sub-tasks indented
@@ -1075,9 +1090,16 @@ class AppController {
     for (const log of logs) {
       const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '';
       const typeCls = log.type || '';
+      const raw = log.content || '';
+      const truncated = raw.length > 200;
       html += `<div class="emp-log-entry ${typeCls}">`;
       html += `<span class="log-ts">${ts}</span>`;
-      html += `<span class="log-content">${this._escHtml((log.content || '').substring(0, 200))}</span>`;
+      html += `<span class="log-content">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
+      if (truncated) {
+        html += `<span class="log-full" style="display:none">${this._escHtml(raw)}</span>`;
+        html += `<span class="log-expand" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
+        html += `<span class="log-collapse" style="display:none" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
+      }
       html += '</div>';
     }
     el.innerHTML = html;
@@ -1200,6 +1222,8 @@ class AppController {
       const relevance = c.jd_relevance ? `${(c.jd_relevance * 100).toFixed(0)}%` : '-';
 
       const llmModel = c.llm_model || 'default';
+      const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : 'N/A';
+      const hiringFee = c.hiring_fee ? `$${c.hiring_fee.toFixed(2)}` : 'Free';
       card.innerHTML = `
         <div class="card-inner">
           <div class="card-front">
@@ -1209,6 +1233,7 @@ class AppController {
             <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
             <div class="card-tags">${tags}</div>
             <div class="card-relevance">Match: ${relevance}</div>
+            <div class="card-cost">Cost: ${costPer1m} | Fee: ${hiringFee}</div>
           </div>
           <div class="card-back">
             <div class="card-detail-title">System Prompt</div>
@@ -1219,6 +1244,8 @@ class AppController {
             <div class="card-detail-text">${tools}</div>
             <div class="card-detail-title">LLM Model</div>
             <div class="card-detail-text">${c.llm_model || 'default'}</div>
+            <div class="card-detail-title">LLM Cost</div>
+            <div class="card-detail-text">${costPer1m} tokens | Hiring: ${hiringFee}</div>
             <div class="card-actions">
               <button class="pixel-btn hire" data-id="${c.id}">Hire</button>
               <button class="pixel-btn interview" data-id="${c.id}">Interview</button>
@@ -1251,7 +1278,11 @@ class AppController {
   }
 
   hireCandidate(candidate) {
-    // Nickname is auto-generated by the employee themselves
+    // Show loading state
+    this.logEntry('CEO', `Processing hire for ${candidate.name}...`, 'ceo');
+    // Disable all hire buttons to prevent double-click
+    document.querySelectorAll('.pixel-btn.hire').forEach(b => { b.disabled = true; b.textContent = 'Hiring...'; });
+
     fetch('/api/candidates/hire', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1264,6 +1295,7 @@ class AppController {
       .then(data => {
         if (data.error) {
           this.logEntry('SYSTEM', `Hire failed: ${data.error}`, 'system');
+          document.querySelectorAll('.pixel-btn.hire').forEach(b => { b.disabled = false; b.textContent = 'Hire'; });
         } else {
           const nn = data.nickname ? ` (${data.nickname})` : '';
           this.logEntry('CEO', `🎉 Hired: ${data.name}${nn}`, 'ceo');
@@ -1274,7 +1306,10 @@ class AppController {
           this.closeInterviewModal();
         }
       })
-      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
+      .catch(err => {
+        this.logEntry('SYSTEM', `Error: ${err.message}`, 'system');
+        document.querySelectorAll('.pixel-btn.hire').forEach(b => { b.disabled = false; b.textContent = 'Hire'; });
+      });
   }
 
   // ===== Interview Chatbot (separate modal) =====
@@ -2060,6 +2095,7 @@ class AppController {
   }
 
   loadWorkflow(name) {
+    document.getElementById('workflow-placeholder').classList.add('hidden');
     fetch(`/api/workflows/${encodeURIComponent(name)}`)
       .then(r => r.json())
       .then(data => {

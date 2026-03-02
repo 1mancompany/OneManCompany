@@ -50,7 +50,15 @@
 - **Steps**:
   1. Produce a company operations status report based on project completion
   2. Report covers: project completion rate, resource utilization, potential risks, and analysis of any acceptance failures/rectifications
-- **Output**: Operations status report
+  3. Include project cost analysis in the report:
+     - Compare actual cost vs. budget estimate
+     - Identify which phases/employees consumed the most tokens
+     - Suggest ways to reduce costs for similar future tasks (e.g., use cheaper models for simple sub-tasks, reduce unnecessary LLM calls)
+     - Flag if budget was exceeded and analyze why
+  4. Review all file edits made during the project (code changes, document updates)
+     - Verify edits were necessary and aligned with the task objectives
+     - Flag any unnecessary or risky file modifications
+- **Output**: Operations status report (including cost analysis)
 
 ## Phase 6: Employee Open Floor
 

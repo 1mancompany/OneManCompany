@@ -1447,45 +1447,51 @@ body {
 
 /* ===== Candidate Selection Modal (Boss Online) ===== */
 .candidate-modal-content {
-  max-width: 920px;
-  max-height: 88vh;
+  max-width: 720px;
+  max-height: 80vh;
   border-color: var(--pixel-yellow);
   box-shadow: 0 0 40px rgba(255, 215, 0, 0.15);
 }
 
 .candidate-modal-body {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-direction: row;
   align-items: flex-start;
+  max-height: 65vh;
+  overflow: hidden;
 }
 
 .candidate-jd {
-  font-size: 7px;
+  font-size: 6px;
   color: var(--text-dim);
-  padding: 8px;
+  padding: 6px;
   border: 1px solid var(--border);
   background: var(--bg-dark);
-  width: 160px;
-  min-width: 140px;
+  width: 120px;
+  min-width: 100px;
   flex-shrink: 0;
   line-height: 1.8;
-  max-height: 70vh;
+  max-height: 65vh;
   overflow-y: auto;
 }
 
 .candidate-cards {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
+  align-content: flex-start;
   flex: 1;
+  max-height: 65vh;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 /* Flip card container */
 .candidate-card {
-  width: 130px;
-  height: 220px;
+  width: 100px;
+  height: 155px;
   perspective: 600px;
   cursor: pointer;
 }
@@ -1519,90 +1525,97 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 10px 8px;
+  padding: 6px 5px;
 }
 
 .card-front .card-avatar {
-  width: 56px;
-  height: 56px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: 2px solid var(--pixel-cyan);
   background: var(--bg-dark);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  margin-bottom: 8px;
-}
-
-.card-front .card-name {
-  font-size: 7px;
-  color: var(--pixel-white);
-  text-align: center;
-  margin-bottom: 3px;
-}
-
-.card-front .card-role {
-  font-size: 6px;
-  color: var(--pixel-cyan);
+  font-size: 18px;
   margin-bottom: 4px;
 }
 
-.card-front .card-tags {
+.card-front .card-name {
+  font-size: 6px;
+  color: var(--pixel-white);
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.card-front .card-role {
   font-size: 5px;
+  color: var(--pixel-cyan);
+  margin-bottom: 2px;
+}
+
+.card-front .card-tags {
+  font-size: 4.5px;
   color: var(--pixel-yellow);
   text-align: center;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .card-front .card-relevance {
-  font-size: 6px;
+  font-size: 5px;
   color: var(--pixel-green);
-  margin-top: 6px;
+  margin-top: 3px;
+}
+
+.card-front .card-cost {
+  font-size: 4.5px;
+  color: var(--pixel-yellow);
+  margin-top: 2px;
 }
 
 .card-model {
-  font-size: 5px;
+  font-size: 4.5px;
   color: var(--pixel-cyan);
-  margin-top: 2px;
+  margin-top: 1px;
   opacity: 0.7;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 85px;
 }
 
 /* Back of card — details */
 .card-back {
   background: #0c0c22;
   transform: rotateY(180deg);
-  padding: 8px;
+  padding: 5px;
   overflow-y: auto;
-  font-size: 5px;
-  line-height: 1.6;
+  font-size: 4.5px;
+  line-height: 1.5;
   color: var(--pixel-white);
 }
 
 .card-back .card-detail-title {
-  font-size: 6px;
+  font-size: 5px;
   color: var(--pixel-yellow);
-  margin-top: 4px;
-  margin-bottom: 2px;
+  margin-top: 3px;
+  margin-bottom: 1px;
 }
 
 .card-back .card-detail-text {
-  font-size: 5px;
+  font-size: 4.5px;
   color: var(--text-dim);
 }
 
 .card-actions {
   display: flex;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 3px;
+  margin-top: 5px;
 }
 
 .card-actions .pixel-btn {
   font-size: 5px;
-  padding: 4px 6px;
+  padding: 3px 5px;
   flex: 1;
 }
 
@@ -2675,6 +2688,12 @@ body {
   margin-top: 2px;
 }
 
+.emp-taskboard-cost {
+  color: var(--pixel-yellow);
+  font-size: 5px;
+  margin-top: 1px;
+}
+
 /* ===== Execution Log Viewer ===== */
 .emp-log-viewer {
   overflow-y: auto;
@@ -2705,19 +2724,37 @@ body {
 .emp-log-entry.end { border-left-color: var(--pixel-cyan); }
 .emp-log-entry.result { border-left-color: var(--pixel-blue); }
 .emp-log-entry.error { border-left-color: var(--pixel-red); }
-.emp-log-entry.error .log-content { color: var(--pixel-red); }
+.emp-log-entry.error .log-content, .emp-log-entry.error .log-full { color: var(--pixel-red); }
 .emp-log-entry.subtask_phase { border-left-color: var(--pixel-purple); }
 .emp-log-entry.subtask_added { border-left-color: var(--pixel-purple); }
 .emp-log-entry.completion_check { border-left-color: var(--pixel-yellow); }
 .emp-log-entry.llm_input { border-left-color: var(--pixel-cyan); }
-.emp-log-entry.llm_input .log-content { color: var(--pixel-cyan); }
+.emp-log-entry.llm_input .log-content, .emp-log-entry.llm_input .log-full { color: var(--pixel-cyan); }
 .emp-log-entry.llm_output { border-left-color: var(--pixel-green); }
-.emp-log-entry.llm_output .log-content { color: var(--pixel-green); }
+.emp-log-entry.llm_output .log-content, .emp-log-entry.llm_output .log-full { color: var(--pixel-green); }
 .emp-log-entry.tool_call { border-left-color: var(--pixel-yellow); }
-.emp-log-entry.tool_call .log-content { color: var(--pixel-yellow); }
+.emp-log-entry.tool_call .log-content, .emp-log-entry.tool_call .log-full { color: var(--pixel-yellow); }
 .emp-log-entry.tool_result { border-left-color: var(--pixel-gray); }
 .emp-log-entry.retry { border-left-color: var(--pixel-red); }
-.emp-log-entry.retry .log-content { color: var(--pixel-red); }
+.emp-log-entry.retry .log-content, .emp-log-entry.retry .log-full { color: var(--pixel-red); }
+
+.emp-log-entry .log-full {
+  color: var(--pixel-white);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.emp-log-entry .log-expand,
+.emp-log-entry .log-collapse {
+  color: var(--pixel-cyan);
+  cursor: pointer;
+  margin-left: 4px;
+  font-size: 5px;
+  text-decoration: underline;
+}
+.emp-log-entry .log-expand:hover,
+.emp-log-entry .log-collapse:hover {
+  color: var(--pixel-white);
+}
 
 /* ===== Tool List Modal ===== */
 .tool-list-modal-content {

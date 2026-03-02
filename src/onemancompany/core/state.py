@@ -140,6 +140,7 @@ class Employee:
     work_principles: str = ""  # loaded from employees/{id}/work_principles.md
     permissions: list[str] = field(default_factory=list)  # access control: company_file_access, web_search, backend_code_maintenance, etc.
     remote: bool = False  # True = remote worker, False = on-site employee
+    salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens
     status: str = STATUS_IDLE
     is_listening: bool = False
     current_task_summary: str = ""
@@ -174,6 +175,7 @@ class Employee:
             "work_principles": self.work_principles,
             "permissions": self.permissions,
             "remote": self.remote,
+            "salary_per_1m_tokens": self.salary_per_1m_tokens,
             "status": self.status,
             "is_listening": self.is_listening,
             "current_task_summary": self.current_task_summary,
@@ -314,6 +316,7 @@ def _seed_employees() -> None:
             work_principles=principles,
             permissions=list(cfg.permissions),
             remote=getattr(cfg, 'remote', False),
+            salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
         )
 
 
@@ -336,6 +339,7 @@ def _seed_ex_employees() -> None:
             desk_position=tuple(cfg.desk_position),
             sprite=cfg.sprite,
             remote=getattr(cfg, 'remote', False),
+            salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
         )
 
 
@@ -489,6 +493,7 @@ def reload_all_from_disk() -> dict:
                 work_principles=principles,
                 permissions=list(cfg.permissions),
                 remote=cfg.remote,
+                salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
             )
             summary["employees_added"].append(emp_num)
 
@@ -512,6 +517,7 @@ def reload_all_from_disk() -> dict:
                 desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
                 sprite=cfg.sprite,
                 remote=getattr(cfg, 'remote', False),
+                salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
             )
 
     # --- 3. Reload company culture ---

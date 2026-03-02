@@ -1065,10 +1065,18 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     if not emp:
         return {"error": "Employee not found"}
 
+    # Compute new salary from OpenRouter pricing
+    from onemancompany.core.model_costs import compute_salary
+    new_salary = compute_salary(model_id)
+
     # Update in-memory config
     cfg = employee_configs.get(employee_id)
     if cfg:
         cfg.llm_model = model_id
+        cfg.salary_per_1m_tokens = new_salary
+
+    # Update in-memory employee state
+    emp.salary_per_1m_tokens = new_salary
 
     # Update profile.yaml on disk
     profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
@@ -1076,6 +1084,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
         with open(profile_path) as f:
             data = yaml.safe_load(f) or {}
         data["llm_model"] = model_id
+        data["salary_per_1m_tokens"] = new_salary
         with open(profile_path, "w") as f:
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
@@ -1084,13 +1093,13 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
             type="agent_done",
             payload={
                 "role": "CEO",
-                "summary": f"Updated {emp.name} ({emp.nickname})'s model to {model_id}",
+                "summary": f"Updated {emp.name} ({emp.nickname})'s model to {model_id}, salary=${new_salary}/1M",
             },
             agent="CEO",
         )
     )
 
-    return {"status": "updated", "employee_id": employee_id, "model": model_id}
+    return {"status": "updated", "employee_id": employee_id, "model": model_id, "salary_per_1m_tokens": new_salary}
 
 
 # ===== Company Culture =====
@@ -1411,6 +1420,9 @@ async def hire_candidate(body: HireRequest) -> dict:
             "sprite": candidate.get("sprite", "employee_default"),
             "remote": candidate.get("remote", False),
             "talent_id": candidate.get("talent_id", ""),
+            "llm_model": candidate.get("llm_model", ""),
+            "system_prompt": candidate.get("system_prompt", ""),
+            "personality_tags": candidate.get("personality_tags", []),
         },
     })
     hr_loop = get_agent_loop(HR_ID)
@@ -1419,6 +1431,26 @@ async def hire_candidate(body: HireRequest) -> dict:
     else:
         from onemancompany.agents.hr_agent import HRAgent
         await HRAgent()._apply_results(f"```json\n{hire_json}\n```")
+
+    # Resume project lifecycle: stashed project_id is restored so
+    # retrospective runs after the *actual* hire, not after shortlist.
+    from onemancompany.agents.hr_agent import _pending_project_ctx
+    from onemancompany.core.project_archive import append_action, complete_project
+    ctx = _pending_project_ctx.pop(body.batch_id, {})
+    pid = ctx.get("project_id", "")
+    if pid:
+        append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {next_num}")
+        complete_project(pid, f"Hired {candidate['name']}")
+        # Remove from active tasks
+        company_state.active_tasks = [
+            t for t in company_state.active_tasks if t.project_id != pid
+        ]
+        # Run retrospective in background
+        from onemancompany.core.routine import run_post_task_routine
+        asyncio.create_task(
+            run_post_task_routine(f"招聘任务: 招聘 {candidate['name']} 为 {candidate['role']}", project_id=pid)
+        )
+
     pending_candidates.pop(body.batch_id, None)
 
     # Explicit state broadcast to ensure frontend updates

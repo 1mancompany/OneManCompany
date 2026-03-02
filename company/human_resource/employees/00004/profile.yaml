@@ -13,6 +13,7 @@ permissions:
 - company_file_access
 - web_search
 role: EA
+salary_per_1m_tokens: 5.0
 skills:
 - task_analysis
 - task_routing
