@@ -181,6 +181,19 @@ async def admin_reload() -> dict:
     return {"status": "reloaded", **changes}
 
 
+@router.post("/api/admin/clear-tasks")
+async def admin_clear_tasks() -> dict:
+    """Clear all stale active tasks and reset employee statuses to idle."""
+    cleared = len(company_state.active_tasks)
+    company_state.active_tasks.clear()
+    for emp in company_state.employees.values():
+        emp.status = STATUS_IDLE
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+    return {"status": "cleared", "tasks_removed": cleared}
+
+
 @router.get("/api/state")
 async def get_state() -> dict:
     return company_state.to_json()
