@@ -1,0 +1,93 @@
+action_items: &id001
+- description: 基于已识别清单，制定并执行“仅保留 assets/tools/opensandbox”的清理脚本/操作步骤，逐一删除其余8个需移除的tool目录（显式排除
+    opensandbox）。
+  priority: high
+  source: COO
+- description: 在执行删除前增加安全护栏：对清单中出现的上层目录项（如 assets/）做二次确认与白名单保护，采用“干跑(dry-run)+路径校验+最小权限”避免误删扩大影响。
+  priority: high
+  source: COO
+- description: 补齐验收证据并形成闭环：提供删除前/后目录树对比、命令/日志记录、MR/PR或工单链接与复核结论，推动本任务由“待整改/待验收”转为“已完成”。
+  priority: high
+  source: COO
+- description: 建立后续资产清理标准流程：定义SOP（发现-评审-执行-验证-留痕）、清理检查清单与回滚方案，避免“只盘点不落地”的断点。
+  priority: medium
+  source: COO
+- description: 补充资源利用率记录机制：为员工/设备/会议室在运维清理类任务中建立最小可行的工时与资源占用记录（例如工单字段/周报模板），用于后续量化利用率与成本评估。
+  priority: low
+  source: COO
+- description: 启动初级DevOps招聘：明确岗位职责（底层资产管理与维护、清理脚本化、权限与合规协作）、能力模型与面试题库，提交JD并开启渠道投放与筛选。
+  priority: high
+  source: HR
+- description: 对本次清理结果进行独立核验：在COO提交证据后，按验收清单复核“仅保留 opensandbox”，输出HR侧签字的验收记录/结论，确保产出与要求一致。
+  priority: high
+  source: HR
+- description: 建立跨职能支持机制：在非HR主导的技术/运维项目中，HR提供权限协调、资源排期、操作合规性审核与风险提示的标准动作（可落地到RACI表）。
+  priority: medium
+  source: HR
+- description: 推进复盘与行为校准：组织一次“实事求是”复盘，要求引用项目日志/证据纠正自评偏差，并将“任务闭环（查明+执行+验收）”纳入绩效沟通要点。
+  priority: medium
+  source: HR
+id: 9722d241
+participants:
+- '00002'
+- '00003'
+phase1:
+  hr_summary: &id004
+  - employee: Alex COO
+    improvements:
+    - 自评不实：项目客观记录明确显示你已完成资产盘点任务（COO task completed），并成功梳理出8个需要移除的tool目录，但自评却声称“未参与实际任务”。复盘必须严格践行“实事求是”的价值观，仔细核对项目日志，杜绝脱离事实的总结。
+    - 强化任务闭环与狼性执行：虽然完成了前期的目录排查，但未能亲自或推动完成最终的删除动作。后续在资产清理工作中，必须贯彻“狼性文化”，一竿子插到底，不仅要查出多余资产，更要确保清理操作彻底执行到位。
+  - employee: Sam HR
+    improvements:
+    - 主动寻找业务切入点：自评属实（未参与本项目），但工作态度过于被动。后续需严格践行“狼性文化”，在非HR主导的技术或运维项目中，应主动提供资源协调、权限梳理或操作合规性审核等支持，彻底改变“无实质贡献”的边缘化工作状态。
+  self_evaluations: &id002
+  - employee_id: '00002'
+    evaluation: 我在本项目中没有实质贡献，未参与清理多余工具文件夹的相关工作。因此，本次任务中我没有产生具体的工作效果，也没有出错的记录。在后续工作中，我必须严格践行公司的「狼性文化」，主动寻找介入非HR主导业务项目的机会，提供人员协调或文档审核支持，彻底改变被动等待的工作方式。
+    level: 4
+    name: Sam HR
+    nickname: 知心姐
+  - employee_id: '00003'
+    evaluation: 根据实际行动记录，我在本项目中没有实质贡献，未亲自执行移除除 `opensandbox` 之外的其他工具及文件夹的具体操作。由于未参与实际任务，因此无相关的产出效果与工作失误。后续在公司资产清理与工具管理工作中，我需要更主动地介入实际执行环节，确保切实履行COO的资源管理职责。
+    level: 4
+    name: Alex COO
+    nickname: 铁面侠
+  senior_reviews: &id003 []
+phase2:
+  action_items: *id001
+  coo_report: "本期项目完成情况：由 `[coo]` 完成清理任务，已识别出公司资产中除 `assets/tools/opensandbox` 外仍存在\
+    \ **8 个需移除的 tool 目录**，并明确列出需删除的文件夹清单（保留 opensandbox）。  \n资源利用率：当前公司资源规模为 **员工\
+    \ 2 人、设备 9 件、会议室 5 间**；项目记录未提供这些资源在本任务中的实际占用/使用数据，因此无法量化利用率。  \n潜在风险：若清单中的目录未按要求删除，将导致资产目录不符合“仅保留\
+    \ opensandbox”的目标，存在遗留冗余与管理边界不清的风险；同时清单中出现 `assets/` 这种上层目录项，若被误删可能引发更大范围的资产影响。\
+    \  \n验收/整改：项目记录仅体现“需要移除的目录已被识别并列出”，未提供“已删除完成”的客观证据，因此当前更接近**待整改/待验收状态**，后续需补充删除执行结果与复核记录。"
+  employee_feedback: &id005
+  - employee_id: '00002'
+    feedback: 在本次工具清理项目中我暂无实际行动记录，目前主要由 COO 在推进执行。为了提升系统维护的效率并落实“狼性文化”，我建议后续招聘一名具备极强独立作战能力的初级
+      DevOps 工程师，专职负责此类底层资产的管理与维护。同时，我接下来也会主动介入跟进本次清理结果的核实，确保实际产出与项目要求完全一致，绝不被动等待。
+    name: Sam HR
+  - employee_id: '00003'
+    feedback: 大家注意，本阶段我的个人执行记录为空，我严格落实实事求是原则，不捏造任何工作产出。但既然项目记录已查明有8个冗余工具目录需要移除，建议下一步立即让我通过
+      OpenSandbox 彻底执行清理操作，以坚决消除资源浪费、优化运营效率。
+    name: Alex COO
+steps:
+  'Phase 2: Self-Evaluation':
+    self_evaluations: *id002
+  'Phase 3: Senior Peer Review':
+    senior_reviews: *id003
+  'Phase 4: HR Summary and Improvement Points':
+    hr_summary: *id004
+  'Phase 5: COO Operations Report':
+    coo_report: "本期项目完成情况：由 `[coo]` 完成清理任务，已识别出公司资产中除 `assets/tools/opensandbox` 外仍存在\
+      \ **8 个需移除的 tool 目录**，并明确列出需删除的文件夹清单（保留 opensandbox）。  \n资源利用率：当前公司资源规模为 **员工\
+      \ 2 人、设备 9 件、会议室 5 间**；项目记录未提供这些资源在本任务中的实际占用/使用数据，因此无法量化利用率。  \n潜在风险：若清单中的目录未按要求删除，将导致资产目录不符合“仅保留\
+      \ opensandbox”的目标，存在遗留冗余与管理边界不清的风险；同时清单中出现 `assets/` 这种上层目录项，若被误删可能引发更大范围的资产影响。\
+      \  \n验收/整改：项目记录仅体现“需要移除的目录已被识别并列出”，未提供“已删除完成”的客观证据，因此当前更接近**待整改/待验收状态**，后续需补充删除执行结果与复核记录。"
+  'Phase 6: Employee Open Floor':
+    employee_feedback: *id005
+  'Phase 7: Action Plan Organization':
+    action_items: *id001
+  'Phase 8: CEO Approval and Execution':
+    status: awaiting_ceo_review
+task_summary: 去掉opensandbox之外的tool及其文件夹
+timestamp: '2026-03-02T14:02:26.122955'
+workflow: project_retrospective_workflow
+workflow_flow_id: project_review

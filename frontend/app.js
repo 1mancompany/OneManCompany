@@ -71,6 +71,11 @@ class AppController {
       window.officeRenderer.updateState(msg.state);
     }
 
+    // Cache state for tool list and other UI
+    if (msg.state) {
+      this.state = msg.state;
+    }
+
     // Update counters
     if (msg.state) {
       document.getElementById('employee-count').textContent =
@@ -312,7 +317,7 @@ class AppController {
         <div class="task-card-text">${t.task.substring(0, 60)}${t.task.length > 60 ? '...' : ''}</div>
         <div class="task-card-route" style="color:${routeColor};">${t.routed_to} · <span class="task-card-owner">Current: ${ownerLabel}</span></div>
       `;
-      if (t.project_id) {
+      if (t.project_id && !t.project_id.startsWith('_auto_')) {
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => this.openTaskLog(t.project_id));
       }
@@ -2552,6 +2557,48 @@ class AppController {
         }
       })
       .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
+  }
+
+  openToolList() {
+    const modal = document.getElementById('tool-list-modal');
+    const body = document.getElementById('tool-list-body');
+    const tools = (this.state && this.state.tools) || [];
+
+    if (tools.length === 0) {
+      body.innerHTML = '<span class="empty-hint">No tools registered</span>';
+    } else {
+      body.innerHTML = tools.map(t => `
+        <div class="tool-list-item" onclick="window.app.openToolDetail('${this._escapeHtml(t.id)}')">
+          ${t.has_icon ? `<img src="/api/tools/${encodeURIComponent(t.id)}/icon" class="tool-list-icon" />` : '<span class="tool-list-no-icon">&#128295;</span>'}
+          <div class="tool-list-info">
+            <div class="tool-list-name">${this._escapeHtml(t.name)}</div>
+            <div class="tool-list-desc">${this._escapeHtml(t.description || '')}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+    modal.classList.remove('hidden');
+  }
+
+  async openToolDetail(toolId) {
+    const res = await fetch(`/api/tools/${encodeURIComponent(toolId)}/definition`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const body = document.getElementById('tool-list-body');
+    body.innerHTML = `
+      <button class="btn-back" onclick="window.app.openToolList()">&larr; Back</button>
+      <div class="tool-detail">
+        <h3>${this._escapeHtml(data.name)}</h3>
+        <p>${this._escapeHtml(data.description || '')}</p>
+        <div class="tool-detail-section-title">Definition (tool.yaml)</div>
+        <pre class="tool-yaml-content">${this._escapeHtml(data.yaml_content)}</pre>
+        ${data.files.length > 0 ? `
+          <div class="tool-detail-section-title">Files</div>
+          <ul class="tool-file-list">${data.files.map(f => `<li>${this._escapeHtml(f)}</li>`).join('')}</ul>
+        ` : ''}
+      </div>
+    `;
   }
 
   _escapeHtml(text) {

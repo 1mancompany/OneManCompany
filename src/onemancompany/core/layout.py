@@ -277,8 +277,8 @@ def compute_asset_layout(company_state, layout: dict) -> None:
     # Asset area starts below the department zone
     asset_start_gy = DEPT_END_ROW + 2  # gap after dept area
 
-    # --- Tools row ---
-    tool_list = list(company_state.tools.values())
+    # --- Tools row (only tools with icons get canvas positions) ---
+    tool_list = [t for t in company_state.tools.values() if t.has_icon]
     tool_row_gy = asset_start_gy
     max_tool_rows = 0
     if tool_list:

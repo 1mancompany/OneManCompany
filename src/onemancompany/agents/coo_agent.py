@@ -91,6 +91,7 @@ def _load_assets_from_disk() -> None:
         if tool_id not in company_state.tools:
             folder_name = data.get("_folder_name", "")
             files = data.get("_files", [])
+            has_icon = "icon.png" in files
             company_state.tools[tool_id] = OfficeTool(
                 id=tool_id,
                 name=data.get("name", tool_id),
@@ -101,6 +102,7 @@ def _load_assets_from_disk() -> None:
                 allowed_users=data.get("allowed_users", []),
                 files=files,
                 folder_name=folder_name,
+                has_icon=has_icon,
             )
             count += 1
 
@@ -241,6 +243,41 @@ def register_asset(
         "position": list(desk_pos),
         "files": copied_files,
     }
+
+
+@tool
+def remove_tool(tool_id: str) -> dict:
+    """Remove a tool/asset from the company and delete its folder from disk.
+
+    Args:
+        tool_id: The ID of the tool to remove.
+
+    Returns:
+        Confirmation with the removed tool name.
+    """
+    import shutil
+
+    t = company_state.tools.get(tool_id)
+    if not t:
+        return {"status": "error", "message": f"Tool not found: {tool_id}"}
+
+    name = t.name
+    folder_name = t.folder_name
+
+    # Remove from in-memory state
+    del company_state.tools[tool_id]
+
+    # Remove folder from disk
+    if folder_name:
+        folder = TOOLS_DIR / folder_name
+        if folder.exists():
+            shutil.rmtree(folder)
+
+    company_state.activity_log.append(
+        {"type": "tool_removed", "name": name, "id": tool_id}
+    )
+
+    return {"status": "success", "name": name, "id": tool_id}
 
 
 @tool
@@ -498,6 +535,7 @@ class COOAgent(BaseAgentRunner):
             model=make_llm(self.employee_id),
             tools=[
                 register_asset,
+                remove_tool,
                 list_tools,
                 grant_tool_access,
                 revoke_tool_access,
