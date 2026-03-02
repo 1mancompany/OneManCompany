@@ -230,7 +230,7 @@ class PersistentAgentLoop:
         task.status = "in_progress"
         self._current_task = task
         self.agent._set_status(STATUS_WORKING)
-        self._log(task, "start", f"Starting task: {task.description[:100]}")
+        self._log(task, "start", f"Starting task: {task.description}")
         self._publish_task_update(task)
 
         # Update employee current_task_summary
@@ -268,6 +268,12 @@ class PersistentAgentLoop:
             task_with_ctx = task.description
             if project_dir:
                 task_with_ctx = f"{task.description}\n\n[Project workspace: {project_dir} — save all outputs here]"
+
+            # Inject workflow requirements for project tasks
+            if task.project_id:
+                workflow_ctx = self._get_project_workflow_context(task)
+                if workflow_ctx:
+                    task_with_ctx = f"{task_with_ctx}\n\n{workflow_ctx}"
 
             # Log callback for streaming LLM steps into the task log
             def _on_log(log_type: str, content: str) -> None:
@@ -431,6 +437,58 @@ class PersistentAgentLoop:
             parts.append(f"- [{h['completed_at'][:10]}] Task: {h['task']}\n  Result: {h['result']}")
         return "\n".join(parts)
 
+    # ------------------------------------------------------------------
+    # Workflow context injection
+    # ------------------------------------------------------------------
+
+    def _get_project_workflow_context(self, task: AgentTask) -> str:
+        """Load relevant workflow instructions for a project task.
+
+        Reads the project_intake_workflow and extracts the self-verification
+        requirements from Phase 4 so every agent executing a project task
+        knows they must verify before marking complete.
+        """
+        from onemancompany.core.config import load_workflows
+        from onemancompany.core.workflow_engine import parse_workflow
+
+        workflows = load_workflows()
+        workflow_doc = workflows.get("project_intake_workflow", "")
+        if not workflow_doc:
+            return ""
+
+        wf = parse_workflow("project_intake_workflow", workflow_doc)
+
+        # Find Phase 4 (Execution) — extract self-verification instructions
+        verification_instructions = ""
+        for step in wf.steps:
+            if "Execution" in step.title or "Tracking" in step.title:
+                # Extract only the verification-related instructions
+                for inst in step.instructions:
+                    if any(kw in inst.lower() for kw in [
+                        "verification", "verify", "build and run",
+                        "test", "do not report", "验证", "验收",
+                    ]):
+                        verification_instructions += f"  - {inst}\n"
+                break
+
+        if not verification_instructions:
+            # Fallback: generic verification requirement
+            verification_instructions = (
+                "  - For code/software: Build and run it. Fix all errors until it runs successfully.\n"
+                "  - For documents/reports: Re-read and verify all claims, data, and formatting.\n"
+                "  - For any deliverable: Test it as a real end-user would.\n"
+                "  - Do NOT report a task as complete unless you have personally verified it works.\n"
+            )
+
+        return (
+            "[MANDATORY — Self-Verification Before Completion]\n"
+            "According to the company project workflow, you MUST verify your work before "
+            "reporting it as complete:\n"
+            f"{verification_instructions}"
+            "Include verification evidence (test output, run logs, or screenshots) in your result.\n"
+            "If verification fails, fix the issues and re-verify until everything works."
+        )
+
     async def _execute_subtask(self, sub: AgentTask, depth: int = 1) -> None:
         """Execute a sub-task (depth-limited)."""
         if sub.status == "cancelled":
@@ -442,7 +500,7 @@ class PersistentAgentLoop:
             return
 
         sub.status = "in_progress"
-        self._log(sub, "start", f"Sub-task: {sub.description[:100]}")
+        self._log(sub, "start", f"Sub-task: {sub.description}")
         self._publish_task_update(sub)
 
         loop_token = _current_loop.set(self)
@@ -540,7 +598,7 @@ class PersistentAgentLoop:
                     desc = s.get("description", "")
                     if desc:
                         self.board.push(desc, parent_id=task.id)
-                        self._log(task, "subtask_added", f"New sub-task: {desc[:100]}")
+                        self._log(task, "subtask_added", f"New sub-task: {desc}")
 
             self._log(task, "completion_check", "Task judged incomplete, added sub-tasks")
             return False
@@ -718,13 +776,22 @@ class PersistentAgentLoop:
         timeline_text = "\n".join(timeline_lines) if timeline_lines else "  (no entries)"
 
         acceptance_task = (
-            f"项目验收任务\n\n"
+            f"项目验收任务（严格验收）\n\n"
             f"项目任务: {project.get('task', '')}\n\n"
             f"验收标准:\n{criteria_text}\n\n"
             f"项目记录摘要:\n{timeline_text}\n\n"
-            f"请检查以上验收标准是否全部达成。\n"
+            f"⚠️ 严格验收要求（必须执行，不可跳过）:\n"
+            f"1. 实际验证: 你必须亲自验证每一项交付物，而不是仅凭项目记录判断。\n"
+            f"   - 代码/软件: 必须实际构建并运行，确认功能正常，无报错\n"
+            f"   - 文档/报告: 必须逐条核实内容的准确性和完整性\n"
+            f"   - 任何交付物: 以真实终端用户的标准测试，验证是否满足所有验收标准\n"
+            f"2. 逐条对照: 将每个验收标准逐一与实际输出对比，记录通过/不通过\n"
+            f"3. 质量抽查: 检查代码质量、边界情况处理、错误处理等\n"
+            f"4. 验收决定:\n"
+            f"   - 全部通过: 调用 accept_project(accepted=true)，附上验证证据\n"
+            f"   - 任一不通过: 调用 accept_project(accepted=false)，详细列出不通过项和具体问题，"
+            f"相关员工将被要求整改后重新提交\n\n"
             f"如果需要补充或调整验收标准，请先调用 set_acceptance_criteria() 更新。\n"
-            f"然后使用 accept_project() 工具来完成验收（accepted=true 表示通过，false 表示不通过）。\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
         officer_loop.push_task(acceptance_task, project_id=project_id, project_dir=project_dir)

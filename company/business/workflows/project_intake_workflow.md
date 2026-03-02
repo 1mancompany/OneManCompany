@@ -41,9 +41,15 @@
 - **Steps**:
   1. Project Manager assign tasks to teammates.
   2. Each member executes tasks according to their assigned roles
-  3. PM periodically checks progress against milestones
-  3. Request resources or plan adjustments from COO when encountering blockers
-- **Output**: Progress update records
+  3. **Self-Verification (MANDATORY before reporting completion)**:
+     - For code/software: Build and run it. Fix all errors until it runs successfully.
+     - For documents/reports: Re-read and verify all claims, data, and formatting.
+     - For any deliverable: Test it as a real end-user would. Verify it meets ALL acceptance criteria.
+     - Include verification evidence (test output, screenshots, run logs) in your result.
+     - Do NOT report a task as complete unless you have personally verified it works.
+  4. PM periodically checks progress against milestones
+  5. Request resources or plan adjustments from COO when encountering blockers
+- **Output**: Progress update records with verification evidence
 
 ## Phase 5: Project Acceptance & Rectification
 
