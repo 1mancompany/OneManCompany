@@ -151,7 +151,11 @@ _sandbox_lock = asyncio.Lock()
 
 
 async def _get_sandbox() -> Any:
-    """Lazy-create a Sandbox container on first tool use, reuse instance."""
+    """Lazy-create a Sandbox container on first tool use, reuse instance.
+
+    Mounts the company projects directory into the container at /projects
+    so that sandbox-generated files appear directly on the host filesystem.
+    """
     global _sandbox_instance
 
     async with _sandbox_lock:
@@ -160,14 +164,28 @@ async def _get_sandbox() -> Any:
 
         from opensandbox import Sandbox
         from opensandbox.config.connection import ConnectionConfig
+        from opensandbox.models.sandboxes import Host, Volume
+
+        from onemancompany.core.config import PROJECTS_DIR
 
         cfg = load_sandbox_config()
         protocol, domain = _parse_server_url(cfg["server_url"])
-
         conn = ConnectionConfig(protocol=protocol, domain=domain)
+
+        # Mount the host projects directory into the container
+        volumes = []
+        projects_path = str(PROJECTS_DIR.resolve())
+        volumes.append(Volume(
+            name="projects",
+            host=Host(path=projects_path),
+            mount_path="/projects",
+            read_only=False,
+        ))
+
         _sandbox_instance = await Sandbox.create(
             cfg["default_image"],
             connection_config=conn,
+            volumes=volumes,
         )
         return _sandbox_instance
 
@@ -226,6 +244,11 @@ async def sandbox_execute_code(code: str, language: str = "python") -> dict:
     Runs code using the OpenSandbox CodeInterpreter. Supports Python, JavaScript,
     and shell scripts. Returns stdout, stderr, and execution status.
 
+    The project workspace is mounted at /projects inside the container.
+    Files written there will appear on the host. For example, if your project
+    workspace path ends with "my-project/workspace", write to
+    "/projects/my-project/workspace/output.txt" inside the sandbox.
+
     Args:
         code: The source code to execute.
         language: Programming language — "python", "javascript", or "shell".
@@ -270,6 +293,9 @@ async def sandbox_run_command(command: str) -> dict:
 
     Executes an arbitrary shell command inside the isolated sandbox environment.
     Useful for installing packages, running build tools, or system operations.
+
+    The project workspace is mounted at /projects inside the container.
+    Files written there will appear on the host filesystem.
 
     Args:
         command: The shell command to execute.

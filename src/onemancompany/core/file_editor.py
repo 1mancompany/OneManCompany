@@ -32,7 +32,14 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
             if file_path.startswith("src/"):
                 p = PROJECT_ROOT / p
             else:
-                p = COMPANY_DIR / p
+                # Strip leading "company/" if present — COMPANY_DIR already
+                # points to the company/ directory, so "company/foo" would
+                # resolve to company/company/foo without this guard.
+                if file_path.startswith("company/"):
+                    file_path = file_path[len("company/"):]
+                    p = COMPANY_DIR / file_path
+                else:
+                    p = COMPANY_DIR / p
         p = p.resolve()
 
         # All employees can access company/

@@ -271,6 +271,12 @@ class PersistentAgentLoop:
             if project_dir:
                 task_with_ctx = f"{task.description}\n\n[Project workspace: {project_dir} — save all outputs here]"
 
+            # Inject project history context for all employees on named projects
+            if task.project_id:
+                proj_ctx = self._get_project_history_context(task.project_id)
+                if proj_ctx:
+                    task_with_ctx = f"{task_with_ctx}\n\n{proj_ctx}"
+
             # Inject workflow requirements for project tasks
             if task.project_id:
                 workflow_ctx = self._get_project_workflow_context(task)
@@ -442,6 +448,70 @@ class PersistentAgentLoop:
             parts.append(f"Earlier work summary: {self._history_summary}")
         for h in self.task_history:
             parts.append(f"- [{h['completed_at'][:10]}] Task: {h['task']}\n  Result: {h['result']}")
+        return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Project history context
+    # ------------------------------------------------------------------
+
+    def _get_project_history_context(self, project_id: str) -> str:
+        """Build project history context so every employee knows the project background.
+
+        For v2 named projects (with iterations), includes:
+        - Project name
+        - Previous iterations (task, status, output, acceptance criteria)
+        - Workspace file listing
+        For v1 projects, returns empty (no history to show).
+        """
+        from onemancompany.core.project_archive import (
+            _is_v1, _is_iteration, _find_project_for_iteration,
+            load_named_project, load_iteration, list_project_files,
+        )
+
+        # Resolve project slug
+        slug = project_id
+        current_iter = ""
+        if _is_iteration(project_id):
+            found = _find_project_for_iteration(project_id)
+            if not found:
+                return ""
+            slug = found
+            current_iter = project_id
+        elif _is_v1(project_id) or project_id.startswith("_auto_"):
+            return ""
+
+        proj = load_named_project(slug)
+        if not proj:
+            return ""
+
+        iterations = proj.get("iterations", [])
+        # Only show context if there's history (more than just the current iteration)
+        prev_iters = [i for i in iterations if i != current_iter]
+        if not prev_iters and not list_project_files(slug):
+            return ""
+
+        parts = [f"[Project Context] {proj.get('name', slug)}"]
+
+        if prev_iters:
+            parts.append("Previous iterations:")
+            for it_id in prev_iters[-5:]:
+                it = load_iteration(slug, it_id)
+                if not it:
+                    continue
+                status = it.get("status", "unknown")
+                task_desc = it.get("task", "")[:80]
+                output = (it.get("output") or "")[:120]
+                criteria = it.get("acceptance_criteria", [])
+                parts.append(f"  - {it_id} [{status}]: {task_desc}")
+                if output:
+                    parts.append(f"    Output: {output}")
+                if criteria:
+                    parts.append(f"    Criteria: {'; '.join(criteria[:3])}")
+
+        files = list_project_files(slug)
+        if files:
+            parts.append(f"Workspace files: {', '.join(files[:20])}")
+
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
@@ -713,12 +783,17 @@ class PersistentAgentLoop:
             await self._minimal_cleanup(project_id)
             return
 
-        # --- CASE C: No criteria at all → old behavior, full cleanup + retrospective ---
+        # --- CASE C: No criteria → check dispatches before running retrospective ---
         if not acceptance_criteria:
-            await self._full_cleanup(task, agent_error, project_id)
+            record_dispatch_completion(project_id, self.agent.employee_id)
+            if all_dispatches_complete(project_id):
+                await self._full_cleanup(task, agent_error, project_id)
+            else:
+                await self._minimal_cleanup(project_id)
             return
 
         # Fallback: criteria exist but rejected — just do minimal cleanup
+        record_dispatch_completion(project_id, self.agent.employee_id)
         await self._minimal_cleanup(project_id)
 
     async def _full_cleanup(self, task: AgentTask, agent_error: bool, project_id: str) -> None:

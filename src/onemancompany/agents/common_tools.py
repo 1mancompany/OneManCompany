@@ -197,14 +197,20 @@ def save_to_project(project_dir: str, filename: str, content: str) -> dict:
     from pathlib import Path
     from onemancompany.core.config import PROJECTS_DIR
 
-    # Extract project_id from the directory path
     project_path = Path(project_dir)
     if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
         return {"status": "error", "message": "Invalid project directory"}
 
-    project_id = project_path.name
-    from onemancompany.core.project_archive import save_project_file
-    return save_project_file(project_id, filename, content)
+    # Write directly to the workspace path (don't derive project_id from path)
+    file_path = project_path / filename
+    resolved = file_path.resolve()
+    if not str(resolved).startswith(str(project_path.resolve())):
+        return {"status": "error", "message": f"Path escapes project directory: {filename}"}
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content, encoding="utf-8")
+
+    return {"status": "ok", "path": str(file_path), "relative": filename}
 
 
 @tool
@@ -224,9 +230,14 @@ def list_project_workspace(project_dir: str) -> dict:
     if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
         return {"status": "error", "message": "Invalid project directory"}
 
-    project_id = project_path.name
-    from onemancompany.core.project_archive import list_project_files
-    return {"status": "ok", "project_id": project_id, "files": list_project_files(project_id)}
+    if not project_path.exists():
+        return {"status": "ok", "project_dir": project_dir, "files": []}
+
+    files = []
+    for p in sorted(project_path.rglob("*")):
+        if p.is_file():
+            files.append(str(p.relative_to(project_path)))
+    return {"status": "ok", "project_dir": project_dir, "files": files}
 
 
 @tool
