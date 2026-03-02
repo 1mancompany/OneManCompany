@@ -1,0 +1,13 @@
+completed_at: null
+created_at: '2026-03-02T13:46:25.306936'
+current_owner: pending
+output: null
+participants:
+- '00002'
+- '00003'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_134625_3c3116
+project_id: 20260302_134625_3c3116
+routed_to: pending
+status: in_progress
+task: 去掉opensandbox之外的tool
+timeline: []

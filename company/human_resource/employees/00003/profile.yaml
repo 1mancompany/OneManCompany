@@ -5,7 +5,7 @@ desk_position:
 - 0
 employee_number: '00003'
 level: 4
-llm_model: google/gemini-3.1-pro-preview
+llm_model: openai/gpt-5.2
 name: Alex COO
 nickname: 铁面侠
 performance_history: []

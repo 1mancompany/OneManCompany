@@ -89,6 +89,9 @@ def compute_layout(company_state) -> dict:
         "dept_end_row": DEPT_END_ROW,
     }
 
+    # Compute asset positions (tools & meeting rooms) below employee area
+    compute_asset_layout(company_state, layout)
+
     company_state.office_layout = layout
     return layout
 
@@ -256,6 +259,65 @@ def get_next_desk_for_department(company_state, department: str) -> tuple[int, i
 
     # All slots full — place at end of zone
     return (target_zone.start_col + 1, DEPT_DESK_ROWS[0])
+
+
+TOTAL_COLS = 20
+ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
+TOOL_SPACING_X = 3  # horizontal spacing between tools
+ROOM_SPACING_X = 4  # horizontal spacing between meeting rooms (room is 2 tiles wide)
+MIN_CANVAS_ROWS = 15
+
+
+def compute_asset_layout(company_state, layout: dict) -> None:
+    """Assign non-overlapping positions for tools and meeting rooms.
+
+    Places tools in a row below the employee area, meeting rooms below tools.
+    Updates positions in-place and sets layout['canvas_rows'].
+    """
+    # Asset area starts below the department zone
+    asset_start_gy = DEPT_END_ROW + 2  # gap after dept area
+
+    # --- Tools row ---
+    tool_list = list(company_state.tools.values())
+    tool_row_gy = asset_start_gy
+    max_tool_rows = 0
+    if tool_list:
+        col = 1
+        row_offset = 0
+        for tool in tool_list:
+            if col + 1 > TOTAL_COLS - 1:
+                col = 1
+                row_offset += ASSET_GAP_Y
+            tool.desk_position = (col, tool_row_gy + row_offset)
+            col += TOOL_SPACING_X
+        max_tool_rows = row_offset + 1
+
+    # --- Meeting rooms row (below tools) ---
+    room_list = list(company_state.meeting_rooms.values())
+    room_start_gy = tool_row_gy + max(max_tool_rows, 1) + 2 if tool_list else asset_start_gy
+    max_room_rows = 0
+    if room_list:
+        col = 1
+        row_offset = 0
+        for room in room_list:
+            if col + 2 > TOTAL_COLS - 1:
+                col = 1
+                row_offset += ASSET_GAP_Y + 1  # rooms are taller
+            room.position = (col, room_start_gy + row_offset)
+            col += ROOM_SPACING_X
+        max_room_rows = row_offset + 3  # rooms are 2 tiles + label
+
+    # Calculate required canvas rows (grid-y + 3 wall offset + padding)
+    max_gy = DEPT_END_ROW  # minimum
+    if tool_list:
+        max_gy = max(max_gy, tool_row_gy + max_tool_rows + 1)
+    if room_list:
+        max_gy = max(max_gy, room_start_gy + max_room_rows)
+
+    canvas_rows = max(MIN_CANVAS_ROWS, max_gy + 3 + 2)  # +3 for wall, +2 padding
+    layout["canvas_rows"] = canvas_rows
+    layout["tools_row"] = tool_row_gy
+    layout["rooms_row"] = room_start_gy
 
 
 def persist_all_desk_positions(company_state) -> None:

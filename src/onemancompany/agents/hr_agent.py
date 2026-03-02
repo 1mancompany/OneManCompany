@@ -224,11 +224,14 @@ class HRAgent(BaseAgentRunner):
     role = "HR"
     employee_id = HR_ID
 
-    async def run(self, task: str) -> str:
-        self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": "HR is processing..."})
+    def __init__(self) -> None:
+        self._agent = create_react_agent(
+            model=make_llm(self.employee_id),
+            tools=HIRING_TOOLS,
+        )
 
-        prompt = (
+    def _build_prompt(self) -> str:
+        return (
             HR_SYSTEM_PROMPT
             + self._get_skills_prompt_section()
             + self._get_tools_prompt_section()
@@ -237,14 +240,13 @@ class HRAgent(BaseAgentRunner):
             + self._get_guidance_prompt_section()
         )
 
-        agent = create_react_agent(
-            model=make_llm(self.employee_id),
-            tools=HIRING_TOOLS,
-        )
+    async def run(self, task: str) -> str:
+        self._set_status(STATUS_WORKING)
+        await self._publish("agent_thinking", {"message": "HR is processing..."})
 
-        result = await agent.ainvoke(
+        result = await self._agent.ainvoke(
             {"messages": [
-                SystemMessage(content=prompt),
+                SystemMessage(content=self._build_prompt()),
                 HumanMessage(content=task),
             ]}
         )
@@ -538,4 +540,5 @@ class HRAgent(BaseAgentRunner):
         return get_next_desk_for_department(company_state, department or "General")
 
 
-hr_agent = HRAgent()
+# Singleton removed — agent instances are now created and registered
+# in main.py lifespan via PersistentAgentLoop.

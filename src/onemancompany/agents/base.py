@@ -3,6 +3,9 @@
 from langchain_openai import ChatOpenAI
 
 from onemancompany.core.config import (
+    MAX_SUMMARY_LEN,
+    STATUS_IDLE,
+    STATUS_WORKING,
     employee_configs,
     load_employee_skills,
     settings,
@@ -93,11 +96,76 @@ class BaseAgentRunner:
 
     role: str = "agent"
     employee_id: str = ""  # maps to company_state.employees key
+    _agent = None  # subclasses set this to a LangGraph compiled graph
 
     async def _publish(self, event_type: str, payload: dict) -> None:
         await event_bus.publish(
             CompanyEvent(type=event_type, payload=payload, agent=self.role)
         )
+
+    async def run_streamed(self, task: str, on_log=None) -> str:
+        """Run agent with streaming, calling on_log(type, content) for each LLM step.
+
+        Uses astream_events to capture LLM input/output and tool calls in real time,
+        then returns the final AI message content.
+        Falls back to regular run() if _agent is not set or on_log is None.
+        """
+        if not self._agent or not on_log:
+            return await self.run(task)
+
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        self._set_status(STATUS_WORKING)
+        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
+
+        prompt = self._build_prompt()
+        messages_input = {
+            "messages": [
+                SystemMessage(content=prompt),
+                HumanMessage(content=task),
+            ]
+        }
+
+        final_content = ""
+        async for event in self._agent.astream_events(messages_input, version="v2"):
+            kind = event.get("event", "")
+            data = event.get("data", {})
+            if kind == "on_chat_model_start":
+                inp = data.get("input", "")
+                if isinstance(inp, list) and inp:
+                    last_msg = inp[-1]
+                    if hasattr(last_msg, "content"):
+                        content = last_msg.content or ""
+                        if isinstance(content, str):
+                            display = content[:300] + "..." if len(content) > 300 else content
+                            on_log("llm_input", f"[{type(last_msg).__name__}] {display}")
+            elif kind == "on_chat_model_end":
+                output = data.get("output", None)
+                if output and hasattr(output, "content"):
+                    content = output.content or ""
+                    if isinstance(content, str):
+                        final_content = content  # track last AI output
+                        display = content[:500] + "..." if len(content) > 500 else content
+                        on_log("llm_output", display)
+                    tool_calls = getattr(output, "tool_calls", None)
+                    if tool_calls:
+                        for tc in tool_calls:
+                            name = tc.get("name", "?")
+                            args = str(tc.get("args", {}))[:200]
+                            on_log("tool_call", f"{name}({args})")
+            elif kind == "on_tool_end":
+                output = data.get("output", "")
+                name = event.get("name", "tool")
+                result_str = str(output)[:300]
+                on_log("tool_result", f"{name} → {result_str}")
+
+        self._set_status(STATUS_IDLE)
+        await self._publish("agent_done", {"role": self.role, "summary": (final_content or "")[:MAX_SUMMARY_LEN]})
+        return final_content
+
+    def _build_prompt(self) -> str:
+        """Build the full system prompt. Override in subclasses if needed."""
+        return ""
 
     def _set_status(self, status: str) -> None:
         """Set this agent's employee status (idle/working/in_meeting)."""

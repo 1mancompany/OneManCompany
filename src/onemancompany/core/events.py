@@ -13,6 +13,8 @@ EventType = Literal[
     "ceo_task_submitted",
     "agent_thinking",
     "agent_done",
+    "agent_log",
+    "agent_task_update",
     "state_snapshot",
     "guidance_start",
     "guidance_noted",

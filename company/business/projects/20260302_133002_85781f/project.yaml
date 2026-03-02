@@ -1,0 +1,17 @@
+completed_at: null
+created_at: '2026-03-02T13:30:02.764284'
+current_owner: coo
+output: null
+participants:
+- '00002'
+- '00003'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260302_133002_85781f
+project_id: 20260302_133002_85781f
+routed_to: pending
+status: in_progress
+task: 去掉opensandbox之外的tool
+timeline:
+- action: COO task completed
+  detail: 'Error: name ''STATUS_WORKING'' is not defined'
+  employee_id: coo
+  time: '2026-03-02T13:30:29.806321'

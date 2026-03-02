@@ -204,7 +204,7 @@ async def _classify_task(task: str) -> str:
     from langchain_core.messages import HumanMessage, SystemMessage
     from onemancompany.agents.base import make_llm
 
-    llm = make_llm(HR_ID)
+    llm = make_llm(COO_ID)
     result = await llm.ainvoke([
         SystemMessage(content=(
             "You classify CEO tasks. Reply with EXACTLY one word: 'inquiry' or 'project'.\n"
@@ -357,9 +357,8 @@ async def _start_inquiry(task: str) -> dict:
 
 @router.post("/api/ceo/task")
 async def ceo_submit_task(body: dict) -> dict:
-    """CEO submits a task, routed to the appropriate agent."""
-    from onemancompany.agents.coo_agent import coo_agent
-    from onemancompany.agents.hr_agent import hr_agent
+    """CEO submits a task, routed to the appropriate agent via persistent loop."""
+    from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import create_project, get_project_dir
 
     task = body.get("task", "")
@@ -398,21 +397,34 @@ async def ceo_submit_task(body: dict) -> dict:
         if emp.level < FOUNDING_LEVEL:
             emp.status = STATUS_WORKING
 
-    # Simple keyword-based routing
+    # Simple keyword-based routing → push to agent's persistent loop
     task_lower = task.lower()
     if any(w in task_lower for w in HR_KEYWORDS):
         task_entry.routed_to = "HR"
-        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
-        asyncio.create_task(
-            _run_agent_safe(hr_agent.run(task_with_ctx), "HR", run_routine_after=task, project_id=pid)
-        )
+        loop = get_agent_loop(HR_ID)
+        if loop:
+            loop.push_task(task, project_id=pid, project_dir=pdir)
+        else:
+            # Fallback: direct fire-and-forget (should not happen)
+            from onemancompany.agents.hr_agent import HRAgent
+            _hr = HRAgent()
+            task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
+            asyncio.create_task(
+                _run_agent_safe(_hr.run(task_with_ctx), "HR", run_routine_after=task, project_id=pid)
+            )
         return {"routed_to": "HR", "status": "processing", "project_id": pid, "project_dir": pdir}
     else:
         task_entry.routed_to = "COO"
-        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
-        asyncio.create_task(
-            _run_agent_safe(coo_agent.run(task_with_ctx), "COO", run_routine_after=task, project_id=pid)
-        )
+        loop = get_agent_loop(COO_ID)
+        if loop:
+            loop.push_task(task, project_id=pid, project_dir=pdir)
+        else:
+            from onemancompany.agents.coo_agent import COOAgent
+            _coo = COOAgent()
+            task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
+            asyncio.create_task(
+                _run_agent_safe(_coo.run(task_with_ctx), "COO", run_routine_after=task, project_id=pid)
+            )
         return {"routed_to": "COO", "status": "processing", "project_id": pid, "project_dir": pdir}
 
 
@@ -571,7 +583,7 @@ async def get_meeting_rooms() -> dict:
 @router.post("/api/meeting/book")
 async def book_meeting(body: dict) -> dict:
     """Book a meeting room (routes to COO agent for approval)."""
-    from onemancompany.agents.coo_agent import coo_agent
+    from onemancompany.core.agent_loop import get_agent_loop
 
     employee_id = body.get("employee_id", "")
     participants = body.get("participants", [])
@@ -586,10 +598,16 @@ async def book_meeting(body: dict) -> dict:
         f"Purpose: {purpose or 'not specified'}. "
         f"Please check availability and process this request."
     )
-    asyncio.create_task(_run_agent_safe(
-        coo_agent.run(task), "COO",
-        task_description=f"Book meeting: {purpose or 'room request'}",
-    ))
+    loop = get_agent_loop(COO_ID)
+    if loop:
+        loop.push_task(task)
+    else:
+        from onemancompany.agents.coo_agent import COOAgent
+        _coo = COOAgent()
+        asyncio.create_task(_run_agent_safe(
+            _coo.run(task), "COO",
+            task_description=f"Book meeting: {purpose or 'room request'}",
+        ))
     return {"status": "processing", "message": "COO is processing the meeting room request"}
 
 
@@ -736,12 +754,51 @@ async def inquiry_end(body: dict) -> dict:
 
 @router.post("/api/hr/review")
 async def trigger_hr_review() -> dict:
-    from onemancompany.agents.hr_agent import hr_agent
+    from onemancompany.core.agent_loop import get_agent_loop
 
-    asyncio.create_task(_run_agent_safe(
-        hr_agent.run_quarterly_review(), "HR",
-        task_description="Quarterly performance review",
-    ))
+    loop = get_agent_loop(HR_ID)
+    if loop:
+        # Build review task description inline (same logic as run_quarterly_review)
+        from onemancompany.core.config import TASKS_PER_QUARTER
+        from onemancompany.core.state import LEVEL_NAMES
+
+        reviewable, not_ready = [], []
+        for e in company_state.employees.values():
+            hist_str = ", ".join(
+                f"Q{i+1}={h['score']}" for i, h in enumerate(e.performance_history)
+            ) or "no history"
+            info = (
+                f"- {e.name} (花名: {e.nickname}, ID: {e.id}, "
+                f"Title: {e.title}, Lv.{e.level} {LEVEL_NAMES.get(e.level, '')}, "
+                f"Q tasks: {e.current_quarter_tasks}/3, "
+                f"Performance history: [{hist_str}])"
+            )
+            if e.current_quarter_tasks >= TASKS_PER_QUARTER:
+                reviewable.append(info)
+            else:
+                not_ready.append(info)
+
+        parts = []
+        if reviewable:
+            parts.append("The following employees completed 3 tasks this quarter and are ready for review:\n" + "\n".join(reviewable))
+        if not_ready:
+            parts.append("The following employees have not completed 3 tasks yet:\n" + "\n".join(not_ready))
+
+        review_task = (
+            "Run a quarterly performance review.\n\n"
+            + "\n\n".join(parts)
+            + "\n\nFor each reviewable employee, give a score of 3.25, 3.5, or 3.75.\n"
+            "After the review, check for open positions and hire one new candidate."
+        )
+        loop.push_task(review_task)
+    else:
+        # Fallback
+        from onemancompany.agents.hr_agent import HRAgent
+        _hr = HRAgent()
+        asyncio.create_task(_run_agent_safe(
+            _hr.run_quarterly_review(), "HR",
+            task_description="Quarterly performance review",
+        ))
     return {"status": "HR review started"}
 
 
@@ -883,6 +940,107 @@ async def get_employee_detail(employee_id: str) -> dict:
     result = emp.to_dict()
     result["llm_model"] = llm_model
     return result
+
+
+@router.get("/api/employee/{employee_id}/taskboard")
+async def get_employee_taskboard(employee_id: str) -> dict:
+    """Get an agent's task board (per-agent tasks, not company-level)."""
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    loop = get_agent_loop(employee_id)
+    if not loop:
+        return {"tasks": []}
+    return {"tasks": loop.board.to_dict()}
+
+
+@router.get("/api/employee/{employee_id}/logs")
+async def get_employee_logs(employee_id: str) -> dict:
+    """Get execution logs for the agent's current (or most recent) task."""
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    loop = get_agent_loop(employee_id)
+    if not loop:
+        return {"logs": []}
+    # Return current task logs, or the last completed task's logs
+    if loop._current_task:
+        return {"logs": loop._current_task.logs[-50:]}
+    # Find most recent task with logs
+    for task in reversed(loop.board.tasks):
+        if task.logs:
+            return {"logs": task.logs[-50:]}
+    return {"logs": []}
+
+
+@router.post("/api/task/{project_id}/abort")
+async def abort_task(project_id: str) -> dict:
+    """Abort all agent tasks related to a project.
+
+    Cancels pending/in-progress tasks on all agent boards, removes from
+    company active_tasks, and broadcasts state update.
+    """
+    from onemancompany.core.agent_loop import agent_loops
+
+    total_cancelled = 0
+    for emp_id, loop in agent_loops.items():
+        cancelled = loop.board.cancel_by_project(project_id)
+        for t in cancelled:
+            loop._log(t, "cancelled", "Task aborted by CEO")
+            loop._publish_task_update(t)
+        total_cancelled += len(cancelled)
+
+    # Remove from company-level active_tasks
+    company_state.active_tasks = [
+        t for t in company_state.active_tasks if t.project_id != project_id
+    ]
+
+    # Broadcast state
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {"status": "ok", "cancelled": total_cancelled}
+
+
+@router.post("/api/employee/{employee_id}/task/{task_id}/cancel")
+async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
+    """Cancel a specific task (or sub-task) on an agent's board."""
+    from datetime import datetime
+
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    loop = get_agent_loop(employee_id)
+    if not loop:
+        return {"status": "error", "message": "Agent not found"}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Task not found"}
+
+    if task.status not in ("pending", "in_progress"):
+        return {"status": "error", "message": f"Task already {task.status}"}
+
+    task.status = "cancelled"
+    task.completed_at = datetime.now().isoformat()
+    task.result = "Cancelled by CEO"
+    loop._log(task, "cancelled", "CEO cancelled this task")
+    loop._publish_task_update(task)
+
+    # Also cancel pending sub-tasks
+    for sid in task.sub_task_ids:
+        sub = loop.board.get_task(sid)
+        if sub and sub.status in ("pending", "in_progress"):
+            sub.status = "cancelled"
+            sub.completed_at = datetime.now().isoformat()
+            sub.result = "Parent task cancelled by CEO"
+            loop._log(sub, "cancelled", "Parent task cancelled by CEO")
+            loop._publish_task_update(sub)
+
+    # Broadcast state
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {"status": "ok"}
 
 
 @router.put("/api/employee/{employee_id}/model")
@@ -1217,7 +1375,8 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     Request body validated by HireRequest (see boss_online.py for schema).
     """
-    from onemancompany.agents.hr_agent import hr_agent, pending_candidates
+    from onemancompany.agents.hr_agent import pending_candidates
+    from onemancompany.core.agent_loop import get_agent_loop
 
     candidates = pending_candidates.get(body.batch_id, [])
     candidate = next((c for c in candidates if c.get("id") == body.candidate_id), None)
@@ -1273,7 +1432,12 @@ async def hire_candidate(body: HireRequest) -> dict:
             "talent_id": candidate.get("talent_id", ""),
         },
     })
-    await hr_agent._apply_results(f"```json\n{hire_json}\n```")
+    hr_loop = get_agent_loop(HR_ID)
+    if hr_loop:
+        await hr_loop.agent._apply_results(f"```json\n{hire_json}\n```")
+    else:
+        from onemancompany.agents.hr_agent import HRAgent
+        await HRAgent()._apply_results(f"```json\n{hire_json}\n```")
     pending_candidates.pop(body.batch_id, None)
 
     # Explicit state broadcast to ensure frontend updates
