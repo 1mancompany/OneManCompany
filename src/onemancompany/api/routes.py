@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import traceback
+import uuid as _uuid
+from dataclasses import dataclass
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from onemancompany.agents.base import BaseAgentRunner
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
+    CEO_ID,
+    COO_ID,
     FOUNDING_LEVEL,
     HR_ID,
     HR_KEYWORDS,
@@ -24,15 +28,57 @@ from onemancompany.core.state import TaskEntry, company_state
 
 router = APIRouter()
 
+# ===== Inquiry Sessions =====
+
+@dataclass
+class InquirySession:
+    session_id: str
+    task: str
+    room_id: str
+    agent_role: str  # "HR" or "COO"
+    participants: list[str]
+    history: list[dict]  # [{role: 'ceo'|'agent', speaker: str, content: str}]
+
+_inquiry_sessions: dict[str, InquirySession] = {}
+
 
 async def _run_agent_safe(
-    coro, agent_name: str, run_routine_after: str = "", project_id: str = ""
+    coro,
+    agent_name: str,
+    task_description: str = "",
+    run_routine_after: str = "",
+    project_id: str = "",
+    project_dir: str = "",
 ) -> None:
     """Run an agent coroutine, catching and logging errors.
+
+    Automatically registers a TaskEntry in active_tasks so every running
+    agent task is visible in the task queue.  If *project_id* is empty a
+    lightweight placeholder ID is generated.
 
     If run_routine_after is set, trigger the company routine after the agent finishes.
     """
     from onemancompany.core.project_archive import append_action, complete_project
+    import uuid as _uuid
+
+    # --- Ensure a TaskEntry exists for this run ---
+    if not project_id:
+        project_id = f"_auto_{_uuid.uuid4().hex[:8]}"
+    # Only add if not already tracked (CEO task route may have added one)
+    already_tracked = any(t.project_id == project_id for t in company_state.active_tasks)
+    if not already_tracked:
+        company_state.active_tasks.append(
+            TaskEntry(
+                project_id=project_id,
+                task=task_description or f"{agent_name} task",
+                routed_to=agent_name,
+                project_dir=project_dir,
+            )
+        )
+        # Broadcast so frontend sees the new task immediately
+        await event_bus.publish(
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        )
 
     def _sync_task_owner(owner_id: str) -> None:
         """Sync current_owner on the in-memory TaskEntry."""
@@ -41,18 +87,22 @@ async def _run_agent_safe(
                 t.current_owner = owner_id
                 break
 
+    # Set the project_id context so propose_file_edit collects edits
+    from onemancompany.core.resolutions import current_project_id
+    ctx_token = current_project_id.set(project_id)
+
     agent_error = False
     try:
         result = await coro
         # Record agent output in project timeline
-        if project_id and result:
+        if not project_id.startswith("_auto_") and result:
             summary = result[:MAX_SUMMARY_LEN] if isinstance(result, str) else str(result)[:MAX_SUMMARY_LEN]
             append_action(project_id, agent_name.lower(), f"{agent_name} task completed", summary)
             _sync_task_owner(agent_name.lower())
     except Exception as e:
         agent_error = True
         traceback.print_exc()
-        if project_id:
+        if not project_id.startswith("_auto_"):
             append_action(project_id, agent_name.lower(), f"{agent_name} error", str(e)[:MAX_SUMMARY_LEN])
         await event_bus.publish(
             CompanyEvent(
@@ -60,6 +110,16 @@ async def _run_agent_safe(
                 payload={"role": agent_name, "summary": f"Error: {e!s}"},
                 agent=agent_name,
             )
+        )
+    finally:
+        current_project_id.reset(ctx_token)
+
+    # Create a resolution if any file edits were accumulated during the task
+    from onemancompany.core.resolutions import create_resolution
+    resolution = create_resolution(project_id, task_description)
+    if resolution:
+        await event_bus.publish(
+            CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
         )
 
     # Always run routine (retrospective is valuable even after errors)
@@ -69,7 +129,7 @@ async def _run_agent_safe(
             await run_post_task_routine(run_routine_after, project_id=project_id)
         except Exception as e:
             traceback.print_exc()
-            if project_id:
+            if not project_id.startswith("_auto_"):
                 append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
             await event_bus.publish(
                 CompanyEvent(
@@ -79,16 +139,19 @@ async def _run_agent_safe(
                 )
             )
 
+    # Cleanup sandbox container after each task
+    from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
+    await _cleanup_sandbox()
+
     # Cleanup always runs — reset employees, remove tasks, complete project
     for emp in company_state.employees.values():
         emp.status = STATUS_IDLE
 
-    if project_id:
-        company_state.active_tasks = [
-            t for t in company_state.active_tasks if t.project_id != project_id
-        ]
+    company_state.active_tasks = [
+        t for t in company_state.active_tasks if t.project_id != project_id
+    ]
 
-    if project_id:
+    if not project_id.startswith("_auto_"):
         label = run_routine_after or "Task completed"
         if agent_error:
             label = f"{label} (with errors)"
@@ -123,6 +186,162 @@ async def get_state() -> dict:
     return company_state.to_json()
 
 
+async def _classify_task(task: str) -> str:
+    """Use a short LLM call to classify a CEO task as 'inquiry' or 'project'."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from onemancompany.agents.base import make_llm
+
+    llm = make_llm(HR_ID)
+    result = await llm.ainvoke([
+        SystemMessage(content=(
+            "You classify CEO tasks. Reply with EXACTLY one word: 'inquiry' or 'project'.\n"
+            "- 'inquiry': The CEO is asking a question, seeking information, or wants to discuss/understand something. "
+            "Examples: 'tell me about employee X', 'what are our current tools?', 'how is project Y going?'\n"
+            "- 'project': The CEO wants work done — hiring, creating tools, running processes, building things. "
+            "Examples: 'hire a Python engineer', 'add a code review tool', 'review all employees'\n"
+            "If ambiguous, default to 'project'."
+        )),
+        HumanMessage(content=task),
+    ])
+    answer = result.content.strip().lower()
+    return "inquiry" if "inquiry" in answer else "project"
+
+
+async def _start_inquiry(task: str) -> dict:
+    """Start an inquiry session: book a room, get initial answer, return session info."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt
+
+    # Route to HR or COO via keyword logic
+    task_lower = task.lower()
+    if any(w in task_lower for w in HR_KEYWORDS):
+        agent_role = "HR"
+        agent_id = HR_ID
+    else:
+        agent_role = "COO"
+        agent_id = COO_ID
+
+    emp = company_state.employees.get(agent_id)
+
+    # Book a meeting room
+    room = None
+    for r in company_state.meeting_rooms.values():
+        if not r.is_booked:
+            room = r
+            break
+    if not room:
+        return {"error": "No meeting rooms available"}
+
+    room.is_booked = True
+    room.booked_by = CEO_ID
+    room.participants = [CEO_ID, agent_id]
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="meeting_booked",
+            payload={"room_id": room.id, "room_name": room.name, "participants": room.participants},
+            agent="CEO",
+        )
+    )
+
+    # Build agent system prompt
+    skills_str = ", ".join(emp.skills) if emp and emp.skills else "general"
+    principles_section = f"\nYour work principles:\n{emp.work_principles}" if emp and emp.work_principles else ""
+    culture_items = company_state.company_culture
+    culture_section = ""
+    if culture_items:
+        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
+        culture_section = f"\nCompany culture:\n{rules}"
+
+    skills_section = get_employee_skills_prompt(agent_id)
+    tools_section = get_employee_tools_prompt(agent_id)
+
+    # Colleague info
+    colleagues = []
+    for e in company_state.employees.values():
+        if e.id not in (CEO_ID, agent_id):
+            colleagues.append(f"  - {e.name} ({e.nickname}): {e.role}, {e.department}")
+    colleagues_section = "\nColleagues:\n" + "\n".join(colleagues) if colleagues else ""
+
+    system_prompt = (
+        f"You are {emp.name} ({emp.nickname}), the company {agent_role}. "
+        f"Skills: {skills_str}. "
+        f"You are in a meeting room with the CEO answering their inquiry. "
+        f"Be helpful, concise, and knowledgeable. Use your expertise and awareness of company operations."
+        f"{principles_section}{culture_section}{skills_section}{tools_section}{colleagues_section}"
+    )
+
+    # Publish CEO question as meeting_chat
+    await event_bus.publish(
+        CompanyEvent(
+            type="meeting_chat",
+            payload={"room_id": room.id, "speaker": "CEO", "role": "CEO", "message": task},
+            agent="CEO",
+        )
+    )
+
+    # LLM generates initial answer
+    llm = make_llm(agent_id)
+    result = await llm.ainvoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=task),
+    ])
+    answer = result.content
+
+    # Publish agent response as meeting_chat
+    speaker_name = emp.name if emp else agent_role
+    await event_bus.publish(
+        CompanyEvent(
+            type="meeting_chat",
+            payload={"room_id": room.id, "speaker": speaker_name, "role": agent_role, "message": answer},
+            agent=agent_role,
+        )
+    )
+
+    # Create and store session
+    session_id = _uuid.uuid4().hex[:12]
+    session = InquirySession(
+        session_id=session_id,
+        task=task,
+        room_id=room.id,
+        agent_role=agent_role,
+        participants=[CEO_ID, agent_id],
+        history=[
+            {"role": "ceo", "speaker": "CEO", "content": task},
+            {"role": "agent", "speaker": speaker_name, "content": answer},
+        ],
+    )
+    session._system_prompt = system_prompt  # stash for follow-up chats
+    _inquiry_sessions[session_id] = session
+
+    # Publish inquiry_started event
+    await event_bus.publish(
+        CompanyEvent(
+            type="inquiry_started",
+            payload={
+                "session_id": session_id,
+                "room_id": room.id,
+                "agent_role": agent_role,
+                "task": task,
+            },
+            agent="CEO",
+        )
+    )
+
+    # Broadcast state so frontend sees the booked room
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {
+        "task_type": "inquiry",
+        "session_id": session_id,
+        "room_id": room.id,
+        "agent_role": agent_role,
+        "status": "inquiry_active",
+    }
+
+
 @router.post("/api/ceo/task")
 async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent."""
@@ -141,6 +360,12 @@ async def ceo_submit_task(body: dict) -> dict:
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
     )
 
+    # Classify as inquiry vs project
+    task_type = await _classify_task(task)
+    if task_type == "inquiry":
+        return await _start_inquiry(task)
+
+    # --- Project flow (unchanged) ---
     # Set all normal employees to "working" during task
     for emp in company_state.employees.values():
         if emp.level < FOUNDING_LEVEL:
@@ -338,7 +563,10 @@ async def book_meeting(body: dict) -> dict:
         f"Purpose: {purpose or 'not specified'}. "
         f"Please check availability and process this request."
     )
-    asyncio.create_task(_run_agent_safe(coo_agent.run(task), "COO"))
+    asyncio.create_task(_run_agent_safe(
+        coo_agent.run(task), "COO",
+        task_description=f"Book meeting: {purpose or 'room request'}",
+    ))
     return {"status": "processing", "message": "COO is processing the meeting room request"}
 
 
@@ -374,11 +602,147 @@ async def release_meeting(body: dict) -> dict:
     return {"status": "released", "room_name": room.name}
 
 
+# ===== Inquiry Chat Endpoints =====
+
+@router.post("/api/inquiry/chat")
+async def inquiry_chat(body: dict) -> dict:
+    """CEO sends a follow-up message in an active inquiry session."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from onemancompany.agents.base import make_llm
+
+    session_id = body.get("session_id", "")
+    message = body.get("message", "")
+
+    if not session_id or not message:
+        return {"error": "Missing session_id or message"}
+
+    session = _inquiry_sessions.get(session_id)
+    if not session:
+        return {"error": "Inquiry session not found"}
+
+    agent_id = HR_ID if session.agent_role == "HR" else COO_ID
+    emp = company_state.employees.get(agent_id)
+    speaker_name = emp.name if emp else session.agent_role
+
+    # Publish CEO message as meeting_chat
+    await event_bus.publish(
+        CompanyEvent(
+            type="meeting_chat",
+            payload={"room_id": session.room_id, "speaker": "CEO", "role": "CEO", "message": message},
+            agent="CEO",
+        )
+    )
+
+    # Build LangChain messages from session history
+    system_prompt = getattr(session, "_system_prompt", f"You are the company {session.agent_role}.")
+    messages = [SystemMessage(content=system_prompt)]
+    for entry in session.history:
+        if entry["role"] == "ceo":
+            messages.append(HumanMessage(content=entry["content"]))
+        else:
+            messages.append(AIMessage(content=entry["content"]))
+    messages.append(HumanMessage(content=message))
+
+    llm = make_llm(agent_id)
+    result = await llm.ainvoke(messages)
+    answer = result.content
+
+    # Publish agent response as meeting_chat
+    await event_bus.publish(
+        CompanyEvent(
+            type="meeting_chat",
+            payload={"room_id": session.room_id, "speaker": speaker_name, "role": session.agent_role, "message": answer},
+            agent=session.agent_role,
+        )
+    )
+
+    # Update session history
+    session.history.append({"role": "ceo", "speaker": "CEO", "content": message})
+    session.history.append({"role": "agent", "speaker": speaker_name, "content": answer})
+
+    return {"response": answer, "speaker": speaker_name}
+
+
+@router.post("/api/inquiry/end")
+async def inquiry_end(body: dict) -> dict:
+    """End an inquiry session: release room, save CEO questions as guidance."""
+    session_id = body.get("session_id", "")
+
+    if not session_id:
+        return {"error": "Missing session_id"}
+
+    session = _inquiry_sessions.get(session_id)
+    if not session:
+        return {"error": "Inquiry session not found"}
+
+    agent_id = HR_ID if session.agent_role == "HR" else COO_ID
+
+    # Release the meeting room
+    room = company_state.meeting_rooms.get(session.room_id)
+    if room and room.is_booked:
+        room.is_booked = False
+        room.booked_by = ""
+        room.participants = []
+        await event_bus.publish(
+            CompanyEvent(
+                type="meeting_released",
+                payload={"room_id": room.id, "room_name": room.name},
+                agent="CEO",
+            )
+        )
+
+    # Save CEO questions as guidance notes on the agent
+    emp = company_state.employees.get(agent_id)
+    if emp:
+        ceo_questions = [e["content"] for e in session.history if e["role"] == "ceo"]
+        if ceo_questions:
+            from onemancompany.core.config import EMPLOYEES_DIR
+            import yaml
+
+            guidance_path = EMPLOYEES_DIR / agent_id / "guidance.yaml"
+            existing = []
+            if guidance_path.exists():
+                with open(guidance_path) as f:
+                    data = yaml.safe_load(f)
+                if isinstance(data, list):
+                    existing = data
+            for q in ceo_questions:
+                note = f"[Inquiry] {q}"
+                if note not in existing:
+                    existing.append(note)
+            guidance_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(guidance_path, "w") as f:
+                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
+            emp.guidance_notes = existing
+
+    # Publish inquiry_ended event
+    await event_bus.publish(
+        CompanyEvent(
+            type="inquiry_ended",
+            payload={"session_id": session_id, "room_id": session.room_id, "agent_role": session.agent_role},
+            agent="CEO",
+        )
+    )
+
+    # Remove session
+    _inquiry_sessions.pop(session_id, None)
+
+    # Broadcast state
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {"status": "ended", "session_id": session_id}
+
+
 @router.post("/api/hr/review")
 async def trigger_hr_review() -> dict:
     from onemancompany.agents.hr_agent import hr_agent
 
-    asyncio.create_task(_run_agent_safe(hr_agent.run_quarterly_review(), "HR"))
+    asyncio.create_task(_run_agent_safe(
+        hr_agent.run_quarterly_review(), "HR",
+        task_description="Quarterly performance review",
+    ))
     return {"status": "HR review started"}
 
 
@@ -389,9 +753,10 @@ async def start_routine(body: dict) -> dict:
 
     task_summary = body.get("task_summary", "Routine task completed")
     participants = body.get("participants")  # None = all employees
-    asyncio.create_task(
-        _run_agent_safe(run_post_task_routine(task_summary, participants), "ROUTINE")
-    )
+    asyncio.create_task(_run_agent_safe(
+        run_post_task_routine(task_summary, participants), "ROUTINE",
+        task_description=f"Post-task routine: {task_summary[:50]}",
+    ))
     return {"status": "routine_started"}
 
 
@@ -405,9 +770,10 @@ async def approve_routine_actions(body: dict) -> dict:
     if not report_id:
         return {"error": "Missing report_id"}
 
-    asyncio.create_task(
-        _run_agent_safe(execute_approved_actions(report_id, approved_indices), "ROUTINE")
-    )
+    asyncio.create_task(_run_agent_safe(
+        execute_approved_actions(report_id, approved_indices), "ROUTINE",
+        task_description="Execute approved actions",
+    ))
     return {"status": "executing_approved_actions"}
 
 
@@ -420,9 +786,10 @@ async def start_all_hands(body: dict) -> dict:
     if not message:
         return {"error": "Missing CEO message"}
 
-    asyncio.create_task(
-        _run_agent_safe(run_all_hands_meeting(message), "ROUTINE")
-    )
+    asyncio.create_task(_run_agent_safe(
+        run_all_hands_meeting(message), "ROUTINE",
+        task_description=f"All-hands meeting: {message[:50]}",
+    ))
     return {"status": "all_hands_started"}
 
 
@@ -667,6 +1034,77 @@ async def reject_file_edit(edit_id: str) -> dict:
             agent="CEO",
         )
     )
+    return result
+
+
+# ===== Resolutions (Batch File-Edit Review) =====
+
+@router.get("/api/resolutions/deferred")
+async def get_deferred_edits() -> dict:
+    """List all deferred edits across all resolutions."""
+    from onemancompany.core.resolutions import list_deferred_edits
+    return {"edits": list_deferred_edits()}
+
+
+@router.get("/api/resolutions")
+async def get_resolutions() -> dict:
+    """List all resolutions (summary view)."""
+    from onemancompany.core.resolutions import list_resolutions
+    return {"resolutions": list_resolutions()}
+
+
+@router.get("/api/resolutions/{resolution_id}")
+async def get_resolution_detail(resolution_id: str) -> dict:
+    """Get full resolution detail including all edits."""
+    from onemancompany.core.resolutions import load_resolution
+    data = load_resolution(resolution_id)
+    if not data:
+        return {"error": "Resolution not found"}
+    return data
+
+
+@router.post("/api/resolutions/{resolution_id}/decide")
+async def decide_on_resolution(resolution_id: str, body: dict) -> dict:
+    """CEO submits decisions for each edit in a resolution.
+
+    Body: { "decisions": { "edit_id": "approve"|"reject"|"defer", ... } }
+    """
+    from onemancompany.core.resolutions import decide_resolution
+
+    decisions = body.get("decisions", {})
+    if not decisions:
+        return {"error": "No decisions provided"}
+
+    result = decide_resolution(resolution_id, decisions)
+    if result.get("status") == "ok":
+        await event_bus.publish(
+            CompanyEvent(
+                type="resolution_decided",
+                payload={"resolution_id": resolution_id, "results": result.get("results", [])},
+                agent="CEO",
+            )
+        )
+    return result
+
+
+@router.post("/api/resolutions/deferred/{resolution_id}/{edit_id}/execute")
+async def execute_deferred(resolution_id: str, edit_id: str) -> dict:
+    """Execute a previously deferred edit (checks MD5 staleness)."""
+    from onemancompany.core.resolutions import execute_deferred_edit
+
+    result = execute_deferred_edit(resolution_id, edit_id)
+    if result.get("status") == "ok":
+        await event_bus.publish(
+            CompanyEvent(
+                type="file_edit_applied",
+                payload={
+                    "edit_id": edit_id,
+                    "rel_path": result.get("rel_path", ""),
+                    "backup_path": result.get("backup_path"),
+                },
+                agent="CEO",
+            )
+        )
     return result
 
 

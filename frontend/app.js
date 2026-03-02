@@ -14,6 +14,9 @@ class AppController {
     // Review queue — items shown one by one with counter
     this.reviewQueue = [];      // [{type, data, decision?}]
     this._reviewIndex = 0;      // current item index in reviewQueue
+    // Inquiry session state
+    this._inquirySessionId = null;
+    this._inquiryRoomId = null;
     this.connect();
     this.bindUI();
     this.bindCollapsibles();
@@ -87,6 +90,8 @@ class AppController {
       if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
+      // Refresh deferred resolutions panel
+      this._refreshDeferredPanel();
     }
 
     // Log the event
@@ -144,6 +149,22 @@ class AppController {
       },
       'file_edit_applied':   (p) => ({ text: `✅ File updated: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
       'file_edit_rejected':  (p) => ({ text: `❌ File edit rejected: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
+      'resolution_ready':    (p) => {
+        this._showResolutionModal(p);
+        return { text: `📋 Resolution ready: ${(p.edits || []).length} file edit(s) for review`, cls: 'ceo', agent: 'SYSTEM' };
+      },
+      'resolution_decided':  (p) => {
+        this._refreshDeferredPanel();
+        return { text: `✅ Resolution decided`, cls: 'ceo', agent: 'CEO' };
+      },
+      'inquiry_started':     (p) => {
+        this._startInquiryMode(p, msg.state);
+        return { text: `🔍 Inquiry started with ${p.agent_role} in meeting room`, cls: 'ceo', agent: 'CEO' };
+      },
+      'inquiry_ended':       (p) => {
+        this._endInquiryMode();
+        return { text: `🔍 Inquiry ended`, cls: 'ceo', agent: 'CEO' };
+      },
     };
 
     const formatter = formatters[msg.type];
@@ -447,11 +468,29 @@ class AppController {
     document.getElementById('review-approve-btn').addEventListener('click', () => this._reviewApprove());
     document.getElementById('review-reject-btn').addEventListener('click', () => this._reviewReject());
 
+    // Resolution review modal bindings
+    document.getElementById('resolution-close-btn').addEventListener('click', () => this._closeResolutionModal());
+    document.getElementById('resolution-cancel-btn').addEventListener('click', () => this._closeResolutionModal());
+    document.getElementById('resolution-submit-btn').addEventListener('click', () => this._submitResolutionDecisions());
+    document.getElementById('resolution-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'resolution-modal') this._closeResolutionModal();
+    });
+
     // Meeting room modal bindings
     document.getElementById('meeting-close-btn').addEventListener('click', () => this.closeMeetingRoom());
     document.getElementById('meeting-modal').addEventListener('click', (e) => {
       if (e.target.id === 'meeting-modal') this.closeMeetingRoom();
     });
+
+    // Inquiry chat bindings (inside meeting modal)
+    document.getElementById('meeting-inquiry-send-btn').addEventListener('click', () => this._sendInquiryMessage());
+    document.getElementById('meeting-inquiry-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._sendInquiryMessage();
+      }
+    });
+    document.getElementById('meeting-inquiry-end-btn').addEventListener('click', () => this._endInquirySession());
 
     // Employee detail modal bindings
     document.getElementById('employee-close-btn').addEventListener('click', () => this.closeEmployeeDetail());
@@ -518,11 +557,6 @@ class AppController {
     document.getElementById('project-modal').addEventListener('click', (e) => {
       if (e.target.id === 'project-modal') this.closeProjectWall();
     });
-    document.getElementById('project-back-btn').addEventListener('click', () => {
-      document.getElementById('project-detail').classList.add('hidden');
-      document.getElementById('project-list').classList.remove('hidden');
-    });
-
     // Workflow modal bindings
     document.getElementById('workflow-close-btn').addEventListener('click', () => this.closeWorkflowPanel());
     document.getElementById('workflow-cancel-btn').addEventListener('click', () => this.closeWorkflowPanel());
@@ -1576,6 +1610,144 @@ class AppController {
     }
   }
 
+  // ===== Resolution Review Modal =====
+
+  _showResolutionModal(resolution) {
+    this._currentResolution = resolution;
+    const modal = document.getElementById('resolution-modal');
+    const taskInfo = document.getElementById('resolution-task-info');
+    const editsEl = document.getElementById('resolution-edits');
+
+    taskInfo.innerHTML = `
+      <div class="res-task-label">Task: <span class="res-task-text">${this._escapeHtml(resolution.task || '')}</span></div>
+      <div class="res-meta">Project: ${this._escapeHtml(resolution.project_id || '')} &middot; ${(resolution.edits || []).length} edit(s)</div>
+    `;
+
+    let html = '';
+    for (const edit of (resolution.edits || [])) {
+      html += `<div class="res-edit-card" data-edit-id="${this._escapeHtml(edit.edit_id)}">`;
+      html += `<div class="res-edit-header">`;
+      html += `<span class="res-edit-file">${this._escapeHtml(edit.rel_path || '')}</span>`;
+      html += `<span class="res-edit-by">by ${this._escapeHtml(edit.proposed_by || 'agent')}</span>`;
+      html += `</div>`;
+      html += `<div class="res-edit-reason">${this._escapeHtml(edit.reason || '')}</div>`;
+      html += this._buildDiffView(edit.old_content || '', edit.new_content || '');
+      html += `<div class="res-edit-actions">`;
+      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="approve" checked> Approve</label>`;
+      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="reject"> Reject</label>`;
+      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="defer"> Defer</label>`;
+      html += `</div>`;
+      html += `</div>`;
+    }
+    editsEl.innerHTML = html;
+    modal.classList.remove('hidden');
+  }
+
+  _closeResolutionModal() {
+    document.getElementById('resolution-modal').classList.add('hidden');
+    this._currentResolution = null;
+  }
+
+  _submitResolutionDecisions() {
+    const resolution = this._currentResolution;
+    if (!resolution) return;
+
+    const decisions = {};
+    for (const edit of (resolution.edits || [])) {
+      const selected = document.querySelector(`input[name="decision_${edit.edit_id}"]:checked`);
+      if (selected) {
+        decisions[edit.edit_id] = selected.value;
+      }
+    }
+
+    const btn = document.getElementById('resolution-submit-btn');
+    btn.disabled = true;
+
+    fetch(`/api/resolutions/${encodeURIComponent(resolution.resolution_id)}/decide`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisions }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'error') {
+          this.logEntry('SYSTEM', `Resolution error: ${data.message}`, 'system');
+        } else {
+          const results = data.results || [];
+          const approved = results.filter(r => r.decision === 'approve').length;
+          const rejected = results.filter(r => r.decision === 'reject').length;
+          const deferred = results.filter(r => r.decision === 'defer').length;
+          this.logEntry('CEO', `Resolution decided: ${approved} approved, ${rejected} rejected, ${deferred} deferred`, 'ceo');
+          this._refreshDeferredPanel();
+        }
+        this._closeResolutionModal();
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Resolution submit failed: ${err.message}`, 'system');
+      })
+      .finally(() => {
+        btn.disabled = false;
+      });
+  }
+
+  // ===== Deferred Resolutions Panel =====
+
+  _refreshDeferredPanel() {
+    fetch('/api/resolutions/deferred')
+      .then(r => r.json())
+      .then(data => {
+        const list = document.getElementById('deferred-list');
+        const edits = data.edits || [];
+        if (edits.length === 0) {
+          list.innerHTML = '<div class="deferred-empty">No deferred edits</div>';
+          return;
+        }
+        let html = '';
+        for (const edit of edits) {
+          const expiredBadge = edit.expired
+            ? '<span class="deferred-expired">EXPIRED</span>'
+            : '<span class="deferred-active">ACTIVE</span>';
+          html += `<div class="deferred-card${edit.expired ? ' expired' : ''}">`;
+          html += `<div class="deferred-card-header">`;
+          html += `<span class="deferred-file">${this._escapeHtml(edit.rel_path || '')}</span>`;
+          html += expiredBadge;
+          html += `</div>`;
+          html += `<div class="deferred-reason">${this._escapeHtml(edit.reason || '')}</div>`;
+          if (!edit.expired) {
+            html += `<button class="pixel-btn small deferred-exec-btn" data-res-id="${this._escapeHtml(edit.resolution_id)}" data-edit-id="${this._escapeHtml(edit.edit_id)}">Execute</button>`;
+          }
+          html += `</div>`;
+        }
+        list.innerHTML = html;
+
+        // Bind execute buttons
+        list.querySelectorAll('.deferred-exec-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const resId = btn.dataset.resId;
+            const editId = btn.dataset.editId;
+            btn.disabled = true;
+            fetch(`/api/resolutions/deferred/${encodeURIComponent(resId)}/${encodeURIComponent(editId)}/execute`, {
+              method: 'POST',
+            })
+              .then(r => r.json())
+              .then(result => {
+                if (result.status === 'error') {
+                  this.logEntry('SYSTEM', `Deferred exec failed: ${result.message}`, 'system');
+                } else {
+                  this.logEntry('CEO', `Deferred edit executed: ${result.rel_path || editId}`, 'ceo');
+                }
+                this._refreshDeferredPanel();
+              })
+              .catch(err => {
+                this.logEntry('SYSTEM', `Deferred exec failed: ${err.message}`, 'system');
+                btn.disabled = false;
+              });
+          });
+        });
+      })
+      .catch(() => {});
+  }
+
   // ===== Workflow Viewer/Editor =====
   openWorkflowPanel() {
     const modal = document.getElementById('workflow-modal');
@@ -1772,6 +1944,14 @@ class AppController {
   }
 
   closeMeetingRoom() {
+    // If inquiry is active in this room, end it
+    if (this._inquirySessionId && this._inquiryRoomId === this.viewingRoomId) {
+      this._endInquirySession();
+    }
+    // Hide inquiry UI elements
+    document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
+    document.getElementById('meeting-inquiry-typing').classList.add('hidden');
+    document.getElementById('meeting-inquiry-actions').classList.add('hidden');
     this.viewingRoomId = null;
     document.getElementById('meeting-modal').classList.add('hidden');
   }
@@ -1792,6 +1972,91 @@ class AppController {
     chatEl.appendChild(div);
     // Auto-scroll to bottom
     chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // ===== Inquiry Session =====
+  _startInquiryMode(payload, state) {
+    this._inquirySessionId = payload.session_id;
+    this._inquiryRoomId = payload.room_id;
+
+    // Find the room from state
+    const rooms = (state && state.meeting_rooms) || [];
+    const room = rooms.find(r => r.id === payload.room_id);
+    if (room) {
+      this.openMeetingRoom(room);
+    }
+
+    // Show inquiry input area and actions
+    document.getElementById('meeting-inquiry-input-area').classList.remove('hidden');
+    document.getElementById('meeting-inquiry-actions').classList.remove('hidden');
+    document.getElementById('meeting-inquiry-input').focus();
+  }
+
+  _sendInquiryMessage() {
+    const input = document.getElementById('meeting-inquiry-input');
+    const message = input.value.trim();
+    if (!message || !this._inquirySessionId) return;
+
+    input.value = '';
+    const sendBtn = document.getElementById('meeting-inquiry-send-btn');
+    sendBtn.disabled = true;
+
+    // Show typing indicator
+    document.getElementById('meeting-inquiry-typing').classList.remove('hidden');
+
+    fetch('/api/inquiry/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: this._inquirySessionId, message }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Inquiry error: ${data.error}`, 'system');
+        }
+        // Chat messages arrive via WebSocket meeting_chat events
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Inquiry failed: ${err.message}`, 'system');
+      })
+      .finally(() => {
+        sendBtn.disabled = false;
+        document.getElementById('meeting-inquiry-typing').classList.add('hidden');
+        input.focus();
+      });
+  }
+
+  _endInquirySession() {
+    if (!this._inquirySessionId) return;
+
+    const endBtn = document.getElementById('meeting-inquiry-end-btn');
+    endBtn.disabled = true;
+
+    fetch('/api/inquiry/end', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: this._inquirySessionId }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `End inquiry error: ${data.error}`, 'system');
+        }
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `End inquiry failed: ${err.message}`, 'system');
+      })
+      .finally(() => {
+        endBtn.disabled = false;
+      });
+  }
+
+  _endInquiryMode() {
+    this._inquirySessionId = null;
+    this._inquiryRoomId = null;
+    document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
+    document.getElementById('meeting-inquiry-typing').classList.add('hidden');
+    document.getElementById('meeting-inquiry-actions').classList.add('hidden');
   }
 
   // ===== Ex-Employee Wall =====
@@ -2108,7 +2373,11 @@ class AppController {
     })
       .then(r => r.json())
       .then(data => {
-        this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
+        if (data.task_type === 'inquiry') {
+          this.logEntry('CEO', `Inquiry started with ${data.agent_role}`, 'ceo');
+        } else {
+          this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
+        }
       })
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');

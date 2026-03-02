@@ -21,7 +21,7 @@
 - **Responsible**: Each participating employee
 - **Steps**:
   1. Each employee conducts a self-evaluation of their performance on the project
-  2. Self-evaluation covers: personal contribution, work efficiency, errors made, areas for improvement
+  2. Self-evaluation covers: personal contribution, work efficiency, errors made, areas for improvement, and any rectifications made during the Acceptance phase
   3. Submit self-evaluation report
 - **Output**: Employee self-evaluation report (per person)
 
@@ -30,7 +30,7 @@
 - **Responsible**: Lv.3 and above employees
 - **Steps**:
   1. Senior employees evaluate the work of junior employees
-  2. Evaluation dimensions: work efficiency, work quality, whether mistakes were made
+  2. Evaluation dimensions: work efficiency, work quality, whether mistakes were made, and how well rectifications were handled
   3. Evaluations must be objective and fair, with specific suggestions
 - **Output**: Peer review report
 
@@ -39,7 +39,7 @@
 - **Responsible**: HR
 - **Steps**:
   1. Consolidate self-evaluation and peer review results
-  2. Summarize 1-3 specific improvement suggestions for each employee
+  2. Summarize 1-3 specific improvement suggestions for each employee, especially focusing on avoiding issues that caused rectifications
   3. Send improvement suggestions to the corresponding employees
   4. Employees internalize the feedback and incorporate it into future work
 - **Output**: Employee improvement suggestions list
@@ -49,7 +49,7 @@
 - **Responsible**: COO
 - **Steps**:
   1. Produce a company operations status report based on project completion
-  2. Report covers: project completion rate, resource utilization, potential risks
+  2. Report covers: project completion rate, resource utilization, potential risks, and analysis of any acceptance failures/rectifications
 - **Output**: Operations status report
 
 ## Phase 6: Employee Open Floor

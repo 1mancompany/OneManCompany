@@ -21,6 +21,14 @@
         <div id="task-panel-list"></div>
       </div>
 
+      <div class="collapsible-header" data-target="deferred-body">
+        <span class="collapse-arrow">&#9660;</span>
+        <h3 class="pixel-title">PENDING RESOLUTIONS</h3>
+      </div>
+      <div id="deferred-body" class="collapsible-body">
+        <div id="deferred-list"></div>
+      </div>
+
       <div class="collapsible-header" data-target="roster-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">TEAM ROSTER</h3>
@@ -47,7 +55,6 @@
           <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
-          <button id="reload-toolbar-btn" class="toolbar-icon-btn" title="Reload Data">&#128260;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
         </div>
       </div>
@@ -66,6 +73,7 @@
           <div id="ceo-avatar-area">
             <canvas id="ceo-avatar" width="48" height="48"></canvas>
             <span class="ceo-label">YOU</span>
+            <button id="reload-toolbar-btn" class="reload-btn" title="Force reload all data from disk. WARNING: may interrupt running agent tasks!">&#128260;</button>
           </div>
           <textarea id="task-input"
                     placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"
@@ -267,6 +275,17 @@
           <div class="meeting-chat-header">Live Meeting Log</div>
           <div id="meeting-chat-messages" class="meeting-chat-messages"></div>
         </div>
+        <div id="meeting-inquiry-input-area" class="chat-input-area hidden">
+          <textarea id="meeting-inquiry-input" class="chat-textarea" placeholder="Ask a follow-up..." rows="1"></textarea>
+          <button id="meeting-inquiry-send-btn" class="chat-send-btn">&#9654;</button>
+        </div>
+        <div id="meeting-inquiry-typing" class="chat-typing hidden">
+          <div class="typing-avatar">&#129302;</div>
+          <div class="typing-dots"><span></span><span></span><span></span></div>
+        </div>
+        <div id="meeting-inquiry-actions" class="oneonone-actions hidden">
+          <button id="meeting-inquiry-end-btn" class="pixel-btn secondary">&#128308; End Inquiry</button>
+        </div>
       </div>
     </div>
   </div>
@@ -371,9 +390,26 @@
       <div class="modal-body">
         <div id="project-list" class="project-list"></div>
         <div id="project-detail" class="project-detail hidden">
-          <button id="project-back-btn" class="pixel-btn small">&#8592; Back to List</button>
           <div id="project-detail-content"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resolution Review Modal -->
+  <div id="resolution-modal" class="modal-overlay hidden">
+    <div class="modal-content resolution-modal-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128203; Resolution Review</h3>
+        <button id="resolution-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body resolution-modal-body">
+        <div id="resolution-task-info" class="resolution-task-info"></div>
+        <div id="resolution-edits" class="resolution-edits"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="resolution-submit-btn" class="pixel-btn">&#9989; Submit All Decisions</button>
+        <button id="resolution-cancel-btn" class="pixel-btn secondary">Cancel</button>
       </div>
     </div>
   </div>

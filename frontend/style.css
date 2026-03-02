@@ -238,6 +238,45 @@ body {
   color: var(--pixel-yellow);
 }
 
+.reload-btn {
+  position: relative;
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--pixel-orange);
+  color: var(--pixel-orange);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.reload-btn:hover {
+  background: var(--pixel-orange);
+  color: #000;
+}
+
+.reload-btn:hover::after {
+  content: "May interrupt running tasks!";
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: var(--pixel-red);
+  color: #fff;
+  font-size: 8px;
+  padding: 4px 8px;
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.reload-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 #task-input {
   width: 100%;
   background: #0a0a18;
@@ -2288,4 +2327,191 @@ body {
 @keyframes reconnect-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* ===== Resolution Review Modal ===== */
+
+.resolution-modal-content {
+  max-width: 700px;
+  max-height: 85vh;
+}
+
+.resolution-modal-body {
+  flex-direction: column !important;
+  gap: 8px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.resolution-task-info {
+  padding: 6px 8px;
+  border-left: 3px solid var(--pixel-yellow);
+  margin-bottom: 4px;
+}
+
+.res-task-label {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+}
+
+.res-task-text {
+  color: var(--pixel-white);
+}
+
+.res-meta {
+  font-size: 6px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.res-edit-card {
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 2px;
+}
+
+.res-edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.res-edit-file {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+  word-break: break-all;
+}
+
+.res-edit-by {
+  font-size: 6px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+.res-edit-reason {
+  font-size: 6px;
+  color: var(--pixel-white);
+  margin-bottom: 6px;
+  padding: 2px 0;
+}
+
+.res-edit-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.res-radio {
+  font-size: 7px;
+  color: var(--pixel-white);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.res-radio input[type="radio"] {
+  accent-color: var(--pixel-green);
+  cursor: pointer;
+}
+
+/* ===== Deferred Resolutions Panel ===== */
+
+#deferred-body {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 2px 2px;
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+#deferred-list {
+  padding: 4px 6px;
+}
+
+.deferred-empty {
+  font-size: 6px;
+  color: var(--text-dim);
+  padding: 6px;
+  text-align: center;
+}
+
+.deferred-card {
+  border-bottom: 1px solid var(--border);
+  padding: 4px 0;
+}
+
+.deferred-card:last-child {
+  border-bottom: none;
+}
+
+.deferred-card.expired {
+  opacity: 0.6;
+}
+
+.deferred-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.deferred-file {
+  font-size: 6px;
+  color: var(--pixel-cyan);
+  word-break: break-all;
+}
+
+.deferred-reason {
+  font-size: 5.5px;
+  color: var(--text-dim);
+  margin: 2px 0;
+}
+
+.deferred-expired {
+  font-size: 5.5px;
+  color: var(--pixel-red);
+  border: 1px solid var(--pixel-red);
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.deferred-active {
+  font-size: 5.5px;
+  color: var(--pixel-green);
+  border: 1px solid var(--pixel-green);
+  padding: 1px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+
+.deferred-exec-btn {
+  margin-top: 3px;
+  padding: 3px 8px !important;
+  font-size: 6px !important;
+}
+
+.pixel-btn.small {
+  padding: 4px 8px;
+  font-size: 6px;
+  flex: none;
+}
+
+/* ===== Inquiry chat (inside meeting modal) ===== */
+#meeting-inquiry-input-area {
+  border-top: 1px solid var(--border);
+  padding: 6px;
+}
+
+#meeting-inquiry-actions {
+  padding: 4px 8px;
+  text-align: right;
 }

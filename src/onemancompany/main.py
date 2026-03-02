@@ -102,14 +102,15 @@ def _restore_ephemeral_state() -> None:
 # ---------------------------------------------------------------------------
 
 async def _start_file_watcher() -> None:
-    """Watch company/ directory for .yaml/.md changes and trigger soft reload.
+    """Watch company/ directory and config.yaml for changes, trigger soft reload.
 
     Uses request_reload() which defers if agents are busy.
+    config.yaml watching is controlled by the ``hot_reload`` flag in config.yaml itself.
     """
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
 
-    from onemancompany.core.config import COMPANY_DIR
+    from onemancompany.core.config import APP_CONFIG_PATH, COMPANY_DIR, is_hot_reload_enabled
     from onemancompany.core.state import request_reload
 
     DEBOUNCE_SECONDS = 0.5
@@ -136,6 +137,8 @@ async def _start_file_watcher() -> None:
                     added = result.get("employees_added", [])
                     if updated or added:
                         print(f"[hot-reload] Reloaded from disk: {len(updated)} updated, {len(added)} added")
+                    if result.get("config_reloaded"):
+                        print("[hot-reload] config.yaml reloaded")
             except Exception as e:
                 print(f"[hot-reload] Error during reload: {e}")
 
@@ -151,15 +154,37 @@ async def _start_file_watcher() -> None:
             if Path(event.src_path).suffix in WATCH_EXTENSIONS:
                 self._schedule_reload()
 
+    class _ConfigReloadHandler(FileSystemEventHandler):
+        """Watches config.yaml specifically; only fires if hot_reload is on."""
+
+        def __init__(self, loop: asyncio.AbstractEventLoop, reload_handler: _ReloadHandler) -> None:
+            self._loop = loop
+            self._reload_handler = reload_handler
+
+        def on_modified(self, event):
+            if event.is_directory:
+                return
+            if Path(event.src_path).resolve() == APP_CONFIG_PATH.resolve():
+                if is_hot_reload_enabled():
+                    self._reload_handler._schedule_reload()
+
     loop = asyncio.get_running_loop()
-    handler = _ReloadHandler(loop)
+    reload_handler = _ReloadHandler(loop)
     observer = Observer()
 
+    # Watch company/ directory (employees, workflows, assets, etc.)
     watch_dir = str(COMPANY_DIR)
-    observer.schedule(handler, watch_dir, recursive=True)
+    observer.schedule(reload_handler, watch_dir, recursive=True)
+
+    # Watch config.yaml at project root
+    config_handler = _ConfigReloadHandler(loop, reload_handler)
+    observer.schedule(config_handler, str(APP_CONFIG_PATH.parent), recursive=False)
+
     observer.daemon = True
     observer.start()
     print(f"[hot-reload] Watching {watch_dir} for changes")
+    if is_hot_reload_enabled():
+        print(f"[hot-reload] Watching {APP_CONFIG_PATH} (hot_reload: true)")
 
     try:
         # Keep the task alive until cancelled
@@ -180,6 +205,10 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()
 
+    # Start sandbox server if enabled
+    from onemancompany.tools.sandbox import start_sandbox_server
+    start_sandbox_server()
+
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
@@ -196,6 +225,11 @@ async def lifespan(app: FastAPI):
     # Save ephemeral state before shutdown
     _save_ephemeral_state()
 
+    # Stop sandbox server and cleanup container
+    from onemancompany.tools.sandbox import stop_sandbox_server, cleanup_sandbox
+    await cleanup_sandbox()
+    stop_sandbox_server()
+
     watcher_task.cancel()
     broadcaster_task.cancel()
     try:
@@ -211,7 +245,7 @@ app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="fronte
 
 
 def run() -> None:
-    from onemancompany.core.config import settings
+    from onemancompany.core.config import settings, PROJECT_ROOT
 
     app.state.port = settings.port
     uvicorn.run(
@@ -219,6 +253,8 @@ def run() -> None:
         host=settings.host,
         port=settings.port,
         reload=True,
+        reload_dirs=[str(PROJECT_ROOT / "src"), str(PROJECT_ROOT / "frontend")],
+        reload_includes=["*.py", "*.js", "*.css", "*.html"],
     )
 
 
