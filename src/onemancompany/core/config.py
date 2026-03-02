@@ -27,6 +27,10 @@ RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
+# Talent market
+TALENT_MARKET_DIR = Path(__file__).parent.parent / "talent_market"
+TALENTS_DIR = TALENT_MARKET_DIR / "talents"
+
 # ---------------------------------------------------------------------------
 # Founding member IDs (permanent employee numbers)
 # ---------------------------------------------------------------------------
@@ -158,6 +162,7 @@ class EmployeeConfig(BaseModel):
     current_quarter_tasks: int = 0
     performance_history: list[dict] = []
     permissions: list[str] = []  # e.g. ["company_file_access", "web_search", "backend_code_maintenance"]
+    remote: bool = False  # True = remote worker, False = on-site
 
 
 class Settings(BaseSettings):
@@ -545,6 +550,79 @@ def save_company_culture(items: list[dict]) -> None:
     """Persist company culture items to company_culture.yaml."""
     with open(COMPANY_CULTURE_FILE, "w") as f:
         yaml.dump(items, f, allow_unicode=True, default_flow_style=False)
+
+
+# ---------------------------------------------------------------------------
+# Talent market helpers
+# ---------------------------------------------------------------------------
+
+
+def load_talent_profile(talent_id: str) -> dict:
+    """Load a talent profile from talents/{id}/profile.yaml.
+
+    Returns the parsed YAML as a dict, or empty dict if not found.
+    """
+    profile_path = TALENTS_DIR / talent_id / "profile.yaml"
+    if not profile_path.exists():
+        return {}
+    with open(profile_path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def load_talent_tools(talent_id: str) -> list[str]:
+    """Load tool names declared in talents/{id}/tools/manifest.yaml.
+
+    Returns a flat list of all tool names (builtin + custom).
+    """
+    manifest_path = TALENTS_DIR / talent_id / "tools" / "manifest.yaml"
+    if not manifest_path.exists():
+        return []
+    with open(manifest_path) as f:
+        data = yaml.safe_load(f) or {}
+    tools: list[str] = list(data.get("builtin_tools", []))
+    tools.extend(data.get("custom_tools", []))
+    return tools
+
+
+def load_talent_skills(talent_id: str) -> list[str]:
+    """Load skill markdown files from talents/{id}/skills/.
+
+    Returns a list of skill file contents (one string per .md file).
+    """
+    skills_dir = TALENTS_DIR / talent_id / "skills"
+    if not skills_dir.exists():
+        return []
+    result: list[str] = []
+    for skill_file in sorted(skills_dir.iterdir()):
+        if skill_file.suffix == ".md" and skill_file.is_file():
+            result.append(skill_file.read_text(encoding="utf-8"))
+    return result
+
+
+def list_available_talents() -> list[dict]:
+    """List all available talent packages under talents/.
+
+    Returns a list of dicts with basic talent info (id, name, role, remote).
+    """
+    if not TALENTS_DIR.exists():
+        return []
+    result: list[dict] = []
+    for talent_dir in sorted(TALENTS_DIR.iterdir()):
+        if not talent_dir.is_dir():
+            continue
+        profile_path = talent_dir / "profile.yaml"
+        if not profile_path.exists():
+            continue
+        with open(profile_path) as f:
+            data = yaml.safe_load(f) or {}
+        result.append({
+            "id": data.get("id", talent_dir.name),
+            "name": data.get("name", talent_dir.name),
+            "role": data.get("role", ""),
+            "remote": data.get("remote", False),
+            "description": data.get("description", ""),
+        })
+    return result
 
 
 # Load all employee configs at import time

@@ -77,7 +77,7 @@ def search_candidates(job_description: str, count: int = 10) -> list[dict]:
     Returns:
         A list of CandidateProfile dicts sorted by jd_relevance descending.
     """
-    from onemancompany.mcp_server.boss_online import search_candidates as _search
+    from onemancompany.talent_market.boss_online import search_candidates as _search
     return _search(job_description, count)
 
 
@@ -281,6 +281,7 @@ class HRAgent(BaseAgentRunner):
                 desk_pos = get_next_desk_for_department(company_state, department)
 
                 emp_num = company_state.next_employee_number()
+                is_remote = emp_data.get("remote", False)
                 emp = Employee(
                     id=emp_num,
                     name=emp_data.get("name", "Unknown"),
@@ -292,9 +293,11 @@ class HRAgent(BaseAgentRunner):
                     employee_number=emp_num,
                     desk_position=desk_pos,
                     sprite=emp_data.get("sprite", "employee_default"),
+                    remote=is_remote,
                 )
                 company_state.employees[emp_num] = emp
-                self._create_employee_folder(emp)
+                talent_id = emp_data.get("talent_id", "")
+                self._create_employee_folder(emp, talent_id=talent_id)
 
                 # Recompute layout (zones may resize) and persist all positions
                 compute_layout(company_state)
@@ -402,8 +405,12 @@ class HRAgent(BaseAgentRunner):
                      "summary": f"Promotion: {emp.name} ({emp.nickname}) {LEVEL_NAMES.get(old_level, '')} -> {emp.title}"},
                 )
 
-    def _create_employee_folder(self, emp: Employee) -> None:
-        """Create employees/{id}/ directory with profile.yaml, skill stubs, and work_principles.md."""
+    def _create_employee_folder(self, emp: Employee, talent_id: str = "") -> None:
+        """Create employees/{id}/ directory with profile.yaml, skill stubs, and work_principles.md.
+
+        If *talent_id* is provided and the employee is on-site (not remote),
+        copies the talent's skill markdown files and tools into the employee folder.
+        """
         config = EmployeeConfig(
             name=emp.name,
             nickname=emp.nickname,
@@ -414,11 +421,17 @@ class HRAgent(BaseAgentRunner):
             employee_number=emp.employee_number,
             desk_position=list(emp.desk_position),
             sprite=emp.sprite,
+            remote=emp.remote,
         )
         save_employee_profile(emp.id, config)
 
         emp_dir = ensure_employee_dir(emp.id)
         skills_dir = emp_dir / "skills"
+
+        # If sourced from a talent and on-site, copy talent skills + tools
+        if talent_id and not emp.remote:
+            self._copy_talent_assets(talent_id, emp_dir)
+
         for skill_name in emp.skills:
             skill_file = skills_dir / f"{skill_name}.md"
             if not skill_file.exists():
@@ -442,6 +455,39 @@ class HRAgent(BaseAgentRunner):
         )
         save_work_principles(emp.id, initial_principles)
         emp.work_principles = initial_principles
+
+    @staticmethod
+    def _copy_talent_assets(talent_id: str, emp_dir) -> None:
+        """Copy skills/ and tools/ from a talent package into an employee folder."""
+        import shutil
+
+        from onemancompany.core.config import TALENTS_DIR
+
+        talent_dir = TALENTS_DIR / talent_id
+        if not talent_dir.exists():
+            return
+
+        # Copy skill markdown files
+        talent_skills = talent_dir / "skills"
+        if talent_skills.exists():
+            emp_skills = emp_dir / "skills"
+            emp_skills.mkdir(exist_ok=True)
+            for src_file in talent_skills.iterdir():
+                if src_file.suffix == ".md" and src_file.is_file():
+                    dst_file = emp_skills / src_file.name
+                    if not dst_file.exists():
+                        shutil.copy2(str(src_file), str(dst_file))
+
+        # Copy tools directory (manifest + custom .py files)
+        talent_tools = talent_dir / "tools"
+        if talent_tools.exists():
+            emp_tools = emp_dir / "tools"
+            emp_tools.mkdir(exist_ok=True)
+            for src_file in talent_tools.iterdir():
+                if src_file.is_file():
+                    dst_file = emp_tools / src_file.name
+                    if not dst_file.exists():
+                        shutil.copy2(str(src_file), str(dst_file))
 
     def _next_desk_position(self, department: str = "") -> tuple[int, int]:
         """Get next desk position using department-based layout."""
