@@ -2718,3 +2718,128 @@ body {
 .emp-log-entry.tool_result { border-left-color: var(--pixel-gray); }
 .emp-log-entry.retry { border-left-color: var(--pixel-red); }
 .emp-log-entry.retry .log-content { color: var(--pixel-red); }
+
+/* ===== Tool List Modal ===== */
+.tool-list-modal-content {
+  max-width: 500px;
+  width: 80vw;
+  height: auto;
+  max-height: 70vh;
+}
+
+.tool-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.tool-list-item:hover {
+  background: #2a2a4a;
+}
+
+.tool-list-icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+
+.tool-list-no-icon {
+  font-size: 16px;
+  width: 24px;
+  text-align: center;
+}
+
+.tool-list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-list-name {
+  font-size: 8px;
+  color: var(--pixel-white);
+}
+
+.tool-list-desc {
+  font-size: 7px;
+  color: var(--pixel-gray);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn-back {
+  background: none;
+  border: 1px solid var(--pixel-gray);
+  color: var(--pixel-gray);
+  cursor: pointer;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 2px 6px;
+  margin-bottom: 8px;
+}
+
+.btn-back:hover {
+  border-color: var(--pixel-cyan);
+  color: var(--pixel-cyan);
+}
+
+.tool-detail h3 {
+  font-size: 9px;
+  color: var(--pixel-white);
+  margin: 4px 0;
+}
+
+.tool-detail p {
+  font-size: 7px;
+  color: var(--pixel-gray);
+  line-height: 1.6;
+}
+
+.tool-detail-section-title {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+  margin-top: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+}
+
+.tool-yaml-content {
+  font-family: monospace;
+  font-size: 7px;
+  background: var(--bg-dark);
+  padding: 6px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  color: var(--pixel-white);
+  border: 1px solid var(--border);
+}
+
+.tool-file-list {
+  font-size: 7px;
+  color: var(--pixel-gray);
+  padding-left: 16px;
+  line-height: 2;
+}
+
+.status-clickable {
+  cursor: pointer;
+  transition: color 0.1s;
+}
+
+.status-clickable:hover {
+  color: #fff;
+}
+
+.empty-hint {
+  color: var(--text-dim);
+  font-size: 7px;
+  padding: 12px;
+  text-align: center;
+  display: block;
+}

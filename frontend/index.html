@@ -51,7 +51,7 @@
         <h1 class="pixel-title">&#127970; ONE MAN COMPANY</h1>
         <div id="status-bar">
           <span class="status-item" id="employee-count">&#128101; 2</span>
-          <span class="status-item" id="tool-count">&#128295; 0</span>
+          <span class="status-item status-clickable" id="tool-count" onclick="window.app.openToolList()">&#128295; 0</span>
           <span class="status-item" id="room-count">&#127970; 0/0</span>
           <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="1-on-1 Meeting">&#127891;</button>
           <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
@@ -401,6 +401,19 @@
           <button id="company-culture-add-btn" class="pixel-btn">&#10010; Add</button>
         </div>
         <div id="company-culture-list" class="company-culture-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tool List Modal -->
+  <div id="tool-list-modal" class="modal-overlay hidden">
+    <div class="modal-content tool-list-modal-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128295; TOOL LIST</h3>
+        <button class="modal-close" onclick="document.getElementById('tool-list-modal').classList.add('hidden')">&times;</button>
+      </div>
+      <div class="modal-body" style="flex-direction:column;padding:8px;">
+        <div id="tool-list-body"></div>
       </div>
     </div>
   </div>

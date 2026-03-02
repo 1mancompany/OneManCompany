@@ -445,14 +445,17 @@ class PersistentAgentLoop:
             summary = task.result[:MAX_SUMMARY_LEN]
             append_action(project_id, self.agent.role.lower(), f"{self.agent.role} task completed", summary)
 
-        # Create a resolution if any file edits were accumulated
+        # Create a resolution if any file edits were accumulated during main task
         resolution = create_resolution(project_id, task.description)
         if resolution:
             await event_bus.publish(
                 CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
             )
 
-        # Run post-task routine
+        # Run post-task routine (meeting reports, etc.) with project context
+        # so that any file edits proposed during routine are collected
+        from onemancompany.core.resolutions import current_project_id
+        routine_ctx = current_project_id.set(project_id)
         try:
             from onemancompany.core.routine import run_post_task_routine
             await run_post_task_routine(task.description, project_id=project_id)
@@ -466,6 +469,15 @@ class PersistentAgentLoop:
                     payload={"role": "ROUTINE", "summary": f"Routine error: {e!s}"},
                     agent="ROUTINE",
                 )
+            )
+        finally:
+            current_project_id.reset(routine_ctx)
+
+        # Create resolution for edits accumulated during the routine phase
+        routine_resolution = create_resolution(project_id, f"Routine: {task.description}")
+        if routine_resolution:
+            await event_bus.publish(
+                CompanyEvent(type="resolution_ready", payload=routine_resolution, agent="SYSTEM")
             )
 
         # Cleanup sandbox

@@ -8,7 +8,8 @@ import traceback
 import uuid as _uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from onemancompany.agents.base import BaseAgentRunner
 from onemancompany.api.websocket import ws_manager
@@ -1579,6 +1580,41 @@ async def remote_heartbeat(body: dict) -> dict:
         _remote_workers[hb.employee_id]["status"] = hb.status
         _remote_workers[hb.employee_id]["current_task_id"] = hb.current_task_id
     return {"status": "ok"}
+
+
+@router.get("/api/tools/{tool_id}/icon")
+async def get_tool_icon(tool_id: str):
+    """Serve the tool's icon.png from its folder."""
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    icon_path = TOOLS_DIR / tool.folder_name / "icon.png"
+    if not icon_path.exists():
+        raise HTTPException(status_code=404, detail="Icon not found")
+    return FileResponse(icon_path, media_type="image/png")
+
+
+@router.get("/api/tools/{tool_id}/definition")
+async def get_tool_definition(tool_id: str):
+    """Return tool.yaml contents + file list for the tool detail view."""
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    raw = tool_yaml_path.read_text() if tool_yaml_path.exists() else ""
+    return {
+        "id": tool_id,
+        "name": tool.name,
+        "description": tool.description,
+        "folder": tool.folder_name,
+        "files": tool.files,
+        "yaml_content": raw,
+        "has_icon": tool.has_icon,
+    }
 
 
 @router.websocket("/ws")

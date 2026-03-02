@@ -210,6 +210,23 @@ class OfficeRenderer {
       const [gx, gy] = latest.desk_position || [0, 0];
       this._spawnParticles(gx * TILE + 16, (gy + 3) * TILE, PALETTE.led1, 12);
     }
+
+    // Preload tool icons
+    this._preloadToolIcons();
+  }
+
+  _preloadToolIcons() {
+    if (!this._toolIcons) this._toolIcons = {};
+    for (const tool of (this.state.tools || [])) {
+      if (tool.has_icon && !this._toolIcons[tool.id]) {
+        const img = new Image();
+        img.src = `/api/tools/${encodeURIComponent(tool.id)}/icon`;
+        img.onload = () => {
+          this._toolIcons[tool.id] = img;
+        };
+        this._toolIcons[tool.id] = null; // mark as loading
+      }
+    }
   }
 
   // ===== Particle system =====
@@ -690,26 +707,26 @@ class OfficeRenderer {
     const px = gx * TILE;
     const py = gy * TILE;
 
-    // Server rack body
-    this._rect(px + 4, py + 4, 24, 24, '#334455');
-    this._rect(px + 4, py + 4, 24, 2, '#445566');
-    this._rect(px + 4, py + 26, 24, 2, '#223344');
+    // If tool has no icon, skip rendering entirely
+    if (!toolData.has_icon) return;
 
-    // Rack lines
-    for (let i = 0; i < 3; i++) {
-      this._rect(px + 6, py + 8 + i * 7, 20, 5, '#2a3a4a');
+    const icon = this._toolIcons && this._toolIcons[toolData.id];
+    if (icon) {
+      // Draw icon scaled to fit within TILE x TILE, centered
+      const maxW = TILE;
+      const maxH = TILE;
+      const scale = Math.min(maxW / icon.width, maxH / icon.height);
+      const w = Math.round(icon.width * scale);
+      const h = Math.round(icon.height * scale);
+      const ox = px + Math.round((TILE - w) / 2);
+      const oy = py + Math.round((TILE - h) / 2);
+      this.ctx.drawImage(icon, ox, oy, w, h);
+    } else {
+      // Icon still loading — draw placeholder
+      this._rect(px + 8, py + 8, 16, 16, '#334455');
     }
 
-    // LEDs (animated)
-    const phase = (this.animFrame + this._hashStr(toolData.id || '')) % 30;
-    this._rect(px + 8, py + 9, 3, 3, phase < 15 ? PALETTE.led1 : PALETTE.led2);
-    this._rect(px + 14, py + 9, 3, 3, PALETTE.led3);
-    this._rect(px + 20, py + 9, 3, 3, phase < 20 ? PALETTE.led1 : '#333');
-
-    this._rect(px + 8, py + 16, 3, 3, PALETTE.led1);
-    this._rect(px + 14, py + 16, 3, 3, phase > 10 ? PALETTE.led3 : '#333');
-
-    // Label
+    // Label below
     this.ctx.fillStyle = PALETTE.led1;
     this.ctx.font = '7px monospace';
     this.ctx.textAlign = 'center';
@@ -821,8 +838,9 @@ class OfficeRenderer {
       }
     }
 
-    // Check tools (hit area: tool tile + label tile below)
+    // Check tools (hit area: tool tile + label tile below, only tools with icons)
     for (const tool of this.state.tools) {
+      if (!tool.has_icon) continue;
       const [tx, ty] = tool.desk_position || [0, 0];
       const canvasY = ty + 3;
       if (x === tx && y >= canvasY && y <= canvasY + 1) {
@@ -908,8 +926,9 @@ class OfficeRenderer {
       }
     }
 
-    // Tools/Equipment
+    // Tools/Equipment (only render tools with icons)
     for (const tool of this.state.tools) {
+      if (!tool.has_icon) continue;
       const [gx, gy] = tool.desk_position || [0, 0];
       this.drawToolEquipment(gx, gy + 3, tool);
     }
