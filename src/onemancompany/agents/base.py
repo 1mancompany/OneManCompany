@@ -122,7 +122,7 @@ class BaseAgentRunner:
         self._set_status(STATUS_WORKING)
         await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
 
-        prompt = self._build_prompt()
+        prompt = self._build_full_prompt()
         messages_input = {
             "messages": [
                 SystemMessage(content=prompt),
@@ -195,6 +195,15 @@ class BaseAgentRunner:
     def _build_prompt(self) -> str:
         """Build the full system prompt. Override in subclasses if needed."""
         return ""
+
+    def _build_full_prompt(self) -> str:
+        """Build prompt with task history injected from the agent loop."""
+        prompt = self._build_prompt()
+        from onemancompany.core.agent_loop import _current_loop
+        loop = _current_loop.get(None)
+        if loop:
+            prompt += loop.get_history_context()
+        return prompt
 
     def _set_status(self, status: str) -> None:
         """Set this agent's employee status (idle/working/in_meeting)."""
@@ -283,7 +292,7 @@ class EmployeeAgent(BaseAgentRunner):
 
         result = await self._agent.ainvoke(
             {"messages": [
-                SystemMessage(content=self._build_prompt()),
+                SystemMessage(content=self._build_full_prompt()),
                 HumanMessage(content=task),
             ]}
         )

@@ -164,6 +164,11 @@ MAX_SUBTASK_DEPTH = 2
 MAX_RETRIES = 3
 RETRY_DELAYS = [5, 15, 30]  # seconds
 
+# Task history constants
+MAX_HISTORY_ENTRIES = 8       # keep last N full entries before compressing
+MAX_HISTORY_CHARS = 3000      # total char threshold to trigger compression
+RESULT_SNIPPET_LEN = 300      # truncate each result to this length
+
 
 class PersistentAgentLoop:
     """Wraps a BaseAgentRunner with a persistent while-loop and task board."""
@@ -174,6 +179,9 @@ class PersistentAgentLoop:
         self._running = False
         self._current_task: AgentTask | None = None
         self._loop_task: asyncio.Task | None = None
+        # Task history for cross-task context
+        self.task_history: list[dict] = []   # [{task, result, completed_at}]
+        self._history_summary: str = ""       # compressed summary of older entries
 
     def push_task(
         self,
@@ -351,6 +359,10 @@ class PersistentAgentLoop:
         self._log(task, "end", f"Task {task.status}")
         self._publish_task_update(task)
 
+        # 7b. Record to task history for cross-task context
+        if task.status == "completed":
+            self._append_history(task)
+
         # Clear employee summary
         if emp:
             emp.current_task_summary = ""
@@ -359,6 +371,65 @@ class PersistentAgentLoop:
         effective_project_id = task.project_id or task.original_project_id
         if effective_project_id and not task.parent_id:
             await self._post_task_cleanup(task, agent_error, effective_project_id)
+
+    # ------------------------------------------------------------------
+    # Task history management
+    # ------------------------------------------------------------------
+
+    def _append_history(self, task: AgentTask) -> None:
+        """Record a completed task into the history ring."""
+        self.task_history.append({
+            "task": task.description[:200],
+            "result": (task.result or "")[:RESULT_SNIPPET_LEN],
+            "completed_at": task.completed_at or datetime.now().isoformat(),
+        })
+        # Fire-and-forget compression check
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._maybe_compress_history())
+        except RuntimeError:
+            pass
+
+    async def _maybe_compress_history(self) -> None:
+        """If history exceeds size limits, compress the oldest half into a summary."""
+        total = sum(len(h["task"]) + len(h["result"]) for h in self.task_history)
+        total += len(self._history_summary)
+        if total <= MAX_HISTORY_CHARS or len(self.task_history) <= MAX_HISTORY_ENTRIES:
+            return
+
+        # Compress oldest half
+        split = len(self.task_history) // 2
+        old_entries = self.task_history[:split]
+        self.task_history = self.task_history[split:]
+
+        old_text = "\n".join(
+            f"- [{h['completed_at'][:10]}] {h['task']}: {h['result']}"
+            for h in old_entries
+        )
+        if self._history_summary:
+            old_text = f"Previous summary:\n{self._history_summary}\n\nNew entries:\n{old_text}"
+
+        try:
+            llm = make_llm(self.agent.employee_id)
+            resp = await llm.ainvoke(
+                f"Summarize this employee's completed work into a concise paragraph (max 200 words). "
+                f"Focus on key decisions, findings, and outputs:\n\n{old_text}"
+            )
+            self._history_summary = resp.content.strip()[:800]
+        except Exception:
+            # On failure, just concatenate a crude summary
+            self._history_summary = (self._history_summary + "\n" + old_text)[:800]
+
+    def get_history_context(self) -> str:
+        """Build a prompt section with this agent's recent work history."""
+        if not self.task_history and not self._history_summary:
+            return ""
+        parts = ["\n\n## Your Recent Work History:"]
+        if self._history_summary:
+            parts.append(f"Earlier work summary: {self._history_summary}")
+        for h in self.task_history:
+            parts.append(f"- [{h['completed_at'][:10]}] Task: {h['task']}\n  Result: {h['result']}")
+        return "\n".join(parts)
 
     async def _execute_subtask(self, sub: AgentTask, depth: int = 1) -> None:
         """Execute a sub-task (depth-limited)."""
