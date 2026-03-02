@@ -341,10 +341,14 @@ def reload_all_from_disk() -> dict:
         load_employee_guidance,
         load_ex_employee_configs,
         load_work_principles,
+        reload_app_config,
     )
     import onemancompany.core.config as config_module
 
-    summary: dict = {"employees_updated": [], "employees_added": [], "culture_reloaded": False, "assets_reloaded": False}
+    # --- 0. Reload application config (config.yaml) ---
+    reload_app_config()
+
+    summary: dict = {"employees_updated": [], "employees_added": [], "culture_reloaded": False, "assets_reloaded": False, "config_reloaded": True}
 
     # --- 1. Reload employee configs from disk ---
     fresh_configs = load_employee_configs()

@@ -29,6 +29,10 @@ EventType = Literal[
     "file_edit_proposed",
     "file_edit_applied",
     "file_edit_rejected",
+    "resolution_ready",
+    "resolution_decided",
+    "inquiry_started",
+    "inquiry_ended",
 ]
 
 

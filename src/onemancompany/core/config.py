@@ -23,6 +23,7 @@ WORKFLOWS_DIR = BUSINESS_DIR / "workflows"
 PROJECTS_DIR = BUSINESS_DIR / "projects"
 REPORTS_DIR = BUSINESS_DIR / "reports"
 MEETING_REPORTS_DIR = REPORTS_DIR / "meeting_reports"
+RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
@@ -176,6 +177,43 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# ---------------------------------------------------------------------------
+# Application config (config.yaml at project root)
+# ---------------------------------------------------------------------------
+APP_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+
+# Cached in-memory copy — read once at import, refreshed by reload_app_config()
+_app_config: dict = {}
+
+
+def _read_app_config_from_disk() -> dict:
+    """Read config.yaml from disk. Returns empty dict if missing."""
+    if not APP_CONFIG_PATH.exists():
+        return {}
+    with open(APP_CONFIG_PATH) as f:
+        return yaml.safe_load(f) or {}
+
+
+def load_app_config() -> dict:
+    """Return the cached application config (call reload_app_config() to refresh)."""
+    return _app_config
+
+
+def reload_app_config() -> dict:
+    """Re-read config.yaml from disk into the in-memory cache. Returns the new config."""
+    global _app_config
+    _app_config = _read_app_config_from_disk()
+    return _app_config
+
+
+def is_hot_reload_enabled() -> bool:
+    """Check whether config hot-reload is enabled."""
+    return bool(_app_config.get("hot_reload", False))
+
+
+# Load once at import time
+_app_config = _read_app_config_from_disk()
 
 
 def load_employee_configs() -> dict[str, EmployeeConfig]:

@@ -45,15 +45,20 @@
   3. Request resources or plan adjustments from COO when encountering blockers
 - **Output**: Progress update records
 
-## Phase 5: Project Acceptance
+## Phase 5: Project Acceptance & Rectification
 
 - **Responsible**: Assigned Project Manager (if not exits, then COO)
 - **Steps**:
-  1. Review deliverables against acceptance criteria
-  2. Organize relevant personnel for quality review
-  3. Senior employees spot-check work output of junior employees
-  4. If not passed, return for revision; if passed, proceed to the next phase
-- **Output**: Acceptance report
+  1. Strict Review: Review deliverables strictly against the predefined acceptance criteria defined in Phase 2.
+  2. Quality Review: Organize relevant personnel to conduct a comprehensive quality review of the outputs.
+  3. Spot-check: Senior employees spot-check the work output of junior employees.
+  4. Acceptance Decision: 
+     - If passed: Generate an acceptance report and proceed to the next phase.
+     - If not passed: Generate a Rectification Notice detailing specific issues and improvement suggestions.
+  5. Rectification Loop:
+     - The responsible employee(s) must revise their work according to the Rectification Notice.
+     - Resubmit the revised deliverables for another round of Project Acceptance (repeat Phase 5).
+- **Output**: Acceptance report (if passed) or Rectification Notice (if not passed)
 
 ## Phase 6: Project Report Writing
 

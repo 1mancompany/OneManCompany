@@ -16,6 +16,7 @@ from onemancompany.agents.base import get_employee_skills_prompt, get_employee_t
 from onemancompany.core.config import HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.tools.sandbox import SANDBOX_TOOLS
 
 
 async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> None:
@@ -150,10 +151,19 @@ async def propose_file_edit(
     if result["status"] == "error":
         return result
 
-    # Publish event for CEO frontend
     from onemancompany.core.file_editor import pending_file_edits
     edit = pending_file_edits.get(result["edit_id"])
-    if edit:
+    if not edit:
+        return result
+
+    # If running inside a task (project_id context is set), collect for
+    # batch resolution review instead of publishing an immediate event.
+    from onemancompany.core.resolutions import current_project_id, collect_edit
+    pid = current_project_id.get("")
+    if pid:
+        collect_edit(pid, edit)
+    else:
+        # No task context — fall back to immediate event (old behavior)
         await _publish("file_edit_proposed", {
             "edit_id": edit["edit_id"],
             "rel_path": edit["rel_path"],
@@ -484,4 +494,4 @@ COMMON_TOOLS = [
     list_colleagues,
     pull_meeting,
     use_tool,
-]
+] + SANDBOX_TOOLS
