@@ -23,7 +23,7 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.mcp_server.boss_online import HireRequest, InterviewRequest, InterviewResponse
+from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import TaskEntry, company_state
 
 router = APIRouter()
@@ -1179,6 +1179,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         sprite=ex_emp.sprite,
         guidance_notes=guidance,
         work_principles=principles,
+        remote=ex_emp.remote,
     )
     company_state.employees[employee_id] = emp
     del company_state.ex_employees[employee_id]
@@ -1269,6 +1270,8 @@ async def hire_candidate(body: HireRequest) -> dict:
             "role": candidate["role"],
             "skills": skill_names,
             "sprite": candidate.get("sprite", "employee_default"),
+            "remote": candidate.get("remote", False),
+            "talent_id": candidate.get("talent_id", ""),
         },
     })
     await hr_agent._apply_results(f"```json\n{hire_json}\n```")
@@ -1327,6 +1330,92 @@ async def interview_candidate(body: InterviewRequest) -> InterviewResponse:
         question=body.question,
         answer=result.content,
     )
+
+
+# ===== Remote Worker Endpoints =====
+
+# In-memory store for remote worker state
+_remote_workers: dict[str, dict] = {}   # employee_id -> registration info
+_remote_task_queues: dict[str, list[dict]] = {}  # employee_id -> [task, ...]
+
+
+@router.post("/api/remote/register")
+async def remote_register(body: dict) -> dict:
+    """Remote worker registers itself with the company."""
+    from onemancompany.talent_market.remote_protocol import RemoteWorkerRegistration
+
+    reg = RemoteWorkerRegistration(**body)
+    _remote_workers[reg.employee_id] = {
+        "worker_url": reg.worker_url,
+        "capabilities": reg.capabilities,
+        "status": "idle",
+        "current_task_id": None,
+    }
+    # Ensure task queue exists
+    if reg.employee_id not in _remote_task_queues:
+        _remote_task_queues[reg.employee_id] = []
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="remote_worker_registered",
+            payload={"employee_id": reg.employee_id, "capabilities": reg.capabilities},
+            agent="SYSTEM",
+        )
+    )
+    return {"status": "registered", "employee_id": reg.employee_id}
+
+
+@router.get("/api/remote/tasks/{employee_id}")
+async def remote_get_tasks(employee_id: str) -> dict:
+    """Remote worker polls for pending tasks."""
+    queue = _remote_task_queues.get(employee_id, [])
+    if not queue:
+        return {"task": None}
+    # Pop the first pending task
+    task = queue.pop(0)
+    # Update worker status
+    if employee_id in _remote_workers:
+        _remote_workers[employee_id]["status"] = "busy"
+        _remote_workers[employee_id]["current_task_id"] = task.get("task_id")
+    return {"task": task}
+
+
+@router.post("/api/remote/results")
+async def remote_submit_results(body: dict) -> dict:
+    """Remote worker submits task results."""
+    from onemancompany.talent_market.remote_protocol import TaskResult
+
+    result = TaskResult(**body)
+    # Update worker status
+    if result.employee_id in _remote_workers:
+        _remote_workers[result.employee_id]["status"] = "idle"
+        _remote_workers[result.employee_id]["current_task_id"] = None
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="remote_task_completed",
+            payload={
+                "task_id": result.task_id,
+                "employee_id": result.employee_id,
+                "status": result.status,
+                "output": result.output[:MAX_SUMMARY_LEN],
+            },
+            agent="SYSTEM",
+        )
+    )
+    return {"status": "received", "task_id": result.task_id}
+
+
+@router.post("/api/remote/heartbeat")
+async def remote_heartbeat(body: dict) -> dict:
+    """Remote worker sends a keep-alive heartbeat."""
+    from onemancompany.talent_market.remote_protocol import HeartbeatPayload
+
+    hb = HeartbeatPayload(**body)
+    if hb.employee_id in _remote_workers:
+        _remote_workers[hb.employee_id]["status"] = hb.status
+        _remote_workers[hb.employee_id]["current_task_id"] = hb.current_task_id
+    return {"status": "ok"}
 
 
 @router.websocket("/ws")

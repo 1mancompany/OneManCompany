@@ -103,6 +103,7 @@ class Employee:
     guidance_notes: list[str] = field(default_factory=list)
     work_principles: str = ""  # loaded from employees/{id}/work_principles.md
     permissions: list[str] = field(default_factory=list)  # access control: company_file_access, web_search, backend_code_maintenance, etc.
+    remote: bool = False  # True = remote worker, False = on-site employee
     status: str = STATUS_IDLE
     is_listening: bool = False
 
@@ -135,6 +136,7 @@ class Employee:
             "guidance_notes": self.guidance_notes,
             "work_principles": self.work_principles,
             "permissions": self.permissions,
+            "remote": self.remote,
             "status": self.status,
             "is_listening": self.is_listening,
         }
@@ -255,6 +257,7 @@ def _seed_employees() -> None:
             guidance_notes=guidance,
             work_principles=principles,
             permissions=list(cfg.permissions),
+            remote=getattr(cfg, 'remote', False),
         )
 
 
@@ -276,6 +279,7 @@ def _seed_ex_employees() -> None:
             performance_history=list(cfg.performance_history),
             desk_position=tuple(cfg.desk_position),
             sprite=cfg.sprite,
+            remote=getattr(cfg, 'remote', False),
         )
 
 
@@ -399,6 +403,9 @@ def reload_all_from_disk() -> dict:
             if principles != emp.work_principles:
                 emp.work_principles = principles
                 changed_fields.append("work_principles")
+            if getattr(cfg, 'remote', False) != emp.remote:
+                emp.remote = cfg.remote
+                changed_fields.append("remote")
             if changed_fields:
                 summary["employees_updated"].append({"id": emp_num, "fields": changed_fields})
         else:
@@ -425,6 +432,7 @@ def reload_all_from_disk() -> dict:
                 guidance_notes=guidance,
                 work_principles=principles,
                 permissions=list(cfg.permissions),
+                remote=cfg.remote,
             )
             summary["employees_added"].append(emp_num)
 
@@ -447,6 +455,7 @@ def reload_all_from_disk() -> dict:
                 performance_history=list(cfg.performance_history),
                 desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
                 sprite=cfg.sprite,
+                remote=getattr(cfg, 'remote', False),
             )
 
     # --- 3. Reload company culture ---
