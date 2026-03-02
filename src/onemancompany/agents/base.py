@@ -1,5 +1,7 @@
 """Base agent utilities shared across all LangChain agents."""
 
+from datetime import datetime
+
 from langchain_openai import ChatOpenAI
 
 from langgraph.prebuilt import create_react_agent
@@ -250,6 +252,49 @@ class BaseAgentRunner:
             f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
         )
 
+    def _get_dynamic_context_section(self) -> str:
+        """Build a dynamic context section with current datetime, team state, and workload."""
+        parts = ["\n\n## Current Context"]
+
+        # Datetime
+        now = datetime.now()
+        parts.append(f"- Current time: {now.strftime('%Y-%m-%d %H:%M')}")
+
+        # Team roster summary (compact)
+        team_lines = []
+        for emp in company_state.employees.values():
+            if emp.id == self.employee_id:
+                continue
+            status_tag = f"[{emp.status}]" if emp.status != "idle" else ""
+            task_hint = f" — {emp.current_task_summary}" if emp.current_task_summary else ""
+            team_lines.append(
+                f"  - {emp.name}({emp.nickname}) ID:{emp.id} {emp.role} Lv.{emp.level}{status_tag}{task_hint}"
+            )
+        if team_lines:
+            parts.append("- Team:\n" + "\n".join(team_lines))
+
+        # Active projects (brief)
+        if company_state.active_tasks:
+            active = []
+            for t in company_state.active_tasks[:5]:
+                active.append(f"  - [{t.routed_to}] {t.task[:60]}")
+            parts.append("- Active tasks:\n" + "\n".join(active))
+
+        return "\n".join(parts)
+
+    def _get_efficiency_guidelines_section(self) -> str:
+        """Build efficiency guidelines to reduce wasted tokens and loops."""
+        return (
+            "\n\n## Efficiency Rules (MUST follow)\n"
+            "- Do NOT explore the filesystem unless the task explicitly requires it.\n"
+            "- Do NOT re-read files you have already read in this task.\n"
+            "- Do NOT create unnecessary planning steps — act directly on clear instructions.\n"
+            "- Do NOT call tools repeatedly with the same arguments.\n"
+            "- If a tool call fails, try a different approach instead of retrying the same call.\n"
+            "- Produce output first, verify once, then finish. Do NOT loop.\n"
+            "- Keep your final response concise — report what you did and the result, not your thought process.\n"
+        )
+
 
 class EmployeeAgent(BaseAgentRunner):
     """Generic agent runner for newly hired employees.
@@ -284,11 +329,17 @@ class EmployeeAgent(BaseAgentRunner):
             f"a {emp.role} in {emp.department} (Lv.{emp.level}).\n"
             f"Follow instructions from your managers, complete tasks thoroughly, "
             f"and collaborate with colleagues when needed.\n\n"
-            f"## Tool Usage Rules\n"
-            f"- read_file / list_directory: only use when the task EXPLICITLY requires reading "
-            f"or modifying files. Do NOT explore the filesystem to 'gather context' or 'verify'.\n"
-            f"- If you have already read a file, do NOT re-read it.\n"
-            f"- Focus on PRODUCING output, not on reading everything you can find.\n"
+            f"## Work Approach\n"
+            f"1. Analyze: Understand the task requirements clearly before starting.\n"
+            f"2. Execute: Produce the deliverable directly — code, document, design, etc.\n"
+            f"3. Verify: Check your output once (run code, proofread doc). Fix if needed.\n"
+            f"4. Save & Report: Save output to project workspace, then report completion.\n\n"
+            f"## Tool Usage\n"
+            f"- save_to_project: Save ALL deliverables to the project workspace.\n"
+            f"- read_file / list_directory: Only when the task requires reading existing files.\n"
+            f"- dispatch_task: Delegate sub-work to colleagues if needed.\n"
+            f"- pull_meeting: Only when you need input from 2+ colleagues on a decision.\n"
+            f"- use_tool: Access company equipment/tools registered by COO.\n"
         )
         return (
             header
@@ -297,6 +348,8 @@ class EmployeeAgent(BaseAgentRunner):
             + self._get_company_culture_prompt_section()
             + self._get_work_principles_prompt_section()
             + self._get_guidance_prompt_section()
+            + self._get_dynamic_context_section()
+            + self._get_efficiency_guidelines_section()
         )
 
     async def run(self, task: str) -> str:

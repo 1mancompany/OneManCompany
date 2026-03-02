@@ -451,46 +451,59 @@ class PersistentAgentLoop:
     def _get_project_workflow_context(self, task: AgentTask) -> str:
         """Load relevant workflow instructions for a project task.
 
-        Reads the project_intake_workflow and extracts the self-verification
-        requirements from Phase 4 so every agent executing a project task
-        knows they must verify before marking complete.
+        Provides role-specific guidance:
+        - Managers (COO/CSO/EA): delegation and review focus
+        - IC employees: execution and self-verification focus
         """
-        from onemancompany.core.config import load_workflows
+        from onemancompany.core.config import load_workflows, FOUNDING_LEVEL
         from onemancompany.core.workflow_engine import parse_workflow
 
+        role = self.agent.role.upper()
+        is_manager = role in ("COO", "CSO", "EA", "HR")
+
+        # Manager-specific context
+        if is_manager and role in ("COO", "CSO"):
+            return (
+                "[Manager Execution Guide]\n"
+                "As a manager receiving a project task:\n"
+                "  1. Identify which employees can handle this work (use list_colleagues()).\n"
+                "  2. dispatch_task() to the best-suited employee with clear instructions.\n"
+                "  3. Include the project workspace path in dispatch so deliverables are saved correctly.\n"
+                "  4. If no suitable employee exists, dispatch to HR to hire one.\n"
+                "  5. Only execute yourself if absolutely no one else can do it.\n"
+                "Do NOT loop or re-analyze — dispatch quickly and move on."
+            )
+
+        # Load workflow doc for verification instructions
         workflows = load_workflows()
         workflow_doc = workflows.get("project_intake_workflow", "")
-        if not workflow_doc:
-            return ""
-
-        wf = parse_workflow("project_intake_workflow", workflow_doc)
-
-        # Find Phase 4 (Execution) — extract self-verification instructions
         verification_instructions = ""
-        for step in wf.steps:
-            if "Execution" in step.title or "Tracking" in step.title:
-                # Extract only the verification-related instructions
-                for inst in step.instructions:
-                    if any(kw in inst.lower() for kw in [
-                        "verification", "verify", "build and run",
-                        "test", "do not report", "验证", "验收",
-                    ]):
-                        verification_instructions += f"  - {inst}\n"
-                break
+
+        if workflow_doc:
+            wf = parse_workflow("project_intake_workflow", workflow_doc)
+            for step in wf.steps:
+                if "Execution" in step.title or "Tracking" in step.title:
+                    for inst in step.instructions:
+                        if any(kw in inst.lower() for kw in [
+                            "verification", "verify", "build and run",
+                            "test", "do not report", "验证", "验收",
+                        ]):
+                            verification_instructions += f"  - {inst}\n"
+                    break
 
         if not verification_instructions:
-            # Fallback: generic verification requirement
             verification_instructions = (
                 "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
-                "  - For documents/reports: Proofread your output before submitting.\n"
+                "  - For documents/reports: Proofread your output once before submitting.\n"
             )
 
         return (
             "[Self-Verification Before Completion]\n"
-            "Verify your work once before reporting complete:\n"
+            "After producing your deliverable, verify once:\n"
             f"{verification_instructions}"
+            "Save all outputs to the project workspace using save_to_project().\n"
             "Include a brief verification note in your result.\n"
-            "Do NOT re-read files you have already read. Do NOT loop — verify once, then finish."
+            "Do NOT re-read files you already read. Do NOT loop — verify once, then finish."
         )
 
     async def _execute_subtask(self, sub: AgentTask, depth: int = 1) -> None:
