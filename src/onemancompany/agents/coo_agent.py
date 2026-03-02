@@ -581,7 +581,7 @@ class COOAgent(BaseAgentRunner):
 
         result = await self._agent.ainvoke(
             {"messages": [
-                SystemMessage(content=self._build_prompt()),
+                SystemMessage(content=self._build_full_prompt()),
                 HumanMessage(content=task),
             ]}
         )
