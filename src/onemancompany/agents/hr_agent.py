@@ -54,31 +54,75 @@ from onemancompany.core.config import (
 from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
 from onemancompany.core.state import Employee, LEVEL_NAMES, company_state
 
-# ===== LangChain tools for hiring (simulating Boss Online recruitment platform) =====
+# ===== LangChain tools for hiring (from talent_market/talents/) =====
 
 # In-memory store for pending candidates awaiting CEO selection
 pending_candidates: dict[str, list[dict]] = {}  # batch_id -> [candidate, ...]
 
 
+def _talent_to_candidate(talent: dict) -> dict:
+    """Convert a talent profile.yaml dict into a CandidateProfile-compatible dict."""
+    from onemancompany.core.config import load_talent_skills, load_talent_tools
+
+    talent_id = talent.get("id", "unknown")
+    skill_names = talent.get("skills", [])
+    tool_names = load_talent_tools(talent_id)
+    skill_contents = load_talent_skills(talent_id)
+
+    # Build skill_set with content from markdown files
+    skill_set = []
+    for i, name in enumerate(skill_names):
+        content = skill_contents[i] if i < len(skill_contents) else ""
+        skill_set.append({
+            "name": name,
+            "description": content[:200] if content else f"{name} skill",
+            "code": "",
+        })
+
+    # Build tool_set from manifest
+    tool_set = [{"name": t, "description": f"{t} tool", "code": ""} for t in tool_names]
+
+    sprites = ["employee_blue", "employee_red", "employee_green", "employee_purple", "employee_orange"]
+
+    return {
+        "id": talent_id,
+        "name": talent.get("name", talent_id),
+        "role": talent.get("role", "Engineer"),
+        "experience_years": 3,
+        "personality_tags": talent.get("personality_tags", []),
+        "system_prompt": talent.get("system_prompt_template", ""),
+        "skill_set": skill_set,
+        "tool_set": tool_set,
+        "sprite": random.choice(sprites),
+        "llm_model": talent.get("llm_model", ""),
+        "jd_relevance": 1.0,
+        "remote": talent.get("remote", False),
+        "talent_id": talent_id,
+    }
+
+
 @tool
-def search_candidates(job_description: str, count: int = 10) -> list[dict]:
-    """Search Boss Online platform for candidates matching a job description.
+def search_candidates(job_description: str) -> list[dict]:
+    """Search the talent market for available candidates.
 
-    This simulates the external Boss Online (recruitment platform) service.
-    Returns N candidates with full profiles including system_prompt, skill_set, tool_set.
-
-    Request schema:  CandidateSearchRequest { job_description: str, count: int }
-    Response schema: list[CandidateProfile] — see boss_online.py for full field definitions.
+    Scans all talent packages under talent_market/talents/ and returns them
+    as candidate profiles that the CEO can review and hire.
 
     Args:
-        job_description: The job requirements / description text.
-        count: Number of candidates to fetch (default 10).
+        job_description: The job requirements / description text (used for context).
 
     Returns:
-        A list of CandidateProfile dicts sorted by jd_relevance descending.
+        A list of candidate dicts from available talent packages.
     """
-    from onemancompany.talent_market.boss_online import search_candidates as _search
-    return _search(job_description, count)
+    from onemancompany.core.config import list_available_talents, load_talent_profile
+
+    talents = list_available_talents()
+    candidates = []
+    for t in talents:
+        profile = load_talent_profile(t["id"])
+        if profile:
+            candidates.append(_talent_to_candidate(profile))
+    return candidates
 
 
 @tool
@@ -124,10 +168,10 @@ Your responsibilities:
 ## Hiring Process
 When hiring:
 1. First call list_open_positions() to see what roles are needed.
-2. Write a Job Description (JD) and call search_candidates(jd) to fetch candidates from Boss Online.
-3. You will receive ~10 candidates with full profiles (system_prompt, skill_set, tool_set).
-4. Evaluate each candidate against the JD -- consider skill match, experience, personality fit.
-5. Select the TOP 5 candidates and include them in your response with a JSON block:
+2. Call search_candidates(jd) to browse available talents from the talent market.
+   Each talent is a pre-packaged profile with skills, tools, and LLM config.
+3. Review the returned candidates — each comes from a talent package.
+4. Select candidates that best fit the need and include them in your response with a JSON block:
 
 ```json
 {"action": "shortlist", "jd": "Job description...", "candidates": [<top5 candidate dicts>]}

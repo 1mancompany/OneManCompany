@@ -27,6 +27,7 @@ def make_llm(employee_id: str = "") -> ChatOpenAI:
         api_key=settings.openrouter_api_key,
         base_url=settings.openrouter_base_url,
         temperature=temperature,
+        max_retries=3,
     )
 
 
