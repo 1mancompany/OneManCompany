@@ -701,30 +701,6 @@ async def inquiry_end(body: dict) -> dict:
             )
         )
 
-    # Save CEO questions as guidance notes on the agent
-    emp = company_state.employees.get(agent_id)
-    if emp:
-        ceo_questions = [e["content"] for e in session.history if e["role"] == "ceo"]
-        if ceo_questions:
-            from onemancompany.core.config import EMPLOYEES_DIR
-            import yaml
-
-            guidance_path = EMPLOYEES_DIR / agent_id / "guidance.yaml"
-            existing = []
-            if guidance_path.exists():
-                with open(guidance_path) as f:
-                    data = yaml.safe_load(f)
-                if isinstance(data, list):
-                    existing = data
-            for q in ceo_questions:
-                note = f"[Inquiry] {q}"
-                if note not in existing:
-                    existing.append(note)
-            guidance_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(guidance_path, "w") as f:
-                yaml.dump(existing, f, allow_unicode=True, default_flow_style=False)
-            emp.guidance_notes = existing
-
     # Publish inquiry_ended event
     await event_bus.publish(
         CompanyEvent(

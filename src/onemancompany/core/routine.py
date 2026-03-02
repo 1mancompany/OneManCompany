@@ -405,19 +405,9 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     )
     await _chat(ctx.room_id, "HR", "HR", f"[总结] {hr_msg}")
 
-    # Deliver feedback to each employee (update guidance)
-    for item in improvements:
-        emp_name = item.get("employee", "")
-        imps = item.get("improvements", [])
-        for emp in company_state.employees.values():
-            if emp.name == emp_name or emp.nickname == emp_name:
-                feedback = "[评审会反馈] " + "; ".join(imps)
-                emp.guidance_notes.append(feedback)
-                break
-
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": "HR已将改进建议发送给每位员工"
+        "message": "HR评审会总结完成"
     })
     return {"hr_summary": improvements}
 
@@ -1107,18 +1097,9 @@ async def _run_phase1_legacy(
     )
     await _chat(room_id, "HR", "HR", f"[总结] {hr_msg}")
 
-    for item in improvements:
-        emp_name = item.get("employee", "")
-        imps = item.get("improvements", [])
-        for emp in company_state.employees.values():
-            if emp.name == emp_name or emp.nickname == emp_name:
-                feedback = "[评审会反馈] " + "; ".join(imps)
-                emp.guidance_notes.append(feedback)
-                break
-
     await _publish("routine_phase", {
         "phase": "第一阶段",
-        "message": "HR已将改进建议发送给每位员工，第一阶段结束"
+        "message": "HR评审会总结完成，第一阶段结束"
     })
     return result
 
@@ -1425,12 +1406,6 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             )
             resp = await llm.ainvoke(prompt)
             summary_text = resp.content
-
-            note = f"[全员大会] CEO指示: {ceo_message[:50]}... | 我的领悟: {summary_text}"
-            emp.guidance_notes.append(note)
-
-            from onemancompany.core.config import save_employee_guidance
-            save_employee_guidance(emp.id, emp.guidance_notes)
 
             display = emp.nickname or emp.name
             await _chat(room.id, display, emp.role, summary_text)
