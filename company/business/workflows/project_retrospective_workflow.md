@@ -60,6 +60,16 @@
      - Flag any unnecessary or risky file modifications
 - **Output**: Operations status report (including cost analysis)
 
+## Phase 5.5: Asset Consolidation
+
+- **Responsible**: COO
+- **Steps**:
+  1. Review all files in the project workspace
+  2. Identify deliverables worth preserving as company assets (tools, templates, reference code, etc.)
+  3. For each asset candidate, provide: name, description, and which files to include
+  4. Skip if no files are worth preserving
+- **Output**: Asset consolidation suggestions (JSON list)
+
 ## Phase 6: Employee Open Floor
 
 - **Responsible**: All meeting attendees

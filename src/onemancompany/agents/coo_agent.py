@@ -17,7 +17,7 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, load_assets, migrate_legacy_tool, slugify_tool_name
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 
@@ -59,6 +59,16 @@ When receiving CEO action plans:
 - book_meeting_room() / release_meeting_room() / list_meeting_rooms().
 - No free rooms → tell employee to wait. Do NOT create rooms without CEO authorization.
 - add_meeting_room() only when CEO explicitly requests.
+
+### Knowledge Management
+- deposit_company_knowledge(category, name, content) to preserve:
+  - "workflow": Business processes and procedures
+  - "culture": Company values and culture statements
+  - "sop": Standard operating procedures
+  - "guidance": Shared employee guidance and best practices
+  - "direction": Company strategic direction
+- Use this for operational insights, process improvements, and lessons learned.
+- Tools/equipment still go through register_asset().
 
 ### Requesting New Hires
 When you identify that the team lacks a capability needed for current or upcoming work:
@@ -601,6 +611,97 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
     }
 
 
+@tool
+def deposit_company_knowledge(
+    category: str,
+    name: str,
+    content: str,
+) -> dict:
+    """Deposit company knowledge, process, or culture into the appropriate location.
+
+    Use this to preserve operational insights, processes, and guidelines that
+    benefit the entire company — not just tools/equipment (use register_asset for those).
+
+    Args:
+        category: Type of knowledge. One of:
+            - "workflow": Business process workflow → company/business/workflows/
+            - "culture": Company culture value → company/company_culture.yaml
+            - "sop": Standard operating procedure → company/operations/sops/
+            - "guidance": Shared employee guidance → company/shared_prompts/
+            - "direction": Company strategic direction → company/company_direction.yaml
+        name: Identifier/title for the knowledge (used as filename for file-based categories).
+        content: The knowledge content (markdown for workflows/sops/guidance, plain text for culture/direction).
+
+    Returns:
+        Confirmation with category, name, and storage path.
+    """
+    valid_categories = ("workflow", "culture", "sop", "guidance", "direction")
+    if category not in valid_categories:
+        return {
+            "status": "error",
+            "message": f"Invalid category '{category}'. Must be one of: {', '.join(valid_categories)}",
+        }
+
+    if category == "workflow":
+        save_workflow(name, content)
+        path = str(WORKFLOWS_DIR / f"{name}.md")
+        company_state.activity_log.append({
+            "type": "knowledge_deposited",
+            "category": "workflow",
+            "name": name,
+        })
+
+    elif category == "culture":
+        culture_item = {"content": content, "added_by": "COO", "name": name}
+        company_state.company_culture.append(culture_item)
+        save_company_culture(company_state.company_culture)
+        path = "company/company_culture.yaml"
+        company_state.activity_log.append({
+            "type": "knowledge_deposited",
+            "category": "culture",
+            "name": name,
+        })
+
+    elif category == "sop":
+        SOP_DIR.mkdir(parents=True, exist_ok=True)
+        sop_path = SOP_DIR / f"{name}.md"
+        sop_path.write_text(content, encoding="utf-8")
+        path = str(sop_path)
+        company_state.activity_log.append({
+            "type": "knowledge_deposited",
+            "category": "sop",
+            "name": name,
+        })
+
+    elif category == "guidance":
+        SHARED_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+        guidance_path = SHARED_PROMPTS_DIR / f"{name}.md"
+        guidance_path.write_text(content, encoding="utf-8")
+        path = str(guidance_path)
+        company_state.activity_log.append({
+            "type": "knowledge_deposited",
+            "category": "guidance",
+            "name": name,
+        })
+
+    elif category == "direction":
+        save_company_direction(content)
+        company_state.company_direction = content
+        path = "company/company_direction.yaml"
+        company_state.activity_log.append({
+            "type": "knowledge_deposited",
+            "category": "direction",
+            "name": name,
+        })
+
+    return {
+        "status": "success",
+        "category": category,
+        "name": name,
+        "path": path,
+    }
+
+
 class COOAgent(BaseAgentRunner):
     role = "COO"
     employee_id = COO_ID
@@ -620,6 +721,7 @@ class COOAgent(BaseAgentRunner):
                 release_meeting_room,
                 add_meeting_room,
                 request_hiring,
+                deposit_company_knowledge,
             ] + COMMON_TOOLS,
         )
 

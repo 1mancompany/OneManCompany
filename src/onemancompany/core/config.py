@@ -28,6 +28,7 @@ RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 COMPANY_DIRECTION_FILE = COMPANY_DIR / "company_direction.yaml"
 SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
+SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
 # Talent market

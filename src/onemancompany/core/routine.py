@@ -112,6 +112,7 @@ class StepContext:
         self.coo_report: str = ""
         self.employee_feedback: list[dict] = []
         self.action_items: list[dict] = []
+        self.asset_suggestions: list[dict] = []
 
     def format_project_timeline(self, max_entries: int = 20) -> str:
         """Format the project timeline as a readable string for LLM prompts."""
@@ -475,6 +476,70 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     return {"coo_report": ctx.coo_report}
 
 
+async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> dict:
+    """COO reviews project workspace files and suggests assets worth preserving."""
+    from onemancompany.core.project_archive import list_project_files, get_project_dir
+
+    project_id = ctx.project_record.get("id", "") or ctx.project_record.get("project_id", "")
+    if not project_id:
+        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 无项目ID，跳过资产沉淀环节。")
+        return {"asset_suggestions": []}
+
+    await _publish("routine_phase", {"phase": step.title, "message": "COO正在审视项目产物"})
+
+    files = list_project_files(project_id)
+    if not files:
+        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 项目工作区无文件，跳过。")
+        return {"asset_suggestions": []}
+
+    project_dir = get_project_dir(project_id)
+    file_list_text = "\n".join(f"- {f}" for f in files)
+
+    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
+    workflow_ctx = ""
+    if step_instructions:
+        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+
+    llm = make_llm(COO_ID)
+    prompt = (
+        f"你是 COO，负责审视项目产物并判断哪些值得沉淀为公司资产。\n\n"
+        f"项目概要: {ctx.task_summary}\n"
+        f"项目工作区: {project_dir}\n\n"
+        f"项目文件列表:\n{file_list_text}\n\n"
+        f"请审视以上文件，判断哪些值得注册为公司资产（工具、模板、参考代码等）。\n"
+        f"评判标准:\n"
+        f"- 具有复用价值（其他项目可以用到）\n"
+        f"- 是可独立运行的工具、脚本、模板\n"
+        f"- 不是临时文件、日志、配置文件\n\n"
+        f"如果没有值得沉淀的文件，返回空数组 []。\n"
+        f"否则以JSON数组格式返回建议:\n"
+        f'[{{"name": "资产名称", "description": "简要描述用途", "files": ["file1.py", "file2.md"]}}]\n'
+        f"只返回JSON数组，不要其他内容。{workflow_ctx}"
+    )
+    resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=COO_ID)
+    raw = resp.content
+
+    try:
+        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+        if json_match:
+            suggestions = json.loads(json_match.group())
+        else:
+            suggestions = []
+    except json.JSONDecodeError:
+        suggestions = []
+
+    ctx.asset_suggestions = suggestions
+
+    if suggestions:
+        names = ", ".join(s.get("name", "?") for s in suggestions)
+        await _chat(ctx.room_id, "COO", "COO", f"[资产沉淀建议] {names}")
+    else:
+        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 本次项目无需沉淀资产。")
+
+    await _publish("routine_phase", {"phase": step.title, "message": "资产沉淀审视完成"})
+    return {"asset_suggestions": suggestions}
+
+
 async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> dict:
     """Employee open discussion — everyone speaks freely."""
     llm = make_llm(HR_ID)
@@ -582,6 +647,23 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     except json.JSONDecodeError:
         action_items = [{"source": "COO", "description": action_text, "priority": "medium"}]
 
+    # Merge asset consolidation suggestions as action items
+    project_id = ctx.project_record.get("id", "") or ctx.project_record.get("project_id", "")
+    if ctx.asset_suggestions and project_id:
+        from onemancompany.core.project_archive import get_project_dir
+        project_dir = get_project_dir(project_id)
+        for suggestion in ctx.asset_suggestions:
+            action_items.append({
+                "type": "asset_consolidation",
+                "source": "COO",
+                "description": f"沉淀项目资产: {suggestion.get('name', '')} — {suggestion.get('description', '')}",
+                "priority": "medium",
+                "name": suggestion.get("name", ""),
+                "asset_description": suggestion.get("description", ""),
+                "project_dir": project_dir,
+                "files": suggestion.get("files", []),
+            })
+
     ctx.action_items = action_items
 
     actions_msg = "; ".join(
@@ -641,6 +723,7 @@ _register_title_handler("HR Summary", _handle_hr_summary)
 _register_title_handler("Summary", _handle_hr_summary)
 _register_title_handler("COO Operations Report", _handle_coo_report)
 _register_title_handler("Operations Report", _handle_coo_report)
+_register_title_handler("Asset Consolidation", _handle_asset_consolidation)
 _register_title_handler("Employee Open Floor", _handle_employee_open_floor)
 _register_title_handler("Open Floor", _handle_employee_open_floor)
 _register_title_handler("Action Plan", _handle_action_plan)
@@ -855,8 +938,10 @@ async def run_post_task_routine(
             "coo_report": ctx.coo_report,
             "employee_feedback": ctx.employee_feedback,
             "action_items": ctx.action_items,
+            "asset_suggestions": ctx.asset_suggestions,
         }
         meeting_doc["action_items"] = ctx.action_items
+        meeting_doc["asset_suggestions"] = ctx.asset_suggestions
 
         # Save report to disk
         _save_report(report_id, meeting_doc)
@@ -1280,6 +1365,15 @@ def _build_summary(doc: dict) -> str:
             lines.append(f"    {f['name']}: {f['feedback'][:80]}")
         lines.append("")
 
+    # Asset consolidation suggestions
+    asset_suggestions = doc.get("asset_suggestions") or doc.get("phase2", {}).get("asset_suggestions", [])
+    if asset_suggestions:
+        lines.append("【资产沉淀建议】")
+        for s in asset_suggestions:
+            files = ", ".join(s.get("files", []))
+            lines.append(f"  {s.get('name', '?')}: {s.get('description', '')} (文件: {files})")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -1292,7 +1386,7 @@ def _save_report(report_id: str, doc: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public API — execute_approved_actions (unchanged)
+# Public API — execute_approved_actions
 # ---------------------------------------------------------------------------
 
 async def execute_approved_actions(report_id: str, approved_indices: list[int]) -> str:
@@ -1318,11 +1412,42 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
         "message": f"CEO批准了 {len(approved)} 项改进，HR和COO开始执行"
     })
 
-    # Group by source (HR vs COO); unmatched actions default to COO
-    hr_actions = [a for a in approved if "HR" in a.get("source", "").upper()]
-    coo_actions = [a for a in approved if "COO" in a.get("source", "").upper()]
+    # Execute asset consolidation actions directly (no LLM needed)
+    from onemancompany.agents.coo_agent import register_asset
+
+    remaining_actions = []
+    asset_results = []
+    for a in approved:
+        if a.get("type") == "asset_consolidation":
+            result = register_asset.invoke({
+                "name": a.get("name", ""),
+                "description": a.get("asset_description", a.get("description", "")),
+                "source_project_dir": a.get("project_dir", ""),
+                "source_files": a.get("files", []),
+            })
+            asset_results.append(result)
+            logger.info("Asset registered: %s -> %s", a.get("name"), result)
+        else:
+            remaining_actions.append(a)
+
+    if asset_results:
+        await _publish("routine_phase", {
+            "phase": "资产沉淀",
+            "message": f"已注册 {len(asset_results)} 项公司资产"
+        })
+
+    if not remaining_actions:
+        summary = f"已执行 {len(asset_results)} 项资产沉淀，无其他行动计划"
+        await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
+        doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
+        _save_report(doc["id"], doc)
+        return summary
+
+    # Group remaining by source (HR vs COO); unmatched actions default to COO
+    hr_actions = [a for a in remaining_actions if "HR" in a.get("source", "").upper()]
+    coo_actions = [a for a in remaining_actions if "COO" in a.get("source", "").upper()]
     routed = set(id(a) for a in hr_actions) | set(id(a) for a in coo_actions)
-    unrouted = [a for a in approved if id(a) not in routed]
+    unrouted = [a for a in remaining_actions if id(a) not in routed]
     coo_actions.extend(unrouted)
 
     # COO is responsible for receiving all approved actions and dispatching them.
@@ -1331,7 +1456,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     from onemancompany.core.config import COO_ID
 
     action_lines = []
-    for a in approved:
+    for a in remaining_actions:
         source = a.get("source", "COO")
         action_lines.append(f"- [{source}] {a['description']}")
 
@@ -1345,13 +1470,16 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     coo_loop = get_agent_loop(COO_ID)
     if coo_loop:
         coo_loop.push_task(coo_task)
-        summary = f"已推送 {len(approved)} 项批准行动到COO任务板"
+        summary = f"已推送 {len(remaining_actions)} 项批准行动到COO任务板"
     else:
         summary = "COO agent loop not found"
 
+    if asset_results:
+        summary += f"，已注册 {len(asset_results)} 项公司资产"
+
     await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
 
-    doc["execution"] = {"approved": approved, "results": [summary]}
+    doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
     _save_report(doc["id"], doc)
 
     return summary

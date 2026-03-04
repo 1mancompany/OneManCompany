@@ -7,12 +7,14 @@ so it can be called both by the HR agent and directly via the API.
 from __future__ import annotations
 
 import logging
+import shutil
 
 import yaml
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     FOUNDING_LEVEL,
+    TOOLS_DIR,
     move_employee_to_ex,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -64,6 +66,15 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
                 mdata = yaml.safe_load(f) or {}
             for tool_name in mdata.get("custom_tools", []):
                 unregister_tool_user(tool_name, employee_id)
+                # Clean up orphaned personal tools (no remaining users)
+                tool_yaml_path = TOOLS_DIR / tool_name / "tool.yaml"
+                if tool_yaml_path.exists():
+                    with open(tool_yaml_path) as f:
+                        tool_data = yaml.safe_load(f) or {}
+                    if (tool_data.get("source_talent") and
+                            "allowed_users" in tool_data and
+                            len(tool_data.get("allowed_users", [])) == 0):
+                        shutil.rmtree(TOOLS_DIR / tool_name, ignore_errors=True)
     except Exception:
         logger.debug("Failed to unregister tools for %s", employee_id)
 
