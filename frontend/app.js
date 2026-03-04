@@ -3337,7 +3337,10 @@ class AppController {
     // Load current direction
     fetch('/api/company/direction')
       .then(r => r.json())
-      .then(data => { input.value = data.direction || ''; })
+      .then(data => {
+        input.value = data.direction || '';
+        this._renderCurrentDirection(data.direction || '');
+      })
       .catch(() => { input.value = ''; });
   }
 
@@ -3362,11 +3365,54 @@ class AppController {
           this.logEntry('SYSTEM', `Save failed: ${data.error}`, 'system');
         } else {
           this.logEntry('CEO', `Company direction updated`, 'ceo');
-          this.closeCompanyDirection();
+          this._renderCurrentDirection(direction);
         }
       })
       .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'))
       .finally(() => { btn.disabled = false; });
+  }
+
+  enrichCompanyDirection() {
+    const input = document.getElementById('company-direction-input');
+    const draft = input.value.trim();
+    const btn = document.getElementById('company-direction-enrich-btn');
+    if (!draft) {
+      this.logEntry('SYSTEM', 'Please write a draft direction first.', 'system');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '⏳ Sending...';
+
+    const task = `CEO写了一段公司方向的草稿，请帮忙润色和丰富成一个完整的企业定位描述，保留核心意思，补充战略愿景、目标市场、核心竞争力等维度。润色完成后，使用 save_company_direction 工具保存。\n\n草稿内容:\n${draft}`;
+
+    fetch('/api/ceo/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Enrich failed: ${data.error}`, 'system');
+        } else {
+          this.logEntry('CEO', `Direction polish task sent to EA`, 'ceo');
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'))
+      .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '&#10024; Polish / Enrich';
+      });
+  }
+
+  _renderCurrentDirection(text) {
+    const el = document.getElementById('company-direction-current');
+    if (!text) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = 'block';
+    el.textContent = text;
   }
 
   // ===== 1-on-1 File Upload =====
