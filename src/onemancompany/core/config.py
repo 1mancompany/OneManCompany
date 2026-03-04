@@ -60,6 +60,8 @@ SCORE_QUALIFIED = 3.5
 SCORE_EXCELLENT = 3.75
 QUARTERS_FOR_PROMOTION = 3                     # consecutive excellent quarters
 MAX_PERFORMANCE_HISTORY = 3                    # quarters of history to keep
+PROBATION_TASKS = 2                            # tasks to complete during probation
+PIP_DEADLINE_QUARTERS = 1                      # quarters to resolve a PIP
 
 # ---------------------------------------------------------------------------
 # Employee status
@@ -191,6 +193,10 @@ class EmployeeConfig(BaseModel):
     tool_permissions: list[str] = []  # LangChain tool names this employee is authorized to use
     remote: bool = False  # True = remote worker, False = on-site
     salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens (avg of input+output cost)
+    probation: bool = True  # new hires start on probation
+    okrs: list[dict] = []  # OKR objectives
+    pip: dict | None = None  # Performance Improvement Plan (if active)
+    onboarding_completed: bool = False  # set True after onboarding routine
     api_provider: str = "openrouter"  # "openrouter" | "anthropic"
     api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
     hosting: str = "company"  # "company" = 员工宿舍 (server manages agent loop) | "self" = 自带住宿 (external process, e.g. Claude Code)
@@ -369,6 +375,8 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
             permissions=perms_lines,
             tool_permissions=tool_perms_lines,
             salary_per_1m_tokens=config.salary_per_1m_tokens,
+            probation=str(config.probation).lower(),
+            onboarding_completed=str(config.onboarding_completed).lower(),
             api_provider=config.api_provider,
             api_key=config.api_key,
             hosting=config.hosting,
@@ -421,6 +429,18 @@ def update_employee_level(employee_id: str, level: int, title: str) -> None:
         data = yaml.safe_load(f) or {}
     data["level"] = level
     data["title"] = title
+    with open(profile_path, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+
+def update_employee_field(employee_id: str, field: str, value) -> None:
+    """Persist a single field into an existing employee profile.yaml."""
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if not profile_path.exists():
+        return
+    with open(profile_path) as f:
+        data = yaml.safe_load(f) or {}
+    data[field] = value
     with open(profile_path, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 

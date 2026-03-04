@@ -1080,6 +1080,37 @@ async def get_employee_manifest(employee_id: str) -> dict:
     return manifest
 
 
+@router.get("/api/employee/{employee_id}/okrs")
+async def get_employee_okrs(employee_id: str) -> dict:
+    """Get OKRs for an employee."""
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return {"employee_id": employee_id, "okrs": emp.okrs}
+
+
+@router.put("/api/employee/{employee_id}/okrs")
+async def update_employee_okrs(employee_id: str, body: dict) -> dict:
+    """Update OKRs for an employee."""
+    from onemancompany.core.config import update_employee_field
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    okrs = body.get("okrs", [])
+    emp.okrs = okrs
+    update_employee_field(employee_id, "okrs", okrs)
+
+    await event_bus.publish(CompanyEvent(
+        type="okr_updated",
+        payload={"employee_id": employee_id, "okrs": okrs},
+        agent="CEO",
+    ))
+
+    return {"employee_id": employee_id, "okrs": okrs}
+
+
 @router.get("/api/employee/{employee_id}/taskboard")
 async def get_employee_taskboard(employee_id: str) -> dict:
     """Get an agent's task board (per-agent tasks, not company-level)."""
