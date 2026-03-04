@@ -368,7 +368,7 @@ open http://localhost:8000
 ## Changelog
 
 <!-- CHANGELOG_START -->
-| Date | Commit | Summary |
-|------|--------|---------|
-| %Y->- (HEAD -> main) | `b1e2ab9` | update frontend |
+| Date | Summary |
+|------|---------|
+| 2026-03-04 | 26 files changed, 10564 insertions(+), 1218 deletions(-) |
 <!-- CHANGELOG_END -->
