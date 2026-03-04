@@ -1,0 +1,10 @@
+added_by: CEO
+allowed_users: []
+description: 'Query project archive for tracking and supervision. Lists projects,
+  checks status, finds stale dispatches, monitors costs, and generates progress reports.
+
+  '
+id: pm_tools
+name: Project Manager Tools
+sprite: desk_equipment
+type: langchain_module

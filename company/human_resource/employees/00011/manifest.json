@@ -29,5 +29,6 @@
     "builtin": ["sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file"],
     "custom": []
   },
-  "platform_capabilities": ["file_upload", "websocket"]
+  "platform_capabilities": ["file_upload", "websocket"],
+  "heartbeat": {"method": "anthropic_key"}
 }

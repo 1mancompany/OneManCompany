@@ -35,6 +35,8 @@ EventType = Literal[
     "resolution_decided",
     "inquiry_started",
     "inquiry_ended",
+    "hiring_request_ready",
+    "hiring_request_decided",
 ]
 
 

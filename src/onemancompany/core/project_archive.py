@@ -12,6 +12,7 @@ Employees can save artifacts to their project workspace via save_project_file().
 from __future__ import annotations
 
 import re
+import shutil
 import threading
 import uuid
 from datetime import datetime
@@ -188,10 +189,38 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     iter_num = len(existing) + 1
     iter_id = f"iter_{iter_num:03d}"
 
-    iter_dir = PROJECTS_DIR / project_id / "iterations"
-    iter_dir.mkdir(parents=True, exist_ok=True)
+    iterations_dir = PROJECTS_DIR / project_id / "iterations"
+    iterations_dir.mkdir(parents=True, exist_ok=True)
 
-    workspace = str(PROJECTS_DIR / project_id / "workspace")
+    # --- per-iteration workspace ---
+    # Determine previous iteration's workspace to copy from
+    prev_workspace: Path | None = None
+    if existing:
+        prev_iter_id = existing[-1]
+        prev_doc = load_iteration(project_id, prev_iter_id)
+        if prev_doc and prev_doc.get("project_dir"):
+            candidate = Path(prev_doc["project_dir"])
+            if candidate.is_dir():
+                prev_workspace = candidate
+    if prev_workspace is None:
+        # Fallback to shared workspace/
+        fallback = PROJECTS_DIR / project_id / "workspace"
+        if fallback.is_dir():
+            prev_workspace = fallback
+
+    # Create the new iteration workspace directory
+    new_workspace = iterations_dir / iter_id
+    new_workspace.mkdir(parents=True, exist_ok=True)
+
+    # Copy files from previous workspace
+    if prev_workspace is not None and prev_workspace.is_dir():
+        for item in prev_workspace.iterdir():
+            dest = new_workspace / item.name
+            if item.is_dir():
+                shutil.copytree(item, dest, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dest)
+
     doc = {
         "iteration_id": iter_id,
         "project_id": project_id,
@@ -214,7 +243,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
             "token_usage": {"input": 0, "output": 0, "total": 0},
             "breakdown": [],
         },
-        "project_dir": workspace,
+        "project_dir": str(new_workspace),
     }
     _save_iteration(project_id, iter_id, doc)
 
@@ -309,7 +338,21 @@ def archive_project(project_id: str) -> None:
 
 
 def get_project_workspace(project_id: str) -> str:
-    """Return the workspace directory path for a v2 named project."""
+    """Return the workspace directory path for a v2 named project.
+
+    Prefers the latest iteration's per-iteration workspace if available,
+    otherwise falls back to the shared workspace/ directory.
+    """
+    proj = load_named_project(project_id)
+    if proj:
+        iters = proj.get("iterations", [])
+        if iters:
+            latest_doc = load_iteration(project_id, iters[-1])
+            if latest_doc and latest_doc.get("project_dir"):
+                ws = Path(latest_doc["project_dir"])
+                ws.mkdir(parents=True, exist_ok=True)
+                return str(ws)
+    # Fallback to shared workspace/
     ws = PROJECTS_DIR / project_id / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     return str(ws)
@@ -397,42 +440,47 @@ def load_project(project_id: str) -> dict | None:
     return doc
 
 
-def get_project_dir(project_id: str) -> str:
-    """Return the absolute path of a project's workspace directory.
+def _resolve_workspace(project_id: str) -> Path:
+    """Resolve the workspace directory for any project identifier.
 
-    v1: returns projects/{timestamp_id}
-    v2 iteration: returns projects/{slug}/workspace
+    - v2 project slug: latest iteration's per-iteration workspace (via get_project_workspace)
+    - v2 iteration ID: that iteration's project_dir from its YAML
+    - v1 / _auto_: the project directory itself
     """
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
         if slug:
+            iter_doc = load_iteration(slug, project_id)
+            if iter_doc and iter_doc.get("project_dir"):
+                ws = Path(iter_doc["project_dir"])
+                ws.mkdir(parents=True, exist_ok=True)
+                return ws
+            # Fallback for old iterations without per-iter workspace
             ws = PROJECTS_DIR / slug / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
-            return str(ws)
+            return ws
     if not _is_v1(project_id) and not project_id.startswith("_auto_"):
-        # Could be a named project slug
-        ws = PROJECTS_DIR / project_id / "workspace"
-        if ws.parent.exists():
-            ws.mkdir(parents=True, exist_ok=True)
-            return str(ws)
-    return str(_project_dir(project_id))
+        # Named project slug — use get_project_workspace (latest iteration aware)
+        return Path(get_project_workspace(project_id))
+    return _project_dir(project_id)
+
+
+def get_project_dir(project_id: str) -> str:
+    """Return the absolute path of a project's workspace directory.
+
+    v1: returns projects/{timestamp_id}
+    v2 iteration: returns that iteration's workspace
+    v2 slug: returns latest iteration's workspace (or shared workspace/)
+    """
+    ws = _resolve_workspace(project_id)
+    ws.mkdir(parents=True, exist_ok=True)
+    return str(ws)
 
 
 def save_project_file(project_id: str, filename: str, content: str | bytes) -> dict:
     """Save a file into the project workspace directory."""
-    # Determine the actual workspace dir
-    if _is_iteration(project_id):
-        slug = _find_project_for_iteration(project_id)
-        if slug:
-            project_dir = PROJECTS_DIR / slug / "workspace"
-            project_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            project_dir = _ensure_project_dir(project_id)
-    elif not _is_v1(project_id) and not project_id.startswith("_auto_"):
-        project_dir = PROJECTS_DIR / project_id / "workspace"
-        project_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        project_dir = _ensure_project_dir(project_id)
+    project_dir = _resolve_workspace(project_id)
+    project_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = project_dir / filename
 
@@ -452,16 +500,7 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
 
 def list_project_files(project_id: str) -> list[str]:
     """List all files in a project workspace (excluding project.yaml and iterations/)."""
-    if _is_iteration(project_id):
-        slug = _find_project_for_iteration(project_id)
-        if slug:
-            project_dir = PROJECTS_DIR / slug / "workspace"
-        else:
-            project_dir = _project_dir(project_id)
-    elif not _is_v1(project_id) and not project_id.startswith("_auto_"):
-        project_dir = PROJECTS_DIR / project_id / "workspace"
-    else:
-        project_dir = _project_dir(project_id)
+    project_dir = _resolve_workspace(project_id)
 
     if not project_dir.exists():
         return []

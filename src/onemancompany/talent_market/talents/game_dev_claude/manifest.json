@@ -23,11 +23,13 @@
     ]
   },
   "prompts": {
-    "skills": ["skills/*.md"]
+    "skills": [],
+    "npx_skills": ["roblox-game-development", "game-engine", "algorithmic-art", "canvas-design"]
   },
   "tools": {
     "builtin": [],
     "custom": ["roblox_cloud"]
   },
-  "platform_capabilities": ["file_upload", "websocket"]
+  "platform_capabilities": ["file_upload", "websocket"],
+  "heartbeat": {"method": "pid"}
 }

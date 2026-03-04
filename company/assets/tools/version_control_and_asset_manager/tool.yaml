@@ -1,9 +1,0 @@
-added_by: COO
-allowed_users: []
-description: 标准化的版本控制与资产管理工具，规范本地workspace管理，防止跨部门协作时的文件覆盖与混乱。
-desk_position:
-- 10
-- 8
-id: fc6aef34
-name: Version Control and Asset Manager
-sprite: desk_equipment

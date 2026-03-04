@@ -13,6 +13,8 @@ import shutil
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+import yaml
+
 from onemancompany.core.config import (
     DEFAULT_TOOL_PERMISSIONS,
     DEFAULT_TOOL_PERMISSIONS_FALLBACK,
@@ -20,6 +22,7 @@ from onemancompany.core.config import (
     HR_ID,
     ROLE_DEPARTMENT_MAP,
     TALENTS_DIR,
+    TOOLS_DIR,
     EmployeeConfig,
     ensure_employee_dir,
     save_employee_profile,
@@ -103,11 +106,53 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
 
 
 # ---------------------------------------------------------------------------
+# Tool user registration (allowed_users in company/assets/tools/*/tool.yaml)
+# ---------------------------------------------------------------------------
+
+def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -> None:
+    """Add or remove *employee_id* from a central tool's ``allowed_users`` list.
+
+    Employee-brought tools are personal — only the owning employee may use them.
+    This function maintains the whitelist in ``tool.yaml``.
+    """
+    tool_yaml = TOOLS_DIR / tool_name / "tool.yaml"
+    if not tool_yaml.exists():
+        return
+    with open(tool_yaml) as f:
+        data = yaml.safe_load(f) or {}
+    allowed: list = data.get("allowed_users", [])
+    if add:
+        if employee_id not in allowed:
+            allowed.append(employee_id)
+    else:
+        if employee_id in allowed:
+            allowed.remove(employee_id)
+    data["allowed_users"] = allowed
+    with open(tool_yaml, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
+def register_tool_user(tool_name: str, employee_id: str) -> None:
+    """Grant *employee_id* access to a central LangChain tool."""
+    _update_tool_allowed_users(tool_name, employee_id, add=True)
+
+
+def unregister_tool_user(tool_name: str, employee_id: str) -> None:
+    """Revoke *employee_id*'s access to a central LangChain tool."""
+    _update_tool_allowed_users(tool_name, employee_id, add=False)
+
+
+# ---------------------------------------------------------------------------
 # Talent asset copying
 # ---------------------------------------------------------------------------
 
 def copy_talent_assets(talent_id: str, emp_dir) -> None:
-    """Copy skills/ and tools/ from a talent package into an employee folder."""
+    """Copy skills/ and tools/ from a talent package into an employee folder.
+
+    For custom LangChain tools (listed in manifest.yaml ``custom_tools``),
+    registers the new employee in each tool's ``allowed_users`` whitelist
+    instead of copying .py files.
+    """
     talent_dir = TALENTS_DIR / talent_id
     if not talent_dir.exists():
         return
@@ -126,7 +171,21 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
     if talent_tools.exists():
         emp_tools = emp_dir / "tools"
         emp_tools.mkdir(exist_ok=True)
+
+        # Register employee in central tool allowed_users
+        manifest = talent_tools / "manifest.yaml"
+        if manifest.exists():
+            with open(manifest) as f:
+                mdata = yaml.safe_load(f) or {}
+            employee_id = emp_dir.name  # e.g. "00005"
+            for tool_name in mdata.get("custom_tools", []):
+                register_tool_user(tool_name, employee_id)
+
         for src_file in talent_tools.iterdir():
+            # Skip .py files — LangChain tool modules live centrally
+            # in company/assets/tools/ and are loaded at runtime.
+            if src_file.suffix == ".py":
+                continue
             if src_file.is_file():
                 dst_file = emp_tools / src_file.name
                 if not dst_file.exists():
@@ -258,6 +317,15 @@ async def execute_hire(
             if not dst_launch.exists():
                 shutil.copy2(str(talent_launch), str(dst_launch))
                 dst_launch.chmod(dst_launch.stat().st_mode | 0o111)  # ensure executable
+
+    # Copy heartbeat.sh for employees with custom heartbeat scripts
+    if talent_id:
+        talent_hb = TALENTS_DIR / talent_id / "heartbeat.sh"
+        if talent_hb.exists():
+            dst_hb = emp_dir / "heartbeat.sh"
+            if not dst_hb.exists():
+                shutil.copy2(str(talent_hb), str(dst_hb))
+                dst_hb.chmod(dst_hb.stat().st_mode | 0o111)
 
     # Create skill stubs
     for skill_name in skills:

@@ -171,6 +171,13 @@ class AppController {
       },
       'file_edit_applied':   (p) => ({ text: `✅ File updated: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
       'file_edit_rejected':  (p) => ({ text: `❌ File edit rejected: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
+      'hiring_request_ready': (p) => {
+        this.showHiringRequestModal(p);
+        return { text: `📋 COO requests hiring: ${p.role} — ${p.reason}`, cls: 'coo', agent: 'COO' };
+      },
+      'hiring_request_decided': (p) => {
+        return { text: `${p.approved ? '✅' : '❌'} Hiring request ${p.approved ? 'approved' : 'rejected'}: ${p.role}`, cls: 'ceo', agent: 'CEO' };
+      },
       'resolution_ready':    (p) => {
         this._showResolutionModal(p);
         return { text: `📋 Resolution ready: ${(p.edits || []).length} file edit(s) for review`, cls: 'ceo', agent: 'SYSTEM' };
@@ -1070,6 +1077,15 @@ class AppController {
       guidanceEl.innerHTML = '<span class="empty-hint">No 1-on-1 notes yet</span>';
     }
 
+    // Fire button — hidden for founding employees (Lv.4+)
+    const fireBtn = document.getElementById('emp-fire-btn');
+    if (emp.level >= 4) {
+      fireBtn.style.display = 'none';
+    } else {
+      fireBtn.style.display = '';
+      fireBtn.onclick = () => this._confirmFireEmployee(emp);
+    }
+
     // Load model dropdown / API key section based on provider
     this._loadModelOrApiKeySection(emp.id);
 
@@ -1087,6 +1103,37 @@ class AppController {
     this.viewingEmployeeId = null;
     this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
+  }
+
+  _confirmFireEmployee(emp) {
+    const reason = prompt(
+      `Dismiss ${emp.name} (${emp.nickname})?\n\nEnter reason (or Cancel to abort):`,
+      'CEO decision'
+    );
+    if (reason === null) return; // user cancelled
+
+    if (!confirm(`Are you sure you want to dismiss ${emp.name}?\nReason: ${reason}\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    fetch(`/api/employee/${emp.id}/fire`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason || 'CEO decision' }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          alert(`Cannot dismiss: ${data.error}`);
+        } else {
+          this.closeEmployeeDetail();
+          this.addLog(`Dismissed ${data.name} (${data.nickname}) — ${data.reason}`);
+        }
+      })
+      .catch(err => {
+        console.error('Fire employee error:', err);
+        alert('Failed to dismiss employee. See console for details.');
+      });
   }
 
   async _fetchTaskBoard(empId) {
@@ -1690,6 +1737,55 @@ class AppController {
       })
       .catch(err => this.logEntry('SYSTEM', `Update failed: ${err.message}`, 'system'))
       .finally(() => { saveBtn.disabled = false; });
+  }
+
+  // ===== Hiring Request (COO → CEO) =====
+  showHiringRequestModal(payload) {
+    const modal = document.getElementById('hiring-request-modal');
+    const bodyEl = document.getElementById('hiring-request-body');
+
+    const skills = (payload.desired_skills || []).join(', ') || 'N/A';
+    bodyEl.innerHTML = `
+      <div style="margin-bottom:6px;">
+        <span style="color:var(--pixel-yellow);font-size:7px;">ROLE</span><br>
+        <span style="font-size:8px;">${payload.role}</span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <span style="color:var(--pixel-yellow);font-size:7px;">REASON</span><br>
+        <span style="font-size:7px;">${payload.reason}</span>
+      </div>
+      <div style="margin-bottom:6px;">
+        <span style="color:var(--pixel-yellow);font-size:7px;">DESIRED SKILLS</span><br>
+        <span style="font-size:7px;">${skills}</span>
+      </div>
+    `;
+
+    const approveBtn = document.getElementById('hiring-request-approve');
+    const rejectBtn = document.getElementById('hiring-request-reject');
+    const closeBtn = document.getElementById('hiring-request-close-btn');
+
+    const cleanup = () => { modal.classList.add('hidden'); };
+
+    const decide = (approved) => {
+      fetch(`/api/hiring-requests/${payload.request_id}/decide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          this.logEntry('CEO', `Hiring request ${approved ? 'approved' : 'rejected'}: ${payload.role}`, 'ceo');
+        })
+        .catch(err => this.logEntry('SYSTEM', `Decision failed: ${err.message}`, 'system'));
+      cleanup();
+    };
+
+    approveBtn.onclick = () => decide(true);
+    rejectBtn.onclick = () => decide(false);
+    closeBtn.onclick = cleanup;
+    modal.onclick = (e) => { if (e.target === modal) cleanup(); };
+
+    modal.classList.remove('hidden');
   }
 
   // ===== Candidate Selection (Boss Online) =====
