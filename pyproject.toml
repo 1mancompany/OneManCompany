@@ -11,6 +11,7 @@ dependencies = [
     "langchain-core>=0.3",
     "langgraph>=0.3",
     "langchain-openai>=0.3",
+    "langchain-anthropic>=0.3",
     "langchain-mcp-adapters>=0.1",
     "mcp>=1.0",
     "pydantic>=2.9",
@@ -33,8 +34,18 @@ packages = ["src/onemancompany"]
 [project.scripts]
 onemancompany = "onemancompany.main:run"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests (no external deps, <1s)",
+    "integration: Integration tests (mock LLM, <30s)",
+    "e2e: End-to-end tests (need running server, <120s)",
+]
+asyncio_mode = "auto"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    "pytest-timeout>=2.3",
 ]

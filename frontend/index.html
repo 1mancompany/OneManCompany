@@ -64,6 +64,7 @@
           <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="1-on-1 Meeting">&#127891;</button>
           <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
+          <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
           <span class="status-item" id="last-sync-time"></span>
@@ -92,6 +93,7 @@
             <select id="project-select">
               <option value="">&#128203; New Task (no project)</option>
               <option value="__new__">&#10133; Create New Project...</option>
+              <option value="__qa__">&#128172; Q&amp;A Mode (no project)</option>
             </select>
             <input id="new-project-name" class="hidden" placeholder="Project name..." />
           </div>
@@ -160,7 +162,12 @@
             <div class="typing-dots"><span></span><span></span><span></span></div>
           </div>
         </div>
+        <div id="oneonone-preview-bar" class="chat-preview-bar hidden"></div>
         <div class="chat-input-area">
+          <label class="chat-attach-btn" title="Attach file or image">
+            <input type="file" id="oneonone-file-input" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md" hidden />
+            &#128206;
+          </label>
           <textarea id="oneonone-input" class="chat-textarea" placeholder="Type a message..." rows="1"></textarea>
           <button id="oneonone-send-btn" class="chat-send-btn" title="Send">&#9654;</button>
         </div>
@@ -223,13 +230,8 @@
                 <span class="emp-detail-label">Perf</span>
                 <div class="emp-detail-value" id="emp-detail-perf-wrapper"></div>
               </div>
-              <div class="emp-detail-section emp-model-section-wrap">
-                <div class="emp-detail-section-content emp-model-section">
-                  <select id="emp-detail-model" class="emp-model-select">
-                    <option value="">Loading...</option>
-                  </select>
-                  <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
-                </div>
+              <div id="emp-settings-container" class="emp-detail-section emp-model-section-wrap">
+                <!-- Dynamically rendered from manifest.json settings -->
               </div>
             </div>
 
@@ -467,6 +469,23 @@
       <div class="modal-footer">
         <button id="resolution-submit-btn" class="pixel-btn">&#9989; Submit All Decisions</button>
         <button id="resolution-cancel-btn" class="pixel-btn secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Company Direction Modal -->
+  <div id="company-direction-modal" class="modal-overlay hidden">
+    <div class="modal-content company-direction-modal-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#127919; Company Direction</h3>
+        <button id="company-direction-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body company-direction-body">
+        <p style="font-size:7px;color:var(--text-dim);margin:0 0 8px;">Set the company strategy / direction. This is injected into every employee's prompt.</p>
+        <textarea id="company-direction-input" placeholder="e.g. We focus on AI-driven creative tools for indie creators..." rows="5" style="width:100%;background:var(--bg-dark);color:var(--pixel-white);border:2px solid var(--border);font-family:'Press Start 2P',monospace;font-size:7px;padding:6px;resize:vertical;"></textarea>
+        <div style="margin-top:8px;display:flex;gap:6px;">
+          <button id="company-direction-save-btn" class="pixel-btn">&#128190; Save</button>
+        </div>
       </div>
     </div>
   </div>

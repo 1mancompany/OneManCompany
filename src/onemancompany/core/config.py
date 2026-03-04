@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
@@ -25,6 +26,8 @@ REPORTS_DIR = BUSINESS_DIR / "reports"
 MEETING_REPORTS_DIR = REPORTS_DIR / "meeting_reports"
 RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
+COMPANY_DIRECTION_FILE = COMPANY_DIR / "company_direction.yaml"
+SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
 # Talent market
@@ -146,6 +149,21 @@ HR_KEYWORDS = [
     "招聘", "员工", "评价", "评估", "花名", "晋升", "开除", "解雇", "辞退",
 ]
 
+ENGINEERING_DEPT = "Engineering"
+
+# Default tool permissions by department (set during hiring)
+DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
+    "Engineering": [
+        "read_file", "list_directory", "propose_file_edit", "use_tool",
+        "sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file",
+    ],
+    "Design": ["read_file", "list_directory", "use_tool"],
+    "Analytics": ["read_file", "list_directory", "use_tool"],
+    "Marketing": ["read_file", "list_directory", "use_tool"],
+    "General": ["read_file", "list_directory"],
+}
+DEFAULT_TOOL_PERMISSIONS_FALLBACK = ["read_file", "list_directory"]
+
 SALES_KEYWORDS = [
     "sales", "sell", "client", "customer", "contract", "deal", "revenue",
     "销售", "客户", "合同", "订单", "营收", "商务", "签约",
@@ -170,8 +188,14 @@ class EmployeeConfig(BaseModel):
     current_quarter_tasks: int = 0
     performance_history: list[dict] = []
     permissions: list[str] = []  # e.g. ["company_file_access", "web_search", "backend_code_maintenance"]
+    tool_permissions: list[str] = []  # LangChain tool names this employee is authorized to use
     remote: bool = False  # True = remote worker, False = on-site
     salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens (avg of input+output cost)
+    api_provider: str = "openrouter"  # "openrouter" | "anthropic"
+    api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
+    hosting: str = "company"  # "company" = 员工宿舍 (server manages agent loop) | "self" = 自带住宿 (external process, e.g. Claude Code)
+    auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
+    oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
 
 
 class Settings(BaseSettings):
@@ -325,6 +349,7 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
             perf_lines = "  []"
         from onemancompany.core.state import make_title
         perms_lines = "\n".join(f"  - {p}" for p in config.permissions) if config.permissions else "  []"
+        tool_perms_lines = "\n".join(f"  - {t}" for t in config.tool_permissions) if config.tool_permissions else "  []"
         rendered = template_text.format(
             name=config.name,
             nickname=config.nickname,
@@ -342,7 +367,12 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
             performance_history=perf_lines,
             skills=skills_lines,
             permissions=perms_lines,
+            tool_permissions=tool_perms_lines,
             salary_per_1m_tokens=config.salary_per_1m_tokens,
+            api_provider=config.api_provider,
+            api_key=config.api_key,
+            hosting=config.hosting,
+            auth_method=config.auth_method,
         )
         profile_path.write_text(rendered, encoding="utf-8")
     else:
@@ -352,6 +382,21 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
 
     # Keep in-memory employee_configs in sync
     employee_configs[employee_id] = config
+
+
+def update_tool_permissions(employee_id: str, tool_permissions: list[str]) -> None:
+    """Persist tool_permissions into an existing employee profile.yaml."""
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if not profile_path.exists():
+        return
+    with open(profile_path) as f:
+        data = yaml.safe_load(f) or {}
+    data["tool_permissions"] = tool_permissions
+    with open(profile_path, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    # Update in-memory
+    if employee_id in employee_configs:
+        employee_configs[employee_id].tool_permissions = list(tool_permissions)
 
 
 def update_employee_performance(employee_id: str, current_quarter_tasks: int, performance_history: list[dict]) -> None:
@@ -563,6 +608,60 @@ def save_company_culture(items: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Company direction
+# ---------------------------------------------------------------------------
+
+def load_company_direction() -> str:
+    """Load company direction from company_direction.yaml."""
+    if not COMPANY_DIRECTION_FILE.exists():
+        return ""
+    with open(COMPANY_DIRECTION_FILE) as f:
+        data = yaml.safe_load(f)
+    if isinstance(data, dict):
+        return data.get("direction", "")
+    return ""
+
+
+def save_company_direction(direction: str) -> None:
+    """Persist company direction to company_direction.yaml."""
+    from datetime import datetime
+    data = {
+        "direction": direction,
+        "updated_at": datetime.now().isoformat(),
+        "updated_by": "CEO",
+    }
+    with open(COMPANY_DIRECTION_FILE, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+
+# ---------------------------------------------------------------------------
+# Employee manifest (manifest.json)
+# ---------------------------------------------------------------------------
+
+MANIFEST_CACHE: dict[str, dict] = {}
+
+
+def load_manifest(employee_id: str) -> dict | None:
+    """Load manifest.json for an employee, with caching."""
+    if employee_id in MANIFEST_CACHE:
+        return MANIFEST_CACHE[employee_id]
+    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    MANIFEST_CACHE[employee_id] = data
+    return data
+
+
+def invalidate_manifest_cache(employee_id: str | None = None) -> None:
+    """Clear manifest cache. If employee_id is None, clear all."""
+    if employee_id is None:
+        MANIFEST_CACHE.clear()
+    else:
+        MANIFEST_CACHE.pop(employee_id, None)
+
+
+# ---------------------------------------------------------------------------
 # Talent market helpers
 # ---------------------------------------------------------------------------
 
@@ -673,6 +772,7 @@ def list_available_talents() -> list[dict]:
             "role": data.get("role", ""),
             "remote": data.get("remote", False),
             "description": data.get("description", ""),
+            "api_provider": data.get("api_provider", "openrouter"),
         })
     return result
 

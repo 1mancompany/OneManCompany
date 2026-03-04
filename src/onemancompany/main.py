@@ -239,8 +239,8 @@ async def lifespan(app: FastAPI):
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
-    # Register agent loops for all founding employees
-    from onemancompany.core.agent_loop import register_agent, start_all_loops, stop_all_loops
+    # Register employees with the centralized EmployeeManager
+    from onemancompany.core.agent_loop import register_agent, register_self_hosted, start_all_loops, stop_all_loops
     from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID, EA_ID as _EA_ID, CSO_ID as _CSO_ID
     from onemancompany.agents.hr_agent import HRAgent
     from onemancompany.agents.coo_agent import COOAgent
@@ -251,20 +251,32 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.hr_agent import start_boss_online, stop_boss_online
     await start_boss_online()
 
+    # Founding employees — LangChain agents
     register_agent(_HR_ID, HRAgent())
     register_agent(_COO_ID, COOAgent())
     register_agent(_EA_ID, EAAgent())
     register_agent(_CSO_ID, CSOAgent())
 
-    # Restore agent loops for all non-founding hired employees
+    # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
-    from onemancompany.core.config import FOUNDING_LEVEL
+    from onemancompany.core.config import FOUNDING_LEVEL, employee_configs as _emp_cfgs
     from onemancompany.core.state import company_state
     founding_ids = {_HR_ID, _COO_ID, _EA_ID, _CSO_ID, "00001"}
     for emp_id, emp in company_state.employees.items():
-        if emp_id not in founding_ids and emp.level < FOUNDING_LEVEL and not emp.remote:
-            register_agent(emp_id, EmployeeAgent(emp_id))
-            print(f"[startup] Restored agent loop for {emp.name} ({emp_id})")
+        if emp_id in founding_ids:
+            continue
+        if emp.level >= FOUNDING_LEVEL:
+            continue
+        if emp.remote:
+            continue
+        _cfg = _emp_cfgs.get(emp_id)
+        if _cfg and _cfg.hosting == "self":
+            # Self-hosted: register with ClaudeSessionLauncher (on-demand CLI sessions)
+            register_self_hosted(emp_id)
+            print(f"[startup] Registered self-hosted {emp.name} ({emp_id}) — on-demand sessions")
+            continue
+        register_agent(emp_id, EmployeeAgent(emp_id))
+        print(f"[startup] Registered {emp.name} ({emp_id}) — LangChain agent")
 
     await start_all_loops()
 

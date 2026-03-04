@@ -1405,7 +1405,7 @@ body {
 
 /* ===== Project Wall Modal ===== */
 .project-modal-content {
-  max-width: 650px;
+  max-width: 800px;
   max-height: 80vh;
   border-color: var(--pixel-green);
   box-shadow: 0 0 40px rgba(0, 255, 136, 0.15);
@@ -1449,6 +1449,51 @@ body {
 .project-detail {
   max-height: 60vh;
   overflow-y: auto;
+}
+
+.project-detail-split {
+  display: flex;
+  gap: 8px;
+  min-height: 200px;
+}
+
+.project-iter-list {
+  flex: 0 0 180px;
+  overflow-y: auto;
+  max-height: 55vh;
+  border-right: 1px solid var(--border);
+  padding-right: 6px;
+}
+
+.project-iter-card {
+  padding: 6px;
+  border: 1px solid var(--border);
+  margin-bottom: 3px;
+  background: var(--bg-dark);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  font-size: 6px;
+}
+
+.project-iter-card:hover {
+  border-color: var(--pixel-cyan);
+}
+
+.project-iter-card.active {
+  border-color: var(--pixel-green);
+  background: rgba(0, 255, 136, 0.05);
+}
+
+.project-iter-detail {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 55vh;
+  padding-left: 2px;
+}
+
+.project-file-item:hover {
+  background: rgba(0, 255, 136, 0.08);
+  color: var(--pixel-cyan) !important;
 }
 
 /* ===== Candidate Selection Modal (Boss Online) ===== */
@@ -2982,4 +3027,122 @@ body {
   padding: 12px;
   text-align: center;
   display: block;
+}
+
+/* ===== Manifest-driven settings =====  */
+.emp-settings-section {
+  padding: 4px 0;
+}
+.emp-settings-title {
+  font-size: 6px;
+  color: var(--pixel-cyan);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+.emp-settings-field input,
+.emp-settings-field select,
+.emp-settings-field textarea {
+  background: var(--bg-dark);
+  color: var(--pixel-white);
+  border: 1px solid var(--border);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 2px 4px;
+}
+.emp-settings-field input:focus,
+.emp-settings-field select:focus,
+.emp-settings-field textarea:focus {
+  border-color: var(--pixel-cyan);
+  outline: none;
+}
+
+/* ===== Company Direction Modal ===== */
+.company-direction-modal-content {
+  max-width: 500px;
+  width: 90vw;
+}
+.company-direction-body {
+  padding: 12px;
+  flex-direction: column;
+}
+
+/* ===== Chat Attach Button ===== */
+.chat-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--pixel-cyan);
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+.chat-attach-btn:hover {
+  opacity: 1;
+}
+
+/* ===== Chat File Preview Bar ===== */
+.chat-preview-bar {
+  display: flex;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-panel-alt);
+  border-top: 1px solid var(--border);
+  overflow-x: auto;
+}
+.chat-preview-item {
+  position: relative;
+  flex-shrink: 0;
+}
+.chat-preview-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.chat-preview-file {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-size: 5px;
+  color: var(--text-dim);
+  text-align: center;
+  overflow: hidden;
+}
+.chat-preview-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--pixel-red);
+  color: #fff;
+  font-size: 8px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.bubble-image {
+  max-height: 100px;
+  max-width: 200px;
+  border-radius: 4px;
+  margin-top: 4px;
+  cursor: pointer;
+}
+.bubble-file {
+  font-size: 6px;
+  color: var(--pixel-cyan);
+  margin-top: 2px;
 }

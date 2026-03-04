@@ -494,12 +494,18 @@ def list_projects() -> list[dict]:
             latest_task = ""
             latest_status = doc.get("status", "active")
             latest_owner = ""
+            total_cost = 0.0
             if iterations:
                 latest_iter = load_iteration(d.name, iterations[-1])
                 if latest_iter:
                     latest_task = latest_iter.get("task", "")
                     latest_status = latest_iter.get("status", latest_status)
                     latest_owner = latest_iter.get("current_owner", "")
+                # Aggregate cost across all iterations
+                for iter_id in iterations:
+                    iter_doc = load_iteration(d.name, iter_id)
+                    if iter_doc:
+                        total_cost += iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
             projects.append({
                 "project_id": doc.get("project_id", d.name),
                 "task": latest_task or doc.get("name", ""),
@@ -514,9 +520,11 @@ def list_projects() -> list[dict]:
                 "is_named": True,
                 "name": doc.get("name", d.name),
                 "iteration_count": len(iterations),
+                "cost_usd": round(total_cost, 4),
             })
         else:
             # v1 legacy project
+            v1_cost = doc.get("cost", {}).get("actual_cost_usd", 0.0)
             projects.append({
                 "project_id": doc.get("project_id", d.name),
                 "task": doc.get("task", ""),
@@ -529,6 +537,7 @@ def list_projects() -> list[dict]:
                 "action_count": len(doc.get("timeline", [])),
                 "file_count": len(list_project_files(d.name)),
                 "is_named": False,
+                "cost_usd": round(v1_cost, 4),
             })
     return projects
 

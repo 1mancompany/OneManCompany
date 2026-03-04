@@ -8,13 +8,14 @@ import traceback
 import uuid as _uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
-from onemancompany.agents.base import BaseAgentRunner
+from onemancompany.agents.base import BaseAgentRunner, tracked_ainvoke
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
     CEO_ID,
+    COMPANY_DIR,
     COO_ID,
     CSO_ID,
     EA_ID,
@@ -284,10 +285,10 @@ async def _start_inquiry(task: str) -> dict:
 
     # LLM generates initial answer
     llm = make_llm(agent_id)
-    result = await llm.ainvoke([
+    result = await tracked_ainvoke(llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=task),
-    ])
+    ], category="inquiry", employee_id=agent_id)
     answer = result.content
 
     # Publish agent response as meeting_chat
@@ -342,6 +343,34 @@ async def _start_inquiry(task: str) -> dict:
         "agent_role": agent_role,
         "status": "inquiry_active",
     }
+
+
+@router.post("/api/ceo/qa")
+async def ceo_qa(body: dict) -> dict:
+    """CEO Q&A mode: direct LLM answer, no project creation."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from onemancompany.agents.base import make_llm
+
+    question = body.get("question", "")
+    if not question:
+        return {"error": "Empty question"}
+
+    llm = make_llm()
+    result = await tracked_ainvoke(llm, [
+        SystemMessage(content="你是 CEO 的 AI 助理，简洁回答问题。"),
+        HumanMessage(content=question),
+    ], category="qa")
+    answer = result.content
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="ceo_qa",
+            payload={"question": question, "answer": answer},
+            agent="CEO",
+        )
+    )
+
+    return {"answer": answer}
 
 
 @router.post("/api/ceo/task")
@@ -448,6 +477,7 @@ async def oneonone_chat(body: dict) -> dict:
     employee_id = body.get("employee_id", "")
     message = body.get("message", "")
     history = body.get("history", [])
+    attachments = body.get("attachments", [])
 
     if not employee_id or not message:
         return {"error": "Missing employee_id or message"}
@@ -455,6 +485,12 @@ async def oneonone_chat(body: dict) -> dict:
     emp = company_state.employees.get(employee_id)
     if not emp:
         return {"error": f"Employee '{employee_id}' not found"}
+
+    # Build attachment info string for prompt injection
+    attach_info = ""
+    if attachments:
+        lines = [f"- 附件: {a.get('filename', 'file')} (保存在 {a.get('path', '')})" for a in attachments]
+        attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
 
     # On first message (empty history), mark employee as in meeting
     if not history:
@@ -467,6 +503,30 @@ async def oneonone_chat(body: dict) -> dict:
             )
         )
 
+    # --- Self-hosted path: relay CEO message directly to Claude session ---
+    from onemancompany.core.config import employee_configs as _oneonone_cfgs
+    _oneonone_cfg = _oneonone_cfgs.get(employee_id)
+    if _oneonone_cfg and _oneonone_cfg.hosting == "self":
+        from onemancompany.core.claude_session import run_claude_session
+
+        # First message: give minimal context. Subsequent: just relay CEO's words.
+        # Session memory handles the rest — let the employee be themselves.
+        if not history:
+            prompt = (
+                f"你正在和公司CEO进行1-1会议。CEO对你说：\n\n{message}{attach_info}"
+            )
+        else:
+            prompt = f"CEO: {message}{attach_info}"
+
+        output = await run_claude_session(
+            employee_id, "1-1",
+            prompt=prompt,
+            work_dir="",
+            max_turns=10,
+            timeout=120,
+        )
+        return {"response": output}
+
     # --- Agent path: founding employees with a registered agent loop ---
     loop = get_agent_loop(employee_id)
     if loop:
@@ -478,7 +538,7 @@ async def oneonone_chat(body: dict) -> dict:
             ) + "\n\n"
         task_desc = (
             f"[1-on-1 Meeting] CEO对你说:\n{context}"
-            f"CEO: {message}\n\n"
+            f"CEO: {message}{attach_info}\n\n"
             f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
         )
         agent_task = loop.push_task(task_desc)
@@ -536,7 +596,7 @@ async def oneonone_chat(body: dict) -> dict:
     messages.append(HumanMessage(content=message))
 
     llm = make_llm(employee_id)
-    result = await llm.ainvoke(messages)
+    result = await tracked_ainvoke(llm, messages, category="oneonone", employee_id=employee_id)
 
     return {"response": result.content}
 
@@ -585,10 +645,10 @@ async def oneonone_end(body: dict) -> dict:
         )
 
         llm = make_llm(employee_id)
-        result = await llm.ainvoke([
+        result = await tracked_ainvoke(llm, [
             SystemMessage(content="You are an employee reflecting on a meeting with the CEO."),
             HumanMessage(content=reflection_prompt),
-        ])
+        ], category="oneonone", employee_id=employee_id)
         response_text = result.content.strip()
 
         if response_text.startswith("UPDATED:"):
@@ -732,7 +792,7 @@ async def inquiry_chat(body: dict) -> dict:
     messages.append(HumanMessage(content=message))
 
     llm = make_llm(agent_id)
-    result = await llm.ainvoke(messages)
+    result = await tracked_ainvoke(llm, messages, category="inquiry", employee_id=agent_id)
     answer = result.content
 
     # Publish agent response as meeting_chat
@@ -975,8 +1035,8 @@ async def list_available_models() -> dict:
 
 @router.get("/api/employee/{employee_id}")
 async def get_employee_detail(employee_id: str) -> dict:
-    """Get full employee details including work principles and model config."""
-    from onemancompany.core.config import employee_configs
+    """Get full employee details including work principles, model config, and manifest."""
+    from onemancompany.core.config import employee_configs, load_manifest
 
     emp = company_state.employees.get(employee_id)
     if not emp:
@@ -984,10 +1044,40 @@ async def get_employee_detail(employee_id: str) -> dict:
 
     cfg = employee_configs.get(employee_id)
     llm_model = cfg.llm_model if cfg else ""
+    api_provider = cfg.api_provider if cfg else "openrouter"
+    api_key = cfg.api_key if cfg else ""
 
     result = emp.to_dict()
     result["llm_model"] = llm_model
+    result["api_provider"] = api_provider
+    result["api_key_set"] = bool(api_key)
+    result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
+    result["hosting"] = cfg.hosting if cfg else "company"
+    result["auth_method"] = cfg.auth_method if cfg else "api_key"
+    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == "oauth" else False
+    result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
+
+    # Include manifest if available
+    manifest = load_manifest(employee_id)
+    if manifest:
+        result["manifest"] = manifest
+
+    if cfg and cfg.hosting == "self":
+        from onemancompany.core.claude_session import list_sessions
+        result["sessions"] = list_sessions(employee_id)
+
     return result
+
+
+@router.get("/api/employee/{employee_id}/manifest")
+async def get_employee_manifest(employee_id: str) -> dict:
+    """Get the manifest.json for an employee."""
+    from onemancompany.core.config import load_manifest
+
+    manifest = load_manifest(employee_id)
+    if not manifest:
+        return {"error": "No manifest found"}
+    return manifest
 
 
 @router.get("/api/employee/{employee_id}/taskboard")
@@ -1107,12 +1197,16 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     if not emp:
         return {"error": "Employee not found"}
 
-    # Compute new salary from OpenRouter pricing
-    from onemancompany.core.model_costs import compute_salary
-    new_salary = compute_salary(model_id)
+    # Compute new salary — skip OpenRouter pricing for non-openrouter providers
+    cfg = employee_configs.get(employee_id)
+    api_provider = cfg.api_provider if cfg else "openrouter"
+    if api_provider == "openrouter":
+        from onemancompany.core.model_costs import compute_salary
+        new_salary = compute_salary(model_id)
+    else:
+        new_salary = cfg.salary_per_1m_tokens if cfg else 0.0
 
     # Update in-memory config
-    cfg = employee_configs.get(employee_id)
     if cfg:
         cfg.llm_model = model_id
         cfg.salary_per_1m_tokens = new_salary
@@ -1142,6 +1236,433 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     )
 
     return {"status": "updated", "employee_id": employee_id, "model": model_id, "salary_per_1m_tokens": new_salary}
+
+
+@router.put("/api/employee/{employee_id}/api-key")
+async def update_employee_api_key(employee_id: str, body: dict) -> dict:
+    """Update the API key (and optionally model) for a custom-provider employee."""
+    import yaml
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"error": "Employee not found"}
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg:
+        return {"error": "Employee config not found"}
+
+    if cfg.api_provider == "openrouter":
+        return {"error": "This employee uses OpenRouter — API key is not applicable"}
+
+    new_key = body.get("api_key", "")
+    new_model = body.get("model", "")
+
+    # Update in-memory config
+    cfg.api_key = new_key
+    if new_model:
+        cfg.llm_model = new_model
+
+    # Update profile.yaml on disk
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if profile_path.exists():
+        with open(profile_path) as f:
+            data = yaml.safe_load(f) or {}
+        data["api_key"] = new_key
+        if new_model:
+            data["llm_model"] = new_model
+        with open(profile_path, "w") as f:
+            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    # If an agent loop exists, rebuild its LLM so the new key takes effect
+    from onemancompany.core.agent_loop import get_agent_loop
+    loop = get_agent_loop(employee_id)
+    if loop and loop.agent:
+        from onemancompany.agents.base import make_llm
+        from langgraph.prebuilt import create_react_agent
+        new_llm = make_llm(employee_id)
+        # Rebuild the agent with the new LLM but same tools
+        if hasattr(loop.agent, '_agent') and loop.agent._agent:
+            old_tools = []
+            from onemancompany.agents.common_tools import COMMON_TOOLS
+            from onemancompany.core.config import load_employee_custom_tools
+            custom_tools = load_employee_custom_tools(employee_id)
+            old_tools = list(COMMON_TOOLS) + custom_tools
+            loop.agent._agent = create_react_agent(model=new_llm, tools=old_tools)
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="agent_done",
+            payload={
+                "role": "CEO",
+                "summary": f"Updated {emp.name}'s API key ({cfg.api_provider})"
+                           + (f", model={new_model}" if new_model else ""),
+            },
+            agent="CEO",
+        )
+    )
+
+    return {
+        "status": "updated",
+        "employee_id": employee_id,
+        "api_provider": cfg.api_provider,
+        "api_key_set": bool(new_key),
+        "model": cfg.llm_model,
+        "hosting": cfg.hosting,
+    }
+
+
+# ===== OAuth Login (Anthropic PKCE) =====
+
+# In-memory store for pending OAuth sessions: state -> {employee_id, code_verifier}
+_oauth_sessions: dict[str, dict] = {}
+
+ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
+ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
+ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
+ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
+ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+
+
+@router.post("/api/employee/{employee_id}/oauth/start")
+async def oauth_start(employee_id: str) -> dict:
+    """Start OAuth PKCE flow for an employee.
+
+    Returns the authorization URL. The user authorizes in a popup,
+    then Anthropic redirects back to our localhost callback which
+    automatically exchanges the code for tokens.
+    """
+    import base64
+    import hashlib
+    import secrets
+
+    from onemancompany.core.config import employee_configs
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"error": "Employee not found"}
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg or cfg.auth_method != "oauth":
+        return {"error": "Employee does not use OAuth authentication"}
+
+    # PKCE: generate code_verifier and code_challenge
+    code_verifier = secrets.token_urlsafe(43)
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+    state = secrets.token_urlsafe(32)
+
+    _oauth_sessions[state] = {
+        "employee_id": employee_id,
+        "code_verifier": code_verifier,
+        "redirect_uri": ANTHROPIC_REDIRECT_URI,
+    }
+
+    auth_url = (
+        f"{ANTHROPIC_AUTH_URL}"
+        f"?client_id={ANTHROPIC_OAUTH_CLIENT_ID}"
+        f"&redirect_uri={ANTHROPIC_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=user:inference+user:profile"
+        f"&code_challenge={code_challenge}"
+        f"&code_challenge_method=S256"
+        f"&state={state}"
+    )
+
+    return {"auth_url": auth_url, "state": state}
+
+
+@router.post("/api/employee/{employee_id}/oauth/exchange")
+async def oauth_exchange(employee_id: str, body: dict) -> dict:
+    """Exchange the authorization code (from Anthropic callback page) for tokens.
+
+    The user copies the code from the Anthropic callback URL and submits it here.
+    We exchange it for an access token, then create a permanent API key.
+    """
+    import httpx
+    import yaml
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    code = body.get("code", "").strip()
+    state = body.get("state", "").strip()
+    if not code or not state:
+        return {"error": "Missing code or state"}
+
+    session = _oauth_sessions.pop(state, None)
+    if not session:
+        return {"error": "Invalid or expired OAuth session"}
+
+    if session["employee_id"] != employee_id:
+        return {"error": "Employee ID mismatch"}
+
+    code_verifier = session["code_verifier"]
+    redirect_uri = session["redirect_uri"]
+
+    # Step 1: Exchange authorization code for access token
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
+        "code_verifier": code_verifier,
+        "redirect_uri": redirect_uri,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            # Try form-urlencoded first (OAuth spec standard)
+            resp = await client.post(
+                ANTHROPIC_TOKEN_URL,
+                data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15.0,
+            )
+            # If form fails, try JSON
+            if resp.status_code != 200:
+                resp = await client.post(
+                    ANTHROPIC_TOKEN_URL,
+                    json=token_data,
+                    timeout=15.0,
+                )
+            if resp.status_code != 200:
+                return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
+            tokens = resp.json()
+    except Exception as e:
+        return {"error": f"Token exchange error: {e}"}
+
+    access_token = tokens.get("access_token", "")
+    if not access_token:
+        return {"error": "No access_token in response"}
+
+    # Step 2: Try to create a permanent API key using the OAuth token
+    api_key = access_token  # fallback: use access token directly
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                ANTHROPIC_CREATE_KEY_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={"name": f"OneManCompany-{employee_id}"},
+                timeout=15.0,
+            )
+            if resp.status_code == 200:
+                key_data = resp.json()
+                api_key = key_data.get("api_key", access_token)
+    except Exception:
+        pass  # Fall back to access token
+
+    # Store the key
+    cfg = employee_configs.get(employee_id)
+    if cfg:
+        cfg.api_key = api_key
+        cfg.oauth_refresh_token = tokens.get("refresh_token", "")
+
+        profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+        if profile_path.exists():
+            with open(profile_path) as f:
+                data = yaml.safe_load(f) or {}
+            data["api_key"] = api_key
+            data["oauth_refresh_token"] = tokens.get("refresh_token", "")
+            with open(profile_path, "w") as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    emp = company_state.employees.get(employee_id)
+    emp_name = emp.name if emp else employee_id
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="agent_done",
+            payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
+            agent="CEO",
+        )
+    )
+
+    return {"status": "ok", "employee_id": employee_id, "api_key_set": True}
+
+
+@router.get("/api/oauth/callback")
+async def oauth_callback(code: str = "", state: str = "", error: str = ""):
+    """Handle OAuth redirect from Anthropic.  Exchanges code for tokens."""
+    import httpx
+    import yaml
+
+    from fastapi.responses import HTMLResponse
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    if error:
+        return HTMLResponse(f"<html><body><h2>Login failed</h2><p>{error}</p>"
+                            "<script>window.close()</script></body></html>")
+
+    session = _oauth_sessions.pop(state, None)
+    if not session:
+        return HTMLResponse("<html><body><h2>Invalid session</h2><p>OAuth state mismatch.</p>"
+                            "<script>window.close()</script></body></html>")
+
+    employee_id = session["employee_id"]
+    code_verifier = session["code_verifier"]
+    redirect_uri = session["redirect_uri"]
+
+    # Exchange authorization code for tokens (try form-urlencoded, then JSON)
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
+        "code_verifier": code_verifier,
+        "redirect_uri": redirect_uri,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                ANTHROPIC_TOKEN_URL, data=token_data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0,
+            )
+            if resp.status_code != 200:
+                resp = await client.post(ANTHROPIC_TOKEN_URL, json=token_data, timeout=15.0)
+            if resp.status_code != 200:
+                return HTMLResponse(f"<html><body><h2>Token exchange failed</h2>"
+                                    f"<p>{resp.status_code}: {resp.text}</p>"
+                                    "<script>window.close()</script></body></html>")
+            tokens = resp.json()
+    except Exception as e:
+        return HTMLResponse(f"<html><body><h2>Token exchange error</h2><p>{e}</p>"
+                            "<script>window.close()</script></body></html>")
+
+    access_token = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+
+    # Try to create a permanent API key using the OAuth token
+    api_key = access_token  # fallback: use access token directly
+    try:
+        async with httpx.AsyncClient() as client2:
+            key_resp = await client2.post(
+                ANTHROPIC_CREATE_KEY_URL,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json={"name": f"OneManCompany-{employee_id}"},
+                timeout=15.0,
+            )
+            if key_resp.status_code == 200:
+                key_data = key_resp.json()
+                api_key = key_data.get("api_key", access_token)
+    except Exception:
+        pass  # Fall back to access token
+
+    # Store tokens in employee config
+    cfg = employee_configs.get(employee_id)
+    if cfg:
+        cfg.api_key = api_key
+        cfg.oauth_refresh_token = refresh_token
+
+        # Persist to profile.yaml
+        profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+        if profile_path.exists():
+            with open(profile_path) as f:
+                data = yaml.safe_load(f) or {}
+            data["api_key"] = api_key
+            data["oauth_refresh_token"] = refresh_token
+            with open(profile_path, "w") as f:
+                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    emp = company_state.employees.get(employee_id)
+    emp_name = emp.name if emp else employee_id
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="agent_done",
+            payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
+            agent="CEO",
+        )
+    )
+
+    return HTMLResponse(
+        "<html><body style='font-family:monospace;text-align:center;padding:40px;'>"
+        f"<h2>Login Successful</h2>"
+        f"<p>{emp_name} is now authenticated.{launch_msg}</p>"
+        "<p>This window will close automatically...</p>"
+        "<script>window.opener && window.opener.postMessage('oauth_done','*'); "
+        "setTimeout(()=>window.close(), 1500);</script>"
+        "</body></html>"
+    )
+
+
+@router.post("/api/employee/{employee_id}/oauth/refresh")
+async def oauth_refresh(employee_id: str) -> dict:
+    """Refresh an expired OAuth access token using the stored refresh token."""
+    import httpx
+    import yaml
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg or not cfg.oauth_refresh_token:
+        return {"error": "No refresh token available"}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                ANTHROPIC_TOKEN_URL,
+                json={
+                    "grant_type": "refresh_token",
+                    "refresh_token": cfg.oauth_refresh_token,
+                    "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
+                },
+                timeout=15.0,
+            )
+            if resp.status_code != 200:
+                return {"error": f"Refresh failed: {resp.status_code}"}
+            tokens = resp.json()
+    except Exception as e:
+        return {"error": f"Refresh error: {e}"}
+
+    cfg.api_key = tokens.get("access_token", cfg.api_key)
+    cfg.oauth_refresh_token = tokens.get("refresh_token", cfg.oauth_refresh_token)
+
+    # Persist
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if profile_path.exists():
+        with open(profile_path) as f:
+            data = yaml.safe_load(f) or {}
+        data["api_key"] = cfg.api_key
+        data["oauth_refresh_token"] = cfg.oauth_refresh_token
+        with open(profile_path, "w") as f:
+            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    return {"status": "refreshed"}
+
+
+# ===== Self-Hosted Session Endpoints =====
+
+@router.get("/api/employee/{employee_id}/sessions")
+async def get_employee_sessions(employee_id: str) -> dict:
+    """List all Claude Code sessions for a self-hosted employee."""
+    from onemancompany.core.config import employee_configs
+    from onemancompany.core.claude_session import list_sessions
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg or cfg.hosting != "self":
+        return {"error": "Employee is not self-hosted"}
+
+    return {"employee_id": employee_id, "sessions": list_sessions(employee_id)}
+
+
+@router.delete("/api/employee/{employee_id}/sessions/{project_id:path}")
+async def delete_employee_session(employee_id: str, project_id: str) -> dict:
+    """Clean up a session record for a completed project."""
+    from onemancompany.core.config import employee_configs
+    from onemancompany.core.claude_session import cleanup_session
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg or cfg.hosting != "self":
+        return {"error": "Employee is not self-hosted"}
+
+    cleanup_session(employee_id, project_id)
+    return {"status": "ok", "employee_id": employee_id, "project_id": project_id}
 
 
 # ===== Company Culture =====
@@ -1199,6 +1720,54 @@ async def remove_culture_item(index: int) -> dict:
         )
     )
     return {"status": "removed", "removed": removed}
+
+
+# ===== Company Direction =====
+
+@router.get("/api/company/direction")
+async def get_company_direction() -> dict:
+    """Get the current company direction/strategy."""
+    return {"direction": company_state.company_direction}
+
+
+@router.put("/api/company/direction")
+async def update_company_direction(body: dict) -> dict:
+    """CEO updates the company direction/strategy."""
+    from onemancompany.core.config import save_company_direction
+
+    direction = body.get("direction", "")
+    company_state.company_direction = direction
+    save_company_direction(direction)
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="company_direction_updated",
+            payload={"direction": direction},
+            agent="CEO",
+        )
+    )
+    return {"status": "ok", "direction": direction}
+
+
+# ===== File Upload (CEO multimodal) =====
+
+@router.post("/api/upload")
+async def upload_file(file: UploadFile) -> dict:
+    """Save uploaded file, return path and metadata."""
+    from datetime import datetime
+    from uuid import uuid4
+
+    upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / f"{uuid4().hex[:8]}_{file.filename}"
+    content = await file.read()
+    dest.write_bytes(content)
+    return {
+        "path": str(dest),
+        "filename": file.filename,
+        "size": len(content),
+        "content_type": file.content_type or "",
+    }
 
 
 # ===== File Editor (CEO Approval) =====
@@ -1328,7 +1897,26 @@ async def execute_deferred(resolution_id: str, edit_id: str) -> dict:
 @router.get("/api/dashboard/costs")
 async def get_dashboard_costs() -> dict:
     from onemancompany.core.project_archive import get_cost_summary
-    return get_cost_summary()
+    summary = get_cost_summary()
+    # Add overhead costs from non-project LLM calls
+    oh = company_state.overhead_costs
+    summary["overhead"] = {
+        "total_cost_usd": round(oh.total_cost_usd, 4),
+        "total_input_tokens": oh.total_input_tokens,
+        "total_output_tokens": oh.total_output_tokens,
+        "by_category": {
+            cat: {
+                "cost_usd": round(v.get("cost_usd", 0.0), 4),
+                "input_tokens": v.get("input_tokens", 0),
+                "output_tokens": v.get("output_tokens", 0),
+            }
+            for cat, v in oh.by_category.items()
+        },
+    }
+    project_total = summary.get("total", {}).get("cost_usd", 0.0)
+    overhead_total = oh.total_cost_usd
+    summary["grand_total_usd"] = round(project_total + overhead_total, 4)
+    return summary
 
 
 @router.get("/api/projects")
@@ -1364,11 +1952,14 @@ async def get_named_project_detail(project_id: str) -> dict:
     proj = load_named_project(project_id)
     if not proj:
         return {"error": "Named project not found"}
-    # Load iteration summaries
+    # Load iteration summaries and aggregate cost
     iterations = []
+    total_cost_usd = 0.0
     for iter_id in proj.get("iterations", []):
         iter_doc = load_iteration(project_id, iter_id)
         if iter_doc:
+            iter_cost = iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
+            total_cost_usd += iter_cost
             iterations.append({
                 "iteration_id": iter_doc.get("iteration_id", iter_id),
                 "task": iter_doc.get("task", ""),
@@ -1376,8 +1967,10 @@ async def get_named_project_detail(project_id: str) -> dict:
                 "created_at": iter_doc.get("created_at", ""),
                 "completed_at": iter_doc.get("completed_at"),
                 "current_owner": iter_doc.get("current_owner", ""),
+                "cost_usd": round(iter_cost, 4),
             })
     proj["iteration_details"] = iterations
+    proj["total_cost_usd"] = round(total_cost_usd, 4)
     return proj
 
 
@@ -1402,6 +1995,56 @@ async def get_project_detail(project_id: str) -> dict:
     doc["project_dir"] = get_project_dir(project_id)
     doc["files"] = list_project_files(project_id)
     return doc
+
+
+@router.get("/api/projects/{project_id}/files/{file_path:path}")
+async def get_project_file(project_id: str, file_path: str):
+    """Read a file from a project workspace."""
+    from pathlib import Path
+
+    from fastapi.responses import Response
+
+    from onemancompany.core.project_archive import get_project_dir
+
+    workspace = Path(get_project_dir(project_id))
+    target = (workspace / file_path).resolve()
+    # Security: ensure path stays within workspace
+    if not str(target).startswith(str(workspace.resolve())):
+        return Response(content="Forbidden", status_code=403)
+    if not target.is_file():
+        return Response(content="Not found", status_code=404)
+
+    # Determine content type
+    suffix = target.suffix.lower()
+    text_types = {".txt", ".md", ".py", ".js", ".html", ".css", ".yaml", ".yml",
+                  ".json", ".csv", ".tsv", ".xml", ".sh", ".toml", ".cfg", ".ini",
+                  ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
+                  ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
+    if suffix in text_types:
+        content = target.read_text(encoding="utf-8", errors="replace")
+        media = "text/plain; charset=utf-8"
+        if suffix == ".html":
+            media = "text/html; charset=utf-8"
+        elif suffix == ".json":
+            media = "application/json; charset=utf-8"
+        elif suffix == ".md":
+            media = "text/markdown; charset=utf-8"
+        return Response(content=content, media_type=media)
+    else:
+        # Binary files: serve as download
+        content = target.read_bytes()
+        media = "application/octet-stream"
+        if suffix == ".png":
+            media = "image/png"
+        elif suffix in (".jpg", ".jpeg"):
+            media = "image/jpeg"
+        elif suffix == ".gif":
+            media = "image/gif"
+        elif suffix == ".svg":
+            media = "image/svg+xml"
+        elif suffix == ".pdf":
+            media = "application/pdf"
+        return Response(content=content, media_type=media)
 
 
 # ===== Ex-Employees =====
@@ -1467,12 +2110,17 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     compute_layout(company_state)
     persist_all_desk_positions(company_state)
 
-    # Register agent loop for on-site employees only
+    # Register in EmployeeManager for on-site employees
     if not is_remote:
-        from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
+        from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(employee_id):
-            from onemancompany.agents.base import EmployeeAgent
-            await register_and_start_agent(employee_id, EmployeeAgent(employee_id))
+            from onemancompany.core.config import employee_configs as _rehire_cfgs
+            _rehire_cfg = _rehire_cfgs.get(employee_id)
+            if _rehire_cfg and _rehire_cfg.hosting == "self":
+                register_self_hosted(employee_id)
+            else:
+                from onemancompany.agents.base import EmployeeAgent
+                await register_and_start_agent(employee_id, EmployeeAgent(employee_id))
 
     company_state.activity_log.append({
         "type": "employee_rehired",
@@ -1502,50 +2150,51 @@ async def rehire_ex_employee(employee_id: str) -> dict:
 async def hire_candidate(body: HireRequest) -> dict:
     """CEO selects a candidate to hire from the shortlist.
 
-    Request body validated by HireRequest (see boss_online.py for schema).
+    Executes the full hire flow in code — no LLM involved.
+    Reads authoritative fields directly from the talent profile.
     """
     from onemancompany.agents.hr_agent import pending_candidates
-    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.agents.onboarding import execute_hire
 
     candidates = pending_candidates.get(body.batch_id, [])
     candidate = next((c for c in candidates if c.get("id") == body.candidate_id), None)
     if not candidate:
         return {"error": "Candidate not found"}
 
-    # Peek at next employee number before hire to know the assigned id
-    next_num = f"{company_state._next_employee_number:05d}"
-
     # Auto-generate wuxia-themed 花名 (nickname) if not provided
     nickname = body.nickname
     if not nickname:
-        from onemancompany.agents.hr_agent import generate_nickname
+        from onemancompany.agents.onboarding import generate_nickname
         nickname = await generate_nickname(candidate["name"], candidate["role"], is_founding=False)
 
-    # Build hire JSON and let HR apply it (id is assigned by HR as employee_number)
+    # Read authoritative fields from the talent profile (LLM shortlist may drop them)
+    talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
+    talent_data: dict = {}
+    if talent_id:
+        from onemancompany.core.config import load_talent_profile
+        talent_data = load_talent_profile(talent_id)
+
     skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
-    hire_json = json.dumps({
-        "action": "hire",
-        "employee": {
-            "name": candidate["name"],
-            "nickname": nickname or "",
-            "role": candidate["role"],
-            "skills": skill_names,
-            "sprite": candidate.get("sprite", "employee_default"),
-            "remote": candidate.get("remote", False),
-            "talent_id": candidate.get("talent_id", ""),
-            "llm_model": candidate.get("llm_model", ""),
-            "temperature": candidate.get("temperature", 0.7),
-            "image_model": candidate.get("image_model", ""),
-            "system_prompt": candidate.get("system_prompt", ""),
-            "personality_tags": candidate.get("personality_tags", []),
-        },
-    })
-    hr_loop = get_agent_loop(HR_ID)
-    if hr_loop:
-        await hr_loop.agent._apply_results(f"```json\n{hire_json}\n```")
-    else:
-        from onemancompany.agents.hr_agent import HRAgent
-        await HRAgent()._apply_results(f"```json\n{hire_json}\n```")
+
+    try:
+        emp = await execute_hire(
+            name=candidate["name"],
+            nickname=nickname or "",
+            role=candidate["role"],
+            skills=skill_names,
+            talent_id=talent_id,
+            llm_model=talent_data.get("llm_model", "") or candidate.get("llm_model", ""),
+            temperature=float(talent_data.get("temperature", 0.7)),
+            image_model=candidate.get("image_model", ""),
+            api_provider=talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter"),
+            hosting=talent_data.get("hosting", "company"),
+            auth_method=talent_data.get("auth_method", "api_key"),
+            sprite=candidate.get("sprite", "employee_default"),
+            remote=candidate.get("remote", False),
+        )
+    except Exception as e:
+        traceback.print_exc()
+        return {"error": f"Hire failed: {e!s}"}
 
     # Resume project lifecycle: stashed project_id is restored so
     # retrospective runs after the *actual* hire, not after shortlist.
@@ -1554,7 +2203,7 @@ async def hire_candidate(body: HireRequest) -> dict:
     ctx = _pending_project_ctx.pop(body.batch_id, {})
     pid = ctx.get("project_id", "")
     if pid:
-        append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {next_num}")
+        append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
         complete_project(pid, f"Hired {candidate['name']}")
         # Remove from active tasks (match both project_id and iteration_id)
         company_state.active_tasks = [
@@ -1576,7 +2225,7 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     return {
         "status": "hired",
-        "employee_id": next_num,
+        "employee_id": emp.id,
         "name": candidate["name"],
         "nickname": nickname,
         "state": company_state.to_json(),
@@ -1612,10 +2261,10 @@ async def interview_candidate(body: InterviewRequest) -> InterviewResponse:
         })
 
     llm = make_llm(HR_ID)
-    result = await llm.ainvoke([
+    result = await tracked_ainvoke(llm, [
         SystemMessage(content=full_prompt),
         HumanMessage(content=content if body.images else body.question),
-    ])
+    ], category="interview", employee_id=HR_ID)
 
     return InterviewResponse(
         candidate_id=candidate.id,
@@ -1682,6 +2331,14 @@ async def remote_submit_results(body: dict) -> dict:
     if result.employee_id in _remote_workers:
         _remote_workers[result.employee_id]["status"] = "idle"
         _remote_workers[result.employee_id]["current_task_id"] = None
+
+    # Record token usage from remote worker if provided
+    if result.input_tokens or result.output_tokens:
+        from onemancompany.core.project_archive import record_project_cost
+        from onemancompany.agents.base import _record_overhead
+        # Find project_id from task queue context
+        record_overhead_model = result.model_used or "remote"
+        _record_overhead("remote_worker", record_overhead_model, result.input_tokens, result.output_tokens, result.estimated_cost_usd)
 
     await event_bus.publish(
         CompanyEvent(

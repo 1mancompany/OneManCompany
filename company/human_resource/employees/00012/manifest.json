@@ -1,0 +1,27 @@
+{
+  "id": "sandbox-worker",
+  "name": "Sandbox Code Worker",
+  "version": "1.0.0",
+  "role": "Engineer",
+  "hosting": "company",
+  "settings": {
+    "sections": [
+      {
+        "id": "llm",
+        "title": "LLM Configuration",
+        "fields": [
+          {"key": "llm_model", "type": "select", "label": "Model", "options_from": "api:models"},
+          {"key": "temperature", "type": "number", "label": "Temperature", "default": 0.7, "min": 0, "max": 2, "step": 0.1}
+        ]
+      }
+    ]
+  },
+  "prompts": {
+    "skills": ["skills/*.md"]
+  },
+  "tools": {
+    "builtin": ["sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file"],
+    "custom": ["custom_build"]
+  },
+  "platform_capabilities": ["websocket"]
+}

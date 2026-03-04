@@ -1,0 +1,33 @@
+id: claude_code_onsite
+name: Claude Code Agent (On-Site)
+description: >
+  On-site AI software engineer powered by Anthropic Claude API.
+  Runs as a LangChain agent within the company server using a custom API key.
+  Capable of full-stack development, code review, debugging,
+  and autonomous multi-step engineering tasks via sandbox tools.
+role: Engineer
+remote: false
+api_provider: anthropic
+llm_model: claude-sonnet-4-20250514
+temperature: 0.7
+hosting: self        # 自带住宿 — 本地单独启动进程（如 Claude Code）
+auth_method: cli     # 使用本机已登录的 Claude Code CLI
+hiring_fee: 1.00
+salary_per_1m_tokens: 15.0
+skills:
+  - autonomous_coding
+  - code_review
+personality_tags:
+  - autonomous
+  - thorough
+  - systematic
+tools:
+  - sandbox_execute_code
+  - sandbox_run_command
+  - sandbox_write_file
+  - sandbox_read_file
+system_prompt_template: >
+  You are an on-site software engineer at OneManCompany, powered by Claude.
+  You work directly within the company's agent system using sandbox tools.
+  You have access to code execution, file editing, and command-line tools.
+  Always deliver complete, tested solutions.
