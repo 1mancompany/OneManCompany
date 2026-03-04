@@ -402,6 +402,7 @@ class EmployeeManager:
         self._history_summaries: dict[str, str] = {}
         self._handles: dict[str, EmployeeHandle] = {}
         self._running_tasks: dict[str, asyncio.Task] = {}
+        self._hooks: dict[str, dict[str, Callable]] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -418,9 +419,14 @@ class EmployeeManager:
         self._handles[employee_id] = handle
         return handle
 
+    def register_hooks(self, employee_id: str, hooks: dict[str, Callable]) -> None:
+        """Register lifecycle hooks (pre_task, post_task) for an employee."""
+        self._hooks[employee_id] = hooks
+
     def unregister(self, employee_id: str) -> None:
         self.launchers.pop(employee_id, None)
         self._handles.pop(employee_id, None)
+        self._hooks.pop(employee_id, None)
 
     def get_handle(self, employee_id: str) -> EmployeeHandle | None:
         return self._handles.get(employee_id)
@@ -557,6 +563,18 @@ class EmployeeManager:
                 employee_id=employee_id,
             )
 
+            # Pre-task hook
+            hooks = self._hooks.get(employee_id, {})
+            pre_task = hooks.get("pre_task")
+            if pre_task:
+                try:
+                    result = pre_task(task_with_ctx, context)
+                    if isinstance(result, str):
+                        task_with_ctx = result
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).warning("Pre-task hook failed for %s", employee_id)
+
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
             for attempt in range(MAX_RETRIES):
@@ -646,6 +664,15 @@ class EmployeeManager:
             self._append_history(employee_id, task)
             summary = (task.result or "")[:200]
             _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
+
+        # Post-task hook
+        post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
+        if post_task_hook:
+            try:
+                post_task_hook(task, task.result or "")
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning("Post-task hook failed for %s", employee_id)
 
         if emp:
             emp.current_task_summary = ""

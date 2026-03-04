@@ -28,6 +28,7 @@ RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 COMPANY_DIRECTION_FILE = COMPANY_DIR / "company_direction.yaml"
 SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
+SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
 # Talent market
@@ -699,10 +700,19 @@ def load_talent_profile(talent_id: str) -> dict:
 
 
 def load_employee_custom_tools(employee_id: str) -> list:
-    """Dynamically load custom LangChain @tool functions from employees/{id}/tools/.
+    """Dynamically load custom LangChain @tool functions for an employee.
 
-    Reads manifest.yaml for the list of custom_tools, then imports each .py file
-    and extracts the eponymous @tool function.
+    Reads manifest.yaml for the list of custom_tools, then for each tool name:
+    1. Tries company/assets/tools/{name}/{name}.py  (central registry)
+    2. Falls back to employees/{id}/tools/{name}.py  (legacy per-employee copy)
+
+    For central tools, checks tool.yaml ``allowed_users`` — the tool is only
+    loaded when the employee is in the whitelist (employee-brought tools are
+    personal and cannot be borrowed by others).
+
+    Collects ALL BaseTool instances from each module (not just the eponymous one),
+    so multi-@tool modules are fully loaded.
+
     Returns a list of callable tool objects ready for create_react_agent().
     """
     import importlib.util
@@ -710,6 +720,7 @@ def load_employee_custom_tools(employee_id: str) -> list:
 
     from langchain_core.tools import BaseTool
 
+    log = logging.getLogger(__name__)
     tools_dir = EMPLOYEES_DIR / employee_id / "tools"
     manifest_path = tools_dir / "manifest.yaml"
     if not manifest_path.exists():
@@ -721,7 +732,28 @@ def load_employee_custom_tools(employee_id: str) -> list:
     custom_names: list[str] = data.get("custom_tools", [])
     loaded = []
     for name in custom_names:
-        py_file = tools_dir / f"{name}.py"
+        # Prefer central company tool, fallback to employee-local copy
+        central_dir = TOOLS_DIR / name
+        py_file = central_dir / f"{name}.py"
+        if py_file.is_file():
+            # Check allowed_users in tool.yaml — personal tools can't be borrowed.
+            # If the key exists (even as []), it's a restricted tool: only
+            # listed employees may use it.  Omit the key entirely for
+            # unrestricted company-wide tools.
+            tool_yaml = central_dir / "tool.yaml"
+            if tool_yaml.exists():
+                with open(tool_yaml) as f:
+                    tool_meta = yaml.safe_load(f) or {}
+                if "allowed_users" in tool_meta:
+                    allowed = tool_meta["allowed_users"] or []
+                    if employee_id not in allowed:
+                        log.debug(
+                            "Tool %s not allowed for %s (allowed: %s)",
+                            name, employee_id, allowed,
+                        )
+                        continue
+        else:
+            py_file = tools_dir / f"{name}.py"
         if not py_file.is_file():
             continue
         try:
@@ -730,11 +762,13 @@ def load_employee_custom_tools(employee_id: str) -> list:
             )
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            func = getattr(mod, name, None)
-            if isinstance(func, BaseTool):
-                loaded.append(func)
+            # Collect ALL BaseTool instances from the module
+            for attr_name in dir(mod):
+                attr = getattr(mod, attr_name)
+                if isinstance(attr, BaseTool):
+                    loaded.append(attr)
         except Exception as e:
-            logging.getLogger(__name__).warning(
+            log.warning(
                 "Failed to load custom tool %s for %s: %s", name, employee_id, e
             )
     return loaded

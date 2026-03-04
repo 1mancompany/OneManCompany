@@ -1069,6 +1069,19 @@ async def get_employee_detail(employee_id: str) -> dict:
     return result
 
 
+@router.post("/api/employee/{employee_id}/fire")
+async def fire_employee(employee_id: str, body: dict) -> dict:
+    """Fire an employee directly (CEO action). Cannot fire founding employees."""
+    from onemancompany.agents.termination import execute_fire
+
+    reason = body.get("reason", "CEO decision")
+    result = await execute_fire(employee_id, reason)
+    if "error" in result:
+        return result
+    result["state"] = company_state.to_json()
+    return result
+
+
 @router.get("/api/employee/{employee_id}/manifest")
 async def get_employee_manifest(employee_id: str) -> dict:
     """Get the manifest.json for an employee."""
@@ -1979,7 +1992,9 @@ async def list_named_projects_endpoint() -> dict:
 @router.get("/api/projects/named/{project_id}")
 async def get_named_project_detail(project_id: str) -> dict:
     """Get a named project's details with all its iterations."""
-    from onemancompany.core.project_archive import load_iteration, load_named_project
+    from pathlib import Path
+
+    from onemancompany.core.project_archive import list_project_files, load_iteration, load_named_project
     proj = load_named_project(project_id)
     if not proj:
         return {"error": "Named project not found"}
@@ -1991,6 +2006,17 @@ async def get_named_project_detail(project_id: str) -> dict:
         if iter_doc:
             iter_cost = iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
             total_cost_usd += iter_cost
+            # Resolve files for this iteration
+            iter_project_dir = iter_doc.get("project_dir", "")
+            iter_files = []
+            if iter_project_dir:
+                ws = Path(iter_project_dir)
+                if ws.is_dir():
+                    iter_files = [
+                        str(p.relative_to(ws))
+                        for p in sorted(ws.rglob("*"))
+                        if p.is_file()
+                    ]
             iterations.append({
                 "iteration_id": iter_doc.get("iteration_id", iter_id),
                 "task": iter_doc.get("task", ""),
@@ -1999,6 +2025,8 @@ async def get_named_project_detail(project_id: str) -> dict:
                 "completed_at": iter_doc.get("completed_at"),
                 "current_owner": iter_doc.get("current_owner", ""),
                 "cost_usd": round(iter_cost, 4),
+                "project_dir": iter_project_dir,
+                "files": iter_files,
             })
     proj["iteration_details"] = iterations
     proj["total_cost_usd"] = round(total_cost_usd, 4)
@@ -2173,6 +2201,75 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         "name": emp.name,
         "state": company_state.to_json(),
     }
+
+
+# ===== Hiring Requests (COO → CEO → HR) =====
+
+@router.get("/api/hiring-requests")
+async def list_hiring_requests() -> list[dict]:
+    """List all pending hiring requests from COO."""
+    from onemancompany.agents.coo_agent import pending_hiring_requests
+    return [
+        {"request_id": rid, **req}
+        for rid, req in pending_hiring_requests.items()
+    ]
+
+
+@router.post("/api/hiring-requests/{request_id}/decide")
+async def decide_hiring_request(request_id: str, body: dict) -> dict:
+    """CEO approves or rejects a hiring request from COO.
+
+    Body: { "approved": true/false, "note": "optional comment" }
+    If approved, HR automatically starts searching for candidates.
+    """
+    from onemancompany.agents.coo_agent import pending_hiring_requests
+
+    req = pending_hiring_requests.pop(request_id, None)
+    if not req:
+        return {"error": f"Hiring request '{request_id}' not found"}
+
+    approved = body.get("approved", False)
+    note = body.get("note", "")
+
+    await event_bus.publish(CompanyEvent(
+        type="hiring_request_decided",
+        payload={
+            "request_id": request_id,
+            "approved": approved,
+            "role": req["role"],
+            "note": note,
+        },
+        agent="CEO",
+    ))
+
+    if approved:
+        # Build JD from COO's request and dispatch to HR
+        skills_str = ", ".join(req.get("desired_skills", []))
+        jd = f"招聘 {req['role']}"
+        if skills_str:
+            jd += f"（技能要求: {skills_str}）"
+        jd += f"\n原因: {req['reason']}"
+        if note:
+            jd += f"\nCEO 备注: {note}"
+
+        asyncio.create_task(_run_agent_safe(
+            _dispatch_hiring_to_hr(jd), "HR",
+            task_description=f"Recruit {req['role']}",
+        ))
+
+    return {
+        "status": "approved" if approved else "rejected",
+        "request_id": request_id,
+        "role": req["role"],
+    }
+
+
+async def _dispatch_hiring_to_hr(jd: str) -> str:
+    """Dispatch a hiring task to the HR agent."""
+    from onemancompany.core.agent_loop import employee_manager
+
+    result = await employee_manager.dispatch("00002", jd)
+    return result or ""
 
 
 # ===== Candidate Selection =====
