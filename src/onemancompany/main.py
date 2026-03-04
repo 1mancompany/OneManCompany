@@ -222,6 +222,25 @@ async def _periodic_reload_loop() -> None:
             print(f"[periodic-reload] Error: {e}")
 
 
+async def _heartbeat_loop() -> None:
+    """Periodically check employee API connections (zero token cost)."""
+    from onemancompany.core.heartbeat import run_heartbeat_cycle
+    from onemancompany.core.events import CompanyEvent, event_bus
+
+    INTERVAL = 60  # seconds
+
+    while True:
+        await asyncio.sleep(INTERVAL)
+        try:
+            changed = await run_heartbeat_cycle()
+            if changed:
+                await event_bus.publish(
+                    CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")
+                )
+        except Exception as e:
+            print(f"[heartbeat] Error: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -289,6 +308,9 @@ async def lifespan(app: FastAPI):
     # Start periodic reload as watchdog fallback
     periodic_task = asyncio.create_task(_periodic_reload_loop())
 
+    # Start heartbeat loop (API connection checks every 60s)
+    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
     print(f"🏢 One Man Company HQ is open!")
     print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
     yield
@@ -309,8 +331,9 @@ async def lifespan(app: FastAPI):
 
     watcher_task.cancel()
     broadcaster_task.cancel()
+    heartbeat_task.cancel()
     try:
-        await asyncio.gather(broadcaster_task, watcher_task, return_exceptions=True)
+        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 

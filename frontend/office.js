@@ -691,6 +691,39 @@ class OfficeRenderer {
       }
     }
 
+    // Offline / needs-setup indicator (higher priority than status icons)
+    if (!isCEO) {
+      if (data.needs_setup) {
+        // Yellow key icon — pulsing to remind setup needed
+        const keyX = bx + 18, keyY = by - 12;
+        const alpha = 0.6 + Math.sin(this.animFrame * 0.08) * 0.3;
+        ctx.globalAlpha = alpha;
+        this._rect(keyX, keyY, 12, 10, '#ffaa00');
+        // Pixel-art key shape
+        ctx.fillStyle = '#fff';
+        this._rect(keyX + 2, keyY + 2, 4, 4, '#fff');  // key head
+        this._rect(keyX + 6, keyY + 4, 4, 2, '#fff');   // key shaft
+        this._rect(keyX + 8, keyY + 5, 2, 3, '#fff');   // key tooth
+        ctx.globalAlpha = 1;
+      } else if (data.api_online === false) {
+        // Red disconnect icon — flashing
+        const offX = bx + 18, offY = by - 12;
+        const alpha = 0.5 + Math.sin(this.animFrame * 0.1) * 0.4;
+        ctx.globalAlpha = alpha;
+        this._rect(offX, offY, 12, 10, '#ff3344');
+        // White X disconnect symbol
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(offX + 3, offY + 2);
+        ctx.lineTo(offX + 9, offY + 8);
+        ctx.moveTo(offX + 9, offY + 2);
+        ctx.lineTo(offX + 3, offY + 8);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // Name tag — show nickname if available, with level
     ctx.fillStyle = labelColor;
     ctx.font = '8px monospace';
@@ -837,6 +870,11 @@ class OfficeRenderer {
         const hist = emp.performance_history || [];
         const latestScore = hist.length > 0 ? hist[hist.length - 1].score : '-';
         tooltipText = `${emp.name}${nn}\n${title}\nSkills: ${(emp.skills || []).join(', ')}\nPerformance: ${latestScore}`;
+        if (emp.needs_setup) {
+          tooltipText += '\n🔑 Needs API setup';
+        } else if (emp.api_online === false) {
+          tooltipText += '\n🔴 API offline';
+        }
         if (emp.is_listening) {
           tooltipText += '\n📖 In 1-on-1 meeting...';
         }

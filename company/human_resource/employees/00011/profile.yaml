@@ -1,4 +1,4 @@
-api_key: ''
+api_key: c7ed6f4fa59d972ffe129122d5a7bb15a7ec10843971d6eddda1fc2bf3ea28aa
 api_provider: anthropic
 auth_method: oauth
 current_quarter_tasks: 0
@@ -12,6 +12,7 @@ level: 1
 llm_model: claude-sonnet-4-20250514
 name: Claude Code Agent (On-Site)
 nickname: 千机
+oauth_refresh_token: 835a560a4b38f65c305ea62095568345c3fcc978089232720fe854477b2b7e05
 performance_history: []
 permissions:
 - company_file_access

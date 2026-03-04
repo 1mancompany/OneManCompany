@@ -1583,7 +1583,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
     return HTMLResponse(
         "<html><body style='font-family:monospace;text-align:center;padding:40px;'>"
         f"<h2>Login Successful</h2>"
-        f"<p>{emp_name} is now authenticated.{launch_msg}</p>"
+        f"<p>{emp_name} is now authenticated.</p>"
         "<p>This window will close automatically...</p>"
         "<script>window.opener && window.opener.postMessage('oauth_done','*'); "
         "setTimeout(()=>window.close(), 1500);</script>"
