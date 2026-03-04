@@ -1349,6 +1349,7 @@ class AppController {
       row.appendChild(span);
     } else if (field.type === 'oauth_button') {
       const btn = document.createElement('button');
+      btn.id = 'emp-oauth-login-btn';
       btn.className = 'pixel-btn small';
       btn.textContent = empData.oauth_logged_in ? 'Re-login' : 'Login';
       btn.dataset.fieldKey = field.key;

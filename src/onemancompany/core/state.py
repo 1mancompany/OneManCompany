@@ -148,6 +148,8 @@ class Employee:
     status: str = STATUS_IDLE
     is_listening: bool = False
     current_task_summary: str = ""
+    api_online: bool = True       # heartbeat check result
+    needs_setup: bool = False     # needs API key / OAuth login
 
     @property
     def title(self) -> str:
@@ -184,6 +186,8 @@ class Employee:
             "status": self.status,
             "is_listening": self.is_listening,
             "current_task_summary": self.current_task_summary,
+            "api_online": self.api_online,
+            "needs_setup": self.needs_setup,
         }
 
 
