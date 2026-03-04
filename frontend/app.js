@@ -126,6 +126,14 @@ class AppController {
       'employee_fired':     (p) => ({ text: `🚪 Departure: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} — ${p.reason || ''}`, cls: 'hr', agent: 'HR' }),
       'employee_rehired':   (p) => ({ text: `🔄 Rehired: ${p.name}${p.nickname ? '(' + p.nickname + ')' : ''} (${p.role})`, cls: 'hr', agent: 'CEO' }),
       'employee_reviewed':  (p) => ({ text: `📊 Quarterly review: ${p.id} — Score: ${p.score}`, cls: 'hr', agent: 'HR' }),
+      'okr_updated':        (p) => ({ text: `🎯 OKRs updated for #${p.employee_id}`, cls: 'hr', agent: 'HR' }),
+      'onboarding_started': (p) => ({ text: `📋 Onboarding started: ${p.name}`, cls: 'hr', agent: 'HR' }),
+      'onboarding_completed': (p) => ({ text: `✅ Onboarding completed: ${p.name}`, cls: 'hr', agent: 'HR' }),
+      'probation_review':   (p) => ({ text: `📋 Probation review: #${p.id} — ${p.passed ? 'Passed' : 'Failed'}`, cls: 'hr', agent: 'HR' }),
+      'pip_started':        (p) => ({ text: `⚠️ PIP started for #${p.id}`, cls: 'hr', agent: 'HR' }),
+      'pip_resolved':       (p) => ({ text: `✅ PIP resolved for #${p.id}`, cls: 'hr', agent: 'HR' }),
+      'exit_interview_started': (p) => ({ text: `🚪 Exit interview: ${p.name}`, cls: 'hr', agent: 'HR' }),
+      'exit_interview_completed': (p) => ({ text: `📄 Exit interview done: ${p.name}`, cls: 'hr', agent: 'HR' }),
       'tool_added':         (p) => ({ text: `🔧 New tool: ${p.name}`, cls: 'coo', agent: 'COO' }),
       'guidance_start':     (p) => ({ text: `📖 ${p.name} is in a 1-on-1 meeting...`, cls: 'guidance', agent: 'CEO' }),
       'guidance_noted':     (p) => ({ text: `🎓 ${p.name}: ${p.acknowledgment}`, cls: 'guidance', agent: p.name }),
@@ -464,6 +472,12 @@ class AppController {
       const remoteBadge = emp.remote
         ? '<span class="roster-remote">🌐 Remote</span>'
         : '';
+      const probationBadge = emp.probation
+        ? '<span class="roster-badge probation">PROBATION</span>'
+        : '';
+      const pipBadge = emp.pip
+        ? '<span class="roster-badge pip">PIP</span>'
+        : '';
       const guidanceCount = (emp.guidance_notes || []).length;
       const guidanceBadge = guidanceCount > 0
         ? `<span style="color: #aa66ff; font-size: 6px;"> [${guidanceCount} notes]</span>`
@@ -478,7 +492,7 @@ class AppController {
       const qTasks = emp.current_quarter_tasks || 0;
       card.innerHTML = `
         <div class="roster-info">
-          <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}${remoteBadge}</div>
+          <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}${remoteBadge}${probationBadge}${pipBadge}</div>
           <div class="roster-role"><span class="roster-empnum">${empNum}</span> ${title} — ${(emp.skills || []).slice(0, 3).join(', ')}</div>
           <div class="roster-quarter">Q Tasks: ${qTasks}/3</div>
           ${listeningBadge}
@@ -1051,6 +1065,34 @@ class AppController {
     perfHtml += '</div>';
     perfHtml += `<div class="perf-current-q">Current quarter: ${qTasks}/3 tasks</div>`;
     perfEl.innerHTML = perfHtml;
+
+    // HR badges (probation / PIP)
+    const hrBadgesEl = document.getElementById('emp-detail-hr-badges');
+    let badgesHtml = '';
+    if (emp.probation) badgesHtml += '<span class="roster-badge probation">PROBATION</span>';
+    if (emp.pip) badgesHtml += '<span class="roster-badge pip">PIP</span>';
+    if (!emp.onboarding_completed) badgesHtml += '<span class="roster-badge onboarding">ONBOARDING</span>';
+    hrBadgesEl.innerHTML = badgesHtml;
+
+    // OKRs
+    const okrSection = document.getElementById('emp-detail-okr-section');
+    const okrEl = document.getElementById('emp-detail-okrs');
+    const okrs = emp.okrs || [];
+    if (okrs.length > 0) {
+      okrSection.classList.remove('hidden');
+      let okrHtml = '';
+      for (const okr of okrs) {
+        const progress = okr.progress || 0;
+        okrHtml += `<div class="okr-item">
+          <div class="okr-objective">${okr.objective || okr.title || '-'}</div>
+          <div class="okr-progress-bar"><div class="okr-progress-fill" style="width:${progress}%"></div></div>
+          <div class="okr-progress-text">${progress}%</div>
+        </div>`;
+      }
+      okrEl.innerHTML = okrHtml;
+    } else {
+      okrSection.classList.add('hidden');
+    }
 
     // Work principles (rendered as Markdown)
     const principlesEl = document.getElementById('emp-detail-principles');

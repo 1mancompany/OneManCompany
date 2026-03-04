@@ -3160,3 +3160,67 @@ body {
   color: var(--pixel-cyan);
   margin-top: 2px;
 }
+
+/* HR badges (probation, PIP, onboarding) */
+.roster-badge {
+  display: inline-block;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.roster-badge.probation {
+  background: #553300;
+  color: #ffaa33;
+  border: 1px solid #ffaa33;
+}
+.roster-badge.pip {
+  background: #550000;
+  color: #ff4444;
+  border: 1px solid #ff4444;
+}
+.roster-badge.onboarding {
+  background: #003355;
+  color: #44aaff;
+  border: 1px solid #44aaff;
+}
+
+/* OKR display */
+.emp-okr-section {
+  margin-top: 6px;
+}
+.okr-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 6px;
+}
+.okr-objective {
+  flex: 1;
+  color: var(--pixel-white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.okr-progress-bar {
+  width: 60px;
+  height: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.okr-progress-fill {
+  height: 100%;
+  background: #44cc88;
+  transition: width 0.3s ease;
+}
+.okr-progress-text {
+  color: var(--text-dim);
+  font-size: 5px;
+  min-width: 24px;
+  text-align: right;
+}

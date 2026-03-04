@@ -46,3 +46,7 @@ api_key: "{api_key}"
 hosting: "{hosting}"
 # 认证方式 — api_key (填入密钥) 或 oauth (弹出链接交互式登录)
 auth_method: "{auth_method}"
+
+# HR 管理
+probation: {probation}
+onboarding_completed: {onboarding_completed}
