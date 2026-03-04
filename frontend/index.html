@@ -502,7 +502,10 @@
         <p style="font-size:7px;color:var(--text-dim);margin:0 0 8px;">Set the company strategy / direction. This is injected into every employee's prompt.</p>
         <textarea id="company-direction-input" placeholder="e.g. We focus on AI-driven creative tools for indie creators..." rows="5" style="width:100%;background:var(--bg-dark);color:var(--pixel-white);border:2px solid var(--border);font-family:'Press Start 2P',monospace;font-size:7px;padding:6px;resize:vertical;"></textarea>
         <div style="margin-top:8px;display:flex;gap:6px;">
+          <button id="company-direction-enrich-btn" class="pixel-btn secondary" onclick="app.enrichCompanyDirection()">&#10024; Polish / Enrich</button>
           <button id="company-direction-save-btn" class="pixel-btn">&#128190; Save</button>
+        </div>
+        <div id="company-direction-current" style="margin-top:12px;padding:8px;background:var(--bg-dark);border:2px solid var(--border);border-radius:4px;font-size:7px;color:var(--text-dim);white-space:pre-wrap;max-height:120px;overflow-y:auto;display:none;">
         </div>
       </div>
     </div>
