@@ -445,11 +445,45 @@ class BaseAgentRunner:
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)
         self._customize_prompt(pb)
+        self._load_agent_prompt_sections(pb)
         return pb
 
     def _customize_prompt(self, pb: PromptBuilder) -> None:
         """Override in subclasses to add/remove/modify prompt sections."""
         pass
+
+    def _load_agent_prompt_sections(self, pb: PromptBuilder) -> None:
+        """Load prompt sections from employees/{id}/agent/manifest.yaml."""
+        import yaml
+
+        agent_dir = EMPLOYEES_DIR / self.employee_id / "agent"
+        manifest_path = agent_dir / "manifest.yaml"
+        if not manifest_path.exists():
+            return
+
+        try:
+            with open(manifest_path) as f:
+                manifest = yaml.safe_load(f) or {}
+        except Exception:
+            return
+
+        sections = manifest.get("prompt_sections", [])
+        for section in sections:
+            name = section.get("name", "")
+            file_path = section.get("file", "")
+            priority = section.get("priority", 50)
+            if not name or not file_path:
+                continue
+
+            content_path = agent_dir / file_path
+            if not content_path.exists():
+                continue
+
+            try:
+                content = content_path.read_text(encoding="utf-8")
+                pb.add(name, content, priority=priority)
+            except Exception:
+                pass
 
     def _get_efficiency_guidelines_section(self) -> str:
         """Build efficiency guidelines to reduce wasted tokens and loops."""
