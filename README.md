@@ -370,6 +370,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Summary |
 |------|---------|
+| 2026-03-04 | • update: 1eb8c0b0, 7327b467 |
 | 2026-03-04 | • update: acquisition-channel-advisor, agents_guide, ai-shaped-readiness-advisor, altitude-horizon-framework, base |
 | 2026-03-04 | • update: test_routes |
 | 2026-03-04 | • fix test mock leak for company_direction |
