@@ -483,6 +483,24 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
                 if not dst_file.exists():
                     shutil.copy2(str(src_file), str(dst_file))
 
+    # Copy talent persona (system_prompt_template → prompts/talent_persona.md)
+    talent_profile_path = talent_dir / "profile.yaml"
+    if talent_profile_path.exists():
+        with open(talent_profile_path) as f:
+            talent_data = yaml.safe_load(f) or {}
+        spt = talent_data.get("system_prompt_template", "")
+        if spt and spt.strip():
+            prompts_dir = emp_dir / "prompts"
+            prompts_dir.mkdir(exist_ok=True)
+            (prompts_dir / "talent_persona.md").write_text(spt.strip() + "\n", encoding="utf-8")
+
+    # Copy CLAUDE.md for Claude CLI discovery
+    talent_claude_md = talent_dir / "CLAUDE.md"
+    if talent_claude_md.exists():
+        dst_claude_md = emp_dir / "CLAUDE.md"
+        if not dst_claude_md.exists():
+            shutil.copy2(str(talent_claude_md), str(dst_claude_md))
+
     # Install agent config (agent/manifest.yaml + prompts, hooks, runner)
     install_talent_agent_config(talent_id, emp_dir, emp_dir.name)
 

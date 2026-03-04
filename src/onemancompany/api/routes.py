@@ -209,7 +209,7 @@ async def get_state() -> dict:
 async def _start_inquiry(task: str) -> dict:
     """Start an inquiry session: book a room, get initial answer, return session info."""
     from langchain_core.messages import HumanMessage, SystemMessage
-    from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt
+    from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
 
     # Route to the best agent via keyword logic
     from onemancompany.core.config import SALES_KEYWORDS
@@ -256,6 +256,7 @@ async def _start_inquiry(task: str) -> dict:
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
         culture_section = f"\nCompany culture:\n{rules}"
 
+    persona_section = get_employee_talent_persona(agent_id)
     skills_section = get_employee_skills_prompt(agent_id)
     tools_section = get_employee_tools_prompt(agent_id)
 
@@ -271,7 +272,7 @@ async def _start_inquiry(task: str) -> dict:
         f"Skills: {skills_str}. "
         f"You are in a meeting room with the CEO answering their inquiry. "
         f"Be helpful, concise, and knowledgeable. Use your expertise and awareness of company operations."
-        f"{principles_section}{culture_section}{skills_section}{tools_section}{colleagues_section}"
+        f"{persona_section}{principles_section}{culture_section}{skills_section}{tools_section}{colleagues_section}"
     )
 
     # Publish CEO question as meeting_chat
@@ -564,9 +565,10 @@ async def oneonone_chat(body: dict) -> dict:
         return {"response": "（任务已提交，正在处理中）"}
 
     # --- Fallback: plain LLM for normal employees without agent loop ---
-    from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt
+    from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
 
     skills_str = ", ".join(emp.skills) if emp.skills else "general"
+    persona_section = get_employee_talent_persona(employee_id)
     principles_section = f"\nYour work principles:\n{emp.work_principles}" if emp.work_principles else ""
     culture_items = company_state.company_culture
     culture_section = ""
@@ -582,7 +584,7 @@ async def oneonone_chat(body: dict) -> dict:
         f"Skills: {skills_str}. "
         f"You are in a private 1-on-1 meeting with the CEO. "
         f"Respond naturally, 2-4 sentences. Be yourself — share thoughts honestly."
-        f"{principles_section}{culture_section}"
+        f"{persona_section}{principles_section}{culture_section}"
         f"{skills_section}{tools_section}"
     )
 

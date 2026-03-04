@@ -11,12 +11,16 @@ Each talent lives in `talents/{talent_id}/`:
 
 ```
 talents/{talent_id}/
-├── profile.yaml          # 必须 — 身份 + 招聘信息
+├── profile.yaml          # 必须 — 身份 + 招聘信息 + system_prompt_template
+├── CLAUDE.md             # 可选 — Claude CLI 项目指令（入职时复制到员工目录）
 ├── manifest.json         # 可选 — 前端设置 UI + 能力声明
 ├── launch.sh             # 可选 — 自托管员工的启动脚本
 ├── run_worker.py         # 可选 — 远程员工的 worker 入口
 ├── skills/               # 可选 — 技能描述
 │   └── *.md              # 每个文件描述一项技能，内容注入员工 prompt
+├── agent/                # 可选 — agent 配置（额外 prompt sections）
+│   ├── manifest.yaml     # prompt section 声明
+│   └── prompt_sections/  # 额外 prompt 片段
 └── tools/                # 可选 — 工具声明与自定义工具
     ├── manifest.yaml     # 工具清单（builtin_tools + custom_tools）
     └── *.py              # 自定义 LangChain @tool 实现
@@ -46,7 +50,113 @@ Talent 的身份信息，HR 招聘时展示给 CEO。
 | `skills` | list | 技能标识符列表，对应 `skills/` 下的 `.md` 文件名 |
 | `tools` | list | 工具名列表 |
 | `personality_tags` | list | 性格标签（HR 匹配用） |
-| `system_prompt_template` | str | 系统 prompt 模板 |
+| `system_prompt_template` | str | Talent Persona prompt（见下方详细说明） |
+
+### `system_prompt_template` 写作规范
+
+`system_prompt_template` 是 talent 的**灵魂 prompt**——定义这个 talent 的核心能力、
+工作方式和思维框架。入职时写入 `employees/{id}/prompts/talent_persona.md`，
+在所有 prompt 路径中以 **Talent Persona** 层注入。
+
+#### Prompt 分层协议
+
+员工的最终 system prompt 按 priority 从小到大拼接：
+
+```
+Priority 10: Identity       — "You are 小明 (花名: 铁匠), Manager in 产品部 (Lv.3)"
+                               [系统自动生成，来自员工档案]
+Priority 12: Talent Persona  — system_prompt_template 的内容
+                               [来自 talent profile，入职时固化]
+Priority 15: Work Approach   — 工作方法论（通用或自定义）
+Priority 30: Skills          — skills/*.md 的全部内容
+Priority 35: Tools           — 已授权工具列表 + 使用说明
+Priority 40: Direction       — 公司战略方向
+Priority 45: Culture         — 公司文化准则
+Priority 50: Principles      — 员工个人工作准则（CEO 1-on-1 后更新）
+Priority 55: Guidance        — CEO 指导批注
+Priority 70: Context         — 当前时间、团队状态、活跃任务
+Priority 80: Efficiency      — 效率指南
+```
+
+`system_prompt_template` 位于 **Identity 之后、Skills 之前**。
+它不需要重复 identity 信息（name/role/department），这些由 Identity 层提供。
+它应当聚焦于：这个 talent **怎么思考**、**怎么工作**、**擅长什么**。
+
+#### 写作要点
+
+1. **不要写身份信息** — 不需要 "You are {name}" 或 "Your role is {role}"，
+   Identity 层已经提供
+2. **写能力定位** — 说明这个 talent 的核心专长和工作方式
+3. **写行为指引** — 如何使用 skills、如何做决策、输出标准
+4. **保持简洁** — 2-5 句话为佳，不要超过一段。Skills 的细节由 skills/*.md 承载
+5. **用第二人称** — 用 "You" 或 "你" 开头
+
+#### 示例
+
+**好的写法**（聚焦能力 + 行为方式）：
+
+```yaml
+# Product Manager talent
+system_prompt_template: >
+  You are equipped with 46 professional PM frameworks covering user stories,
+  PRDs, positioning, discovery, prioritization, roadmapping, and financial
+  analysis. Use your skills library to select the right framework for each
+  product challenge. Ground analysis in frameworks, not generic advice.
+  When unsure which framework to apply, ask clarifying questions first.
+```
+
+```yaml
+# Full-stack Engineer talent
+system_prompt_template: >
+  You specialize in full-stack development with deep expertise in Python,
+  TypeScript, and cloud infrastructure. Write production-ready code with
+  tests. Prefer simple, maintainable solutions over clever abstractions.
+  Always verify assumptions by reading existing code before proposing changes.
+```
+
+```yaml
+# Data Analyst talent
+system_prompt_template: >
+  You excel at turning raw data into actionable insights. Use SQL for
+  data extraction, Python for analysis, and clear visualizations to
+  communicate findings. Always validate data quality before drawing
+  conclusions. Present results with confidence intervals where applicable.
+```
+
+**不好的写法**：
+
+```yaml
+# ✗ 重复 identity 层信息
+system_prompt_template: >
+  You are a senior product manager named Alice in the Product Department.
+  Your role is Manager and you work at level 3.
+
+# ✗ 太模糊，没有提供具体能力或行为指引
+system_prompt_template: >
+  You are a helpful assistant. Be professional and do your best.
+
+# ✗ 太长，把 skill 细节塞进来了
+system_prompt_template: >
+  You are a PM who can write user stories using the Mike Cohn format
+  with Gherkin-style acceptance criteria. The format is: As a [user],
+  I want to [action], so that [outcome]. Acceptance criteria follow
+  the Given-When-Then pattern: Given [context], When [event], Then
+  [expected result]. You can also create PRDs with the following
+  sections: Overview, Problem Statement, Goals, User Stories...
+  [300 more words]
+```
+
+#### CLAUDE.md 与 system_prompt_template 的关系
+
+| 文件 | 用途 | 生效路径 |
+|------|------|---------|
+| `system_prompt_template` | 简洁的 persona prompt | Company-hosted (LangChain) + Self-hosted 的 PromptBuilder |
+| `CLAUDE.md` | 完整的项目级指令 | Self-hosted Claude CLI 自动发现（cwd 下的 CLAUDE.md） |
+
+- 如果 talent 来自 GitHub 仓库，`CLAUDE.md` 会被原样保存到 talent 目录，
+  入职时复制到 `employees/{id}/CLAUDE.md`，供 Claude CLI 自动加载
+- `system_prompt_template` 应始终独立于 `CLAUDE.md` 存在——
+  它是简洁的 persona 定义，而 `CLAUDE.md` 可能包含详细的操作手册
 
 ### `manifest.json`（可选）
 
@@ -283,10 +393,12 @@ talents/my_self_hosted/
 
 1. 在 `talents/` 下创建目录
 2. 编写 `profile.yaml`（必填字段：`id`, `name`, `role`, `skills`）
-3. 在 `skills/` 下编写技能 `.md` 文件
-4. 如需自定义工具，创建 `tools/manifest.yaml` + `.py` 文件
-5. 如需自定义设置 UI，创建 `manifest.json`
-6. 如为 self-hosted，创建 `launch.sh`（接收 `$1 = employee_dir`）
+3. 编写 `system_prompt_template`——聚焦能力定位和行为指引，不重复 identity 信息
+4. 在 `skills/` 下编写技能 `.md` 文件（具体框架和方法论放这里）
+5. 如需自定义工具，创建 `tools/manifest.yaml` + `.py` 文件
+6. 如需自定义设置 UI，创建 `manifest.json`
+7. 如为 self-hosted，创建 `launch.sh`（接收 `$1 = employee_dir`）
+8. 如有 Claude CLI 项目指令，放入 `CLAUDE.md`
 
 ---
 
