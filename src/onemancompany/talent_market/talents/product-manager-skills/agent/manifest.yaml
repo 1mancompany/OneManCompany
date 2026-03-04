@@ -1,0 +1,4 @@
+prompt_sections:
+- file: prompt_sections/agents_guide.md
+  name: agents_guide
+  priority: 40

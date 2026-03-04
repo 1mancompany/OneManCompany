@@ -160,6 +160,15 @@ async def tracked_ainvoke(
 # Standalone prompt builders — usable by any code that invokes an employee
 # ---------------------------------------------------------------------------
 
+def get_employee_talent_persona(employee_id: str) -> str:
+    """Load talent persona from employees/{id}/prompts/talent_persona.md."""
+    path = EMPLOYEES_DIR / employee_id / "prompts" / "talent_persona.md"
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8").strip()
+    return f"\n{content}" if content else ""
+
+
 def get_employee_skills_prompt(employee_id: str) -> str:
     """Build a skills prompt section from employees/{id}/skills/*.md files."""
     skills = load_employee_skills(employee_id)
@@ -340,6 +349,18 @@ class BaseAgentRunner:
         if emp:
             emp.status = status
 
+    def _get_talent_persona_section(self) -> str:
+        """Load talent persona from employees/{id}/prompts/talent_persona.md.
+
+        This file is written during onboarding from the talent's
+        system_prompt_template, capturing the talent's core identity and
+        working style (e.g. "You are a senior PM with 46 frameworks...").
+        """
+        content = self._load_prompt_file("talent_persona.md")
+        if not content:
+            return ""
+        return f"\n\n## Talent Persona\n{content.strip()}\n"
+
     def _get_skills_prompt_section(self) -> str:
         """Load skill files from employees/{id}/skills/ and build a prompt section."""
         return get_employee_skills_prompt(self.employee_id)
@@ -436,6 +457,7 @@ class BaseAgentRunner:
     def _build_prompt_builder(self) -> PromptBuilder:
         """Build a PromptBuilder with all standard sections. Override _customize_prompt() to modify."""
         pb = PromptBuilder()
+        pb.add("talent_persona", self._get_talent_persona_section(), priority=12)
         pb.add("skills", self._get_skills_prompt_section(), priority=30)
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
