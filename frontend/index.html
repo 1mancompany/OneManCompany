@@ -233,6 +233,9 @@
               <div id="emp-settings-container" class="emp-detail-section emp-model-section-wrap">
                 <!-- Dynamically rendered from manifest.json settings -->
               </div>
+              <button id="emp-fire-btn" class="pixel-btn danger emp-fire-btn" style="display:none;">
+                &#128308; Dismiss Employee
+              </button>
             </div>
 
             <div class="emp-detail-section emp-detail-flex-section">
@@ -332,6 +335,21 @@
         <div id="meeting-inquiry-actions" class="oneonone-actions hidden">
           <button id="meeting-inquiry-end-btn" class="pixel-btn secondary">&#128308; End Inquiry</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hiring Request Modal (COO → CEO) -->
+  <div id="hiring-request-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width:320px;">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128188; COO Hiring Request</h3>
+        <button id="hiring-request-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body" id="hiring-request-body"></div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;padding:6px 8px;">
+        <button id="hiring-request-reject" class="pixel-btn" style="background:var(--pixel-red);font-size:7px;padding:3px 8px;">Reject</button>
+        <button id="hiring-request-approve" class="pixel-btn" style="background:var(--pixel-green);font-size:7px;padding:3px 8px;">Approve</button>
       </div>
     </div>
   </div>

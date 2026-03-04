@@ -1,0 +1,11 @@
+id: roblox_cloud
+name: Roblox Open Cloud
+type: langchain_module
+description: >
+  Interact with Roblox game services via Open Cloud API.
+  Provides DataStore CRUD, MessagingService, server management,
+  experience info, and monetization queries.
+  Requires rblx-open-cloud SDK and API key in employee profile.
+added_by: CEO
+sprite: desk_equipment
+allowed_users: []

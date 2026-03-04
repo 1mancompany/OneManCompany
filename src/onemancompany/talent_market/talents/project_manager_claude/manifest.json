@@ -1,8 +1,8 @@
 {
-  "id": "claude-code-onsite",
-  "name": "Claude Code Engineer",
+  "id": "project-manager-claude",
+  "name": "Claude Project Manager",
   "version": "1.0.0",
-  "role": "Engineer",
+  "role": "Manager",
   "hosting": "self",
   "settings": {
     "sections": [
@@ -23,11 +23,12 @@
     ]
   },
   "prompts": {
-    "skills": ["skills/*.md"]
+    "skills": [],
+    "npx_skills": ["task-planning", "task-estimation", "standup-meeting", "sprint-retrospective", "internal-comms"]
   },
   "tools": {
-    "builtin": ["sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file"],
-    "custom": []
+    "builtin": [],
+    "custom": ["pm_tools"]
   },
   "platform_capabilities": ["file_upload", "websocket"],
   "heartbeat": {"method": "pid"}

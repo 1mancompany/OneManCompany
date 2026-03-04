@@ -359,6 +359,20 @@ body {
   cursor: not-allowed;
 }
 
+.pixel-btn.danger {
+  background: var(--pixel-red);
+  box-shadow: 3px 3px 0 #992233;
+}
+
+.pixel-btn.danger:active {
+  box-shadow: 1px 1px 0 #992233;
+}
+
+.emp-fire-btn {
+  margin-top: 8px;
+  width: 100%;
+}
+
 /* ===== Roster ===== */
 #roster-list {
   padding: 4px 6px;

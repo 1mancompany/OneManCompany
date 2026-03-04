@@ -7,8 +7,11 @@
 #   Logs to {employee_dir}/worker.log
 #   Runs in background (nohup)
 #
-# This talent includes roblox-game-development skill installed via:
-#   npx skills add https://github.com/greedychipmunk/agent-skills --skill roblox-game-development
+# Skills installed from skills.sh / external repos:
+#   - algorithmic-art (anthropics/skills) — procedural generation & algorithmic art
+#   - canvas-design (anthropics/skills) — Canvas visual design for game UI/assets
+#   - game-engine (github/awesome-copilot) — web game engines (Canvas/WebGL/Phaser/Three.js)
+#   - roblox-game-development (greedychipmunk/agent-skills) — Roblox/Luau game dev (external)
 
 set -euo pipefail
 
@@ -36,26 +39,33 @@ WORK_DIR="$($PYTHON -c "import json; d=json.load(open('$EMPLOYEE_DIR/connection.
 if ! command -v npx &>/dev/null; then
     echo "WARNING: npx not found, skipping skill installation"
 else
-    # Roblox game development skill
+    # algorithmic-art — procedural generation & algorithmic art (Anthropic official)
+    if [ ! -d "$EMPLOYEE_DIR/.claude/skills/algorithmic-art" ] && \
+       [ ! -d "$HOME/.claude/skills/algorithmic-art" ]; then
+        echo "Installing algorithmic-art skill..."
+        npx skills add anthropics/skills --skill algorithmic-art 2>&1 || \
+            echo "WARNING: algorithmic-art install failed, continuing without it"
+    fi
+    # canvas-design — Canvas visual design for game UI/assets (Anthropic official)
+    if [ ! -d "$EMPLOYEE_DIR/.claude/skills/canvas-design" ] && \
+       [ ! -d "$HOME/.claude/skills/canvas-design" ]; then
+        echo "Installing canvas-design skill..."
+        npx skills add anthropics/skills --skill canvas-design 2>&1 || \
+            echo "WARNING: canvas-design install failed, continuing without it"
+    fi
+    # game-engine — web game engines: Canvas/WebGL/Phaser/Three.js (skills.sh)
+    if [ ! -d "$EMPLOYEE_DIR/.claude/skills/game-engine" ] && \
+       [ ! -d "$HOME/.claude/skills/game-engine" ]; then
+        echo "Installing game-engine skill..."
+        npx skills add github/awesome-copilot --skill game-engine 2>&1 || \
+            echo "WARNING: game-engine install failed, continuing without it"
+    fi
+    # roblox-game-development — Roblox/Luau game dev (external repo)
     if [ ! -d "$EMPLOYEE_DIR/.claude/skills/roblox-game-development" ] && \
        [ ! -d "$HOME/.claude/skills/roblox-game-development" ]; then
         echo "Installing roblox-game-development skill..."
         npx skills add https://github.com/greedychipmunk/agent-skills --skill roblox-game-development 2>&1 || \
             echo "WARNING: roblox-game-development install failed, continuing without it"
-    fi
-    # Algorithmic art skill (procedural generation for game visuals)
-    if [ ! -d "$EMPLOYEE_DIR/.claude/skills/algorithmic-art" ] && \
-       [ ! -d "$HOME/.claude/skills/algorithmic-art" ]; then
-        echo "Installing algorithmic-art skill..."
-        npx skills add algorithmic-art 2>&1 || \
-            echo "WARNING: algorithmic-art install failed, continuing without it"
-    fi
-    # Canvas design skill (graphic design for game UI/assets)
-    if [ ! -d "$EMPLOYEE_DIR/.claude/skills/canvas-design" ] && \
-       [ ! -d "$HOME/.claude/skills/canvas-design" ]; then
-        echo "Installing canvas-design skill..."
-        npx skills add canvas-design 2>&1 || \
-            echo "WARNING: canvas-design install failed, continuing without it"
     fi
 fi
 
