@@ -205,6 +205,8 @@ async def execute_hire(
         permissions=default_perms,
         tool_permissions=default_tool_perms,
         salary_per_1m_tokens=salary,
+        probation=True,
+        onboarding_completed=False,
     )
     company_state.employees[emp_num] = emp
 
@@ -302,5 +304,10 @@ async def execute_hire(
             else:
                 from onemancompany.agents.base import EmployeeAgent
                 await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
+
+    # Trigger onboarding routine as background task
+    import asyncio
+    from onemancompany.core.routine import run_onboarding_routine
+    asyncio.create_task(run_onboarding_routine(emp_num))
 
     return emp

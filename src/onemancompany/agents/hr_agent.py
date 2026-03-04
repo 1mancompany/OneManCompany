@@ -25,6 +25,7 @@ import random
 import re
 import sys
 import uuid
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -42,13 +43,16 @@ from onemancompany.core.config import (
     MAX_NORMAL_LEVEL,
     MAX_PERFORMANCE_HISTORY,
     MAX_SUMMARY_LEN,
+    PROBATION_TASKS,
     QUARTERS_FOR_PROMOTION,
     SCORE_EXCELLENT,
+    SCORE_NEEDS_IMPROVEMENT,
     STATUS_IDLE,
     STATUS_WORKING,
     TASKS_PER_QUARTER,
     VALID_SCORES,
     move_employee_to_ex,
+    update_employee_field,
     update_employee_level,
     update_employee_performance,
 )
@@ -274,6 +278,22 @@ Department map: Engineer/DevOps/QA → "Engineering", Designer → "Design", Ana
 2. Confirm NOT founding (Lv.4) or CEO (Lv.5) — they CANNOT be fired.
 3. Output JSON: `{"action": "fire", "employee_id": "...", "reason": "..."}`
 
+## Probation
+- New hires start with probation=True.
+- After completing 2 tasks (PROBATION_TASKS), run a probation review.
+- Output JSON: `{"action": "probation_review", "employee_id": "...", "passed": true/false, "feedback": "..."}`
+- If passed: set probation=False. If failed: fire the employee.
+
+## PIP (Performance Improvement Plan)
+- Auto-created when an employee scores 3.25 in a review.
+- If an employee on PIP scores 3.25 again: terminate them.
+- If an employee on PIP scores >= 3.5: resolve the PIP.
+- Output JSON: `{"action": "pip_started", "employee_id": "..."}` or `{"action": "pip_resolved", "employee_id": "..."}`
+
+## OKRs
+- Employees can have OKR objectives set via the API.
+- OKRs are informational — tracked but not auto-enforced.
+
 ## DO NOT
 - Do NOT add unnecessary planning or analysis steps when hiring.
 - Do NOT use scores other than 3.25, 3.5, 3.75.
@@ -394,7 +414,7 @@ class HRAgent(BaseAgentRunner):
         json_blocks = re.findall(r"```json\s*(\{.*?\})\s*```", output, re.DOTALL)
         if not json_blocks:
             json_blocks = re.findall(
-                r'\{"action"\s*:\s*"(?:hire|review|fire|shortlist)".*?\}', output, re.DOTALL
+                r'\{"action"\s*:\s*"(?:hire|review|fire|shortlist|probation_review)".*?\}', output, re.DOTALL
             )
 
         for block in json_blocks:
@@ -471,37 +491,87 @@ class HRAgent(BaseAgentRunner):
                              "history": emp.performance_history},
                         )
 
+                        # PIP logic
+                        if score == SCORE_NEEDS_IMPROVEMENT:
+                            if emp.pip:
+                                # Already on PIP and scored 3.25 again → terminate
+                                await self._run_offboarding(emp_id, "Failed PIP — consecutive low performance")
+                            else:
+                                # Start PIP
+                                emp.pip = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
+                                update_employee_field(emp_id, "pip", emp.pip)
+                                await self._publish("pip_started", {"id": emp_id, "pip": emp.pip})
+                        elif score >= 3.5 and emp.pip:
+                            # Resolve PIP
+                            emp.pip = None
+                            update_employee_field(emp_id, "pip", None)
+                            await self._publish("pip_resolved", {"id": emp_id})
+
             elif data.get("action") == "fire" and "employee_id" in data:
                 emp_id = data["employee_id"]
                 if emp_id in company_state.employees:
                     emp = company_state.employees[emp_id]
-                    # Cannot fire founding employees
                     if emp.level >= FOUNDING_LEVEL:
                         continue
                     reason = data.get("reason", "CEO decision")
-                    # Move to ex-employees (state + folder)
-                    company_state.ex_employees[emp_id] = emp
-                    del company_state.employees[emp_id]
-                    move_employee_to_ex(emp_id)
+                    await self._run_offboarding(emp_id, reason)
 
-                    # Recompute layout (zones may shrink) and persist all positions
-                    compute_layout(company_state)
-                    persist_all_desk_positions(company_state)
+            elif data.get("action") == "probation_review" and "employee_id" in data:
+                emp_id = data["employee_id"]
+                if emp_id in company_state.employees:
+                    emp = company_state.employees[emp_id]
+                    passed = data.get("passed", True)
+                    feedback = data.get("feedback", "")
+                    if passed:
+                        emp.probation = False
+                        update_employee_field(emp_id, "probation", False)
+                        await self._publish("probation_review", {
+                            "id": emp_id, "passed": True, "feedback": feedback,
+                        })
+                    else:
+                        await self._publish("probation_review", {
+                            "id": emp_id, "passed": False, "feedback": feedback,
+                        })
+                        await self._run_offboarding(emp_id, f"Failed probation: {feedback}")
 
-                    company_state.activity_log.append({
-                        "type": "employee_fired",
-                        "name": emp.name,
-                        "nickname": emp.nickname,
-                        "role": emp.role,
-                        "reason": reason,
-                    })
-                    await self._publish("employee_fired", {
-                        "id": emp_id,
-                        "name": emp.name,
-                        "nickname": emp.nickname,
-                        "role": emp.role,
-                        "reason": reason,
-                    })
+    async def _run_offboarding(self, emp_id: str, reason: str) -> None:
+        """Run offboarding for an employee: move to ex-employees and publish events."""
+        if emp_id not in company_state.employees:
+            return
+        emp = company_state.employees[emp_id]
+        if emp.level >= FOUNDING_LEVEL:
+            return
+
+        # Run offboarding routine if available
+        try:
+            from onemancompany.core.routine import run_offboarding_routine
+            await run_offboarding_routine(emp_id, reason)
+        except Exception as e:
+            logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+
+        # Move to ex-employees (state + folder)
+        company_state.ex_employees[emp_id] = emp
+        del company_state.employees[emp_id]
+        move_employee_to_ex(emp_id)
+
+        # Recompute layout and persist
+        compute_layout(company_state)
+        persist_all_desk_positions(company_state)
+
+        company_state.activity_log.append({
+            "type": "employee_fired",
+            "name": emp.name,
+            "nickname": emp.nickname,
+            "role": emp.role,
+            "reason": reason,
+        })
+        await self._publish("employee_fired", {
+            "id": emp_id,
+            "name": emp.name,
+            "nickname": emp.nickname,
+            "role": emp.role,
+            "reason": reason,
+        })
 
     async def _check_promotions(self) -> None:
         """Check if any employees qualify for promotion.
