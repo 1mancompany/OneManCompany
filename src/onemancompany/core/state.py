@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from onemancompany.core.config import (
+    EMPLOYEES_DIR,
     FOUNDING_LEVEL,
     STATUS_IDLE,
 )
@@ -145,6 +146,10 @@ class Employee:
     tool_permissions: list[str] = field(default_factory=list)  # LangChain tool names this employee can use
     remote: bool = False  # True = remote worker, False = on-site employee
     salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens
+    probation: bool = False  # True during probation period
+    okrs: list[dict] = field(default_factory=list)  # OKR objectives
+    pip: dict | None = None  # Performance Improvement Plan
+    onboarding_completed: bool = True  # False until onboarding routine finishes
     status: str = STATUS_IDLE
     is_listening: bool = False
     current_task_summary: str = ""
@@ -183,6 +188,10 @@ class Employee:
             "tool_permissions": self.tool_permissions,
             "remote": self.remote,
             "salary_per_1m_tokens": self.salary_per_1m_tokens,
+            "probation": self.probation,
+            "okrs": self.okrs,
+            "pip": self.pip,
+            "onboarding_completed": self.onboarding_completed,
             "status": self.status,
             "is_listening": self.is_listening,
             "current_task_summary": self.current_task_summary,
@@ -314,6 +323,15 @@ def _seed_employees() -> None:
                 company_state._next_employee_number = num_val + 1
         except ValueError:
             pass
+        # Legacy detection: if profile.yaml has no probation field, default to passed
+        import yaml as _yaml
+        _profile_path = EMPLOYEES_DIR / emp_num / "profile.yaml"
+        _raw = {}
+        if _profile_path.exists():
+            with open(_profile_path) as _f:
+                _raw = _yaml.safe_load(_f) or {}
+        probation_val = _raw.get("probation", False)  # legacy profiles → False (passed)
+        onboarding_val = _raw.get("onboarding_completed", True)  # legacy → True (done)
         company_state.employees[emp_num] = Employee(
             id=emp_num,
             name=cfg.name,
@@ -333,6 +351,10 @@ def _seed_employees() -> None:
             tool_permissions=list(cfg.tool_permissions) if cfg.tool_permissions else [],
             remote=getattr(cfg, 'remote', False),
             salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
+            probation=probation_val,
+            okrs=list(cfg.okrs) if hasattr(cfg, 'okrs') and cfg.okrs else [],
+            pip=cfg.pip if hasattr(cfg, 'pip') else None,
+            onboarding_completed=onboarding_val,
         )
 
 
@@ -490,6 +512,29 @@ def reload_all_from_disk() -> dict:
             if getattr(cfg, 'remote', False) != emp.remote:
                 emp.remote = cfg.remote
                 changed_fields.append("remote")
+            # HR fields — read raw YAML for legacy detection
+            _profile_path = EMPLOYEES_DIR / emp_num / "profile.yaml"
+            _raw = {}
+            if _profile_path.exists():
+                import yaml as _yaml
+                with open(_profile_path) as _f:
+                    _raw = _yaml.safe_load(_f) or {}
+            _probation = _raw.get("probation", False)
+            _onboarding = _raw.get("onboarding_completed", True)
+            _okrs = _raw.get("okrs", []) or []
+            _pip = _raw.get("pip", None)
+            if emp.probation != _probation:
+                emp.probation = _probation
+                changed_fields.append("probation")
+            if emp.onboarding_completed != _onboarding:
+                emp.onboarding_completed = _onboarding
+                changed_fields.append("onboarding_completed")
+            if emp.okrs != _okrs:
+                emp.okrs = _okrs
+                changed_fields.append("okrs")
+            if emp.pip != _pip:
+                emp.pip = _pip
+                changed_fields.append("pip")
             if changed_fields:
                 summary["employees_updated"].append({"id": emp_num, "fields": changed_fields})
         else:

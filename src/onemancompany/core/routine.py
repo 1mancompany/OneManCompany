@@ -1591,3 +1591,112 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         room.booked_by = ""
         room.participants = []
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+
+
+# ---------------------------------------------------------------------------
+# Onboarding routine
+# ---------------------------------------------------------------------------
+
+# Need PROBATION_TASKS at module level for the onboarding routine
+from onemancompany.core.config import PROBATION_TASKS  # noqa: E402
+
+
+async def run_onboarding_routine(employee_id: str) -> None:
+    """Run onboarding for a new employee: welcome, team intro, probation brief."""
+    from onemancompany.core.config import update_employee_field
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return
+
+    await _publish("onboarding_started", {"id": employee_id, "name": emp.name})
+    await _publish("routine_phase", {
+        "phase": "onboarding",
+        "message": f"Welcome {emp.name} ({emp.nickname}) to the team! Starting onboarding...",
+    })
+
+    # Brief the new hire on probation
+    await _publish("routine_phase", {
+        "phase": "onboarding",
+        "message": f"{emp.name} has been briefed on the probation period (complete {PROBATION_TASKS} tasks to pass).",
+    })
+
+    # Generate work principles if empty
+    if not emp.work_principles:
+        from onemancompany.core.config import save_work_principles
+        from onemancompany.core.state import make_title
+        principles = (
+            f"# {emp.name} ({emp.nickname}) Work Principles\n\n"
+            f"**Department**: {emp.department}\n"
+            f"**Title**: {make_title(emp.level, emp.role)}\n\n"
+            f"## Core Principles\n"
+            f"1. Complete assigned work diligently\n"
+            f"2. Collaborate with the team\n"
+            f"3. Continuously learn and improve\n"
+            f"4. Follow company rules and guidelines\n"
+        )
+        save_work_principles(employee_id, principles)
+        emp.work_principles = principles
+
+    # Mark onboarding complete
+    emp.onboarding_completed = True
+    update_employee_field(employee_id, "onboarding_completed", True)
+
+    await _publish("onboarding_completed", {"id": employee_id, "name": emp.name})
+
+
+# ---------------------------------------------------------------------------
+# Offboarding routine
+# ---------------------------------------------------------------------------
+
+async def run_offboarding_routine(employee_id: str, reason: str) -> None:
+    """Run offboarding for a departing employee: exit interview, feedback."""
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return
+
+    await _publish("exit_interview_started", {
+        "id": employee_id, "name": emp.name, "reason": reason,
+    })
+
+    await _publish("routine_phase", {
+        "phase": "offboarding",
+        "message": f"Exit interview with {emp.name} ({emp.nickname}). Reason: {reason}",
+    })
+
+    # Generate exit report
+    report_id = str(uuid.uuid4())[:8]
+    doc = {
+        "id": report_id,
+        "type": "exit_interview",
+        "timestamp": datetime.now().isoformat(),
+        "employee_id": employee_id,
+        "employee_name": emp.name,
+        "reason": reason,
+    }
+    _save_report(report_id, doc)
+
+    await _publish("exit_interview_completed", {
+        "id": employee_id, "name": emp.name, "report_id": report_id,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Performance meeting routine
+# ---------------------------------------------------------------------------
+
+async def run_performance_meeting(employee_id: str, score: float, feedback: str) -> None:
+    """Run a 1-on-1 performance feedback meeting."""
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return
+
+    await _publish("routine_phase", {
+        "phase": "performance_meeting",
+        "message": f"Performance meeting with {emp.name} ({emp.nickname}): score {score}",
+    })
+
+    await _publish("routine_phase", {
+        "phase": "performance_meeting",
+        "message": f"Feedback for {emp.name}: {feedback}",
+    })

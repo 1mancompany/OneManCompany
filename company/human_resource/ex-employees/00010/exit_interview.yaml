@@ -1,0 +1,20 @@
+department: Design
+employee_feedback: It is incredibly disappointing that the CEO has chosen to completely
+  dissolve the Design department, as I honestly believe sidelining user experience
+  will negatively impact the company's future products. While I am proud of the creative
+  work our team accomplished, eliminating dedicated design roles feels like a significant
+  step backward for the company's long-term vision. I wish the remaining teams the
+  best of luck as they navigate upcoming projects without specialized design support.
+employee_id: '00010'
+knowledge_transfer: "As I transition out, I've organized all our recent user research\
+  \ findings and interview transcripts in the shared drive to ensure the team maintains\
+  \ a strong, user-centric focus. You'll also find my latest interactive prototypes\
+  \ linked directly to our updated custom CSS component library, ensuring a seamless\
+  \ design-to-development workflow. Everything is thoroughly documented by project,\
+  \ but please let me know if you need a quick walkthrough before my last day! \n\n\
+  Best,  \nNova Smith"
+name: Nova Smith
+nickname: 星墨
+reason: 'Department restructuring: CEO requested to dissolve the Design department.'
+role: Designer
+timestamp: '2026-03-02T15:01:15.418136'
