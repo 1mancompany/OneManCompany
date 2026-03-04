@@ -119,7 +119,7 @@ class TestCompanyDirection:
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes.save_company_direction", create=True):
+             patch("onemancompany.core.config.save_company_direction"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/company/direction", json={"direction": "New direction"})
