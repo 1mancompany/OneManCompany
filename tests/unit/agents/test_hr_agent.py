@@ -291,7 +291,8 @@ class TestApplyResultsFire:
         agent.__class__ = hr_agent.HRAgent
 
         output = '```json\n{"action": "fire", "employee_id": "00010", "reason": "poor performance"}\n```'
-        await hr_agent.HRAgent._apply_results(agent, output)
+        with patch("onemancompany.core.routine.run_offboarding_routine", new_callable=AsyncMock):
+            await hr_agent.HRAgent._apply_results(agent, output)
 
         assert "00010" not in cs.employees
         assert "00010" in cs.ex_employees
@@ -316,7 +317,8 @@ class TestApplyResultsFire:
         agent.__class__ = hr_agent.HRAgent
 
         output = '```json\n{"action": "fire", "employee_id": "00002", "reason": "trying to fire founder"}\n```'
-        await hr_agent.HRAgent._apply_results(agent, output)
+        with patch("onemancompany.core.routine.run_offboarding_routine", new_callable=AsyncMock):
+            await hr_agent.HRAgent._apply_results(agent, output)
 
         # Should NOT be fired
         assert "00002" in cs.employees
@@ -339,7 +341,8 @@ class TestApplyResultsFire:
 
         output = '```json\n{"action": "fire", "employee_id": "99999"}\n```'
         # Should not raise
-        await hr_agent.HRAgent._apply_results(agent, output)
+        with patch("onemancompany.core.routine.run_offboarding_routine", new_callable=AsyncMock):
+            await hr_agent.HRAgent._apply_results(agent, output)
 
 
 # ---------------------------------------------------------------------------
