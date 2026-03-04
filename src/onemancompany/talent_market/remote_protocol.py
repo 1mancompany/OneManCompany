@@ -47,6 +47,10 @@ class TaskResult(BaseModel):
         default_factory=list,
         description="Files or other artifacts produced by the worker",
     )
+    model_used: str = Field(default="", description="LLM model used by the remote worker")
+    input_tokens: int = Field(default=0, description="Total input tokens consumed")
+    output_tokens: int = Field(default=0, description="Total output tokens consumed")
+    estimated_cost_usd: float = Field(default=0.0, description="Estimated cost in USD")
 
 
 class HeartbeatPayload(BaseModel):

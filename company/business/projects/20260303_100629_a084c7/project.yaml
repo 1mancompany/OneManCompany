@@ -1,0 +1,61 @@
+acceptance_criteria:
+- 成功招聘一名新的coding员工
+- 新员工的coding能力评估或级别必须高于目前的'墨者'（ID:00008）
+- 新员工的档案已在系统中完整创建并完成入职流程
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 2.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-03T10:06:29.308832'
+current_owner: '00004'
+dispatches:
+- description: 招聘一个比目前的coding员工“墨者”（ID:00008, Lv.1）能力更强的coding员工。要求新员工的coding能力评估或级别必须高于墨者，并完成全套入职流程及档案创建。
+  dispatched_at: '2026-03-03T10:09:45.766768'
+  employee_id: '00002'
+  status: in_progress
+ea_review_result: null
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- 00008
+- 00009
+- '00010'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260303_100629_a084c7
+project_id: 20260303_100629_a084c7
+responsible_officer: '00003'
+routed_to: pending
+status: in_progress
+task: 招聘一个比墨者更强的coding员工
+timeline:
+- action: EA task completed
+  detail: '已完成任务分派。
+
+
+    **分派详情**：
+
+    - **任务领域**：人事招聘
+
+    - **执行负责人**：HR (Sam HR 暖心侠，ID: 00002)
+
+    - **验收责任人**：COO (Alex COO 铁面侠，ID: 00003)
+
+    - **预算评估**：$2.00 USD
+
+
+    **分派理由**：
+
+    招聘活动属于HR的职责范围，因此将任务直接分派给HR。要求HR寻找并招募一名Coding能力评级显著高于现任工程师“墨者”（ID: 00008, Lv.1）的员工，并完成系统内的档案创建及全套入职流程。COO将作为验收负责人，对最终的入职合规性及能力评估结果进行把关。
+
+
+    *Verification Not'
+  employee_id: '00004'
+  time: '2026-03-03T10:11:15.308236'

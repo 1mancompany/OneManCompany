@@ -12,8 +12,8 @@ import re
 
 from langchain_core.tools import tool
 
-from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm
-from onemancompany.core.config import HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
+from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
+from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.tools.sandbox import SANDBOX_TOOLS
@@ -328,7 +328,10 @@ async def pull_meeting(
     agenda: str = "",
     initiator_id: str = "",
 ) -> dict:
-    """Pull meeting / sync-up — initiate a focused meeting, pulling relevant colleagues to discuss a specific topic.
+    """Pull meeting / sync-up — initiate a multi-person discussion with colleagues.
+
+    Meetings are ONLY for communication and discussion between 2+ people.
+    If you need to think or plan alone, do it internally — never call a meeting with yourself.
 
     Automatically books a meeting room, organizes participants for discussion, and outputs meeting conclusions.
     Uses a token-grabbing mechanism: participants concurrently evaluate whether they need to speak,
@@ -336,7 +339,7 @@ async def pull_meeting(
 
     Args:
         topic: Meeting topic, e.g. "Discuss technical plan for new feature"
-        participant_ids: List of colleague IDs who should attend
+        participant_ids: List of colleague IDs who should attend (must be 2+ people including yourself)
         agenda: Optional meeting agenda
         initiator_id: Initiator's ID (auto-filled, can be left empty)
 
@@ -429,7 +432,7 @@ async def pull_meeting(
                 prompt = _build_evaluate_prompt(emp, topic, agenda, chat_history)
                 llm = make_llm(emp.id)
                 t0 = loop.time()
-                resp = await llm.ainvoke(prompt)
+                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=emp.id)
                 t1 = loop.time()
                 first_line = resp.content.strip().split("\n")[0].upper()[:20]
                 wants = "YES" in first_line
@@ -463,7 +466,7 @@ async def pull_meeting(
 
             # Winner delivers their speech
             speech_prompt = _build_speech_prompt(winner, topic, agenda, chat_history)
-            resp = await make_llm(winner.id).ainvoke(speech_prompt)
+            resp = await tracked_ainvoke(make_llm(winner.id), speech_prompt, category="meeting", employee_id=winner.id)
             last_speaker_id = winner.id
 
             display = winner.nickname or winner.name
@@ -495,7 +498,7 @@ async def pull_meeting(
             f"2. Action items (JSON array format): "
             f'[{{"assignee": "person responsible", "action": "specific action"}}]\n'
         )
-        summary_resp = await summary_llm.ainvoke(summary_prompt)
+        summary_resp = await tracked_ainvoke(summary_llm, summary_prompt, category="meeting", employee_id=initiator_id or HR_ID)
         summary_text = summary_resp.content
 
         await _chat(room.id, "Meeting Notes", "HR", f"[Meeting Summary] {summary_text[:200]}")
@@ -626,7 +629,7 @@ def create_subtask(description: str) -> dict:
     loop = _current_loop.get()
     parent_id = _current_task_id.get()
     if not loop:
-        return {"error": "No agent loop context — sub-tasks require the persistent agent loop."}
+        return {"error": "No agent loop context — sub-tasks require an active task execution."}
     sub = loop.board.push(description, parent_id=parent_id)
     return {"status": "queued", "subtask_id": sub.id, "description": description}
 
@@ -779,10 +782,11 @@ def set_project_budget(budget_usd: float) -> dict:
 
 @tool
 def dispatch_task(employee_id: str, task_description: str) -> dict:
-    """Dispatch a task to another employee's agent task board.
+    """Dispatch a task to another employee's task board.
 
     Use this to delegate work to other agents (e.g. assign HR-sourced actions to the HR agent).
-    The task will be queued on the target agent's board and executed autonomously.
+    The task will be queued on the target employee's board and executed autonomously
+    via their registered launcher (LangChain agent, Claude CLI, etc.).
     The project context (project_id, project_dir) is automatically inherited from
     the current task so that post-task routines run after the *final* executor finishes.
 
@@ -797,9 +801,12 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
 
     loop = get_agent_loop(employee_id)
     if not loop:
-        # Check if this is a remote employee — dispatch via remote task queue
+        # Not registered in EmployeeManager — check if remote employee
         emp = company_state.employees.get(employee_id)
-        if emp and emp.remote:
+        if not emp:
+            return {"status": "error", "message": f"Employee {employee_id} not found"}
+        if emp.remote:
+            # Remote employee: push to remote task queue
             import uuid as _uuid
             project_id = ""
             project_dir = ""
@@ -814,11 +821,9 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
                         caller_task.original_project_id = project_id
                         caller_task.original_project_dir = project_dir
                         caller_task.project_id = ""
-            # Record dispatch in project archive
             if project_id:
                 from onemancompany.core.project_archive import record_dispatch
                 record_dispatch(project_id, employee_id, task_description)
-            # Push to remote task queue
             from onemancompany.api.routes import _remote_task_queues
             if employee_id not in _remote_task_queues:
                 _remote_task_queues[employee_id] = []
@@ -829,24 +834,21 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
                 "project_dir": project_dir,
             })
             return {"status": "dispatched_remote", "employee": emp.name, "task": task_description[:200]}
-        return {"status": "error", "message": f"Agent loop not found for employee {employee_id}"}
+        return {"status": "error", "message": f"No launcher registered for employee {employee_id}"}
 
     # Inherit project context — support multi-dispatch by checking original_project_id
     project_id = ""
     project_dir = ""
     caller_loop = _current_loop.get()
     caller_task_id = _current_task_id.get()
-    caller_task = None
     if caller_loop and caller_task_id:
         caller_task = caller_loop.board.get_task(caller_task_id)
         if caller_task:
             project_id = caller_task.project_id or caller_task.original_project_id
             project_dir = caller_task.project_dir or caller_task.original_project_dir
             if project_id:
-                # Store original for subsequent dispatch calls
                 caller_task.original_project_id = project_id
                 caller_task.original_project_dir = project_dir
-                # Clear to prevent premature cleanup on caller
                 caller_task.project_id = ""
 
     # Record dispatch in project archive
@@ -860,7 +862,124 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
     return {"status": "dispatched", "employee": emp_name, "task": task_description[:200]}
 
 
-# All common tools that every employee agent gets access to
+@tool
+def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> dict:
+    """Request access to a restricted tool. The request will be sent to COO for approval.
+
+    Use this when you need a tool that you don't currently have permission for.
+    COO will evaluate based on your role and responsibilities.
+
+    Args:
+        tool_name: Name of the tool to request access to.
+        reason: Why you need this tool for your current work.
+        employee_id: Your employee ID.
+
+    Returns:
+        Status of the request.
+    """
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"status": "error", "message": "Employee not found."}
+
+    if tool_name in (emp.tool_permissions or []):
+        return {"status": "already_granted", "message": f"You already have access to '{tool_name}'."}
+
+    # Check tool exists
+    if tool_name not in GATED_TOOLS:
+        return {"status": "error", "message": f"Unknown tool '{tool_name}'. Available tools: {', '.join(GATED_TOOLS.keys())}"}
+
+    # Dispatch to COO
+    from onemancompany.core.agent_loop import get_agent_loop
+    loop = get_agent_loop(COO_ID)
+    if not loop:
+        return {"status": "error", "message": "COO agent not available."}
+
+    task_desc = (
+        f"Tool access request: Employee {emp.name} (ID: {emp.id}, {emp.department}/{emp.role}, Lv.{emp.level}) "
+        f"requests access to tool '{tool_name}'. Reason: {reason}. "
+        f"Evaluate whether this is appropriate for their role and department. "
+        f"If approved, call manage_tool_access(employee_id='{emp.id}', tool_name='{tool_name}', action='grant')."
+    )
+    loop.push_task(task_desc)
+    return {"status": "requested", "message": f"Access request for '{tool_name}' sent to COO for review."}
+
+
+@tool
+def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id: str = "") -> dict:
+    """Grant or revoke LangChain tool access for an employee. Only COO can use this.
+
+    Args:
+        employee_id: Target employee's ID.
+        tool_name: Name of the tool to grant or revoke.
+        action: "grant" or "revoke".
+        manager_id: Your employee ID (must be COO).
+
+    Returns:
+        Updated tool permissions for the employee.
+    """
+    if manager_id != COO_ID:
+        return {"status": "denied", "message": "Only COO (00003) can manage tool access."}
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"status": "error", "message": f"Employee {employee_id} not found."}
+
+    if action == "grant":
+        if tool_name not in (emp.tool_permissions or []):
+            if emp.tool_permissions is None:
+                emp.tool_permissions = []
+            emp.tool_permissions.append(tool_name)
+    elif action == "revoke":
+        if emp.tool_permissions and tool_name in emp.tool_permissions:
+            emp.tool_permissions.remove(tool_name)
+    else:
+        return {"status": "error", "message": f"Invalid action: {action}. Use 'grant' or 'revoke'."}
+
+    # Persist to disk
+    from onemancompany.core.config import update_tool_permissions
+    update_tool_permissions(employee_id, emp.tool_permissions or [])
+
+    return {
+        "status": "ok",
+        "employee": employee_id,
+        "tool": tool_name,
+        "action": action,
+        "current_tool_permissions": emp.tool_permissions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool categorization
+# ---------------------------------------------------------------------------
+
+# Base tools — always available to every employee, no permission check needed
+BASE_TOOLS = [
+    list_colleagues,
+    save_to_project,
+    list_project_workspace,
+    pull_meeting,
+    create_subtask,
+    dispatch_task,
+    request_tool_access,
+]
+
+# Gated tools — regular employees need these in their tool_permissions list
+GATED_TOOLS: dict = {
+    "read_file": read_file,
+    "list_directory": list_directory,
+    "propose_file_edit": propose_file_edit,
+    "use_tool": use_tool,
+    "set_acceptance_criteria": set_acceptance_criteria,
+    "accept_project": accept_project,
+    "ea_review_project": ea_review_project,
+    "set_project_budget": set_project_budget,
+}
+
+# Add sandbox tools to gated pool
+for _st in SANDBOX_TOOLS:
+    GATED_TOOLS[_st.name] = _st
+
+# Full set for founding agents (backward compat — includes all non-sandbox tools + manage_tool_access)
 COMMON_TOOLS = [
     read_file,
     list_directory,
@@ -876,4 +995,5 @@ COMMON_TOOLS = [
     accept_project,
     ea_review_project,
     set_project_budget,
-] + SANDBOX_TOOLS
+    manage_tool_access,
+]

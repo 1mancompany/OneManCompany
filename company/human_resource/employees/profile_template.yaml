@@ -32,3 +32,17 @@ skills:
 # backend_code_maintenance: 后端代码维护（可访问 src/ 目录）
 permissions:
 {permissions}
+
+# 工具权限 — 该员工可使用的 LangChain 工具列表
+# 不在列表中的工具需向 COO 申请授权
+tool_permissions:
+{tool_permissions}
+
+# API 配置 — openrouter (默认) 或 anthropic
+api_provider: "{api_provider}"
+api_key: "{api_key}"
+
+# 住宿方式 — company (员工宿舍，由公司启动 agent loop) 或 self (自带住宿，本地单独启动进程如 Claude Code)
+hosting: "{hosting}"
+# 认证方式 — api_key (填入密钥) 或 oauth (弹出链接交互式登录)
+auth_method: "{auth_method}"

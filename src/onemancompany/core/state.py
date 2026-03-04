@@ -7,6 +7,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
     STATUS_IDLE,
 )
+from onemancompany.core.models import CostRecord, OverheadCosts
 
 
 @dataclass
@@ -135,12 +136,13 @@ class Employee:
     department: str = ""  # assigned by HR
     employee_number: str = ""  # 5-digit string e.g. "00008"
     current_quarter_tasks: int = 0
-    performance_history: list[dict] = field(default_factory=list)
+    performance_history: list = field(default_factory=list)  # list[PerformanceRecord | dict]
     desk_position: tuple[int, int] = (0, 0)
     sprite: str = "employee_default"
     guidance_notes: list[str] = field(default_factory=list)
     work_principles: str = ""  # loaded from employees/{id}/work_principles.md
     permissions: list[str] = field(default_factory=list)  # access control: company_file_access, web_search, backend_code_maintenance, etc.
+    tool_permissions: list[str] = field(default_factory=list)  # LangChain tool names this employee can use
     remote: bool = False  # True = remote worker, False = on-site employee
     salary_per_1m_tokens: float = 0.0  # Salary in USD per 1M tokens
     status: str = STATUS_IDLE
@@ -176,6 +178,7 @@ class Employee:
             "guidance_notes": self.guidance_notes,
             "work_principles": self.work_principles,
             "permissions": self.permissions,
+            "tool_permissions": self.tool_permissions,
             "remote": self.remote,
             "salary_per_1m_tokens": self.salary_per_1m_tokens,
             "status": self.status,
@@ -222,10 +225,16 @@ class CompanyState:
     active_tasks: list[TaskEntry] = field(default_factory=list)
     activity_log: list[dict] = field(default_factory=list)
     company_culture: list[dict] = field(default_factory=list)
+    company_direction: str = ""
     office_layout: dict = field(default_factory=dict)
     sales_tasks: dict[str, SalesTask] = field(default_factory=dict)
     company_tokens: int = 0
+    overhead_costs: "OverheadCosts | None" = None  # initialized in __post_init__
     _next_employee_number: int = 0  # auto-increment counter
+
+    def __post_init__(self) -> None:
+        if self.overhead_costs is None:
+            self.overhead_costs = OverheadCosts()
 
     def to_json(self) -> dict:
         return {
@@ -317,6 +326,7 @@ def _seed_employees() -> None:
             guidance_notes=guidance,
             work_principles=principles,
             permissions=list(cfg.permissions),
+            tool_permissions=list(cfg.tool_permissions) if cfg.tool_permissions else [],
             remote=getattr(cfg, 'remote', False),
             salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
         )
@@ -352,9 +362,17 @@ def _seed_company_culture() -> None:
     company_state.company_culture = load_company_culture()
 
 
+def _seed_company_direction() -> None:
+    """Load company direction from company_direction.yaml."""
+    from onemancompany.core.config import load_company_direction
+
+    company_state.company_direction = load_company_direction()
+
+
 _seed_employees()
 _seed_ex_employees()
 _seed_company_culture()
+_seed_company_direction()
 
 # Compute initial department-based office layout
 from onemancompany.core.layout import compute_layout  # noqa: E402
@@ -494,12 +512,25 @@ def reload_all_from_disk() -> dict:
                 guidance_notes=guidance,
                 work_principles=principles,
                 permissions=list(cfg.permissions),
+                tool_permissions=list(cfg.tool_permissions) if cfg.tool_permissions else [],
                 remote=cfg.remote,
                 salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
             )
             summary["employees_added"].append(emp_num)
 
-    # NOTE: Don't remove employees missing from disk mid-session
+    # Remove employees whose folders have been deleted from disk
+    removed_ids = [eid for eid in company_state.employees if eid not in seen_ids]
+    for eid in removed_ids:
+        emp = company_state.employees.pop(eid)
+        summary.setdefault("employees_removed", []).append(eid)
+        # Stop agent loop if running
+        try:
+            from onemancompany.core.agent_loop import get_agent_loop, agent_loops
+            loop = get_agent_loop(eid)
+            if loop:
+                agent_loops.pop(eid, None)
+        except Exception:
+            pass
 
     # --- 2. Reload ex-employees ---
     fresh_ex = load_ex_employee_configs()
@@ -522,9 +553,13 @@ def reload_all_from_disk() -> dict:
                 salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
             )
 
-    # --- 3. Reload company culture ---
+    # --- 3. Reload company culture + direction ---
     company_state.company_culture = load_company_culture()
     summary["culture_reloaded"] = True
+
+    from onemancompany.core.config import load_company_direction, invalidate_manifest_cache
+    company_state.company_direction = load_company_direction()
+    invalidate_manifest_cache()
 
     # --- 4. Reload assets (tools + meeting rooms) ---
     from onemancompany.agents.coo_agent import _load_assets_from_disk

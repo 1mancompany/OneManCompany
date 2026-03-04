@@ -17,6 +17,8 @@ class AppController {
     // Inquiry session state
     this._inquirySessionId = null;
     this._inquiryRoomId = null;
+    // Dashboard cost auto-refresh timer
+    this._dashboardCostTimer = null;
     // Input history (up/down arrow)
     this._inputHistory = JSON.parse(localStorage.getItem('ceo_input_history') || '[]');
     this._historyIndex = -1;
@@ -102,6 +104,11 @@ class AppController {
       }
       // Refresh deferred resolutions panel
       this._refreshDeferredPanel();
+      // Auto-refresh dashboard costs if modal is open (debounce 2s)
+      if (!document.getElementById('dashboard-modal').classList.contains('hidden')) {
+        clearTimeout(this._dashboardCostTimer);
+        this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
+      }
     }
 
     // Log the event
@@ -673,7 +680,13 @@ class AppController {
     document.getElementById('employee-modal').addEventListener('click', (e) => {
       if (e.target.id === 'employee-modal') this.closeEmployeeDetail();
     });
-    document.getElementById('emp-model-save-btn').addEventListener('click', () => this.saveEmployeeModel());
+    // Listen for OAuth popup completion — callback page sends postMessage('oauth_done')
+    window.addEventListener('message', (e) => {
+      if (e.data === 'oauth_done' && this.viewingEmployeeId) {
+        this._loadModelOrApiKeySection(this.viewingEmployeeId);
+        this.logEntry('SYSTEM', 'OAuth login completed! Employee is now authenticated.', 'system');
+      }
+    });
 
     // Reload data button
     document.getElementById('reload-toolbar-btn').addEventListener('click', () => this.adminReload());
@@ -719,6 +732,20 @@ class AppController {
     document.getElementById('company-culture-add-btn').addEventListener('click', () => this.addCultureItem());
     document.getElementById('company-culture-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.addCultureItem(); }
+    });
+
+    // Company direction modal bindings
+    document.getElementById('company-direction-toolbar-btn').addEventListener('click', () => this.openCompanyDirection());
+    document.getElementById('company-direction-close-btn').addEventListener('click', () => this.closeCompanyDirection());
+    document.getElementById('company-direction-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'company-direction-modal') this.closeCompanyDirection();
+    });
+    document.getElementById('company-direction-save-btn').addEventListener('click', () => this.saveCompanyDirection());
+
+    // 1-on-1 file upload
+    document.getElementById('oneonone-file-input').addEventListener('change', (e) => {
+      this._handleOneononeFileSelect(e.target.files);
+      e.target.value = '';
     });
 
     // Ex-employee wall modal bindings
@@ -772,6 +799,7 @@ class AppController {
     this._oneononeHistory = [];  // [{role: 'ceo'|'employee', content}]
     this._oneononeInputHistory = [];
     this._oneononeHistoryIdx = -1;
+    this._oneononePendingFiles = [];
 
     // Switch to chat phase
     document.getElementById('oneonone-setup').classList.add('hidden');
@@ -826,13 +854,48 @@ class AppController {
     if (container) container.scrollTop = container.scrollHeight;
   }
 
-  sendOneononeMessage() {
+  async sendOneononeMessage() {
     const textarea = document.getElementById('oneonone-input');
     const message = textarea.value.trim();
-    if (!message || !this._oneononeEmployeeId) return;
+    const hasFiles = this._oneononePendingFiles && this._oneononePendingFiles.length > 0;
+    if ((!message && !hasFiles) || !this._oneononeEmployeeId) return;
 
-    // Show CEO bubble and record in input history
-    this._addOneononeBubble('CEO', message, 'outgoing');
+    // Upload files first if any
+    let attachments = [];
+    const filePreviewData = hasFiles ? [...this._oneononePendingFiles] : [];
+    if (hasFiles) {
+      attachments = await this._uploadOneononeFiles();
+    }
+
+    // Show CEO bubble with image previews
+    const displayText = message || '(attachment)';
+    if (filePreviewData.length > 0) {
+      // Build bubble with images
+      const chat = document.getElementById('oneonone-chat');
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble outgoing';
+      let attachHtml = '';
+      for (const f of filePreviewData) {
+        if (f.type === 'image') {
+          attachHtml += `<img class="bubble-image" src="${f.dataUrl}" alt="attachment" style="max-height:80px;margin-top:4px;" />`;
+        } else {
+          attachHtml += `<div class="bubble-file" style="font-size:6px;color:var(--pixel-cyan);">📎 ${f.name}</div>`;
+        }
+      }
+      bubble.innerHTML = `
+        <div class="bubble-avatar">👔</div>
+        <div class="bubble-content">
+          <div class="bubble-sender">CEO</div>
+          <div class="bubble-text">${this._escapeHtml(displayText)}</div>
+          ${attachHtml}
+        </div>
+      `;
+      chat.appendChild(bubble);
+      this._scrollOneononeToBottom();
+    } else {
+      this._addOneononeBubble('CEO', displayText, 'outgoing');
+    }
+
     this._oneononeInputHistory.push(message);
     this._oneononeHistoryIdx = -1;
     this._oneononeSavedDraft = '';
@@ -853,6 +916,7 @@ class AppController {
         employee_id: this._oneononeEmployeeId,
         message,
         history: this._oneononeHistory,
+        attachments,
       }),
     })
       .then(r => r.json())
@@ -1006,8 +1070,8 @@ class AppController {
       guidanceEl.innerHTML = '<span class="empty-hint">No 1-on-1 notes yet</span>';
     }
 
-    // Load model dropdown
-    this._loadModelDropdown(emp.id);
+    // Load model dropdown / API key section based on provider
+    this._loadModelOrApiKeySection(emp.id);
 
     // Fetch and render agent task board + logs
     this._fetchTaskBoard(emp.id);
@@ -1151,20 +1215,260 @@ class AppController {
     return div.innerHTML;
   }
 
-  async _loadModelDropdown(empId) {
+  async _loadModelOrApiKeySection(empId) {
+    const container = document.getElementById('emp-settings-container');
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:6px;padding:4px;">Loading settings...</div>';
+
+    try {
+      const empResp = await fetch(`/api/employee/${empId}`).then(r => r.json());
+      const manifest = empResp.manifest;
+
+      if (manifest && manifest.settings && manifest.settings.sections) {
+        container.innerHTML = '';
+        for (const section of manifest.settings.sections) {
+          const sectionEl = document.createElement('div');
+          sectionEl.className = 'emp-settings-section';
+          if (section.title) {
+            sectionEl.innerHTML = `<div class="emp-settings-title">${this._escHtml(section.title)}</div>`;
+          }
+          for (const field of section.fields) {
+            const fieldEl = this._renderManifestField(field, empResp);
+            sectionEl.appendChild(fieldEl);
+          }
+          container.appendChild(sectionEl);
+        }
+        // Add a save button
+        const saveRow = document.createElement('div');
+        saveRow.style.cssText = 'display:flex;gap:4px;margin-top:4px;';
+        saveRow.innerHTML = '<button class="pixel-btn small" id="emp-manifest-save-btn">Save</button>';
+        container.appendChild(saveRow);
+        document.getElementById('emp-manifest-save-btn').addEventListener('click', () => this._saveManifestSettings(empId));
+      } else {
+        // No manifest — fallback to simple model dropdown
+        container.innerHTML = '';
+        this._renderFallbackModelSection(empId, empResp, container);
+      }
+    } catch (err) {
+      console.error('Failed to load employee settings:', err);
+      container.innerHTML = '<div style="color:var(--pixel-red);font-size:6px;">Load failed</div>';
+    }
+  }
+
+  _renderManifestField(field, empData) {
+    const row = document.createElement('div');
+    row.className = 'emp-settings-field';
+    row.style.cssText = 'display:flex;align-items:center;gap:4px;width:100%;margin:2px 0;';
+
+    const label = document.createElement('span');
+    label.style.cssText = 'font-size:6px;color:var(--pixel-yellow);white-space:nowrap;min-width:60px;';
+    label.textContent = field.label || field.key;
+    row.appendChild(label);
+
+    // Get current value from empData
+    let currentValue = empData[field.key] ?? field.default ?? '';
+
+    if (field.type === 'secret') {
+      const input = document.createElement('input');
+      input.type = 'password';
+      input.className = 'emp-model-select';
+      input.style.cssText = 'flex:1;';
+      input.dataset.fieldKey = field.key;
+      input.dataset.fieldType = 'secret';
+      const isSet = field.key === 'api_key' ? empData.api_key_set : !!currentValue;
+      input.placeholder = isSet
+        ? `Set (${empData.api_key_preview || '****'})`
+        : 'Not set...';
+      input.value = '';
+      row.appendChild(input);
+      // Status indicator
+      const status = document.createElement('span');
+      status.style.cssText = `font-size:6px;color:${isSet ? 'var(--pixel-green)' : 'var(--pixel-red,#f44)'};white-space:nowrap;`;
+      status.textContent = isSet ? 'Set' : 'None';
+      row.appendChild(status);
+    } else if (field.type === 'number') {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = 'emp-model-select';
+      input.style.cssText = 'flex:1;';
+      input.dataset.fieldKey = field.key;
+      input.dataset.fieldType = 'number';
+      input.value = currentValue;
+      if (field.min !== undefined) input.min = field.min;
+      if (field.max !== undefined) input.max = field.max;
+      if (field.step !== undefined) input.step = field.step;
+      row.appendChild(input);
+    } else if (field.type === 'select' && field.options_from === 'api:models') {
+      const select = document.createElement('select');
+      select.className = 'emp-model-select';
+      select.style.cssText = 'flex:1;';
+      select.dataset.fieldKey = field.key;
+      select.dataset.fieldType = 'select';
+      select.innerHTML = '<option value="">Loading...</option>';
+      row.appendChild(select);
+      // Async load models
+      this._populateModelSelect(select, currentValue);
+    } else if (field.type === 'select') {
+      const select = document.createElement('select');
+      select.className = 'emp-model-select';
+      select.style.cssText = 'flex:1;';
+      select.dataset.fieldKey = field.key;
+      select.dataset.fieldType = 'select';
+      const options = field.options || [];
+      select.innerHTML = options.map(o =>
+        `<option value="${o}"${o === currentValue ? ' selected' : ''}>${o}</option>`
+      ).join('');
+      row.appendChild(select);
+    } else if (field.type === 'toggle') {
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.fieldKey = field.key;
+      cb.dataset.fieldType = 'toggle';
+      cb.checked = !!currentValue;
+      row.appendChild(cb);
+    } else if (field.type === 'textarea') {
+      const ta = document.createElement('textarea');
+      ta.className = 'emp-model-select';
+      ta.style.cssText = 'flex:1;min-height:40px;resize:vertical;';
+      ta.dataset.fieldKey = field.key;
+      ta.dataset.fieldType = 'textarea';
+      ta.value = currentValue;
+      row.appendChild(ta);
+    } else if (field.type === 'readonly') {
+      const span = document.createElement('span');
+      span.style.cssText = 'font-size:6px;color:var(--pixel-green);flex:1;';
+      span.dataset.fieldKey = field.key;
+      span.dataset.fieldType = 'readonly';
+      if (field.value_from === 'api:sessions' && empData.sessions) {
+        const sessions = empData.sessions || [];
+        span.textContent = sessions.length > 0
+          ? `${sessions.length} session(s): ${sessions.map(s => s.project_id).join(', ')}`
+          : 'On-demand (no active sessions)';
+      } else {
+        span.textContent = currentValue || '-';
+      }
+      row.appendChild(span);
+    } else if (field.type === 'oauth_button') {
+      const btn = document.createElement('button');
+      btn.className = 'pixel-btn small';
+      btn.textContent = empData.oauth_logged_in ? 'Re-login' : 'Login';
+      btn.dataset.fieldKey = field.key;
+      btn.dataset.fieldType = 'oauth_button';
+      btn.addEventListener('click', () => this.startOAuthLogin());
+      row.appendChild(btn);
+    } else {
+      // Default: text input
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'emp-model-select';
+      input.style.cssText = 'flex:1;';
+      input.dataset.fieldKey = field.key;
+      input.dataset.fieldType = 'text';
+      input.value = currentValue;
+      row.appendChild(input);
+    }
+
+    return row;
+  }
+
+  async _populateModelSelect(select, currentModel) {
+    try {
+      const modelsResp = this.cachedModels
+        ? { models: this.cachedModels }
+        : await fetch('/api/models').then(r => r.json());
+      const models = modelsResp.models || [];
+      if (!this.cachedModels && models.length > 0) {
+        this.cachedModels = models;
+      }
+      select.innerHTML = '<option value="">-- Use default --</option>';
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.name || m.id;
+        if (m.id === currentModel) opt.selected = true;
+        select.appendChild(opt);
+      }
+    } catch (err) {
+      select.innerHTML = '<option value="">Load failed</option>';
+    }
+  }
+
+  async _saveManifestSettings(empId) {
+    const container = document.getElementById('emp-settings-container');
+    const fields = container.querySelectorAll('[data-field-key]');
+    const payload = {};
+
+    for (const el of fields) {
+      const key = el.dataset.fieldKey;
+      const type = el.dataset.fieldType;
+      if (type === 'readonly') continue;
+      if (type === 'secret') {
+        if (el.value) payload[key] = el.value; // only send if changed
+      } else if (type === 'toggle') {
+        payload[key] = el.checked;
+      } else if (type === 'number') {
+        payload[key] = parseFloat(el.value) || 0;
+      } else {
+        payload[key] = el.value;
+      }
+    }
+
+    // Map to existing API endpoints
+    const saveBtn = document.getElementById('emp-manifest-save-btn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+
+    try {
+      // Save model + temperature via model endpoint
+      if ('llm_model' in payload) {
+        await fetch(`/api/employee/${empId}/model`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: payload.llm_model, temperature: payload.temperature }),
+        });
+      }
+      // Save API key via api-key endpoint
+      if ('api_key' in payload) {
+        await fetch(`/api/employee/${empId}/api-key`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: payload.api_key, model: payload.llm_model }),
+        });
+      }
+      this.logEntry('CEO', `Settings saved for employee #${empId}`, 'ceo');
+      // Refresh to show updated status
+      this._loadModelOrApiKeySection(empId);
+    } catch (err) {
+      this.logEntry('SYSTEM', `Save failed: ${err.message}`, 'system');
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
+    }
+  }
+
+  _renderFallbackModelSection(empId, empData, container) {
+    // Simple OpenRouter model dropdown fallback
+    const section = document.createElement('div');
+    section.className = 'emp-detail-section-content emp-model-section';
+    section.innerHTML = `
+      <select id="emp-detail-model" class="emp-model-select"><option value="">Loading...</option></select>
+      <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
+    `;
+    container.appendChild(section);
+    this._loadModelDropdown(empId, empData);
+  }
+
+  async _loadModelDropdown(empId, empData) {
     const select = document.getElementById('emp-detail-model');
     const saveBtn = document.getElementById('emp-model-save-btn');
+    if (!select || !saveBtn) return;
     select.innerHTML = '<option value="">Loading...</option>';
     saveBtn.disabled = true;
 
     try {
-      // Fetch employee's current model and model list in parallel
-      const [empResp, modelsResp] = await Promise.all([
-        fetch(`/api/employee/${empId}`).then(r => r.json()),
-        this.cachedModels
-          ? Promise.resolve({ models: this.cachedModels })
-          : fetch('/api/models').then(r => r.json()),
-      ]);
+      const empResp = empData || await fetch(`/api/employee/${empId}`).then(r => r.json());
+      const modelsResp = this.cachedModels
+        ? { models: this.cachedModels }
+        : await fetch('/api/models').then(r => r.json());
 
       const currentModel = empResp.llm_model || '';
       const models = modelsResp.models || [];
@@ -1185,6 +1489,180 @@ class AppController {
       select.innerHTML = '<option value="">Load failed</option>';
       console.error('Model list error:', err);
     }
+  }
+
+  saveEmployeeApiKey() {
+    const empId = this.viewingEmployeeId;
+    if (!empId) return;
+
+    const keyInput = document.getElementById('emp-detail-api-key');
+    const modelInput = document.getElementById('emp-api-model-input');
+    const saveBtn = document.getElementById('emp-api-key-save-btn');
+    saveBtn.disabled = true;
+
+    const payload = {};
+    if (keyInput.value) payload.api_key = keyInput.value;
+    if (modelInput.value) payload.model = modelInput.value;
+
+    fetch(`/api/employee/${empId}/api-key`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `API key update failed: ${data.error}`, 'system');
+        } else {
+          this.logEntry('CEO', `API key updated for ${data.api_provider}`, 'ceo');
+          // Refresh the status display
+          const keyStatus = document.getElementById('emp-api-key-status');
+          keyStatus.textContent = data.api_key_set ? 'Authenticated' : 'No key';
+          keyStatus.style.color = data.api_key_set ? 'var(--pixel-green)' : 'var(--pixel-red, #f44)';
+          keyInput.value = '';
+          keyInput.placeholder = data.api_key_set ? 'API Key set (update to change)' : 'Enter API Key...';
+          // Self-hosted sessions are on-demand, no auto-launch needed
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `API key update failed: ${err.message}`, 'system'))
+      .finally(() => { saveBtn.disabled = false; });
+  }
+
+  // ===== Self-Hosted Session Info =====
+
+  async _refreshSessionStatus(empId, empData) {
+    const statusEl = document.getElementById('emp-session-status');
+    const keyStatus = document.getElementById('emp-api-key-status');
+    try {
+      // Use sessions from pre-fetched employee data, or fetch them
+      let sessions;
+      if (empData && empData.sessions) {
+        sessions = empData.sessions;
+      } else {
+        const res = await fetch(`/api/employee/${empId}/sessions`).then(r => r.json());
+        sessions = res.sessions || [];
+      }
+      if (sessions.length > 0) {
+        const labels = sessions.map(s => s.project_id).join(', ');
+        statusEl.textContent = `Sessions (${sessions.length}): ${labels}`;
+        statusEl.style.color = 'var(--pixel-green)';
+        keyStatus.textContent = `${sessions.length} session(s)`;
+        keyStatus.style.color = 'var(--pixel-green)';
+      } else {
+        statusEl.textContent = 'On-demand (no active sessions)';
+        statusEl.style.color = 'var(--pixel-blue, #4af)';
+        keyStatus.textContent = 'Ready';
+        keyStatus.style.color = 'var(--pixel-green)';
+      }
+    } catch {
+      statusEl.textContent = 'Status unknown';
+      statusEl.style.color = '#aaa';
+    }
+  }
+
+  startOAuthLogin() {
+    const empId = this.viewingEmployeeId;
+    if (!empId) return;
+
+    const btn = document.getElementById('emp-oauth-login-btn');
+    btn.disabled = true;
+    btn.textContent = '...';
+
+    fetch(`/api/employee/${empId}/oauth/start`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `OAuth start failed: ${data.error}`, 'system');
+          return;
+        }
+        // Callback redirects back to localhost — fully automatic
+        const w = 600, h = 700;
+        const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+        const popup = window.open(data.auth_url, 'oauth_login',
+          `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`);
+        if (!popup || popup.closed) {
+          this.logEntry('SYSTEM',
+            `<a href="${data.auth_url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;">Click here to open login page</a>`,
+            'system');
+        } else {
+          this.logEntry('SYSTEM', 'Authorizing... login will complete automatically.', 'system');
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `OAuth error: ${err.message}`, 'system'))
+      .finally(() => { btn.disabled = false; btn.textContent = 'Login'; });
+  }
+
+  async _tryAutoReadClipboard() {
+    const empId = this._oauthEmpId;
+    if (!this._oauthState || !empId) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim().length > 10) {
+        let code = text.trim();
+        if (code.includes('#')) code = code.split('#')[0];
+        if (code.includes('code=')) {
+          try {
+            const url = new URL(code.replace('#', '?'));
+            code = url.searchParams.get('code') || code;
+          } catch { /* use as-is */ }
+        }
+        this.logEntry('SYSTEM', 'Auto-detected code from clipboard, logging in...', 'system');
+        if (this._oauthPasteHandler) {
+          document.removeEventListener('paste', this._oauthPasteHandler);
+          this._oauthPasteHandler = null;
+        }
+        this._exchangeOAuthCode(empId, code);
+        return;
+      }
+    } catch { /* clipboard not available */ }
+    // Fallback: show manual input
+    document.getElementById('emp-oauth-code-row').style.display = 'flex';
+    this.logEntry('SYSTEM',
+      'Paste the code (Ctrl+V) anywhere on this page, or type it above and click Submit.',
+      'system');
+  }
+
+  _exchangeOAuthCode(empId, code) {
+    fetch(`/api/employee/${empId}/oauth/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state: this._oauthState }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `OAuth failed: ${data.error}`, 'system');
+          // Show manual input as fallback
+          document.getElementById('emp-oauth-code-row').style.display = 'flex';
+        } else {
+          this.logEntry('SYSTEM', `Login successful! ${data.launch || ''}`, 'system');
+          document.getElementById('emp-oauth-code-row').style.display = 'none';
+          this._oauthState = null;
+          this._loadModelOrApiKeySection(empId);
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `OAuth error: ${err.message}`, 'system'));
+  }
+
+  submitOAuthCode() {
+    const empId = this.viewingEmployeeId;
+    if (!empId || !this._oauthState) return;
+
+    const input = document.getElementById('emp-oauth-code-input');
+    let code = input.value.trim();
+    if (!code) return;
+
+    // Handle "code#state" format from Anthropic callback page
+    if (code.includes('#')) code = code.split('#')[0];
+    // Handle URL format
+    if (code.includes('code=')) {
+      try {
+        const url = new URL(code.replace('#', '?'));
+        code = url.searchParams.get('code') || code;
+      } catch { /* use as-is */ }
+    }
+
+    this._exchangeOAuthCode(empId, code);
   }
 
   saveEmployeeModel() {
@@ -1245,6 +1723,9 @@ class AppController {
       const llmModel = c.llm_model || 'default';
       const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : 'N/A';
       const hiringFee = c.hiring_fee ? `$${c.hiring_fee.toFixed(2)}` : 'Free';
+      const hosting = c.hosting || 'company';
+      const hostingLabel = hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company';
+      const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
       card.innerHTML = `
         <div class="card-inner">
           <div class="card-front">
@@ -1255,18 +1736,19 @@ class AppController {
             <div class="card-tags">${tags}</div>
             <div class="card-relevance">Match: ${relevance}</div>
             <div class="card-cost">Cost: ${costPer1m} | Fee: ${hiringFee}</div>
+            <div class="card-hosting">${hostingLabel}${c.remote ? ' | Remote' : ''}</div>
           </div>
           <div class="card-back">
-            <div class="card-detail-title">System Prompt</div>
-            <div class="card-detail-text">${prompt}...</div>
             <div class="card-detail-title">Skills</div>
             <div class="card-detail-text">${skills}</div>
             <div class="card-detail-title">Tools</div>
             <div class="card-detail-text">${tools}</div>
-            <div class="card-detail-title">LLM Model</div>
-            <div class="card-detail-text">${c.llm_model || 'default'}</div>
-            <div class="card-detail-title">LLM Cost</div>
-            <div class="card-detail-text">${costPer1m} tokens | Hiring: ${hiringFee}</div>
+            <div class="card-detail-title">LLM</div>
+            <div class="card-detail-text">${c.llm_model || 'default'} (${c.api_provider || 'openrouter'})</div>
+            <div class="card-detail-title">Cost</div>
+            <div class="card-detail-text">${costPer1m} | Hiring: ${hiringFee}</div>
+            <div class="card-detail-title">Hosting</div>
+            <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
             <div class="card-actions">
               <button class="pixel-btn hire" data-id="${c.id}">Hire</button>
               <button class="pixel-btn interview" data-id="${c.id}">Interview</button>
@@ -1586,13 +2068,14 @@ class AppController {
           card.className = 'project-card';
           const statusIcon = p.status === 'completed' ? '\u2705' : '\uD83D\uDD04';
           const date = p.created_at ? p.created_at.substring(0, 10) : '';
+          const costStr = p.cost_usd ? ` · $${p.cost_usd.toFixed(3)}` : '';
           card.innerHTML = `
             <div class="project-card-header">
               <span>${statusIcon} ${p.task.substring(0, 40)}${p.task.length > 40 ? '...' : ''}</span>
               <span class="project-card-date">${date}</span>
             </div>
             <div class="project-card-meta">
-              ${p.routed_to}${p.current_owner && p.status !== 'completed' ? ' · Current: ' + p.current_owner : ''} | ${p.participant_count} participants | ${p.action_count} entries
+              ${p.routed_to}${p.current_owner && p.status !== 'completed' ? ' · Current: ' + p.current_owner : ''} | ${p.participant_count} participants | ${p.action_count} entries${costStr}
             </div>
           `;
           card.style.cursor = 'pointer';
@@ -1641,6 +2124,33 @@ class AppController {
               html += `<div style="color:var(--pixel-white);margin-top:1px;">${entry.detail.substring(0, 200)}${entry.detail.length > 200 ? '...' : ''}</div>`;
             }
             html += `</div>`;
+          }
+        }
+
+        // Cost & Budget
+        const cost = doc.cost || {};
+        if (cost.actual_cost_usd > 0 || cost.budget_estimate_usd > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Cost & Budget:</div>`;
+          const actual = cost.actual_cost_usd || 0;
+          const budget = cost.budget_estimate_usd || 0;
+          const tokens = cost.token_usage || {};
+          let budgetLine = '';
+          if (budget > 0) {
+            const pct = ((actual / budget) * 100).toFixed(1);
+            const pctColor = pct > 100 ? 'var(--pixel-red)' : 'var(--pixel-green)';
+            budgetLine = ` / Budget: $${budget.toFixed(3)} (<span style="color:${pctColor};">${pct}%</span>)`;
+          }
+          html += `<div style="font-size:6px;color:var(--pixel-white);margin:2px 0;">Actual: $${actual.toFixed(4)}${budgetLine}</div>`;
+          html += `<div style="font-size:6px;color:var(--text-dim);margin:2px 0;">Tokens: ${(tokens.input||0).toLocaleString()} in / ${(tokens.output||0).toLocaleString()} out</div>`;
+          // Breakdown table
+          const breakdown = cost.breakdown || [];
+          if (breakdown.length > 0) {
+            html += `<table style="font-size:5px;width:100%;border-collapse:collapse;margin-top:4px;">`;
+            html += `<tr style="color:var(--text-dim);"><th style="text-align:left;">Employee</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>`;
+            for (const b of breakdown) {
+              html += `<tr><td>${b.employee_id}</td><td>${(b.model||'').split('/').pop()}</td><td>${(b.total_tokens||0).toLocaleString()}</td><td>$${(b.cost_usd||0).toFixed(4)}</td></tr>`;
+            }
+            html += `</table>`;
           }
         }
 
@@ -2576,20 +3086,43 @@ class AppController {
     // Fetch cost data asynchronously and append
     fetch('/api/dashboard/costs').then(r => r.json()).then(data => {
       let costHtml = '';
-      // Section 1: Total cost
+      // Section 1: Grand total (project + overhead combined)
       const t = data.total || {};
+      const grandTotal = data.grand_total_usd || 0;
+      const oh = data.overhead || {};
+      const projectCost = t.cost_usd || 0;
+      const overheadCost = oh.total_cost_usd || 0;
       costHtml += `
         <div class="dash-section">
           <div class="dash-title">\u{1F4B0} Cost Overview</div>
           <div class="dash-stats">
-            <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">$${(t.cost_usd || 0).toFixed(3)}</span><span class="dash-label">Total USD</span></div>
-            <div class="dash-stat"><span class="dash-num">${((t.total_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Total Tokens</span></div>
-            <div class="dash-stat"><span class="dash-num">${((t.input_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Input</span></div>
-            <div class="dash-stat"><span class="dash-num">${((t.output_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Output</span></div>
+            <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">$${grandTotal.toFixed(3)}</span><span class="dash-label">Grand Total</span></div>
+            <div class="dash-stat"><span class="dash-num">$${projectCost.toFixed(3)}</span><span class="dash-label">Projects</span></div>
+            <div class="dash-stat"><span class="dash-num">$${overheadCost.toFixed(3)}</span><span class="dash-label">Overhead</span></div>
+          </div>
+          <div class="dash-stats" style="margin-top:4px;">
+            <div class="dash-stat"><span class="dash-num">${((t.total_tokens || 0) / 1000).toFixed(1)}k</span><span class="dash-label">Project Tokens</span></div>
+            <div class="dash-stat"><span class="dash-num">${(((oh.total_input_tokens || 0) + (oh.total_output_tokens || 0)) / 1000).toFixed(1)}k</span><span class="dash-label">Overhead Tokens</span></div>
           </div>
         </div>`;
 
-      // Section 2: Per-department costs
+      // Section 2: Overhead by category
+      const cats = oh.by_category || {};
+      if (Object.keys(cats).length) {
+        const catLabels = {qa:'CEO Q&A', inquiry:'Inquiry', oneonone:'1-on-1', meeting:'Meeting', routine:'Routine', interview:'Interview', agent_task:'Agent Task', history_compress:'History Compress', completion_check:'Completion Check', nickname_gen:'Nickname Gen', remote_worker:'Remote Worker'};
+        costHtml += `
+          <div class="dash-section">
+            <div class="dash-title">\u{1F4B0} Overhead by Category</div>
+            <table class="dash-cost-table">
+              <tr><th>Category</th><th>USD</th><th>In Tokens</th><th>Out Tokens</th></tr>
+              ${Object.entries(cats).sort((a,b) => b[1].cost_usd - a[1].cost_usd).map(([c, v]) =>
+                `<tr><td>${catLabels[c] || c}</td><td>$${v.cost_usd.toFixed(3)}</td><td>${(v.input_tokens/1000).toFixed(1)}k</td><td>${(v.output_tokens/1000).toFixed(1)}k</td></tr>`
+              ).join('')}
+            </table>
+          </div>`;
+      }
+
+      // Section 3: Per-department costs
       const deptCosts = data.by_department || {};
       if (Object.keys(deptCosts).length) {
         costHtml += `
@@ -2604,7 +3137,7 @@ class AppController {
           </div>`;
       }
 
-      // Section 3: Recent 10 projects costs
+      // Section 4: Recent 10 projects costs
       const projects = data.recent_projects || [];
       if (projects.length) {
         costHtml += `
@@ -2697,6 +3230,120 @@ class AppController {
         }
       })
       .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
+  }
+
+  // ===== Company Direction =====
+  openCompanyDirection() {
+    const modal = document.getElementById('company-direction-modal');
+    const input = document.getElementById('company-direction-input');
+    modal.classList.remove('hidden');
+    // Load current direction
+    fetch('/api/company/direction')
+      .then(r => r.json())
+      .then(data => { input.value = data.direction || ''; })
+      .catch(() => { input.value = ''; });
+  }
+
+  closeCompanyDirection() {
+    document.getElementById('company-direction-modal').classList.add('hidden');
+  }
+
+  saveCompanyDirection() {
+    const input = document.getElementById('company-direction-input');
+    const direction = input.value.trim();
+    const btn = document.getElementById('company-direction-save-btn');
+    btn.disabled = true;
+
+    fetch('/api/company/direction', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ direction }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Save failed: ${data.error}`, 'system');
+        } else {
+          this.logEntry('CEO', `Company direction updated`, 'ceo');
+          this.closeCompanyDirection();
+        }
+      })
+      .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'))
+      .finally(() => { btn.disabled = false; });
+  }
+
+  // ===== 1-on-1 File Upload =====
+  _handleOneononeFileSelect(files) {
+    if (!this._oneononePendingFiles) this._oneononePendingFiles = [];
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        let type = 'file';
+        if (file.type.startsWith('image/')) type = 'image';
+        else if (file.type.startsWith('video/')) type = 'video';
+        this._oneononePendingFiles.push({
+          name: file.name,
+          type,
+          dataUrl: e.target.result,
+          file: file,
+        });
+        this._updateOneononePreviewBar();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  _updateOneononePreviewBar() {
+    const bar = document.getElementById('oneonone-preview-bar');
+    if (!this._oneononePendingFiles || !this._oneononePendingFiles.length) {
+      bar.classList.add('hidden');
+      bar.innerHTML = '';
+      return;
+    }
+    bar.classList.remove('hidden');
+    bar.innerHTML = '';
+    this._oneononePendingFiles.forEach((f, idx) => {
+      const item = document.createElement('div');
+      item.className = 'chat-preview-item';
+      if (f.type === 'image') {
+        item.innerHTML = `<img class="chat-preview-thumb" src="${f.dataUrl}" alt="${f.name}" />`;
+      } else {
+        item.innerHTML = `<div class="chat-preview-file">📄<br>${f.name.substring(0, 8)}</div>`;
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'chat-preview-remove';
+      removeBtn.textContent = '×';
+      removeBtn.onclick = () => {
+        this._oneononePendingFiles.splice(idx, 1);
+        this._updateOneononePreviewBar();
+      };
+      item.appendChild(removeBtn);
+      bar.appendChild(item);
+    });
+  }
+
+  async _uploadOneononeFiles() {
+    if (!this._oneononePendingFiles || !this._oneononePendingFiles.length) return [];
+    const uploaded = [];
+    for (const f of this._oneononePendingFiles) {
+      const formData = new FormData();
+      formData.append('file', f.file);
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        uploaded.push({
+          path: data.path,
+          filename: data.filename,
+          type: f.type,
+          content_type: data.content_type || '',
+        });
+      } catch (err) {
+        console.error('Upload failed:', err);
+      }
+    }
+    this._oneononePendingFiles = [];
+    this._updateOneononePreviewBar();
+    return uploaded;
   }
 
   openToolList() {
@@ -2809,6 +3456,32 @@ class AppController {
     const submitBtn = document.getElementById('submit-btn');
     submitBtn.disabled = true;
 
+    // Q&A mode: lightweight ask, no project creation
+    if (projectId === '__qa__') {
+      this.logEntry('CEO', task, 'ceo');
+      fetch('/api/ceo/qa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: task }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            this.logEntry('SYSTEM', `Q&A error: ${data.error}`, 'system');
+          } else {
+            this.logEntry('AI', data.answer, 'agent');
+          }
+        })
+        .catch(err => {
+          this.logEntry('SYSTEM', `Q&A failed: ${err.message}`, 'system');
+        })
+        .finally(() => {
+          setTimeout(() => { submitBtn.disabled = false; }, 2000);
+        });
+      input.value = '';
+      return;
+    }
+
     const reqBody = { task };
     if (projectId && projectId !== '__new__') reqBody.project_id = projectId;
     if (projectName) reqBody.project_name = projectName;
@@ -2884,28 +3557,213 @@ class AppController {
         listEl.classList.add('hidden');
         detailEl.classList.remove('hidden');
 
-        let html = `<div style="margin-bottom:8px;">
+        const totalCost = proj.total_cost_usd || 0;
+        let headerHtml = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
           <span style="color:var(--pixel-cyan);font-size:8px;">${this._escHtml(proj.name || projectId)}</span>
-          <span style="color:var(--text-dim);font-size:6px;margin-left:6px;">${proj.status}</span>
+          <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
+          ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
         </div>`;
+
+        // Build split layout: iteration list (left) + detail (right)
+        let iterListHtml = '';
         const iters = proj.iteration_details || [];
         if (iters.length === 0) {
-          html += '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
+          iterListHtml = '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
         }
         for (const it of iters) {
           const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
-          html += `<div class="task-card" style="border-left-color:${statusColor};">
-            <div class="task-card-status" style="color:${statusColor};">${it.status === 'completed' ? '✅' : '🔄'} ${it.iteration_id}</div>
-            <div class="task-card-text">${this._escHtml((it.task || '').substring(0, 80))}</div>
-            <div class="task-card-route" style="color:var(--text-dim);">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
+          const iterCost = it.cost_usd ? ` · $${it.cost_usd.toFixed(4)}` : '';
+          iterListHtml += `<div class="project-iter-card" data-iter-id="${it.iteration_id}" data-project-id="${projectId}">
+            <div style="color:${statusColor};">${it.status === 'completed' ? '\u2705' : '\uD83D\uDD04'} ${it.iteration_id}${iterCost}</div>
+            <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml((it.task || '').substring(0, 60))}</div>
+            <div style="color:var(--text-dim);margin-top:1px;">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
           </div>`;
         }
         if (proj.status === 'active') {
-          html += `<div style="margin-top:8px;"><button class="pixel-btn secondary" style="font-size:6px;padding:4px 8px;" onclick="window.app._archiveProject('${projectId}')">Archive Project</button></div>`;
+          iterListHtml += `<div style="margin-top:8px;"><button class="pixel-btn secondary" style="font-size:6px;padding:4px 8px;" onclick="window.app._archiveProject('${projectId}')">Archive</button></div>`;
         }
-        contentEl.innerHTML = html;
+
+        contentEl.innerHTML = `${headerHtml}
+          <div class="project-detail-split">
+            <div class="project-iter-list">${iterListHtml}</div>
+            <div class="project-iter-detail" id="project-iter-detail">
+              <div style="color:var(--text-dim);font-size:6px;padding:12px;">Select an iteration to view details</div>
+            </div>
+          </div>`;
+
+        // Bind click on iteration cards
+        contentEl.querySelectorAll('.project-iter-card').forEach(card => {
+          card.addEventListener('click', () => {
+            contentEl.querySelectorAll('.project-iter-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            this._loadIterationDetail(card.dataset.projectId, card.dataset.iterId);
+          });
+        });
+
+        // Auto-select first iteration
+        if (iters.length > 0) {
+          const firstCard = contentEl.querySelector('.project-iter-card');
+          if (firstCard) firstCard.click();
+        }
       })
       .catch(() => {});
+  }
+
+  _loadIterationDetail(projectId, iterationId) {
+    const panel = document.getElementById('project-iter-detail');
+    if (!panel) return;
+    panel.innerHTML = '<div style="color:var(--text-dim);font-size:6px;">Loading...</div>';
+
+    fetch(`/api/projects/${encodeURIComponent(iterationId)}`)
+      .then(r => r.json())
+      .then(doc => {
+        if (doc.error) {
+          panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
+          return;
+        }
+        let html = '';
+
+        // Task description
+        html += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
+        html += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
+
+        // Output documents / files
+        const files = doc.files || [];
+        const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
+        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
+        if (files.length > 0) {
+          for (const f of files) {
+            const ext = f.split('.').pop().toLowerCase();
+            const icon = {png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'}[ext] || '\uD83D\uDCC4';
+            html += `<div class="project-file-item" data-file="${this._escHtml(f)}" data-url="${fileBaseUrl}${encodeURIComponent(f)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:3px 2px;border-bottom:1px solid var(--border);cursor:pointer;">${icon} ${this._escHtml(f)}</div>`;
+          }
+        } else {
+          html += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
+        }
+
+        // Final output
+        if (doc.output) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
+          html += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output).substring(0, 500)}</div>`;
+        }
+
+        // Timeline / Log
+        const timeline = doc.timeline || [];
+        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Log (${timeline.length})</div>`;
+        if (timeline.length > 0) {
+          html += `<div style="max-height:120px;overflow-y:auto;">`;
+          for (const entry of timeline) {
+            const time = (entry.time || '').substring(11, 19);
+            html += `<div style="font-size:5px;line-height:1.6;border-left:2px solid var(--border);padding-left:4px;margin:1px 0;">`;
+            html += `<span style="color:var(--text-dim);">[${time}]</span> `;
+            html += `<span style="color:var(--pixel-green);">${entry.employee_id}</span> `;
+            html += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
+            if (entry.detail) {
+              html += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail.substring(0, 150))}${entry.detail.length > 150 ? '...' : ''}</div>`;
+            }
+            html += `</div>`;
+          }
+          html += `</div>`;
+        } else {
+          html += `<div style="font-size:5px;color:var(--text-dim);">No log entries</div>`;
+        }
+
+        // Cost & Budget
+        const cost = doc.cost || {};
+        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Cost & Budget</div>`;
+        const actual = cost.actual_cost_usd || 0;
+        const budget = cost.budget_estimate_usd || 0;
+        const tokens = cost.token_usage || {};
+        if (actual > 0 || budget > 0) {
+          let budgetLine = '';
+          if (budget > 0) {
+            const pct = ((actual / budget) * 100).toFixed(1);
+            const pctColor = pct > 100 ? 'var(--pixel-red)' : 'var(--pixel-green)';
+            budgetLine = ` / Budget: $${budget.toFixed(3)} (<span style="color:${pctColor};">${pct}%</span>)`;
+          }
+          html += `<div style="font-size:6px;color:var(--pixel-white);margin:2px 0;">Actual: $${actual.toFixed(4)}${budgetLine}</div>`;
+          html += `<div style="font-size:5px;color:var(--text-dim);margin:2px 0;">Tokens: ${(tokens.input||0).toLocaleString()} in / ${(tokens.output||0).toLocaleString()} out</div>`;
+          // Breakdown
+          const breakdown = cost.breakdown || [];
+          if (breakdown.length > 0) {
+            html += `<table style="font-size:5px;width:100%;border-collapse:collapse;margin-top:3px;">`;
+            html += `<tr style="color:var(--text-dim);"><th style="text-align:left;">Employee</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>`;
+            for (const b of breakdown) {
+              html += `<tr><td>${b.employee_id}</td><td>${(b.model||'').split('/').pop()}</td><td>${(b.total_tokens||0).toLocaleString()}</td><td>$${(b.cost_usd||0).toFixed(4)}</td></tr>`;
+            }
+            html += `</table>`;
+          }
+        } else {
+          html += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
+        }
+
+        panel.innerHTML = html;
+
+        // Bind file click handlers
+        panel.querySelectorAll('.project-file-item').forEach(item => {
+          item.addEventListener('click', () => {
+            this._openProjectFile(item.dataset.file, item.dataset.url, item.dataset.ext);
+          });
+        });
+      })
+      .catch(err => {
+        panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${err.message}</div>`;
+      });
+  }
+
+  _openProjectFile(filename, url, ext) {
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg'];
+    const textExts = ['txt', 'md', 'py', 'js', 'html', 'css', 'yaml', 'yml', 'json', 'csv',
+                      'tsv', 'xml', 'sh', 'toml', 'cfg', 'ini', 'log', 'rst', 'tex', 'sql',
+                      'r', 'rb', 'go', 'java', 'c', 'cpp', 'h', 'hpp', 'rs', 'swift', 'kt',
+                      'ts', 'tsx', 'jsx'];
+
+    if (imageExts.includes(ext)) {
+      // Open image in a simple overlay
+      this._showFileViewer(filename, `<img src="${url}" style="max-width:100%;max-height:70vh;" />`);
+    } else if (textExts.includes(ext)) {
+      // Fetch text content and display
+      fetch(url)
+        .then(r => r.text())
+        .then(text => {
+          this._showFileViewer(filename, `<pre style="font-size:6px;color:var(--pixel-white);white-space:pre-wrap;word-break:break-all;max-height:65vh;overflow-y:auto;margin:0;padding:6px;background:var(--bg-dark);border:1px solid var(--border);">${this._escHtml(text)}</pre>`);
+        })
+        .catch(() => { window.open(url, '_blank'); });
+    } else if (ext === 'pdf') {
+      window.open(url, '_blank');
+    } else {
+      // Download other files
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+    }
+  }
+
+  _showFileViewer(filename, contentHtml) {
+    // Reuse or create a file viewer overlay
+    let viewer = document.getElementById('file-viewer-overlay');
+    if (!viewer) {
+      viewer = document.createElement('div');
+      viewer.id = 'file-viewer-overlay';
+      viewer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+      viewer.addEventListener('click', (e) => {
+        if (e.target === viewer) viewer.style.display = 'none';
+      });
+      document.body.appendChild(viewer);
+    }
+    viewer.style.display = 'flex';
+    viewer.innerHTML = `
+      <div style="max-width:750px;width:100%;background:var(--bg-panel);border:1px solid var(--pixel-cyan);padding:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="color:var(--pixel-cyan);font-size:7px;">${this._escHtml(filename)}</span>
+          <button id="file-viewer-close-btn" style="background:none;border:1px solid var(--border);color:var(--pixel-white);cursor:pointer;font-size:7px;padding:2px 6px;">\u2715</button>
+        </div>
+        ${contentHtml}
+      </div>`;
+    document.getElementById('file-viewer-close-btn').addEventListener('click', () => {
+      viewer.style.display = 'none';
+    });
   }
 
   _archiveProject(projectId) {

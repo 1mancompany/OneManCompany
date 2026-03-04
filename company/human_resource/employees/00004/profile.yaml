@@ -5,7 +5,7 @@ desk_position:
 - 0
 employee_number: '00004'
 level: 4
-llm_model: google/gemini-3.1-pro-preview-customtools
+llm_model: google/gemini-3.1-pro-preview
 name: Pat EA
 nickname: 玲珑阁
 performance_history: []

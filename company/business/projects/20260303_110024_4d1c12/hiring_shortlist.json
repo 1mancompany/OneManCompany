@@ -1,0 +1,24 @@
+{
+  "action": "shortlist",
+  "jd": "Senior Engineer with exceptionally strong coding skills, advanced software development, architecture, and complex problem solving. Must have advanced coding capabilities.",
+  "candidates": [
+    {
+      "name": "Claude Code Agent (On-Site)",
+      "role": "Engineer",
+      "department": "技术研发部",
+      "title": "初级工程师",
+      "nickname": "破阵",
+      "skills": ["autonomous_coding", "code_review"],
+      "jd_relevance": 0.5
+    },
+    {
+      "name": "Claude Code Agent",
+      "role": "Engineer",
+      "department": "技术研发部",
+      "title": "初级工程师",
+      "nickname": "星芒",
+      "skills": ["autonomous_coding", "code_review"],
+      "jd_relevance": 0.5
+    }
+  ]
+}

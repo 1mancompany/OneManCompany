@@ -22,7 +22,7 @@ from typing import Any, Callable, Awaitable
 
 import yaml
 
-from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm
+from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
 from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
@@ -243,7 +243,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
             f"- 有没有出错或可以改进的地方\n"
             f"请用中文回答。{workflow_ctx}"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
         ctx.self_evaluations.append({
             "employee_id": emp_id,
@@ -313,7 +313,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
             f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
             f"{workflow_ctx}"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
         review_text = resp.content
 
         try:
@@ -385,7 +385,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
         f'[{{"employee": "...", "improvements": ["改进点1", "改进点2"]}}]'
         f"{workflow_ctx}"
     )
-    resp = await llm.ainvoke(hr_prompt)
+    resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
     hr_text = resp.content
 
     try:
@@ -467,7 +467,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
         f"- 项目开销分析（如有数据），评估是否超出预算\n"
         f"请用中文回答。{workflow_ctx}"
     )
-    resp = await llm.ainvoke(coo_prompt)
+    resp = await tracked_ainvoke(llm, coo_prompt, category="routine", employee_id=COO_ID)
     ctx.coo_report = resp.content
     await _chat(ctx.room_id, "COO", "COO", ctx.coo_report)
 
@@ -527,7 +527,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
             f"- 任何其他建议\n"
             f"请用中文简要发言（2-3句话）。{workflow_ctx}"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         feedback_content = resp.content
         ctx.employee_feedback.append({
             "employee_id": emp_id,
@@ -570,7 +570,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
         f'[{{"source": "HR/COO", "description": "具体行动", "priority": "high/medium/low"}}]'
         f"{workflow_ctx}"
     )
-    resp = await llm.ainvoke(action_prompt)
+    resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
     action_text = resp.content
 
     try:
@@ -620,7 +620,7 @@ async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
         f"任务背景: {ctx.task_summary}\n\n"
         f"请简要总结本步骤的执行要点（2-3句话），用中文回答。"
     )
-    resp = await llm.ainvoke(prompt)
+    resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=HR_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": resp.content[:200]})
     await _chat(ctx.room_id, step.owner or "主持人", "HR", resp.content)
@@ -746,20 +746,16 @@ async def run_post_task_routine(
             actual_contributors.add(EA_ID)
             participants = [pid for pid in participants if pid in actual_contributors]
 
-    # A retrospective meeting needs at least 2 participants; skip if not enough people
-    if len(participants) < 2:
-        await _publish("routine_phase", {
-            "phase": "准备",
-            "message": f"参与者不足（{len(participants)}人），跳过回顾会议。",
-        })
-        return
-
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
         emp = company_state.employees.get(pid)
         if emp and emp.level < FOUNDING_LEVEL:  # only track for normal employees
             emp.current_quarter_tasks += 1
             update_employee_performance(pid, emp.current_quarter_tasks, emp.performance_history)
+
+    # Retrospective meeting requires 2+ people — solo tasks skip the meeting
+    if len(participants) < 2:
+        return
 
     # Load workflow documents
     workflows = load_workflows()
@@ -1017,7 +1013,7 @@ async def _run_phase1_legacy(
             f"- 有没有出错或可以改进的地方\n"
             f"请用中文回答。{workflow_ctx}"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
         result["self_evaluations"].append({
             "employee_id": emp_id,
@@ -1059,7 +1055,7 @@ async def _run_phase1_legacy(
             f"- 工作效率\n- 工作效果\n- 是否有失误\n"
             f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
         review_text = resp.content
 
         try:
@@ -1106,7 +1102,7 @@ async def _run_phase1_legacy(
         f'[{{"employee": "...", "improvements": ["改进点1", "改进点2"]}}]'
         f"{workflow_ctx}"
     )
-    resp = await llm.ainvoke(hr_prompt)
+    resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
     hr_text = resp.content
 
     try:
@@ -1161,7 +1157,7 @@ async def _run_phase2_legacy(
         f"- 项目完成情况\n- 资源利用率\n- 潜在风险\n"
         f"请用中文回答。{workflow_ctx}"
     )
-    resp = await llm.ainvoke(coo_prompt)
+    resp = await tracked_ainvoke(llm, coo_prompt, category="routine", employee_id=COO_ID)
     result["coo_report"] = resp.content
     await _chat(room_id, "COO", "COO", result["coo_report"])
 
@@ -1194,7 +1190,7 @@ async def _run_phase2_legacy(
             f"- 任何其他建议\n"
             f"请用中文简要发言（2-3句话）。"
         )
-        resp = await llm.ainvoke(prompt)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         feedback_content = resp.content
         result["employee_feedback"].append({
             "employee_id": emp_id,
@@ -1225,7 +1221,7 @@ async def _run_phase2_legacy(
         f'[{{"source": "HR/COO", "description": "具体行动", "priority": "high/medium/low"}}]'
         f"{workflow_ctx}"
     )
-    resp = await llm.ainvoke(action_prompt)
+    resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
     action_text = resp.content
 
     try:
@@ -1432,7 +1428,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
                 f"请用1-2句中文总结你从这次大会中领悟到的会议精神，"
                 f"以及你打算如何在今后的工作中落实。"
             )
-            resp = await llm.ainvoke(prompt)
+            resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp.id)
             summary_text = resp.content
 
             display = emp.nickname or emp.name

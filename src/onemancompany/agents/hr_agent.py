@@ -37,29 +37,23 @@ logger = logging.getLogger(__name__)
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
 from onemancompany.core.config import (
-    DEFAULT_DEPARTMENT,
     FOUNDING_LEVEL,
     HR_ID,
     MAX_NORMAL_LEVEL,
     MAX_PERFORMANCE_HISTORY,
     MAX_SUMMARY_LEN,
     QUARTERS_FOR_PROMOTION,
-    ROLE_DEPARTMENT_MAP,
     SCORE_EXCELLENT,
     STATUS_IDLE,
     STATUS_WORKING,
     TASKS_PER_QUARTER,
     VALID_SCORES,
-    EmployeeConfig,
-    ensure_employee_dir,
     move_employee_to_ex,
-    save_employee_profile,
-    save_work_principles,
     update_employee_level,
     update_employee_performance,
 )
-from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
-from onemancompany.core.state import Employee, LEVEL_NAMES, company_state
+from onemancompany.core.layout import compute_layout, persist_all_desk_positions
+from onemancompany.core.state import LEVEL_NAMES, company_state
 
 # ===== LangChain tools for hiring (from talent_market/talents/) =====
 
@@ -69,6 +63,10 @@ pending_candidates: dict[str, list[dict]] = {}  # batch_id -> [candidate, ...]
 # Stash project context when shortlist is sent, so the retrospective
 # doesn't fire until CEO actually hires (see hire_candidate endpoint).
 _pending_project_ctx: dict[str, dict] = {}  # batch_id -> {project_id, project_dir}
+
+# Stash full candidate data from the last search so the shortlist can look up by ID
+# instead of trusting the LLM's (possibly abbreviated) JSON.
+_last_search_results: dict[str, dict] = {}  # candidate_id -> full candidate dict
 
 
 def _talent_to_candidate(talent: dict) -> dict:
@@ -95,6 +93,14 @@ def _talent_to_candidate(talent: dict) -> dict:
 
     sprites = ["employee_blue", "employee_red", "employee_green", "employee_purple", "employee_orange"]
 
+    # Compute cost per 1M tokens
+    llm_model = talent.get("llm_model", "")
+    api_provider = talent.get("api_provider", "openrouter")
+    cost_per_1m = 0.0
+    if llm_model and api_provider == "openrouter":
+        from onemancompany.core.model_costs import compute_salary
+        cost_per_1m = compute_salary(llm_model)
+
     return {
         "id": talent_id,
         "name": talent.get("name", talent_id),
@@ -105,12 +111,17 @@ def _talent_to_candidate(talent: dict) -> dict:
         "skill_set": skill_set,
         "tool_set": tool_set,
         "sprite": random.choice(sprites),
-        "llm_model": talent.get("llm_model", ""),
+        "llm_model": llm_model,
         "temperature": talent.get("temperature", 0.7),
         "image_model": talent.get("image_model", ""),
         "jd_relevance": 1.0,
         "remote": talent.get("remote", False),
         "talent_id": talent_id,
+        "api_provider": api_provider,
+        "hosting": talent.get("hosting", "company"),
+        "auth_method": talent.get("auth_method", "api_key"),
+        "cost_per_1m_tokens": round(cost_per_1m, 2),
+        "hiring_fee": float(talent.get("hiring_fee", 0.0)),
     }
 
 
@@ -200,7 +211,6 @@ async def search_candidates(job_description: str) -> list[dict]:
     try:
         candidates = await _call_boss_online(job_description)
         logger.info("Boss Online returned %d candidates for JD: %s", len(candidates), job_description[:80])
-        return candidates
     except Exception as e:
         logger.error("Boss Online MCP call failed: %s", e)
         # Fallback to local talent packages
@@ -211,7 +221,13 @@ async def search_candidates(job_description: str) -> list[dict]:
             profile = load_talent_profile(t["id"])
             if profile:
                 candidates.append(_talent_to_candidate(profile))
-        return candidates
+    # Stash full results so shortlist can look up by ID (LLM may drop fields)
+    _last_search_results.clear()
+    for c in candidates:
+        cid = c.get("id") or c.get("talent_id", "")
+        if cid:
+            _last_search_results[cid] = c
+    return candidates
 
 
 @tool
@@ -266,79 +282,6 @@ Department map: Engineer/DevOps/QA → "Engineering", Designer → "Design", Ana
 
 Be concise and professional.
 """
-
-def _get_existing_nicknames() -> set[str]:
-    """Collect all nicknames in use by current and ex-employees."""
-    nicknames: set[str] = set()
-    for emp in company_state.employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
-    for emp in company_state.ex_employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
-    return nicknames
-
-
-async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
-    """Generate a wuxia-themed Chinese nickname (花名) for an employee.
-
-    Founding employees (level 4) get 3-character nicknames.
-    Normal employees (level 1-3) get 2-character nicknames.
-    All nicknames must have a wuxia (martial arts / jianghu) flavor.
-    Nicknames must be unique across all current and ex-employees.
-
-    Args:
-        name: The employee's real name.
-        role: The employee's role (e.g. Engineer, Designer).
-        is_founding: True for founding employees (3-char nickname).
-
-    Returns:
-        A Chinese nickname string.
-    """
-    char_count = 3 if is_founding else 2
-    existing = _get_existing_nicknames()
-    gen_llm = make_llm(HR_ID)
-
-    # Try up to 5 times to get a unique nickname
-    for attempt in range(5):
-        avoid_clause = ""
-        if existing:
-            sample = list(existing)[:20]
-            avoid_clause = f"- MUST NOT be any of these existing nicknames: {', '.join(sample)}\n"
-
-        gen_prompt = (
-            f"You are a wuxia novelist naming a character.\n"
-            f"Give a 花名 (nickname) for: {name}, role: {role}.\n\n"
-            f"Requirements:\n"
-            f"- Exactly {char_count} Chinese characters\n"
-            f"- Must have a wuxia/martial arts/jianghu flavor — think swordsmen, heroes, legendary figures\n"
-            f"- Should sound like a person's name or title in the jianghu, not an object\n"
-            f"- Creative, memorable, and fitting for their role\n"
-            f"- Reference style: 独孤求败, 风清扬, 令狐冲, 段誉, 黄蓉, 小龙女, 逍遥子, 天山童姥\n"
-            f"- For {char_count}-char names: 铁面侠, 暖心侠, 玲珑阁, 金算盘, 逍遥子, 追风客\n"
-            f"{avoid_clause}\n"
-            f"Reply with ONLY the {char_count}-character 花名, nothing else."
-        )
-        result = await gen_llm.ainvoke([
-            SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
-            HumanMessage(content=gen_prompt),
-        ])
-        nickname = result.content.strip()
-        # Extract exactly the right number of Chinese characters
-        chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
-        if len(chinese_chars) >= char_count:
-            candidate = ''.join(chinese_chars[:char_count])
-        elif chinese_chars:
-            candidate = ''.join(chinese_chars)
-        else:
-            continue
-
-        if candidate not in existing:
-            return candidate
-        # Duplicate — retry
-
-    return ""
-
 
 HIRING_TOOLS = [search_candidates, list_open_positions] + COMMON_TOOLS
 
@@ -461,8 +404,18 @@ class HRAgent(BaseAgentRunner):
                 continue
 
             if data.get("action") == "shortlist" and "candidates" in data:
-                # HR filtered candidates → send to CEO for visual selection
-                candidates = data["candidates"][:5]  # max 5
+                # HR filtered candidates → send to CEO for visual selection.
+                # Merge LLM shortlist with stashed full data (LLM may drop fields).
+                raw = data["candidates"][:5]
+                candidates = []
+                for c in raw:
+                    cid = c.get("id") or c.get("talent_id", "")
+                    full = _last_search_results.get(cid)
+                    if full:
+                        merged = {**full, **{k: v for k, v in c.items() if v}}
+                        candidates.append(merged)
+                    else:
+                        candidates.append(c)
                 batch_id = str(uuid.uuid4())[:8]
                 pending_candidates[batch_id] = candidates
                 await self._publish("candidates_ready", {
@@ -473,58 +426,23 @@ class HRAgent(BaseAgentRunner):
 
             elif data.get("action") == "hire" and "employee" in data:
                 emp_data = data["employee"]
-                nickname = emp_data.get("nickname", "")
-                department = emp_data.get("department", "")
-
-                # Auto-assign department based on role if not provided
-                if not department:
-                    department = ROLE_DEPARTMENT_MAP.get(emp_data.get("role", ""), DEFAULT_DEPARTMENT)
-
-                is_remote = emp_data.get("remote", False)
-                if is_remote:
-                    desk_pos = (-1, -1)
-                else:
-                    desk_pos = get_next_desk_for_department(company_state, department)
-
-                emp_num = company_state.next_employee_number()
-                emp = Employee(
-                    id=emp_num,
+                from onemancompany.agents.onboarding import execute_hire
+                skill_names = [s["name"] if isinstance(s, dict) else s for s in emp_data.get("skills", [])]
+                emp = await execute_hire(
                     name=emp_data.get("name", "Unknown"),
-                    nickname=nickname,
-                    level=1,  # new hires start at level 1
-                    department=department,
+                    nickname=emp_data.get("nickname", ""),
                     role=emp_data.get("role", "Employee"),
-                    skills=emp_data.get("skills", []),
-                    employee_number=emp_num,
-                    desk_position=desk_pos,
-                    sprite=emp_data.get("sprite", "employee_default"),
-                    remote=is_remote,
-                )
-                company_state.employees[emp_num] = emp
-                talent_id = emp_data.get("talent_id", "")
-                self._create_employee_folder(
-                    emp, talent_id=talent_id,
+                    skills=skill_names,
+                    talent_id=emp_data.get("talent_id", ""),
                     llm_model=emp_data.get("llm_model", ""),
-                    temperature=emp_data.get("temperature", 0.7),
+                    temperature=float(emp_data.get("temperature", 0.7)),
                     image_model=emp_data.get("image_model", ""),
+                    api_provider=emp_data.get("api_provider", "openrouter"),
+                    hosting=emp_data.get("hosting", "company"),
+                    auth_method=emp_data.get("auth_method", "api_key"),
+                    sprite=emp_data.get("sprite", "employee_default"),
+                    remote=emp_data.get("remote", False),
                 )
-
-                # Recompute layout (zones may resize) and persist all positions
-                compute_layout(company_state)
-                persist_all_desk_positions(company_state)
-
-                company_state.activity_log.append(
-                    {"type": "employee_hired", "name": emp.name,
-                     "nickname": nickname, "role": emp.role}
-                )
-                await self._publish("employee_hired", emp.to_dict())
-
-                # Register and start an agent loop for the new employee (skip remote)
-                if not is_remote:
-                    from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent
-                    if not get_agent_loop(emp_num):
-                        from onemancompany.agents.base import EmployeeAgent
-                        await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
 
             elif data.get("action") == "review" and "reviews" in data:
                 for review in data["reviews"]:
@@ -622,123 +540,13 @@ class HRAgent(BaseAgentRunner):
                      "summary": f"Promotion: {emp.name} ({emp.nickname}) {LEVEL_NAMES.get(old_level, '')} -> {emp.title}"},
                 )
 
-    def _create_employee_folder(
-        self, emp: Employee, talent_id: str = "", llm_model: str = "",
-        temperature: float = 0.7, image_model: str = "",
-    ) -> None:
-        """Create employees/{id}/ directory with profile.yaml, skill stubs, and work_principles.md.
 
-        If *talent_id* is provided and the employee is on-site (not remote),
-        copies the talent's skill markdown files and tools into the employee folder.
-        """
-        # Default permissions for new hires
-        default_perms = ["company_file_access", "web_search"]
-        emp.permissions = default_perms
-
-        # Compute salary from OpenRouter pricing
-        from onemancompany.core.model_costs import compute_salary
-        salary = compute_salary(llm_model) if llm_model else 0.0
-        emp.salary_per_1m_tokens = salary
-
-        config = EmployeeConfig(
-            name=emp.name,
-            nickname=emp.nickname,
-            level=emp.level,
-            department=emp.department,
-            role=emp.role,
-            skills=emp.skills,
-            employee_number=emp.employee_number,
-            desk_position=list(emp.desk_position),
-            sprite=emp.sprite,
-            remote=emp.remote,
-            llm_model=llm_model,
-            temperature=temperature,
-            image_model=image_model,
-            permissions=default_perms,
-            salary_per_1m_tokens=salary,
-        )
-        save_employee_profile(emp.id, config)
-
-        emp_dir = ensure_employee_dir(emp.id)
-        skills_dir = emp_dir / "skills"
-
-        # For remote employees, write connection config so the worker can auto-discover
-        if emp.remote:
-            import json as _json
-            from onemancompany.core.config import settings
-            connection = {
-                "employee_id": emp.id,
-                "company_url": f"http://{settings.host}:{settings.port}",
-                "talent_id": talent_id,
-            }
-            (emp_dir / "connection.json").write_text(
-                _json.dumps(connection, indent=2, ensure_ascii=False), encoding="utf-8",
-            )
-
-        # If sourced from a talent and on-site, copy talent skills + tools
-        if talent_id and not emp.remote:
-            self._copy_talent_assets(talent_id, emp_dir)
-
-        for skill_name in emp.skills:
-            skill_file = skills_dir / f"{skill_name}.md"
-            if not skill_file.exists():
-                skill_file.write_text(
-                    f"# {skill_name}\n\n{emp.name} ({emp.nickname})'s {skill_name} skill.\n\n"
-                    f"(This file was auto-created by HR during hiring. It can be updated by the CEO or the employee.)\n",
-                    encoding="utf-8",
-                )
-
-        # Generate initial work principles
-        initial_principles = (
-            f"# {emp.name} ({emp.nickname}) Work Principles\n\n"
-            f"**Department**: {emp.department}\n"
-            f"**Title**: {emp.title}\n"
-            f"**Level**: Lv.{emp.level}\n\n"
-            f"## Core Principles\n"
-            f"1. Complete assigned work diligently and maintain professional standards\n"
-            f"2. Actively collaborate with the team and communicate progress promptly\n"
-            f"3. Continuously learn and improve professional skills\n"
-            f"4. Follow company rules and guidelines\n"
-        )
-        save_work_principles(emp.id, initial_principles)
-        emp.work_principles = initial_principles
-
-    @staticmethod
-    def _copy_talent_assets(talent_id: str, emp_dir) -> None:
-        """Copy skills/ and tools/ from a talent package into an employee folder."""
-        import shutil
-
-        from onemancompany.core.config import TALENTS_DIR
-
-        talent_dir = TALENTS_DIR / talent_id
-        if not talent_dir.exists():
-            return
-
-        # Copy skill markdown files
-        talent_skills = talent_dir / "skills"
-        if talent_skills.exists():
-            emp_skills = emp_dir / "skills"
-            emp_skills.mkdir(exist_ok=True)
-            for src_file in talent_skills.iterdir():
-                if src_file.suffix == ".md" and src_file.is_file():
-                    dst_file = emp_skills / src_file.name
-                    if not dst_file.exists():
-                        shutil.copy2(str(src_file), str(dst_file))
-
-        # Copy tools directory (manifest + custom .py files)
-        talent_tools = talent_dir / "tools"
-        if talent_tools.exists():
-            emp_tools = emp_dir / "tools"
-            emp_tools.mkdir(exist_ok=True)
-            for src_file in talent_tools.iterdir():
-                if src_file.is_file():
-                    dst_file = emp_tools / src_file.name
-                    if not dst_file.exists():
-                        shutil.copy2(str(src_file), str(dst_file))
-
-    def _next_desk_position(self, department: str = "") -> tuple[int, int]:
-        """Get next desk position using department-based layout."""
-        return get_next_desk_for_department(company_state, department or "General")
+# Re-export onboarding functions for backward compat
+from onemancompany.agents.onboarding import (  # noqa: E402, F811
+    execute_hire,
+    copy_talent_assets,
+    generate_nickname,
+)
 
 
 # Singleton removed — agent instances are now created and registered

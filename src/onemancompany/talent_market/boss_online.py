@@ -73,6 +73,10 @@ class CandidateProfile(BaseModel):
     talent_id: str = Field(default="", description="Source talent package ID")
     cost_per_1m_tokens: float = Field(default=0.0, description="USD per 1M tokens (avg of input+output)")
     hiring_fee: float = Field(default=0.0, description="One-time hiring/recruitment fee in USD")
+    api_provider: str = Field(default="openrouter", description="API provider: openrouter | anthropic")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="LLM temperature")
+    hosting: str = Field(default="company", description="company (server-managed) | self (external process)")
+    auth_method: str = Field(default="api_key", description="api_key | oauth")
 
 
 # --- Request/Response models (kept for protocol compatibility) ---
@@ -243,12 +247,16 @@ def _talent_to_candidate(talent: dict, jd_relevance: float) -> CandidateProfile:
     if role not in valid_roles:
         role = "Engineer"
 
-    # Compute cost per 1M tokens from OpenRouter pricing
+    # Compute cost per 1M tokens
     model = talent.get("llm_model", "")
+    api_provider = talent.get("api_provider", "openrouter")
     cost_per_1m = 0.0
-    if model:
+    if model and api_provider == "openrouter":
         from onemancompany.core.model_costs import compute_salary
         cost_per_1m = compute_salary(model)
+    elif model:
+        # Non-openrouter: use declared salary or 0
+        cost_per_1m = float(talent.get("salary_per_1m_tokens", 0.0))
 
     return CandidateProfile(
         id=talent_id,
@@ -266,6 +274,10 @@ def _talent_to_candidate(talent: dict, jd_relevance: float) -> CandidateProfile:
         talent_id=talent_id,
         cost_per_1m_tokens=round(cost_per_1m, 2),
         hiring_fee=float(talent.get("hiring_fee", 0.0)),
+        api_provider=api_provider,
+        temperature=float(talent.get("temperature", 0.7)),
+        hosting=talent.get("hosting", "company"),
+        auth_method=talent.get("auth_method", "api_key"),
     )
 
 
