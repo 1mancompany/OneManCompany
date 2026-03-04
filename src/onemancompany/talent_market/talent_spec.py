@@ -11,9 +11,12 @@
     ├── run_worker.py         # 可选 — 远程员工的 worker 入口
     ├── skills/               # 可选 — 技能 Markdown 文件
     │   ├── *.md              # 每个文件描述一项技能，内容注入员工 prompt
-    └── tools/                # 可选 — 工具声明与自定义工具
-        ├── manifest.yaml     # 工具清单（builtin_tools + custom_tools）
-        └── *.py              # 自定义 LangChain @tool 实现
+    ├── tools/                # 可选 — 工具声明与自定义工具
+    │   ├── manifest.yaml     # 工具清单（builtin_tools + custom_tools）
+    │   └── *.py              # 自定义 LangChain @tool 实现
+    └── functions/            # 可选 — talent 自带的函数实现
+        ├── manifest.yaml     # 声明每个函数的元信息（name, description, scope）
+        └── {name}.py         # LangChain @tool 实现（一个 .py 可导出多个 @tool）
 """
 
 from __future__ import annotations
@@ -239,6 +242,43 @@ class ToolsManifest:
 
 
 # ---------------------------------------------------------------------------
+# functions/manifest.yaml 数据结构
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentPromptSection:
+    """agent/manifest.yaml 中的一个 prompt section 覆盖。"""
+    name: str
+    file: str = ""
+    priority: int = 50
+
+
+@dataclass
+class AgentManifest:
+    """agent/manifest.yaml — talent agent loop 定制声明。"""
+    runner_module: str = ""
+    runner_class: str = ""
+    hooks_module: str = ""
+    pre_task_hook: str = ""
+    post_task_hook: str = ""
+    prompt_sections: list[AgentPromptSection] = field(default_factory=list)
+
+
+@dataclass
+class FunctionDeclaration:
+    """functions/manifest.yaml 中的单个函数声明。"""
+    name: str
+    description: str = ""
+    scope: str = "personal"  # "company" | "personal"
+
+
+@dataclass
+class FunctionsManifest:
+    """functions/manifest.yaml — talent 自带函数声明。"""
+    functions: list[FunctionDeclaration] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # 完整 talent 包
 # ---------------------------------------------------------------------------
 
@@ -254,9 +294,12 @@ class TalentPackage:
         ├── run_worker.py         # → (可选, remote)
         ├── skills/
         │   └── *.md              # → self.skill_files
-        └── tools/
-            ├── manifest.yaml     # → self.tools_manifest (可选)
-            └── *.py              # → 自定义工具实现
+        ├── tools/
+        │   ├── manifest.yaml     # → self.tools_manifest (可选)
+        │   └── *.py              # → 自定义工具实现
+        └── functions/            # → self.functions_manifest (可选)
+            ├── manifest.yaml     # 声明每个函数的元信息
+            └── {name}.py         # LangChain @tool 实现
 
     入职流程 (onboarding.py):
         1. HR 从 talent market 浏览可用 talent
@@ -275,5 +318,7 @@ class TalentPackage:
     profile: TalentProfile
     manifest: TalentManifest | None = None
     tools_manifest: ToolsManifest | None = None
+    functions_manifest: FunctionsManifest | None = None
+    agent_manifest: AgentManifest | None = None
     skill_files: list[str] = field(default_factory=list)
     has_launch_script: bool = False

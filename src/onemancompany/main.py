@@ -41,12 +41,14 @@ def _save_ephemeral_state() -> None:
     from onemancompany.core.state import company_state
     from onemancompany.core.file_editor import pending_file_edits
     from onemancompany.agents.hr_agent import pending_candidates
+    from onemancompany.agents.coo_agent import pending_hiring_requests
 
     snapshot = {
         "saved_at": time.time(),
         "activity_log": company_state.activity_log[-50:],
         "pending_file_edits": pending_file_edits,
         "pending_candidates": pending_candidates,
+        "pending_hiring_requests": pending_hiring_requests,
     }
     try:
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -70,6 +72,7 @@ def _restore_ephemeral_state() -> None:
         from onemancompany.core.state import company_state
         from onemancompany.core.file_editor import pending_file_edits
         from onemancompany.agents.hr_agent import pending_candidates
+        from onemancompany.agents.coo_agent import pending_hiring_requests
 
         # Restore activity log (prepend old entries)
         old_log = raw.get("activity_log", [])
@@ -86,10 +89,16 @@ def _restore_ephemeral_state() -> None:
         if restored_candidates:
             pending_candidates.update(restored_candidates)
 
+        # Restore pending hiring requests
+        restored_hiring = raw.get("pending_hiring_requests", {})
+        if restored_hiring:
+            pending_hiring_requests.update(restored_hiring)
+
         print(f"Restored state snapshot ({age:.1f}s old): "
               f"{len(old_log)} log entries, "
               f"{len(restored_edits)} pending edits, "
-              f"{len(restored_candidates)} candidate batches")
+              f"{len(restored_candidates)} candidate batches, "
+              f"{len(restored_hiring)} hiring requests")
 
         # Clean up snapshot file after successful restore
         SNAPSHOT_PATH.unlink(missing_ok=True)

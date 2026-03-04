@@ -16,10 +16,10 @@ auth_method: oauth
 hiring_fee: 1.50
 salary_per_1m_tokens: 15.0
 skills:
-  - roblox_game_development
-  - game_architecture
-  - algorithmic_art
-  - canvas_design
+  - roblox-game-development
+  - game-engine
+  - algorithmic-art
+  - canvas-design
 personality_tags:
   - creative
   - performance-obsessed

@@ -7,11 +7,17 @@ Called by routes.py (talent market hire) and hr_agent.py (_apply_results).
 
 from __future__ import annotations
 
+import importlib.util
 import json as _json
+import logging
 import re
 import shutil
 
 from langchain_core.messages import HumanMessage, SystemMessage
+
+import yaml
+
+logger = logging.getLogger(__name__)
 
 from onemancompany.core.config import (
     DEFAULT_TOOL_PERMISSIONS,
@@ -20,6 +26,7 @@ from onemancompany.core.config import (
     HR_ID,
     ROLE_DEPARTMENT_MAP,
     TALENTS_DIR,
+    TOOLS_DIR,
     EmployeeConfig,
     ensure_employee_dir,
     save_employee_profile,
@@ -103,11 +110,341 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
 
 
 # ---------------------------------------------------------------------------
+# Tool user registration (allowed_users in company/assets/tools/*/tool.yaml)
+# ---------------------------------------------------------------------------
+
+def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -> None:
+    """Add or remove *employee_id* from a central tool's ``allowed_users`` list.
+
+    Employee-brought tools are personal — only the owning employee may use them.
+    This function maintains the whitelist in ``tool.yaml``.
+    """
+    tool_yaml = TOOLS_DIR / tool_name / "tool.yaml"
+    if not tool_yaml.exists():
+        return
+    with open(tool_yaml) as f:
+        data = yaml.safe_load(f) or {}
+    allowed: list = data.get("allowed_users", [])
+    if add:
+        if employee_id not in allowed:
+            allowed.append(employee_id)
+    else:
+        if employee_id in allowed:
+            allowed.remove(employee_id)
+    data["allowed_users"] = allowed
+    with open(tool_yaml, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+
+
+def register_tool_user(tool_name: str, employee_id: str) -> None:
+    """Grant *employee_id* access to a central LangChain tool."""
+    _update_tool_allowed_users(tool_name, employee_id, add=True)
+
+
+def unregister_tool_user(tool_name: str, employee_id: str) -> None:
+    """Revoke *employee_id*'s access to a central LangChain tool."""
+    _update_tool_allowed_users(tool_name, employee_id, add=False)
+
+
+# ---------------------------------------------------------------------------
+# Talent function installation
+# ---------------------------------------------------------------------------
+
+def _validate_tool_module(py_path) -> bool:
+    """Dry-run import a .py file and check it contains at least one BaseTool instance."""
+    from langchain_core.tools import BaseTool
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"_validate_{py_path.stem}", str(py_path)
+        )
+        if spec is None or spec.loader is None:
+            return False
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        for attr_name in dir(mod):
+            if isinstance(getattr(mod, attr_name), BaseTool):
+                return True
+        logger.warning("No BaseTool instances found in %s", py_path)
+        return False
+    except Exception as exc:
+        logger.warning("Failed to validate tool module %s: %s", py_path, exc)
+        return False
+
+
+def install_talent_functions(talent_id: str, emp_dir, employee_id: str) -> list[str]:
+    """Install talent-brought functions into the central tool registry.
+
+    Reads ``talents/{talent_id}/functions/manifest.yaml``, validates each
+    declared .py module, copies it to ``company/assets/tools/{name}/``,
+    generates ``tool.yaml``, and registers the employee as a user.
+
+    Returns a list of successfully installed function names.
+    """
+    talent_dir = TALENTS_DIR / talent_id
+    fn_dir = talent_dir / "functions"
+    fn_manifest_path = fn_dir / "manifest.yaml"
+    if not fn_manifest_path.exists():
+        return []
+
+    with open(fn_manifest_path) as f:
+        raw = yaml.safe_load(f) or {}
+
+    declarations = raw.get("functions", [])
+    if not declarations:
+        return []
+
+    installed: list[str] = []
+    for decl in declarations:
+        name = decl.get("name", "")
+        if not name:
+            continue
+        description = decl.get("description", "")
+        scope = decl.get("scope", "personal")
+
+        py_src = fn_dir / f"{name}.py"
+        if not py_src.exists():
+            logger.warning(
+                "Function %s declared in %s but %s not found — skipping",
+                name, fn_manifest_path, py_src,
+            )
+            continue
+
+        # Validate the module contains at least one BaseTool
+        if not _validate_tool_module(py_src):
+            continue
+
+        tool_dir = TOOLS_DIR / name
+
+        if tool_dir.exists():
+            # Tool already exists (e.g. another talent brought the same one).
+            # Don't overwrite, but still register this employee as a user.
+            logger.info(
+                "Tool %s already exists in central registry — registering user only", name,
+            )
+        else:
+            # Create central tool directory and copy the .py file
+            tool_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(py_src), str(tool_dir / f"{name}.py"))
+
+            # Generate tool.yaml
+            tool_meta: dict = {
+                "id": name,
+                "name": name,
+                "description": description,
+                "type": "langchain_module",
+                "added_by": f"talent:{talent_id}",
+                "source_talent": talent_id,
+            }
+            if scope == "personal":
+                tool_meta["allowed_users"] = [employee_id]
+            # scope == "company" → omit allowed_users entirely → unrestricted
+
+            with open(tool_dir / "tool.yaml", "w") as f:
+                yaml.dump(tool_meta, f, default_flow_style=False, allow_unicode=True)
+
+        # Ensure the bringing employee has access
+        register_tool_user(name, employee_id)
+        installed.append(name)
+
+    return installed
+
+
+# ---------------------------------------------------------------------------
+# Agent config installation (agent/manifest.yaml)
+# ---------------------------------------------------------------------------
+
+def install_talent_agent_config(talent_id: str, emp_dir, employee_id: str) -> dict | None:
+    """Install talent agent config (agent/ directory) into the employee folder.
+
+    Copies the entire agent/ directory from the talent package to the employee
+    directory, then validates runner and hooks modules if declared.
+
+    Returns the parsed manifest dict on success, or None if no agent config exists.
+    """
+    from pathlib import Path
+
+    talent_dir = TALENTS_DIR / talent_id
+    agent_dir = talent_dir / "agent"
+    manifest_path = agent_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return None
+
+    # Copy agent/ directory to employee
+    dst_agent_dir = Path(emp_dir) / "agent"
+    if dst_agent_dir.exists():
+        shutil.rmtree(str(dst_agent_dir))
+    shutil.copytree(str(agent_dir), str(dst_agent_dir))
+
+    with open(manifest_path) as f:
+        manifest = yaml.safe_load(f) or {}
+
+    # Validate runner module if declared
+    runner_cfg = manifest.get("runner", {})
+    if runner_cfg:
+        mod_name = runner_cfg.get("module", "")
+        cls_name = runner_cfg.get("class", "")
+        if mod_name and cls_name:
+            runner_py = dst_agent_dir / f"{mod_name}.py"
+            if runner_py.exists():
+                try:
+                    from onemancompany.agents.base import BaseAgentRunner
+                    spec = importlib.util.spec_from_file_location(
+                        f"_validate_runner_{employee_id}", str(runner_py)
+                    )
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(mod)
+                        runner_cls = getattr(mod, cls_name, None)
+                        if runner_cls is None or not (
+                            isinstance(runner_cls, type) and issubclass(runner_cls, BaseAgentRunner)
+                        ):
+                            logger.warning(
+                                "Runner class %s in %s is not a BaseAgentRunner subclass",
+                                cls_name, runner_py,
+                            )
+                except Exception as exc:
+                    logger.warning("Failed to validate runner module %s: %s", runner_py, exc)
+
+    # Validate hooks module if declared
+    hooks_cfg = manifest.get("hooks", {})
+    if hooks_cfg:
+        hooks_mod_name = hooks_cfg.get("module", "")
+        if hooks_mod_name:
+            hooks_py = dst_agent_dir / f"{hooks_mod_name}.py"
+            if hooks_py.exists():
+                try:
+                    spec = importlib.util.spec_from_file_location(
+                        f"_validate_hooks_{employee_id}", str(hooks_py)
+                    )
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(mod)
+                        for hook_key in ("pre_task", "post_task"):
+                            fn_name = hooks_cfg.get(hook_key, "")
+                            if fn_name:
+                                fn = getattr(mod, fn_name, None)
+                                if fn is None or not callable(fn):
+                                    logger.warning(
+                                        "Hook function %s not found or not callable in %s",
+                                        fn_name, hooks_py,
+                                    )
+                except Exception as exc:
+                    logger.warning("Failed to validate hooks module %s: %s", hooks_py, exc)
+
+    logger.info("Installed agent config for employee %s from talent %s", employee_id, talent_id)
+    return manifest
+
+
+def _create_agent_runner(employee_id: str, emp_dir) -> "BaseAgentRunner":
+    """Create an agent runner for an employee, using custom runner if configured.
+
+    Checks emp_dir/agent/manifest.yaml for a custom runner declaration.
+    If found, loads and instantiates the runner class.
+    Otherwise, falls back to the default EmployeeAgent.
+    """
+    from pathlib import Path
+
+    manifest_path = Path(emp_dir) / "agent" / "manifest.yaml"
+    if manifest_path.exists():
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f) or {}
+
+        runner_cfg = manifest.get("runner", {})
+        mod_name = runner_cfg.get("module", "")
+        cls_name = runner_cfg.get("class", "")
+        if mod_name and cls_name:
+            runner_py = Path(emp_dir) / "agent" / f"{mod_name}.py"
+            if runner_py.exists():
+                try:
+                    spec = importlib.util.spec_from_file_location(
+                        f"emp_runner_{employee_id}_{mod_name}", str(runner_py)
+                    )
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(mod)
+                        runner_cls = getattr(mod, cls_name, None)
+                        if runner_cls is not None:
+                            logger.info(
+                                "Using custom runner %s for employee %s", cls_name, employee_id,
+                            )
+                            return runner_cls(employee_id)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load custom runner for %s: %s — falling back to default",
+                        employee_id, exc,
+                    )
+
+    from onemancompany.agents.base import EmployeeAgent
+    return EmployeeAgent(employee_id)
+
+
+def _load_hooks_from_config(emp_dir) -> dict[str, "Callable"]:
+    """Load hook functions from an employee's agent/manifest.yaml.
+
+    Returns a dict with optional "pre_task" and "post_task" callable entries.
+    """
+    from pathlib import Path
+
+    manifest_path = Path(emp_dir) / "agent" / "manifest.yaml"
+    if not manifest_path.exists():
+        return {}
+
+    with open(manifest_path) as f:
+        manifest = yaml.safe_load(f) or {}
+
+    hooks_cfg = manifest.get("hooks", {})
+    if not hooks_cfg:
+        return {}
+
+    hooks_mod_name = hooks_cfg.get("module", "")
+    if not hooks_mod_name:
+        return {}
+
+    hooks_py = Path(emp_dir) / "agent" / f"{hooks_mod_name}.py"
+    if not hooks_py.exists():
+        return {}
+
+    result: dict[str, "Callable"] = {}
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f"emp_hooks_{Path(emp_dir).name}_{hooks_mod_name}", str(hooks_py)
+        )
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            for hook_key in ("pre_task", "post_task"):
+                fn_name = hooks_cfg.get(hook_key, "")
+                if fn_name:
+                    fn = getattr(mod, fn_name, None)
+                    if fn and callable(fn):
+                        result[hook_key] = fn
+    except Exception as exc:
+        logger.warning("Failed to load hooks from %s: %s", hooks_py, exc)
+
+    return result
+
+
+def _register_employee_hooks(employee_id: str, emp_dir) -> None:
+    """Load and register hooks for an employee if agent config exists."""
+    hooks = _load_hooks_from_config(emp_dir)
+    if hooks:
+        from onemancompany.core.agent_loop import employee_manager
+        employee_manager.register_hooks(employee_id, hooks)
+        logger.info("Registered hooks for employee %s: %s", employee_id, list(hooks.keys()))
+
+
+# ---------------------------------------------------------------------------
 # Talent asset copying
 # ---------------------------------------------------------------------------
 
 def copy_talent_assets(talent_id: str, emp_dir) -> None:
-    """Copy skills/ and tools/ from a talent package into an employee folder."""
+    """Copy skills/ and tools/ from a talent package into an employee folder.
+
+    For custom LangChain tools (listed in manifest.yaml ``custom_tools``),
+    registers the new employee in each tool's ``allowed_users`` whitelist
+    instead of copying .py files.
+    """
     talent_dir = TALENTS_DIR / talent_id
     if not talent_dir.exists():
         return
@@ -126,11 +463,49 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
     if talent_tools.exists():
         emp_tools = emp_dir / "tools"
         emp_tools.mkdir(exist_ok=True)
+
+        # Register employee in central tool allowed_users
+        manifest = talent_tools / "manifest.yaml"
+        if manifest.exists():
+            with open(manifest) as f:
+                mdata = yaml.safe_load(f) or {}
+            employee_id = emp_dir.name  # e.g. "00005"
+            for tool_name in mdata.get("custom_tools", []):
+                register_tool_user(tool_name, employee_id)
+
         for src_file in talent_tools.iterdir():
+            # Skip .py files — LangChain tool modules live centrally
+            # in company/assets/tools/ and are loaded at runtime.
+            if src_file.suffix == ".py":
+                continue
             if src_file.is_file():
                 dst_file = emp_tools / src_file.name
                 if not dst_file.exists():
                     shutil.copy2(str(src_file), str(dst_file))
+
+    # Install agent config (agent/manifest.yaml + prompts, hooks, runner)
+    install_talent_agent_config(talent_id, emp_dir, emp_dir.name)
+
+    # Install talent-brought functions into central registry
+    employee_id = emp_dir.name
+    installed = install_talent_functions(talent_id, emp_dir, employee_id)
+    if installed:
+        # Append to employee's tools/manifest.yaml custom_tools
+        emp_tools = emp_dir / "tools"
+        emp_tools.mkdir(exist_ok=True)
+        emp_manifest = emp_tools / "manifest.yaml"
+        if emp_manifest.exists():
+            with open(emp_manifest) as f:
+                emp_mdata = yaml.safe_load(f) or {}
+        else:
+            emp_mdata = {"builtin_tools": [], "custom_tools": []}
+        existing = emp_mdata.get("custom_tools", [])
+        for fn in installed:
+            if fn not in existing:
+                existing.append(fn)
+        emp_mdata["custom_tools"] = existing
+        with open(emp_manifest, "w") as f:
+            yaml.dump(emp_mdata, f, allow_unicode=True, default_flow_style=False)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +636,15 @@ async def execute_hire(
                 shutil.copy2(str(talent_launch), str(dst_launch))
                 dst_launch.chmod(dst_launch.stat().st_mode | 0o111)  # ensure executable
 
+    # Copy heartbeat.sh for employees with custom heartbeat scripts
+    if talent_id:
+        talent_hb = TALENTS_DIR / talent_id / "heartbeat.sh"
+        if talent_hb.exists():
+            dst_hb = emp_dir / "heartbeat.sh"
+            if not dst_hb.exists():
+                shutil.copy2(str(talent_hb), str(dst_hb))
+                dst_hb.chmod(dst_hb.stat().st_mode | 0o111)
+
     # Create skill stubs
     for skill_name in skills:
         skill_file = skills_dir / f"{skill_name}.md"
@@ -302,8 +686,9 @@ async def execute_hire(
             if hosting == "self":
                 register_self_hosted(emp_num)
             else:
-                from onemancompany.agents.base import EmployeeAgent
-                await register_and_start_agent(emp_num, EmployeeAgent(emp_num))
+                agent_runner = _create_agent_runner(emp_num, emp_dir)
+                await register_and_start_agent(emp_num, agent_runner)
+                _register_employee_hooks(emp_num, emp_dir)
 
     # Trigger onboarding routine as background task
     import asyncio

@@ -1,9 +1,0 @@
-added_by: COO
-allowed_users: []
-description: 跨节点任务进度看板，用于建立并落实项目进度追踪与闭环机制，已配置标准化模板与两级门禁机制为自动化流转卡点，消除执行停滞风险。
-desk_position:
-- 10
-- 8
-id: d618c6be
-name: Task Progress Kanban
-sprite: desk_equipment

@@ -238,6 +238,9 @@
               <div id="emp-settings-container" class="emp-detail-section emp-model-section-wrap">
                 <!-- Dynamically rendered from manifest.json settings -->
               </div>
+              <button id="emp-fire-btn" class="pixel-btn danger emp-fire-btn" style="display:none;">
+                &#128308; Dismiss Employee
+              </button>
             </div>
 
             <div class="emp-detail-section emp-detail-flex-section">
@@ -337,6 +340,21 @@
         <div id="meeting-inquiry-actions" class="oneonone-actions hidden">
           <button id="meeting-inquiry-end-btn" class="pixel-btn secondary">&#128308; End Inquiry</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hiring Request Modal (COO → CEO) -->
+  <div id="hiring-request-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width:320px;">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128188; COO Hiring Request</h3>
+        <button id="hiring-request-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body" id="hiring-request-body"></div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;padding:6px 8px;">
+        <button id="hiring-request-reject" class="pixel-btn" style="background:var(--pixel-red);font-size:7px;padding:3px 8px;">Reject</button>
+        <button id="hiring-request-approve" class="pixel-btn" style="background:var(--pixel-green);font-size:7px;padding:3px 8px;">Approve</button>
       </div>
     </div>
   </div>
@@ -489,7 +507,10 @@
         <p style="font-size:7px;color:var(--text-dim);margin:0 0 8px;">Set the company strategy / direction. This is injected into every employee's prompt.</p>
         <textarea id="company-direction-input" placeholder="e.g. We focus on AI-driven creative tools for indie creators..." rows="5" style="width:100%;background:var(--bg-dark);color:var(--pixel-white);border:2px solid var(--border);font-family:'Press Start 2P',monospace;font-size:7px;padding:6px;resize:vertical;"></textarea>
         <div style="margin-top:8px;display:flex;gap:6px;">
+          <button id="company-direction-enrich-btn" class="pixel-btn secondary" onclick="app.enrichCompanyDirection()">&#10024; Polish / Enrich</button>
           <button id="company-direction-save-btn" class="pixel-btn">&#128190; Save</button>
+        </div>
+        <div id="company-direction-current" style="margin-top:12px;padding:8px;background:var(--bg-dark);border:2px solid var(--border);border-radius:4px;font-size:7px;color:var(--text-dim);white-space:pre-wrap;max-height:120px;overflow-y:auto;display:none;">
         </div>
       </div>
     </div>

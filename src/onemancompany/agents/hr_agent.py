@@ -18,25 +18,26 @@ Performance system:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import random
 import re
-import sys
 import uuid
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
 
 logger = logging.getLogger(__name__)
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
+from onemancompany.agents.recruitment import (
+    _last_search_results,
+    _pending_project_ctx,
+    list_open_positions,
+    pending_candidates,
+    search_candidates,
+)
 from onemancompany.core.config import (
     FOUNDING_LEVEL,
     HR_ID,
@@ -51,205 +52,12 @@ from onemancompany.core.config import (
     STATUS_WORKING,
     TASKS_PER_QUARTER,
     VALID_SCORES,
-    move_employee_to_ex,
     update_employee_field,
     update_employee_level,
     update_employee_performance,
 )
 from onemancompany.core.layout import compute_layout, persist_all_desk_positions
 from onemancompany.core.state import LEVEL_NAMES, company_state
-
-# ===== LangChain tools for hiring (from talent_market/talents/) =====
-
-# In-memory store for pending candidates awaiting CEO selection
-pending_candidates: dict[str, list[dict]] = {}  # batch_id -> [candidate, ...]
-
-# Stash project context when shortlist is sent, so the retrospective
-# doesn't fire until CEO actually hires (see hire_candidate endpoint).
-_pending_project_ctx: dict[str, dict] = {}  # batch_id -> {project_id, project_dir}
-
-# Stash full candidate data from the last search so the shortlist can look up by ID
-# instead of trusting the LLM's (possibly abbreviated) JSON.
-_last_search_results: dict[str, dict] = {}  # candidate_id -> full candidate dict
-
-
-def _talent_to_candidate(talent: dict) -> dict:
-    """Convert a talent profile.yaml dict into a CandidateProfile-compatible dict."""
-    from onemancompany.core.config import load_talent_skills, load_talent_tools
-
-    talent_id = talent.get("id", "unknown")
-    skill_names = talent.get("skills", [])
-    tool_names = load_talent_tools(talent_id)
-    skill_contents = load_talent_skills(talent_id)
-
-    # Build skill_set with content from markdown files
-    skill_set = []
-    for i, name in enumerate(skill_names):
-        content = skill_contents[i] if i < len(skill_contents) else ""
-        skill_set.append({
-            "name": name,
-            "description": content[:200] if content else f"{name} skill",
-            "code": "",
-        })
-
-    # Build tool_set from manifest
-    tool_set = [{"name": t, "description": f"{t} tool", "code": ""} for t in tool_names]
-
-    sprites = ["employee_blue", "employee_red", "employee_green", "employee_purple", "employee_orange"]
-
-    # Compute cost per 1M tokens
-    llm_model = talent.get("llm_model", "")
-    api_provider = talent.get("api_provider", "openrouter")
-    cost_per_1m = 0.0
-    if llm_model and api_provider == "openrouter":
-        from onemancompany.core.model_costs import compute_salary
-        cost_per_1m = compute_salary(llm_model)
-
-    return {
-        "id": talent_id,
-        "name": talent.get("name", talent_id),
-        "role": talent.get("role", "Engineer"),
-        "experience_years": 3,
-        "personality_tags": talent.get("personality_tags", []),
-        "system_prompt": talent.get("system_prompt_template", ""),
-        "skill_set": skill_set,
-        "tool_set": tool_set,
-        "sprite": random.choice(sprites),
-        "llm_model": llm_model,
-        "temperature": talent.get("temperature", 0.7),
-        "image_model": talent.get("image_model", ""),
-        "jd_relevance": 1.0,
-        "remote": talent.get("remote", False),
-        "talent_id": talent_id,
-        "api_provider": api_provider,
-        "hosting": talent.get("hosting", "company"),
-        "auth_method": talent.get("auth_method", "api_key"),
-        "cost_per_1m_tokens": round(cost_per_1m, 2),
-        "hiring_fee": float(talent.get("hiring_fee", 0.0)),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Persistent Boss Online MCP client
-# ---------------------------------------------------------------------------
-
-_boss_session: ClientSession | None = None
-_boss_cleanup: asyncio.Task | None = None
-
-
-async def start_boss_online() -> None:
-    """Start the Boss Online MCP server as a persistent subprocess.
-
-    Called once during app lifespan startup.  The session is stored in
-    module-level ``_boss_session`` so ``search_candidates`` can reuse it.
-    """
-    global _boss_session, _boss_cleanup
-
-    from pathlib import Path
-
-    boss_online_path = str(
-        Path(__file__).resolve().parent.parent / "talent_market" / "boss_online.py"
-    )
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=[boss_online_path],
-    )
-
-    # stdio_client is an async context manager that starts the subprocess.
-    # We enter it manually and store the exit stack so we can clean up later.
-    from contextlib import AsyncExitStack
-    stack = AsyncExitStack()
-    read, write = await stack.enter_async_context(stdio_client(server_params))
-    session = await stack.enter_async_context(ClientSession(read, write))
-    await session.initialize()
-
-    _boss_session = session
-    # Store the stack so stop_boss_online can tear it down
-    _boss_session._exit_stack = stack  # type: ignore[attr-defined]
-    logger.info("Boss Online MCP server started (persistent)")
-
-
-async def stop_boss_online() -> None:
-    """Shut down the persistent Boss Online MCP server."""
-    global _boss_session
-    if _boss_session is not None:
-        stack = getattr(_boss_session, "_exit_stack", None)
-        _boss_session = None
-        if stack:
-            await stack.aclose()
-        logger.info("Boss Online MCP server stopped")
-
-
-async def _call_boss_online(job_description: str, count: int = 10) -> list[dict]:
-    """Call the persistent Boss Online MCP session."""
-    if _boss_session is None:
-        raise RuntimeError("Boss Online MCP server is not running")
-
-    result = await _boss_session.call_tool(
-        "search_candidates",
-        arguments={"job_description": job_description, "count": count},
-    )
-    candidates = []
-    for item in result.content:
-        try:
-            candidates.append(json.loads(item.text))
-        except (json.JSONDecodeError, AttributeError):
-            continue
-    return candidates
-
-
-@tool
-async def search_candidates(job_description: str) -> list[dict]:
-    """Search the Boss Online recruitment platform for candidates matching a job description.
-
-    Connects to the Boss Online MCP server, which generates candidate profiles
-    based on the job description. Returns ranked candidates with full profiles
-    including skills, tools, system prompts, and JD relevance scores.
-
-    Args:
-        job_description: The job requirements / description text.
-
-    Returns:
-        A list of candidate dicts sorted by JD relevance (highest first).
-    """
-    try:
-        candidates = await _call_boss_online(job_description)
-        logger.info("Boss Online returned %d candidates for JD: %s", len(candidates), job_description[:80])
-    except Exception as e:
-        logger.error("Boss Online MCP call failed: %s", e)
-        # Fallback to local talent packages
-        from onemancompany.core.config import list_available_talents, load_talent_profile
-        talents = list_available_talents()
-        candidates = []
-        for t in talents:
-            profile = load_talent_profile(t["id"])
-            if profile:
-                candidates.append(_talent_to_candidate(profile))
-    # Stash full results so shortlist can look up by ID (LLM may drop fields)
-    _last_search_results.clear()
-    for c in candidates:
-        cid = c.get("id") or c.get("talent_id", "")
-        if cid:
-            _last_search_results[cid] = c
-    return candidates
-
-
-@tool
-def list_open_positions() -> list[dict]:
-    """Return a list of open positions the company might want to fill.
-
-    Returns:
-        A list of dicts, each with role and priority fields.
-    """
-    positions = [
-        {"role": "Engineer", "priority": "high", "reason": "Need more development capacity"},
-        {"role": "Designer", "priority": "medium", "reason": "UI/UX improvements needed"},
-        {"role": "Analyst", "priority": "medium", "reason": "Data-driven decisions"},
-        {"role": "DevOps", "priority": "low", "reason": "Infrastructure automation"},
-        {"role": "QA", "priority": "high", "reason": "Quality assurance gaps"},
-        {"role": "Marketing", "priority": "low", "reason": "Growth and outreach"},
-    ]
-    return random.sample(positions, k=random.randint(2, 4))
 
 
 HR_SYSTEM_PROMPT = """You are the HR manager of "One Man Company".
@@ -495,7 +303,13 @@ class HRAgent(BaseAgentRunner):
                         if score == SCORE_NEEDS_IMPROVEMENT:
                             if emp.pip:
                                 # Already on PIP and scored 3.25 again → terminate
-                                await self._run_offboarding(emp_id, "Failed PIP — consecutive low performance")
+                                try:
+                                    from onemancompany.core.routine import run_offboarding_routine
+                                    await run_offboarding_routine(emp_id, "Failed PIP — consecutive low performance")
+                                except Exception as e:
+                                    logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+                                from onemancompany.agents.termination import execute_fire
+                                await execute_fire(emp_id, reason="Failed PIP — consecutive low performance")
                             else:
                                 # Start PIP
                                 emp.pip = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
@@ -509,12 +323,15 @@ class HRAgent(BaseAgentRunner):
 
             elif data.get("action") == "fire" and "employee_id" in data:
                 emp_id = data["employee_id"]
-                if emp_id in company_state.employees:
-                    emp = company_state.employees[emp_id]
-                    if emp.level >= FOUNDING_LEVEL:
-                        continue
-                    reason = data.get("reason", "CEO decision")
-                    await self._run_offboarding(emp_id, reason)
+                reason = data.get("reason", "CEO decision")
+                # Run offboarding routine before termination
+                try:
+                    from onemancompany.core.routine import run_offboarding_routine
+                    await run_offboarding_routine(emp_id, reason)
+                except Exception as e:
+                    logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+                from onemancompany.agents.termination import execute_fire
+                await execute_fire(emp_id, reason=reason)
 
             elif data.get("action") == "probation_review" and "employee_id" in data:
                 emp_id = data["employee_id"]
@@ -532,46 +349,14 @@ class HRAgent(BaseAgentRunner):
                         await self._publish("probation_review", {
                             "id": emp_id, "passed": False, "feedback": feedback,
                         })
-                        await self._run_offboarding(emp_id, f"Failed probation: {feedback}")
-
-    async def _run_offboarding(self, emp_id: str, reason: str) -> None:
-        """Run offboarding for an employee: move to ex-employees and publish events."""
-        if emp_id not in company_state.employees:
-            return
-        emp = company_state.employees[emp_id]
-        if emp.level >= FOUNDING_LEVEL:
-            return
-
-        # Run offboarding routine if available
-        try:
-            from onemancompany.core.routine import run_offboarding_routine
-            await run_offboarding_routine(emp_id, reason)
-        except Exception as e:
-            logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
-
-        # Move to ex-employees (state + folder)
-        company_state.ex_employees[emp_id] = emp
-        del company_state.employees[emp_id]
-        move_employee_to_ex(emp_id)
-
-        # Recompute layout and persist
-        compute_layout(company_state)
-        persist_all_desk_positions(company_state)
-
-        company_state.activity_log.append({
-            "type": "employee_fired",
-            "name": emp.name,
-            "nickname": emp.nickname,
-            "role": emp.role,
-            "reason": reason,
-        })
-        await self._publish("employee_fired", {
-            "id": emp_id,
-            "name": emp.name,
-            "nickname": emp.nickname,
-            "role": emp.role,
-            "reason": reason,
-        })
+                        # Run offboarding + terminate
+                        try:
+                            from onemancompany.core.routine import run_offboarding_routine
+                            await run_offboarding_routine(emp_id, f"Failed probation: {feedback}")
+                        except Exception as e:
+                            logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+                        from onemancompany.agents.termination import execute_fire
+                        await execute_fire(emp_id, reason=f"Failed probation: {feedback}")
 
     async def _check_promotions(self) -> None:
         """Check if any employees qualify for promotion.
@@ -617,6 +402,17 @@ from onemancompany.agents.onboarding import (  # noqa: E402, F811
     copy_talent_assets,
     generate_nickname,
 )
+
+# Re-export recruitment functions for backward compat
+from onemancompany.agents.recruitment import (  # noqa: E402, F811
+    _talent_to_candidate,
+    start_boss_online,
+    stop_boss_online,
+    _call_boss_online,
+)
+
+# Re-export termination for backward compat
+from onemancompany.agents.termination import execute_fire as execute_fire  # noqa: E402, F811
 
 
 # Singleton removed — agent instances are now created and registered

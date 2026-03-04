@@ -272,6 +272,7 @@ class TestApplyResultsFire:
     @pytest.mark.asyncio
     async def test_fire_normal_employee(self, monkeypatch):
         from onemancompany.agents import hr_agent
+        from onemancompany.agents import termination as term_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
@@ -279,9 +280,11 @@ class TestApplyResultsFire:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "move_employee_to_ex", lambda eid: True)
-        monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
+        monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
+        monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
+        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -298,6 +301,7 @@ class TestApplyResultsFire:
     @pytest.mark.asyncio
     async def test_cannot_fire_founding_employee(self, monkeypatch):
         from onemancompany.agents import hr_agent
+        from onemancompany.agents import termination as term_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
@@ -305,6 +309,7 @@ class TestApplyResultsFire:
         cs.employees["00002"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
+        monkeypatch.setattr(term_mod, "company_state", cs)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -320,11 +325,13 @@ class TestApplyResultsFire:
     @pytest.mark.asyncio
     async def test_fire_nonexistent_employee_no_error(self, monkeypatch):
         from onemancompany.agents import hr_agent
+        from onemancompany.agents import termination as term_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
+        monkeypatch.setattr(term_mod, "company_state", cs)
 
         agent = MagicMock()
         agent._publish = AsyncMock()

@@ -44,6 +44,8 @@ EventType = Literal[
     "exit_interview_started",
     "exit_interview_completed",
     "interview_round_completed",
+    "hiring_request_ready",
+    "hiring_request_decided",
 ]
 
 
