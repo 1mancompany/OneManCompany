@@ -370,6 +370,8 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Summary |
 |------|---------|
-| 2026-03-04 | 1 file changed, 1 insertion(+), 1 deletion(-) |
-| 2026-03-04 | 26 files changed, 10564 insertions(+), 1218 deletions(-) |
+| 2026-03-04 | • update: test_routes |
+| 2026-03-04 | • fix test mock leak for company_direction |
+| 2026-03-04 | • add 976 unit tests across all modules <br> • add pre-commit test runner + changelog hook |
+| 2026-03-04 | • agent loop modularization (custom runners, hooks, prompt sections) <br> • COO deposit_company_knowledge tool <br> • company direction frontend polish button |
 <!-- CHANGELOG_END -->
