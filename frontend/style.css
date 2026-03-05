@@ -2543,6 +2543,47 @@ body {
   margin: 4px 0;
 }
 
+/* ===== Code Update Banner ===== */
+.code-update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background: rgba(0, 136, 255, 0.92);
+  color: #fff;
+  font-size: 9px;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.code-update-banner.hidden {
+  display: none;
+}
+
+.code-update-banner .pixel-btn.small {
+  font-size: 8px;
+  padding: 3px 10px;
+  background: var(--pixel-green);
+  color: #000;
+  border: none;
+  cursor: pointer;
+}
+
+.code-update-banner .dismiss-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
 /* ===== Reconnecting Overlay ===== */
 .reconnecting-overlay {
   position: fixed;

@@ -582,6 +582,22 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
         if not dst_claude_md.exists():
             shutil.copy2(str(talent_claude_md), str(dst_claude_md))
 
+    # Copy manifest.json (frontend UI config — OAuth buttons, settings sections)
+    talent_manifest_json = talent_dir / "manifest.json"
+    if talent_manifest_json.exists():
+        dst_manifest_json = emp_dir / "manifest.json"
+        if not dst_manifest_json.exists():
+            shutil.copy2(str(talent_manifest_json), str(dst_manifest_json))
+
+    # Copy launch.sh / heartbeat.sh for self-hosted employees
+    for script_name in ("launch.sh", "heartbeat.sh"):
+        talent_script = talent_dir / script_name
+        if talent_script.exists():
+            dst_script = emp_dir / script_name
+            if not dst_script.exists():
+                shutil.copy2(str(talent_script), str(dst_script))
+                dst_script.chmod(dst_script.stat().st_mode | 0o755)
+
     # Install agent config (agent/manifest.yaml + prompts, hooks, runner)
     install_talent_agent_config(talent_id, emp_dir, emp_dir.name)
 

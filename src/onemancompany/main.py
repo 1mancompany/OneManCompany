@@ -30,6 +30,11 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
 
 # ---------------------------------------------------------------------------
+# Pending code changes (CEO-controlled hot reload)
+# ---------------------------------------------------------------------------
+_pending_code_changes: set[str] = set()
+
+# ---------------------------------------------------------------------------
 # State snapshot persistence (Tier 2: survive hard restarts)
 # ---------------------------------------------------------------------------
 SNAPSHOT_PATH = Path(__file__).parent.parent.parent.parent / "company" / ".state_snapshot.json"
@@ -251,6 +256,79 @@ async def _heartbeat_loop() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Code change watcher (CEO-controlled hot reload)
+# ---------------------------------------------------------------------------
+
+async def _start_code_watcher() -> None:
+    """Watch src/ and frontend/ for code changes, accumulate and notify CEO."""
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+
+    from onemancompany.core.config import PROJECT_ROOT
+    from onemancompany.core.events import CompanyEvent, event_bus
+
+    DEBOUNCE_SECONDS = 2.0
+    WATCH_EXTENSIONS = {".py", ".js", ".css", ".html"}
+
+    class _CodeChangeHandler(FileSystemEventHandler):
+        def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+            self._loop = loop
+            self._pending: asyncio.TimerHandle | None = None
+
+        def _schedule_notify(self, path: str) -> None:
+            _pending_code_changes.add(path)
+            if self._pending:
+                self._pending.cancel()
+            self._pending = self._loop.call_later(DEBOUNCE_SECONDS, self._do_notify)
+
+        def _do_notify(self) -> None:
+            self._pending = None
+            files = sorted(_pending_code_changes)
+            if not files:
+                return
+            asyncio.ensure_future(event_bus.publish(
+                CompanyEvent(
+                    type="code_update_available",
+                    payload={"changed_files": files, "count": len(files)},
+                    agent="SYSTEM",
+                )
+            ))
+            print(f"[code-watcher] {len(files)} file(s) changed, notified CEO")
+
+        def on_modified(self, event):
+            if event.is_directory:
+                return
+            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
+                self._schedule_notify(event.src_path)
+
+        def on_created(self, event):
+            if event.is_directory:
+                return
+            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
+                self._schedule_notify(event.src_path)
+
+    loop = asyncio.get_running_loop()
+    handler = _CodeChangeHandler(loop)
+    observer = Observer()
+
+    src_dir = str(PROJECT_ROOT / "src")
+    frontend_dir = str(FRONTEND_DIR)
+    observer.schedule(handler, src_dir, recursive=True)
+    observer.schedule(handler, frontend_dir, recursive=True)
+
+    observer.daemon = True
+    observer.start()
+    print(f"[code-watcher] Watching {src_dir} and {frontend_dir} for code changes")
+
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        observer.stop()
+        observer.join(timeout=2)
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
@@ -334,6 +412,9 @@ async def lifespan(app: FastAPI):
     # Start heartbeat loop (API connection checks every 60s)
     heartbeat_task = asyncio.create_task(_heartbeat_loop())
 
+    # Start code change watcher (CEO-controlled hot reload)
+    code_watcher_task = asyncio.create_task(_start_code_watcher())
+
     print(f"🏢 One Man Company HQ is open!")
     print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
     yield
@@ -355,8 +436,9 @@ async def lifespan(app: FastAPI):
     watcher_task.cancel()
     broadcaster_task.cancel()
     heartbeat_task.cancel()
+    code_watcher_task.cancel()
     try:
-        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, return_exceptions=True)
+        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, code_watcher_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 
@@ -368,16 +450,13 @@ app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="fronte
 
 
 def run() -> None:
-    from onemancompany.core.config import settings, PROJECT_ROOT
+    from onemancompany.core.config import settings
 
     app.state.port = settings.port
     uvicorn.run(
         "onemancompany.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
-        reload_dirs=[str(PROJECT_ROOT / "src"), str(PROJECT_ROOT / "frontend")],
-        reload_includes=["*.py", "*.js", "*.css", "*.html"],
     )
 
 

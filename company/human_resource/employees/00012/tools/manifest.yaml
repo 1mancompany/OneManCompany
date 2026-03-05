@@ -1,0 +1,5 @@
+# Tool manifest — declares which registered LangChain tools this talent uses.
+builtin_tools: []
+
+custom_tools:
+  - pm_tools

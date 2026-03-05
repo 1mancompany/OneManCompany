@@ -46,6 +46,7 @@ EventType = Literal[
     "interview_round_completed",
     "hiring_request_ready",
     "hiring_request_decided",
+    "code_update_available",
 ]
 
 

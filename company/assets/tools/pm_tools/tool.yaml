@@ -1,5 +1,6 @@
 added_by: CEO
-allowed_users: []
+allowed_users:
+- '00012'
 description: 'Query project archive for tracking and supervision. Lists projects,
   checks status, finds stale dispatches, monitors costs, and generates progress reports.
 
