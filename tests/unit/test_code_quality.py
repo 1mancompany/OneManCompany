@@ -63,7 +63,7 @@ def _handler_is_silent(handler: ast.ExceptHandler) -> bool:
 # Keep this list minimal — each entry needs a comment justifying it.
 ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     # asyncio.CancelledError during graceful shutdown is expected
-    ("main", "CancelledError", 350, 370),
+    ("main", "CancelledError", 430, 450),
     ("websocket", "CancelledError", 45, 60),
     # int() on non-numeric employee IDs — intentional skip
     ("state", "ValueError", 320, 340),

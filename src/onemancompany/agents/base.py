@@ -326,6 +326,49 @@ class BaseAgentRunner:
         await self._publish("agent_done", {"role": self.role, "summary": (final_content or "")[:MAX_SUMMARY_LEN]})
         return final_content
 
+    def _extract_and_record_usage(self, result: dict) -> dict:
+        """Extract total token usage from a LangGraph ainvoke result and record it.
+
+        Iterates over all AIMessages in the result to sum up token usage from
+        multi-step tool-use loops. Updates ``_last_usage`` and records to
+        company overhead costs.
+
+        Returns the ``_last_usage`` dict.
+        """
+        from langchain_core.messages import AIMessage
+        from onemancompany.core.model_costs import get_model_cost
+
+        total_input = 0
+        total_output = 0
+        model = ""
+        for msg in result.get("messages", []):
+            if not isinstance(msg, AIMessage):
+                continue
+            meta = getattr(msg, "response_metadata", {}) or {}
+            usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
+            total_input += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+            total_output += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            if not model:
+                model = meta.get("model_name", "") or meta.get("model", "")
+
+        model = model or self._get_model_name()
+        self._last_usage = {
+            "model": model,
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "total_tokens": total_input + total_output,
+        }
+
+        if total_input or total_output:
+            costs = get_model_cost(model)
+            cost_usd = (total_input * costs["input"] + total_output * costs["output"]) / 1_000_000
+            _record_overhead(
+                "agent_task", model, total_input, total_output, cost_usd,
+                employee_id=self.employee_id,
+            )
+
+        return self._last_usage
+
     def _get_model_name(self) -> str:
         """Return the LLM model name configured for this employee."""
         cfg = employee_configs.get(self.employee_id)
@@ -639,6 +682,7 @@ class EmployeeAgent(BaseAgentRunner):
             ]}
         )
 
+        self._extract_and_record_usage(result)
         final = result["messages"][-1].content
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})

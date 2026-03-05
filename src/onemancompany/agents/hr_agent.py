@@ -176,6 +176,7 @@ class HRAgent(BaseAgentRunner):
             ]}
         )
 
+        self._extract_and_record_usage(result)
         final_message = result["messages"][-1].content
         await self._apply_results(final_message)
         # Check promotions after every review

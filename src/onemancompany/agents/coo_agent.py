@@ -750,6 +750,7 @@ class COOAgent(BaseAgentRunner):
             ]}
         )
 
+        self._extract_and_record_usage(result)
         final = result["messages"][-1].content
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": "COO", "summary": final[:MAX_SUMMARY_LEN]})

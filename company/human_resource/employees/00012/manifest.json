@@ -1,0 +1,35 @@
+{
+  "id": "project-manager-claude",
+  "name": "Claude Project Manager",
+  "version": "1.0.0",
+  "role": "Manager",
+  "hosting": "self",
+  "settings": {
+    "sections": [
+      {
+        "id": "connection",
+        "title": "Connection",
+        "fields": [
+          {"key": "oauth", "type": "oauth_button", "label": "Anthropic Login", "provider": "anthropic"}
+        ]
+      },
+      {
+        "id": "session",
+        "title": "Session",
+        "fields": [
+          {"key": "session_status", "type": "readonly", "label": "Status", "value_from": "api:sessions"}
+        ]
+      }
+    ]
+  },
+  "prompts": {
+    "skills": [],
+    "npx_skills": ["task-planning", "task-estimation", "standup-meeting", "sprint-retrospective", "internal-comms"]
+  },
+  "tools": {
+    "builtin": [],
+    "custom": ["pm_tools"]
+  },
+  "platform_capabilities": ["file_upload", "websocket"],
+  "heartbeat": {"method": "pid"}
+}

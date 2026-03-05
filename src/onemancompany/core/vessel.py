@@ -355,6 +355,19 @@ class Vessel:
         return self.manager.boards.get(self.employee_id, AgentTaskBoard())
 
     @property
+    def _current_task(self) -> AgentTask | None:
+        """Return the currently running task for this employee, if any."""
+        if self.employee_id not in self.manager._running_tasks:
+            return None
+        board = self.manager.boards.get(self.employee_id)
+        if not board:
+            return None
+        for task in board.tasks:
+            if task.status == "in_progress":
+                return task
+        return None
+
+    @property
     def task_history(self) -> list[dict]:
         return self.manager.task_histories.get(self.employee_id, [])
 
@@ -436,6 +449,7 @@ class EmployeeManager:
         self._running_tasks: dict[str, asyncio.Task] = {}
         self._deferred_schedule: set[str] = set()
         self._hooks: dict[str, dict[str, Callable]] = {}
+        self._event_loop: asyncio.AbstractEventLoop | None = None  # set by drain_pending
 
     # Backward compat properties
     @property
@@ -526,15 +540,34 @@ class EmployeeManager:
                 self._run_task(employee_id, task)
             )
         except RuntimeError:
-            # No event loop — remember for later drain
-            self._deferred_schedule.add(employee_id)
-            print(f"[schedule] WARNING: No event loop to schedule task for {employee_id}, deferred")
+            # No running loop in current context (e.g. sync LangChain tool call).
+            # Use the stashed event loop to schedule via call_soon_threadsafe.
+            if self._event_loop and not self._event_loop.is_closed():
+                self._event_loop.call_soon_threadsafe(self._create_run_task, employee_id, task)
+                logger.info("Scheduled deferred task for {} via call_soon_threadsafe", employee_id)
+            else:
+                self._deferred_schedule.add(employee_id)
+                logger.warning("No event loop to schedule task for {}, deferred", employee_id)
+
+    def _create_run_task(self, employee_id: str, task: AgentTask) -> None:
+        """Create an asyncio.Task for _run_task. Must be called from the event loop thread."""
+        if employee_id in self._running_tasks:
+            return
+        loop = asyncio.get_running_loop()
+        self._running_tasks[employee_id] = loop.create_task(
+            self._run_task(employee_id, task)
+        )
 
     def drain_pending(self) -> None:
         """Schedule any pending tasks that were deferred (no event loop at push time).
 
         Called by start_all_loops() and can be called manually to unstick tasks.
         """
+        # Stash the event loop for future deferred scheduling
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("drain_pending called without a running event loop")
         # Drain deferred set
         deferred = list(self._deferred_schedule)
         self._deferred_schedule.clear()

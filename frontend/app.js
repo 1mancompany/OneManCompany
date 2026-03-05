@@ -209,6 +209,10 @@ class AppController {
         }
         return { text: `📋 ${p.employee_id} task: ${p.status || 'updated'}`, cls: 'system', agent: 'AGENT' };
       },
+      'code_update_available': (p) => {
+        this._showCodeUpdateBanner(p.count, p.changed_files);
+        return null;
+      },
       'agent_log':           (p) => {
         // Append log entry live if viewing this employee
         if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
@@ -608,6 +612,17 @@ class AppController {
           this.logEntry('SYSTEM', `Error: ${err.message}`, 'system');
           hrBtn.disabled = false;
         });
+    });
+
+    // Code update banner bindings
+    document.getElementById('code-update-apply-btn').addEventListener('click', () => {
+      const btn = document.getElementById('code-update-apply-btn');
+      btn.disabled = true;
+      btn.textContent = 'Applying...';
+      fetch('/api/admin/apply-code-update', { method: 'POST' }).catch(() => {});
+    });
+    document.getElementById('code-update-dismiss-btn').addEventListener('click', () => {
+      document.getElementById('code-update-banner').classList.add('hidden');
     });
 
     // Roster filter bindings
@@ -1296,6 +1311,15 @@ class AppController {
       clearInterval(this._taskBoardPollTimer);
       this._taskBoardPollTimer = null;
     }
+  }
+
+  // ===== Code Update Banner =====
+  _showCodeUpdateBanner(count, files) {
+    const banner = document.getElementById('code-update-banner');
+    const textEl = document.getElementById('code-update-text');
+    const shortFiles = (files || []).map(f => f.split('/').slice(-2).join('/'));
+    textEl.textContent = `🔄 ${count} file(s) changed: ${shortFiles.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}`;
+    banner.classList.remove('hidden');
   }
 
   _escHtml(str) {

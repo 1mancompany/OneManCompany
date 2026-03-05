@@ -189,6 +189,28 @@ async def admin_reload() -> dict:
     return {"status": "reloaded", **changes}
 
 
+@router.get("/api/admin/pending-code-changes")
+async def admin_pending_code_changes() -> dict:
+    """Return accumulated code file changes pending CEO apply."""
+    from onemancompany.main import _pending_code_changes
+
+    files = sorted(_pending_code_changes)
+    return {"count": len(files), "changed_files": files}
+
+
+@router.post("/api/admin/apply-code-update")
+async def admin_apply_code_update() -> dict:
+    """CEO triggers a process restart to pick up code changes."""
+    import os
+    import sys
+    from onemancompany.main import _save_ephemeral_state, _pending_code_changes
+
+    _save_ephemeral_state()
+    _pending_code_changes.clear()
+
+    os.execv(sys.executable, [sys.executable, "-m", "onemancompany.main"])
+
+
 @router.post("/api/admin/clear-tasks")
 async def admin_clear_tasks() -> dict:
     """Clear all stale active tasks and reset employee statuses to idle."""
@@ -2409,6 +2431,7 @@ async def interview_candidate(body: InterviewRequest) -> InterviewResponse:
 # In-memory store for remote worker state
 _remote_workers: dict[str, dict] = {}   # employee_id -> registration info
 _remote_task_queues: dict[str, list[dict]] = {}  # employee_id -> [task, ...]
+_remote_task_project_map: dict[str, str] = {}    # task_id -> project_id (for cost tracking)
 
 
 @router.post("/api/remote/register")
@@ -2449,6 +2472,11 @@ async def remote_get_tasks(employee_id: str) -> dict:
     if employee_id in _remote_workers:
         _remote_workers[employee_id]["status"] = "busy"
         _remote_workers[employee_id]["current_task_id"] = task.get("task_id")
+    # Remember task_id → project_id mapping for cost tracking on result submission
+    task_id = task.get("task_id", "")
+    project_id = task.get("project_id", "")
+    if task_id and project_id:
+        _remote_task_project_map[task_id] = project_id
     return {"task": task}
 
 
@@ -2467,9 +2495,15 @@ async def remote_submit_results(body: dict) -> dict:
     if result.input_tokens or result.output_tokens:
         from onemancompany.core.project_archive import record_project_cost
         from onemancompany.agents.base import _record_overhead
-        # Find project_id from task queue context
         record_overhead_model = result.model_used or "remote"
         _record_overhead("remote_worker", record_overhead_model, result.input_tokens, result.output_tokens, result.estimated_cost_usd)
+        # Also record to project cost breakdown (was previously imported but never called)
+        project_id = _remote_task_project_map.pop(result.task_id, "")
+        if project_id:
+            record_project_cost(
+                project_id, result.employee_id, record_overhead_model,
+                result.input_tokens, result.output_tokens, result.estimated_cost_usd,
+            )
 
     await event_bus.publish(
         CompanyEvent(
