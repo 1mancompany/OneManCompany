@@ -456,15 +456,16 @@ open http://localhost:8000
 ## Changelog
 
 <!-- CHANGELOG_START -->
-| Date | Summary |
-|------|---------|
-| 2026-03-05 | • update: agent_loop, agents_guide, base, default_vessel, main |
-| 2026-03-05 | • update: __init__, boss_online, hr_agent, main, project |
-| 2026-03-04 | • update: test_hr_agent |
-| 2026-03-04 | • update: 1eb8c0b0, 7327b467 |
-| 2026-03-04 | • update: acquisition-channel-advisor, agents_guide, ai-shaped-readiness-advisor, altitude-horizon-framework, base |
-| 2026-03-04 | • update: test_routes |
-| 2026-03-04 | • fix test mock leak for company_direction |
-| 2026-03-04 | • add 976 unit tests across all modules <br> • add pre-commit test runner + changelog hook |
-| 2026-03-04 | • agent loop modularization (custom runners, hooks, prompt sections) <br> • COO deposit_company_knowledge tool <br> • company direction frontend polish button |
+| Date | Commit | Summary |
+|------|--------|---------|
+| 2026-03-05 | `7609eec` | 1808 unit tests covering workflow engine, heartbeat, claude session, and more |
+| 2026-03-04 | `bd3125f` | Fix test isolation: fire tests no longer leak offboarding routine side effects |
+| 2026-03-04 | `cfb252d` | Persistent meeting reports: pull-meeting auto-generates archived records |
+| 2026-03-04 | `9f74231` | GitHub talent one-click import script + system_prompt_template in prompt pipeline |
+| 2026-03-04 | `49d4c78` | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding |
+| 2026-03-04 | `e25a50f` | First 976 unit tests + pre-commit test gate + auto-changelog hook |
+| 2026-03-04 | `06d0cfb` | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists |
+| 2026-03-04 | `2e1111d` | API heartbeat health check (zero token cost) + OAuth login fix |
+| 2026-03-04 | `760022c` | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
+| 2026-03-04 | `16bc792` | Frontend CEO Console UX improvements |
 <!-- CHANGELOG_END -->
