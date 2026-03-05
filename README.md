@@ -458,6 +458,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-05 | • update: , 02dd33f6, 03c25f63, 1eb8c0b0, 298b4b58 |
 | 2026-03-05 | • update: 任务流转追踪与异常监控机制, 前端代码工程化规范, 项目验收与工作区规范, 验收验证与目录规范 SOP, 02dd33f6 |
 | 2026-03-05 | • update: 5c5db503, app, base, company_direction, connection |
 | 2026-03-05 | • update: base, claude_session, common_tools, config, coo_agent |

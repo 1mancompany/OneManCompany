@@ -1299,25 +1299,40 @@ class AppController {
       return;
     }
 
+    // Preserve which log entries are expanded before re-render
+    const expandedSet = new Set();
+    el.querySelectorAll('.emp-log-entry').forEach((entry, i) => {
+      const full = entry.querySelector('.log-full');
+      if (full && full.style.display !== 'none') expandedSet.add(i);
+    });
+    const prevScrollTop = el.scrollTop;
+    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
+
     let html = '';
-    for (const log of logs) {
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
       const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '';
       const typeCls = log.type || '';
       const raw = log.content || '';
       const truncated = raw.length > 200;
+      const isExpanded = expandedSet.has(i);
       html += `<div class="emp-log-entry ${typeCls}">`;
       html += `<span class="log-ts">${ts}</span>`;
-      html += `<span class="log-content">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
+      html += `<span class="log-content" style="display:${truncated && isExpanded ? 'none' : 'inline'}">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
       if (truncated) {
-        html += `<span class="log-full" style="display:none">${this._escHtml(raw)}</span>`;
-        html += `<span class="log-expand" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
-        html += `<span class="log-collapse" style="display:none" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
+        html += `<span class="log-full" style="display:${isExpanded ? 'inline' : 'none'}">${this._escHtml(raw)}</span>`;
+        html += `<span class="log-expand" style="display:${isExpanded ? 'none' : 'inline'}" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
+        html += `<span class="log-collapse" style="display:${isExpanded ? 'inline' : 'none'}" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
       }
       html += '</div>';
     }
     el.innerHTML = html;
-    // Auto-scroll to bottom
-    el.scrollTop = el.scrollHeight;
+    // Only auto-scroll if user was already at the bottom
+    if (wasAtBottom) {
+      el.scrollTop = el.scrollHeight;
+    } else {
+      el.scrollTop = prevScrollTop;
+    }
   }
 
   _startTaskBoardPolling(empId) {
@@ -3941,6 +3956,39 @@ class AppController {
         html += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
         html += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
 
+        // Acceptance criteria
+        const criteria = doc.acceptance_criteria || [];
+        if (criteria.length > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">验收标准 (${criteria.length})</div>`;
+          const ar = doc.acceptance_result;
+          for (let i = 0; i < criteria.length; i++) {
+            const icon = ar ? (ar.accepted ? '\u2705' : '\u274C') : '\u2B1C';
+            html += `<div style="font-size:5px;color:var(--pixel-white);padding:1px 0;">${icon} ${i + 1}. ${this._escHtml(criteria[i])}</div>`;
+          }
+
+          // Acceptance result
+          if (ar) {
+            const arIcon = ar.accepted ? '\u2705' : '\u274C';
+            const arLabel = ar.accepted ? '通过' : '未通过';
+            const arNotes = ar.notes ? ` — ${this._escHtml(ar.notes.substring(0, 200))}${ar.notes.length > 200 ? '...' : ''}` : '';
+            html += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} 验收结果: ${arLabel}${arNotes}</div>`;
+          }
+
+          // EA review result
+          const ear = doc.ea_review_result;
+          if (ear) {
+            const earIcon = ear.approved ? '\u2705' : '\u274C';
+            const earLabel = ear.approved ? '通过' : '驳回';
+            const earNotes = ear.notes ? ` — ${this._escHtml(ear.notes.substring(0, 200))}${ear.notes.length > 200 ? '...' : ''}` : '';
+            html += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA审核: ${earIcon} ${earLabel}${earNotes}</div>`;
+          }
+        }
+
+        // Continue button for incomplete iterations
+        if (doc.status !== 'completed') {
+          html += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
+        }
+
         // Output documents / files
         const files = doc.files || [];
         const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
@@ -4019,9 +4067,43 @@ class AppController {
             this._openProjectFile(item.dataset.file, item.dataset.url, item.dataset.ext);
           });
         });
+
+        // Bind continue button
+        const continueBtn = document.getElementById('continue-iter-btn');
+        if (continueBtn) {
+          continueBtn.addEventListener('click', () => {
+            this._continueIteration(projectId, iterationId);
+          });
+        }
       })
       .catch(err => {
         panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${err.message}</div>`;
+      });
+  }
+
+  _continueIteration(projectId, iterationId) {
+    const btn = document.getElementById('continue-iter-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 提交中...'; }
+
+    fetch('/api/projects/continue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: projectId, iteration_id: iterationId }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('CEO', `继续失败: ${data.error}`, 'error');
+          if (btn) { btn.disabled = false; btn.textContent = '▶ 继续当前轮次'; }
+        } else {
+          this.logEntry('CEO', `已继续轮次 ${iterationId}，任务已推送给 ${data.routed_to}`, 'ceo');
+          const modal = document.getElementById('project-modal');
+          if (modal) modal.classList.add('hidden');
+        }
+      })
+      .catch(err => {
+        this.logEntry('CEO', `继续失败: ${err.message}`, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '▶ 继续当前轮次'; }
       });
   }
 
