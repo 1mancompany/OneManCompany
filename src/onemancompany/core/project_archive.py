@@ -12,6 +12,7 @@ Employees can save artifacts to their project workspace via save_project_file().
 from __future__ import annotations
 
 import re
+from loguru import logger
 import shutil
 import threading
 import uuid
@@ -306,7 +307,8 @@ def list_named_projects() -> list[dict]:
         try:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
-        except Exception:
+        except Exception as _e:
+            logger.warning("Failed to load %s: %s", yaml_path, _e)
             continue
         # Only v2 projects have 'iterations' key
         if "iterations" not in doc:
@@ -524,7 +526,8 @@ def list_projects() -> list[dict]:
         try:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
-        except Exception:
+        except Exception as _e:
+            logger.warning("Failed to load %s: %s", yaml_path, _e)
             continue
 
         if "iterations" in doc:
@@ -725,7 +728,8 @@ def get_cost_summary() -> dict:
         try:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
-        except Exception:
+        except Exception as _e:
+            logger.warning("Failed to load %s: %s", yaml_path, _e)
             continue
 
         # For v2 projects, aggregate cost from iterations

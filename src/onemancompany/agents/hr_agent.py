@@ -19,15 +19,13 @@ Performance system:
 from __future__ import annotations
 
 import json
-import logging
 import re
+from loguru import logger
 import uuid
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
-
-logger = logging.getLogger(__name__)
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.agents.common_tools import COMMON_TOOLS
@@ -228,7 +226,8 @@ class HRAgent(BaseAgentRunner):
         for block in json_blocks:
             try:
                 data = json.loads(block)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as _e:
+                logger.debug("Skipping malformed JSON block: %s", _e)
                 continue
 
             if data.get("action") == "shortlist" and "candidates" in data:

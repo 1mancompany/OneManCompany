@@ -18,6 +18,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from loguru import logger
 from pydantic import BaseModel, Field
 
 
@@ -81,8 +82,9 @@ class Journal:
             try:
                 record = EvidenceRecord.model_validate_json(f.read_text(encoding="utf-8"))
                 results.append(record)
-            except Exception:
-                continue  # skip corrupted records
+            except Exception as _e:
+                logger.debug("Skipping corrupted evidence record {}: {}", f.name, _e)
+                continue
             if len(results) >= limit:
                 break
         return results

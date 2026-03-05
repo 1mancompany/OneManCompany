@@ -11,6 +11,7 @@ import json
 import re
 
 from langchain_core.tools import tool
+from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
 from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
@@ -509,8 +510,8 @@ async def pull_meeting(
             json_match = re.search(r'\[.*\]', summary_text, re.DOTALL)
             if json_match:
                 action_items = json.loads(json_match.group())
-        except (json.JSONDecodeError, AttributeError):
-            pass
+        except (json.JSONDecodeError, AttributeError) as _e:
+            logger.debug("Failed to parse meeting action items: {}", _e)
 
         company_state.activity_log.append({
             "type": "pull_meeting",

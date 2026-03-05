@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from fastapi import APIRouter, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from loguru import logger
 
 from onemancompany.agents.base import BaseAgentRunner, tracked_ainvoke
 from onemancompany.api.websocket import ws_manager
@@ -1497,8 +1498,8 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
             if resp.status_code == 200:
                 key_data = resp.json()
                 api_key = key_data.get("api_key", access_token)
-    except Exception:
-        pass  # Fall back to access token
+    except Exception as _e:
+        logger.debug("OAuth key exchange failed, falling back to access token: {}", _e)
 
     # Store the key
     cfg = employee_configs.get(employee_id)
@@ -1596,8 +1597,8 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
             if key_resp.status_code == 200:
                 key_data = key_resp.json()
                 api_key = key_data.get("api_key", access_token)
-    except Exception:
-        pass  # Fall back to access token
+    except Exception as _e:
+        logger.debug("OAuth key exchange failed, falling back to access token: {}", _e)
 
     # Store tokens in employee config
     cfg = employee_configs.get(employee_id)

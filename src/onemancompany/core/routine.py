@@ -14,7 +14,6 @@ to the appropriate handler based on the step owner (HR, COO, employees, etc.).
 from __future__ import annotations
 
 import json
-import logging
 import re
 import uuid
 from datetime import datetime
@@ -47,7 +46,7 @@ from onemancompany.core.workflow_engine import (
     parse_workflow,
 )
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 REPORTS_DIR = MEETING_REPORTS_DIR
 

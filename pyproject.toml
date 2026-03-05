@@ -22,6 +22,7 @@ dependencies = [
     "watchdog>=4.0",
     "opensandbox>=0.1",
     "opensandbox-code-interpreter>=0.1",
+    "loguru>=0.7",
 ]
 
 [build-system]

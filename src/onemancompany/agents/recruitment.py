@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import random
 import sys
 
@@ -19,7 +18,7 @@ from langchain_core.tools import tool
 from mcp import ClientSession
 from mcp.client.stdio import stdio_client, StdioServerParameters
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # ===== In-memory state for pending candidates =====
 
@@ -153,7 +152,8 @@ async def _call_boss_online(job_description: str, count: int = 10) -> list[dict]
     for item in result.content:
         try:
             candidates.append(json.loads(item.text))
-        except (json.JSONDecodeError, AttributeError):
+        except (json.JSONDecodeError, AttributeError) as _e:
+            logger.debug("Skipping unparseable candidate block: {}", _e)
             continue
     return candidates
 

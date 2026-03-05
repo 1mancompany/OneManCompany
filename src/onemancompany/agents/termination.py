@@ -6,7 +6,6 @@ so it can be called both by the HR agent and directly via the API.
 
 from __future__ import annotations
 
-import logging
 import shutil
 
 import yaml
@@ -21,7 +20,7 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.layout import compute_layout, persist_all_desk_positions
 from onemancompany.core.state import company_state
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import importlib.util
 import json as _json
-import logging
 import re
 import shutil
 
@@ -17,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 import yaml
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 from onemancompany.core.config import (
     DEFAULT_TOOL_PERMISSIONS,
