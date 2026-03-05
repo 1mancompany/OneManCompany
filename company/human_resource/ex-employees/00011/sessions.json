@@ -1,0 +1,32 @@
+{
+  "1-1": {
+    "session_id": "97f78bc0-b9f2-4139-b1f8-8d93ff7bb8c0",
+    "work_dir": "",
+    "created": "2026-03-03T17:14:52.476860+00:00",
+    "used": true
+  },
+  "iter_001": {
+    "session_id": "3bc16f89-e9db-4725-a1fc-0cdb859324c9",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/first-game/iterations/iter_001",
+    "created": "2026-03-05T12:08:44.909377+00:00",
+    "used": false
+  },
+  "default": {
+    "session_id": "0ac16a9f-b196-4bde-a6fb-2066f71ef01b",
+    "work_dir": "",
+    "created": "2026-03-05T12:18:44.982398+00:00",
+    "used": false
+  },
+  "iter_003": {
+    "session_id": "8bcbb6f2-d35c-48b3-af58-a48c718504d8",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/first-game/iterations/iter_003",
+    "created": "2026-03-05T13:29:19.631363+00:00",
+    "used": true
+  },
+  "iter_002": {
+    "session_id": "0dda655d-6006-4e50-aefe-7fa846d72761",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/first-game/iterations/iter_002",
+    "created": "2026-03-05T13:36:23.659131+00:00",
+    "used": true
+  }
+}

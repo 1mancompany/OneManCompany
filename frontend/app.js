@@ -23,6 +23,8 @@ class AppController {
     this._inputHistory = JSON.parse(localStorage.getItem('ceo_input_history') || '[]');
     this._historyIndex = -1;
     this._historyDraft = '';
+    // Task attachment files
+    this._taskPendingFiles = [];
     this.connect();
     this.bindUI();
     this.bindCollapsibles();
@@ -560,6 +562,22 @@ class AppController {
 
     submitBtn.addEventListener('click', () => this.submitTask());
 
+    // Paste image into task input
+    input.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') {
+          files.push(item.getAsFile());
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        this._handleTaskFileSelect(files);
+      }
+    });
+
     input.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         this.submitTask();
@@ -781,6 +799,12 @@ class AppController {
     // 1-on-1 file upload
     document.getElementById('oneonone-file-input').addEventListener('change', (e) => {
       this._handleOneononeFileSelect(e.target.files);
+      e.target.value = '';
+    });
+
+    // CEO task file upload
+    document.getElementById('task-file-input').addEventListener('change', (e) => {
+      this._handleTaskFileSelect(e.target.files);
       e.target.value = '';
     });
 
@@ -3481,6 +3505,81 @@ class AppController {
     el.textContent = text;
   }
 
+  // ===== CEO Task File Upload =====
+  _handleTaskFileSelect(files) {
+    for (const file of files) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        let type = 'file';
+        if (file.type.startsWith('image/')) type = 'image';
+        else if (file.type.startsWith('video/')) type = 'video';
+        this._taskPendingFiles.push({
+          name: file.name,
+          type,
+          dataUrl: e.target.result,
+          file: file,
+        });
+        this._updateTaskPreviewBar();
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  _updateTaskPreviewBar() {
+    const bar = document.getElementById('task-preview-bar');
+    if (!this._taskPendingFiles.length) {
+      bar.classList.add('hidden');
+      bar.innerHTML = '';
+      return;
+    }
+    bar.classList.remove('hidden');
+    bar.innerHTML = '';
+    this._taskPendingFiles.forEach((f, idx) => {
+      const item = document.createElement('div');
+      item.className = 'chat-preview-item';
+      if (f.type === 'image') {
+        item.innerHTML = `<img class="chat-preview-thumb" src="${f.dataUrl}" alt="${f.name}" />`;
+      } else if (f.type === 'video') {
+        item.innerHTML = `<div class="chat-preview-file">🎬<br>${f.name.substring(0, 8)}</div>`;
+      } else {
+        item.innerHTML = `<div class="chat-preview-file">📄<br>${f.name.substring(0, 8)}</div>`;
+      }
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'chat-preview-remove';
+      removeBtn.textContent = '×';
+      removeBtn.onclick = () => {
+        this._taskPendingFiles.splice(idx, 1);
+        this._updateTaskPreviewBar();
+      };
+      item.appendChild(removeBtn);
+      bar.appendChild(item);
+    });
+  }
+
+  async _uploadTaskFiles() {
+    if (!this._taskPendingFiles.length) return [];
+    const uploaded = [];
+    for (const f of this._taskPendingFiles) {
+      const formData = new FormData();
+      formData.append('file', f.file);
+      try {
+        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+        uploaded.push({
+          path: data.path,
+          filename: data.filename,
+          type: f.type,
+          content_type: data.content_type || '',
+        });
+      } catch (err) {
+        console.error('Task file upload failed:', err);
+      }
+    }
+    this._taskPendingFiles = [];
+    this._updateTaskPreviewBar();
+    return uploaded;
+  }
+
   // ===== 1-on-1 File Upload =====
   _handleOneononeFileSelect(files) {
     if (!this._oneononePendingFiles) this._oneononePendingFiles = [];
@@ -3638,7 +3737,7 @@ class AppController {
     return html;
   }
 
-  submitTask() {
+  async submitTask() {
     const input = document.getElementById('task-input');
     const task = input.value.trim();
     if (!task) return;
@@ -3665,13 +3764,19 @@ class AppController {
     const submitBtn = document.getElementById('submit-btn');
     submitBtn.disabled = true;
 
+    // Upload attached files if any
+    let attachments = [];
+    if (this._taskPendingFiles.length) {
+      attachments = await this._uploadTaskFiles();
+    }
+
     // Q&A mode: lightweight ask, no project creation
     if (projectId === '__qa__') {
       this.logEntry('CEO', task, 'ceo');
       fetch('/api/ceo/qa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: task }),
+        body: JSON.stringify({ question: task, attachments }),
       })
         .then(r => r.json())
         .then(data => {
@@ -3691,7 +3796,7 @@ class AppController {
       return;
     }
 
-    const reqBody = { task };
+    const reqBody = { task, attachments };
     if (projectId && projectId !== '__new__') reqBody.project_id = projectId;
     if (projectName) reqBody.project_name = projectName;
 

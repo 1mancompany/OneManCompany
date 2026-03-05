@@ -372,17 +372,53 @@ async def _start_inquiry(task: str) -> dict:
 @router.post("/api/ceo/qa")
 async def ceo_qa(body: dict) -> dict:
     """CEO Q&A mode: direct LLM answer, no project creation."""
+    import base64
+    from pathlib import Path
+
     from langchain_core.messages import HumanMessage, SystemMessage
     from onemancompany.agents.base import make_llm
 
     question = body.get("question", "")
+    attachments = body.get("attachments", [])
     if not question:
         return {"error": "Empty question"}
+
+    # Build multimodal content blocks for images, text descriptions for others
+    content_blocks: list = [{"type": "text", "text": question}]
+    for att in attachments:
+        att_path = att.get("path", "")
+        att_type = att.get("type", "file")
+        content_type = att.get("content_type", "")
+        if att_type == "image" and att_path:
+            try:
+                img_data = Path(att_path).read_bytes()
+                img_b64 = base64.b64encode(img_data).decode()
+                mime = content_type or "image/png"
+                content_blocks.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{img_b64}"},
+                })
+            except Exception:
+                content_blocks.append({
+                    "type": "text",
+                    "text": f"\n[附件: {att.get('filename', 'file')} (路径: {att_path})]",
+                })
+        elif att_path:
+            content_blocks.append({
+                "type": "text",
+                "text": f"\n[附件: {att.get('filename', 'file')} (保存在 {att_path})]",
+            })
+
+    # Use multimodal content if there are image attachments, plain text otherwise
+    if len(content_blocks) > 1:
+        human_msg = HumanMessage(content=content_blocks)
+    else:
+        human_msg = HumanMessage(content=question)
 
     llm = make_llm()
     result = await tracked_ainvoke(llm, [
         SystemMessage(content="你是 CEO 的 AI 助理，简洁回答问题。"),
-        HumanMessage(content=question),
+        human_msg,
     ], category="qa")
     answer = result.content
 
@@ -413,6 +449,7 @@ async def ceo_submit_task(body: dict) -> dict:
     if not task:
         return {"error": "Empty task"}
 
+    attachments = body.get("attachments", [])
     project_id = body.get("project_id", "")
     project_name = body.get("project_name", "")
 
@@ -453,16 +490,23 @@ async def ceo_submit_task(body: dict) -> dict:
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
-    # The context ID that flows through the agent system
-    ctx_id = iter_id or pid
+    # Use qualified iteration ID to avoid cross-project collisions
+    # (e.g. "first-game/iter_002" instead of bare "iter_002")
+    ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
     # ALL CEO tasks go to EA for classification and routing
+    # Build attachment info string
+    attach_info = ""
+    if attachments:
+        lines = [f"- 附件: {a.get('filename', 'file')} (保存在 {a.get('path', '')})" for a in attachments]
+        attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
+
     task_entry.routed_to = "EA"
     loop = get_agent_loop(EA_ID)
     if loop:
         ea_task = (
             f"CEO下发了新任务，请分析并分派给合适的负责人:\n\n"
-            f"任务: {task}\n\n"
+            f"任务: {task}{attach_info}\n\n"
             f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
         )
         loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
@@ -472,7 +516,7 @@ async def ceo_submit_task(body: dict) -> dict:
         _ea = EAAgent()
         task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
         asyncio.create_task(
-            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=ctx_id)
+            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=ctx_id, project_dir=pdir)
         )
     return {
         "routed_to": "EA",
@@ -1182,18 +1226,12 @@ async def get_employee_logs(employee_id: str) -> dict:
 async def abort_task(project_id: str) -> dict:
     """Abort all agent tasks related to a project.
 
-    Cancels pending/in-progress tasks on all agent boards, removes from
-    company active_tasks, and broadcasts state update.
+    Cancels pending/in-progress tasks on all agent boards, cancels running
+    asyncio tasks, removes from company active_tasks, and broadcasts state update.
     """
-    from onemancompany.core.agent_loop import agent_loops
+    from onemancompany.core.agent_loop import employee_manager
 
-    total_cancelled = 0
-    for emp_id, loop in agent_loops.items():
-        cancelled = loop.board.cancel_by_project(project_id)
-        for t in cancelled:
-            loop._log(t, "cancelled", "Task aborted by CEO")
-            loop._publish_task_update(t)
-        total_cancelled += len(cancelled)
+    total_cancelled = employee_manager.abort_project(project_id)
 
     # Remove from company-level active_tasks (match both project_id and iteration_id)
     company_state.active_tasks = [
@@ -1214,7 +1252,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     """Cancel a specific task (or sub-task) on an agent's board."""
     from datetime import datetime
 
-    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.agent_loop import employee_manager, get_agent_loop
 
     loop = get_agent_loop(employee_id)
     if not loop:
@@ -1227,11 +1265,13 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     if task.status not in ("pending", "in_progress"):
         return {"status": "error", "message": f"Task already {task.status}"}
 
+    was_in_progress = task.status == "in_progress"
+
     task.status = "cancelled"
     task.completed_at = datetime.now().isoformat()
     task.result = "Cancelled by CEO"
-    loop._log(task, "cancelled", "CEO cancelled this task")
-    loop._publish_task_update(task)
+    employee_manager._log(employee_id, task, "cancelled", "CEO cancelled this task")
+    employee_manager._publish_task_update(employee_id, task)
 
     # Also cancel pending sub-tasks
     for sid in task.sub_task_ids:
@@ -1240,8 +1280,14 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
             sub.status = "cancelled"
             sub.completed_at = datetime.now().isoformat()
             sub.result = "Parent task cancelled by CEO"
-            loop._log(sub, "cancelled", "Parent task cancelled by CEO")
-            loop._publish_task_update(sub)
+            employee_manager._log(employee_id, sub, "cancelled", "Parent task cancelled by CEO")
+            employee_manager._publish_task_update(employee_id, sub)
+
+    # Cancel the running asyncio.Task if this was in_progress
+    if was_in_progress and employee_id in employee_manager._running_tasks:
+        running = employee_manager._running_tasks[employee_id]
+        if not running.done():
+            running.cancel()
 
     # Broadcast state
     await event_bus.publish(

@@ -5426,20 +5426,18 @@ class TestAbortTaskWithBoards:
         state.active_tasks = [TaskEntry(project_id="proj1", task="test", routed_to="COO")]
         bus = EventBus()
 
-        cancelled_task = MagicMock()
-        mock_loop = MagicMock()
-        mock_loop.board.cancel_by_project.return_value = [cancelled_task]
-        mock_loop._log = MagicMock()
-        mock_loop._publish_task_update = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.abort_project.return_value = 1
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.agent_loops", {"00002": mock_loop}):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/task/proj1/abort")
 
         assert resp.json()["cancelled"] == 1
+        mock_manager.abort_project.assert_called_once_with("proj1")
 
 
 # ---------------------------------------------------------------------------

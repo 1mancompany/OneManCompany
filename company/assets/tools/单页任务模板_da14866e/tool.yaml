@@ -1,0 +1,9 @@
+added_by: COO
+allowed_users: []
+description: 用于规范单页应用/任务的开发需求、规范及验收标准的模板文件，可在后续小游戏或前端单页应用开发中复用。
+desk_position:
+- 10
+- 20
+id: da14866e
+name: 单页任务模板
+sprite: desk_equipment

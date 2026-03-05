@@ -1,7 +1,7 @@
-# Nova Kim (星绘) Work Principles
+# Claude Code Agent (On-Site) (千机) Work Principles
 
-**Department**: Design
-**Title**: Junior Designer
+**Department**: Engineering
+**Title**: Junior Engineer
 **Level**: Lv.1
 
 ## Core Principles

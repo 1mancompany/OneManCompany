@@ -1,0 +1,9 @@
+added_by: COO
+allowed_users: []
+description: 标准的单页任务描述与管理Markdown模板，可用于后续项目中标准化任务下发与需求文档编写。
+desk_position:
+- 15
+- 14
+id: 4e309868
+name: 单页任务模板
+sprite: desk_equipment

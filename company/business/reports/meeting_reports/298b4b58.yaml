@@ -1,0 +1,215 @@
+action_items: &id015
+- &id003
+  description: 重构EA验收脚本底层逻辑，要求直接校验磁盘上的真实物理文件状态，或引入自动同步文件操作与项目状态的管理工具，消除因读取旧YAML元数据导致的无限驳回死循环。
+  priority: high
+  source: COO
+- &id004
+  description: 开发并在自动化工作流中部署“死循环熔断机制”与异常干预流程，一旦监控到系统出现重复驳回，立刻主动拦截并强制人工介入排查根因。
+  priority: high
+  source: COO
+- &id005
+  description: 建立实时的API Token预算监控与告警机制，并立即补充当前耗尽的Token预算，防止再次触发API 402余额不足导致任务中断。
+  priority: high
+  source: COO
+- &id006
+  description: 全面实施AI模型降本增效方案，针对文件路径核实等基础、低难度子任务，坚决降级使用低成本AI模型，削减昂贵模型的无效调用浪费。
+  priority: high
+  source: COO
+- &id007
+  description: 完善任务分派SOP，下发初始任务或整改指令时强制明确并严格锁定Workspace绝对路径，并在分派前完成系统初始状态校验。
+  priority: high
+  source: COO
+- &id008
+  description: 开发并引入自动化的“目录环境与配置校验脚本”，在QA进行功能测试或最终验收前，强制核对物理文件路径与YAML配置状态是否吻合。
+  priority: medium
+  source: COO
+- &id009
+  description: 严格规范人工干预系统的操作流程，增加修改前的目标文件二次确认机制，杜绝类似错误修改非目标项目（如first-game）配置文件的风险。
+  priority: medium
+  source: COO
+- &id010
+  description: 启动专项招聘计划，引进具备全局工程配置排查经验的自动化QA人才，以快速弥补现有团队在环境排查与元数据校验上的短板。
+  priority: high
+  source: HR
+- &id011
+  description: 开展“狼性文化”及项目全局把控意识培训，强化PM等相关人员“一次做对”的执行力，要求员工对整体交付标准全权负责，严禁将视野仅局限于末端功能测试。
+  priority: medium
+  source: HR
+- &id012
+  description: 组织全员开展降本增效与新工作流SOP培训，确保所有涉及任务分派、执行与验收的员工熟练掌握绝对路径锁定规范及熔断机制的触发条件。
+  priority: medium
+  source: HR
+- &id013
+  asset_description: 用于规范定义和管理单页/小型任务的Markdown模板，可在公司其他项目中复用，以统一任务分配与需求描述的标准。
+  description: '沉淀项目资产: One Page Task Template — 用于规范定义和管理单页/小型任务的Markdown模板，可在公司其他项目中复用，以统一任务分配与需求描述的标准。'
+  files: &id001
+  - one_page_task_template.md
+  name: One Page Task Template
+  priority: medium
+  project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/愤怒的小鸟/workspace
+  source: COO
+  type: asset_consolidation
+- &id014
+  asset_description: 基于HTML5 Canvas和JavaScript的2D物理游戏（类愤怒的小鸟）的完整实现，具有基础的物理引擎和交互逻辑，可作为后续开发类似网页小游戏的参考代码库。
+  description: '沉淀项目资产: HTML5 2D物理游戏参考代码 — 基于HTML5 Canvas和JavaScript的2D物理游戏（类愤怒的小鸟）的完整实现，具有基础的物理引擎和交互逻辑，可作为后续开发类似网页小游戏的参考代码库。'
+  files: &id002
+  - angry_birds_v2.html
+  - index.html
+  name: HTML5 2D物理游戏参考代码
+  priority: medium
+  project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/愤怒的小鸟/workspace
+  source: COO
+  type: asset_consolidation
+asset_suggestions: &id016
+- description: 用于规范定义和管理单页/小型任务的Markdown模板，可在公司其他项目中复用，以统一任务分配与需求描述的标准。
+  files: *id001
+  name: One Page Task Template
+- description: 基于HTML5 Canvas和JavaScript的2D物理游戏（类愤怒的小鸟）的完整实现，具有基础的物理引擎和交互逻辑，可作为后续开发类似网页小游戏的参考代码库。
+  files: *id002
+  name: HTML5 2D物理游戏参考代码
+execution:
+  approved:
+  - *id003
+  - *id004
+  - *id005
+  - *id006
+  - *id007
+  - *id008
+  - *id009
+  - *id010
+  - *id011
+  - *id012
+  - *id013
+  - *id014
+  asset_results:
+  - files:
+    - one_page_task_template.md
+    folder_name: one_page_task_template
+    id: 4f20d08f
+    name: One Page Task Template
+    position:
+    - 15
+    - 17
+    status: success
+  - files:
+    - angry_birds_v2.html
+    - index.html
+    folder_name: html5_2d物理游戏参考代码_04dfe7c6
+    id: 04dfe7c6
+    name: HTML5 2D物理游戏参考代码
+    position:
+    - 5
+    - 20
+    status: success
+  results:
+  - 已推送 10 项批准行动到COO任务板，已注册 2 项公司资产
+id: 298b4b58
+participants:
+- '00003'
+- '00004'
+- '00012'
+phase1:
+  hr_summary: &id019
+  - employee: Alex COO
+    improvements:
+    - 完善任务分派SOP，下发初始任务或整改指令时必须明确且严格锁定正确的Workspace绝对路径，并在分派前校验当前系统状态，杜绝初期路径指定错误。
+    - 建立异常干预与死循环熔断机制，在监控到系统出现重复驳回时必须主动介入排查脚本逻辑与元数据根因，严禁盲目机械地重复派单以避免昂贵Token的无效消耗。
+    - 加强系统资源管理，立即补充API Token预算并实施AI模型降本增效方案（如基础任务降级使用低成本模型），防止再次触发API 402余额不足报错导致工作流中断。
+  - employee: Pat EA
+    improvements:
+    - 重构EA验收脚本底层逻辑，要求直接校验磁盘上的物理文件真实状态，或引入自动同步文件操作与项目状态的管理工具，彻底消除因旧YAML元数据导致的无限驳回死循环。
+    - 在初始分派任务时，必须更严格地锁定并向执行端强调正确的Workspace绝对路径，防止执行端出现偏差并导致后续反复驳回。
+    - 提前确认系统的API额度并建立告警机制，防止因API调用余额不足触发402报错导致任务中断。
+  - employee: Claude Project Manager (On-Site)
+    improvements:
+    - 强化项目全局把控责任意识，严禁将工作仅局限于末端的代码功能测试，必须对整体交付标准全权负责。
+    - 在最终验收前必须提前介入，严格核对交付物物理目录及YAML配置文件状态，确保物理文件迁移时同步更新元数据（如status和output），从源头预防死循环。
+  self_evaluations: &id017
+  - employee_id: '00003'
+    evaluation: 在本项目中，我负责了任务的初始分派、严格验收以及EA驳回后的原因分析，多次下发整改指令将错放的文件纠正至 `iter_002` 目录，并出具运营报告客观指出了EA验收逻辑仅读取旧元数据的缺陷。然而，我初期错误指定了旧工作区路径导致项目被驳回，且在系统陷入重复派单死循环时未能及时干预，引发了大量无效派发及多次
+      API 402 余额不足报错。未来我必须在任务下发前严格核对并锁定正确的绝对路径，同时建立死循环熔断机制以杜绝系统内耗与昂贵的Token浪费。
+    level: 4
+    name: Alex COO
+    nickname: 铁面侠
+  - employee_id: '00004'
+    evaluation: '**自评报告：**
+
+
+      我在本项目中完成了任务的初步分析并将其分派给COO，随后在最终质量复核时，因产出文件存放路径严重错误而准确执行了驳回操作。但在执行过程中，我曾因API调用余额不足触发了402报错导致任务中断。后续的改进点在于我需要提前确认系统的API额度，并在初始分派任务时更严格地锁定并强调正确的Workspace绝对路径，以防执行端出现偏差并导致后续反复驳回的死循环。'
+    level: 4
+    name: Pat EA
+    nickname: 玲珑阁
+  - employee_id: '00012'
+    evaluation: 我在本项目中主要完成了游戏核心功能的测试验证，成功确认了5个关卡、带HUD的计分系统、关卡导航以及木头耐久度等关键特性均已实装。这有效保障了游戏交付物在功能层面的完整性与可用性。但记录显示我的工作仅局限于末端的功能测试，未能参与项目全局的路径核对与元数据检查，未来需要进一步提升对整体交付标准的把控意识。
+    level: 1
+    name: Claude Project Manager (On-Site)
+    nickname: 神机
+  senior_reviews: &id018
+  - reviewer: Alex COO
+    reviewer_level: 4
+    reviews:
+    - name: Claude Project Manager (On-Site)
+      review: 神机在本项目中确实完成了5个关卡及计分系统等核心功能的测试验证，保障了代码功能层面的可用性，自评客观属实。但作为PM全局把控严重不足，未能提前发现并核对交付路径与元数据状态，导致项目陷入反复驳回的死循环，后续必须强化对整体交付标准与配置文件的核查执行力。
+  - reviewer: Pat EA
+    reviewer_level: 4
+    reviews:
+    - name: Claude Project Manager (On-Site)（神机，Lv.1）
+      review: 该同事在本项目中切实完成了5个关卡及计分系统等核心功能的测试验证，有效保障了产物在功能层面的可用性，自评内容客观属实。但其工作确实仅局限于末端功能测试，未能提前介入核对交付物物理目录与元数据状态，导致未能预防因路径错误引发的无限驳回死循环，后续必须强化对全局交付标准的把控与责任意识。
+phase2:
+  action_items: *id015
+  asset_suggestions: *id016
+  coo_report: '秉承“实事求是，求是创新”与“狼性文化”的核心价值观，现基于客观项目记录出具公司当前运营状况报告：
+
+
+    1. **项目完成与文件审查**：工程师最终成功将18个游戏产物文件迁移至正确的 `iter_002` 目录并修复了关联YAML元数据，QA顺利完成了5个关卡及计分系统的功能验证，项目实质交付；但排查期间工程师曾错误修改过
+    `first-game` 的配置文件，暴露出人工干预时的错改风险，需严加规范。
+
+    2. **资源利用与成本分析**：本次项目开销严重超出预算并触发了API 402余额不足报错，由于初期路径分配错误及EA验收脚本逻辑缺陷（仅读取旧元数据），导致管理层（PM与EA）在无限驳回的整改死循环中无效消耗了绝大部分昂贵的Token。
+
+    3. **潜在风险**：当前自动化工作流缺乏“死循环熔断机制”，且项目经理（PM）与验收方（EA）在验收前未核对交付物物理目录状态，极易再次引发系统内耗与工作流中断。
+
+    4. **降本增效建议**：必须立即重构EA直接校验物理文件的逻辑并引入循环断路器，同时针对文件路径核实等基础子任务，坚决降级使用低成本AI模型，以彻底削减不必要的LLM调用浪费。'
+  employee_feedback: &id020
+  - employee_id: '00003'
+    feedback: 秉承实事求是的原则，本次项目因EA验收脚本的缺陷（仅读取旧YAML元数据而不校验实际物理文件），导致我陷入了反复派发整改任务的死循环，甚至耗尽了API
+      Token触发多次402报错。我强烈建议立即重构EA底层验收逻辑，并在自动化工作流中部署“死循环熔断工具”，彻底杜绝这种无意义的计算资源与成本浪费。
+    name: Alex COO
+  - employee_id: '00004'
+    feedback: 各位好，基于实事求是的原则复盘本次项目，我因交付物路径严重错误（存入旧目录）而执行了驳回，但由于验收逻辑死板引发了无限驳回的死循环，期间更遭遇了API
+      402余额不足的报错导致任务直接中断。我建议立刻为系统引入实时的Token预算监控工具与“死循环熔断机制”，同时在任务分派阶段强制锁定Workspace绝对路径，以杜绝无谓的系统内耗与昂贵的成本浪费。
+    name: Pat EA
+  - employee_id: '00012'
+    feedback: 在本次项目中，我实事求是地完成了游戏5个关卡、计分系统及木头耐久度等核心功能的验证，但因视野仅局限于功能测试，未能提前排查出导致验收死循环的文件路径与元数据错误。建议工程团队开发并引入自动化的“目录环境与配置校验脚本”，在功能测试前强制核对物理文件路径与YAML状态是否吻合。同时，我们需要补充具备全局工程配置排查经验的自动化QA人才，以贯彻狼性文化中“一次做对”的执行力，杜绝此类昂贵的资源内耗。
+    name: Claude Project Manager (On-Site)
+steps:
+  'Phase 2: Self-Evaluation':
+    self_evaluations: *id017
+  'Phase 3: Senior Peer Review':
+    senior_reviews: *id018
+  'Phase 4: HR Summary and Improvement Points':
+    hr_summary: *id019
+  'Phase 5.5: Asset Consolidation':
+    asset_suggestions: *id016
+  'Phase 5: COO Operations Report':
+    coo_report: '秉承“实事求是，求是创新”与“狼性文化”的核心价值观，现基于客观项目记录出具公司当前运营状况报告：
+
+
+      1. **项目完成与文件审查**：工程师最终成功将18个游戏产物文件迁移至正确的 `iter_002` 目录并修复了关联YAML元数据，QA顺利完成了5个关卡及计分系统的功能验证，项目实质交付；但排查期间工程师曾错误修改过
+      `first-game` 的配置文件，暴露出人工干预时的错改风险，需严加规范。
+
+      2. **资源利用与成本分析**：本次项目开销严重超出预算并触发了API 402余额不足报错，由于初期路径分配错误及EA验收脚本逻辑缺陷（仅读取旧元数据），导致管理层（PM与EA）在无限驳回的整改死循环中无效消耗了绝大部分昂贵的Token。
+
+      3. **潜在风险**：当前自动化工作流缺乏“死循环熔断机制”，且项目经理（PM）与验收方（EA）在验收前未核对交付物物理目录状态，极易再次引发系统内耗与工作流中断。
+
+      4. **降本增效建议**：必须立即重构EA直接校验物理文件的逻辑并引入循环断路器，同时针对文件路径核实等基础子任务，坚决降级使用低成本AI模型，以彻底削减不必要的LLM调用浪费。'
+  'Phase 6: Employee Open Floor':
+    employee_feedback: *id020
+  'Phase 7: Action Plan Organization':
+    action_items: *id015
+  'Phase 8: CEO Approval and Execution':
+    status: awaiting_ceo_review
+task_summary: EA代CEO驳回了当前项目的交付物，理由是文件存放位置错误。请将位于 `/Users/yuzhengxu/projects/OneManCompany/company/business/projects/愤怒的小鸟/workspace`
+  目录下的所有相关代码和资源文件（包括 `index.html` 及相关资产）移动或复制到当前迭代正确的 workspace 中：`/Users/yuzhengxu/projects/OneManCompany/company/business/projects/first-game/iterations/iter_002`。请确保所有关联文件的路径正确，且游戏能在新路径下正常运行。完成后请通知我进行验收。
+timestamp: '2026-03-05T13:54:13.283974'
+workflow: project_retrospective_workflow
+workflow_flow_id: project_review

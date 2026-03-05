@@ -578,6 +578,30 @@ class EmployeeManager:
             if emp_id not in self._running_tasks and board.get_next_pending():
                 self._schedule_next(emp_id)
 
+    def abort_project(self, project_id: str) -> int:
+        """Cancel board tasks AND cancel the running asyncio.Task for a project.
+
+        Returns the number of tasks cancelled.
+        """
+        total_cancelled = 0
+        for emp_id, board in self.boards.items():
+            cancelled = board.cancel_by_project(project_id)
+            for t in cancelled:
+                vessel = self.vessels.get(emp_id)
+                if vessel:
+                    self._log(emp_id, t, "cancelled", "Task aborted by CEO")
+                    self._publish_task_update(emp_id, t)
+            total_cancelled += len(cancelled)
+
+            # Cancel the running asyncio.Task if it's working on this project
+            if cancelled and emp_id in self._running_tasks:
+                running = self._running_tasks[emp_id]
+                if not running.done():
+                    running.cancel()
+                    logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
+
+        return total_cancelled
+
     async def _run_task(self, employee_id: str, task: AgentTask) -> None:
         """Execute a task, then schedule the next one."""
         try:
@@ -743,6 +767,14 @@ class EmployeeManager:
                 if is_complete:
                     break
 
+        except asyncio.CancelledError:
+            agent_error = True
+            if task.status not in ("cancelled",):
+                task.status = "cancelled"
+            task.result = task.result or "Cancelled by CEO"
+            if not task.completed_at:
+                task.completed_at = datetime.now().isoformat()
+            self._log(employee_id, task, "cancelled", "Task cancelled (asyncio abort)")
         except Exception as e:
             agent_error = True
             task.status = "failed"
@@ -1003,6 +1035,7 @@ class EmployeeManager:
     def _get_project_history_context(self, project_id: str) -> str:
         from onemancompany.core.project_archive import (
             _is_v1, _is_iteration, _find_project_for_iteration,
+            _split_qualified_iter,
             load_named_project, load_iteration, list_project_files,
         )
 
@@ -1013,7 +1046,8 @@ class EmployeeManager:
             if not found:
                 return ""
             slug = found
-            current_iter = project_id
+            _, bare_iter = _split_qualified_iter(project_id)
+            current_iter = bare_iter
         elif _is_v1(project_id) or project_id.startswith("_auto_"):
             return ""
 
@@ -1455,6 +1489,19 @@ class EmployeeManager:
         if not handle:
             print(f"[rectification] WARNING: No handle for officer {officer_id}")
             return
+
+        # Reset dispatches for the new rectification round.
+        # Add the officer as a gate dispatch so all_dispatches_complete()
+        # won't return True until the officer's own task finishes (by which
+        # time all sub-dispatches are registered).
+        from onemancompany.core.project_archive import (
+            _resolve_and_load, _save_resolved, record_dispatch,
+        )
+        version, doc, key = _resolve_and_load(project_id)
+        if doc:
+            doc["dispatches"] = []
+            _save_resolved(version, key, doc)
+        record_dispatch(project_id, officer_id, "Rectification coordinator")
 
         criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
 

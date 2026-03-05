@@ -74,16 +74,52 @@ def _is_v1(pid: str) -> bool:
 
 
 def _is_iteration(pid: str) -> bool:
-    return bool(_ITER_RE.match(pid))
+    """Check if pid is an iteration ID, either bare (iter_002) or qualified (slug/iter_002)."""
+    if bool(_ITER_RE.match(pid)):
+        return True
+    # Qualified format: "slug/iter_NNN"
+    if "/" in pid:
+        _, _, iter_part = pid.rpartition("/")
+        return bool(_ITER_RE.match(iter_part))
+    return False
+
+
+def _split_qualified_iter(pid: str) -> tuple[str, str]:
+    """Split a possibly-qualified iteration ID into (slug, iter_id).
+
+    "first-game/iter_002" -> ("first-game", "iter_002")
+    "iter_002"            -> ("", "iter_002")
+    """
+    if "/" in pid:
+        slug, _, iter_id = pid.rpartition("/")
+        if _ITER_RE.match(iter_id):
+            return slug, iter_id
+    return "", pid
 
 
 def _find_project_for_iteration(iter_id: str) -> str | None:
-    """Scan projects to find which named project owns this iteration."""
+    """Find which named project owns this iteration.
+
+    Supports qualified IDs like "first-game/iter_002" for exact matching,
+    and bare IDs like "iter_002" with directory scan (legacy fallback).
+    """
+    # Fast path: qualified iteration ID with embedded slug
+    slug, bare_id = _split_qualified_iter(iter_id)
+    if slug:
+        # Verify it exists
+        iter_path = PROJECTS_DIR / slug / "iterations" / f"{bare_id}.yaml"
+        if iter_path.exists():
+            return slug
+        # Slug was given but file doesn't exist — still return slug
+        # so we don't accidentally match a different project
+        return slug
+
+    # Legacy: scan all projects (may be ambiguous)
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     for d in PROJECTS_DIR.iterdir():
         if not d.is_dir():
             continue
-        iter_path = d / "iterations" / f"{iter_id}.yaml"
+        iter_path = d / "iterations" / f"{bare_id}.yaml"
         if iter_path.exists():
             return d.name
     return None
@@ -105,9 +141,10 @@ def _resolve_and_load(pid: str) -> tuple[str, dict | None, str]:
 
     if _is_iteration(pid):
         slug = _find_project_for_iteration(pid)
+        _, bare_id = _split_qualified_iter(pid)
         if slug:
-            doc = load_iteration(slug, pid)
-            return ("v2", doc, f"{slug}/{pid}")
+            doc = load_iteration(slug, bare_id)
+            return ("v2", doc, f"{slug}/{bare_id}")
         return ("v2", None, "")
 
     # Assume it's a project slug — load latest iteration or project itself
@@ -448,11 +485,14 @@ def _resolve_workspace(project_id: str) -> Path:
     - v2 project slug: latest iteration's per-iteration workspace (via get_project_workspace)
     - v2 iteration ID: that iteration's project_dir from its YAML
     - v1 / _auto_: the project directory itself
+
+    Supports qualified iteration IDs like "first-game/iter_002".
     """
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
+        _, bare_id = _split_qualified_iter(project_id)
         if slug:
-            iter_doc = load_iteration(slug, project_id)
+            iter_doc = load_iteration(slug, bare_id)
             if iter_doc and iter_doc.get("project_dir"):
                 ws = Path(iter_doc["project_dir"])
                 ws.mkdir(parents=True, exist_ok=True)

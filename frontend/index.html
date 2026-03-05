@@ -97,9 +97,14 @@
             </select>
             <input id="new-project-name" class="hidden" placeholder="Project name..." />
           </div>
-          <textarea id="task-input"
-                    placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"
-                    rows="3"></textarea>
+          <div class="ceo-input-area">
+            <textarea id="task-input"
+                      placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"
+                      rows="3"></textarea>
+            <input type="file" id="task-file-input" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt,.md" hidden />
+            <label class="chat-attach-btn" for="task-file-input" title="Attach file or image">&#128206;</label>
+          </div>
+          <div id="task-preview-bar" class="chat-preview-bar hidden"></div>
           <div class="btn-row">
             <button id="submit-btn" class="pixel-btn">&#9654; Submit Task</button>
             <button id="hr-review-btn" class="pixel-btn secondary">&#128203; Quarterly Review</button>

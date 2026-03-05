@@ -1,7 +1,7 @@
-# Nova Smith (星芒) Work Principles
+# Claude Project Manager (On-Site) (神机) Work Principles
 
-**Department**: Design
-**Title**: Junior Designer
+**Department**: Engineering
+**Title**: Junior Engineer
 **Level**: Lv.1
 
 ## Core Principles
