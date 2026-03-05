@@ -1,3 +1,0 @@
-Task: 招聘一个比墨者更强的coding员工
-Routed to: HR (ID:00002)
-Reason: This is a hiring task, which falls under the People/HR domain. HR is responsible for hiring, evaluating candidates, and onboarding.

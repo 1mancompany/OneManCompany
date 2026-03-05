@@ -597,14 +597,23 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
     }
     pending_hiring_requests[request_id] = req
 
-    # Publish event for frontend — CEO will see and approve/reject
-    asyncio.get_event_loop().create_task(
-        event_bus.publish(CompanyEvent(
-            type="hiring_request_ready",
-            payload={"request_id": request_id, **req},
-            agent="COO",
-        ))
-    )
+    # Publish event for frontend — CEO will see and approve/reject.
+    # LangChain tools run in a thread pool, so use run_coroutine_threadsafe
+    # with the main event loop stored on EmployeeManager.
+    from onemancompany.core.vessel import employee_manager
+    coro = event_bus.publish(CompanyEvent(
+        type="hiring_request_ready",
+        payload={"request_id": request_id, **req},
+        agent="COO",
+    ))
+    loop = getattr(employee_manager, "_event_loop", None)
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, loop)
+    else:
+        try:
+            asyncio.get_event_loop().run_until_complete(coro)
+        except RuntimeError:
+            logger.warning("No event loop available — hiring_request_ready event will be missed")
 
     return {
         "status": "submitted",

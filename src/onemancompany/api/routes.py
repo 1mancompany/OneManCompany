@@ -2115,6 +2115,112 @@ async def archive_project_endpoint(project_id: str) -> dict:
     return {"status": "archived", "project_id": project_id}
 
 
+@router.post("/api/projects/continue")
+async def continue_iteration(body: dict) -> dict:
+    """Continue an existing iteration without creating a new one.
+
+    Pushes a continuation task to the responsible officer (COO) with
+    the original task, acceptance criteria, and last feedback.
+    """
+    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.project_archive import (
+        _resolve_and_load,
+        _save_resolved,
+        append_action,
+        record_dispatch,
+    )
+
+    project_id = body.get("project_id", "")
+    iteration_id = body.get("iteration_id", "")
+    if not iteration_id:
+        return {"error": "Missing iteration_id"}
+
+    # Load the iteration document
+    version, doc, key = _resolve_and_load(iteration_id)
+    if not doc:
+        return {"error": "Iteration not found"}
+
+    if doc.get("status") == "completed":
+        return {"error": "Iteration already completed"}
+
+    task = doc.get("task", "")
+    criteria = doc.get("acceptance_criteria", [])
+    acceptance_result = doc.get("acceptance_result")
+    ea_review_result = doc.get("ea_review_result")
+    officer_id = doc.get("responsible_officer") or COO_ID
+    project_dir = doc.get("project_dir", "")
+
+    # Build feedback summary from last round
+    feedback_lines = []
+    if acceptance_result:
+        status = "通过" if acceptance_result.get("accepted") else "未通过"
+        feedback_lines.append(f"上次验收结果: {status}")
+        if acceptance_result.get("notes"):
+            feedback_lines.append(f"验收备注: {acceptance_result['notes']}")
+    if ea_review_result:
+        status = "通过" if ea_review_result.get("approved") else "驳回"
+        feedback_lines.append(f"EA审核: {status}")
+        if ea_review_result.get("notes"):
+            feedback_lines.append(f"EA备注: {ea_review_result['notes']}")
+    feedback_text = "\n".join(feedback_lines) if feedback_lines else "（无上轮反馈）"
+
+    criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria)) if criteria else "（未设置验收标准）"
+
+    # Reset acceptance/EA results for re-evaluation
+    doc["acceptance_result"] = None
+    doc["ea_review_result"] = None
+    doc["status"] = "in_progress"
+    doc["dispatches"] = []
+    _save_resolved(version, key, doc)
+
+    # Register officer gate dispatch
+    record_dispatch(iteration_id, officer_id, "Continuation coordinator")
+
+    # Build continuation task description
+    ctx_id = f"{project_id}/{iteration_id}" if project_id and not iteration_id.startswith(project_id) else iteration_id
+    continuation_task = (
+        f"项目续做通知（CEO要求继续当前轮次）\n\n"
+        f"原始任务: {task}\n\n"
+        f"验收标准:\n{criteria_text}\n\n"
+        f"上轮反馈:\n{feedback_text}\n\n"
+        f"⚠️ CEO要求在当前轮次继续推进，不创建新迭代。\n"
+        f"请根据以上信息:\n"
+        f"1. 分析未完成或需改进的部分\n"
+        f"2. 将任务 dispatch_task() 给相关员工执行\n"
+        f"3. 完成后重新进行验收\n\n"
+        f"[Project ID: {ctx_id}] [Project workspace: {project_dir}]"
+    )
+
+    # Push task to officer
+    loop = get_agent_loop(officer_id)
+    if not loop:
+        return {"error": f"No agent loop for officer {officer_id}"}
+
+    loop.push_task(continuation_task, project_id=ctx_id, project_dir=project_dir)
+
+    # Log the action
+    append_action(iteration_id, CEO_ID, "continue", f"CEO requested continuation of current iteration")
+
+    # Update active tasks
+    task_entry = TaskEntry(
+        project_id=project_id or iteration_id,
+        iteration_id=iteration_id,
+        task=f"[续做] {task[:80]}",
+        routed_to=officer_id,
+        project_dir=project_dir,
+    )
+    company_state.active_tasks.append(task_entry)
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {
+        "status": "continued",
+        "routed_to": officer_id,
+        "iteration_id": iteration_id,
+    }
+
+
 @router.get("/api/projects/{project_id}")
 async def get_project_detail(project_id: str) -> dict:
     """Get full project detail including timeline and workspace files."""
@@ -2314,7 +2420,9 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
     ))
 
     if approved:
-        # Build JD from COO's request and dispatch to HR
+        # Build JD from COO's request and push to HR's task board
+        from onemancompany.core.agent_loop import get_agent_loop
+
         skills_str = ", ".join(req.get("desired_skills", []))
         jd = f"招聘 {req['role']}"
         if skills_str:
@@ -2323,24 +2431,17 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         if note:
             jd += f"\nCEO 备注: {note}"
 
-        asyncio.create_task(_run_agent_safe(
-            _dispatch_hiring_to_hr(jd), "HR",
-            task_description=f"Recruit {req['role']}",
-        ))
+        hr_loop = get_agent_loop(HR_ID)
+        if hr_loop:
+            hr_loop.push_task(jd)
+        else:
+            logger.warning("No agent loop for HR — hiring task dropped")
 
     return {
         "status": "approved" if approved else "rejected",
         "request_id": request_id,
         "role": req["role"],
     }
-
-
-async def _dispatch_hiring_to_hr(jd: str) -> str:
-    """Dispatch a hiring task to the HR agent."""
-    from onemancompany.core.agent_loop import employee_manager
-
-    result = await employee_manager.dispatch("00002", jd)
-    return result or ""
 
 
 # ===== Candidate Selection =====

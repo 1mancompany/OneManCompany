@@ -6186,30 +6186,55 @@ class TestProjectFilePathEscape:
 
 
 class TestDispatchHiringToHR:
-    async def test_dispatch_hiring_to_hr(self):
-        """Lines 2271-2274: dispatching hiring task to HR via employee_manager."""
-        from onemancompany.api import routes as routes_mod
+    async def test_approved_hiring_pushes_task_to_hr(self):
+        """CEO approval pushes hiring task to HR via push_task."""
+        from onemancompany.agents.coo_agent import pending_hiring_requests
 
-        mock_manager = MagicMock()
-        mock_manager.dispatch = AsyncMock(return_value="Candidate found")
+        req_id = "test123"
+        pending_hiring_requests[req_id] = {
+            "role": "Developer",
+            "reason": "Need more devs",
+            "desired_skills": ["Python"],
+            "requested_by": "00003",
+            "requested_at": "2026-01-01T00:00:00",
+        }
 
-        with patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
-            result = await routes_mod._dispatch_hiring_to_hr("招聘 Developer")
+        mock_vessel = MagicMock()
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
 
-        assert result == "Candidate found"
-        mock_manager.dispatch.assert_awaited_once_with("00002", "招聘 Developer")
+        with patch("onemancompany.api.routes.event_bus", mock_bus), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_vessel):
+            from onemancompany.api.routes import decide_hiring_request
+            result = await decide_hiring_request(req_id, {"approved": True})
 
-    async def test_dispatch_hiring_to_hr_returns_empty_on_none(self):
-        """Lines 2271-2274: returns empty string when dispatch returns None."""
-        from onemancompany.api import routes as routes_mod
+        assert result["status"] == "approved"
+        mock_vessel.push_task.assert_called_once()
+        jd = mock_vessel.push_task.call_args[0][0]
+        assert "Developer" in jd
+        assert "Python" in jd
 
-        mock_manager = MagicMock()
-        mock_manager.dispatch = AsyncMock(return_value=None)
+    async def test_rejected_hiring_does_not_push(self):
+        """CEO rejection does not push any task to HR."""
+        from onemancompany.agents.coo_agent import pending_hiring_requests
 
-        with patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
-            result = await routes_mod._dispatch_hiring_to_hr("招聘 Designer")
+        req_id = "test456"
+        pending_hiring_requests[req_id] = {
+            "role": "Designer",
+            "reason": "Nice to have",
+            "desired_skills": [],
+            "requested_by": "00003",
+            "requested_at": "2026-01-01T00:00:00",
+        }
 
-        assert result == ""
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+
+        with patch("onemancompany.api.routes.event_bus", mock_bus):
+            from onemancompany.api.routes import decide_hiring_request
+            result = await decide_hiring_request(req_id, {"approved": False})
+
+        assert result["status"] == "rejected"
 
 
 # ---------------------------------------------------------------------------
