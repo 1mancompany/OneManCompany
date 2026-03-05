@@ -110,7 +110,7 @@ def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
 def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     """Parse a single ## section into a WorkflowStep."""
     lines = section_text.strip().split("\n")
-    if not lines:
+    if not lines:  # pragma: no cover – str.split always returns non-empty list
         return None
 
     title = lines[0].strip()

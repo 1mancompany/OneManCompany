@@ -766,3 +766,578 @@ class TestEmployeeAgent:
 
         result = await agent.run_streamed("Do something", on_log=None)
         assert result == "Done"
+
+    def test_build_prompt_with_role_file(self, monkeypatch, tmp_path):
+        """When employee has a role.md prompt file, uses that as header."""
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import config as config_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        emp = _make_emp(
+            "00010", name="Alice", nickname="凌霄",
+            role="Engineer", department="Engineering", level=2,
+        )
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        # Set up employees dir with role.md
+        emp_dir = tmp_path / "emp" / "00010" / "prompts"
+        emp_dir.mkdir(parents=True)
+        (emp_dir / "role.md").write_text("You are {name} (花名: {nickname}), Lv.{level}")
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+        monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+        monkeypatch.setattr(config_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
+        monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
+        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(
+            "onemancompany.agents.base.create_react_agent",
+            lambda model, tools: MagicMock(),
+        )
+
+        from onemancompany.agents.base import EmployeeAgent
+        agent = EmployeeAgent("00010")
+        prompt = agent._build_prompt()
+        assert "Alice" in prompt
+        assert "凌霄" in prompt
+        assert "Lv.2" in prompt
+
+
+# ---------------------------------------------------------------------------
+# get_employee_talent_persona
+# ---------------------------------------------------------------------------
+
+class TestGetEmployeeTalentPersona:
+    def test_returns_empty_when_no_file(self, monkeypatch, tmp_path):
+        from onemancompany.agents import base as base_mod
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+        result = base_mod.get_employee_talent_persona("00010")
+        assert result == ""
+
+    def test_returns_content_when_file_exists(self, monkeypatch, tmp_path):
+        from onemancompany.agents import base as base_mod
+
+        prompts_dir = tmp_path / "emp" / "00010" / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (prompts_dir / "talent_persona.md").write_text("You are a senior PM.")
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+        result = base_mod.get_employee_talent_persona("00010")
+        assert "You are a senior PM." in result
+        assert result.startswith("\n")
+
+    def test_returns_empty_when_file_is_blank(self, monkeypatch, tmp_path):
+        from onemancompany.agents import base as base_mod
+
+        prompts_dir = tmp_path / "emp" / "00010" / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (prompts_dir / "talent_persona.md").write_text("   ")
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+        result = base_mod.get_employee_talent_persona("00010")
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# make_llm anthropic provider
+# ---------------------------------------------------------------------------
+
+class TestMakeLlmAnthropic:
+    def test_anthropic_with_api_key(self, monkeypatch):
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "claude-sonnet-4-20250514"
+        cfg.temperature = 0.5
+        cfg.api_provider = "anthropic"
+        cfg.api_key = "sk-ant-test-key-123"
+        cfg.auth_method = "api_key"
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        # Mock ChatAnthropic
+        mock_chat_anthropic = MagicMock()
+        monkeypatch.setattr(
+            "onemancompany.agents.base.ChatAnthropic",
+            mock_chat_anthropic,
+            raising=False,
+        )
+        # We need to mock the import inside make_llm
+        import importlib
+        mock_module = MagicMock()
+        mock_module.ChatAnthropic = mock_chat_anthropic
+        monkeypatch.setitem(__import__('sys').modules, 'langchain_anthropic', mock_module)
+
+        llm = base_mod.make_llm("00010")
+        mock_chat_anthropic.assert_called_once()
+        call_kwargs = mock_chat_anthropic.call_args[1]
+        assert call_kwargs["model"] == "claude-sonnet-4-20250514"
+        assert call_kwargs["api_key"] == "sk-ant-test-key-123"
+
+    def test_anthropic_oauth_sets_beta_header(self, monkeypatch):
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "claude-sonnet-4-20250514"
+        cfg.temperature = 0.5
+        cfg.api_provider = "anthropic"
+        cfg.api_key = "sk-ant-oat-token-123"
+        cfg.auth_method = "oauth"
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        mock_chat_anthropic = MagicMock()
+        mock_module = MagicMock()
+        mock_module.ChatAnthropic = mock_chat_anthropic
+        monkeypatch.setitem(__import__('sys').modules, 'langchain_anthropic', mock_module)
+
+        base_mod.make_llm("00010")
+        call_kwargs = mock_chat_anthropic.call_args[1]
+        assert call_kwargs["default_headers"] is not None
+        assert "anthropic-beta" in call_kwargs["default_headers"]
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner._get_talent_persona_section
+# ---------------------------------------------------------------------------
+
+class TestGetTalentPersonaSection:
+    def test_returns_empty_when_no_file(self, monkeypatch, tmp_path):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        result = runner._get_talent_persona_section()
+        assert result == ""
+
+    def test_returns_section_when_file_exists(self, monkeypatch, tmp_path):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+
+        prompts_dir = tmp_path / "emp" / "00010" / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (prompts_dir / "talent_persona.md").write_text("You are a PM expert.")
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        result = runner._get_talent_persona_section()
+        assert "Talent Persona" in result
+        assert "You are a PM expert." in result
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner._build_full_prompt with agent loop context
+# ---------------------------------------------------------------------------
+
+class TestBuildFullPrompt:
+    def test_appends_history_context(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        runner = BaseAgentRunner()
+        runner.employee_id = ""
+        runner._build_prompt = lambda: "base prompt"
+
+        mock_loop = MagicMock()
+        mock_loop.get_history_context.return_value = "\n## History\nPrevious tasks..."
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_loop",
+            MagicMock(get=lambda x=None: mock_loop),
+        )
+
+        result = runner._build_full_prompt()
+        assert "base prompt" in result
+        assert "History" in result
+
+    def test_no_loop_returns_plain_prompt(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        runner = BaseAgentRunner()
+        runner.employee_id = ""
+        runner._build_prompt = lambda: "simple prompt"
+
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_loop",
+            MagicMock(get=lambda x=None: None),
+        )
+
+        result = runner._build_full_prompt()
+        assert result == "simple prompt"
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner.run_streamed (full streaming path)
+# ---------------------------------------------------------------------------
+
+class TestRunStreamed:
+    @pytest.mark.asyncio
+    async def test_run_streamed_full_path(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, events as events_mod
+
+        cs = _make_cs()
+        emp = _make_emp("00010")
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        mock_publish = AsyncMock()
+        monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=mock_publish))
+
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_loop",
+            MagicMock(get=lambda x=None: None),
+        )
+
+        # Build mock events for astream_events
+        mock_output = MagicMock()
+        mock_output.content = "Final answer"
+        mock_output.tool_calls = None
+        mock_output.response_metadata = {
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            "model_name": "test-model",
+        }
+
+        events = [
+            {"event": "on_chat_model_start", "data": {"input": [MagicMock(content="Hello")]}},
+            {"event": "on_chat_model_end", "data": {"output": mock_output}},
+            {"event": "on_tool_end", "data": {"output": "tool result"}, "name": "my_tool"},
+        ]
+
+        mock_agent = MagicMock()
+
+        async def fake_astream_events(messages_input, version, config):
+            for e in events:
+                yield e
+
+        mock_agent.astream_events = fake_astream_events
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        runner.role = "TestAgent"
+        runner._agent = mock_agent
+        runner._build_prompt = lambda: "test prompt"
+
+        log_calls = []
+        def on_log(kind, content):
+            log_calls.append((kind, content))
+
+        result = await runner.run_streamed("Do task", on_log=on_log)
+        assert result == "Final answer"
+        # Verify logs were called
+        assert any(k == "llm_output" for k, _ in log_calls)
+        assert any(k == "tool_result" for k, _ in log_calls)
+        # Status should be idle after completion
+        assert cs.employees["00010"].status == "idle"
+        # Should have recorded usage
+        assert runner._last_usage["input_tokens"] == 10
+        assert runner._last_usage["output_tokens"] == 5
+
+    @pytest.mark.asyncio
+    async def test_run_streamed_with_tool_calls(self, monkeypatch):
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        emp = _make_emp("00010")
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
+        monkeypatch.setattr(
+            "onemancompany.core.agent_loop._current_loop",
+            MagicMock(get=lambda x=None: None),
+        )
+
+        mock_output = MagicMock()
+        mock_output.content = "Using tool"
+        mock_output.tool_calls = [{"name": "search", "args": {"q": "test"}}]
+        mock_output.response_metadata = {"usage": {"prompt_tokens": 5, "completion_tokens": 3}}
+
+        events = [
+            {"event": "on_chat_model_end", "data": {"output": mock_output}},
+        ]
+
+        mock_agent = MagicMock()
+        async def fake_astream(msg, version, config):
+            for e in events:
+                yield e
+        mock_agent.astream_events = fake_astream
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        runner.role = "Agent"
+        runner._agent = mock_agent
+        runner._build_prompt = lambda: ""
+
+        logs = []
+        await runner.run_streamed("task", on_log=lambda k, c: logs.append((k, c)))
+        assert any(k == "tool_call" for k, _ in logs)
+
+
+# ---------------------------------------------------------------------------
+# get_employee_tools_prompt — file content and binary file handling
+# ---------------------------------------------------------------------------
+
+class TestGetEmployeeToolsPromptWithFiles:
+    def test_includes_file_contents(self, monkeypatch, tmp_path):
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, config as config_mod
+
+        cs = _make_cs()
+        tool_folder = tmp_path / "tools" / "my_tool"
+        tool_folder.mkdir(parents=True)
+        (tool_folder / "readme.md").write_text("Tool readme content")
+
+        cs.tools = {
+            "t1": OfficeTool(
+                id="t1", name="MyTool", description="A tool with files",
+                added_by="COO", allowed_users=[], folder_name="my_tool",
+                files=["readme.md"],
+            ),
+        }
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        result = base_mod.get_employee_tools_prompt("00010")
+        assert "Tool readme content" in result
+
+    def test_handles_binary_files(self, monkeypatch, tmp_path):
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, config as config_mod
+
+        cs = _make_cs()
+        tool_folder = tmp_path / "tools" / "my_tool"
+        tool_folder.mkdir(parents=True)
+        (tool_folder / "data.bin").write_bytes(b"\x80\x81\x82\x83")
+
+        cs.tools = {
+            "t1": OfficeTool(
+                id="t1", name="BinTool", description="Tool with binary",
+                added_by="COO", allowed_users=[], folder_name="my_tool",
+                files=["data.bin"],
+            ),
+        }
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        result = base_mod.get_employee_tools_prompt("00010")
+        assert "[binary" in result
+
+
+# ---------------------------------------------------------------------------
+# _load_agent_prompt_sections edge cases
+# ---------------------------------------------------------------------------
+
+class TestLoadAgentPromptSectionsEdgeCases:
+    def test_skips_section_with_missing_name_or_file(self, tmp_path, monkeypatch):
+        import yaml as yaml_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents.prompt_builder import PromptBuilder
+
+        agent_dir = tmp_path / "emp" / "00010" / "agent"
+        agent_dir.mkdir(parents=True)
+
+        manifest = {"prompt_sections": [
+            {"name": "", "file": "custom.md", "priority": 25},
+            {"name": "valid", "file": "", "priority": 25},
+        ]}
+        (agent_dir / "manifest.yaml").write_text(yaml_mod.dump(manifest))
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        pb = PromptBuilder()
+        runner._load_agent_prompt_sections(pb)
+        assert pb.section_names() == []
+
+    def test_skips_section_with_missing_content_file(self, tmp_path, monkeypatch):
+        import yaml as yaml_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents.prompt_builder import PromptBuilder
+
+        agent_dir = tmp_path / "emp" / "00010" / "agent"
+        agent_dir.mkdir(parents=True)
+
+        manifest = {"prompt_sections": [
+            {"name": "missing_file", "file": "nonexistent.md", "priority": 25},
+        ]}
+        (agent_dir / "manifest.yaml").write_text(yaml_mod.dump(manifest))
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        pb = PromptBuilder()
+        runner._load_agent_prompt_sections(pb)
+        assert not pb.has("missing_file")
+
+    def test_handles_broken_manifest_yaml(self, tmp_path, monkeypatch):
+        from onemancompany.agents import base as base_mod
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents.prompt_builder import PromptBuilder
+
+        agent_dir = tmp_path / "emp" / "00010" / "agent"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "manifest.yaml").write_text(": bad: yaml: {{}")
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        pb = PromptBuilder()
+        runner._load_agent_prompt_sections(pb)
+        assert pb.section_names() == []
+
+
+# ---------------------------------------------------------------------------
+# EmployeeAgent._get_unauthorized_tools_section edge case
+# ---------------------------------------------------------------------------
+
+class TestUnauthorizedToolsSectionEmpty:
+    def test_returns_empty_when_no_unauthorized_tools(self, monkeypatch):
+        from onemancompany.agents.base import EmployeeAgent
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod, config as config_mod
+        import onemancompany.agents.common_tools as ct_mod
+
+        cs = _make_cs()
+        emp = _make_emp("00010", tool_permissions=list(ct_mod.GATED_TOOLS.keys()))
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(ct_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
+        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+        monkeypatch.setattr(
+            "onemancompany.agents.base.create_react_agent",
+            lambda model, tools: MagicMock(),
+        )
+
+        agent = EmployeeAgent("00010")
+        section = agent._get_unauthorized_tools_section()
+        assert section == ""
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner._build_prompt default (line 335)
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptDefault:
+    def test_base_build_prompt_returns_empty(self, monkeypatch):
+        """Line 335: BaseAgentRunner._build_prompt() returns empty string by default."""
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        runner = BaseAgentRunner()
+        runner.employee_id = ""
+        result = runner._build_prompt()
+        assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner._get_dynamic_context_section with active_tasks (lines 424-427)
+# ---------------------------------------------------------------------------
+
+class TestDynamicContextWithActiveTasks:
+    def test_active_tasks_included_in_context(self, monkeypatch):
+        """Lines 424-427: active_tasks list appears in dynamic context section."""
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents import base as base_mod
+        from onemancompany.core import state as state_mod
+        from onemancompany.core.state import TaskEntry
+
+        cs = _make_cs()
+        emp = _make_emp("00010")
+        cs.employees["00010"] = emp
+        # Add active tasks
+        cs.active_tasks = [
+            TaskEntry(project_id="proj1", task="Build the login page feature", routed_to="COO"),
+            TaskEntry(project_id="proj2", task="Design the dashboard UI", routed_to="HR"),
+        ]
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+
+        result = runner._get_dynamic_context_section()
+        assert "Active tasks" in result
+        assert "COO" in result
+        assert "Build the login page" in result
+        assert "HR" in result
+        assert "Design the dashboard" in result
+
+
+# ---------------------------------------------------------------------------
+# BaseAgentRunner._load_manifest_prompt_sections exception (lines 507-508)
+# ---------------------------------------------------------------------------
+
+class TestLoadManifestPromptSectionsException:
+    def test_read_exception_silently_ignored(self, tmp_path, monkeypatch):
+        """Lines 507-508: Exception reading content file is silently ignored."""
+        import yaml as yaml_mod
+        from onemancompany.agents import base as base_mod
+        from onemancompany.agents.base import BaseAgentRunner
+        from onemancompany.agents.prompt_builder import PromptBuilder
+
+        agent_dir = tmp_path / "emp" / "00010" / "agent"
+        agent_dir.mkdir(parents=True)
+
+        manifest = {"prompt_sections": [
+            {"name": "broken", "file": "broken.md", "priority": 25},
+        ]}
+        (agent_dir / "manifest.yaml").write_text(yaml_mod.dump(manifest))
+        # Create the file as a directory so read_text() will raise
+        (agent_dir / "broken.md").mkdir()
+
+        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
+
+        runner = BaseAgentRunner()
+        runner.employee_id = "00010"
+        pb = PromptBuilder()
+        runner._load_agent_prompt_sections(pb)
+        # The broken section should not be added
+        assert not pb.has("broken")

@@ -546,3 +546,341 @@ class TestProjectLock:
         lock1 = pa._get_project_lock("id-a")
         lock2 = pa._get_project_lock("id-b")
         assert lock1 is not lock2
+
+
+# ---------------------------------------------------------------------------
+# list_named_projects edge cases
+# ---------------------------------------------------------------------------
+
+class TestListNamedProjectsEdgeCases:
+    def test_skips_non_directory_entries(self, tmp_path):
+        """Line 302: non-directory entries are skipped."""
+        (tmp_path / "readme.txt").write_text("not a project")
+        projects = pa.list_named_projects()
+        assert projects == []
+
+    def test_skips_directory_without_project_yaml(self, tmp_path):
+        """Line 305: no project.yaml — continue."""
+        (tmp_path / "orphan_dir").mkdir()
+        projects = pa.list_named_projects()
+        assert projects == []
+
+    def test_skips_invalid_yaml(self, tmp_path):
+        """Line 309-310: invalid YAML in project.yaml — continue."""
+        proj_dir = tmp_path / "bad-project"
+        proj_dir.mkdir()
+        (proj_dir / "project.yaml").write_text(": bad: yaml: {{}")
+        projects = pa.list_named_projects()
+        assert projects == []
+
+    def test_skips_v1_projects_in_named_list(self, tmp_path):
+        """Line 313: v1 project (no 'iterations' key) excluded from named list."""
+        pid = pa.create_project("Legacy", "COO")
+        projects = pa.list_named_projects()
+        # The v1 project should not appear
+        project_ids = [p["project_id"] for p in projects]
+        assert pid not in project_ids
+
+
+# ---------------------------------------------------------------------------
+# load_named_project edge cases
+# ---------------------------------------------------------------------------
+
+class TestLoadNamedProjectEdgeCases:
+    def test_returns_none_for_v1_project(self, tmp_path):
+        """Line 292: project without 'iterations' key returns None."""
+        proj_dir = tmp_path / "legacy-proj"
+        proj_dir.mkdir()
+        _write_yaml(proj_dir / "project.yaml", {"name": "Legacy", "status": "completed"})
+        result = pa.load_named_project("legacy-proj")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _resolve_and_load edge cases
+# ---------------------------------------------------------------------------
+
+class TestResolveAndLoadEdgeCases:
+    def test_v2_slug_without_iterations(self, tmp_path):
+        """Line 120: v2 project with no iterations returns project itself."""
+        slug = pa.create_named_project("No Iters")
+        version, doc, key = pa._resolve_and_load(slug)
+        assert version == "v2"
+        assert doc is not None
+        assert key == slug
+
+    def test_iteration_id_orphaned(self, tmp_path):
+        """Line 110: iteration not owned by any project returns None."""
+        version, doc, key = pa._resolve_and_load("iter_999")
+        assert version == "v2"
+        assert doc is None
+        assert key == ""
+
+
+# ---------------------------------------------------------------------------
+# _save_resolved edge cases
+# ---------------------------------------------------------------------------
+
+class TestSaveResolved:
+    def test_v2_save_without_slash(self, tmp_path):
+        """Line 131: resolved_key without '/' — save doesn't crash but also doesn't save iteration."""
+        slug = pa.create_named_project("Test")
+        doc = pa.load_named_project(slug)
+        # Save with key that has no "/" — should not crash
+        pa._save_resolved("v2", slug, doc)
+
+
+# ---------------------------------------------------------------------------
+# list_projects edge cases
+# ---------------------------------------------------------------------------
+
+class TestListProjectsEdgeCases:
+    def test_skips_non_dir_in_list(self, tmp_path):
+        """Line 520: non-directory entries skipped."""
+        (tmp_path / "not_a_dir.txt").write_text("text")
+        projects = pa.list_projects()
+        assert all(isinstance(p, dict) for p in projects)
+
+    def test_skips_dir_without_yaml(self, tmp_path):
+        """Line 523: directory without project.yaml skipped."""
+        (tmp_path / "empty_dir").mkdir()
+        projects = pa.list_projects()
+        names = [p.get("project_id") for p in projects]
+        assert "empty_dir" not in names
+
+    def test_skips_bad_yaml_in_list(self, tmp_path):
+        """Lines 527-528: bad YAML in project.yaml — continue."""
+        proj_dir = tmp_path / "bad-proj"
+        proj_dir.mkdir()
+        (proj_dir / "project.yaml").write_text(": bad: yaml: {{}")
+        projects = pa.list_projects()
+        names = [p.get("project_id") for p in projects]
+        assert "bad-proj" not in names
+
+    def test_v2_project_with_iterations_in_list(self, tmp_path):
+        """Lines 538-547: v2 project with iterations aggregates cost."""
+        slug = pa.create_named_project("V2 List")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        pa.record_project_cost(slug, "00005", "gpt-4", 100, 50, 0.01)
+
+        projects = pa.list_projects()
+        named = [p for p in projects if p.get("is_named")]
+        assert len(named) >= 1
+        v2_proj = [p for p in named if p["name"] == "V2 List"][0]
+        assert v2_proj["iteration_count"] >= 1
+
+    def test_v1_project_in_list(self, tmp_path):
+        """Line 588: v1 project listed correctly."""
+        pid = pa.create_project("V1 List", "HR")
+        pa.record_project_cost(pid, "00005", "gpt-4", 50, 25, 0.005)
+
+        projects = pa.list_projects()
+        v1_projs = [p for p in projects if not p.get("is_named")]
+        assert len(v1_projs) >= 1
+        found = [p for p in v1_projs if p["project_id"] == pid]
+        assert len(found) == 1
+        assert found[0]["cost_usd"] == pytest.approx(0.005)
+
+
+# ---------------------------------------------------------------------------
+# get_cost_summary with v2 projects
+# ---------------------------------------------------------------------------
+
+class TestGetCostSummaryV2:
+    def test_v2_project_cost_aggregated(self, tmp_path):
+        """Lines 733-764: v2 project cost aggregation in get_cost_summary."""
+        slug = pa.create_named_project("Cost V2")
+        iter_id = pa.create_iteration(slug, "cost task", "COO")
+        pa.record_project_cost(slug, "00005", "gpt-4", 100, 50, 0.01)
+
+        mock_emp = MagicMock()
+        mock_emp.department = "Engineering"
+
+        with patch("onemancompany.core.state.company_state") as mock_state:
+            mock_state.employees = {"00005": mock_emp}
+            mock_state.ex_employees = {}
+            summary = pa.get_cost_summary()
+            assert summary["total"]["cost_usd"] >= 0.01
+            assert len(summary["recent_projects"]) >= 1
+
+    def test_cost_summary_skips_bad_entries(self, tmp_path):
+        """Lines 721-729: non-dirs, missing yamls, bad yamls skipped."""
+        (tmp_path / "readme.txt").write_text("not a project")
+        (tmp_path / "no_yaml_dir").mkdir()
+        bad_dir = tmp_path / "bad_yaml"
+        bad_dir.mkdir()
+        (bad_dir / "project.yaml").write_text(": bad")
+
+        with patch("onemancompany.core.state.company_state") as mock_state:
+            mock_state.employees = {}
+            mock_state.ex_employees = {}
+            summary = pa.get_cost_summary()
+            assert summary["total"]["cost_usd"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# various noop-on-missing paths
+# ---------------------------------------------------------------------------
+
+class TestNoopOnMissing:
+    def test_set_acceptance_criteria_missing(self, tmp_path):
+        """Line 588: noop when project not found."""
+        pa.set_acceptance_criteria("nonexistent_20240101_120000_aaa111", ["c1"], "00005")
+
+    def test_record_dispatch_missing(self, tmp_path):
+        """Line 598: noop when project not found."""
+        pa.record_dispatch("nonexistent_20240101_120000_aaa111", "00005", "task")
+
+    def test_record_dispatch_completion_missing(self, tmp_path):
+        """Line 614: noop when project not found."""
+        pa.record_dispatch_completion("nonexistent_20240101_120000_aaa111", "00005")
+
+    def test_set_acceptance_result_missing(self, tmp_path):
+        """Line 638: noop when project not found."""
+        pa.set_acceptance_result("nonexistent_20240101_120000_aaa111", True, "00005")
+
+    def test_set_ea_review_missing(self, tmp_path):
+        """Line 652: noop when project not found."""
+        pa.set_ea_review_result("nonexistent_20240101_120000_aaa111", True)
+
+    def test_set_project_budget_missing(self, tmp_path):
+        """Line 665: noop when project not found."""
+        pa.set_project_budget("nonexistent_20240101_120000_aaa111", 1.0)
+
+
+# ---------------------------------------------------------------------------
+# _resolve_workspace
+# ---------------------------------------------------------------------------
+
+class TestResolveWorkspace:
+    def test_iteration_workspace(self, tmp_path):
+        """Lines 451-461: iteration ID resolves to iteration workspace."""
+        slug = pa.create_named_project("WS Test")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        d = pa.get_project_dir(iter_id)
+        assert "iter_001" in d
+
+    def test_iteration_without_project_dir(self, tmp_path):
+        """Fallback to shared workspace when iteration has no project_dir."""
+        slug = pa.create_named_project("Fallback WS")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        # Remove project_dir from iteration doc
+        doc = pa.load_iteration(slug, iter_id)
+        doc.pop("project_dir", None)
+        pa._save_iteration(slug, iter_id, doc)
+
+        d = pa.get_project_dir(iter_id)
+        assert "workspace" in d
+
+    def test_auto_prefix_project_dir(self, tmp_path):
+        """_auto_ prefix treated as v1."""
+        d = pa.get_project_dir("_auto_test")
+        assert "_auto_test" in d
+
+
+# ---------------------------------------------------------------------------
+# archive_project
+# ---------------------------------------------------------------------------
+
+class TestArchiveProjectEdgeCases:
+    def test_archive_nonexistent_noop(self, tmp_path):
+        pa.archive_project("totally_nonexistent")  # should not raise
+
+    def test_archive_sets_fields(self, tmp_path):
+        slug = pa.create_named_project("Archive Fields")
+        pa.archive_project(slug)
+        doc = pa.load_named_project(slug)
+        assert doc["status"] == "archived"
+        assert doc["archived_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# _find_project_for_iteration — non-directory entry (line 84)
+# ---------------------------------------------------------------------------
+
+class TestFindProjectForIterationNonDir:
+    def test_non_directory_skipped(self, tmp_path, monkeypatch):
+        """Line 84: non-directory entry in PROJECTS_DIR is skipped."""
+        monkeypatch.setattr(pa, "PROJECTS_DIR", tmp_path)
+        # Create a file (not a directory) in PROJECTS_DIR
+        (tmp_path / "readme.txt").write_text("not a project")
+        # Create a valid project directory with a matching iteration
+        proj_dir = tmp_path / "my-project"
+        proj_dir.mkdir()
+        iter_dir = proj_dir / "iterations"
+        iter_dir.mkdir()
+        (iter_dir / "iter_001.yaml").write_text("task: test")
+
+        # Should find the project, skipping the non-dir file entry
+        found = pa._find_project_for_iteration("iter_001")
+        assert found == "my-project"
+
+
+# ---------------------------------------------------------------------------
+# create_iteration — copytree for directory content (line 220)
+# ---------------------------------------------------------------------------
+
+class TestCreateIterationCopytree:
+    def test_copies_directories_from_previous_workspace(self, tmp_path):
+        """Line 220: shutil.copytree path when prev_workspace has directories."""
+        slug = pa.create_named_project("DirCopy")
+        iter_id1 = pa.create_iteration(slug, "task1", "COO")
+
+        # Add a directory with files to the first iteration workspace
+        doc1 = pa.load_iteration(slug, iter_id1)
+        ws1 = Path(doc1["project_dir"])
+        sub_dir = ws1 / "src" / "components"
+        sub_dir.mkdir(parents=True)
+        (sub_dir / "main.py").write_text("print('hello')")
+        (ws1 / "readme.md").write_text("README")
+
+        # Create second iteration — should copy both files and directories
+        iter_id2 = pa.create_iteration(slug, "task2", "COO")
+        doc2 = pa.load_iteration(slug, iter_id2)
+        ws2 = Path(doc2["project_dir"])
+
+        assert (ws2 / "src" / "components" / "main.py").exists()
+        assert (ws2 / "src" / "components" / "main.py").read_text() == "print('hello')"
+        assert (ws2 / "readme.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# list_project_files — nonexistent project (line 506)
+# ---------------------------------------------------------------------------
+
+class TestListProjectFilesNonexistent:
+    def test_nonexistent_project_returns_empty(self, tmp_path, monkeypatch):
+        """Line 506: list_project_files returns [] when project_dir doesn't exist."""
+        # Patch _resolve_workspace to return a path that doesn't exist
+        fake_path = tmp_path / "does_not_exist"
+        monkeypatch.setattr(pa, "_resolve_workspace", lambda pid: fake_path)
+        files = pa.list_project_files("anything")
+        assert files == []
+
+
+# ---------------------------------------------------------------------------
+# list_all_projects / get_cost_summary — iteration cost aggregation (line 736)
+# ---------------------------------------------------------------------------
+
+class TestCostSummaryIterationSkip:
+    def test_missing_iteration_skipped_in_cost_aggregation(self, tmp_path):
+        """Line 736: load_iteration returns None for missing iteration — continue."""
+        slug = pa.create_named_project("Cost Skip")
+        pa.create_iteration(slug, "task1", "COO")
+        pa.record_project_cost(slug, "00005", "gpt-4", 100, 50, 0.01)
+
+        # Manually add a fake iteration ID that doesn't exist on disk
+        proj_yaml = tmp_path / slug / "project.yaml"
+        proj_doc = pa.load_named_project(slug)
+        proj_doc["iterations"].append("iter_999")  # nonexistent
+        _write_yaml(proj_yaml, proj_doc)
+
+        mock_emp = MagicMock()
+        mock_emp.department = "Engineering"
+
+        with patch("onemancompany.core.state.company_state") as mock_state:
+            mock_state.employees = {"00005": mock_emp}
+            mock_state.ex_employees = {}
+            summary = pa.get_cost_summary()
+            # Should still aggregate cost from iter_001, skipping iter_999
+            assert summary["total"]["cost_usd"] >= 0.01

@@ -219,3 +219,54 @@ class TestListPendingEdits:
                 assert "proposed_by" in e
                 assert "old_content" not in e
                 assert "new_content" not in e
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: unreadable original file, relative path outside company dir
+# ---------------------------------------------------------------------------
+
+class TestProposeEditEdgeCases:
+    def test_unable_to_read_original_file(self, tmp_path):
+        """Line 77-78: When existing file can't be read, old_content = '(unable to read...)'."""
+        with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
+             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+            target = tmp_path / "unreadable.md"
+            target.write_text("original", encoding="utf-8")
+
+            # Patch resolve to return a valid path but make read fail
+            original_read_text = target.read_text
+            call_count = 0
+
+            def failing_read(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    raise PermissionError("cannot read file")
+                return original_read_text(*args, **kwargs)
+
+            with patch.object(type(target), "read_text", failing_read):
+                result = propose_edit("unreadable.md", "new content", "fix", "00002")
+
+            assert result["status"] == "pending_approval"
+            edit_id = result["edit_id"]
+            assert pending_file_edits[edit_id]["old_content"] == "(unable to read original file)"
+
+    def test_relative_path_outside_company_dir_shows_absolute(self, tmp_path):
+        """Lines 85-86: When resolved path not under COMPANY_DIR, rel_path is absolute."""
+        from onemancompany.core.config import PROJECT_ROOT
+        with patch.object(file_editor, "COMPANY_DIR", tmp_path / "company"), \
+             patch.object(file_editor, "PROJECT_ROOT", tmp_path):
+            # Set up with backend_code_maintenance permission for src/ access
+            src_dir = tmp_path / "src" / "onemancompany"
+            src_dir.mkdir(parents=True)
+            target = src_dir / "test.py"
+            target.write_text("code", encoding="utf-8")
+
+            result = propose_edit(
+                str(target), "new code", "fix", "00002",
+                permissions=["backend_code_maintenance"],
+            )
+            # Since path is outside company dir, rel_path should be absolute
+            assert result["status"] == "pending_approval"
+            edit_id = result["edit_id"]
+            assert pending_file_edits[edit_id]["rel_path"] == str(target.resolve())

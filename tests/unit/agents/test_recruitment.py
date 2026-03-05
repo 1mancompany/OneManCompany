@@ -135,3 +135,124 @@ class TestPendingCandidates:
 
         # Cleanup
         pending_candidates.clear()
+
+
+# ---------------------------------------------------------------------------
+# start_boss_online / stop_boss_online / _call_boss_online
+# ---------------------------------------------------------------------------
+
+class TestBossOnlineLifecycle:
+    @pytest.mark.asyncio
+    async def test_start_boss_online(self, monkeypatch):
+        """Lines 108-129: start_boss_online initializes MCP session."""
+        from onemancompany.agents import recruitment
+        from contextlib import AsyncExitStack
+
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+
+        mock_read = AsyncMock()
+        mock_write = AsyncMock()
+
+        call_count = 0
+
+        async def mock_enter(cm):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return (mock_read, mock_write)
+            return mock_session
+
+        mock_stack = AsyncMock()
+        mock_stack.enter_async_context = mock_enter
+        mock_stack.aclose = AsyncMock()
+
+        recruitment._boss_session = None
+
+        with patch("contextlib.AsyncExitStack", return_value=mock_stack):
+            with patch.object(recruitment, "stdio_client", return_value=AsyncMock()):
+                with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
+                    await recruitment.start_boss_online()
+
+        assert recruitment._boss_session is mock_session
+        mock_session.initialize.assert_awaited_once()
+        # Clean up
+        recruitment._boss_session = None
+
+    @pytest.mark.asyncio
+    async def test_stop_boss_online_with_session(self, monkeypatch):
+        """Lines 135-140: stop_boss_online tears down exit stack."""
+        from onemancompany.agents import recruitment
+
+        mock_stack = AsyncMock()
+        mock_stack.aclose = AsyncMock()
+
+        mock_session = MagicMock()
+        mock_session._exit_stack = mock_stack
+
+        recruitment._boss_session = mock_session
+
+        await recruitment.stop_boss_online()
+
+        assert recruitment._boss_session is None
+        mock_stack.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_boss_online_no_session(self, monkeypatch):
+        """Lines 135-140: stop_boss_online with no active session is a noop."""
+        from onemancompany.agents import recruitment
+
+        recruitment._boss_session = None
+        await recruitment.stop_boss_online()
+        assert recruitment._boss_session is None
+
+    @pytest.mark.asyncio
+    async def test_stop_boss_online_no_exit_stack(self, monkeypatch):
+        """Lines 136-138: stop with session but no _exit_stack attr."""
+        from onemancompany.agents import recruitment
+
+        mock_session = MagicMock(spec=[])  # No attributes
+        recruitment._boss_session = mock_session
+
+        await recruitment.stop_boss_online()
+        assert recruitment._boss_session is None
+
+
+class TestCallBossOnline:
+    @pytest.mark.asyncio
+    async def test_call_boss_online_no_session(self):
+        """Lines 145-146: _call_boss_online raises when no session."""
+        from onemancompany.agents import recruitment
+
+        recruitment._boss_session = None
+        with pytest.raises(RuntimeError, match="not running"):
+            await recruitment._call_boss_online("python dev")
+
+    @pytest.mark.asyncio
+    async def test_call_boss_online_success(self):
+        """Lines 148-158: _call_boss_online parses results from session."""
+        from onemancompany.agents import recruitment
+        import json
+
+        mock_item1 = MagicMock()
+        mock_item1.text = json.dumps({"id": "c1", "name": "Candidate 1"})
+        mock_item2 = MagicMock()
+        mock_item2.text = "not valid json"
+
+        mock_result = MagicMock()
+        mock_result.content = [mock_item1, mock_item2]
+
+        mock_session = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+        recruitment._boss_session = mock_session
+
+        try:
+            candidates = await recruitment._call_boss_online("python dev", count=5)
+            assert len(candidates) == 1
+            assert candidates[0]["id"] == "c1"
+            mock_session.call_tool.assert_awaited_once_with(
+                "search_candidates",
+                arguments={"job_description": "python dev", "count": 5},
+            )
+        finally:
+            recruitment._boss_session = None
