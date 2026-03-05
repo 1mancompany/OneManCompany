@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
+from loguru import logger
 from typing import Any
 
 from langchain_openai import ChatOpenAI
@@ -497,8 +498,8 @@ class BaseAgentRunner:
                 try:
                     content = content_path.read_text(encoding="utf-8")
                     pb.add(ps.name, content, priority=ps.priority)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.warning("Failed to load prompt section %s: %s", ps.name, _e)
 
     def _get_efficiency_guidelines_section(self) -> str:
         """Build efficiency guidelines to reduce wasted tokens and loops."""

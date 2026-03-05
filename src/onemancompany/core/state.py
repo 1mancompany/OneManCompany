@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from loguru import logger
 from datetime import datetime
 
 from onemancompany.core.config import (
@@ -578,8 +579,8 @@ def reload_all_from_disk() -> dict:
             loop = get_agent_loop(eid)
             if loop:
                 agent_loops.pop(eid, None)
-        except Exception:
-            pass
+        except Exception as _e:
+            logger.warning("Failed to stop agent loop for %s: %s", eid, _e)
 
     # --- 2. Reload ex-employees ---
     fresh_ex = load_ex_employee_configs()
@@ -631,7 +632,6 @@ def reload_all_from_disk() -> dict:
         loop = asyncio.get_running_loop()
         loop.create_task(_broadcast())
     except RuntimeError:
-        # No running event loop — skip broadcast (e.g., called during startup)
-        pass
+        logger.debug("No event loop for reload broadcast — skipping")
 
     return summary

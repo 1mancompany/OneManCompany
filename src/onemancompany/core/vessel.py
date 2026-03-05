@@ -40,6 +40,8 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import TaskEntry, company_state
 from onemancompany.core.vessel_config import VesselConfig
 
+from loguru import logger
+
 # ---------------------------------------------------------------------------
 # Context variables — set during task execution so tools can access context
 # ---------------------------------------------------------------------------
@@ -432,6 +434,7 @@ class EmployeeManager:
         self.task_histories: dict[str, list[dict]] = {}
         self._history_summaries: dict[str, str] = {}
         self._running_tasks: dict[str, asyncio.Task] = {}
+        self._deferred_schedule: set[str] = set()
         self._hooks: dict[str, dict[str, Callable]] = {}
 
     # Backward compat properties
@@ -523,7 +526,24 @@ class EmployeeManager:
                 self._run_task(employee_id, task)
             )
         except RuntimeError:
-            pass
+            # No event loop — remember for later drain
+            self._deferred_schedule.add(employee_id)
+            print(f"[schedule] WARNING: No event loop to schedule task for {employee_id}, deferred")
+
+    def drain_pending(self) -> None:
+        """Schedule any pending tasks that were deferred (no event loop at push time).
+
+        Called by start_all_loops() and can be called manually to unstick tasks.
+        """
+        # Drain deferred set
+        deferred = list(self._deferred_schedule)
+        self._deferred_schedule.clear()
+        for emp_id in deferred:
+            self._schedule_next(emp_id)
+        # Also scan all boards for any orphaned pending tasks
+        for emp_id, board in self.boards.items():
+            if emp_id not in self._running_tasks and board.get_next_pending():
+                self._schedule_next(emp_id)
 
     async def _run_task(self, employee_id: str, task: AgentTask) -> None:
         """Execute a task, then schedule the next one."""
@@ -631,8 +651,7 @@ class EmployeeManager:
                     if isinstance(result, str):
                         task_with_ctx = result
                 except Exception:
-                    import logging
-                    logging.getLogger(__name__).warning("Pre-task hook failed for %s", employee_id)
+                    logger.warning("Pre-task hook failed for %s", employee_id)
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
@@ -730,8 +749,7 @@ class EmployeeManager:
             try:
                 post_task_hook(task, task.result or "")
             except Exception:
-                import logging
-                logging.getLogger(__name__).warning("Post-task hook failed for %s", employee_id)
+                logger.warning("Post-task hook failed for %s", employee_id)
 
         if emp:
             emp.current_task_summary = ""
@@ -894,7 +912,7 @@ class EmployeeManager:
             loop = asyncio.get_running_loop()
             loop.create_task(self._maybe_compress_history(employee_id))
         except RuntimeError:
-            pass
+            logger.debug("No event loop for history compression of %s", employee_id)
 
     async def _maybe_compress_history(self, employee_id: str) -> None:
         history = self.task_histories.get(employee_id, [])
@@ -1457,7 +1475,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            pass
+            logger.debug("No event loop for log publish (%s)", employee_id)
 
     def _publish_task_update(self, employee_id: str, task: AgentTask) -> None:
         try:
@@ -1473,7 +1491,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            pass
+            logger.debug("No event loop for task update publish (%s)", employee_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1516,8 +1534,8 @@ def get_agent_loop(employee_id: str) -> Vessel | None:
 
 
 async def start_all_loops() -> None:
-    """No-op — tasks are dispatched on-demand, no persistent loops to start."""
-    pass
+    """Drain any deferred/orphaned pending tasks now that the event loop is running."""
+    employee_manager.drain_pending()
 
 
 async def stop_all_loops() -> None:

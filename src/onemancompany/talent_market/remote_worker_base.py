@@ -13,6 +13,7 @@ import asyncio
 from abc import ABC, abstractmethod
 
 import httpx
+from loguru import logger
 
 from onemancompany.talent_market.remote_protocol import (
     HeartbeatPayload,
@@ -159,6 +160,6 @@ class RemoteWorkerBase(ABC):
                         json=payload.model_dump(),
                         timeout=10.0,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as _e:  # noqa: BLE001
+                    logger.debug("Heartbeat failed: {}", _e)
                 await asyncio.sleep(self.heartbeat_interval)

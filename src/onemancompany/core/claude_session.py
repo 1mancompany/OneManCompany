@@ -15,6 +15,7 @@ Format:    {"project_id": {"session_id": "uuid", "work_dir": "/path",
 from __future__ import annotations
 
 import asyncio
+from loguru import logger
 import json
 import os
 import uuid
@@ -156,8 +157,8 @@ async def run_claude_session(
         except asyncio.TimeoutError:
             try:
                 proc.terminate()  # type: ignore[possibly-undefined]
-            except Exception:
-                pass
+            except Exception as _e:
+                logger.warning("Failed to terminate timed-out process: %s", _e)
             return f"[claude-session timeout] Session {session_id[:8]}… timed out after {timeout}s"
         except FileNotFoundError:
             return "[claude-session error] `claude` CLI not found on PATH"

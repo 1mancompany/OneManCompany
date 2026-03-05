@@ -7,12 +7,11 @@ Falls back to a static default if the API is unreachable.
 
 from __future__ import annotations
 
-import logging
 import time
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 DEFAULT_COST = {"input": 1.00, "output": 3.00}  # fallback per 1M tokens
 
@@ -45,7 +44,8 @@ def _fetch_openrouter_pricing() -> dict[str, dict]:
             # OpenRouter returns cost per token as string; convert to per 1M tokens
             input_per_1m = float(prompt_cost) * 1_000_000
             output_per_1m = float(completion_cost) * 1_000_000
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as _e:
+            logger.debug("Skipping model cost entry: {}", _e)
             continue
         if model_id:
             result[model_id] = {"input": round(input_per_1m, 4), "output": round(output_per_1m, 4)}

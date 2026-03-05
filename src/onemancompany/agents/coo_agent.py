@@ -8,6 +8,7 @@ Assets are stored as YAML under assets/ at project root:
 from __future__ import annotations
 
 import asyncio
+from loguru import logger
 import uuid
 
 import yaml
@@ -256,6 +257,7 @@ def register_asset(
             try:
                 src_file.resolve().relative_to(src_dir.resolve())
             except ValueError:
+                logger.warning("Path traversal blocked: %s", fname)
                 continue
             if src_file.exists() and src_file.is_file():
                 dst_file = tool_folder / Path(fname).name

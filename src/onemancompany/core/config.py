@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import yaml
+from loguru import logger
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -716,11 +717,9 @@ def load_employee_custom_tools(employee_id: str) -> list:
     Returns a list of callable tool objects ready for create_react_agent().
     """
     import importlib.util
-    import logging
 
     from langchain_core.tools import BaseTool
 
-    log = logging.getLogger(__name__)
     tools_dir = EMPLOYEES_DIR / employee_id / "tools"
     manifest_path = tools_dir / "manifest.yaml"
     if not manifest_path.exists():
@@ -747,7 +746,7 @@ def load_employee_custom_tools(employee_id: str) -> list:
                 if "allowed_users" in tool_meta:
                     allowed = tool_meta["allowed_users"] or []
                     if employee_id not in allowed:
-                        log.debug(
+                        logger.debug(
                             "Tool %s not allowed for %s (allowed: %s)",
                             name, employee_id, allowed,
                         )
@@ -768,7 +767,7 @@ def load_employee_custom_tools(employee_id: str) -> list:
                 if isinstance(attr, BaseTool):
                     loaded.append(attr)
         except Exception as e:
-            log.warning(
+            logger.warning(
                 "Failed to load custom tool %s for %s: %s", name, employee_id, e
             )
     return loaded
