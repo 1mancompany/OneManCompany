@@ -1,9 +1,22 @@
 # OneManCompany
 
-一人公司模拟器 — 像素风办公室 + LangChain AI Agent 自主运营
+一人公司 — 像素风办公室 + LangChain AI Agent 自主运营
 
 CEO（真人）通过浏览器下达指令，AI 高管团队（HR / COO / EA / CSO）自动拆解、分配、执行、验收。
 员工来自 Talent Market（即插即用的 agent 插件），支持 company-hosted、self-hosted、remote 三种运行模式。
+
+---
+
+## Design Philosophy — 设计哲学
+
+- **公司即系统** — 不是在写一个"多 agent 框架"，而是在建一家真实运转的公司。组织架构、汇报关系、入职离职、绩效考核，都是一等公民。
+- **Vessel + Talent = Employee** — 躯壳（执行容器）与灵魂（能力包）分离。同一个躯壳可以注入不同灵魂，同一个灵魂可以装进不同躯壳。员工是两者结合的产物。
+- **DNA 驱动** — 每个员工的行为由 `vessel.yaml` 定义：重试策略、超时、上下文注入、能力声明。不写代码也能调整员工特性。
+- **套接件标准（Harness）** — 执行、任务、事件、存储、上下文、生命周期，六类 Protocol 定义了躯壳与公司系统的全部连接点。替换任意一个不影响其余。
+- **Talent Market = 插件商店** — 招人就是装插件。一个 talent 包自带 profile、skills、tools、vessel config，HR 一键入职即可上岗。
+- **CEO 是唯一的人** — 系统的全部设计围绕"一个人管一家公司"展开。AI 不是辅助工具，而是真正的员工。
+- **零空转** — 没有 while-True 轮询。所有任务 on-demand 推送，事件驱动，按需执行。
+- **Git-friendly 持久化** — YAML + Markdown + JSON，无数据库依赖。公司状态可以 git diff、git blame、git revert。
 
 ---
 
@@ -111,10 +124,10 @@ graph TB
         CFG["config.py<br>paths / constants / loaders"]
     end
 
-    subgraph LauncherLayer["Launcher 协议 — 执行后端"]
-        LC["LangChainLauncher<br>company-hosted"]
-        CL["ClaudeSessionLauncher<br>self-hosted (CLI)"]
-        SL["ScriptLauncher<br>bash scripts"]
+    subgraph VesselLayer["Vessel 执行层 — 执行后端"]
+        LC["LangChainExecutor<br>company-hosted"]
+        CL["ClaudeSessionExecutor<br>self-hosted (CLI)"]
+        SL["ScriptExecutor<br>bash scripts"]
     end
 
     subgraph TalentLayer["Talent Market"]
@@ -139,7 +152,7 @@ graph TB
     WSS --> EB
 
     %% Core orchestration
-    EM -->|"dispatch"| LauncherLayer
+    EM -->|"dispatch"| VesselLayer
     EM --> EB
     EM --> PA
     EB --> WSS
@@ -147,7 +160,7 @@ graph TB
     CS --> CFG
     LY --> CS
 
-    %% Launchers → Runners
+    %% Executors → Runners
     LC --> BAR
     CL -->|"claude CLI"| EMP
     SL -->|"launch.sh"| EMP
@@ -178,7 +191,7 @@ graph TB
 - **网关层**：FastAPI REST + WS，负责路由和认证
 - **Agent 层**：所有 AI 角色的实现，共享 `BaseAgentRunner` 和 `PromptBuilder`
 - **核心引擎**：`EmployeeManager` 统一调度，`EventBus` 事件驱动，`CompanyState` 单例状态
-- **Launcher 层**：插拔式执行后端，同一调度协议支持三种运行模式
+- **Vessel 执行层**：插拔式执行后端（Executor），同一套 Harness 协议支持三种运行模式
 - **持久层**：YAML + Markdown + JSON，git-friendly，无数据库依赖
 
 ---
@@ -208,11 +221,11 @@ sequenceDiagram
     API->>Archive: 创建 Project (task, criteria, budget)
     API->>EM: push_task(officer_id, task)
 
-    EM->>Officer: execute via Launcher
+    EM->>Officer: execute via Executor
     Note over Officer: 分析任务 → 拆解子任务
 
     Officer->>EM: dispatch_task(worker_id, sub_task)
-    EM->>Worker: execute via Launcher
+    EM->>Worker: execute via Executor
 
     Note over Worker: 执行工作 (code / doc / design)
     Worker->>EM: task completed + result
@@ -291,7 +304,7 @@ sequenceDiagram
 | **结算** | 内部 cost tracking | 客户 budget_tokens 结算 |
 | **场景** | 日常经营、产品开发、内部建设 | 对外接活、SaaS 交付、定制开发 |
 
-**共享的核心管线**：无论哪种模式，底层都走 `EmployeeManager.push_task()` → `Launcher.execute()` → `ProjectArchive` 同一条执行链路。
+**共享的核心管线**：无论哪种模式，底层都走 `EmployeeManager.push_task()` → `Executor.execute()` → `ProjectArchive` 同一条执行链路。
 
 ---
 
@@ -314,12 +327,15 @@ sequenceDiagram
 | **Core** | `config.py` | All paths, constants, employee/talent config loaders |
 | **Core** | `state.py` | `CompanyState` singleton, hot-reload, employee/project state |
 | **Core** | `events.py` | Async `EventBus` — pub/sub for all system events |
-| **Core** | `agent_loop.py` | `EmployeeManager`, `Launcher` protocol, task queue, hooks, history |
+| **Core** | `vessel.py` | `Vessel`(躯壳), `EmployeeManager`, `Executor` protocol, task queue, hooks, history |
+| **Core** | `vessel_config.py` | `VesselConfig`(DNA) — load/save/migrate `vessel.yaml` per employee |
+| **Core** | `vessel_harness.py` | Harness protocols(套接件): `ExecutionHarness`, `TaskHarness`, `EventHarness`, etc. |
+| **Core** | `agent_loop.py` | Backward-compat shim — re-exports everything from `vessel.py` |
 | **Core** | `routine.py` | Post-task workflow dispatch (project retrospective, etc.) |
 | **Core** | `workflow_engine.py` | Parses `company/business/workflows/*.md` → `WorkflowDefinition` |
 | **Core** | `project_archive.py` | Project CRUD, iteration tracking, cost recording |
 | **Core** | `layout.py` | Department-based office grid, desk allocation |
-| **Talent** | `talent_spec.py` | Dataclasses: `TalentPackage`, `AgentManifest`, `FunctionsManifest` |
+| **Talent** | `talent_spec.py` | Dataclasses: `TalentPackage`, `VesselManifest`, `AgentManifest`, `FunctionsManifest` |
 | **Talent** | `boss_online.py` | MCP server subprocess for recruitment |
 | **Infra** | `tools/sandbox/` | Docker-based code execution (execute, run\_command, write/read) |
 | **Infra** | `claude_session.py` | Claude Code CLI session management (self-hosted employees) |
@@ -335,6 +351,74 @@ sequenceDiagram
 - **Frontend**: Vanilla JS + Canvas 2D pixel art (no build tools)
 - **Infra**: Docker sandbox, MCP server, Watchdog hot-reload
 - **Data**: YAML profiles + Markdown workflows + JSON project archives
+
+## Vessel Architecture — 躯壳 · 灵魂 · 套接件
+
+> **哲学**: Vessel（躯壳）+ Talent（灵魂）= Employee（员工）
+
+每个员工由两部分组成：**Vessel** 是执行容器（躯壳），提供运行环境、重试策略、上下文注入等基础设施；**Talent** 是能力包（灵魂），提供技能、提示词、自定义 runner。入职时灵魂注入躯壳，形成完整员工。
+
+### 核心概念
+
+```
+employees/00010/
+├── profile.yaml          # 员工档案
+├── vessel/               # 躯壳 DNA
+│   ├── vessel.yaml       # 配置：runner / hooks / limits / capabilities
+│   └── prompt_sections/  # 提示词片段
+├── skills/               # 灵魂 — 技能
+└── progress.log          # 工作记忆
+```
+
+**vessel.yaml** — 躯壳的 DNA，定义执行行为：
+
+| 字段 | 说明 |
+|------|------|
+| `runner` | 神经系统 — 自定义 runner 模块和类名 |
+| `hooks` | 生命周期钩子 — pre_task / post_task 回调 |
+| `context` | 上下文注入 — prompt sections、进度日志、任务历史 |
+| `limits` | 执行限制 — 重试次数、超时、子任务深度 |
+| `capabilities` | 能力声明 — sandbox、文件上传、WebSocket、图片生成 |
+
+### VesselHarness — 套接件标准
+
+6 类 Protocol 定义了 Vessel 与公司系统的连接标准：
+
+| Harness | 职责 |
+|---------|------|
+| `ExecutionHarness` | 执行套接件 — Executor 协议（execute / is_ready） |
+| `TaskHarness` | 任务套接件 — 任务队列管理（push / get_next / cancel） |
+| `EventHarness` | 事件套接件 — 日志和事件发布 |
+| `StorageHarness` | 存储套接件 — 进度日志和历史持久化 |
+| `ContextHarness` | 上下文套接件 — prompt / context 组装 |
+| `LifecycleHarness` | 生命周期套接件 — pre/post task 钩子调用 |
+
+### Talent → Employee 转换
+
+```mermaid
+flowchart LR
+    T["Talent Package<br>(灵魂)"] -->|"onboarding"| V["Vessel<br>(躯壳)"]
+    D["default_vessel.yaml"] -.->|"fallback"| V
+    V --> E["Employee<br>(完整员工)"]
+    E --> EM["EmployeeManager<br>注册 + 调度"]
+```
+
+安装优先级：talent 自带 `vessel/vessel.yaml` → talent 旧版 `agent/manifest.yaml`（自动转换） → 系统默认 `default_vessel.yaml`
+
+### 向后兼容
+
+所有旧名称通过别名继续可用：
+
+| 旧名 | 新名 |
+|------|------|
+| `EmployeeHandle` | `Vessel` |
+| `Launcher` | `ExecutionHarness` |
+| `LangChainLauncher` | `LangChainExecutor` |
+| `ClaudeSessionLauncher` | `ClaudeSessionExecutor` |
+| `ScriptLauncher` | `ScriptExecutor` |
+| `agent_loop.py` | `vessel.py`（agent_loop.py 变为 re-export shim） |
+
+---
 
 ## Quick Start
 
@@ -356,10 +440,14 @@ open http://localhost:8000
 
 | Concept | Description |
 |---------|-------------|
-| **Talent = Plugin** | `talents/{id}/` 是自包含的 agent 包（profile / skills / tools / functions / agent config） |
+| **Vessel = 躯壳** | 员工的执行容器，包含 DNA（vessel.yaml）、神经系统（runner）、套接件（harness）|
+| **Talent = 灵魂** | `talents/{id}/` 自包含的 agent 包（profile / skills / tools / functions / vessel config）|
+| **Vessel + Talent = Employee** | 躯壳（执行容器）+ 灵魂（能力包）= 完整员工 |
+| **VesselConfig = DNA** | `vessel.yaml` 定义 runner / hooks / context / limits / capabilities |
+| **VesselHarness = 套接件** | 6 类 Protocol：Execution / Task / Event / Storage / Context / Lifecycle |
 | **Agent Modularization** | 三层定制：prompt sections（轻量）→ lifecycle hooks（中等）→ custom runner（完全替换） |
 | **EmployeeManager** | 中央调度器，on-demand 推送任务，无空转轮询 |
-| **Launcher Protocol** | `LangChainLauncher` / `ClaudeSessionLauncher` / `ScriptLauncher` — 统一接口，三种后端 |
+| **Executor Protocol** | `LangChainExecutor` / `ClaudeSessionExecutor` / `ScriptExecutor` — 统一接口，三种后端 |
 | **EventBus** | 所有状态变更 → async pub/sub → WebSocket → 前端实时更新 |
 | **Knowledge Deposit** | COO 通过 `deposit_company_knowledge()` 将 workflow / SOP / culture / guidance 沉淀到公司知识库 |
 
@@ -370,6 +458,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Summary |
 |------|---------|
+| 2026-03-05 | • update: agent_loop, agents_guide, base, default_vessel, main |
 | 2026-03-05 | • update: __init__, boss_online, hr_agent, main, project |
 | 2026-03-04 | • update: test_hr_agent |
 | 2026-03-04 | • update: 1eb8c0b0, 7327b467 |

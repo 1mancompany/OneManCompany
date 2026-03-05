@@ -955,7 +955,8 @@ class TestLifespan:
         async with main_mod.lifespan(mock_app):
             pass
 
-        mock_register_self_hosted.assert_called_once_with("00011")
+        mock_register_self_hosted.assert_called_once()
+        assert mock_register_self_hosted.call_args[0][0] == "00011"
 
     @pytest.mark.asyncio
     async def test_lifespan_skips_founding_employees(self, monkeypatch):

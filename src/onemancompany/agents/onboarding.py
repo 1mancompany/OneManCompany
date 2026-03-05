@@ -339,22 +339,25 @@ def install_talent_agent_config(talent_id: str, emp_dir, employee_id: str) -> di
 def _create_agent_runner(employee_id: str, emp_dir) -> "BaseAgentRunner":
     """Create an agent runner for an employee, using custom runner if configured.
 
-    Checks emp_dir/agent/manifest.yaml for a custom runner declaration.
-    If found, loads and instantiates the runner class.
-    Otherwise, falls back to the default EmployeeAgent.
+    Search order:
+      1. emp_dir/vessel/vessel.yaml runner config
+      2. emp_dir/agent/manifest.yaml runner config (backward compat)
+      3. Default EmployeeAgent
     """
     from pathlib import Path
+    from onemancompany.core.vessel_config import load_vessel_config
 
-    manifest_path = Path(emp_dir) / "agent" / "manifest.yaml"
-    if manifest_path.exists():
-        with open(manifest_path) as f:
-            manifest = yaml.safe_load(f) or {}
+    emp_path = Path(emp_dir)
+    config = load_vessel_config(emp_path)
 
-        runner_cfg = manifest.get("runner", {})
-        mod_name = runner_cfg.get("module", "")
-        cls_name = runner_cfg.get("class", "")
-        if mod_name and cls_name:
-            runner_py = Path(emp_dir) / "agent" / f"{mod_name}.py"
+    # Try vessel config first, then legacy agent/manifest.yaml
+    mod_name = config.runner.module
+    cls_name = config.runner.class_name
+
+    if mod_name and cls_name:
+        # Look for runner .py in vessel/ first, then agent/
+        for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+            runner_py = search_dir / f"{mod_name}.py"
             if runner_py.exists():
                 try:
                     spec = importlib.util.spec_from_file_location(
@@ -380,41 +383,44 @@ def _create_agent_runner(employee_id: str, emp_dir) -> "BaseAgentRunner":
 
 
 def _load_hooks_from_config(emp_dir) -> dict[str, "Callable"]:
-    """Load hook functions from an employee's agent/manifest.yaml.
+    """Load hook functions from an employee's vessel or agent config.
+
+    Search order:
+      1. emp_dir/vessel/vessel.yaml hooks config
+      2. emp_dir/agent/manifest.yaml hooks config (backward compat)
 
     Returns a dict with optional "pre_task" and "post_task" callable entries.
     """
     from pathlib import Path
+    from onemancompany.core.vessel_config import load_vessel_config
 
-    manifest_path = Path(emp_dir) / "agent" / "manifest.yaml"
-    if not manifest_path.exists():
-        return {}
+    emp_path = Path(emp_dir)
+    config = load_vessel_config(emp_path)
 
-    with open(manifest_path) as f:
-        manifest = yaml.safe_load(f) or {}
-
-    hooks_cfg = manifest.get("hooks", {})
-    if not hooks_cfg:
-        return {}
-
-    hooks_mod_name = hooks_cfg.get("module", "")
+    hooks_mod_name = config.hooks.module
     if not hooks_mod_name:
         return {}
 
-    hooks_py = Path(emp_dir) / "agent" / f"{hooks_mod_name}.py"
-    if not hooks_py.exists():
+    # Look for hooks .py in vessel/ first, then agent/
+    hooks_py = None
+    for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+        candidate = search_dir / f"{hooks_mod_name}.py"
+        if candidate.exists():
+            hooks_py = candidate
+            break
+
+    if not hooks_py:
         return {}
 
     result: dict[str, "Callable"] = {}
     try:
         spec = importlib.util.spec_from_file_location(
-            f"emp_hooks_{Path(emp_dir).name}_{hooks_mod_name}", str(hooks_py)
+            f"emp_hooks_{emp_path.name}_{hooks_mod_name}", str(hooks_py)
         )
         if spec and spec.loader:
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            for hook_key in ("pre_task", "post_task"):
-                fn_name = hooks_cfg.get(hook_key, "")
+            for hook_key, fn_name in [("pre_task", config.hooks.pre_task), ("post_task", config.hooks.post_task)]:
                 if fn_name:
                     fn = getattr(mod, fn_name, None)
                     if fn and callable(fn):
@@ -432,6 +438,82 @@ def _register_employee_hooks(employee_id: str, emp_dir) -> None:
         from onemancompany.core.agent_loop import employee_manager
         employee_manager.register_hooks(employee_id, hooks)
         logger.info("Registered hooks for employee %s: %s", employee_id, list(hooks.keys()))
+
+
+# ---------------------------------------------------------------------------
+# Vessel config installation
+# ---------------------------------------------------------------------------
+
+def install_talent_vessel_config(talent_id: str, emp_dir, employee_id: str) -> None:
+    """Install vessel config (vessel.yaml) into the employee folder.
+
+    Search order:
+      1. talent_dir/vessel/vessel.yaml → direct copy
+      2. talent_dir/agent/manifest.yaml → convert to vessel.yaml
+      3. Neither exists → use src/onemancompany/core/default_vessel.yaml
+
+    Also copies vessel/ subdirectories (prompt_sections/, runner .py, hooks .py).
+    """
+    from pathlib import Path
+    from onemancompany.core.vessel_config import (
+        _convert_legacy_manifest, _load_default_vessel_config,
+        save_vessel_config,
+    )
+
+    talent_dir = TALENTS_DIR / talent_id
+    emp_path = Path(emp_dir)
+    vessel_dir = emp_path / "vessel"
+
+    # Already installed
+    if (vessel_dir / "vessel.yaml").exists():
+        return
+
+    # 1. talent has vessel/vessel.yaml
+    talent_vessel = talent_dir / "vessel"
+    talent_vessel_yaml = talent_vessel / "vessel.yaml"
+    if talent_vessel_yaml.exists():
+        vessel_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(talent_vessel_yaml), str(vessel_dir / "vessel.yaml"))
+
+        # Copy prompt_sections/
+        ps_src = talent_vessel / "prompt_sections"
+        if ps_src.exists() and ps_src.is_dir():
+            ps_dst = vessel_dir / "prompt_sections"
+            if not ps_dst.exists():
+                shutil.copytree(str(ps_src), str(ps_dst))
+
+        # Copy runner/hooks .py files
+        with open(talent_vessel_yaml) as f:
+            raw = yaml.safe_load(f) or {}
+        for key in ("runner", "hooks"):
+            mod = (raw.get(key) or {}).get("module", "")
+            if mod:
+                py_src = talent_vessel / f"{mod}.py"
+                if py_src.exists():
+                    py_dst = vessel_dir / f"{mod}.py"
+                    if not py_dst.exists():
+                        shutil.copy2(str(py_src), str(py_dst))
+        return
+
+    # 2. talent has agent/manifest.yaml → convert
+    talent_manifest = talent_dir / "agent" / "manifest.yaml"
+    if talent_manifest.exists():
+        with open(talent_manifest) as f:
+            manifest = yaml.safe_load(f) or {}
+        config = _convert_legacy_manifest(manifest)
+        save_vessel_config(emp_path, config)
+
+        # Copy prompt_sections from agent/
+        agent_ps = talent_dir / "agent" / "prompt_sections"
+        if agent_ps.exists() and agent_ps.is_dir():
+            ps_dst = vessel_dir / "prompt_sections"
+            if not ps_dst.exists():
+                shutil.copytree(str(agent_ps), str(ps_dst))
+        return
+
+    # 3. Use default
+    config = _load_default_vessel_config()
+    save_vessel_config(emp_path, config)
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +585,9 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
 
     # Install agent config (agent/manifest.yaml + prompts, hooks, runner)
     install_talent_agent_config(talent_id, emp_dir, emp_dir.name)
+
+    # Install vessel config (vessel/vessel.yaml — uses default if talent has none)
+    install_talent_vessel_config(talent_id, emp_dir, emp_dir.name)
 
     # Install talent-brought functions into central registry
     employee_id = emp_dir.name

@@ -314,7 +314,7 @@ class TestAgentRef:
         ref = _AgentRef("00010")
         assert ref.employee_id == "00010"
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_role_from_state(self, mock_state):
         emp = MagicMock()
         emp.role = "Engineer"
@@ -322,7 +322,7 @@ class TestAgentRef:
         ref = _AgentRef("00010")
         assert ref.role == "Engineer"
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_role_missing_employee(self, mock_state):
         mock_state.employees = {}
         ref = _AgentRef("00099")
@@ -553,7 +553,7 @@ class TestEmployeeHandle:
 
 class TestProgressLog:
     def test_append_progress(self, tmp_path):
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             _append_progress("emp01", "Did something")
             log_path = tmp_path / "emp01" / "progress.log"
             assert log_path.exists()
@@ -561,17 +561,17 @@ class TestProgressLog:
             assert "Did something" in content
 
     def test_append_progress_creates_dir(self, tmp_path):
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             _append_progress("newguy", "First task")
             assert (tmp_path / "newguy" / "progress.log").exists()
 
     def test_load_progress_empty(self, tmp_path):
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             result = _load_progress("emp01")
             assert result == ""
 
     def test_load_progress_reads_lines(self, tmp_path):
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             log_dir = tmp_path / "emp01"
             log_dir.mkdir()
             log_path = log_dir / "progress.log"
@@ -582,7 +582,7 @@ class TestProgressLog:
             assert "Entry 9" in result
 
     def test_load_progress_truncates_to_max_lines(self, tmp_path):
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             log_dir = tmp_path / "emp01"
             log_dir.mkdir()
             log_path = log_dir / "progress.log"
@@ -715,7 +715,7 @@ class TestEmployeeManagerScheduleNext:
         mgr = EmployeeManager()
         mgr._schedule_next("nobody")  # should not raise
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_schedule_next_no_pending_sets_idle(self, mock_state):
         mgr = EmployeeManager()
         emp = MagicMock()
@@ -731,10 +731,10 @@ class TestEmployeeManagerScheduleNext:
 
 class TestEmployeeManagerExecuteTask:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_happy_path(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -759,10 +759,10 @@ class TestEmployeeManagerExecuteTask:
         launcher.execute.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_failure_retries(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -778,7 +778,7 @@ class TestEmployeeManagerExecuteTask:
         task = AgentTask(id="t1", description="Build widget")
         mgr.boards["emp01"].tasks.append(task)
 
-        with patch("onemancompany.core.agent_loop.asyncio.sleep", new_callable=AsyncMock):
+        with patch("onemancompany.core.vessel.asyncio.sleep", new_callable=AsyncMock):
             with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
                 await mgr._execute_task("emp01", task)
 
@@ -787,10 +787,10 @@ class TestEmployeeManagerExecuteTask:
         assert launcher.execute.call_count == MAX_RETRIES
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_no_launcher_raises(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -811,13 +811,13 @@ class TestEmployeeManagerExecuteTask:
             await mgr._execute_task("emp01", task)
 
         assert task.status == "failed"
-        assert "No launcher" in task.result
+        assert "No executor" in task.result
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="Previous work here")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="Previous work here")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_injects_progress(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -843,10 +843,10 @@ class TestEmployeeManagerExecuteTask:
         assert "Previous work here" in task_with_ctx
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_pre_hook_modifies_description(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -871,10 +871,10 @@ class TestEmployeeManagerExecuteTask:
         assert task_desc.startswith("Modified: ")
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_post_hook_called(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -898,10 +898,10 @@ class TestEmployeeManagerExecuteTask:
         post_hook.assert_called_once_with(task, "Done")
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_with_project_dir(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -925,10 +925,10 @@ class TestEmployeeManagerExecuteTask:
         assert "Project workspace: /tmp/workspace" in task_desc
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_records_token_usage(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -961,10 +961,10 @@ class TestEmployeeManagerExecuteTask:
         assert task.estimated_cost_usd > 0
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_cancelled_task_stays_cancelled(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -998,10 +998,10 @@ class TestEmployeeManagerExecuteTask:
 
 class TestEmployeeManagerRunTask:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_run_task_cleans_up_and_schedules_next(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -1075,7 +1075,7 @@ class TestEmployeeManagerTaskHistory:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerHelpers:
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_get_role_found(self, mock_state):
         emp = MagicMock()
         emp.role = "COO"
@@ -1083,13 +1083,13 @@ class TestEmployeeManagerHelpers:
         mgr = EmployeeManager()
         assert mgr._get_role("emp01") == "COO"
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_get_role_missing(self, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
         assert mgr._get_role("nobody") == "Employee"
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_set_employee_status(self, mock_state):
         emp = MagicMock()
         mock_state.employees = {"emp01": emp}
@@ -1097,14 +1097,14 @@ class TestEmployeeManagerHelpers:
         mgr._set_employee_status("emp01", "working")
         assert emp.status == "working"
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_set_employee_status_missing(self, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
         mgr._set_employee_status("nobody", "working")  # should not raise
 
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     def test_log_appends_to_task(self, mock_bus, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
@@ -1114,8 +1114,8 @@ class TestEmployeeManagerHelpers:
         assert task.logs[0]["type"] == "info"
         assert task.logs[0]["content"] == "Something happened"
 
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     def test_publish_task_update_no_event_loop(self, mock_bus, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
@@ -1130,8 +1130,8 @@ class TestEmployeeManagerHelpers:
 
 class TestEmployeeManagerExecuteSubtask:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_execute_subtask_success(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -1153,8 +1153,8 @@ class TestEmployeeManagerExecuteSubtask:
         assert sub.completed_at != ""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_execute_subtask_max_depth(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -1172,8 +1172,8 @@ class TestEmployeeManagerExecuteSubtask:
         assert "Max sub-task depth" in sub.result
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_execute_subtask_cancelled(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -1191,8 +1191,8 @@ class TestEmployeeManagerExecuteSubtask:
         launcher.execute.assert_not_called()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_execute_subtask_failure(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -1205,7 +1205,7 @@ class TestEmployeeManagerExecuteSubtask:
         sub = AgentTask(id="s1", description="Bad sub")
         mgr.boards["emp01"].tasks.append(sub)
 
-        with patch("onemancompany.core.agent_loop.asyncio.sleep", new_callable=AsyncMock):
+        with patch("onemancompany.core.vessel.asyncio.sleep", new_callable=AsyncMock):
             await mgr._execute_subtask("emp01", sub, depth=1)
 
         assert sub.status == "failed"
@@ -1353,7 +1353,7 @@ class TestEmployeeManagerAcceptanceTasks:
 class TestBackwardCompatAPI:
     def test_register_agent(self):
         runner = MagicMock()
-        with patch("onemancompany.core.agent_loop.employee_manager") as mock_mgr:
+        with patch("onemancompany.core.vessel.employee_manager") as mock_mgr:
             mock_mgr.register.return_value = MagicMock(spec=EmployeeHandle)
             handle = register_agent("emp01", runner)
             mock_mgr.register.assert_called_once()
@@ -1362,7 +1362,7 @@ class TestBackwardCompatAPI:
             assert isinstance(call_args[0][1], LangChainLauncher)
 
     def test_register_self_hosted(self):
-        with patch("onemancompany.core.agent_loop.employee_manager") as mock_mgr:
+        with patch("onemancompany.core.vessel.employee_manager") as mock_mgr:
             mock_mgr.register.return_value = MagicMock(spec=EmployeeHandle)
             handle = register_self_hosted("emp01")
             mock_mgr.register.assert_called_once()
@@ -1371,7 +1371,7 @@ class TestBackwardCompatAPI:
             assert isinstance(call_args[0][1], ClaudeSessionLauncher)
 
     def test_get_agent_loop(self):
-        with patch("onemancompany.core.agent_loop.employee_manager") as mock_mgr:
+        with patch("onemancompany.core.vessel.employee_manager") as mock_mgr:
             mock_handle = MagicMock(spec=EmployeeHandle)
             mock_mgr.get_handle.return_value = mock_handle
             result = get_agent_loop("emp01")
@@ -1379,7 +1379,7 @@ class TestBackwardCompatAPI:
             assert result is mock_handle
 
     def test_get_agent_loop_missing(self):
-        with patch("onemancompany.core.agent_loop.employee_manager") as mock_mgr:
+        with patch("onemancompany.core.vessel.employee_manager") as mock_mgr:
             mock_mgr.get_handle.return_value = None
             result = get_agent_loop("nobody")
             assert result is None
@@ -1413,7 +1413,7 @@ class TestBackwardCompatAPI:
     @pytest.mark.asyncio
     async def test_register_and_start_agent(self):
         runner = MagicMock()
-        with patch("onemancompany.core.agent_loop.register_agent") as mock_reg:
+        with patch("onemancompany.core.vessel.register_agent") as mock_reg:
             mock_reg.return_value = MagicMock(spec=EmployeeHandle)
             handle = await register_and_start_agent("emp01", runner)
             mock_reg.assert_called_once_with("emp01", runner)
@@ -1430,10 +1430,10 @@ class TestBackwardCompatAPI:
 
 class TestEmployeeManagerGraphRecursionError:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_graph_recursion_error_no_retry(self, mock_append, mock_load, mock_bus, mock_state):
         from langgraph.errors import GraphRecursionError
 
@@ -1465,10 +1465,10 @@ class TestEmployeeManagerGraphRecursionError:
 
 class TestEmployeeManagerHookFailures:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_pre_hook_failure_continues(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -1496,10 +1496,10 @@ class TestEmployeeManagerHookFailures:
         assert task.status == "completed"
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_post_hook_failure_does_not_crash(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -1621,7 +1621,7 @@ class TestScriptLauncherErrorCode:
 class TestProgressLogErrors:
     def test_load_progress_file_error(self, tmp_path):
         """When the progress file can't be read, return empty string."""
-        with patch("onemancompany.core.agent_loop.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             log_dir = tmp_path / "emp01"
             log_dir.mkdir()
             log_path = log_dir / "progress.log"
@@ -1638,8 +1638,8 @@ class TestProgressLogErrors:
 
 class TestEmployeeManagerScheduleNextWithLoop:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_schedule_next_creates_task(self, mock_bus, mock_state):
         """When event loop is running and there's a pending task, _schedule_next creates a task."""
         mock_bus.publish = AsyncMock()
@@ -1680,10 +1680,10 @@ class TestEmployeeManagerScheduleNextWithLoop:
 
 class TestEmployeeManagerExecuteTaskWithProject:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_creates_task_entry(self, mock_append, mock_load, mock_bus, mock_state):
         """When a task has project_id, a TaskEntry is appended to active_tasks."""
         mock_bus.publish = AsyncMock()
@@ -1709,10 +1709,10 @@ class TestEmployeeManagerExecuteTaskWithProject:
         assert len(mock_state.active_tasks) == 1
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_with_project_context(self, mock_append, mock_load, mock_bus, mock_state):
         """When task has project_id, project history context is injected."""
         mock_bus.publish = AsyncMock()
@@ -1747,8 +1747,8 @@ class TestEmployeeManagerExecuteTaskWithProject:
 
 class TestEmployeeManagerSubtaskTokenTracking:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_subtask_token_accumulation(self, mock_bus, mock_state):
         """Sub-task tokens should accumulate on the parent task."""
         mock_bus.publish = AsyncMock()
@@ -1784,8 +1784,8 @@ class TestEmployeeManagerSubtaskTokenTracking:
         assert parent.estimated_cost_usd > 0
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_subtask_no_launcher(self, mock_bus, mock_state):
         """Sub-task with missing launcher should fail."""
         mock_bus.publish = AsyncMock()
@@ -1801,7 +1801,7 @@ class TestEmployeeManagerSubtaskTokenTracking:
         await mgr._execute_subtask("emp01", sub, depth=1)
 
         assert sub.status == "failed"
-        assert "No launcher" in sub.result
+        assert "No executor" in sub.result
 
 
 # ---------------------------------------------------------------------------
@@ -1982,7 +1982,7 @@ class TestEmployeeManagerProjectHistoryContext:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerWorkflowContext:
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_manager_coo_gets_manager_guide(self, mock_state):
         emp = MagicMock()
         emp.role = "COO"
@@ -1993,7 +1993,7 @@ class TestEmployeeManagerWorkflowContext:
         result = mgr._get_project_workflow_context("emp01", task)
         assert "Manager Execution Guide" in result
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_manager_cso_gets_manager_guide(self, mock_state):
         emp = MagicMock()
         emp.role = "CSO"
@@ -2004,7 +2004,7 @@ class TestEmployeeManagerWorkflowContext:
         result = mgr._get_project_workflow_context("emp01", task)
         assert "Manager Execution Guide" in result
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_engineer_gets_verification_instructions(self, mock_state):
         emp = MagicMock()
         emp.role = "Engineer"
@@ -2018,7 +2018,7 @@ class TestEmployeeManagerWorkflowContext:
             assert "Self-Verification" in result
             assert "sandbox_execute_code" in result
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_engineer_with_workflow_verification(self, mock_state):
         emp = MagicMock()
         emp.role = "Engineer"
@@ -2040,7 +2040,7 @@ class TestEmployeeManagerWorkflowContext:
                 assert "Self-Verification" in result
                 assert "Build and run the code" in result
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_missing_employee_uses_default(self, mock_state):
         mock_state.employees = {}
 
@@ -2051,7 +2051,7 @@ class TestEmployeeManagerWorkflowContext:
             result = mgr._get_project_workflow_context("nobody", task)
             assert "Self-Verification" in result
 
-    @patch("onemancompany.core.agent_loop.company_state")
+    @patch("onemancompany.core.vessel.company_state")
     def test_hr_is_manager_but_not_coo_cso(self, mock_state):
         """HR is a manager role but not COO/CSO, so should get verification guide."""
         emp = MagicMock()
@@ -2072,8 +2072,8 @@ class TestEmployeeManagerWorkflowContext:
 
 class TestEmployeeManagerPostTaskCleanup:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_no_project_id_returns_early(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2084,8 +2084,8 @@ class TestEmployeeManagerPostTaskCleanup:
         await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="")
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_no_criteria_all_complete(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2104,8 +2104,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                 mock_full.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_no_criteria_not_all_complete(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2124,8 +2124,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                 mock_min.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_with_criteria_not_accepted(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2150,8 +2150,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                     mock_accept.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_accepted_no_ea_review(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2180,8 +2180,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                         mock_ea.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_ea_approved(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2204,8 +2204,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                 mock_full.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_ea_rejected(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2235,8 +2235,8 @@ class TestEmployeeManagerPostTaskCleanup:
                                             mock_rect.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_cleanup_records_cost(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2266,8 +2266,8 @@ class TestEmployeeManagerPostTaskCleanup:
 
 class TestEmployeeManagerFullCleanup:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_runs_routine(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2286,8 +2286,8 @@ class TestEmployeeManagerFullCleanup:
                                 mock_routine.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_routine_error(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2308,8 +2308,8 @@ class TestEmployeeManagerFullCleanup:
                                     assert mock_bus.publish.call_count >= 1
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_with_flush_result(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -2331,8 +2331,8 @@ class TestEmployeeManagerFullCleanup:
                                 await mgr._full_cleanup("emp01", task, False, "proj1")
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_agent_error_label(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2352,8 +2352,8 @@ class TestEmployeeManagerFullCleanup:
                                 assert "with errors" in call_args[0][1]
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_auto_project_skips_complete(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2378,7 +2378,7 @@ class TestEmployeeManagerFullCleanup:
 
 class TestEmployeeManagerMinimalCleanup:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_minimal_cleanup(self, mock_bus):
         mock_bus.publish = AsyncMock()
 
@@ -2474,10 +2474,10 @@ class TestEmployeeManagerAcceptanceWithTimeline:
 
 class TestEmployeeManagerSubtaskLoop:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_processes_subtasks(self, mock_append, mock_load, mock_bus, mock_state):
         """When launcher adds subtasks, the subtask loop should process them."""
         mock_bus.publish = AsyncMock()
@@ -2516,10 +2516,10 @@ class TestEmployeeManagerSubtaskLoop:
         assert call_count == 2  # main + subtask
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_cancelled_during_subtask_loop(self, mock_append, mock_load, mock_bus, mock_state):
         """If task is cancelled during subtask loop, it stops processing."""
         mock_bus.publish = AsyncMock()
@@ -2557,8 +2557,8 @@ class TestEmployeeManagerSubtaskLoop:
 
 class TestEmployeeManagerLogWithLoop:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_log_publishes_event(self, mock_bus, mock_state):
         """When event loop is running, _log should fire-and-forget an event."""
         mock_bus.publish = AsyncMock()
@@ -2583,8 +2583,8 @@ class TestEmployeeManagerLogWithLoop:
 
 class TestEmployeeManagerPublishWithLoop:
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_publish_with_event_loop(self, mock_bus, mock_state):
         """When event loop is running, publish should create a fire-and-forget task."""
         mock_bus.publish = AsyncMock()
@@ -2670,17 +2670,17 @@ class TestEmployeeManagerProjectContextTimeline:
 # Coverage gap: line 553 — _on_log callback inside _execute_task
 # ---------------------------------------------------------------------------
 
-import onemancompany.core.agent_loop as agent_loop_mod
+import onemancompany.core.vessel as agent_loop_mod
 
 
 class TestExecuteTaskOnLogCallback:
     """Line 553: The _on_log closure inside _execute_task must be called by the launcher."""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_on_log_callback_called_by_launcher(self, mock_append, mock_load, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
@@ -2720,10 +2720,10 @@ class TestSubtaskLoopCancelledBreaks:
     """Lines 626 and 630: task.status == 'cancelled' breaks during subtask processing."""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_cancel_during_subtask_inner_loop(self, mock_append, mock_load, mock_bus, mock_state):
         """Line 626: task cancelled inside the 'for sub in pending_subs' loop."""
         mock_bus.publish = AsyncMock()
@@ -2768,10 +2768,10 @@ class TestSubtaskLoopCancelledBreaks:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
-    @patch("onemancompany.core.agent_loop._load_progress", return_value="")
-    @patch("onemancompany.core.agent_loop._append_progress")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    @patch("onemancompany.core.vessel._load_progress", return_value="")
+    @patch("onemancompany.core.vessel._append_progress")
     async def test_cancel_after_subtasks_before_completion_check(self, mock_append, mock_load, mock_bus, mock_state):
         """Line 630: task cancelled after all subtasks run, before _completion_check."""
         mock_bus.publish = AsyncMock()
@@ -2823,8 +2823,8 @@ class TestExecuteSubtaskOnLogCallback:
     """Line 708: The _on_log closure inside _execute_subtask must be called by the launcher."""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_subtask_on_log_callback(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -3012,8 +3012,8 @@ class TestPostTaskCleanupResolutionReady:
     """Line 1101: event_bus.publish for resolution_ready when create_resolution returns a value."""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_resolution_ready_event_published(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -3058,8 +3058,8 @@ class TestPostTaskCleanupFallthrough:
     """
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_fallthrough_criteria_with_rejected_acceptance(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -3090,8 +3090,8 @@ class TestFullCleanupRoutineResolution:
     """Line 1191: event_bus.publish for routine resolution_ready in _full_cleanup."""
 
     @pytest.mark.asyncio
-    @patch("onemancompany.core.agent_loop.company_state")
-    @patch("onemancompany.core.agent_loop.event_bus")
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
     async def test_routine_resolution_published(self, mock_bus, mock_state):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
