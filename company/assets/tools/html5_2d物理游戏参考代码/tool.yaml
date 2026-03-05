@@ -1,0 +1,9 @@
+added_by: COO
+allowed_users: []
+description: 包含物理碰撞、关卡设计、耐久度机制和计分系统的完整HTML5网页游戏实现，可作为未来Web端2D物理游戏（如抛物线射击类）开发的参考代码。
+desk_position:
+- 5
+- 14
+id: 25220a23
+name: HTML5 2D物理游戏参考代码
+sprite: desk_equipment

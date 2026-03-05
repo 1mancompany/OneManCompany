@@ -1,0 +1,10 @@
+added_by: COO
+allowed_users: []
+description: 基于 Matter.js 实现的 2D 物理小游戏完整代码，包含抛物线发射、碰撞检测、关卡管理和计分系统等核心逻辑，可作为后续开发 H5
+  物理游戏的参考。
+desk_position:
+- 5
+- 11
+id: 0b5f5db7
+name: HTML5 Matter.js 物理游戏参考代码
+sprite: desk_equipment

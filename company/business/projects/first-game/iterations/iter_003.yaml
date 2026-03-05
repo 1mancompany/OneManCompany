@@ -1,0 +1,24 @@
+acceptance_criteria: []
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-05T13:22:16.715516'
+current_owner: pending
+dispatches: []
+ea_review_result: null
+iteration_id: iter_003
+output: null
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/first-game/iterations/iter_003
+project_id: first-game
+responsible_officer: ''
+routed_to: pending
+status: in_progress
+task: api充钱了，继续吧
+timeline: []

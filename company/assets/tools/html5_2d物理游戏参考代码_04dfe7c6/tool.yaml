@@ -1,0 +1,9 @@
+added_by: COO
+allowed_users: []
+description: 基于HTML5 Canvas和JavaScript的2D物理游戏（类愤怒的小鸟）的完整实现，具有基础的物理引擎和交互逻辑，可作为后续开发类似网页小游戏的参考代码库。
+desk_position:
+- 5
+- 20
+id: 04dfe7c6
+name: HTML5 2D物理游戏参考代码
+sprite: desk_equipment

@@ -317,6 +317,26 @@ body {
   color: var(--text-dim);
 }
 
+.ceo-input-area {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+.ceo-input-area #task-input {
+  flex: 1;
+  border-right: none;
+}
+.ceo-input-area .chat-attach-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a18;
+  border: 2px solid var(--border);
+  border-left: 1px solid var(--border);
+  padding: 0 6px;
+  cursor: pointer;
+}
+
 .btn-row {
   display: flex;
   gap: 6px;
