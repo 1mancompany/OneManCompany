@@ -645,6 +645,7 @@ async def execute_hire(
     auth_method: str = "api_key",
     sprite: str = "employee_default",
     remote: bool = False,
+    department: str = "",
 ) -> Employee:
     """Execute the full hire flow in code — no LLM involved.
 
@@ -652,12 +653,17 @@ async def execute_hire(
     creates profile, copies talent assets, generates work principles,
     and registers the agent loop.
 
+    Args:
+        department: Explicit department override (from COO request).
+            If empty, auto-determined from ROLE_DEPARTMENT_MAP.
+
     Returns the newly created Employee.
     """
     from onemancompany.core.model_costs import compute_salary
 
-    # Auto-assign department based on role
-    department = ROLE_DEPARTMENT_MAP.get(role, DEFAULT_DEPARTMENT)
+    # Use explicit department if provided (from COO), otherwise auto-assign
+    if not department:
+        department = ROLE_DEPARTMENT_MAP.get(role, DEFAULT_DEPARTMENT)
 
     # Desk position
     if remote:
@@ -812,11 +818,5 @@ async def execute_hire(
     import asyncio
     from onemancompany.core.routine import run_onboarding_routine
     asyncio.create_task(run_onboarding_routine(emp_num))
-
-    # Notify COO that the hire is ready (for non-OAuth employees).
-    # OAuth employees will be notified after login completes in oauth_callback.
-    if auth_method != "oauth":
-        from onemancompany.api.routes import _notify_coo_hire_ready
-        _notify_coo_hire_ready(emp_num, role)
 
     return emp

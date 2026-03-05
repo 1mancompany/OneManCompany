@@ -6187,21 +6187,27 @@ class TestProjectFilePathEscape:
 
 class TestDispatchHiringToHR:
     async def test_approved_hiring_pushes_task_to_hr(self):
-        """CEO approval pushes hiring task to HR via push_task."""
+        """CEO approval pushes hiring task to HR via push_task and queues COO context."""
         from onemancompany.agents.coo_agent import pending_hiring_requests
 
         req_id = "test123"
         pending_hiring_requests[req_id] = {
             "role": "Developer",
+            "department": "Engineering",
             "reason": "Need more devs",
             "desired_skills": ["Python"],
             "requested_by": "00003",
             "requested_at": "2026-01-01T00:00:00",
+            "project_id": "proj_1",
+            "project_dir": "/tmp/proj",
         }
 
         mock_vessel = MagicMock()
         mock_bus = MagicMock()
         mock_bus.publish = AsyncMock()
+
+        from onemancompany.api.routes import _pending_coo_hire_queue
+        queue_before = len(_pending_coo_hire_queue)
 
         with patch("onemancompany.api.routes.event_bus", mock_bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_vessel):
@@ -6213,6 +6219,14 @@ class TestDispatchHiringToHR:
         jd = mock_vessel.push_task.call_args[0][0]
         assert "Developer" in jd
         assert "Python" in jd
+        assert "Engineering" in jd  # department included in JD
+
+        # COO context was queued
+        assert len(_pending_coo_hire_queue) == queue_before + 1
+        ctx = _pending_coo_hire_queue.pop()
+        assert ctx["role"] == "Developer"
+        assert ctx["department"] == "Engineering"
+        assert ctx["project_id"] == "proj_1"
 
     async def test_rejected_hiring_does_not_push(self):
         """CEO rejection does not push any task to HR."""

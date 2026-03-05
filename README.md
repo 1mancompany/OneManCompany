@@ -1,9 +1,13 @@
 # OneManCompany
 
-一人公司 — 像素风办公室 + LangChain AI Agent 自主运营
+**AI 公司框架 + 运营平台** — 一个人用 AI 运转一整家公司。
 
-CEO（真人）通过浏览器下达指令，AI 高管团队（HR / COO / EA / CSO）自动拆解、分配、执行、验收。
-员工来自 Talent Market（即插即用的 agent 插件），支持 company-hosted、self-hosted、remote 三种运行模式。
+OneManCompany 不仅仅是一个 multi-agent 框架——它是一套**以公司组织为核心隐喻的 AI agent 运营平台**。你是 CEO（唯一的人类），在浏览器里经营一家拥有完整组织架构的公司：招聘、入职、任务分配、项目管理、验收、绩效考核，全部由 AI 高管和员工自主执行。
+
+**核心定位**：
+
+- **框架**：提供 Vessel（躯壳）+ Talent（灵魂）的 agent 抽象、Harness 套接件标准、可插拔执行后端
+- **平台**：开箱即用的像素风办公室 UI、CEO Console、实时 WebSocket 推送、项目全生命周期管理
 
 ---
 
@@ -70,6 +74,8 @@ graph TB
     Departments -->|"运行代码"| IT
     TalentMkt -.->|"安装 talent"| Departments
 ```
+
+
 
 **运转模式**：CEO 在浏览器输入任务 → 系统路由到对应高管 → 高管拆解并 `dispatch_task()` 给合适员工 → 员工执行 → 高管验收 → EA 复核 → 项目归档。
 
@@ -186,7 +192,10 @@ graph TB
     PA --> BIZ
 ```
 
+
+
 **关键分层**：
+
 - **表现层**：纯静态前端，零构建工具，Canvas 像素画 + WebSocket 实时推送
 - **网关层**：FastAPI REST + WS，负责路由和认证
 - **Agent 层**：所有 AI 角色的实现，共享 `BaseAgentRunner` 和 `PromptBuilder`
@@ -251,6 +260,8 @@ sequenceDiagram
     FE->>CEO: 实时日志 + 完成通知
 ```
 
+
+
 ### Mode B: 互联网任务单驱动 — 对外接单
 
 > 外部客户通过 Sales API 提交任务单，CSO 接单评估，内部团队执行交付。公司作为服务商运转。
@@ -294,15 +305,19 @@ sequenceDiagram
     Client->>Sales: GET /tasks/{id} (查询进度)
 ```
 
+
+
 **两种模式对比**：
 
-| | CEO 驱动 | 互联网任务单 |
-|---|---|---|
-| **入口** | CEO Console (Browser) | Sales API (`/api/sales/submit`) |
-| **路由** | 关键词匹配 → HR / COO / CSO | CSO 统一接单 |
-| **质量门** | 员工自检 → 高管验收 → EA 复核 | CSO 验收 → 交付客户 |
-| **结算** | 内部 cost tracking | 客户 budget_tokens 结算 |
-| **场景** | 日常经营、产品开发、内部建设 | 对外接活、SaaS 交付、定制开发 |
+
+|         | CEO 驱动                 | 互联网任务单                          |
+| ------- | ---------------------- | ------------------------------- |
+| **入口**  | CEO Console (Browser)  | Sales API (`/api/sales/submit`) |
+| **路由**  | 关键词匹配 → HR / COO / CSO | CSO 统一接单                        |
+| **质量门** | 员工自检 → 高管验收 → EA 复核    | CSO 验收 → 交付客户                   |
+| **结算**  | 内部 cost tracking       | 客户 budget_tokens 结算             |
+| **场景**  | 日常经营、产品开发、内部建设         | 对外接活、SaaS 交付、定制开发               |
+
 
 **共享的核心管线**：无论哪种模式，底层都走 `EmployeeManager.push_task()` → `Executor.execute()` → `ProjectArchive` 同一条执行链路。
 
@@ -310,39 +325,41 @@ sequenceDiagram
 
 ## Module Index
 
-| Layer | Module | Role |
-|-------|--------|------|
-| **Entry** | `main.py` | FastAPI app, lifespan (register agents, sandbox, watchdog, heartbeat) |
-| **API** | `routes.py` | REST: `/task`, `/hire`, `/fire`, `/state`, talent market, projects |
-| **API** | `websocket.py` | WS `/ws` — broadcasts EventBus events to frontend |
-| **Agents** | `base.py` | `BaseAgentRunner` (streaming, prompt building), `EmployeeAgent` |
-| **Agents** | `hr_agent.py` | Hiring, performance review, promotion, quarterly cycle |
-| **Agents** | `coo_agent.py` | Asset management, meeting rooms, project acceptance, knowledge deposit |
-| **Agents** | `ea_agent.py` | CEO quality gate — final review before project close |
-| **Agents** | `cso_agent.py` | Sales pipeline, client outreach |
-| **Agents** | `common_tools.py` | `dispatch_task`, `pull_meeting`, `list_colleagues`, file/sandbox ops |
-| **Agents** | `prompt_builder.py` | Named sections with priority, composable prompt system |
-| **Agents** | `onboarding.py` | `execute_hire()`, talent asset install, agent config, hooks |
-| **Agents** | `termination.py` | `execute_fire()`, tool cleanup, layout recompute |
-| **Core** | `config.py` | All paths, constants, employee/talent config loaders |
-| **Core** | `state.py` | `CompanyState` singleton, hot-reload, employee/project state |
-| **Core** | `events.py` | Async `EventBus` — pub/sub for all system events |
-| **Core** | `vessel.py` | `Vessel`(躯壳), `EmployeeManager`, `Executor` protocol, task queue, hooks, history |
-| **Core** | `vessel_config.py` | `VesselConfig`(DNA) — load/save/migrate `vessel.yaml` per employee |
-| **Core** | `vessel_harness.py` | Harness protocols(套接件): `ExecutionHarness`, `TaskHarness`, `EventHarness`, etc. |
-| **Core** | `agent_loop.py` | Backward-compat shim — re-exports everything from `vessel.py` |
-| **Core** | `routine.py` | Post-task workflow dispatch (project retrospective, etc.) |
-| **Core** | `workflow_engine.py` | Parses `company/business/workflows/*.md` → `WorkflowDefinition` |
-| **Core** | `project_archive.py` | Project CRUD, iteration tracking, cost recording |
-| **Core** | `layout.py` | Department-based office grid, desk allocation |
-| **Talent** | `talent_spec.py` | Dataclasses: `TalentPackage`, `VesselManifest`, `AgentManifest`, `FunctionsManifest` |
-| **Talent** | `boss_online.py` | MCP server subprocess for recruitment |
-| **Infra** | `tools/sandbox/` | Docker-based code execution (execute, run\_command, write/read) |
-| **Infra** | `claude_session.py` | Claude Code CLI session management (self-hosted employees) |
-| **Infra** | `heartbeat.py` | Periodic API connectivity check (zero token cost) |
-| **Frontend** | `index.html` | 3-column layout: Office / Console / Details |
-| **Frontend** | `office.js` | Canvas 2D pixel art renderer, sprite system |
-| **Frontend** | `app.js` | CEO console, WebSocket handler, UI state |
+
+| Layer        | Module               | Role                                                                                 |
+| ------------ | -------------------- | ------------------------------------------------------------------------------------ |
+| **Entry**    | `main.py`            | FastAPI app, lifespan (register agents, sandbox, watchdog, heartbeat)                |
+| **API**      | `routes.py`          | REST: `/task`, `/hire`, `/fire`, `/state`, talent market, projects                   |
+| **API**      | `websocket.py`       | WS `/ws` — broadcasts EventBus events to frontend                                    |
+| **Agents**   | `base.py`            | `BaseAgentRunner` (streaming, prompt building), `EmployeeAgent`                      |
+| **Agents**   | `hr_agent.py`        | Hiring, performance review, promotion, quarterly cycle                               |
+| **Agents**   | `coo_agent.py`       | Asset management, meeting rooms, project acceptance, knowledge deposit               |
+| **Agents**   | `ea_agent.py`        | CEO quality gate — final review before project close                                 |
+| **Agents**   | `cso_agent.py`       | Sales pipeline, client outreach                                                      |
+| **Agents**   | `common_tools.py`    | `dispatch_task`, `pull_meeting`, `list_colleagues`, file/sandbox ops                 |
+| **Agents**   | `prompt_builder.py`  | Named sections with priority, composable prompt system                               |
+| **Agents**   | `onboarding.py`      | `execute_hire()`, talent asset install, agent config, hooks                          |
+| **Agents**   | `termination.py`     | `execute_fire()`, tool cleanup, layout recompute                                     |
+| **Core**     | `config.py`          | All paths, constants, employee/talent config loaders                                 |
+| **Core**     | `state.py`           | `CompanyState` singleton, hot-reload, employee/project state                         |
+| **Core**     | `events.py`          | Async `EventBus` — pub/sub for all system events                                     |
+| **Core**     | `vessel.py`          | `Vessel`(躯壳), `EmployeeManager`, `Executor` protocol, task queue, hooks, history     |
+| **Core**     | `vessel_config.py`   | `VesselConfig`(DNA) — load/save/migrate `vessel.yaml` per employee                   |
+| **Core**     | `vessel_harness.py`  | Harness protocols(套接件): `ExecutionHarness`, `TaskHarness`, `EventHarness`, etc.      |
+| **Core**     | `agent_loop.py`      | Backward-compat shim — re-exports everything from `vessel.py`                        |
+| **Core**     | `routine.py`         | Post-task workflow dispatch (project retrospective, etc.)                            |
+| **Core**     | `workflow_engine.py` | Parses `company/business/workflows/*.md` → `WorkflowDefinition`                      |
+| **Core**     | `project_archive.py` | Project CRUD, iteration tracking, cost recording                                     |
+| **Core**     | `layout.py`          | Department-based office grid, desk allocation                                        |
+| **Talent**   | `talent_spec.py`     | Dataclasses: `TalentPackage`, `VesselManifest`, `AgentManifest`, `FunctionsManifest` |
+| **Talent**   | `boss_online.py`     | MCP server subprocess for recruitment                                                |
+| **Infra**    | `tools/sandbox/`     | Docker-based code execution (execute, runcommand, write/read)                        |
+| **Infra**    | `claude_session.py`  | Claude Code CLI session management (self-hosted employees)                           |
+| **Infra**    | `heartbeat.py`       | Periodic API connectivity check (zero token cost)                                    |
+| **Frontend** | `index.html`         | 3-column layout: Office / Console / Details                                          |
+| **Frontend** | `office.js`          | Canvas 2D pixel art renderer, sprite system                                          |
+| **Frontend** | `app.js`             | CEO console, WebSocket handler, UI state                                             |
+
 
 ## Tech Stack
 
@@ -372,26 +389,30 @@ employees/00010/
 
 **vessel.yaml** — 躯壳的 DNA，定义执行行为：
 
-| 字段 | 说明 |
-|------|------|
-| `runner` | 神经系统 — 自定义 runner 模块和类名 |
-| `hooks` | 生命周期钩子 — pre_task / post_task 回调 |
-| `context` | 上下文注入 — prompt sections、进度日志、任务历史 |
-| `limits` | 执行限制 — 重试次数、超时、子任务深度 |
+
+| 字段             | 说明                                 |
+| -------------- | ---------------------------------- |
+| `runner`       | 神经系统 — 自定义 runner 模块和类名            |
+| `hooks`        | 生命周期钩子 — pre_task / post_task 回调   |
+| `context`      | 上下文注入 — prompt sections、进度日志、任务历史  |
+| `limits`       | 执行限制 — 重试次数、超时、子任务深度               |
 | `capabilities` | 能力声明 — sandbox、文件上传、WebSocket、图片生成 |
+
 
 ### VesselHarness — 套接件标准
 
 6 类 Protocol 定义了 Vessel 与公司系统的连接标准：
 
-| Harness | 职责 |
-|---------|------|
-| `ExecutionHarness` | 执行套接件 — Executor 协议（execute / is_ready） |
-| `TaskHarness` | 任务套接件 — 任务队列管理（push / get_next / cancel） |
-| `EventHarness` | 事件套接件 — 日志和事件发布 |
-| `StorageHarness` | 存储套接件 — 进度日志和历史持久化 |
-| `ContextHarness` | 上下文套接件 — prompt / context 组装 |
-| `LifecycleHarness` | 生命周期套接件 — pre/post task 钩子调用 |
+
+| Harness            | 职责                                       |
+| ------------------ | ---------------------------------------- |
+| `ExecutionHarness` | 执行套接件 — Executor 协议（execute / is_ready）  |
+| `TaskHarness`      | 任务套接件 — 任务队列管理（push / get_next / cancel） |
+| `EventHarness`     | 事件套接件 — 日志和事件发布                          |
+| `StorageHarness`   | 存储套接件 — 进度日志和历史持久化                       |
+| `ContextHarness`   | 上下文套接件 — prompt / context 组装             |
+| `LifecycleHarness` | 生命周期套接件 — pre/post task 钩子调用             |
+
 
 ### Talent → Employee 转换
 
@@ -403,20 +424,24 @@ flowchart LR
     E --> EM["EmployeeManager<br>注册 + 调度"]
 ```
 
+
+
 安装优先级：talent 自带 `vessel/vessel.yaml` → talent 旧版 `agent/manifest.yaml`（自动转换） → 系统默认 `default_vessel.yaml`
 
 ### 向后兼容
 
 所有旧名称通过别名继续可用：
 
-| 旧名 | 新名 |
-|------|------|
-| `EmployeeHandle` | `Vessel` |
-| `Launcher` | `ExecutionHarness` |
-| `LangChainLauncher` | `LangChainExecutor` |
-| `ClaudeSessionLauncher` | `ClaudeSessionExecutor` |
-| `ScriptLauncher` | `ScriptExecutor` |
-| `agent_loop.py` | `vessel.py`（agent_loop.py 变为 re-export shim） |
+
+| 旧名                      | 新名                                           |
+| ----------------------- | -------------------------------------------- |
+| `EmployeeHandle`        | `Vessel`                                     |
+| `Launcher`              | `ExecutionHarness`                           |
+| `LangChainLauncher`     | `LangChainExecutor`                          |
+| `ClaudeSessionLauncher` | `ClaudeSessionExecutor`                      |
+| `ScriptLauncher`        | `ScriptExecutor`                             |
+| `agent_loop.py`         | `vessel.py`（agent_loop.py 变为 re-export shim） |
+
 
 ---
 
@@ -438,39 +463,44 @@ open http://localhost:8000
 
 ## Key Concepts
 
-| Concept | Description |
-|---------|-------------|
-| **Vessel = 躯壳** | 员工的执行容器，包含 DNA（vessel.yaml）、神经系统（runner）、套接件（harness）|
-| **Talent = 灵魂** | `talents/{id}/` 自包含的 agent 包（profile / skills / tools / functions / vessel config）|
-| **Vessel + Talent = Employee** | 躯壳（执行容器）+ 灵魂（能力包）= 完整员工 |
-| **VesselConfig = DNA** | `vessel.yaml` 定义 runner / hooks / context / limits / capabilities |
-| **VesselHarness = 套接件** | 6 类 Protocol：Execution / Task / Event / Storage / Context / Lifecycle |
-| **Agent Modularization** | 三层定制：prompt sections（轻量）→ lifecycle hooks（中等）→ custom runner（完全替换） |
-| **EmployeeManager** | 中央调度器，on-demand 推送任务，无空转轮询 |
-| **Executor Protocol** | `LangChainExecutor` / `ClaudeSessionExecutor` / `ScriptExecutor` — 统一接口，三种后端 |
-| **EventBus** | 所有状态变更 → async pub/sub → WebSocket → 前端实时更新 |
-| **Knowledge Deposit** | COO 通过 `deposit_company_knowledge()` 将 workflow / SOP / culture / guidance 沉淀到公司知识库 |
+
+| Concept                        | Description                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| **Vessel = 躯壳**                | 员工的执行容器，包含 DNA（vessel.yaml）、神经系统（runner）、套接件（harness）                               |
+| **Talent = 灵魂**                | `talents/{id}/` 自包含的 agent 包（profile / skills / tools / functions / vessel config）  |
+| **Vessel + Talent = Employee** | 躯壳（执行容器）+ 灵魂（能力包）= 完整员工                                                             |
+| **VesselConfig = DNA**         | `vessel.yaml` 定义 runner / hooks / context / limits / capabilities                   |
+| **VesselHarness = 套接件**        | 6 类 Protocol：Execution / Task / Event / Storage / Context / Lifecycle               |
+| **Agent Modularization**       | 三层定制：prompt sections（轻量）→ lifecycle hooks（中等）→ custom runner（完全替换）                  |
+| **EmployeeManager**            | 中央调度器，on-demand 推送任务，无空转轮询                                                          |
+| **Executor Protocol**          | `LangChainExecutor` / `ClaudeSessionExecutor` / `ScriptExecutor` — 统一接口，三种后端        |
+| **EventBus**                   | 所有状态变更 → async pub/sub → WebSocket → 前端实时更新                                         |
+| **Knowledge Deposit**          | COO 通过 `deposit_company_knowledge()` 将 workflow / SOP / culture / guidance 沉淀到公司知识库 |
+
 
 ---
 
 ## Changelog
 
-<!-- CHANGELOG_START -->
-| Date | Commit | Summary |
-|------|--------|---------|
-| 2026-03-05 | • update: connection, coo_agent, heartbeat, iter_001, launch |
-| 2026-03-05 | • update: , 02dd33f6, 03c25f63, 1eb8c0b0, 298b4b58 |
-| 2026-03-05 | • update: 任务流转追踪与异常监控机制, 前端代码工程化规范, 项目验收与工作区规范, 验收验证与目录规范 SOP, 02dd33f6 |
-| 2026-03-05 | • update: 5c5db503, app, base, company_direction, connection |
-| 2026-03-05 | • update: base, claude_session, common_tools, config, coo_agent |
-| 2026-03-05 | `7609eec` | 1808 unit tests covering workflow engine, heartbeat, claude session, and more |
-| 2026-03-04 | `bd3125f` | Fix test isolation: fire tests no longer leak offboarding routine side effects |
-| 2026-03-04 | `cfb252d` | Persistent meeting reports: pull-meeting auto-generates archived records |
-| 2026-03-04 | `9f74231` | GitHub talent one-click import script + system_prompt_template in prompt pipeline |
-| 2026-03-04 | `49d4c78` | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding |
-| 2026-03-04 | `e25a50f` | First 976 unit tests + pre-commit test gate + auto-changelog hook |
-| 2026-03-04 | `06d0cfb` | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists |
-| 2026-03-04 | `2e1111d` | API heartbeat health check (zero token cost) + OAuth login fix |
-| 2026-03-04 | `760022c` | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
-| 2026-03-04 | `16bc792` | Frontend CEO Console UX improvements |
-<!-- CHANGELOG_END -->
+
+
+
+| Date       | Commit                                                                  | Summary                                                                                                           |
+| ---------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 2026-03-05 | • update: connection, coo_agent, heartbeat, iter_001, launch            |                                                                                                                   |
+| 2026-03-05 | • update: , 02dd33f6, 03c25f63, 1eb8c0b0, 298b4b58                      |                                                                                                                   |
+| 2026-03-05 | • update: 任务流转追踪与异常监控机制, 前端代码工程化规范, 项目验收与工作区规范, 验收验证与目录规范 SOP, 02dd33f6 |                                                                                                                   |
+| 2026-03-05 | • update: 5c5db503, app, base, company_direction, connection            |                                                                                                                   |
+| 2026-03-05 | • update: base, claude_session, common_tools, config, coo_agent         |                                                                                                                   |
+| 2026-03-05 | `7609eec`                                                               | 1808 unit tests covering workflow engine, heartbeat, claude session, and more                                     |
+| 2026-03-04 | `bd3125f`                                                               | Fix test isolation: fire tests no longer leak offboarding routine side effects                                    |
+| 2026-03-04 | `cfb252d`                                                               | Persistent meeting reports: pull-meeting auto-generates archived records                                          |
+| 2026-03-04 | `9f74231`                                                               | GitHub talent one-click import script + system_prompt_template in prompt pipeline                                 |
+| 2026-03-04 | `49d4c78`                                                               | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding                       |
+| 2026-03-04 | `e25a50f`                                                               | First 976 unit tests + pre-commit test gate + auto-changelog hook                                                 |
+| 2026-03-04 | `06d0cfb`                                                               | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists                             |
+| 2026-03-04 | `2e1111d`                                                               | API heartbeat health check (zero token cost) + OAuth login fix                                                    |
+| 2026-03-04 | `760022c`                                                               | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
+| 2026-03-04 | `16bc792`                                                               | Frontend CEO Console UX improvements                                                                              |
+
+

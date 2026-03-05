@@ -1,0 +1,40 @@
+api_key: 896ac656391b881dd3e24c02673f49b1c2559da7d981f3bf85be8c9d9905a04c
+api_provider: anthropic
+auth_method: oauth
+current_quarter_tasks: 0
+department: Engineering
+desk_position:
+- 4
+- 3
+employee_number: '00007'
+hosting: self
+level: 1
+llm_model: claude-sonnet-4-20250514
+name: Claude Game Dev Engineer (On-Site)
+nickname: 铸客
+oauth_refresh_token: c494d928b56e92ab6399163b024ec7bf836d1270b7b71fa13a7167b8898ec95d
+onboarding_completed: true
+performance_history: []
+permissions:
+- company_file_access
+- web_search
+probation: true
+role: Engineer
+salary_per_1m_tokens: 0.0
+skills:
+- roblox-game-development
+- game-engine
+- algorithmic-art
+- canvas-design
+sprite: employee_blue
+temperature: 0.6
+title: Junior Engineer
+tool_permissions:
+- read_file
+- list_directory
+- propose_file_edit
+- use_tool
+- sandbox_execute_code
+- sandbox_run_command
+- sandbox_write_file
+- sandbox_read_file

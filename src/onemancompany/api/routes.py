@@ -1696,8 +1696,12 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
     )
 
     # OAuth employee is now ready — notify COO if there's a pending project
-    if emp:
-        _notify_coo_hire_ready(employee_id, emp.role)
+    coo_ctx = _pending_oauth_hire.pop(employee_id, None)
+    if coo_ctx:
+        logger.info(f"[oauth-done] {emp_name} ready — notifying COO for project {coo_ctx.get('project_id', '?')}")
+        _notify_coo_hire_ready(employee_id, coo_ctx)
+    else:
+        logger.info(f"[oauth-done] {emp_name} — no pending COO context")
 
     return HTMLResponse(
         "<html><body style='font-family:monospace;text-align:center;padding:40px;'>"
@@ -2396,43 +2400,55 @@ async def list_hiring_requests() -> list[dict]:
     ]
 
 
-# Pending hire → project links: role -> {project_id, project_dir, request_id, reason}
-# Populated on approval, consumed when the hired employee is fully ready.
-_hire_project_links: dict[str, dict] = {}
+# COO hiring context queue — populated when CEO approves a hiring request,
+# consumed when hire_candidate() fires. Stores COO's requested role,
+# department, and project info so we can override the talent's indicative
+# role and correctly notify COO after the employee is ready.
+_pending_coo_hire_queue: list[dict] = []
+
+# Per-employee OAuth wait context — for OAuth employees, the hire completes
+# only after login. This maps employee_id -> COO context so oauth_callback
+# can notify COO.
+_pending_oauth_hire: dict[str, dict] = {}
 
 
-def _notify_coo_hire_ready(employee_id: str, role: str) -> None:
+def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     """Push a follow-up task to COO after a hired employee is fully ready.
 
     Marks the hiring dispatch as complete and gives COO the project context
     so it can dispatch_task() to the new employee.
+
+    Args:
+        employee_id: The newly hired employee's ID.
+        ctx: COO hiring context dict with keys: request_id, role, department,
+             project_id, project_dir, reason.
     """
-    link = _hire_project_links.pop(role, None)
-    if not link:
-        return
+    project_id = ctx.get("project_id", "")
+    project_dir = ctx.get("project_dir", "")
+    request_id = ctx.get("request_id", "")
 
-    project_id = link["project_id"]
-    project_dir = link["project_dir"]
-    request_id = link["request_id"]
-    hiring_dispatch_id = f"hiring_{request_id}"
-
-    from onemancompany.core.project_archive import record_dispatch_completion
-    record_dispatch_completion(project_id, hiring_dispatch_id)
+    if project_id and request_id:
+        hiring_dispatch_id = f"hiring_{request_id}"
+        from onemancompany.core.project_archive import record_dispatch_completion
+        record_dispatch_completion(project_id, hiring_dispatch_id)
 
     from onemancompany.core.agent_loop import get_agent_loop
     coo_loop = get_agent_loop(COO_ID)
     if coo_loop:
         emp = company_state.employees.get(employee_id)
         emp_name = emp.name if emp else employee_id
+        role = ctx.get("role", "Employee")
         followup = (
             f"新员工就绪通知\n\n"
             f"员工 {emp_name} (#{employee_id}) 已入职并准备就绪（{role}）。\n"
             f"请将项目相关任务 dispatch_task() 给该员工执行。\n\n"
-            f"原始招聘原因: {link['reason']}\n"
+            f"原始招聘原因: {ctx.get('reason', '')}\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
         coo_loop.push_task(followup, project_id=project_id, project_dir=project_dir)
         logger.info(f"[hire-ready] Pushed follow-up to COO for {emp_name} on project {project_id}")
+    else:
+        logger.warning(f"[hire-ready] No COO agent loop — cannot notify about {employee_id}")
 
 
 @router.post("/api/hiring-requests/{request_id}/decide")
@@ -2472,6 +2488,8 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
 
         skills_str = ", ".join(req.get("desired_skills", []))
         jd = f"招聘 {req['role']}"
+        if req.get("department"):
+            jd += f"（部门: {req['department']}）"
         if skills_str:
             jd += f"（技能要求: {skills_str}）"
         jd += f"\n原因: {req['reason']}"
@@ -2484,15 +2502,17 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         else:
             logger.warning("No agent loop for HR — hiring task dropped")
 
-        # Store link so we can notify COO after the employee is fully ready
-        # (including OAuth login if applicable). Dispatch stays open.
-        if project_id:
-            _hire_project_links[req["role"]] = {
-                "project_id": project_id,
-                "project_dir": project_dir,
-                "request_id": request_id,
-                "reason": req["reason"],
-            }
+        # Queue COO context so hire_candidate() can override the talent's
+        # indicative role with COO's requested role and department.
+        _pending_coo_hire_queue.append({
+            "request_id": request_id,
+            "role": req["role"],
+            "department": req.get("department", ""),
+            "project_id": project_id,
+            "project_dir": project_dir,
+            "reason": req["reason"],
+        })
+        logger.info(f"[hiring] Queued COO context: role='{req['role']}' dept='{req.get('department', '')}' req={request_id}")
     else:
         # Rejected — clean up the hiring dispatch
         if project_id:
@@ -2538,11 +2558,33 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
 
+    # Pop COO hiring context (FIFO) — overrides talent's indicative role
+    # with what COO actually requested.
+    coo_ctx: dict = {}
+    if _pending_coo_hire_queue:
+        coo_ctx = _pending_coo_hire_queue.pop(0)
+        logger.info(f"[hiring] Applying COO context: role='{coo_ctx['role']}' over talent role='{candidate['role']}'")
+
+    # Determine final role and department
+    hire_role = coo_ctx.get("role") or candidate["role"]
+    hire_department = coo_ctx.get("department", "")
+
+    # Ensure COO's requested role is in the role mappings
+    if coo_ctx.get("role"):
+        from onemancompany.core.config import ROLE_DEPARTMENT_MAP
+        from onemancompany.core.state import ROLE_TITLES
+        if coo_ctx["role"] not in ROLE_TITLES:
+            ROLE_TITLES[coo_ctx["role"]] = coo_ctx["role"]
+            logger.info(f"[hiring] Added '{coo_ctx['role']}' to ROLE_TITLES")
+        if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and hire_department:
+            ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = hire_department
+            logger.info(f"[hiring] Added '{coo_ctx['role']}' → '{hire_department}' to ROLE_DEPARTMENT_MAP")
+
     try:
         emp = await execute_hire(
             name=candidate["name"],
             nickname=nickname or "",
-            role=candidate["role"],
+            role=hire_role,
             skills=skill_names,
             talent_id=talent_id,
             llm_model=talent_data.get("llm_model", "") or candidate.get("llm_model", ""),
@@ -2553,10 +2595,20 @@ async def hire_candidate(body: HireRequest) -> dict:
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
+            department=hire_department,
         )
     except Exception as e:
         traceback.print_exc()
         return {"error": f"Hire failed: {e!s}"}
+
+    # Notify COO that the hire is ready (or stash for OAuth completion)
+    if coo_ctx.get("project_id"):
+        auth_method = talent_data.get("auth_method", "api_key")
+        if auth_method == "oauth":
+            _pending_oauth_hire[emp.id] = coo_ctx
+            logger.info(f"[hiring] Stashed COO context for OAuth employee {emp.id}")
+        else:
+            _notify_coo_hire_ready(emp.id, coo_ctx)
 
     # Resume project lifecycle: stashed project_id is restored so
     # retrospective runs after the *actual* hire, not after shortlist.
