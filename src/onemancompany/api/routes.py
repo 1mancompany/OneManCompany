@@ -1695,6 +1695,10 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         )
     )
 
+    # OAuth employee is now ready — notify COO if there's a pending project
+    if emp:
+        _notify_coo_hire_ready(employee_id, emp.role)
+
     return HTMLResponse(
         "<html><body style='font-family:monospace;text-align:center;padding:40px;'>"
         f"<h2>Login Successful</h2>"
@@ -2392,6 +2396,45 @@ async def list_hiring_requests() -> list[dict]:
     ]
 
 
+# Pending hire → project links: role -> {project_id, project_dir, request_id, reason}
+# Populated on approval, consumed when the hired employee is fully ready.
+_hire_project_links: dict[str, dict] = {}
+
+
+def _notify_coo_hire_ready(employee_id: str, role: str) -> None:
+    """Push a follow-up task to COO after a hired employee is fully ready.
+
+    Marks the hiring dispatch as complete and gives COO the project context
+    so it can dispatch_task() to the new employee.
+    """
+    link = _hire_project_links.pop(role, None)
+    if not link:
+        return
+
+    project_id = link["project_id"]
+    project_dir = link["project_dir"]
+    request_id = link["request_id"]
+    hiring_dispatch_id = f"hiring_{request_id}"
+
+    from onemancompany.core.project_archive import record_dispatch_completion
+    record_dispatch_completion(project_id, hiring_dispatch_id)
+
+    from onemancompany.core.agent_loop import get_agent_loop
+    coo_loop = get_agent_loop(COO_ID)
+    if coo_loop:
+        emp = company_state.employees.get(employee_id)
+        emp_name = emp.name if emp else employee_id
+        followup = (
+            f"新员工就绪通知\n\n"
+            f"员工 {emp_name} (#{employee_id}) 已入职并准备就绪（{role}）。\n"
+            f"请将项目相关任务 dispatch_task() 给该员工执行。\n\n"
+            f"原始招聘原因: {link['reason']}\n"
+            f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
+        )
+        coo_loop.push_task(followup, project_id=project_id, project_dir=project_dir)
+        logger.info(f"[hire-ready] Pushed follow-up to COO for {emp_name} on project {project_id}")
+
+
 @router.post("/api/hiring-requests/{request_id}/decide")
 async def decide_hiring_request(request_id: str, body: dict) -> dict:
     """CEO approves or rejects a hiring request from COO.
@@ -2419,6 +2462,10 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         agent="CEO",
     ))
 
+    project_id = req.get("project_id", "")
+    project_dir = req.get("project_dir", "")
+    hiring_dispatch_id = f"hiring_{request_id}"
+
     if approved:
         # Build JD from COO's request and push to HR's task board
         from onemancompany.core.agent_loop import get_agent_loop
@@ -2436,6 +2483,21 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
             hr_loop.push_task(jd)
         else:
             logger.warning("No agent loop for HR — hiring task dropped")
+
+        # Store link so we can notify COO after the employee is fully ready
+        # (including OAuth login if applicable). Dispatch stays open.
+        if project_id:
+            _hire_project_links[req["role"]] = {
+                "project_id": project_id,
+                "project_dir": project_dir,
+                "request_id": request_id,
+                "reason": req["reason"],
+            }
+    else:
+        # Rejected — clean up the hiring dispatch
+        if project_id:
+            from onemancompany.core.project_archive import record_dispatch_completion
+            record_dispatch_completion(project_id, hiring_dispatch_id)
 
     return {
         "status": "approved" if approved else "rejected",

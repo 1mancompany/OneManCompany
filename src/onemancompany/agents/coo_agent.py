@@ -586,6 +586,18 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
         Confirmation that the request was submitted for CEO review.
     """
     from datetime import datetime
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+
+    # Capture project context from COO's current task
+    project_id = ""
+    project_dir = ""
+    caller_loop = _current_loop.get()
+    caller_task_id = _current_task_id.get()
+    if caller_loop and caller_task_id:
+        caller_task = caller_loop.board.get_task(caller_task_id)
+        if caller_task:
+            project_id = caller_task.project_id or caller_task.original_project_id
+            project_dir = caller_task.project_dir or caller_task.original_project_dir
 
     request_id = str(uuid.uuid4())[:8]
     req = {
@@ -594,8 +606,16 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
         "desired_skills": desired_skills or [],
         "requested_by": COO_ID,
         "requested_at": datetime.now().isoformat(),
+        "project_id": project_id,
+        "project_dir": project_dir,
     }
     pending_hiring_requests[request_id] = req
+
+    # Register a dispatch so the project won't be considered complete
+    # until the hiring flow finishes and COO assigns work.
+    if project_id:
+        from onemancompany.core.project_archive import record_dispatch
+        record_dispatch(project_id, f"hiring_{request_id}", f"Hiring {role}")
 
     # Publish event for frontend — CEO will see and approve/reject.
     # LangChain tools run in a thread pool, so use run_coroutine_threadsafe
