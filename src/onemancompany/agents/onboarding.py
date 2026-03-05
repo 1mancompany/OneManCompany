@@ -813,4 +813,10 @@ async def execute_hire(
     from onemancompany.core.routine import run_onboarding_routine
     asyncio.create_task(run_onboarding_routine(emp_num))
 
+    # Notify COO that the hire is ready (for non-OAuth employees).
+    # OAuth employees will be notified after login completes in oauth_callback.
+    if auth_method != "oauth":
+        from onemancompany.api.routes import _notify_coo_hire_ready
+        _notify_coo_hire_ready(emp_num, role)
+
     return emp
