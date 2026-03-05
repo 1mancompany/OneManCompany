@@ -285,6 +285,14 @@ async def lifespan(app: FastAPI):
     register_agent(_EA_ID, EAAgent())
     register_agent(_CSO_ID, CSOAgent())
 
+    # Migrate existing employees from agent/ to vessel/ directory structure
+    from onemancompany.core.vessel_config import migrate_agent_to_vessel, load_vessel_config
+    from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR
+    for _emp_dir in _EMPLOYEES_DIR.iterdir():
+        if _emp_dir.is_dir():
+            if migrate_agent_to_vessel(_emp_dir):
+                print(f"[startup] Migrated {_emp_dir.name} agent/ → vessel/")
+
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
     from onemancompany.core.config import FOUNDING_LEVEL, employee_configs as _emp_cfgs
@@ -297,13 +305,19 @@ async def lifespan(app: FastAPI):
             continue
         if emp.remote:
             continue
+
+        # Load VesselConfig for per-employee DNA
+        _emp_dir = _EMPLOYEES_DIR / emp_id
+        _vessel_cfg = load_vessel_config(_emp_dir) if _emp_dir.exists() else None
+
         _cfg = _emp_cfgs.get(emp_id)
         if _cfg and _cfg.hosting == "self":
             # Self-hosted: register with ClaudeSessionLauncher (on-demand CLI sessions)
-            register_self_hosted(emp_id)
+            register_self_hosted(emp_id, config=_vessel_cfg)
             print(f"[startup] Registered self-hosted {emp.name} ({emp_id}) — on-demand sessions")
             continue
-        register_agent(emp_id, EmployeeAgent(emp_id))
+        _runner = EmployeeAgent(emp_id)
+        register_agent(emp_id, _runner, config=_vessel_cfg)
         print(f"[startup] Registered {emp.name} ({emp_id}) — LangChain agent")
 
     await start_all_loops()

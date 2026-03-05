@@ -265,6 +265,21 @@ class AgentManifest:
 
 
 @dataclass
+class VesselManifest:
+    """vessel/vessel.yaml — talent 自带的躯壳 DNA 声明。
+
+    当 talent 包含 vessel/ 目录时，使用此结构替代 AgentManifest。
+    字段对应 VesselConfig 的各个子配置。
+    """
+    runner: dict = field(default_factory=dict)
+    hooks: dict = field(default_factory=dict)
+    context: dict = field(default_factory=dict)
+    limits: dict = field(default_factory=dict)
+    capabilities: dict = field(default_factory=dict)
+    prompt_sections: list[AgentPromptSection] = field(default_factory=list)
+
+
+@dataclass
 class FunctionDeclaration:
     """functions/manifest.yaml 中的单个函数声明。"""
     name: str
@@ -319,6 +334,7 @@ class TalentPackage:
     manifest: TalentManifest | None = None
     tools_manifest: ToolsManifest | None = None
     functions_manifest: FunctionsManifest | None = None
-    agent_manifest: AgentManifest | None = None
+    vessel_manifest: VesselManifest | None = None
+    agent_manifest: AgentManifest | None = None  # 保留向后兼容
     skill_files: list[str] = field(default_factory=list)
     has_launch_script: bool = False

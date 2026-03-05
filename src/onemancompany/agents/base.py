@@ -475,37 +475,30 @@ class BaseAgentRunner:
         pass
 
     def _load_agent_prompt_sections(self, pb: PromptBuilder) -> None:
-        """Load prompt sections from employees/{id}/agent/manifest.yaml."""
-        import yaml
+        """Load prompt sections from vessel/vessel.yaml or agent/manifest.yaml (fallback)."""
+        from onemancompany.core.vessel_config import load_vessel_config
 
-        agent_dir = EMPLOYEES_DIR / self.employee_id / "agent"
-        manifest_path = agent_dir / "manifest.yaml"
-        if not manifest_path.exists():
-            return
+        emp_dir = EMPLOYEES_DIR / self.employee_id
+        config = load_vessel_config(emp_dir)
 
-        try:
-            with open(manifest_path) as f:
-                manifest = yaml.safe_load(f) or {}
-        except Exception:
-            return
-
-        sections = manifest.get("prompt_sections", [])
-        for section in sections:
-            name = section.get("name", "")
-            file_path = section.get("file", "")
-            priority = section.get("priority", 50)
-            if not name or not file_path:
-                continue
-
-            content_path = agent_dir / file_path
-            if not content_path.exists():
-                continue
-
-            try:
-                content = content_path.read_text(encoding="utf-8")
-                pb.add(name, content, priority=priority)
-            except Exception:
-                pass
+        if config.context.prompt_sections:
+            # Resolve files from vessel/ first, then agent/
+            for ps in config.context.prompt_sections:
+                if not ps.name or not ps.file:
+                    continue
+                content_path = None
+                for search_dir in [emp_dir / "vessel", emp_dir / "agent"]:
+                    candidate = search_dir / ps.file
+                    if candidate.exists():
+                        content_path = candidate
+                        break
+                if not content_path:
+                    continue
+                try:
+                    content = content_path.read_text(encoding="utf-8")
+                    pb.add(ps.name, content, priority=ps.priority)
+                except Exception:
+                    pass
 
     def _get_efficiency_guidelines_section(self) -> str:
         """Build efficiency guidelines to reduce wasted tokens and loops."""
