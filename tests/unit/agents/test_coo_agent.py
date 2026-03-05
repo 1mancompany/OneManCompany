@@ -126,6 +126,39 @@ class TestRegisterAsset:
         })
         assert result["status"] == "error"
 
+    def test_path_traversal_in_source_files_skipped(self, tmp_path, monkeypatch):
+        """Lines 258-259: Path traversal in source_files is skipped (continue)."""
+        from onemancompany.agents import coo_agent as coo_mod
+        from onemancompany.core import state as state_mod
+        from onemancompany.core import config as config_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(coo_mod, "company_state", cs)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+        monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        # Create source project dir under PROJECTS_DIR
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir()
+        proj_dir = projects_dir / "myproj"
+        proj_dir.mkdir()
+        (proj_dir / "legit.py").write_text("print('ok')")
+        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
+        monkeypatch.setattr(coo_mod, "PROJECTS_DIR", projects_dir)
+
+        result = coo_mod.register_asset.invoke({
+            "name": "Traversal Test",
+            "description": "Test path traversal",
+            "source_project_dir": str(proj_dir),
+            "source_files": ["../../../etc/passwd", "legit.py"],
+        })
+
+        assert result["status"] == "success"
+        # Only legit.py should be copied, not the traversal path
+        assert "legit.py" in result["files"]
+        assert len(result["files"]) == 1
+
     def test_handles_slug_collision(self, tmp_path, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
         from onemancompany.core import state as state_mod
@@ -714,6 +747,18 @@ class TestCOOAgent:
         prompt = agent._build_prompt()
         assert "Stay humble" in prompt
 
+    def test_build_prompt_with_work_principles(self, monkeypatch):
+        from onemancompany.core import config as config_mod
+
+        cs = _make_cs()
+        emp = _make_emp(config_mod.COO_ID)
+        emp.work_principles = "Always be decisive"
+        cs.employees[config_mod.COO_ID] = emp
+
+        agent = self._make_agent(monkeypatch, cs=cs)
+        prompt = agent._build_prompt()
+        assert "Always be decisive" in prompt
+
     @pytest.mark.asyncio
     async def test_run(self, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
@@ -753,3 +798,95 @@ class TestCOOAgent:
         result = await agent.run("Execute project plan")
         assert result == "Dispatched to engineer"
         assert cs.employees[config_mod.COO_ID].status == "idle"
+
+
+# ---------------------------------------------------------------------------
+# _persist_tool — folder_name auto-generation (line 167)
+# ---------------------------------------------------------------------------
+
+class TestPersistTool:
+    def test_persist_tool_without_folder_name(self, tmp_path, monkeypatch):
+        """Line 167: _persist_tool generates folder_name when empty."""
+        from onemancompany.agents import coo_agent as coo_mod
+
+        monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        tool = _make_tool("t1", name="My Special Tool", folder_name="")
+        coo_mod._persist_tool(tool)
+
+        # folder_name should be auto-generated from name via slugify
+        assert tool.folder_name != ""
+        assert (tmp_path / "tools" / tool.folder_name / "tool.yaml").exists()
+
+    def test_persist_tool_with_folder_name(self, tmp_path, monkeypatch):
+        """_persist_tool uses existing folder_name."""
+        from onemancompany.agents import coo_agent as coo_mod
+
+        monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        tool = _make_tool("t1", name="Tool", folder_name="existing_folder")
+        coo_mod._persist_tool(tool)
+
+        assert tool.folder_name == "existing_folder"
+        assert (tmp_path / "tools" / "existing_folder" / "tool.yaml").exists()
+
+
+# ---------------------------------------------------------------------------
+# revoke_tool_access — nonexistent tool (line 379)
+# ---------------------------------------------------------------------------
+
+class TestRevokeToolAccessNonexistent:
+    def test_revoke_nonexistent_tool(self, monkeypatch):
+        """Line 379: revoke_tool_access returns error for nonexistent tool."""
+        from onemancompany.agents import coo_agent as coo_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(coo_mod, "company_state", cs)
+
+        result = coo_mod.revoke_tool_access.invoke({
+            "tool_id": "nonexistent",
+            "employee_id": "00010",
+        })
+        assert result["status"] == "error"
+        assert "not found" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# _load_assets_from_disk — legacy migration (lines 116-121)
+# ---------------------------------------------------------------------------
+
+class TestLoadAssetsFromDisk:
+    def test_legacy_tool_migration(self, tmp_path, monkeypatch):
+        """Lines 116-121: Legacy flat YAML tools migrated to folder format."""
+        from onemancompany.agents import coo_agent as coo_mod
+        from onemancompany.core import state as state_mod
+        from onemancompany.core import config as config_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(coo_mod, "company_state", cs)
+        monkeypatch.setattr(coo_mod, "TOOLS_DIR", tmp_path / "tools")
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+
+        # Mock load_assets to return a legacy tool (with _legacy flag)
+        legacy_tools = {
+            "legacy_1": {
+                "name": "Legacy Tool",
+                "description": "Old format tool",
+                "added_by": "COO",
+                "_legacy": True,
+            },
+        }
+        monkeypatch.setattr(coo_mod, "load_assets", lambda: (legacy_tools, {}))
+
+        mock_migrate = MagicMock(return_value=("legacy_tool", tmp_path / "tools" / "legacy_tool"))
+        monkeypatch.setattr(coo_mod, "migrate_legacy_tool", mock_migrate)
+
+        coo_mod._load_assets_from_disk()
+
+        mock_migrate.assert_called_once()
+        # Tool should be in company state
+        assert "legacy_1" in cs.tools
+        assert cs.tools["legacy_1"].name == "Legacy Tool"

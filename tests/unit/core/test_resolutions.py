@@ -473,3 +473,63 @@ class TestCurrentProjectId:
         assert res.current_project_id.get() == "proj-123"
         res.current_project_id.reset(token)
         assert res.current_project_id.get() == ""
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for list_resolutions
+# ---------------------------------------------------------------------------
+
+class TestListResolutionsEdgeCases:
+    def test_skips_non_yaml_files(self, tmp_path):
+        """Line 114: non-.yaml files skipped."""
+        res_dir = tmp_path / "resolutions"
+        res_dir.mkdir(parents=True)
+        (res_dir / "readme.txt").write_text("not a resolution")
+        results = res.list_resolutions()
+        assert results == []
+
+    def test_skips_empty_yaml(self, tmp_path):
+        """Line 118: yaml with None/empty content skipped."""
+        res_dir = tmp_path / "resolutions"
+        res_dir.mkdir(parents=True)
+        (res_dir / "empty.yaml").write_text("")
+        results = res.list_resolutions()
+        assert results == []
+
+    def test_filter_no_match(self, tmp_path):
+        """Lines 143, 147: status_filter with no matching results."""
+        res.collect_edit("p1", _make_edit(0))
+        res.create_resolution("p1", "task")
+        results = res.list_resolutions(status_filter="decided")
+        assert results == []
+
+
+# ---------------------------------------------------------------------------
+# Edge cases for list_deferred_edits
+# ---------------------------------------------------------------------------
+
+class TestListDeferredEditsEdgeCases:
+    def test_skips_non_yaml_files(self, tmp_path):
+        """Line 143: non-.yaml files skipped in deferred scan."""
+        res_dir = tmp_path / "resolutions"
+        res_dir.mkdir(parents=True)
+        (res_dir / "notes.txt").write_text("not yaml")
+        results = res.list_deferred_edits()
+        assert results == []
+
+    def test_skips_empty_yaml_in_deferred(self, tmp_path):
+        """Line 147: empty yaml skipped."""
+        res_dir = tmp_path / "resolutions"
+        res_dir.mkdir(parents=True)
+        (res_dir / "empty.yaml").write_text("")
+        results = res.list_deferred_edits()
+        assert results == []
+
+    def test_skips_non_deferred_edits(self, tmp_path):
+        """Line 150: only deferred edits returned."""
+        res.collect_edit("p1", _make_edit(0))
+        r = res.create_resolution("p1", "task")
+        r["edits"][0]["decision"] = "reject"
+        res._save_resolution(r)
+        results = res.list_deferred_edits()
+        assert results == []

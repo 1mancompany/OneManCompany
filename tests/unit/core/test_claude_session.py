@@ -208,6 +208,18 @@ class TestRunClaudeSession:
                 result = await run_claude_session("00010", "proj1", "slow task", timeout=1)
                 assert "[claude-session timeout]" in result
 
+    async def test_timeout_terminate_raises_exception(self, tmp_path):
+        """Lines 159-160: proc.terminate() raises — should be swallowed."""
+        with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
+            mock_proc = AsyncMock()
+            mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_proc.terminate = MagicMock(side_effect=ProcessLookupError("already dead"))
+
+            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+                result = await run_claude_session("00010", "proj1", "slow task", timeout=1)
+                assert "[claude-session timeout]" in result
+                mock_proc.terminate.assert_called_once()
+
     async def test_cli_not_found(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):

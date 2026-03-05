@@ -121,3 +121,50 @@ class TestRefreshCache:
         mc.refresh_cache()
         # Should preserve existing cache when fetch returns empty
         assert "existing" in mc._cost_cache
+
+
+# ---------------------------------------------------------------------------
+# _fetch_openrouter_pricing — error handling and bad data
+# ---------------------------------------------------------------------------
+
+class TestFetchOpenrouterPricing:
+    def test_api_error_returns_empty(self, monkeypatch):
+        """Lines 34-36: API fetch exception returns empty dict."""
+        import onemancompany.core.model_costs as mc
+
+        mock_get = MagicMock(side_effect=Exception("connection refused"))
+        monkeypatch.setattr("onemancompany.core.model_costs.httpx.get", mock_get)
+
+        result = mc._fetch_openrouter_pricing()
+        assert result == {}
+
+    def test_invalid_float_in_pricing(self, monkeypatch):
+        """Lines 48-49: ValueError/TypeError in float parsing causes continue."""
+        import onemancompany.core.model_costs as mc
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "good-model", "pricing": {"prompt": "0.001", "completion": "0.002"}},
+                {"id": "bad-model", "pricing": {"prompt": "not-a-number", "completion": "0.002"}},
+                {"id": "none-model", "pricing": {"prompt": None, "completion": None}},
+            ],
+        }
+        monkeypatch.setattr("onemancompany.core.model_costs.httpx.get", MagicMock(return_value=mock_response))
+
+        result = mc._fetch_openrouter_pricing()
+        # good-model should be included, bad-model and none-model should be skipped
+        assert "good-model" in result
+        assert "bad-model" not in result
+        assert "none-model" not in result
+
+    def test_http_error_returns_empty(self, monkeypatch):
+        import onemancompany.core.model_costs as mc
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = Exception("HTTP 500")
+        monkeypatch.setattr("onemancompany.core.model_costs.httpx.get", MagicMock(return_value=mock_response))
+
+        result = mc._fetch_openrouter_pricing()
+        assert result == {}

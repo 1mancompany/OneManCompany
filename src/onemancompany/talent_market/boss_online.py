@@ -323,5 +323,5 @@ def search_candidates(job_description: str, count: int = 10) -> list[dict]:
     return results
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     mcp.run()

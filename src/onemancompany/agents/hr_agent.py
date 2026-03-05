@@ -374,7 +374,7 @@ class HRAgent(BaseAgentRunner):
             if all(q.get("score") == SCORE_EXCELLENT for q in last_n):
                 old_level = emp.level
                 emp.level = min(emp.level + 1, MAX_NORMAL_LEVEL)
-                if emp.level == old_level:
+                if emp.level == old_level:  # pragma: no cover – guarded by line 367
                     continue  # no actual promotion
                 # Persist new level/title to profile.yaml
                 update_employee_level(emp.id, emp.level, emp.title)

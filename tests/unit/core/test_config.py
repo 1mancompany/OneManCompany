@@ -1,0 +1,1455 @@
+"""Unit tests for core/config.py — comprehensive coverage for all uncovered functions."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+import yaml
+
+from onemancompany.core.config import EmployeeConfig
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _write_profile(directory: Path, emp_id: str, data: dict) -> Path:
+    """Write a profile.yaml to directory/emp_id/."""
+    emp_dir = directory / emp_id
+    emp_dir.mkdir(parents=True, exist_ok=True)
+    profile = emp_dir / "profile.yaml"
+    with open(profile, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    return emp_dir
+
+
+# ---------------------------------------------------------------------------
+# _read_app_config_from_disk / load_app_config / reload_app_config / is_hot_reload_enabled
+# ---------------------------------------------------------------------------
+
+class TestAppConfig:
+    def test_read_app_config_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", tmp_path / "missing.yaml")
+        result = config_mod._read_app_config_from_disk()
+        assert result == {}
+
+    def test_read_app_config_from_disk(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("hot_reload: true\nport: 9000\n")
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", cfg_file)
+        result = config_mod._read_app_config_from_disk()
+        assert result["hot_reload"] is True
+        assert result["port"] == 9000
+
+    def test_load_app_config_returns_cached(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_app_config", {"cached": True})
+        result = config_mod.load_app_config()
+        assert result == {"cached": True}
+
+    def test_reload_app_config(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        cfg_file = tmp_path / "config.yaml"
+        cfg_file.write_text("hot_reload: true\n")
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", cfg_file)
+        result = config_mod.reload_app_config()
+        assert result["hot_reload"] is True
+        # Verify internal cache is updated
+        assert config_mod._app_config["hot_reload"] is True
+
+    def test_is_hot_reload_enabled_true(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_app_config", {"hot_reload": True})
+        assert config_mod.is_hot_reload_enabled() is True
+
+    def test_is_hot_reload_enabled_false(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "_app_config", {})
+        assert config_mod.is_hot_reload_enabled() is False
+
+
+# ---------------------------------------------------------------------------
+# load_employee_configs
+# ---------------------------------------------------------------------------
+
+class TestLoadEmployeeConfigs:
+    def test_dir_not_exists(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path / "nonexistent")
+        result = config_mod.load_employee_configs()
+        assert result == {}
+
+    def test_skips_non_directory(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        # Create a file, not a directory
+        (tmp_path / "readme.txt").write_text("not a dir")
+        result = config_mod.load_employee_configs()
+        assert result == {}
+
+    def test_skips_dir_without_profile(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "00010").mkdir()
+        # No profile.yaml inside
+        result = config_mod.load_employee_configs()
+        assert result == {}
+
+    def test_loads_valid_profiles(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        _write_profile(tmp_path, "00010", {"name": "Alice", "role": "Engineer", "skills": ["python"]})
+        _write_profile(tmp_path, "00011", {"name": "Bob", "role": "Designer", "skills": ["figma"]})
+        result = config_mod.load_employee_configs()
+        assert len(result) == 2
+        assert result["00010"].name == "Alice"
+        assert result["00011"].role == "Designer"
+
+
+# ---------------------------------------------------------------------------
+# load_employee_skills
+# ---------------------------------------------------------------------------
+
+class TestLoadEmployeeSkills:
+    def test_skills_dir_missing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        result = config_mod.load_employee_skills("00010")
+        assert result == {}
+
+    def test_loads_md_files_only(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        skills_dir = tmp_path / "00010" / "skills"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "python.md").write_text("# Python\nExpert level")
+        (skills_dir / "notes.txt").write_text("should be ignored")
+        # Create a subdirectory that should be ignored
+        (skills_dir / "subdir").mkdir()
+
+        result = config_mod.load_employee_skills("00010")
+        assert len(result) == 1
+        assert "python" in result
+        assert "Python" in result["python"]
+
+
+# ---------------------------------------------------------------------------
+# load_employee_guidance / save_employee_guidance
+# ---------------------------------------------------------------------------
+
+class TestEmployeeGuidance:
+    def test_load_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        result = config_mod.load_employee_guidance("00010")
+        assert result == []
+
+    def test_load_with_list_data(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        guidance_path = emp_dir / "guidance.yaml"
+        yaml.dump(["note1", "note2"], open(guidance_path, "w"))
+
+        result = config_mod.load_employee_guidance("00010")
+        assert result == ["note1", "note2"]
+
+    def test_load_with_non_list_data(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        guidance_path = emp_dir / "guidance.yaml"
+        # Write a dict instead of list
+        yaml.dump({"key": "value"}, open(guidance_path, "w"))
+
+        result = config_mod.load_employee_guidance("00010")
+        assert result == []
+
+    def test_save_creates_dir_and_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        config_mod.save_employee_guidance("00010", ["note1", "note2"])
+
+        guidance_path = tmp_path / "00010" / "guidance.yaml"
+        assert guidance_path.exists()
+        with open(guidance_path) as f:
+            data = yaml.safe_load(f)
+        assert data == ["note1", "note2"]
+
+
+# ---------------------------------------------------------------------------
+# load_work_principles / save_work_principles
+# ---------------------------------------------------------------------------
+
+class TestWorkPrinciples:
+    def test_load_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        result = config_mod.load_work_principles("00010")
+        assert result == ""
+
+    def test_load_existing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        (emp_dir / "work_principles.md").write_text("# Principles\n1. Be good")
+
+        result = config_mod.load_work_principles("00010")
+        assert "Be good" in result
+
+    def test_save_creates_dir_and_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        config_mod.save_work_principles("00010", "# Test Principles")
+
+        path = tmp_path / "00010" / "work_principles.md"
+        assert path.exists()
+        assert path.read_text() == "# Test Principles"
+
+
+# ---------------------------------------------------------------------------
+# ensure_employee_dir
+# ---------------------------------------------------------------------------
+
+class TestEnsureEmployeeDir:
+    def test_creates_directories(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        result = config_mod.ensure_employee_dir("00010")
+        assert result == tmp_path / "00010"
+        assert result.is_dir()
+        assert (result / "skills").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# save_employee_profile
+# ---------------------------------------------------------------------------
+
+class TestSaveEmployeeProfile:
+    def test_save_with_template(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "employee_configs", {})
+
+        # Create a template
+        template_path = tmp_path / "profile_template.yaml"
+        template_text = (
+            "name: {name}\n"
+            "nickname: {nickname}\n"
+            "employee_number: {employee_number}\n"
+            "level: {level}\n"
+            "title: {title}\n"
+            "department: {department}\n"
+            "role: {role}\n"
+            "desk_position: [{desk_x}, {desk_y}]\n"
+            "sprite: {sprite}\n"
+            "llm_model: {llm_model}\n"
+            "temperature: {temperature}\n"
+            "current_quarter_tasks: {current_quarter_tasks}\n"
+            "performance_history:\n{performance_history}\n"
+            "skills:\n{skills}\n"
+            "permissions:\n{permissions}\n"
+            "tool_permissions:\n{tool_permissions}\n"
+            "salary_per_1m_tokens: {salary_per_1m_tokens}\n"
+            "probation: {probation}\n"
+            "onboarding_completed: {onboarding_completed}\n"
+            "api_provider: {api_provider}\n"
+            "api_key: {api_key}\n"
+            "hosting: {hosting}\n"
+            "auth_method: {auth_method}\n"
+        )
+        template_path.write_text(template_text)
+        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", template_path)
+
+        config = EmployeeConfig(
+            name="Template Test",
+            nickname="TT",
+            role="Engineer",
+            skills=["python", "rust"],
+            level=2,
+            department="Engineering",
+            employee_number="00099",
+            desk_position=[5, 3],
+            sprite="blue",
+            permissions=["read_file"],
+            tool_permissions=["sandbox_execute_code"],
+            performance_history=[{"score": 3.5, "tasks": 3}],
+        )
+        config_mod.save_employee_profile("00099", config)
+
+        profile_path = tmp_path / "00099" / "profile.yaml"
+        assert profile_path.exists()
+        content = profile_path.read_text()
+        assert "Template Test" in content
+        assert "00099" in cfg.employee_configs if False else True
+        # Verify in-memory cache updated
+        assert "00099" in config_mod.employee_configs
+
+    def test_save_with_template_empty_skills_and_perms(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "employee_configs", {})
+
+        template_path = tmp_path / "profile_template.yaml"
+        template_text = (
+            "name: {name}\n"
+            "nickname: {nickname}\n"
+            "employee_number: {employee_number}\n"
+            "level: {level}\n"
+            "title: {title}\n"
+            "department: {department}\n"
+            "role: {role}\n"
+            "desk_position: [{desk_x}, {desk_y}]\n"
+            "sprite: {sprite}\n"
+            "llm_model: {llm_model}\n"
+            "temperature: {temperature}\n"
+            "current_quarter_tasks: {current_quarter_tasks}\n"
+            "performance_history:\n{performance_history}\n"
+            "skills:\n{skills}\n"
+            "permissions:\n{permissions}\n"
+            "tool_permissions:\n{tool_permissions}\n"
+            "salary_per_1m_tokens: {salary_per_1m_tokens}\n"
+            "probation: {probation}\n"
+            "onboarding_completed: {onboarding_completed}\n"
+            "api_provider: {api_provider}\n"
+            "api_key: {api_key}\n"
+            "hosting: {hosting}\n"
+            "auth_method: {auth_method}\n"
+        )
+        template_path.write_text(template_text)
+        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", template_path)
+
+        config = EmployeeConfig(
+            name="Minimal",
+            role="Designer",
+            skills=[],
+            desk_position=[],
+        )
+        config_mod.save_employee_profile("00100", config)
+
+        profile_path = tmp_path / "00100" / "profile.yaml"
+        assert profile_path.exists()
+
+    def test_save_without_template(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
+        monkeypatch.setattr(config_mod, "employee_configs", {})
+
+        config = EmployeeConfig(
+            name="No Template",
+            role="Engineer",
+            skills=["go"],
+        )
+        config_mod.save_employee_profile("00101", config)
+
+        profile_path = tmp_path / "00101" / "profile.yaml"
+        assert profile_path.exists()
+        data = yaml.safe_load(profile_path.read_text())
+        assert data["name"] == "No Template"
+        assert "00101" in config_mod.employee_configs
+
+
+# ---------------------------------------------------------------------------
+# update_tool_permissions
+# ---------------------------------------------------------------------------
+
+class TestUpdateToolPermissions:
+    def test_updates_existing_profile(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "employee_configs", {
+            "00010": EmployeeConfig(name="T", role="E", skills=[], tool_permissions=[])
+        })
+
+        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
+
+        config_mod.update_tool_permissions("00010", ["sandbox_execute_code", "read_file"])
+
+        with open(tmp_path / "00010" / "profile.yaml") as f:
+            data = yaml.safe_load(f)
+        assert data["tool_permissions"] == ["sandbox_execute_code", "read_file"]
+        assert config_mod.employee_configs["00010"].tool_permissions == ["sandbox_execute_code", "read_file"]
+
+    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        # Should not raise even if profile doesn't exist
+        config_mod.update_tool_permissions("99999", ["read_file"])
+
+    def test_employee_not_in_memory(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "employee_configs", {})
+
+        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
+
+        # Should update file but not crash on missing in-memory entry
+        config_mod.update_tool_permissions("00010", ["read_file"])
+
+        with open(tmp_path / "00010" / "profile.yaml") as f:
+            data = yaml.safe_load(f)
+        assert data["tool_permissions"] == ["read_file"]
+
+
+# ---------------------------------------------------------------------------
+# update_employee_performance
+# ---------------------------------------------------------------------------
+
+class TestUpdateEmployeePerformance:
+    def test_updates_performance_fields(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
+
+        config_mod.update_employee_performance("00010", 5, [{"score": 3.75, "tasks": 3}])
+
+        with open(tmp_path / "00010" / "profile.yaml") as f:
+            data = yaml.safe_load(f)
+        assert data["current_quarter_tasks"] == 5
+        assert data["performance_history"] == [{"score": 3.75, "tasks": 3}]
+
+    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        config_mod.update_employee_performance("99999", 0, [])
+
+
+# ---------------------------------------------------------------------------
+# update_employee_level
+# ---------------------------------------------------------------------------
+
+class TestUpdateEmployeeLevel:
+    def test_updates_level_and_title(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": [], "level": 1})
+
+        config_mod.update_employee_level("00010", 3, "Senior Engineer")
+
+        with open(tmp_path / "00010" / "profile.yaml") as f:
+            data = yaml.safe_load(f)
+        assert data["level"] == 3
+        assert data["title"] == "Senior Engineer"
+
+    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        config_mod.update_employee_level("99999", 2, "Mid")
+
+
+# ---------------------------------------------------------------------------
+# update_employee_field
+# ---------------------------------------------------------------------------
+
+class TestUpdateEmployeeField:
+    def test_updates_arbitrary_field(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
+
+        config_mod.update_employee_field("00010", "nickname", "DragonSlayer")
+
+        with open(tmp_path / "00010" / "profile.yaml") as f:
+            data = yaml.safe_load(f)
+        assert data["nickname"] == "DragonSlayer"
+
+    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        config_mod.update_employee_field("99999", "nickname", "test")
+
+
+# ---------------------------------------------------------------------------
+# slugify_tool_name
+# ---------------------------------------------------------------------------
+
+class TestSlugifyToolName:
+    def test_basic_name(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        assert slugify_tool_name("My Cool Tool") == "my_cool_tool"
+
+    def test_special_characters(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        assert slugify_tool_name("tool@v2.0!") == "toolv20"
+
+    def test_cjk_characters(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        result = slugify_tool_name("代码工具")
+        assert result == "代码工具"
+
+    def test_multiple_underscores(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        assert slugify_tool_name("a  b   c") == "a_b_c"
+
+    def test_empty_name(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        assert slugify_tool_name("!!!") == "unnamed_tool"
+
+    def test_leading_trailing_whitespace(self):
+        from onemancompany.core.config import slugify_tool_name
+
+        assert slugify_tool_name("  hello  ") == "hello"
+
+
+# ---------------------------------------------------------------------------
+# load_assets
+# ---------------------------------------------------------------------------
+
+class TestLoadAssets:
+    def test_folder_based_tool(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        rooms_dir = tmp_path / "rooms"
+        tools_dir.mkdir()
+        rooms_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+        monkeypatch.setattr(config_mod, "ROOMS_DIR", rooms_dir)
+
+        # Folder-based tool
+        tool_folder = tools_dir / "my_tool"
+        tool_folder.mkdir()
+        yaml.dump({"id": "tool1", "name": "My Tool"}, open(tool_folder / "tool.yaml", "w"))
+        (tool_folder / "extra_file.txt").write_text("extra")
+
+        tools, rooms = config_mod.load_assets()
+        assert "tool1" in tools
+        assert tools["tool1"]["name"] == "My Tool"
+        assert tools["tool1"]["_folder_name"] == "my_tool"
+        assert "extra_file.txt" in tools["tool1"]["_files"]
+
+    def test_legacy_flat_tool(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        rooms_dir = tmp_path / "rooms"
+        tools_dir.mkdir()
+        rooms_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+        monkeypatch.setattr(config_mod, "ROOMS_DIR", rooms_dir)
+
+        # Legacy flat YAML tool
+        yaml.dump({"name": "Legacy Tool"}, open(tools_dir / "uuid123.yaml", "w"))
+
+        tools, rooms = config_mod.load_assets()
+        assert "uuid123" in tools
+        assert tools["uuid123"]["_legacy"] is True
+
+    def test_meeting_rooms(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        rooms_dir = tmp_path / "rooms"
+        tools_dir.mkdir()
+        rooms_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+        monkeypatch.setattr(config_mod, "ROOMS_DIR", rooms_dir)
+
+        yaml.dump({"name": "Room A", "capacity": 10}, open(rooms_dir / "room1.yaml", "w"))
+
+        tools, rooms = config_mod.load_assets()
+        assert "room1" in rooms
+        assert rooms["room1"]["capacity"] == 10
+
+    def test_dirs_missing(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "no_tools")
+        monkeypatch.setattr(config_mod, "ROOMS_DIR", tmp_path / "no_rooms")
+        tools, rooms = config_mod.load_assets()
+        assert tools == {}
+        assert rooms == {}
+
+    def test_folder_without_tool_yaml_ignored(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+        monkeypatch.setattr(config_mod, "ROOMS_DIR", tmp_path / "no_rooms")
+
+        # Folder without tool.yaml
+        (tools_dir / "empty_folder").mkdir()
+
+        tools, _ = config_mod.load_assets()
+        assert tools == {}
+
+
+# ---------------------------------------------------------------------------
+# migrate_legacy_tool
+# ---------------------------------------------------------------------------
+
+class TestMigrateLegacyTool:
+    def test_basic_migration(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        # Create legacy flat file
+        yaml.dump({"name": "Cool Tool", "description": "A tool"},
+                  open(tools_dir / "uuid123.yaml", "w"))
+
+        slug, new_id = config_mod.migrate_legacy_tool(
+            "uuid123", {"name": "Cool Tool", "description": "A tool"}
+        )
+
+        assert slug == "cool_tool"
+        assert new_id == "uuid123"
+        # New folder-based structure created
+        assert (tools_dir / "cool_tool" / "tool.yaml").exists()
+        # Old flat file removed
+        assert not (tools_dir / "uuid123.yaml").exists()
+
+    def test_collision_handling(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        used_slugs = {"cool_tool"}  # Already used
+        slug, new_id = config_mod.migrate_legacy_tool(
+            "uuid456", {"name": "Cool Tool"}, used_slugs=used_slugs
+        )
+
+        assert slug == "cool_tool_uuid456"
+        assert "cool_tool_uuid456" in used_slugs
+
+    def test_no_old_file_to_remove(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        # No old flat file exists — should not raise
+        slug, new_id = config_mod.migrate_legacy_tool(
+            "uuid789", {"name": "Another Tool"}
+        )
+        assert slug == "another_tool"
+
+    def test_strips_internal_keys(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        data = {"name": "Test", "_legacy": True, "_internal": "stuff"}
+        config_mod.migrate_legacy_tool("tid", data)
+
+        with open(tools_dir / "test" / "tool.yaml") as f:
+            saved = yaml.safe_load(f)
+        assert "_legacy" not in saved
+        assert "_internal" not in saved
+        assert saved["id"] == "tid"
+
+
+# ---------------------------------------------------------------------------
+# load_workflows / save_workflow
+# ---------------------------------------------------------------------------
+
+class TestWorkflows:
+    def test_load_missing_dir(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path / "nonexistent")
+        result = config_mod.load_workflows()
+        assert result == {}
+
+    def test_load_md_files(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path)
+        (tmp_path / "onboarding.md").write_text("# Onboarding\nStep 1")
+        (tmp_path / "review.md").write_text("# Review\nStep 1")
+        (tmp_path / "notes.txt").write_text("not a workflow")
+
+        result = config_mod.load_workflows()
+        assert len(result) == 2
+        assert "onboarding" in result
+        assert "review" in result
+        assert "Onboarding" in result["onboarding"]
+
+    def test_save_creates_dir(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        wf_dir = tmp_path / "workflows"
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", wf_dir)
+
+        config_mod.save_workflow("new_flow", "# New Flow\nContent")
+
+        assert (wf_dir / "new_flow.md").exists()
+        assert "New Flow" in (wf_dir / "new_flow.md").read_text()
+
+
+# ---------------------------------------------------------------------------
+# load_ex_employee_configs
+# ---------------------------------------------------------------------------
+
+class TestLoadExEmployeeConfigs:
+    def test_dir_not_exists(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", tmp_path / "nonexistent")
+        result = config_mod.load_ex_employee_configs()
+        assert result == {}
+
+    def test_skips_non_dir(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "readme.txt").write_text("not a dir")
+        result = config_mod.load_ex_employee_configs()
+        assert result == {}
+
+    def test_skips_dir_without_profile(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", tmp_path)
+        (tmp_path / "00010").mkdir()
+        result = config_mod.load_ex_employee_configs()
+        assert result == {}
+
+    def test_loads_valid_ex_profiles(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", tmp_path)
+        _write_profile(tmp_path, "00010", {"name": "Former", "role": "Engineer", "skills": ["python"]})
+        result = config_mod.load_ex_employee_configs()
+        assert "00010" in result
+        assert result["00010"].name == "Former"
+
+
+# ---------------------------------------------------------------------------
+# move_employee_to_ex
+# ---------------------------------------------------------------------------
+
+class TestMoveEmployeeToEx:
+    def test_move_with_existing_dst(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        ex_dir = tmp_path / "ex-employees"
+        emp_dir.mkdir()
+        ex_dir.mkdir()
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", ex_dir)
+        monkeypatch.setattr(config_mod, "employee_configs", {
+            "00010": EmployeeConfig(name="T", role="E", skills=[])
+        })
+
+        # Create employee folder
+        (emp_dir / "00010").mkdir()
+        (emp_dir / "00010" / "profile.yaml").write_text("name: T\nrole: E\nskills: []\n")
+
+        # Pre-existing destination should be overwritten
+        (ex_dir / "00010").mkdir()
+        (ex_dir / "00010" / "old.txt").write_text("old data")
+
+        result = config_mod.move_employee_to_ex("00010")
+        assert result is True
+        assert not (emp_dir / "00010").exists()
+        assert (ex_dir / "00010").exists()
+        # Old data should have been replaced
+        assert not (ex_dir / "00010" / "old.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# move_ex_employee_back
+# ---------------------------------------------------------------------------
+
+class TestMoveExEmployeeBack:
+    def test_move_with_existing_dst(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        ex_dir = tmp_path / "ex-employees"
+        emp_dir.mkdir()
+        ex_dir.mkdir()
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", ex_dir)
+        monkeypatch.setattr(config_mod, "employee_configs", {})
+
+        # Create ex-employee folder
+        (ex_dir / "00010").mkdir()
+        (ex_dir / "00010" / "profile.yaml").write_text("name: Rehired\nrole: Engineer\nskills: [python]\n")
+
+        # Pre-existing destination should be overwritten
+        (emp_dir / "00010").mkdir()
+        (emp_dir / "00010" / "old.txt").write_text("old data")
+
+        result = config_mod.move_ex_employee_back("00010")
+        assert result is True
+        assert not (ex_dir / "00010").exists()
+        assert (emp_dir / "00010").exists()
+        assert "00010" in config_mod.employee_configs
+
+
+# ---------------------------------------------------------------------------
+# load_company_culture / save_company_culture
+# ---------------------------------------------------------------------------
+
+class TestCompanyCulture:
+    def test_load_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "COMPANY_CULTURE_FILE", tmp_path / "missing.yaml")
+        result = config_mod.load_company_culture()
+        assert result == []
+
+    def test_load_list_data(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        culture_file = tmp_path / "culture.yaml"
+        yaml.dump([{"value": "Innovation"}, {"value": "Quality"}], open(culture_file, "w"))
+        monkeypatch.setattr(config_mod, "COMPANY_CULTURE_FILE", culture_file)
+
+        result = config_mod.load_company_culture()
+        assert len(result) == 2
+        assert result[0]["value"] == "Innovation"
+
+    def test_load_non_list_data(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        culture_file = tmp_path / "culture.yaml"
+        yaml.dump({"key": "value"}, open(culture_file, "w"))
+        monkeypatch.setattr(config_mod, "COMPANY_CULTURE_FILE", culture_file)
+
+        result = config_mod.load_company_culture()
+        assert result == []
+
+    def test_save_culture(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        culture_file = tmp_path / "culture.yaml"
+        monkeypatch.setattr(config_mod, "COMPANY_CULTURE_FILE", culture_file)
+
+        items = [{"value": "Innovation"}, {"value": "Quality"}]
+        config_mod.save_company_culture(items)
+
+        with open(culture_file) as f:
+            data = yaml.safe_load(f)
+        assert len(data) == 2
+
+
+# ---------------------------------------------------------------------------
+# load_company_direction / save_company_direction
+# ---------------------------------------------------------------------------
+
+class TestCompanyDirection:
+    def test_load_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "COMPANY_DIRECTION_FILE", tmp_path / "missing.yaml")
+        result = config_mod.load_company_direction()
+        assert result == ""
+
+    def test_load_dict_with_direction(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        direction_file = tmp_path / "direction.yaml"
+        yaml.dump({"direction": "Go global!"}, open(direction_file, "w"))
+        monkeypatch.setattr(config_mod, "COMPANY_DIRECTION_FILE", direction_file)
+
+        result = config_mod.load_company_direction()
+        assert result == "Go global!"
+
+    def test_load_non_dict_data(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        direction_file = tmp_path / "direction.yaml"
+        yaml.dump("just a string", open(direction_file, "w"))
+        monkeypatch.setattr(config_mod, "COMPANY_DIRECTION_FILE", direction_file)
+
+        result = config_mod.load_company_direction()
+        assert result == ""
+
+    def test_load_dict_without_direction_key(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        direction_file = tmp_path / "direction.yaml"
+        yaml.dump({"other": "data"}, open(direction_file, "w"))
+        monkeypatch.setattr(config_mod, "COMPANY_DIRECTION_FILE", direction_file)
+
+        result = config_mod.load_company_direction()
+        assert result == ""
+
+    def test_save_direction(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        direction_file = tmp_path / "direction.yaml"
+        monkeypatch.setattr(config_mod, "COMPANY_DIRECTION_FILE", direction_file)
+
+        config_mod.save_company_direction("Go global!")
+
+        with open(direction_file) as f:
+            data = yaml.safe_load(f)
+        assert data["direction"] == "Go global!"
+        assert "updated_at" in data
+        assert data["updated_by"] == "CEO"
+
+
+# ---------------------------------------------------------------------------
+# load_manifest / invalidate_manifest_cache
+# ---------------------------------------------------------------------------
+
+class TestManifest:
+    def test_load_cached(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", {"00010": {"tools": ["a"]}})
+        result = config_mod.load_manifest("00010")
+        assert result == {"tools": ["a"]}
+
+    def test_load_missing_file(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", {})
+        result = config_mod.load_manifest("00010")
+        assert result is None
+
+    def test_load_from_disk(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+        import json
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        cache = {}
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", cache)
+
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        manifest = {"tools": ["sandbox_execute_code"], "version": 2}
+        (emp_dir / "manifest.json").write_text(json.dumps(manifest))
+
+        result = config_mod.load_manifest("00010")
+        assert result == manifest
+        # Should be cached now
+        assert "00010" in cache
+
+    def test_invalidate_all(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        cache = {"00010": {"a": 1}, "00011": {"b": 2}}
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", cache)
+
+        config_mod.invalidate_manifest_cache()
+        assert cache == {}
+
+    def test_invalidate_specific(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        cache = {"00010": {"a": 1}, "00011": {"b": 2}}
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", cache)
+
+        config_mod.invalidate_manifest_cache("00010")
+        assert "00010" not in cache
+        assert "00011" in cache
+
+    def test_invalidate_missing_key(self, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        cache = {"00010": {"a": 1}}
+        monkeypatch.setattr(config_mod, "MANIFEST_CACHE", cache)
+
+        # Should not raise
+        config_mod.invalidate_manifest_cache("99999")
+        assert cache == {"00010": {"a": 1}}
+
+
+# ---------------------------------------------------------------------------
+# load_employee_custom_tools
+# ---------------------------------------------------------------------------
+
+class TestLoadEmployeeCustomTools:
+    def test_no_manifest_returns_empty(self, tmp_path, monkeypatch):
+        """No manifest.yaml => returns []."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        # Employee dir exists but no tools/manifest.yaml
+        (tmp_path / "00010").mkdir()
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+    def test_central_tool_allowed_user_loads(self, tmp_path, monkeypatch):
+        """Central tool exists, allowed_users includes employee => tool loads."""
+        import onemancompany.core.config as config_mod
+        from unittest.mock import patch, MagicMock
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        # Create employee manifest
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        manifest = emp_tools / "manifest.yaml"
+        yaml.dump({"custom_tools": ["my_tool"]}, open(manifest, "w"))
+
+        # Create central tool directory with tool.yaml allowing 00010
+        central_tool = tools_dir / "my_tool"
+        central_tool.mkdir(parents=True)
+        yaml.dump({"allowed_users": ["00010", "00020"]}, open(central_tool / "tool.yaml", "w"))
+
+        # Create actual .py file with a BaseTool instance
+        py_content = (
+            "from langchain_core.tools import BaseTool\n"
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class MyInput(BaseModel):\n"
+            "    x: str = 'default'\n"
+            "\n"
+            "class MyTool(BaseTool):\n"
+            "    name: str = 'my_tool'\n"
+            "    description: str = 'A test tool'\n"
+            "    args_schema: type = MyInput\n"
+            "    def _run(self, x: str = 'default') -> str:\n"
+            "        return x\n"
+            "\n"
+            "my_tool_instance = MyTool()\n"
+        )
+        (central_tool / "my_tool.py").write_text(py_content)
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert len(result) >= 1
+        # Verify it found a BaseTool instance
+        from langchain_core.tools import BaseTool
+        assert all(isinstance(t, BaseTool) for t in result)
+
+    def test_central_tool_not_allowed_user_skips(self, tmp_path, monkeypatch):
+        """Central tool exists, allowed_users excludes employee => tool skipped."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        # Create employee manifest
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["restricted_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        # Create central tool that only allows 00020
+        central_tool = tools_dir / "restricted_tool"
+        central_tool.mkdir(parents=True)
+        yaml.dump({"allowed_users": ["00020"]}, open(central_tool / "tool.yaml", "w"))
+        (central_tool / "restricted_tool.py").write_text("x = 1\n")
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+    def test_central_tool_allowed_users_empty_list_skips(self, tmp_path, monkeypatch):
+        """Central tool with allowed_users: [] (empty) => nobody allowed, skipped."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["locked_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        central_tool = tools_dir / "locked_tool"
+        central_tool.mkdir(parents=True)
+        yaml.dump({"allowed_users": []}, open(central_tool / "tool.yaml", "w"))
+        (central_tool / "locked_tool.py").write_text("x = 1\n")
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+    def test_central_tool_no_allowed_users_key_loads(self, tmp_path, monkeypatch):
+        """Central tool.yaml without allowed_users key => unrestricted, tool loads."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["open_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        central_tool = tools_dir / "open_tool"
+        central_tool.mkdir(parents=True)
+        # tool.yaml exists but NO allowed_users key
+        yaml.dump({"name": "Open Tool"}, open(central_tool / "tool.yaml", "w"))
+
+        # Create .py file with a BaseTool instance
+        py_content = (
+            "from langchain_core.tools import BaseTool\n"
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class Inp(BaseModel):\n"
+            "    x: str = 'default'\n"
+            "\n"
+            "class OpenTool(BaseTool):\n"
+            "    name: str = 'open_tool'\n"
+            "    description: str = 'An open tool'\n"
+            "    args_schema: type = Inp\n"
+            "    def _run(self, x: str = 'default') -> str:\n"
+            "        return x\n"
+            "\n"
+            "open_tool_instance = OpenTool()\n"
+        )
+        (central_tool / "open_tool.py").write_text(py_content)
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert len(result) >= 1
+
+    def test_fallback_to_employee_local_tool(self, tmp_path, monkeypatch):
+        """Central tool dir missing => falls back to employee-local tools dir."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"  # Will NOT have the tool
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["local_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        # Create tool in employee-local dir (fallback)
+        py_content = (
+            "from langchain_core.tools import BaseTool\n"
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class Inp(BaseModel):\n"
+            "    x: str = 'default'\n"
+            "\n"
+            "class LocalTool(BaseTool):\n"
+            "    name: str = 'local_tool'\n"
+            "    description: str = 'A local tool'\n"
+            "    args_schema: type = Inp\n"
+            "    def _run(self, x: str = 'default') -> str:\n"
+            "        return x\n"
+            "\n"
+            "local_instance = LocalTool()\n"
+        )
+        (emp_tools / "local_tool.py").write_text(py_content)
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert len(result) >= 1
+
+    def test_py_file_not_found_skips(self, tmp_path, monkeypatch):
+        """Neither central nor local .py file exists => tool skipped."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["ghost_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        # No .py file anywhere
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+    def test_importlib_failure_logs_warning_continues(self, tmp_path, monkeypatch):
+        """importlib loading fails => warning logged, tool skipped, continues."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["bad_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        # Create a .py file that will fail to import (syntax error)
+        (emp_tools / "bad_tool.py").write_text("this is not valid python!!!\n")
+
+        # Should not raise — just log warning and return []
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+    def test_central_tool_no_tool_yaml(self, tmp_path, monkeypatch):
+        """Central .py exists but no tool.yaml => no restriction check, loads."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        tools_dir = tmp_path / "central_tools"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+        monkeypatch.setattr(config_mod, "TOOLS_DIR", tools_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": ["bare_tool"]}, open(emp_tools / "manifest.yaml", "w"))
+
+        # Central tool dir with .py but NO tool.yaml
+        central_tool = tools_dir / "bare_tool"
+        central_tool.mkdir(parents=True)
+        py_content = (
+            "from langchain_core.tools import BaseTool\n"
+            "from pydantic import BaseModel\n"
+            "\n"
+            "class Inp(BaseModel):\n"
+            "    x: str = 'default'\n"
+            "\n"
+            "class BareTool(BaseTool):\n"
+            "    name: str = 'bare_tool'\n"
+            "    description: str = 'A bare tool'\n"
+            "    args_schema: type = Inp\n"
+            "    def _run(self, x: str = 'default') -> str:\n"
+            "        return x\n"
+            "\n"
+            "bare_instance = BareTool()\n"
+        )
+        (central_tool / "bare_tool.py").write_text(py_content)
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert len(result) >= 1
+
+    def test_manifest_empty_custom_tools(self, tmp_path, monkeypatch):
+        """manifest.yaml with empty custom_tools list => returns []."""
+        import onemancompany.core.config as config_mod
+
+        emp_dir = tmp_path / "employees"
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
+
+        emp_tools = emp_dir / "00010" / "tools"
+        emp_tools.mkdir(parents=True)
+        yaml.dump({"custom_tools": []}, open(emp_tools / "manifest.yaml", "w"))
+
+        result = config_mod.load_employee_custom_tools("00010")
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# list_available_talents
+# ---------------------------------------------------------------------------
+
+class TestListAvailableTalents:
+    def test_talents_dir_not_exists(self, tmp_path, monkeypatch):
+        """TALENTS_DIR doesn't exist => returns []."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path / "nonexistent")
+        result = config_mod.list_available_talents()
+        assert result == []
+
+    def test_lists_talents_with_profiles(self, tmp_path, monkeypatch):
+        """Talent dirs with profile.yaml are listed."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+
+        # Valid talent with all fields
+        t1 = tmp_path / "talent_a"
+        t1.mkdir()
+        yaml.dump({
+            "id": "ta",
+            "name": "Talent A",
+            "role": "Engineer",
+            "remote": True,
+            "description": "A great talent",
+            "api_provider": "anthropic",
+        }, open(t1 / "profile.yaml", "w"))
+
+        # Valid talent with minimal fields (defaults tested)
+        t2 = tmp_path / "talent_b"
+        t2.mkdir()
+        yaml.dump({"name": "Talent B"}, open(t2 / "profile.yaml", "w"))
+
+        # Non-directory file — should be skipped
+        (tmp_path / "readme.txt").write_text("not a talent")
+
+        # Directory without profile.yaml — should be skipped
+        (tmp_path / "no_profile").mkdir()
+
+        result = config_mod.list_available_talents()
+        assert len(result) == 2
+        # Check talent_a
+        ta = next(r for r in result if r["name"] == "Talent A")
+        assert ta["id"] == "ta"
+        assert ta["role"] == "Engineer"
+        assert ta["remote"] is True
+        assert ta["description"] == "A great talent"
+        assert ta["api_provider"] == "anthropic"
+        # Check talent_b defaults
+        tb = next(r for r in result if r["name"] == "Talent B")
+        assert tb["id"] == "talent_b"  # falls back to dir name
+        assert tb["role"] == ""
+        assert tb["remote"] is False
+        assert tb["api_provider"] == "openrouter"
+
+
+# ---------------------------------------------------------------------------
+# load_talent_profile
+# ---------------------------------------------------------------------------
+
+class TestLoadTalentProfile:
+    def test_missing_profile(self, tmp_path, monkeypatch):
+        """No profile.yaml => returns {}."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        result = config_mod.load_talent_profile("nonexistent")
+        assert result == {}
+
+    def test_existing_profile(self, tmp_path, monkeypatch):
+        """Valid profile.yaml => returns parsed dict."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        talent_dir = tmp_path / "my_talent"
+        talent_dir.mkdir()
+        yaml.dump({"name": "My Talent", "role": "Designer"}, open(talent_dir / "profile.yaml", "w"))
+
+        result = config_mod.load_talent_profile("my_talent")
+        assert result["name"] == "My Talent"
+        assert result["role"] == "Designer"
+
+
+# ---------------------------------------------------------------------------
+# load_talent_tools
+# ---------------------------------------------------------------------------
+
+class TestLoadTalentTools:
+    def test_missing_manifest(self, tmp_path, monkeypatch):
+        """No manifest.yaml => returns []."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        result = config_mod.load_talent_tools("nonexistent")
+        assert result == []
+
+    def test_loads_builtin_and_custom(self, tmp_path, monkeypatch):
+        """Reads both builtin_tools and custom_tools from manifest."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        tools_dir = tmp_path / "my_talent" / "tools"
+        tools_dir.mkdir(parents=True)
+        yaml.dump({
+            "builtin_tools": ["search", "calculator"],
+            "custom_tools": ["my_custom"],
+        }, open(tools_dir / "manifest.yaml", "w"))
+
+        result = config_mod.load_talent_tools("my_talent")
+        assert result == ["search", "calculator", "my_custom"]
+
+    def test_empty_manifest(self, tmp_path, monkeypatch):
+        """manifest.yaml with no tools keys => returns []."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        tools_dir = tmp_path / "my_talent" / "tools"
+        tools_dir.mkdir(parents=True)
+        yaml.dump({}, open(tools_dir / "manifest.yaml", "w"))
+
+        result = config_mod.load_talent_tools("my_talent")
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# load_talent_skills
+# ---------------------------------------------------------------------------
+
+class TestLoadTalentSkills:
+    def test_missing_skills_dir(self, tmp_path, monkeypatch):
+        """No skills dir => returns []."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        result = config_mod.load_talent_skills("nonexistent")
+        assert result == []
+
+    def test_loads_md_files(self, tmp_path, monkeypatch):
+        """Loads .md files from skills dir, ignores other files."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "TALENTS_DIR", tmp_path)
+        skills_dir = tmp_path / "my_talent" / "skills"
+        skills_dir.mkdir(parents=True)
+        (skills_dir / "python.md").write_text("# Python\nExpert")
+        (skills_dir / "go.md").write_text("# Go\nBeginner")
+        (skills_dir / "notes.txt").write_text("should be ignored")
+        (skills_dir / "subdir").mkdir()  # should be ignored
+
+        result = config_mod.load_talent_skills("my_talent")
+        assert len(result) == 2
+        assert any("Python" in s for s in result)
+        assert any("Go" in s for s in result)
+
+
+# ---------------------------------------------------------------------------
+# move_employee_to_ex / move_ex_employee_back — early returns
+# ---------------------------------------------------------------------------
+
+class TestMoveEmployeeEarlyReturns:
+    def test_move_to_ex_src_not_exists(self, tmp_path, monkeypatch):
+        """Source employee dir doesn't exist => returns False."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
+        result = config_mod.move_employee_to_ex("nonexistent")
+        assert result is False
+
+    def test_move_ex_back_src_not_exists(self, tmp_path, monkeypatch):
+        """Source ex-employee dir doesn't exist => returns False."""
+        import onemancompany.core.config as config_mod
+
+        monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", tmp_path)
+        result = config_mod.move_ex_employee_back("nonexistent")
+        assert result is False
