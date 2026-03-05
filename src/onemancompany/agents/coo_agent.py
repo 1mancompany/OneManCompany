@@ -570,7 +570,12 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
 
 
 @tool
-def request_hiring(role: str, reason: str, desired_skills: list[str] | None = None) -> dict:
+def request_hiring(
+    role: str,
+    reason: str,
+    department: str = "",
+    desired_skills: list[str] | None = None,
+) -> dict:
     """Request CEO approval to hire a new employee.
 
     Use this when you identify the team lacks a capability needed for current
@@ -579,7 +584,10 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
 
     Args:
         role: The role to hire (e.g. "Game Developer", "QA Engineer").
+            This role will override the talent's profile role on hire.
         reason: Why this hire is needed — what gap or demand triggers it.
+        department: Target department (e.g. "Engineering", "Design").
+            If empty, auto-determined from role mapping.
         desired_skills: Optional list of desired skills/technologies.
 
     Returns:
@@ -602,6 +610,7 @@ def request_hiring(role: str, reason: str, desired_skills: list[str] | None = No
     request_id = str(uuid.uuid4())[:8]
     req = {
         "role": role,
+        "department": department,
         "reason": reason,
         "desired_skills": desired_skills or [],
         "requested_by": COO_ID,
