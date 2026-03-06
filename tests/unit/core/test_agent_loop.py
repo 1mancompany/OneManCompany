@@ -2282,7 +2282,7 @@ class TestEmployeeManagerFullCleanup:
                     with patch("onemancompany.core.project_archive.complete_project"):
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "proj1")
+                                await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
                                 mock_routine.assert_called_once()
 
     @pytest.mark.asyncio
@@ -2303,7 +2303,7 @@ class TestEmployeeManagerFullCleanup:
                         with patch("onemancompany.core.project_archive.complete_project"):
                             with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                                 with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                    await mgr._full_cleanup("emp01", task, False, "proj1")
+                                    await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
                                     # Should not raise, should publish error event
                                     assert mock_bus.publish.call_count >= 1
 
@@ -3114,7 +3114,7 @@ class TestFullCleanupRoutineResolution:
                     with patch("onemancompany.core.project_archive.complete_project"):
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "proj1")
+                                await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
 
         # Verify resolution_ready event was published
         resolution_calls = [

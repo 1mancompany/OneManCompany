@@ -210,3 +210,31 @@ def list_open_positions() -> list[dict]:
         {"role": "Marketing", "priority": "low", "reason": "Growth and outreach"},
     ]
     return random.sample(positions, k=random.randint(2, 4))
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — hiring pipeline state
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("recruitment")
+class _RecruitmentSnapshot:
+    @staticmethod
+    def save() -> dict:
+        result = {}
+        if pending_candidates:
+            result["pending_candidates"] = pending_candidates
+        if _pending_project_ctx:
+            result["pending_project_ctx"] = _pending_project_ctx
+        return result
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        restored_candidates = data.get("pending_candidates", {})
+        if restored_candidates:
+            pending_candidates.update(restored_candidates)
+        restored_ctx = data.get("pending_project_ctx", {})
+        if restored_ctx:
+            _pending_project_ctx.update(restored_ctx)

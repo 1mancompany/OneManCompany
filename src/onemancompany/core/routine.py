@@ -51,6 +51,35 @@ from loguru import logger
 REPORTS_DIR = MEETING_REPORTS_DIR
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers to reduce repetition across routine handlers
+# ---------------------------------------------------------------------------
+
+def _format_workflow_context(step: WorkflowStep) -> str:
+    """Format step instructions into a workflow context block."""
+    if not step.instructions:
+        return ""
+    lines = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
+    return f"\n\n【本阶段工作流要求】\n{lines}\n请按以上要求执行。\n"
+
+
+def _parse_json_array(text: str, fallback: list | None = None) -> list:
+    """Extract a JSON array from LLM response text.
+
+    Searches for [...] in the text, parses it, and returns the array.
+    Falls back to the provided default if parsing fails.
+    """
+    if fallback is None:
+        fallback = []
+    try:
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+    except json.JSONDecodeError:
+        logger.debug("Failed to parse JSON array from LLM response, using fallback")
+    return fallback
+
+
 def _set_participants_status(participant_ids: list[str], status: str) -> None:
     """Set status for all participants (including hr/coo)."""
     for pid in participant_ids:
@@ -192,10 +221,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
     """Each participating employee self-evaluates their work."""
     llm = make_llm(HR_ID)
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     await _publish("routine_phase", {"phase": step.title, "message": "员工自评开始"})
     await _chat(ctx.room_id, "HR", "HR", f"{step.title}开始，请各位同事依次进行自评。")
@@ -285,10 +311,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
             for j in juniors
         )
 
-        step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-        workflow_ctx = ""
-        if step_instructions:
-            workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n"
+        workflow_ctx = _format_workflow_context(step)
 
         timeline_ctx = ""
         timeline_text = ctx.format_project_timeline()
@@ -316,14 +339,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
         review_text = resp.content
 
-        try:
-            json_match = re.search(r'\[.*\]', review_text, re.DOTALL)
-            if json_match:
-                reviews = json.loads(json_match.group())
-            else:
-                reviews = [{"name": "all", "review": review_text}]
-        except json.JSONDecodeError:
-            reviews = [{"name": "all", "review": review_text}]
+        reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         ctx.senior_reviews.append({
             "reviewer": senior.name,
@@ -346,10 +362,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
 
     await _publish("routine_phase", {"phase": step.title, "message": "HR正在总结改进点"})
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     all_evals = "\n".join(
         f"[{se['name']}(Lv.{se['level']})] 自评: {se['evaluation']}"
@@ -388,14 +401,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
     hr_text = resp.content
 
-    try:
-        json_match = re.search(r'\[.*\]', hr_text, re.DOTALL)
-        if json_match:
-            improvements = json.loads(json_match.group())
-        else:
-            improvements = [{"employee": "all", "improvements": [hr_text]}]
-    except json.JSONDecodeError:
-        improvements = [{"employee": "all", "improvements": [hr_text]}]
+    improvements = _parse_json_array(hr_text, [{"employee": "all", "improvements": [hr_text]}])
 
     ctx.hr_summary = improvements
 
@@ -419,10 +425,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
 
     await _publish("routine_phase", {"phase": step.title, "message": "COO正在出具运营报告"})
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     emp_count = len(company_state.employees)
     tool_count = len(company_state.tools)
@@ -494,10 +497,7 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
     project_dir = get_project_dir(project_id)
     file_list_text = "\n".join(f"- {f}" for f in files)
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     llm = make_llm(COO_ID)
     prompt = (
@@ -518,14 +518,7 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=COO_ID)
     raw = resp.content
 
-    try:
-        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
-        if json_match:
-            suggestions = json.loads(json_match.group())
-        else:
-            suggestions = []
-    except json.JSONDecodeError:
-        suggestions = []
+    suggestions = _parse_json_array(raw)
 
     ctx.asset_suggestions = suggestions
 
@@ -545,10 +538,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
     await _publish("routine_phase", {"phase": step.title, "message": "员工自由发言开始"})
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n"
+    workflow_ctx = _format_workflow_context(step)
 
     for emp_id in ctx.participants:
         emp = company_state.employees.get(emp_id)
@@ -611,10 +601,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
 
     await _publish("routine_phase", {"phase": step.title, "message": "COO和HR正在整理行动计划"})
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     feedback_text = "\n".join(
         f"[{f['name']}] {f['feedback']}" for f in ctx.employee_feedback
@@ -637,14 +624,9 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
     action_text = resp.content
 
-    try:
-        json_match = re.search(r'\[.*\]', action_text, re.DOTALL)
-        if json_match:
-            action_items = json.loads(json_match.group())
-        else:
-            action_items = [{"source": "COO", "description": action_text, "priority": "medium"}]
-    except json.JSONDecodeError:
-        action_items = [{"source": "COO", "description": action_text, "priority": "medium"}]
+    action_items = _parse_json_array(
+        action_text, [{"source": "COO", "description": action_text, "priority": "medium"}]
+    )
 
     # Merge asset consolidation suggestions as action items
     project_id = ctx.project_record.get("id", "") or ctx.project_record.get("project_id", "")
@@ -728,10 +710,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
         for i, a in enumerate(unique_items)
     )
 
-    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    workflow_ctx = ""
-    if step_instructions:
-        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+    workflow_ctx = _format_workflow_context(step)
 
     prompt = (
         "你是EA（行政助理），代表CEO严格审核会议行动计划。\n\n"
@@ -1553,14 +1532,7 @@ async def _run_phase1_legacy(
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
         review_text = resp.content
 
-        try:
-            json_match = re.search(r'\[.*\]', review_text, re.DOTALL)
-            if json_match:
-                reviews = json.loads(json_match.group())
-            else:
-                reviews = [{"name": "all", "review": review_text}]
-        except json.JSONDecodeError:
-            reviews = [{"name": "all", "review": review_text}]
+        reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         result["senior_reviews"].append({
             "reviewer": senior.name,
@@ -1600,14 +1572,7 @@ async def _run_phase1_legacy(
     resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
     hr_text = resp.content
 
-    try:
-        json_match = re.search(r'\[.*\]', hr_text, re.DOTALL)
-        if json_match:
-            improvements = json.loads(json_match.group())
-        else:
-            improvements = [{"employee": "all", "improvements": [hr_text]}]
-    except json.JSONDecodeError:
-        improvements = [{"employee": "all", "improvements": [hr_text]}]
+    improvements = _parse_json_array(hr_text, [{"employee": "all", "improvements": [hr_text]}])
 
     result["hr_summary"] = improvements
 
@@ -1719,14 +1684,9 @@ async def _run_phase2_legacy(
     resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
     action_text = resp.content
 
-    try:
-        json_match = re.search(r'\[.*\]', action_text, re.DOTALL)
-        if json_match:
-            action_items = json.loads(json_match.group())
-        else:
-            action_items = [{"source": "COO", "description": action_text, "priority": "medium"}]
-    except json.JSONDecodeError:
-        action_items = [{"source": "COO", "description": action_text, "priority": "medium"}]
+    action_items = _parse_json_array(
+        action_text, [{"source": "COO", "description": action_text, "priority": "medium"}]
+    )
 
     result["action_items"] = action_items
 
@@ -2110,3 +2070,25 @@ async def run_performance_meeting(employee_id: str, score: float, feedback: str)
         "phase": "performance_meeting",
         "message": f"Feedback for {emp.name}: {feedback}",
     })
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — pending reports
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("routine")
+class _RoutineSnapshot:
+    @staticmethod
+    def save() -> dict:
+        if not pending_reports:
+            return {}
+        return {"pending_reports": {k: v for k, v in pending_reports.items()}}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        restored = data.get("pending_reports", {})
+        if restored:
+            pending_reports.update(restored)

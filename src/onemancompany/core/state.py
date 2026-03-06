@@ -639,3 +639,71 @@ def reload_all_from_disk() -> dict:
         logger.debug("No event loop for reload broadcast — skipping")
 
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — company-level ephemeral state
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("company_state")
+class _CompanyStateSnapshot:
+    @staticmethod
+    def save() -> dict:
+        active_tasks_data = [
+            {"project_id": t.project_id, "task": t.task, "employee_id": t.employee_id}
+            for t in company_state.active_tasks
+        ]
+        employee_statuses = {
+            eid: {"status": emp.status, "current_task_summary": emp.current_task_summary}
+            for eid, emp in company_state.employees.items()
+        }
+        room_bookings = {}
+        for rid, room in company_state.meeting_rooms.items():
+            if room.is_booked:
+                room_bookings[rid] = {
+                    "booked_by": room.booked_by,
+                    "participants": room.participants,
+                }
+        return {
+            "activity_log": company_state.activity_log[-50:],
+            "active_tasks": active_tasks_data,
+            "employee_statuses": employee_statuses,
+            "room_bookings": room_bookings,
+        }
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        # Activity log
+        old_log = data.get("activity_log", [])
+        if old_log:
+            company_state.activity_log = old_log + company_state.activity_log
+
+        # Active tasks
+        for at in data.get("active_tasks", []):
+            already = any(t.project_id == at["project_id"] for t in company_state.active_tasks)
+            if not already:
+                company_state.active_tasks.append(
+                    TaskEntry(
+                        project_id=at["project_id"],
+                        task=at.get("task", ""),
+                        employee_id=at.get("employee_id", ""),
+                    )
+                )
+
+        # Employee statuses
+        for eid, sdata in data.get("employee_statuses", {}).items():
+            emp = company_state.employees.get(eid)
+            if emp and sdata.get("status"):
+                emp.status = sdata["status"]
+                emp.current_task_summary = sdata.get("current_task_summary", "")
+
+        # Meeting room bookings
+        for rid, bdata in data.get("room_bookings", {}).items():
+            room = company_state.meeting_rooms.get(rid)
+            if room:
+                room.is_booked = True
+                room.booked_by = bdata["booked_by"]
+                room.participants = bdata["participants"]

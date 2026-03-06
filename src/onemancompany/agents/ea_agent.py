@@ -65,17 +65,8 @@ class EAAgent(BaseAgentRunner):
             tools=COMMON_TOOLS,
         )
 
-    def _build_prompt(self) -> str:
-        return (
-            EA_SYSTEM_PROMPT
-            + self._get_skills_prompt_section()
-            + self._get_tools_prompt_section()
-            + self._get_company_culture_prompt_section()
-            + self._get_work_principles_prompt_section()
-            + self._get_guidance_prompt_section()
-            + self._get_dynamic_context_section()
-            + self._get_efficiency_guidelines_section()
-        )
+    def _customize_prompt(self, pb) -> None:
+        pb.add("role", EA_SYSTEM_PROMPT, priority=10)
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)

@@ -3278,6 +3278,39 @@ body {
   flex-direction: column;
 }
 
+/* ===== Generic Popup Modal ===== */
+.generic-popup-content {
+  max-width: 480px;
+  width: 90vw;
+}
+.generic-popup-content .popup-message {
+  font-size: 7px;
+  color: var(--pixel-white);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.generic-popup-content .popup-url-box {
+  margin: 8px 0;
+  padding: 6px 8px;
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  font-size: 7px;
+  word-break: break-all;
+  color: var(--pixel-green);
+  cursor: pointer;
+}
+.generic-popup-content .popup-url-box:hover {
+  border-color: var(--pixel-green);
+}
+.generic-popup-content .popup-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+
 /* ===== Chat Attach Button ===== */
 .chat-attach-btn {
   display: flex;

@@ -378,8 +378,13 @@ class BaseAgentRunner:
         return cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
 
     def _build_prompt(self) -> str:
-        """Build the full system prompt. Override in subclasses if needed."""
-        return ""
+        """Build the full system prompt using PromptBuilder.
+
+        Subclasses should override _customize_prompt(pb) to add role-specific
+        sections rather than overriding this method directly.
+        """
+        pb = self._build_prompt_builder()
+        return pb.build()
 
     def _build_full_prompt(self) -> str:
         """Build prompt with task history injected from the agent loop."""

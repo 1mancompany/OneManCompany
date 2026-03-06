@@ -7,6 +7,16 @@
   "settings": {
     "sections": [
       {
+        "id": "hosting",
+        "title": "Hosting Mode",
+        "fields": [
+          {"key": "hosting", "type": "select", "label": "Hosting", "options": [
+            {"value": "company", "label": "Company (LangChain)"},
+            {"value": "self", "label": "Self-hosted (Claude Code)"}
+          ]}
+        ]
+      },
+      {
         "id": "llm",
         "title": "LLM Configuration",
         "fields": [
