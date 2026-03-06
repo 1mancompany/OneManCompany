@@ -68,6 +68,9 @@ ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     # int() on non-numeric employee IDs — intentional skip
     ("state", "ValueError", 320, 340),
     ("state", "ValueError", 540, 560),
+    # OAuth token refresh/revocation — best-effort, failure is non-fatal
+    ("oauth", "Exception", 310, 330),
+    ("oauth", "Exception", 405, 425),
 ]
 
 

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -36,93 +34,40 @@ _pending_code_changes: set[str] = set()
 
 # ---------------------------------------------------------------------------
 # State snapshot persistence (Tier 2: survive hard restarts)
+#
+# Each module registers its own snapshot provider via @snapshot_provider.
+# main.py just calls save_snapshot() / restore_snapshot() — no per-module
+# knowledge needed here.  See core/snapshot.py for the harness.
 # ---------------------------------------------------------------------------
-SNAPSHOT_PATH = Path(__file__).parent.parent.parent.parent / "company" / ".state_snapshot.json"
-SNAPSHOT_MAX_AGE_SECONDS = 60  # only restore if snapshot is < 60s old
+
+def _ensure_snapshot_providers_loaded() -> None:
+    """Import modules that register @snapshot_provider decorators.
+
+    Provider registration happens at module import time.  Most of these
+    modules are imported elsewhere during startup, but we import them
+    explicitly here to guarantee registration order is deterministic.
+    """
+    import onemancompany.core.state  # noqa: F401 — company_state provider
+    import onemancompany.core.file_editor  # noqa: F401 — pending_file_edits
+    import onemancompany.core.resolutions  # noqa: F401 — _task_edits
+    import onemancompany.core.routine  # noqa: F401 — pending_reports
+    import onemancompany.agents.recruitment  # noqa: F401 — candidates + project ctx
+    import onemancompany.agents.coo_agent  # noqa: F401 — hiring requests
+    import onemancompany.api.routes  # noqa: F401 — inquiry sessions, COO hire queue, remote workers
 
 
 def _save_ephemeral_state() -> None:
-    """Serialize ephemeral state to disk before shutdown."""
-    from onemancompany.core.state import company_state
-    from onemancompany.core.file_editor import pending_file_edits
-    from onemancompany.agents.hr_agent import pending_candidates
-    from onemancompany.agents.coo_agent import pending_hiring_requests
-    from onemancompany.api.routes import _pending_coo_hire_queue, _pending_oauth_hire
-
-    snapshot = {
-        "saved_at": time.time(),
-        "activity_log": company_state.activity_log[-50:],
-        "pending_file_edits": pending_file_edits,
-        "pending_candidates": pending_candidates,
-        "pending_hiring_requests": pending_hiring_requests,
-        "pending_coo_hire_queue": _pending_coo_hire_queue,
-        "pending_oauth_hire": _pending_oauth_hire,
-    }
-    try:
-        SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SNAPSHOT_PATH.write_text(json.dumps(snapshot, default=str), encoding="utf-8")
-    except Exception as e:
-        print(f"Warning: failed to save state snapshot: {e}")
+    """Serialize all ephemeral state to disk via the snapshot harness."""
+    from onemancompany.core.snapshot import save_snapshot
+    _ensure_snapshot_providers_loaded()
+    save_snapshot()
 
 
 def _restore_ephemeral_state() -> None:
-    """Restore ephemeral state from a recent snapshot (< 60s old)."""
-    if not SNAPSHOT_PATH.exists():
-        return
-    try:
-        raw = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
-        saved_at = raw.get("saved_at", 0)
-        age = time.time() - saved_at
-        if age > SNAPSHOT_MAX_AGE_SECONDS:
-            SNAPSHOT_PATH.unlink(missing_ok=True)
-            return
-
-        from onemancompany.core.state import company_state
-        from onemancompany.core.file_editor import pending_file_edits
-        from onemancompany.agents.hr_agent import pending_candidates
-        from onemancompany.agents.coo_agent import pending_hiring_requests
-
-        # Restore activity log (prepend old entries)
-        old_log = raw.get("activity_log", [])
-        if old_log:
-            company_state.activity_log = old_log + company_state.activity_log
-
-        # Restore pending file edits
-        restored_edits = raw.get("pending_file_edits", {})
-        if restored_edits:
-            pending_file_edits.update(restored_edits)
-
-        # Restore pending candidates
-        restored_candidates = raw.get("pending_candidates", {})
-        if restored_candidates:
-            pending_candidates.update(restored_candidates)
-
-        # Restore pending hiring requests
-        restored_hiring = raw.get("pending_hiring_requests", {})
-        if restored_hiring:
-            pending_hiring_requests.update(restored_hiring)
-
-        # Restore COO hiring context (role override + project link for in-flight hires)
-        from onemancompany.api.routes import _pending_coo_hire_queue, _pending_oauth_hire
-        restored_coo_queue = raw.get("pending_coo_hire_queue", [])
-        if restored_coo_queue:
-            _pending_coo_hire_queue.extend(restored_coo_queue)
-        restored_oauth = raw.get("pending_oauth_hire", {})
-        if restored_oauth:
-            _pending_oauth_hire.update(restored_oauth)
-
-        print(f"Restored state snapshot ({age:.1f}s old): "
-              f"{len(old_log)} log entries, "
-              f"{len(restored_edits)} pending edits, "
-              f"{len(restored_candidates)} candidate batches, "
-              f"{len(restored_hiring)} hiring requests, "
-              f"{len(restored_coo_queue)} COO hire contexts, "
-              f"{len(restored_oauth)} OAuth hire waits")
-
-        # Clean up snapshot file after successful restore
-        SNAPSHOT_PATH.unlink(missing_ok=True)
-    except Exception as e:
-        print(f"Warning: failed to restore state snapshot: {e}")
+    """Restore ephemeral state from a recent snapshot via the snapshot harness."""
+    from onemancompany.core.snapshot import restore_snapshot
+    _ensure_snapshot_providers_loaded()
+    restore_snapshot()
 
 
 # ---------------------------------------------------------------------------
@@ -274,32 +219,69 @@ async def _heartbeat_loop() -> None:
 # ---------------------------------------------------------------------------
 
 async def _start_code_watcher() -> None:
-    """Watch src/ and frontend/ for code changes, accumulate and notify CEO."""
+    """Watch src/ and frontend/ for code changes.
+
+    - Frontend files (.js/.css/.html in frontend/) → notify frontend to reload (no backend restart)
+    - Backend files (.py in src/) → auto-schedule graceful restart when idle
+    """
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
 
     from onemancompany.core.config import PROJECT_ROOT
     from onemancompany.core.events import CompanyEvent, event_bus
+    from onemancompany.core.vessel import employee_manager
 
     DEBOUNCE_SECONDS = 2.0
-    WATCH_EXTENSIONS = {".py", ".js", ".css", ".html"}
+    FRONTEND_EXTENSIONS = {".js", ".css", ".html"}
+    BACKEND_EXTENSIONS = {".py"}
 
     class _CodeChangeHandler(FileSystemEventHandler):
         def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
             self._loop = loop
-            self._pending: asyncio.TimerHandle | None = None
+            self._pending_frontend: asyncio.TimerHandle | None = None
+            self._pending_backend: asyncio.TimerHandle | None = None
+            self._frontend_changes: set[str] = set()
+            self._backend_changes: set[str] = set()
 
-        def _schedule_notify(self, path: str) -> None:
-            _pending_code_changes.add(path)
-            if self._pending:
-                self._pending.cancel()
-            self._pending = self._loop.call_later(DEBOUNCE_SECONDS, self._do_notify)
+        def _on_change(self, path: str) -> None:
+            p = Path(path)
+            # Determine if frontend or backend
+            frontend_dir_str = str(FRONTEND_DIR)
+            if path.startswith(frontend_dir_str) and p.suffix in FRONTEND_EXTENSIONS:
+                self._frontend_changes.add(path)
+                if self._pending_frontend:
+                    self._pending_frontend.cancel()
+                self._pending_frontend = self._loop.call_later(DEBOUNCE_SECONDS, self._notify_frontend)
+            elif p.suffix in BACKEND_EXTENSIONS:
+                self._backend_changes.add(path)
+                _pending_code_changes.add(path)
+                if self._pending_backend:
+                    self._pending_backend.cancel()
+                self._pending_backend = self._loop.call_later(DEBOUNCE_SECONDS, self._handle_backend)
 
-        def _do_notify(self) -> None:
-            self._pending = None
-            files = sorted(_pending_code_changes)
+        def _notify_frontend(self) -> None:
+            self._pending_frontend = None
+            files = sorted(self._frontend_changes)
+            self._frontend_changes.clear()
             if not files:
                 return
+            asyncio.ensure_future(event_bus.publish(
+                CompanyEvent(
+                    type="frontend_update_available",
+                    payload={"changed_files": files, "count": len(files)},
+                    agent="SYSTEM",
+                )
+            ))
+            print(f"[code-watcher] {len(files)} frontend file(s) changed, notifying browser")
+
+        def _handle_backend(self) -> None:
+            self._pending_backend = None
+            files = sorted(self._backend_changes)
+            self._backend_changes.clear()
+            if not files:
+                return
+
+            # Notify CEO of pending changes
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
                     type="code_update_available",
@@ -307,19 +289,31 @@ async def _start_code_watcher() -> None:
                     agent="SYSTEM",
                 )
             ))
-            print(f"[code-watcher] {len(files)} file(s) changed, notified CEO")
+
+            # Auto-schedule graceful restart
+            if employee_manager.is_idle():
+                print(f"[code-watcher] {len(files)} backend file(s) changed, restarting now (idle)")
+                asyncio.ensure_future(employee_manager._trigger_graceful_restart())
+            else:
+                employee_manager._restart_pending = True
+                print(f"[code-watcher] {len(files)} backend file(s) changed, restart deferred (tasks running)")
+                asyncio.ensure_future(event_bus.publish(
+                    CompanyEvent(
+                        type="backend_restart_scheduled",
+                        payload={"reason": "Waiting for tasks to complete", "immediate": False},
+                        agent="SYSTEM",
+                    )
+                ))
 
         def on_modified(self, event):
             if event.is_directory:
                 return
-            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
-                self._schedule_notify(event.src_path)
+            self._on_change(event.src_path)
 
         def on_created(self, event):
             if event.is_directory:
                 return
-            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
-                self._schedule_notify(event.src_path)
+            self._on_change(event.src_path)
 
     loop = asyncio.get_running_loop()
     handler = _CodeChangeHandler(loop)
@@ -332,7 +326,7 @@ async def _start_code_watcher() -> None:
 
     observer.daemon = True
     observer.start()
-    print(f"[code-watcher] Watching {src_dir} and {frontend_dir} for code changes")
+    print(f"[code-watcher] Watching {src_dir} (backend) and {frontend_dir} (frontend)")
 
     try:
         while True:
@@ -351,6 +345,9 @@ async def lifespan(app: FastAPI):
     # Eagerly load assets (tools, meeting rooms) into company_state
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()
+    from onemancompany.core.layout import compute_asset_layout
+    from onemancompany.core.state import company_state as _cs
+    compute_asset_layout(_cs, _cs.office_layout)
 
     # Discover and load view plugins
     from onemancompany.core.plugin_registry import plugin_registry
@@ -411,9 +408,9 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.base import EmployeeAgent
     from onemancompany.core.config import FOUNDING_LEVEL
     from onemancompany.core.state import company_state
-    founding_ids = {"00001"} | _registered_founding
+    from onemancompany.core.config import FOUNDING_IDS
     for emp_id, emp in company_state.employees.items():
-        if emp_id in founding_ids:
+        if emp_id in FOUNDING_IDS:
             continue
         if emp.level >= FOUNDING_LEVEL:
             continue
@@ -435,6 +432,13 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Registered {emp.name} ({emp_id}) — LangChain agent")
 
     await start_all_loops()
+
+    # Restore task queue from a previous graceful restart
+    from onemancompany.core.vessel import employee_manager as _em
+    restored_count = _em.restore_task_queue()
+    if restored_count:
+        print(f"[startup] Restored {restored_count} pending task(s) from previous session")
+        _em.drain_pending()
 
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())

@@ -482,25 +482,18 @@ open http://localhost:8000
 
 ## Changelog
 
-
-
-
-| Date       | Commit                                                                  | Summary                                                                                                           |
-| ---------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 2026-03-05 | • update: connection, coo_agent, heartbeat, iter_001, launch            |                                                                                                                   |
-| 2026-03-05 | • update: , 02dd33f6, 03c25f63, 1eb8c0b0, 298b4b58                      |                                                                                                                   |
-| 2026-03-05 | • update: 任务流转追踪与异常监控机制, 前端代码工程化规范, 项目验收与工作区规范, 验收验证与目录规范 SOP, 02dd33f6 |                                                                                                                   |
-| 2026-03-05 | • update: 5c5db503, app, base, company_direction, connection            |                                                                                                                   |
-| 2026-03-05 | • update: base, claude_session, common_tools, config, coo_agent         |                                                                                                                   |
-| 2026-03-05 | `7609eec`                                                               | 1808 unit tests covering workflow engine, heartbeat, claude session, and more                                     |
-| 2026-03-04 | `bd3125f`                                                               | Fix test isolation: fire tests no longer leak offboarding routine side effects                                    |
-| 2026-03-04 | `cfb252d`                                                               | Persistent meeting reports: pull-meeting auto-generates archived records                                          |
-| 2026-03-04 | `9f74231`                                                               | GitHub talent one-click import script + system_prompt_template in prompt pipeline                                 |
-| 2026-03-04 | `49d4c78`                                                               | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding                       |
-| 2026-03-04 | `e25a50f`                                                               | First 976 unit tests + pre-commit test gate + auto-changelog hook                                                 |
-| 2026-03-04 | `06d0cfb`                                                               | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists                             |
-| 2026-03-04 | `2e1111d`                                                               | API heartbeat health check (zero token cost) + OAuth login fix                                                    |
-| 2026-03-04 | `760022c`                                                               | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
-| 2026-03-04 | `16bc792`                                                               | Frontend CEO Console UX improvements                                                                              |
-
-
+<!-- CHANGELOG_START -->
+| Date | Commit | Summary |
+|------|--------|---------|
+| 2026-03-06 | • update: , .state_snapshot, app, base, config |
+| 2026-03-05 | `7609eec` | 1808 unit tests covering workflow engine, heartbeat, claude session, and more |
+| 2026-03-04 | `bd3125f` | Fix test isolation: fire tests no longer leak offboarding routine side effects |
+| 2026-03-04 | `cfb252d` | Persistent meeting reports: pull-meeting auto-generates archived records |
+| 2026-03-04 | `9f74231` | GitHub talent one-click import script + system_prompt_template in prompt pipeline |
+| 2026-03-04 | `49d4c78` | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding |
+| 2026-03-04 | `e25a50f` | First 976 unit tests + pre-commit test gate + auto-changelog hook |
+| 2026-03-04 | `06d0cfb` | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists |
+| 2026-03-04 | `2e1111d` | API heartbeat health check (zero token cost) + OAuth login fix |
+| 2026-03-04 | `760022c` | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
+| 2026-03-04 | `16bc792` | Frontend CEO Console UX improvements |
+<!-- CHANGELOG_END -->

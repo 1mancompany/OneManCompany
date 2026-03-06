@@ -302,3 +302,25 @@ def execute_deferred_edit(resolution_id: str, edit_id: str) -> dict:
 
     _save_resolution(resolution)
     return {"status": "ok", **exec_result}
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — in-flight task edits
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("resolutions")
+class _ResolutionsSnapshot:
+    @staticmethod
+    def save() -> dict:
+        if not _task_edits:
+            return {}
+        return {"task_edits": _task_edits}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        restored = data.get("task_edits", {})
+        if restored:
+            _task_edits.update(restored)

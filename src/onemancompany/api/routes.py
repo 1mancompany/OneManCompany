@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import traceback
 import uuid as _uuid
 from dataclasses import dataclass
@@ -12,7 +11,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, WebSocket, WebSocketDi
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from onemancompany.agents.base import BaseAgentRunner, tracked_ainvoke
+from onemancompany.agents.base import tracked_ainvoke
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
     CEO_ID,
@@ -20,12 +19,9 @@ from onemancompany.core.config import (
     COO_ID,
     CSO_ID,
     EA_ID,
-    FOUNDING_LEVEL,
     HR_ID,
-    HR_KEYWORDS,
     MAX_SUMMARY_LEN,
     STATUS_IDLE,
-    STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
@@ -47,137 +43,39 @@ class InquirySession:
 _inquiry_sessions: dict[str, InquirySession] = {}
 
 
-async def _run_agent_safe(
-    coro,
-    agent_name: str,
-    task_description: str = "",
-    run_routine_after: str = "",
-    project_id: str = "",
-    project_dir: str = "",
-) -> None:
-    """Run an agent coroutine, catching and logging errors.
+def _get_employee_manager():
+    """Lazy import to avoid circular dependency."""
+    from onemancompany.core.vessel import employee_manager
+    return employee_manager
 
-    Automatically registers a TaskEntry in active_tasks so every running
-    agent task is visible in the task queue.  If *project_id* is empty a
-    lightweight placeholder ID is generated.
 
-    If run_routine_after is set, trigger the company routine after the agent finishes.
+def _require_employee(employee_id: str):
+    """Get employee or raise 404. Use for consistent validation across routes."""
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    return emp
+
+
+def _rebuild_employee_agent(employee_id: str) -> bool:
+    """Rebuild an employee's LLM agent after config changes (model/provider/api-key).
+
+    Returns True if the agent was rebuilt, False if no agent loop found.
     """
-    from onemancompany.core.project_archive import append_action, complete_project
-    import uuid as _uuid
-
-    def _match_task(t, pid):
-        return t.project_id == pid or (t.iteration_id and t.iteration_id == pid)
-
-    # --- Ensure a TaskEntry exists for this run ---
-    if not project_id:
-        project_id = f"_auto_{_uuid.uuid4().hex[:8]}"
-    # Only add if not already tracked (CEO task route may have added one)
-    already_tracked = any(_match_task(t, project_id) for t in company_state.active_tasks)
-    if not already_tracked:
-        company_state.active_tasks.append(
-            TaskEntry(
-                project_id=project_id,
-                task=task_description or f"{agent_name} task",
-                routed_to=agent_name,
-                project_dir=project_dir,
-            )
-        )
-        # Broadcast so frontend sees the new task immediately
-        await event_bus.publish(
-            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-        )
-
-    def _sync_task_owner(owner_id: str) -> None:
-        """Sync current_owner on the in-memory TaskEntry."""
-        for t in company_state.active_tasks:
-            if _match_task(t, project_id):
-                t.current_owner = owner_id
-                break
-
-    # Set the project_id context so propose_file_edit collects edits
-    from onemancompany.core.resolutions import current_project_id
-    ctx_token = current_project_id.set(project_id)
-
-    agent_error = False
-    try:
-        result = await coro
-        # Record agent output in project timeline
-        if not project_id.startswith("_auto_") and result:
-            summary = result[:MAX_SUMMARY_LEN] if isinstance(result, str) else str(result)[:MAX_SUMMARY_LEN]
-            append_action(project_id, agent_name.lower(), f"{agent_name} task completed", summary)
-            _sync_task_owner(agent_name.lower())
-    except Exception as e:
-        agent_error = True
-        traceback.print_exc()
-        if not project_id.startswith("_auto_"):
-            append_action(project_id, agent_name.lower(), f"{agent_name} error", str(e)[:MAX_SUMMARY_LEN])
-        await event_bus.publish(
-            CompanyEvent(
-                type="agent_done",
-                payload={"role": agent_name, "summary": f"Error: {e!s}"},
-                agent=agent_name,
-            )
-        )
-    finally:
-        current_project_id.reset(ctx_token)
-
-    # Create a resolution if any file edits were accumulated during the task
-    from onemancompany.core.resolutions import create_resolution
-    resolution = create_resolution(project_id, task_description)
-    if resolution:
-        await event_bus.publish(
-            CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
-        )
-
-    # Always run routine (retrospective is valuable even after errors)
-    if run_routine_after:
-        try:
-            from onemancompany.core.routine import run_post_task_routine
-            await run_post_task_routine(run_routine_after, project_id=project_id)
-        except Exception as e:
-            traceback.print_exc()
-            if not project_id.startswith("_auto_"):
-                append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
-            await event_bus.publish(
-                CompanyEvent(
-                    type="agent_done",
-                    payload={"role": "ROUTINE", "summary": f"Routine error: {e!s}"},
-                    agent="ROUTINE",
-                )
-            )
-
-    # Cleanup sandbox container after each task
-    from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
-    await _cleanup_sandbox()
-
-    # Cleanup always runs — reset employees, remove tasks, complete project
-    for emp in company_state.employees.values():
-        emp.status = STATUS_IDLE
-
-    company_state.active_tasks = [
-        t for t in company_state.active_tasks if not _match_task(t, project_id)
-    ]
-
-    if not project_id.startswith("_auto_"):
-        label = run_routine_after or "Task completed"
-        if agent_error:
-            label = f"{label} (with errors)"
-        complete_project(project_id, label)
-
-    # Flush any deferred reloads now that this task is done
-    from onemancompany.core.state import flush_pending_reload
-    flush_result = flush_pending_reload()
-    if flush_result:
-        updated = flush_result.get("employees_updated", [])
-        added = flush_result.get("employees_added", [])
-        if updated or added:
-            print(f"[hot-reload] Post-task flush: {len(updated)} updated, {len(added)} added")
-
-    # Broadcast updated state so frontend sees idle employees and cleared tasks
-    await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-    )
+    from onemancompany.core.agent_loop import get_agent_loop
+    loop = get_agent_loop(employee_id)
+    if not (loop and loop.agent):
+        return False
+    if not (hasattr(loop.agent, '_agent') and loop.agent._agent):
+        return False
+    from onemancompany.agents.base import make_llm
+    from langgraph.prebuilt import create_react_agent
+    from onemancompany.agents.common_tools import COMMON_TOOLS
+    from onemancompany.core.config import load_employee_custom_tools
+    new_llm = make_llm(employee_id)
+    custom_tools = load_employee_custom_tools(employee_id)
+    loop.agent._agent = create_react_agent(model=new_llm, tools=list(COMMON_TOOLS) + custom_tools)
+    return True
 
 
 @router.post("/api/admin/reload")
@@ -200,15 +98,20 @@ async def admin_pending_code_changes() -> dict:
 
 @router.post("/api/admin/apply-code-update")
 async def admin_apply_code_update() -> dict:
-    """CEO triggers a process restart to pick up code changes."""
-    import os
-    import sys
-    from onemancompany.main import _save_ephemeral_state, _pending_code_changes
+    """CEO triggers a graceful process restart to pick up code changes.
 
-    _save_ephemeral_state()
-    _pending_code_changes.clear()
+    If idle, restarts immediately. If tasks are running, defers until complete.
+    """
+    from onemancompany.core.vessel import employee_manager
 
-    os.execv(sys.executable, [sys.executable, "-m", "onemancompany.main"])
+    if employee_manager.is_idle():
+        # No tasks running — restart now
+        await employee_manager._trigger_graceful_restart()
+        return {"status": "restarting"}  # won't actually reach client
+    else:
+        # Tasks running — defer restart
+        employee_manager._restart_pending = True
+        return {"status": "deferred", "message": "Restart scheduled after current tasks complete"}
 
 
 @router.post("/api/admin/clear-tasks")
@@ -234,18 +137,9 @@ async def _start_inquiry(task: str) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
     from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
 
-    # Route to the best agent via keyword logic
-    from onemancompany.core.config import SALES_KEYWORDS
-    task_lower = task.lower()
-    if any(w in task_lower for w in HR_KEYWORDS):
-        agent_role = "HR"
-        agent_id = HR_ID
-    elif any(w in task_lower for w in SALES_KEYWORDS):
-        agent_role = "CSO"
-        agent_id = CSO_ID
-    else:
-        agent_role = "COO"
-        agent_id = COO_ID
+    # Route to the best agent via configurable routing table
+    from onemancompany.core.config import route_inquiry
+    agent_role, agent_id = route_inquiry(task)
 
     emp = company_state.employees.get(agent_id)
 
@@ -511,13 +405,8 @@ async def ceo_submit_task(body: dict) -> dict:
         )
         loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
     else:
-        # Fallback: direct fire-and-forget (should not happen)
-        from onemancompany.agents.ea_agent import EAAgent
-        _ea = EAAgent()
-        task_with_ctx = f"{task}\n\n[Project workspace: {pdir} — save all outputs here]"
-        asyncio.create_task(
-            _run_agent_safe(_ea.run(task_with_ctx), "EA", run_routine_after=task, project_id=ctx_id, project_dir=pdir)
-        )
+        logger.error("EA agent not registered in EmployeeManager — cannot dispatch task")
+        raise HTTPException(status_code=503, detail="EA agent not available")
     return {
         "routed_to": "EA",
         "status": "processing",
@@ -807,12 +696,8 @@ async def book_meeting(body: dict) -> dict:
     if loop:
         loop.push_task(task)
     else:
-        from onemancompany.agents.coo_agent import COOAgent
-        _coo = COOAgent()
-        asyncio.create_task(_run_agent_safe(
-            _coo.run(task), "COO",
-            task_description=f"Book meeting: {purpose or 'room request'}",
-        ))
+        logger.error("COO agent not registered in EmployeeManager — cannot process meeting request")
+        return {"error": "COO agent not available"}
     return {"status": "processing", "message": "COO is processing the meeting room request"}
 
 
@@ -999,13 +884,8 @@ async def trigger_hr_review() -> dict:
         )
         loop.push_task(review_task)
     else:
-        # Fallback
-        from onemancompany.agents.hr_agent import HRAgent
-        _hr = HRAgent()
-        asyncio.create_task(_run_agent_safe(
-            _hr.run_quarterly_review(), "HR",
-            task_description="Quarterly performance review",
-        ))
+        logger.error("HR agent not registered in EmployeeManager — cannot run review")
+        return {"error": "HR agent not available"}
     return {"status": "HR review started"}
 
 
@@ -1016,10 +896,12 @@ async def start_routine(body: dict) -> dict:
 
     task_summary = body.get("task_summary", "Routine task completed")
     participants = body.get("participants")  # None = all employees
-    asyncio.create_task(_run_agent_safe(
-        run_post_task_routine(task_summary, participants), "ROUTINE",
+    em = _get_employee_manager()
+    em.schedule_system_task(
+        run_post_task_routine(task_summary, participants),
+        "ROUTINE",
         task_description=f"Post-task routine: {task_summary[:50]}",
-    ))
+    )
     return {"status": "routine_started"}
 
 
@@ -1033,10 +915,12 @@ async def approve_routine_actions(body: dict) -> dict:
     if not report_id:
         return {"error": "Missing report_id"}
 
-    asyncio.create_task(_run_agent_safe(
-        execute_approved_actions(report_id, approved_indices), "ROUTINE",
+    em = _get_employee_manager()
+    em.schedule_system_task(
+        execute_approved_actions(report_id, approved_indices),
+        "ROUTINE",
         task_description="Execute approved actions",
-    ))
+    )
     return {"status": "executing_approved_actions"}
 
 
@@ -1049,10 +933,12 @@ async def start_all_hands(body: dict) -> dict:
     if not message:
         return {"error": "Missing CEO message"}
 
-    asyncio.create_task(_run_agent_safe(
-        run_all_hands_meeting(message), "ROUTINE",
+    em = _get_employee_manager()
+    em.schedule_system_task(
+        run_all_hands_meeting(message),
+        "ROUTINE",
         task_description=f"All-hands meeting: {message[:50]}",
-    ))
+    )
     return {"status": "all_hands_started"}
 
 
@@ -1137,9 +1023,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     """Get full employee details including work principles, model config, and manifest."""
     from onemancompany.core.config import employee_configs, load_manifest
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
+    emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
     llm_model = cfg.llm_model if cfg else ""
@@ -1338,9 +1222,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     if not model_id:
         return {"error": "Missing model"}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
+    emp = _require_employee(employee_id)
 
     # Compute new salary — skip OpenRouter pricing for non-openrouter providers
     cfg = employee_configs.get(employee_id)
@@ -1360,14 +1242,8 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     emp.salary_per_1m_tokens = new_salary
 
     # Update profile.yaml on disk
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            data = yaml.safe_load(f) or {}
-        data["llm_model"] = model_id
-        data["salary_per_1m_tokens"] = new_salary
-        with open(profile_path, "w") as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    from onemancompany.core.config import update_employee_profile
+    update_employee_profile(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
 
     await event_bus.publish(
         CompanyEvent(
@@ -1383,6 +1259,105 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     return {"status": "updated", "employee_id": employee_id, "model": model_id, "salary_per_1m_tokens": new_salary}
 
 
+@router.put("/api/employee/{employee_id}/hosting")
+async def update_employee_hosting(employee_id: str, body: dict) -> dict:
+    """Switch an employee's hosting mode between company-hosted and self-hosted.
+
+    Changing hosting mode requires a server restart to re-register the employee
+    with the appropriate executor (LangChain vs Claude Code session).
+    """
+    import yaml
+    import json as _json
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs, invalidate_manifest_cache
+
+    new_hosting = body.get("hosting", "")
+    if new_hosting not in ("company", "self"):
+        return {"error": "Invalid hosting mode. Use 'company' or 'self'."}
+
+    emp = _require_employee(employee_id)
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg:
+        return {"error": "Employee config not found"}
+
+    old_hosting = cfg.hosting
+
+    if old_hosting == new_hosting:
+        return {"status": "unchanged", "hosting": new_hosting}
+
+    # Update in-memory config
+    cfg.hosting = new_hosting
+
+    # Update profile.yaml on disk
+    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
+    profile_data = load_employee_profile_yaml(employee_id)
+    if profile_data:
+        profile_data["hosting"] = new_hosting
+        if new_hosting == "self":
+            profile_data.setdefault("auth_method", "oauth")
+            profile_data.setdefault("api_provider", "anthropic")
+        save_employee_profile_yaml(employee_id, profile_data)
+
+    # Update manifest.json to reflect hosting change and adjust settings sections
+    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    if manifest_path.exists():
+        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["hosting"] = new_hosting
+
+        sections = manifest.get("settings", {}).get("sections", [])
+
+        if new_hosting == "self":
+            # Add connection section if not present
+            has_connection = any(s.get("id") == "connection" for s in sections)
+            if not has_connection:
+                sections.insert(0, {
+                    "id": "connection",
+                    "title": "Connection",
+                    "fields": [
+                        {"key": "oauth", "type": "oauth_button", "label": "Anthropic Login", "provider": "anthropic"}
+                    ],
+                })
+            # Remove LLM section (self-hosted uses its own model)
+            sections[:] = [s for s in sections if s.get("id") != "llm"]
+        else:
+            # Remove connection section
+            sections[:] = [s for s in sections if s.get("id") != "connection"]
+            # Add LLM section back if not present
+            has_llm = any(s.get("id") == "llm" for s in sections)
+            if not has_llm:
+                sections.append({
+                    "id": "llm",
+                    "title": "LLM Configuration",
+                    "fields": [
+                        {"key": "llm_model", "type": "select", "label": "Model", "options_from": "api:models"},
+                        {"key": "temperature", "type": "number", "label": "Temperature", "default": 0.7, "min": 0, "max": 2, "step": 0.1},
+                    ],
+                })
+
+        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        invalidate_manifest_cache(employee_id)
+
+    hosting_label = "Self-hosted (Claude Code)" if new_hosting == "self" else "Company-hosted (LangChain)"
+    await event_bus.publish(
+        CompanyEvent(
+            type="agent_done",
+            payload={
+                "role": "CEO",
+                "summary": f"Switched {emp.name} to {hosting_label}. Restart required to take effect.",
+            },
+            agent="CEO",
+        )
+    )
+
+    return {
+        "status": "updated",
+        "hosting": new_hosting,
+        "restart_required": True,
+        "message": f"Hosting changed to '{new_hosting}'. Server restart required to re-register agent.",
+    }
+
+
 @router.put("/api/employee/{employee_id}/provider")
 async def update_employee_provider(employee_id: str, body: dict) -> dict:
     """Switch the API provider for an employee (openrouter / anthropic)."""
@@ -1394,9 +1369,7 @@ async def update_employee_provider(employee_id: str, body: dict) -> dict:
     if new_provider not in ("openrouter", "anthropic"):
         return {"error": "Invalid provider. Use 'openrouter' or 'anthropic'."}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
+    emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
     if not cfg:
@@ -1407,35 +1380,23 @@ async def update_employee_provider(employee_id: str, body: dict) -> dict:
     emp.api_provider = new_provider
 
     # When switching to anthropic, use company-level key if employee has none
+    from onemancompany.core.config import settings as app_settings
     if new_provider == "anthropic" and not cfg.api_key:
-        cfg.api_key = settings.anthropic_api_key
-        cfg.auth_method = settings.anthropic_auth_method
+        cfg.api_key = app_settings.anthropic_api_key
+        cfg.auth_method = app_settings.anthropic_auth_method
 
     # Update profile.yaml
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            data = yaml.safe_load(f) or {}
-        data["api_provider"] = new_provider
-        if new_provider == "anthropic" and not data.get("api_key"):
-            data["api_key"] = settings.anthropic_api_key
-            data["auth_method"] = settings.anthropic_auth_method
-        with open(profile_path, "w") as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
+    profile_data = load_employee_profile_yaml(employee_id)
+    if profile_data:
+        profile_data["api_provider"] = new_provider
+        if new_provider == "anthropic" and not profile_data.get("api_key"):
+            profile_data["api_key"] = app_settings.anthropic_api_key
+            profile_data["auth_method"] = app_settings.anthropic_auth_method
+        save_employee_profile_yaml(employee_id, profile_data)
 
     # Rebuild agent LLM
-    from onemancompany.core.agent_loop import get_agent_loop
-    loop = get_agent_loop(employee_id)
-    if loop and loop.agent:
-        from onemancompany.agents.base import make_llm
-        from langgraph.prebuilt import create_react_agent
-        new_llm = make_llm(employee_id)
-        if hasattr(loop.agent, '_agent') and loop.agent._agent:
-            from onemancompany.agents.common_tools import COMMON_TOOLS
-            from onemancompany.core.config import load_employee_custom_tools
-            custom_tools = load_employee_custom_tools(employee_id)
-            old_tools = list(COMMON_TOOLS) + custom_tools
-            loop.agent._agent = create_react_agent(model=new_llm, tools=old_tools)
+    _rebuild_employee_agent(employee_id)
 
     await event_bus.publish(
         CompanyEvent(
@@ -1464,9 +1425,7 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
 
     from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
+    emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
     if not cfg:
@@ -1484,31 +1443,14 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
         cfg.llm_model = new_model
 
     # Update profile.yaml on disk
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            data = yaml.safe_load(f) or {}
-        data["api_key"] = new_key
-        if new_model:
-            data["llm_model"] = new_model
-        with open(profile_path, "w") as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    from onemancompany.core.config import update_employee_profile
+    updates = {"api_key": new_key}
+    if new_model:
+        updates["llm_model"] = new_model
+    update_employee_profile(employee_id, updates)
 
     # If an agent loop exists, rebuild its LLM so the new key takes effect
-    from onemancompany.core.agent_loop import get_agent_loop
-    loop = get_agent_loop(employee_id)
-    if loop and loop.agent:
-        from onemancompany.agents.base import make_llm
-        from langgraph.prebuilt import create_react_agent
-        new_llm = make_llm(employee_id)
-        # Rebuild the agent with the new LLM but same tools
-        if hasattr(loop.agent, '_agent') and loop.agent._agent:
-            old_tools = []
-            from onemancompany.agents.common_tools import COMMON_TOOLS
-            from onemancompany.core.config import load_employee_custom_tools
-            custom_tools = load_employee_custom_tools(employee_id)
-            old_tools = list(COMMON_TOOLS) + custom_tools
-            loop.agent._agent = create_react_agent(model=new_llm, tools=old_tools)
+    _rebuild_employee_agent(employee_id)
 
     await event_bus.publish(
         CompanyEvent(
@@ -1681,9 +1623,7 @@ async def oauth_start(employee_id: str) -> dict:
 
     from onemancompany.core.config import employee_configs
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"error": "Employee not found"}
+    emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
     if not cfg or cfg.auth_method != "oauth":
@@ -1802,14 +1742,11 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
         cfg.api_key = api_key
         cfg.oauth_refresh_token = tokens.get("refresh_token", "")
 
-        profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-        if profile_path.exists():
-            with open(profile_path) as f:
-                data = yaml.safe_load(f) or {}
-            data["api_key"] = api_key
-            data["oauth_refresh_token"] = tokens.get("refresh_token", "")
-            with open(profile_path, "w") as f:
-                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+        from onemancompany.core.config import update_employee_profile
+        update_employee_profile(employee_id, {
+            "api_key": api_key,
+            "oauth_refresh_token": tokens.get("refresh_token", ""),
+        })
 
     emp = company_state.employees.get(employee_id)
     emp_name = emp.name if emp else employee_id
@@ -1910,14 +1847,11 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         cfg.oauth_refresh_token = refresh_token
 
         # Persist to profile.yaml
-        profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-        if profile_path.exists():
-            with open(profile_path) as f:
-                data = yaml.safe_load(f) or {}
-            data["api_key"] = api_key
-            data["oauth_refresh_token"] = refresh_token
-            with open(profile_path, "w") as f:
-                yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+        from onemancompany.core.config import update_employee_profile
+        update_employee_profile(employee_id, {
+            "api_key": api_key,
+            "oauth_refresh_token": refresh_token,
+        })
 
     emp = company_state.employees.get(employee_id)
     emp_name = emp.name if emp else employee_id
@@ -1982,14 +1916,11 @@ async def oauth_refresh(employee_id: str) -> dict:
     cfg.oauth_refresh_token = tokens.get("refresh_token", cfg.oauth_refresh_token)
 
     # Persist
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            data = yaml.safe_load(f) or {}
-        data["api_key"] = cfg.api_key
-        data["oauth_refresh_token"] = cfg.oauth_refresh_token
-        with open(profile_path, "w") as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    from onemancompany.core.config import update_employee_profile
+    update_employee_profile(employee_id, {
+        "api_key": cfg.api_key,
+        "oauth_refresh_token": cfg.oauth_refresh_token,
+    })
 
     return {"status": "refreshed"}
 
@@ -2969,11 +2900,8 @@ async def hire_candidate(body: HireRequest) -> dict:
             t for t in company_state.active_tasks
             if t.project_id != pid and (not t.iteration_id or t.iteration_id != pid)
         ]
-        # Run retrospective in background
-        from onemancompany.core.routine import run_post_task_routine
-        asyncio.create_task(
-            run_post_task_routine(f"招聘任务: 招聘 {candidate['name']} 为 {candidate['role']}", project_id=pid)
-        )
+        # No retrospective — hiring is not a project iteration.
+        # Retrospective only triggers after project acceptance + rectification.
 
     pending_candidates.pop(body.batch_id, None)
 
@@ -3332,6 +3260,59 @@ async def sales_protocol() -> dict:
     }
 
 
+# ── Generic credentials endpoint ────────────────────────
+@router.post("/api/credentials/{service_name}")
+async def submit_credentials(service_name: str, request: Request) -> dict:
+    """Receive credentials submitted from the generic popup form.
+
+    Stores them as env vars (runtime only) and in the OAuth token cache
+    so tools can pick them up on next invocation.
+    """
+    import os
+    body = await request.json()
+
+    # Store each field as an env var: SERVICENAME_FIELDNAME
+    prefix = service_name.upper()
+    for key, value in body.items():
+        env_key = f"{prefix}_{key.upper()}"
+        os.environ[env_key] = str(value)
+
+    # Also persist to .env for next restart
+    from onemancompany.core.config import COMPANY_ROOT
+    env_path = COMPANY_ROOT.parent / ".env"
+    if env_path.exists():
+        existing = env_path.read_text()
+    else:
+        existing = ""
+
+    new_lines = []
+    updated_keys = set()
+    for key, value in body.items():
+        env_key = f"{prefix}_{key.upper()}"
+        updated_keys.add(env_key)
+        new_lines.append(f"{env_key}={value}")
+
+    # Update existing .env — replace existing keys, append new ones
+    lines = existing.splitlines()
+    result_lines = []
+    for line in lines:
+        k = line.split("=", 1)[0].strip()
+        if k in updated_keys:
+            continue  # Will be replaced
+        result_lines.append(line)
+
+    result_lines.extend(new_lines)
+    env_path.write_text("\n".join(result_lines) + "\n")
+
+    await event_bus.publish(CompanyEvent(
+        type="credentials_submitted",
+        payload={"service": service_name, "fields": list(body.keys())},
+        agent="CEO",
+    ))
+
+    return {"status": "ok", "service": service_name, "fields_saved": list(body.keys())}
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await ws_manager.connect(websocket)
@@ -3347,3 +3328,77 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — routes-level ephemeral state
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("routes")
+class _RoutesSnapshot:
+    @staticmethod
+    def save() -> dict:
+        # Serialize inquiry sessions
+        inquiry_data = {}
+        for sid, sess in _inquiry_sessions.items():
+            inquiry_data[sid] = {
+                "session_id": sess.session_id,
+                "task": sess.task,
+                "room_id": sess.room_id,
+                "agent_role": sess.agent_role,
+                "participants": sess.participants,
+                "history": sess.history,
+                "system_prompt": getattr(sess, "_system_prompt", ""),
+            }
+
+        result: dict = {}
+        if _pending_coo_hire_queue:
+            result["pending_coo_hire_queue"] = _pending_coo_hire_queue
+        if _pending_oauth_hire:
+            result["pending_oauth_hire"] = _pending_oauth_hire
+        if inquiry_data:
+            result["inquiry_sessions"] = inquiry_data
+        if _remote_workers:
+            result["remote_workers"] = _remote_workers
+        if _remote_task_queues:
+            result["remote_task_queues"] = _remote_task_queues
+        if _remote_task_project_map:
+            result["remote_task_project_map"] = _remote_task_project_map
+        return result
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        # COO hire context
+        restored_coo_queue = data.get("pending_coo_hire_queue", [])
+        if restored_coo_queue:
+            _pending_coo_hire_queue.extend(restored_coo_queue)
+        restored_oauth = data.get("pending_oauth_hire", {})
+        if restored_oauth:
+            _pending_oauth_hire.update(restored_oauth)
+
+        # Inquiry sessions
+        for sid, sdata in data.get("inquiry_sessions", {}).items():
+            sess = InquirySession(
+                session_id=sdata["session_id"],
+                task=sdata["task"],
+                room_id=sdata["room_id"],
+                agent_role=sdata["agent_role"],
+                participants=sdata["participants"],
+                history=sdata["history"],
+            )
+            sess._system_prompt = sdata.get("system_prompt", "")
+            _inquiry_sessions[sid] = sess
+
+        # Remote worker state
+        restored_remote_workers = data.get("remote_workers", {})
+        if restored_remote_workers:
+            _remote_workers.update(restored_remote_workers)
+        restored_remote_queues = data.get("remote_task_queues", {})
+        if restored_remote_queues:
+            _remote_task_queues.update(restored_remote_queues)
+        restored_remote_map = data.get("remote_task_project_map", {})
+        if restored_remote_map:
+            _remote_task_project_map.update(restored_remote_map)

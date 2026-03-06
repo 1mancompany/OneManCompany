@@ -46,6 +46,11 @@ COO_ID = "00003"
 EA_ID = "00004"
 CSO_ID = "00005"
 
+# All founding executive IDs (excluding CEO)
+EXEC_IDS: frozenset[str] = frozenset({HR_ID, COO_ID, EA_ID, CSO_ID})
+# All founding IDs including CEO
+FOUNDING_IDS: frozenset[str] = frozenset({CEO_ID}) | EXEC_IDS
+
 # ---------------------------------------------------------------------------
 # Employee level system
 # ---------------------------------------------------------------------------
@@ -173,6 +178,24 @@ SALES_KEYWORDS = [
     "sales", "sell", "client", "customer", "contract", "deal", "revenue",
     "销售", "客户", "合同", "订单", "营收", "商务", "签约",
 ]
+
+# Inquiry routing table: list of (keywords, role, employee_id).
+# Checked in order; first match wins. Last entry is the default fallback.
+INQUIRY_ROUTES: list[tuple[list[str], str, str]] = [
+    (HR_KEYWORDS, "HR", HR_ID),
+    (SALES_KEYWORDS, "CSO", CSO_ID),
+    ([], "COO", COO_ID),  # fallback — empty keywords = always matches
+]
+
+
+def route_inquiry(task: str) -> tuple[str, str]:
+    """Route an inquiry task to the best agent. Returns (role, employee_id)."""
+    task_lower = task.lower()
+    for keywords, role, eid in INQUIRY_ROUTES:
+        if not keywords or any(w in task_lower for w in keywords):
+            return role, eid
+    # Should never reach here due to fallback, but just in case
+    return "COO", COO_ID
 
 
 class EmployeeConfig(BaseModel):
@@ -324,6 +347,41 @@ def load_employee_skills(employee_id: str) -> dict[str, str]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# YAML profile utilities — single source of truth for employee disk I/O
+# ---------------------------------------------------------------------------
+
+
+def load_employee_profile_yaml(employee_id: str) -> dict:
+    """Load an employee's profile.yaml from disk. Returns empty dict if missing."""
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if not profile_path.exists():
+        return {}
+    with open(profile_path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
+    """Write a full profile dict to employees/{id}/profile.yaml."""
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(profile_path, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+
+def update_employee_profile(employee_id: str, updates: dict) -> dict:
+    """Read-modify-write: merge *updates* into an employee's profile.yaml.
+
+    Returns the full updated profile dict.
+    """
+    data = load_employee_profile_yaml(employee_id)
+    if not data:
+        return {}
+    data.update(updates)
+    save_employee_profile_yaml(employee_id, data)
+    return data
+
+
 def load_employee_guidance(employee_id: str) -> list[str]:
     """Load persisted guidance notes from employees/{id}/guidance.yaml."""
     guidance_path = EMPLOYEES_DIR / employee_id / "guidance.yaml"
@@ -428,55 +486,27 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
 
 def update_tool_permissions(employee_id: str, tool_permissions: list[str]) -> None:
     """Persist tool_permissions into an existing employee profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if not profile_path.exists():
-        return
-    with open(profile_path) as f:
-        data = yaml.safe_load(f) or {}
-    data["tool_permissions"] = tool_permissions
-    with open(profile_path, "w") as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    # Update in-memory
+    update_employee_profile(employee_id, {"tool_permissions": tool_permissions})
     if employee_id in employee_configs:
         employee_configs[employee_id].tool_permissions = list(tool_permissions)
 
 
 def update_employee_performance(employee_id: str, current_quarter_tasks: int, performance_history: list[dict]) -> None:
     """Persist performance fields into an existing employee profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if not profile_path.exists():
-        return
-    with open(profile_path) as f:
-        data = yaml.safe_load(f) or {}
-    data["current_quarter_tasks"] = current_quarter_tasks
-    data["performance_history"] = performance_history
-    with open(profile_path, "w") as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    update_employee_profile(employee_id, {
+        "current_quarter_tasks": current_quarter_tasks,
+        "performance_history": performance_history,
+    })
 
 
 def update_employee_level(employee_id: str, level: int, title: str) -> None:
     """Persist level and title into an existing employee profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if not profile_path.exists():
-        return
-    with open(profile_path) as f:
-        data = yaml.safe_load(f) or {}
-    data["level"] = level
-    data["title"] = title
-    with open(profile_path, "w") as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    update_employee_profile(employee_id, {"level": level, "title": title})
 
 
 def update_employee_field(employee_id: str, field: str, value) -> None:
     """Persist a single field into an existing employee profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
-    if not profile_path.exists():
-        return
-    with open(profile_path) as f:
-        data = yaml.safe_load(f) or {}
-    data[field] = value
-    with open(profile_path, "w") as f:
-        yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+    update_employee_profile(employee_id, {field: value})
 
 
 def slugify_tool_name(name: str) -> str:

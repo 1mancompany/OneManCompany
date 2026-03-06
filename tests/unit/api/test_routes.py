@@ -253,8 +253,7 @@ class TestGetEmployeeDetail:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/99999")
 
-        assert resp.status_code == 200
-        assert resp.json()["error"] == "Employee not found"
+        assert resp.status_code == 404
 
     async def test_employee_found(self):
         emp = _make_employee(id="00010")
@@ -1310,7 +1309,7 @@ class TestRoutineStart:
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1341,9 +1340,11 @@ class TestRoutineApprove:
         state = _make_state()
         bus = EventBus()
 
+        mock_em = MagicMock()
+        mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.execute_approved_actions", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1377,9 +1378,11 @@ class TestRoutineAllHands:
         state = _make_state()
         bus = EventBus()
 
+        mock_em = MagicMock()
+        mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.run_all_hands_meeting", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1585,7 +1588,7 @@ class TestUpdateEmployeeModel:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/99999/model", json={"model": "gpt-4o"})
 
-        assert resp.json()["error"] == "Employee not found"
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -2567,7 +2570,7 @@ class TestUpdateEmployeeApiKey:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/99999/api-key", json={"api_key": "sk-test"})
 
-        assert resp.json()["error"] == "Employee not found"
+        assert resp.status_code == 404
 
     async def test_update_api_key_no_config(self):
         emp = _make_employee(id="00010")
@@ -2838,7 +2841,7 @@ class TestUpdateEmployeeModel:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/99999/model", json={"model": "gpt-4o"})
 
-        assert resp.json()["error"] == "Employee not found"
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -3431,7 +3434,7 @@ class TestOAuthStart:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/99999/oauth/start")
 
-        assert resp.json()["error"] == "Employee not found"
+        assert resp.status_code == 404
 
     async def test_oauth_start_not_oauth_auth(self):
         emp = _make_employee(id="00010")
@@ -3580,7 +3583,7 @@ class TestRoutineStart:
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3606,9 +3609,11 @@ class TestRoutineApprove:
         state = _make_state()
         bus = EventBus()
 
+        mock_em = MagicMock()
+        mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.execute_approved_actions", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3637,9 +3642,11 @@ class TestRoutineAllHands:
         state = _make_state()
         bus = EventBus()
 
+        mock_em = MagicMock()
+        mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.run_all_hands_meeting", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3844,193 +3851,6 @@ class TestSalesSettleNotFound:
         assert "not found" in resp.json()["error"]
 
 
-# ---------------------------------------------------------------------------
-# _run_agent_safe — the main task execution wrapper
-# ---------------------------------------------------------------------------
-
-
-class TestRunAgentSafe:
-    async def test_run_agent_safe_happy_path(self):
-        """Covers lines 65-179: successful agent run with project archive."""
-        state = _make_state()
-        bus = EventBus()
-
-        mock_result = MagicMock()
-        mock_result.content = "Done"
-
-        # Use ceo_submit_task to trigger _run_agent_safe indirectly
-        mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.project_archive.create_project", return_value="proj1"), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj1"):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "Build something"})
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "processing"
-
-    async def test_run_agent_safe_directly(self):
-        """Call _run_agent_safe directly to cover lines 65-179."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "result text"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.project_archive.create_project", return_value="p1"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(dummy_coro(), "COO", project_id="proj_x", task_description="test task")
-
-        # Employees should be reset to idle
-        for emp in state.employees.values():
-            assert emp.status == "idle"
-
-    async def test_run_agent_safe_with_auto_project(self):
-        """No project_id provided — auto-generates one."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "done"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(dummy_coro(), "COO", task_description="auto task")
-
-    async def test_run_agent_safe_agent_error(self):
-        """Agent raises an exception — error path."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def failing_coro():
-            raise RuntimeError("Agent exploded")
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(
-                failing_coro(), "COO",
-                project_id="proj_err", task_description="bad task"
-            )
-
-    async def test_run_agent_safe_with_routine(self):
-        """run_routine_after triggers post-task routine."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "ok"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(
-                dummy_coro(), "COO",
-                run_routine_after="Build something",
-                project_id="proj_rtn"
-            )
-
-    async def test_run_agent_safe_routine_error(self):
-        """Routine raises — error path in finally block."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "ok"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock, side_effect=RuntimeError("routine failed")), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(
-                dummy_coro(), "COO",
-                run_routine_after="Something",
-                project_id="proj_rtn_err"
-            )
-
-    async def test_run_agent_safe_with_resolution(self):
-        """Resolution created from file edits."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "done"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value={"id": "r1", "edits": []}), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(
-                dummy_coro(), "COO",
-                project_id="proj_res", task_description="edit files"
-            )
-
-    async def test_run_agent_safe_flush_reload(self):
-        """Post-task flush returns reload data."""
-        from onemancompany.api.routes import _run_agent_safe
-
-        state = _make_state()
-        bus = EventBus()
-
-        async def dummy_coro():
-            return "ok"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value={"employees_updated": ["e1"], "employees_added": ["e2"]}), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-            await _run_agent_safe(
-                dummy_coro(), "COO",
-                project_id="proj_flush"
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -4119,8 +3939,8 @@ class TestStartInquiry:
 
 
 class TestCeoTaskEAFallback:
-    async def test_ceo_task_ea_fallback(self):
-        """When no EA loop, falls back to EAAgent."""
+    async def test_ceo_task_ea_not_available(self):
+        """When no EA loop, returns 503."""
         state = _make_state()
         bus = EventBus()
 
@@ -4129,19 +3949,13 @@ class TestCeoTaskEAFallback:
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.core.project_archive.create_project", return_value="p1"), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/p1"), \
-             patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/p1"), \
-             patch("onemancompany.agents.ea_agent.EAAgent") as mock_ea_cls, \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock):
-            mock_ea = MagicMock()
-            mock_ea.run = MagicMock(return_value=AsyncMock()())
-            mock_ea_cls.return_value = mock_ea
-
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/p1"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/ceo/task", json={"task": "Do something"})
 
-        assert resp.status_code == 200
-        assert resp.json()["routed_to"] == "EA"
+        assert resp.status_code == 503
+        assert "not available" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -4159,7 +3973,7 @@ class TestMeetingBookCOOFallback:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.agents.coo_agent.COOAgent") as mock_coo_cls, \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock):
+             patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))):
             mock_coo = MagicMock()
             mock_coo.run = MagicMock(return_value=AsyncMock()())
             mock_coo_cls.return_value = mock_coo
@@ -4190,7 +4004,7 @@ class TestHRReviewFallback:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.agents.hr_agent.HRAgent") as mock_hr_cls, \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock):
+             patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))):
             mock_hr = MagicMock()
             mock_hr.run_quarterly_review = MagicMock(return_value=AsyncMock()())
             mock_hr_cls.return_value = mock_hr
@@ -5002,7 +4816,7 @@ class TestHiringRequestApproved:
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", pending), \
-             patch("onemancompany.api.routes._run_agent_safe", new_callable=AsyncMock), \
+             patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
              patch("onemancompany.core.agent_loop.employee_manager", MagicMock()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -5864,41 +5678,6 @@ class TestProjectFileTraversal:
 
         # Should be 403 or 404 (path resolved to outside workspace)
         assert resp.status_code in (403, 404)
-
-
-# ---------------------------------------------------------------------------
-# Line 155: _run_agent_safe cleanup sets STATUS_IDLE
-# ---------------------------------------------------------------------------
-
-
-class TestRunAgentSafeCleanup:
-    async def test_run_agent_safe_resets_employees_to_idle(self):
-        """Line 155: after task completes, all employees reset to idle."""
-        from onemancompany.api import routes as routes_mod
-
-        emp = _make_employee(id="00010")
-        emp.status = "working"
-        state = _make_state(employees={"00010": emp})
-        bus = MagicMock()
-        bus.publish = AsyncMock()
-
-        async def dummy_coro():
-            return "done"
-
-        with patch.object(routes_mod, "company_state", state), \
-             patch.object(routes_mod, "event_bus", bus), \
-             patch("onemancompany.core.project_archive.append_action"), \
-             patch("onemancompany.core.project_archive.complete_project"), \
-             patch("onemancompany.core.resolutions.create_resolution", return_value=None), \
-             patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock), \
-             patch("onemancompany.core.state.flush_pending_reload", return_value=None):
-            await routes_mod._run_agent_safe(
-                dummy_coro(), "TEST",
-                task_description="Test task",
-                project_id="proj_test",
-            )
-
-        assert emp.status == "idle"
 
 
 # ---------------------------------------------------------------------------

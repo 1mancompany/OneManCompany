@@ -216,6 +216,14 @@ class AppController {
         this._endInquiryMode();
         return { text: `🔍 Inquiry ended`, cls: 'ceo', agent: 'CEO' };
       },
+      'open_popup':          (p) => {
+        this.openPopup(p);
+        return { text: `📢 ${p.title || 'Notification'}`, cls: 'system', agent: p.agent || 'SYSTEM' };
+      },
+      'request_credentials': (p) => {
+        this.openPopup({ ...p, type: 'credentials' });
+        return { text: `🔑 ${p.title || 'Credentials required'}`, cls: 'system', agent: p.agent || 'SYSTEM' };
+      },
       'agent_task_update':   (p) => {
         // Refresh task board if viewing this employee
         if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
@@ -244,6 +252,19 @@ class AppController {
       },
       'code_update_available': (p) => {
         this._showCodeUpdateBanner(p.count, p.changed_files);
+        return null;
+      },
+      'frontend_update_available': (p) => {
+        console.log('[hot-reload] Frontend files changed, reloading...', p.changed_files);
+        setTimeout(() => location.reload(), 300);
+        return null;
+      },
+      'backend_restart_scheduled': (p) => {
+        if (p.immediate) {
+          this._showRestartBanner('Restarting server...');
+        } else {
+          this._showRestartBanner('Code changed — restart after tasks complete');
+        }
         return null;
       },
       'agent_log':           (p) => {
@@ -668,7 +689,15 @@ class AppController {
       const btn = document.getElementById('code-update-apply-btn');
       btn.disabled = true;
       btn.textContent = 'Applying...';
-      fetch('/api/admin/apply-code-update', { method: 'POST' }).catch(() => {});
+      fetch('/api/admin/apply-code-update', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'deferred') {
+            btn.textContent = 'Waiting for tasks...';
+            // Will auto-restart when tasks complete; reconnect logic handles the rest
+          }
+        })
+        .catch(() => {});
     });
     document.getElementById('code-update-dismiss-btn').addEventListener('click', () => {
       document.getElementById('code-update-banner').classList.add('hidden');
@@ -859,6 +888,12 @@ class AppController {
     // Close modal on overlay click
     document.getElementById('workflow-modal').addEventListener('click', (e) => {
       if (e.target.id === 'workflow-modal') this.closeWorkflowPanel();
+    });
+
+    // Generic popup modal bindings
+    document.getElementById('generic-popup-close-btn').addEventListener('click', () => this.closePopup());
+    document.getElementById('generic-popup-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'generic-popup-modal') this.closePopup();
     });
 
     // Settings panel: fetch API settings on first expand
@@ -1452,7 +1487,17 @@ class AppController {
     const banner = document.getElementById('code-update-banner');
     const textEl = document.getElementById('code-update-text');
     const shortFiles = (files || []).map(f => f.split('/').slice(-2).join('/'));
-    textEl.textContent = `🔄 ${count} file(s) changed: ${shortFiles.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}`;
+    textEl.textContent = `🔄 ${count} backend file(s) changed: ${shortFiles.slice(0, 3).join(', ')}${count > 3 ? '...' : ''}`;
+    banner.classList.remove('hidden');
+  }
+
+  _showRestartBanner(message) {
+    const banner = document.getElementById('code-update-banner');
+    const textEl = document.getElementById('code-update-text');
+    const applyBtn = document.getElementById('code-update-apply-btn');
+    textEl.textContent = `⏳ ${message}`;
+    applyBtn.textContent = 'Waiting...';
+    applyBtn.disabled = true;
     banner.classList.remove('hidden');
   }
 
@@ -1561,9 +1606,11 @@ class AppController {
       select.dataset.fieldKey = field.key;
       select.dataset.fieldType = 'select';
       const options = field.options || [];
-      select.innerHTML = options.map(o =>
-        `<option value="${o}"${o === currentValue ? ' selected' : ''}>${o}</option>`
-      ).join('');
+      select.innerHTML = options.map(o => {
+        const val = typeof o === 'object' ? o.value : o;
+        const lbl = typeof o === 'object' ? (o.label || o.value) : o;
+        return `<option value="${val}"${val === currentValue ? ' selected' : ''}>${lbl}</option>`;
+      }).join('');
       row.appendChild(select);
     } else if (field.type === 'toggle') {
       const cb = document.createElement('input');
@@ -1666,6 +1713,18 @@ class AppController {
     saveBtn.textContent = 'Saving...';
 
     try {
+      // Save hosting mode via hosting endpoint
+      if ('hosting' in payload) {
+        const resp = await fetch(`/api/employee/${empId}/hosting`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hosting: payload.hosting }),
+        }).then(r => r.json());
+        if (resp.restart_required) {
+          this.logEntry('SYSTEM', `Hosting changed to "${payload.hosting}". Restart required.`, 'system');
+          this._showRestartBanner(`Hosting mode changed for #${empId}. Restart to apply.`);
+        }
+      }
       // Save model + temperature via model endpoint
       if ('llm_model' in payload) {
         await fetch(`/api/employee/${empId}/model`, {
@@ -2942,6 +3001,153 @@ class AppController {
     document.getElementById('workflow-edit-btn').disabled = true;
     document.getElementById('workflow-save-btn').classList.add('hidden');
     document.getElementById('workflow-save-btn').disabled = true;
+  }
+
+  // ===== Generic Popup System =====
+  // Usage from backend: publish event "open_popup" with payload:
+  //   { type: "info"|"confirm"|"url"|"oauth", title, message, url, buttons, agent }
+  openPopup(opts = {}) {
+    const modal = document.getElementById('generic-popup-modal');
+    const title = document.getElementById('generic-popup-title');
+    const body = document.getElementById('generic-popup-body');
+    const footer = document.getElementById('generic-popup-footer');
+
+    title.textContent = opts.title || 'Notification';
+    body.innerHTML = '';
+    footer.innerHTML = '';
+    footer.style.display = 'none';
+
+    const type = opts.type || 'info';
+
+    // Message text
+    if (opts.message) {
+      const msg = document.createElement('div');
+      msg.className = 'popup-message';
+      msg.textContent = opts.message;
+      body.appendChild(msg);
+    }
+
+    // URL display + open button
+    if (opts.url) {
+      const urlBox = document.createElement('div');
+      urlBox.className = 'popup-url-box';
+      urlBox.textContent = opts.url;
+      urlBox.title = 'Click to open';
+      urlBox.onclick = () => window.open(opts.url, '_blank');
+      body.appendChild(urlBox);
+    }
+
+    // Type-specific behavior
+    if (type === 'oauth' && opts.url) {
+      const actions = document.createElement('div');
+      actions.className = 'popup-actions';
+      const openBtn = document.createElement('button');
+      openBtn.className = 'pixel-btn';
+      openBtn.textContent = 'Authorize';
+      openBtn.onclick = () => {
+        const w = 600, h = 700;
+        const left = (screen.width - w) / 2, top = (screen.height - h) / 2;
+        const popup = window.open(opts.url, 'oauth_popup',
+          `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`);
+        if (!popup || popup.closed) {
+          window.open(opts.url, '_blank');
+        }
+      };
+      actions.appendChild(openBtn);
+      body.appendChild(actions);
+    }
+
+    if (type === 'confirm') {
+      footer.style.display = 'flex';
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'pixel-btn';
+      confirmBtn.textContent = opts.confirm_label || 'Confirm';
+      confirmBtn.onclick = () => {
+        if (opts.callback_url) {
+          fetch(opts.callback_url, { method: 'POST' })
+            .then(() => this.closePopup())
+            .catch(() => this.closePopup());
+        } else {
+          this.closePopup();
+        }
+      };
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'pixel-btn secondary';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = () => this.closePopup();
+      footer.appendChild(cancelBtn);
+      footer.appendChild(confirmBtn);
+    }
+
+    // Credentials input form
+    if (type === 'credentials' && opts.fields) {
+      const form = document.createElement('div');
+      form.style.cssText = 'display:flex;flex-direction:column;gap:6px;margin-top:8px;';
+      const inputs = {};
+      for (const f of opts.fields) {
+        const label = document.createElement('label');
+        label.style.cssText = 'font-size:7px;color:var(--text-dim);';
+        label.textContent = f.label || f.name;
+        const input = document.createElement('input');
+        input.type = f.secret ? 'password' : 'text';
+        input.placeholder = f.placeholder || '';
+        input.value = f.default || '';
+        input.style.cssText = 'width:100%;background:var(--bg-dark);color:var(--pixel-white);border:2px solid var(--border);font-family:"Press Start 2P",monospace;font-size:7px;padding:6px;';
+        inputs[f.name] = input;
+        form.appendChild(label);
+        form.appendChild(input);
+      }
+      body.appendChild(form);
+
+      footer.style.display = 'flex';
+      const submitBtn = document.createElement('button');
+      submitBtn.className = 'pixel-btn';
+      submitBtn.textContent = opts.submit_label || 'Submit';
+      submitBtn.onclick = () => {
+        const values = {};
+        for (const [k, inp] of Object.entries(inputs)) values[k] = inp.value;
+        const url = opts.callback_url || `/api/credentials/${opts.service_name || 'default'}`;
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(values),
+        }).catch(() => {});
+        this.closePopup();
+      };
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'pixel-btn secondary';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.onclick = () => this.closePopup();
+      footer.appendChild(cancelBtn);
+      footer.appendChild(submitBtn);
+    }
+
+    // Custom buttons
+    if (opts.buttons && Array.isArray(opts.buttons)) {
+      footer.style.display = 'flex';
+      for (const btn of opts.buttons) {
+        const el = document.createElement('button');
+        el.className = btn.primary ? 'pixel-btn' : 'pixel-btn secondary';
+        el.textContent = btn.label || 'OK';
+        if (btn.url) {
+          el.onclick = () => window.open(btn.url, '_blank');
+        } else if (btn.close) {
+          el.onclick = () => this.closePopup();
+        } else if (btn.callback_url) {
+          el.onclick = () => {
+            fetch(btn.callback_url, { method: 'POST' }).catch(() => {});
+            this.closePopup();
+          };
+        }
+        footer.appendChild(el);
+      }
+    }
+
+    modal.classList.remove('hidden');
+  }
+
+  closePopup() {
+    document.getElementById('generic-popup-modal').classList.add('hidden');
   }
 
   loadWorkflowList() {

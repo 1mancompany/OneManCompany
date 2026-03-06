@@ -153,3 +153,25 @@ def list_pending_edits() -> list[dict]:
         }
         for e in pending_file_edits.values()
     ]
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("file_editor")
+class _FileEditorSnapshot:
+    @staticmethod
+    def save() -> dict:
+        if not pending_file_edits:
+            return {}
+        return {"pending_file_edits": pending_file_edits}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        restored = data.get("pending_file_edits", {})
+        if restored:
+            pending_file_edits.update(restored)

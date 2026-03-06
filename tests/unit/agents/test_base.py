@@ -1262,8 +1262,8 @@ class TestUnauthorizedToolsSectionEmpty:
 # ---------------------------------------------------------------------------
 
 class TestBuildPromptDefault:
-    def test_base_build_prompt_returns_empty(self, monkeypatch):
-        """Line 335: BaseAgentRunner._build_prompt() returns empty string by default."""
+    def test_base_build_prompt_uses_builder(self, monkeypatch):
+        """BaseAgentRunner._build_prompt() uses PromptBuilder with standard sections."""
         from onemancompany.agents.base import BaseAgentRunner
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
@@ -1275,7 +1275,9 @@ class TestBuildPromptDefault:
         runner = BaseAgentRunner()
         runner.employee_id = ""
         result = runner._build_prompt()
-        assert result == ""
+        # PromptBuilder includes standard sections (context, efficiency, etc.)
+        assert isinstance(result, str)
+        assert "Current Context" in result or "Efficiency" in result
 
 
 # ---------------------------------------------------------------------------

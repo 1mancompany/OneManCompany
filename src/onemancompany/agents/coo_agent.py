@@ -259,10 +259,8 @@ def _load_assets_from_disk() -> None:
             )
 
 
-# Load persisted assets on import, then recompute layout to position them
-_load_assets_from_disk()
-from onemancompany.core.layout import compute_asset_layout as _compute_asset_layout
-_compute_asset_layout(company_state, company_state.office_layout)
+# Assets are loaded explicitly during startup (main.py lifespan) and hot-reload
+# (state.py). No module-level loading here to avoid double-load on import.
 
 
 # ===== LangChain tools for the COO agent =====
@@ -919,17 +917,8 @@ class COOAgent(BaseAgentRunner):
             ] + COMMON_TOOLS,
         )
 
-    def _build_prompt(self) -> str:
-        return (
-            COO_SYSTEM_PROMPT
-            + self._get_skills_prompt_section()
-            + self._get_tools_prompt_section()
-            + self._get_company_culture_prompt_section()
-            + self._get_work_principles_prompt_section()
-            + self._get_guidance_prompt_section()
-            + self._get_dynamic_context_section()
-            + self._get_efficiency_guidelines_section()
-        )
+    def _customize_prompt(self, pb) -> None:
+        pb.add("role", COO_SYSTEM_PROMPT, priority=10)
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
@@ -951,3 +940,25 @@ class COOAgent(BaseAgentRunner):
 
 # Singleton removed — agent instances are now created and registered
 # in main.py lifespan via PersistentAgentLoop.
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — COO hiring requests
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
+
+
+@snapshot_provider("coo_hiring")
+class _COOHiringSnapshot:
+    @staticmethod
+    def save() -> dict:
+        if not pending_hiring_requests:
+            return {}
+        return {"pending_hiring_requests": pending_hiring_requests}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        restored = data.get("pending_hiring_requests", {})
+        if restored:
+            pending_hiring_requests.update(restored)

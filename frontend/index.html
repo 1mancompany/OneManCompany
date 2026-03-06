@@ -536,6 +536,20 @@
     </div>
   </div>
 
+  <!-- Generic popup modal (dynamically filled by open_popup events) -->
+  <div id="generic-popup-modal" class="modal-overlay hidden">
+    <div class="modal-content generic-popup-content">
+      <div class="modal-header">
+        <h3 class="pixel-title" id="generic-popup-title">Notification</h3>
+        <button id="generic-popup-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body" id="generic-popup-body" style="flex-direction:column;padding:12px;">
+      </div>
+      <div class="modal-footer" id="generic-popup-footer" style="display:none;">
+      </div>
+    </div>
+  </div>
+
   <!-- Code update banner -->
   <div id="code-update-banner" class="code-update-banner hidden">
     <span id="code-update-text">&#128260; Code updated</span>

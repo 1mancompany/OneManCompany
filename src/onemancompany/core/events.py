@@ -47,7 +47,15 @@ EventType = Literal[
     "hiring_request_ready",
     "hiring_request_decided",
     "code_update_available",
+    "frontend_update_available",
+    "backend_restart_scheduled",
     "ceo_report",
+    "meeting_report_complete",
+    "recurring_action_items",
+    "dispatch_status_change",
+    "open_popup",
+    "request_credentials",
+    "credentials_submitted",
 ]
 
 
@@ -77,3 +85,38 @@ class EventBus:
 
 
 event_bus = EventBus()
+
+
+async def open_popup(
+    title: str,
+    message: str = "",
+    *,
+    popup_type: str = "info",
+    url: str = "",
+    agent: str = "SYSTEM",
+    buttons: list[dict] | None = None,
+    confirm_label: str = "Confirm",
+    callback_url: str = "",
+) -> None:
+    """Send a generic popup to the frontend.
+
+    Args:
+        title: Popup window title.
+        message: Body text.
+        popup_type: "info", "confirm", "url", or "oauth".
+        url: URL to display / open (for "url" and "oauth" types).
+        agent: Which agent triggered this.
+        buttons: Custom buttons [{label, url?, callback_url?, primary?, close?}].
+        confirm_label: Label for confirm button (type="confirm").
+        callback_url: Backend URL to POST on confirm (type="confirm").
+    """
+    payload = {"type": popup_type, "title": title, "message": message, "agent": agent}
+    if url:
+        payload["url"] = url
+    if buttons:
+        payload["buttons"] = buttons
+    if popup_type == "confirm":
+        payload["confirm_label"] = confirm_label
+        if callback_url:
+            payload["callback_url"] = callback_url
+    await event_bus.publish(CompanyEvent(type="open_popup", payload=payload, agent=agent))

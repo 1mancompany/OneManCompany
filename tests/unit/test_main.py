@@ -101,68 +101,21 @@ class TestNoCacheStaticMiddleware:
 
 
 class TestSaveEphemeralState:
-    def test_save_writes_snapshot_to_disk(self, tmp_path, monkeypatch):
-        snapshot_path = tmp_path / "company" / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        mock_cs = MagicMock()
-        mock_cs.activity_log = [{"msg": "hired Alice"}]
-
-        monkeypatch.setattr("onemancompany.core.state.company_state", mock_cs)
-        monkeypatch.setattr("onemancompany.core.file_editor.pending_file_edits", {"e1": {}})
-        cands = {"c1": [{"name": "Bob"}]}
-        monkeypatch.setattr("onemancompany.agents.recruitment.pending_candidates", cands)
-        monkeypatch.setattr("onemancompany.agents.hr_agent.pending_candidates", cands)
-        monkeypatch.setattr("onemancompany.agents.coo_agent.pending_hiring_requests", {"h1": {"title": "dev"}})
+    def test_save_delegates_to_snapshot_harness(self, monkeypatch):
+        """_save_ephemeral_state delegates to core.snapshot.save_snapshot."""
+        mock_save = MagicMock()
+        monkeypatch.setattr("onemancompany.core.snapshot.save_snapshot", mock_save)
 
         main_mod._save_ephemeral_state()
+        mock_save.assert_called_once()
 
-        assert snapshot_path.exists()
-        data = json.loads(snapshot_path.read_text())
-        assert "saved_at" in data
-        assert data["activity_log"] == [{"msg": "hired Alice"}]
-        assert data["pending_file_edits"] == {"e1": {}}
-        assert data["pending_candidates"] == {"c1": [{"name": "Bob"}]}
-        assert data["pending_hiring_requests"] == {"h1": {"title": "dev"}}
+    def test_restore_delegates_to_snapshot_harness(self, monkeypatch):
+        """_restore_ephemeral_state delegates to core.snapshot.restore_snapshot."""
+        mock_restore = MagicMock()
+        monkeypatch.setattr("onemancompany.core.snapshot.restore_snapshot", mock_restore)
 
-    def test_save_truncates_activity_log_to_50(self, tmp_path, monkeypatch):
-        snapshot_path = tmp_path / "company" / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        mock_cs = MagicMock()
-        mock_cs.activity_log = [{"i": i} for i in range(100)]
-
-        monkeypatch.setattr("onemancompany.core.state.company_state", mock_cs)
-        monkeypatch.setattr("onemancompany.core.file_editor.pending_file_edits", {})
-        monkeypatch.setattr("onemancompany.agents.recruitment.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.hr_agent.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.coo_agent.pending_hiring_requests", {})
-
-        main_mod._save_ephemeral_state()
-
-        data = json.loads(snapshot_path.read_text())
-        assert len(data["activity_log"]) == 50
-
-    def test_save_handles_write_error(self, tmp_path, monkeypatch, capsys):
-        # Point to a path where parent is a file (cannot mkdir)
-        blocker = tmp_path / "blocker"
-        blocker.write_text("I am a file")
-        bad_path = blocker / "sub" / "snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", bad_path)
-
-        mock_cs = MagicMock()
-        mock_cs.activity_log = []
-
-        monkeypatch.setattr("onemancompany.core.state.company_state", mock_cs)
-        monkeypatch.setattr("onemancompany.core.file_editor.pending_file_edits", {})
-        monkeypatch.setattr("onemancompany.agents.recruitment.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.hr_agent.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.coo_agent.pending_hiring_requests", {})
-
-        # Should not raise
-        main_mod._save_ephemeral_state()
-        captured = capsys.readouterr()
-        assert "Warning: failed to save state snapshot" in captured.out
+        main_mod._restore_ephemeral_state()
+        mock_restore.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -171,103 +124,13 @@ class TestSaveEphemeralState:
 
 
 class TestRestoreEphemeralState:
-    def test_restore_noop_when_no_snapshot(self, tmp_path, monkeypatch):
-        snapshot_path = tmp_path / "company" / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        # Should not raise
-        main_mod._restore_ephemeral_state()
-
-    def test_restore_skips_old_snapshot(self, tmp_path, monkeypatch):
-        snapshot_path = tmp_path / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        data = {
-            "saved_at": time.time() - 120,  # 2 minutes old
-            "activity_log": [{"msg": "old"}],
-        }
-        snapshot_path.write_text(json.dumps(data))
+    def test_restore_delegates_to_snapshot_harness(self, monkeypatch):
+        """_restore_ephemeral_state delegates to core.snapshot.restore_snapshot."""
+        mock_restore = MagicMock()
+        monkeypatch.setattr("onemancompany.core.snapshot.restore_snapshot", mock_restore)
 
         main_mod._restore_ephemeral_state()
-
-        # Snapshot should be deleted
-        assert not snapshot_path.exists()
-
-    def test_restore_recent_snapshot(self, tmp_path, monkeypatch, capsys):
-        snapshot_path = tmp_path / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        data = {
-            "saved_at": time.time(),  # fresh
-            "activity_log": [{"msg": "restored"}],
-            "pending_file_edits": {"e1": {"path": "/a.py"}},
-            "pending_candidates": {"c1": [{"name": "Alice"}]},
-            "pending_hiring_requests": {"h1": {"title": "dev"}},
-        }
-        snapshot_path.write_text(json.dumps(data))
-
-        mock_cs = MagicMock()
-        mock_cs.activity_log = []
-        monkeypatch.setattr("onemancompany.core.state.company_state", mock_cs)
-
-        mock_edits = {}
-        monkeypatch.setattr("onemancompany.core.file_editor.pending_file_edits", mock_edits)
-
-        mock_candidates = {}
-        monkeypatch.setattr("onemancompany.agents.recruitment.pending_candidates", mock_candidates)
-        monkeypatch.setattr("onemancompany.agents.hr_agent.pending_candidates", mock_candidates)
-
-        mock_hiring = {}
-        monkeypatch.setattr("onemancompany.agents.coo_agent.pending_hiring_requests", mock_hiring)
-
-        main_mod._restore_ephemeral_state()
-
-        # Verify state was restored
-        assert mock_cs.activity_log == [{"msg": "restored"}]
-        assert mock_edits == {"e1": {"path": "/a.py"}}
-        assert mock_candidates == {"c1": [{"name": "Alice"}]}
-        assert mock_hiring == {"h1": {"title": "dev"}}
-
-        # Snapshot file should be cleaned up
-        assert not snapshot_path.exists()
-
-        captured = capsys.readouterr()
-        assert "Restored state snapshot" in captured.out
-
-    def test_restore_with_empty_fields(self, tmp_path, monkeypatch, capsys):
-        snapshot_path = tmp_path / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        data = {
-            "saved_at": time.time(),
-            "activity_log": [],
-            "pending_file_edits": {},
-            "pending_candidates": {},
-            "pending_hiring_requests": {},
-        }
-        snapshot_path.write_text(json.dumps(data))
-
-        mock_cs = MagicMock()
-        mock_cs.activity_log = ["existing"]
-        monkeypatch.setattr("onemancompany.core.state.company_state", mock_cs)
-        monkeypatch.setattr("onemancompany.core.file_editor.pending_file_edits", {})
-        monkeypatch.setattr("onemancompany.agents.recruitment.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.hr_agent.pending_candidates", {})
-        monkeypatch.setattr("onemancompany.agents.coo_agent.pending_hiring_requests", {})
-
-        main_mod._restore_ephemeral_state()
-        # No error, snapshot cleaned up
-        assert not snapshot_path.exists()
-
-    def test_restore_handles_corrupt_json(self, tmp_path, monkeypatch, capsys):
-        snapshot_path = tmp_path / ".state_snapshot.json"
-        monkeypatch.setattr(main_mod, "SNAPSHOT_PATH", snapshot_path)
-
-        snapshot_path.write_text("{invalid json}")
-
-        main_mod._restore_ephemeral_state()
-        captured = capsys.readouterr()
-        assert "Warning: failed to restore state snapshot" in captured.out
+        mock_restore.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -21,14 +21,15 @@ from onemancompany.core.config import (
     DEPT_ORDER,
     DEPT_START_ROW,
     EA_ID,
+    EXEC_IDS,
     EXEC_FLOOR_COLORS,
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
 )
 
-# All executive IDs (excluded from department layout)
-_EXEC_IDS = {HR_ID, COO_ID, EA_ID, CSO_ID}
+# Use centralized EXEC_IDS from config
+_EXEC_IDS = EXEC_IDS
 
 
 @dataclass
