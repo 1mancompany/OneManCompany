@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from datetime import datetime
 
 from langchain_core.tools import tool
 from loguru import logger
@@ -782,6 +783,269 @@ def set_project_budget(budget_usd: float) -> dict:
 
 
 @tool
+def save_project_plan(
+    plan_title: str,
+    background: str,
+    market_research: dict,
+    goals: list[str],
+    non_goals: list[str],
+    technical_approach: str,
+    phases: list[dict],
+    team_assignments: list[dict],
+    risks: list[str],
+    acceptance_criteria: list[str],
+) -> dict:
+    """dispatch前保存结构化项目计划到workspace/plan.md，并设置验收标准。
+
+    产出 Claude Code Plan Mode 质量的文档：有背景、有市场调研、有技术方案、有具体任务分配、有验收标准。
+    这是团队执行的 Single Source of Truth，所有员工通过 read_file("plan.md") 获取完整上下文。
+
+    Args:
+        plan_title: 项目计划标题
+        background: 项目背景与问题描述 — 为什么要做这个项目，要解决什么问题
+        market_research: 市场与用户调研结论:
+            {sota: str — 当前领域SOTA技术/方案及行业最佳实践,
+             competitors: [{name: str, strengths: str, weaknesses: str}] — 主要竞品分析,
+             our_edge: str — 我们的差异化优势,
+             user_pain_points: list[str] — 用户痛点（现有方案解决不了的问题）,
+             user_delight_points: list[str] — 用户爽点（能产生口碑传播的体验）}
+        goals: 项目目标列表 — 明确的、可验证的交付目标
+        non_goals: 明确不做的事项 — 防止范围蔓延
+        technical_approach: 技术/执行方案描述 — 架构选型、关键决策、集成方式、权衡取舍
+        phases: 分阶段执行计划，每个phase:
+            {phase_number: int, name: str, description: str,
+             tasks: [{assignee_id: str, assignee_name: str, description: str,
+                      deliverables: list[str], depends_on: list[str], complexity: str}],
+             milestone: str}
+            - complexity: "simple" | "medium" | "complex"
+            - depends_on: 本任务依赖的其他任务描述（跨phase自动处理，此处记录phase内逻辑依赖）
+        team_assignments: 团队分工总表 [{employee_id, employee_name, role_in_project, responsibilities}]
+        risks: 已知风险及应对措施列表
+        acceptance_criteria: 验收标准列表 — 每条必须可验证（能通过具体操作确认pass/fail）
+    """
+    from datetime import datetime
+
+    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.project_archive import set_acceptance_criteria as _set_criteria, save_project_file
+
+    loop = _current_loop.get()
+    task_id = _current_task_id.get()
+    if not loop or not task_id:
+        return {"status": "error", "message": "No agent loop context."}
+
+    task = loop.board.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": "Current task not found."}
+
+    project_id = task.project_id or task.original_project_id
+    if not project_id:
+        return {"status": "error", "message": "No project context — plans require a project."}
+
+    # Build plan markdown — Claude Code Plan Mode quality
+    lines: list[str] = []
+    lines.append(f"# {plan_title}")
+    lines.append("")
+    lines.append(f"> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}  ")
+    lines.append(f"> Project: {project_id}")
+    lines.append("")
+
+    # --- Background ---
+    lines.append("## Background")
+    lines.append("")
+    lines.append(background)
+    lines.append("")
+
+    # --- Market Research ---
+    if market_research:
+        lines.append("## Market & User Research")
+        lines.append("")
+
+        sota = market_research.get("sota", "")
+        if sota:
+            lines.append("### SOTA (State of the Art)")
+            lines.append("")
+            lines.append(sota)
+            lines.append("")
+
+        competitors = market_research.get("competitors", [])
+        if competitors:
+            lines.append("### Competitive Landscape")
+            lines.append("")
+            lines.append("| Competitor | Strengths | Weaknesses |")
+            lines.append("|-----------|-----------|------------|")
+            for comp in competitors:
+                cname = comp.get("name", "")
+                cstr = comp.get("strengths", "")
+                cweak = comp.get("weaknesses", "")
+                lines.append(f"| {cname} | {cstr} | {cweak} |")
+            lines.append("")
+
+            our_edge = market_research.get("our_edge", "")
+            if our_edge:
+                lines.append(f"**Our Differentiation**: {our_edge}")
+                lines.append("")
+
+        pain_points = market_research.get("user_pain_points", [])
+        if pain_points:
+            lines.append("### User Pain Points")
+            lines.append("")
+            for pp in pain_points:
+                lines.append(f"- {pp}")
+            lines.append("")
+
+        delight_points = market_research.get("user_delight_points", [])
+        if delight_points:
+            lines.append("### User Delight Points")
+            lines.append("")
+            for dp in delight_points:
+                lines.append(f"- {dp}")
+            lines.append("")
+
+    # --- Goals & Non-Goals ---
+    lines.append("## Goals")
+    lines.append("")
+    for g in goals:
+        lines.append(f"- {g}")
+    lines.append("")
+
+    if non_goals:
+        lines.append("## Non-Goals (Explicit Exclusions)")
+        lines.append("")
+        for ng in non_goals:
+            lines.append(f"- {ng}")
+        lines.append("")
+
+    # --- Technical Approach ---
+    lines.append("## Technical Approach")
+    lines.append("")
+    lines.append(technical_approach)
+    lines.append("")
+
+    # --- Team ---
+    if team_assignments:
+        lines.append("## Team")
+        lines.append("")
+        lines.append("| Employee | Role | Responsibilities |")
+        lines.append("|----------|------|-----------------|")
+        for ta in team_assignments:
+            eid = ta.get("employee_id", "")
+            ename = ta.get("employee_name", eid)
+            role_p = ta.get("role_in_project", "")
+            resp = ta.get("responsibilities", "")
+            lines.append(f"| {ename} ({eid}) | {role_p} | {resp} |")
+        lines.append("")
+
+    # --- Phases ---
+    lines.append("## Execution Plan")
+    lines.append("")
+    total_tasks = 0
+    for phase in sorted(phases, key=lambda p: p.get("phase_number", 0)):
+        pnum = phase.get("phase_number", 0)
+        pname = phase.get("name", "")
+        pdesc = phase.get("description", "")
+        milestone = phase.get("milestone", "")
+
+        lines.append(f"### Phase {pnum}: {pname}")
+        lines.append("")
+        if pdesc:
+            lines.append(pdesc)
+            lines.append("")
+
+        phase_tasks = phase.get("tasks", [])
+        if phase_tasks:
+            for i, pt in enumerate(phase_tasks, 1):
+                total_tasks += 1
+                assignee_name = pt.get("assignee_name", pt.get("assignee_id", "TBD"))
+                assignee_id = pt.get("assignee_id", "")
+                desc = pt.get("description", "")
+                complexity = pt.get("complexity", "medium")
+                depends = pt.get("depends_on", [])
+                deliverables_list = pt.get("deliverables", [])
+
+                complexity_badge = {"simple": "🟢", "medium": "🟡", "complex": "🔴"}.get(complexity, "🟡")
+                lines.append(f"**P{pnum}-T{i}** {complexity_badge} `[{assignee_name}]` {desc}")
+                if depends:
+                    lines.append(f"  - Depends on: {', '.join(depends)}")
+                if deliverables_list:
+                    lines.append(f"  - Deliverables: {', '.join(f'`{d}`' for d in deliverables_list)}")
+                lines.append("")
+
+        if milestone:
+            lines.append(f"**Milestone**: {milestone}")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    # --- Risks ---
+    if risks:
+        lines.append("## Risks & Mitigations")
+        lines.append("")
+        for r in risks:
+            lines.append(f"- {r}")
+        lines.append("")
+
+    # --- Acceptance Criteria ---
+    if acceptance_criteria:
+        lines.append("## Acceptance Criteria")
+        lines.append("")
+        for i, c in enumerate(acceptance_criteria, 1):
+            lines.append(f"- [ ] **AC-{i}**: {c}")
+        lines.append("")
+
+    # --- Summary ---
+    lines.append("---")
+    lines.append("")
+    lines.append(f"**Total**: {len(phases)} phases, {total_tasks} tasks, {len(acceptance_criteria)} acceptance criteria")
+    lines.append("")
+
+    plan_content = "\n".join(lines)
+
+    # Save plan to project workspace
+    result = save_project_file(project_id, "plan.md", plan_content)
+
+    # Set acceptance criteria in project archive
+    officer_id = loop.agent.employee_id
+    _set_criteria(project_id, acceptance_criteria, officer_id)
+
+    return {
+        "status": "ok",
+        "project_id": project_id,
+        "plan_file": result.get("path", ""),
+        "phase_count": len(phases),
+        "task_count": total_tasks,
+        "criteria_count": len(acceptance_criteria),
+    }
+
+
+@tool
+async def report_to_ceo(subject: str, report: str, action_required: bool = False) -> dict:
+    """Report findings to CEO, especially when company-level action is needed.
+
+    Use when:
+    - Missing API credentials or tools that only CEO can configure
+    - Task requires capabilities the company doesn't have yet
+    - Need CEO decision on requirement changes
+    - Diagnosis of why a project task failed
+
+    Args:
+        subject: Brief title (e.g. "Roblox发布需要API凭证配置")
+        report: Detailed findings and recommendations
+        action_required: True if CEO must take action before work can continue
+    """
+    await _publish("ceo_report", {
+        "subject": subject,
+        "report": report,
+        "action_required": action_required,
+        "timestamp": datetime.now().isoformat(),
+    }, agent="SYSTEM")
+    return {
+        "status": "reported",
+        "subject": subject,
+        "action_required": action_required,
+    }
+
+
+@tool
 def dispatch_task(employee_id: str, task_description: str) -> dict:
     """Dispatch a task to another employee's task board.
 
@@ -823,7 +1087,14 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
                         caller_task.original_project_dir = project_dir
                         caller_task.project_id = ""
             if project_id:
-                from onemancompany.core.project_archive import record_dispatch
+                from onemancompany.core.project_archive import record_dispatch, find_duplicate_dispatch
+                dup = find_duplicate_dispatch(project_id, employee_id, task_description)
+                if dup:
+                    return {
+                        "status": "duplicate",
+                        "message": f"类似任务已存在 (dispatch_id={dup['dispatch_id']}): {dup['description'][:100]}",
+                        "existing_dispatch": dup,
+                    }
                 record_dispatch(project_id, employee_id, task_description)
             from onemancompany.api.routes import _remote_task_queues
             if employee_id not in _remote_task_queues:
@@ -852,15 +1123,164 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
                 caller_task.original_project_dir = project_dir
                 caller_task.project_id = ""
 
-    # Record dispatch in project archive
+    # Dedup check + record dispatch in project archive
     if project_id:
-        from onemancompany.core.project_archive import record_dispatch
+        from onemancompany.core.project_archive import record_dispatch, find_duplicate_dispatch
+        dup = find_duplicate_dispatch(project_id, employee_id, task_description)
+        if dup:
+            return {
+                "status": "duplicate",
+                "message": f"类似任务已存在 (dispatch_id={dup['dispatch_id']}): {dup['description'][:100]}",
+                "existing_dispatch": dup,
+            }
         record_dispatch(project_id, employee_id, task_description)
 
     emp = company_state.employees.get(employee_id)
     emp_name = emp.name if emp else employee_id
     loop.push_task(task_description, project_id=project_id, project_dir=project_dir)
     return {"status": "dispatched", "employee": emp_name, "task": task_description[:200]}
+
+
+@tool
+def dispatch_team_tasks(tasks: list[dict]) -> dict:
+    """将任务分阶段dispatch给多名员工。同阶段并行，后阶段等前阶段完成。
+
+    Args:
+        tasks: [{employee_id, description, phase}] — phase=1先执行, phase=2等phase=1完成
+    """
+    import uuid as _uuid
+    from onemancompany.core.agent_loop import get_agent_loop, _current_loop, _current_task_id
+    from onemancompany.core.project_archive import record_team_dispatches, activate_dispatch
+
+    # Validate all employee_ids
+    for t in tasks:
+        eid = t.get("employee_id", "")
+        if not company_state.employees.get(eid):
+            return {"status": "error", "message": f"Employee {eid} not found"}
+
+    # Get project context from caller
+    project_id = ""
+    project_dir = ""
+    caller_loop = _current_loop.get()
+    caller_task_id = _current_task_id.get()
+    if caller_loop and caller_task_id:
+        caller_task = caller_loop.board.get_task(caller_task_id)
+        if caller_task:
+            project_id = caller_task.project_id or caller_task.original_project_id
+            project_dir = caller_task.project_dir or caller_task.original_project_dir
+            if project_id:
+                caller_task.original_project_id = project_id
+                caller_task.original_project_dir = project_dir
+                caller_task.project_id = ""
+
+    if not project_id:
+        return {"status": "error", "message": "No project context — dispatch_team_tasks requires a project."}
+
+    # Dedup check — filter out tasks that already have similar in-progress dispatches
+    from onemancompany.core.project_archive import find_duplicate_dispatch
+    deduplicated_tasks = []
+    skipped = []
+    for t in tasks:
+        dup = find_duplicate_dispatch(project_id, t["employee_id"], t["description"])
+        if dup:
+            skipped.append({
+                "employee_id": t["employee_id"],
+                "description": t["description"][:100],
+                "existing_dispatch_id": dup["dispatch_id"],
+            })
+        else:
+            deduplicated_tasks.append(t)
+    tasks = deduplicated_tasks
+    if not tasks:
+        return {
+            "status": "duplicate",
+            "message": "所有任务均已存在类似的进行中dispatch",
+            "skipped": skipped,
+        }
+
+    # Group by phase and generate dispatch_ids
+    from collections import defaultdict
+    phases: dict[int, list[dict]] = defaultdict(list)
+    for t in tasks:
+        phase = t.get("phase", 1)
+        phases[phase].append(t)
+
+    sorted_phases = sorted(phases.keys())
+
+    # Build dispatch records: phase N depends_on all dispatch_ids from phase N-1
+    all_dispatches: list[dict] = []
+    phase_dispatch_ids: dict[int, list[str]] = {}
+
+    for phase_num in sorted_phases:
+        phase_tasks = phases[phase_num]
+        current_ids = []
+        # Find the previous phase's dispatch_ids for depends_on
+        prev_phase = None
+        for p in sorted_phases:
+            if p < phase_num:
+                prev_phase = p
+        depends_on = phase_dispatch_ids.get(prev_phase, []) if prev_phase is not None else []
+
+        for t in phase_tasks:
+            dispatch_id = _uuid.uuid4().hex[:8]
+            current_ids.append(dispatch_id)
+            is_phase_1 = (phase_num == sorted_phases[0])
+            emp = company_state.employees.get(t["employee_id"])
+            all_dispatches.append({
+                "dispatch_id": dispatch_id,
+                "employee_id": t["employee_id"],
+                "description": t["description"][:200],
+                "status": "in_progress" if is_phase_1 else "pending",
+                "phase": phase_num,
+                "depends_on": list(depends_on),
+                "dispatched_at": datetime.now().isoformat() if is_phase_1 else None,
+                "completed_at": None,
+                "task_type": t.get("task_type", "execution"),
+                "scheduled_start": t.get("scheduled_start", ""),
+                "estimated_duration_min": t.get("estimated_duration_min", 0),
+                "estimated_cost_usd": t.get("estimated_cost_usd", 0.0),
+                "assignee_name": (emp.nickname or emp.name) if emp else t["employee_id"],
+            })
+        phase_dispatch_ids[phase_num] = current_ids
+
+    # Persist all dispatches
+    record_team_dispatches(project_id, all_dispatches)
+
+    # Immediately dispatch phase 1 tasks
+    dispatched = []
+    first_phase = sorted_phases[0]
+    for d in all_dispatches:
+        if d["phase"] == first_phase:
+            target = get_agent_loop(d["employee_id"])
+            if target:
+                emp = company_state.employees.get(d["employee_id"])
+                target.push_task(d["description"], project_id=project_id, project_dir=project_dir)
+                dispatched.append({
+                    "employee": emp.name if emp else d["employee_id"],
+                    "description": d["description"][:100],
+                    "phase": d["phase"],
+                })
+
+    result = {
+        "status": "dispatched",
+        "project_id": project_id,
+        "total_tasks": len(all_dispatches),
+        "phases": len(sorted_phases),
+        "phase_1_dispatched": len(dispatched),
+        "dispatch_plan": [
+            {
+                "dispatch_id": d["dispatch_id"],
+                "employee_id": d["employee_id"],
+                "phase": d["phase"],
+                "status": d["status"],
+                "depends_on": d["depends_on"],
+            }
+            for d in all_dispatches
+        ],
+    }
+    if skipped:
+        result["skipped_duplicates"] = skipped
+    return result
 
 
 @tool
@@ -961,6 +1381,7 @@ BASE_TOOLS = [
     pull_meeting,
     create_subtask,
     dispatch_task,
+    report_to_ceo,
     request_tool_access,
 ]
 
@@ -974,6 +1395,7 @@ GATED_TOOLS: dict = {
     "accept_project": accept_project,
     "ea_review_project": ea_review_project,
     "set_project_budget": set_project_budget,
+    "save_project_plan": save_project_plan,
 }
 
 # Add sandbox tools to gated pool
@@ -992,9 +1414,12 @@ COMMON_TOOLS = [
     use_tool,
     create_subtask,
     dispatch_task,
+    dispatch_team_tasks,
+    report_to_ceo,
     set_acceptance_criteria,
     accept_project,
     ea_review_project,
     set_project_budget,
+    save_project_plan,
     manage_tool_access,
 ]

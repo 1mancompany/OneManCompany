@@ -3061,6 +3061,7 @@ class TestPostTaskCleanupFallthrough:
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     async def test_fallthrough_criteria_with_rejected_acceptance(self, mock_bus, mock_state):
+        """CASE B2: rejected acceptance → push rectification, reset acceptance_result, minimal cleanup."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
@@ -3071,15 +3072,20 @@ class TestPostTaskCleanupFallthrough:
         with patch("onemancompany.core.project_archive.append_action"):
             with patch("onemancompany.core.project_archive.load_project", return_value={
                 "acceptance_criteria": ["Must work"],
-                "acceptance_result": {"accepted": False, "notes": "Not good enough"},
+                "acceptance_result": {"accepted": False, "officer_id": "00003", "notes": "Not good enough"},
                 "ea_review_result": None,
             }):
                 with patch("onemancompany.core.project_archive.record_dispatch_completion") as mock_record:
                     with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                        with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock) as mock_min:
-                            await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                            mock_record.assert_called_once_with("proj1", "emp01")
-                            mock_min.assert_called_once_with("proj1")
+                        with patch.object(mgr, "_push_rectification_task") as mock_rect:
+                            with patch("onemancompany.core.project_archive._save_project"):
+                                with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock) as mock_min:
+                                    await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
+                                    # CASE B2 does NOT call record_dispatch_completion
+                                    mock_record.assert_not_called()
+                                    # Pushes rectification task to the officer
+                                    mock_rect.assert_called_once()
+                                    mock_min.assert_called_once_with("proj1")
 
 
 # ---------------------------------------------------------------------------

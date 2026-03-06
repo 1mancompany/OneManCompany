@@ -20,6 +20,7 @@ EX_EMPLOYEES_DIR = HR_DIR / "ex-employees"
 ASSETS_DIR = COMPANY_DIR / "assets"
 TOOLS_DIR = ASSETS_DIR / "tools"
 ROOMS_DIR = ASSETS_DIR / "rooms"
+PLUGINS_DIR = ASSETS_DIR / "plugins"
 BUSINESS_DIR = COMPANY_DIR / "business"
 WORKFLOWS_DIR = BUSINESS_DIR / "workflows"
 PROJECTS_DIR = BUSINESS_DIR / "projects"
@@ -213,6 +214,11 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # Anthropic API (company-level fallback for employees with api_provider=anthropic)
+    anthropic_api_key: str = ""
+    anthropic_auth_method: str = "api_key"  # "api_key" | "oauth"
+    anthropic_refresh_token: str = ""
+
     # Default model
     default_llm_model: str = "moonshotai/kimi-k2.5"
 
@@ -223,6 +229,32 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def update_env_var(key: str, value: str) -> None:
+    """Update or add a variable in the .env file, then reload settings."""
+    env_path = PROJECT_ROOT / ".env"
+    lines: list[str] = []
+    found = False
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+                lines[i] = f"{key}={value}"
+                found = True
+                break
+    if not found:
+        lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    reload_settings()
+
+
+def reload_settings() -> None:
+    """Re-read .env into the global settings singleton."""
+    global settings
+    settings = Settings()
+
 
 # ---------------------------------------------------------------------------
 # Application config (config.yaml at project root)

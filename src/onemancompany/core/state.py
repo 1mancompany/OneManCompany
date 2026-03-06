@@ -213,6 +213,8 @@ class OfficeTool:
     files: list[str] = field(default_factory=list)  # filenames in tool folder (excl. tool.yaml)
     folder_name: str = ""  # slug used as folder name
     has_icon: bool = False  # True if icon.png exists in tool folder
+    tool_type: str = "template"  # "template" | "script" | "reference"
+    reference_url: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -226,6 +228,8 @@ class OfficeTool:
             "files": self.files,
             "folder_name": self.folder_name,
             "has_icon": self.has_icon,
+            "tool_type": self.tool_type,
+            "reference_url": self.reference_url,
         }
 
 

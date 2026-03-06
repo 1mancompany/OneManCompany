@@ -31,5 +31,5 @@
     "custom": ["roblox_cloud"]
   },
   "platform_capabilities": ["file_upload", "websocket"],
-  "heartbeat": {"method": "pid"}
+  "heartbeat": {"method": "anthropic_key"}
 }

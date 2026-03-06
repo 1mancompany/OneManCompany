@@ -46,24 +46,27 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
         api_provider = cfg.api_provider
         api_key = cfg.api_key
 
-    if api_provider == "anthropic" and api_key:
-        from langchain_anthropic import ChatAnthropic
-        # Determine auth method
-        auth_method = ""
-        if employee_id and employee_id in employee_configs:
-            auth_method = employee_configs[employee_id].auth_method
+    if api_provider == "anthropic":
+        effective_key = api_key or settings.anthropic_api_key
+        if effective_key:
+            from langchain_anthropic import ChatAnthropic
+            # Determine auth method
+            auth_method = ""
+            if employee_id and employee_id in employee_configs:
+                auth_method = employee_configs[employee_id].auth_method
+            if not auth_method:
+                auth_method = settings.anthropic_auth_method
 
-        # Standard API key
-        extra_headers = {}
-        if auth_method == "oauth" or api_key.startswith("sk-ant-oat"):
-            extra_headers["anthropic-beta"] = "oauth-2025-04-20"
-        return ChatAnthropic(
-            model=model,
-            api_key=api_key,
-            temperature=temperature,
-            max_retries=3,
-            default_headers=extra_headers or None,
-        )
+            extra_headers = {}
+            if auth_method == "oauth" or effective_key.startswith("sk-ant-oat"):
+                extra_headers["anthropic-beta"] = "oauth-2025-04-20"
+            return ChatAnthropic(
+                model=model,
+                api_key=effective_key,
+                temperature=temperature,
+                max_retries=3,
+                default_headers=extra_headers or None,
+            )
 
     # Self-hosted employees without an API key: fall back to default company model
     if api_provider != "openrouter":

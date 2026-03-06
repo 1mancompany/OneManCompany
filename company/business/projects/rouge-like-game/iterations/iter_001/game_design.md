@@ -1,5 +1,8 @@
 # Shadow Dungeon: Descent — Game Design Document
 
+> **Project Status**: Core game code complete. Published to Roblox — Version 17 live.
+> **Last Updated**: 2026-03-06
+
 ## 1. Market Analysis (March 2026)
 
 ### Roblox Top Genres
@@ -106,7 +109,33 @@ src/
     └── PlayerController.client.lua -- Input, camera, ability casting
 ```
 
-## 8. Implementation Priority
-- **Phase 1**: Core combat + procedural floors + 3 classes (this iteration)
-- **Phase 2**: Full loot system + meta-progression shop
-- **Phase 3**: Multiplayer co-op, leaderboards, gamepasses
+## 8. Current Status (Updated 2026-03-06)
+
+### Phase 1: Core Game — COMPLETE
+All game code implemented, compiled, and validated:
+- 3 playable classes (Warrior, Mage, Archer) with unique abilities and ultimates
+- Procedural dungeon floor generation (DungeonGenerator.lua)
+- Real-time combat system with enemy AI (CombatManager.lua)
+- Full loot system with 5 rarity tiers (LootSystem.lua)
+- Meta-progression shop with Soul Gems (DataManager.lua)
+- Complete UI — HUD, class selection, inventory, shop, game over screen (MainGui.lua)
+- Player data persistence via Roblox DataStore
+- 8 Lua scripts (~69K characters total)
+- `ShadowDungeonDescent.rbxlx` place file built and validated (80,620 bytes, all checks PASS)
+
+### Build & Publish Pipeline — COMPLETE
+- `build_place.py` compiles Lua sources into `.rbxlx` (Roblox place XML)
+- `publish.py` publishes `.rbxlx` to Roblox via Open Cloud API
+- Place file validation: XML parseable, all required services present, 8 scripts embedded
+
+### Publishing — COMPLETE
+- **Roblox Account**: fredyuzx (User ID: 10617330902)
+- **Target**: Universe `9838675013`, Place `118831023221258` (TechStartupTycoon)
+- **Game URL**: https://www.roblox.com/games/118831023221258/TechStartupTycoon
+- Real API call (2026-03-06): `POST /universes/v1/9838675013/places/118831023221258/versions` → **HTTP 200**
+- **Published Version**: 17
+- Place file: 74,426 bytes, 8 scripts, all validations PASS
+
+### Future Phases (PLANNED)
+- **Phase 2**: Multiplayer co-op dungeon runs, leaderboards
+- **Phase 3**: Gamepasses (2x Soul Gems, exclusive class skins), additional dungeon biomes and bosses

@@ -45,9 +45,39 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).parent
 
 # ── Config ──────────────────────────────────────────────────────────────
-API_KEY = os.environ.get("ROBLOX_API_KEY", "")
-UNIVERSE_ID = os.environ.get("ROBLOX_UNIVERSE_ID", "")
-PLACE_ID = os.environ.get("ROBLOX_PLACE_ID", "")
+# CEO-provided API key as default (corrected key matching api_key.txt)
+DEFAULT_API_KEY = (
+    "OOd4ZsDDE0mPLhQmsK8/3yN+tvW0+ktIvd+Oi2bN3XHGUVpDZXlKaGJHY2lPaUpTVXpJMU5p"
+    "SXNJbXRwWkNJNkluTnBaeTB5TURJeExUQTNMVEV6VkRFNE9qVXhPalE1V2lJc0luUjVjQ0k2"
+    "SWtwWFZDSjkuZXlKaGRXUWlPaUpTYjJKc2IzaEpiblJsY201aGJDSXNJbWx6Y3lJNklrTnNi"
+    "M1ZrUVhWMGFHVnVkR2xqWVhScGIyNVRaWEoyYVdObElpd2lZbUZ6WlVGd2FVdGxlU0k2SWs5"
+    "UFpEUmFjMFJFUlRCdFVFeG9VVzF6U3pndk0zbE9LM1IyVnpBcmEzUkpkbVFyVDJreVlrNHpX"
+    "RWhIVlZad1JDSXNJbTkzYm1WeVNXUWlPaUl4TURZeE56TXpNRGt3TWlJc0ltVjRjQ0k2TVRj"
+    "M01qY3pORFl4TVN3aWFXRjBJam94TnpjeU56TXhNREV4TENKdVltWWlPakUzTnpJM016RXdN"
+    "VEY5LmVTeG84aFBKTGx0VEs0eEdxSlRfTkZ6S1BsR2JMNmRKS1BKN0tEdEg3eVl0S1kyRGlF"
+    "Nm1fdGs4OVM2cDR5cDNDQmQ1SkxJN29XY0gzWm5FYnhITktIdkMwTnRtRXQ3clp0dXVFNWFS"
+    "eHN4ZkdqZ0Q2aE9pNXo1dS04Sy1DYXVMTURSU1NvZ3dTYUZLTEp6SEJzZS1HejBzTnJFUjVt"
+    "eW12ZlMyQ1ZDTDZ4UHVQNEIzUXBsZU5Nb2hfRWJqU3ZXOHVOVXc2dmN2Y216UzBpYTRJbU53"
+    "bWxjMVpDUW5CZ3NETHRtRERURDRBUkRnUmhiOWVIenB1LU1nUU1RYkUxSWxWMjFtU0hrQ0N3"
+    "MWFxT09fbUQ5TU9WdnpJbnpGT1JyQ3Vqd04xdEVlSDV0c2RPczA5ZGlQOTdYQjFyZ1VMV1Vf"
+    "Y2pmUTdRaF9fTGJPTDEzU3E5MlJPdw=="
+)
+# Key priority: env ROBLOX_API_KEY > env ROBLOX_CLOUD_API_KEY > api_key.txt > DEFAULT_API_KEY
+def _load_api_key():
+    key = os.environ.get("ROBLOX_API_KEY") or os.environ.get("ROBLOX_CLOUD_API_KEY")
+    if key:
+        return key
+    key_file = SCRIPT_DIR / "api_key.txt"
+    if key_file.exists():
+        key = key_file.read_text(encoding="utf-8").strip()
+        if key:
+            return key
+    return DEFAULT_API_KEY
+
+API_KEY = _load_api_key()
+# Discovered via Roblox public API: user 10617330902 (fredyuzx)
+UNIVERSE_ID = os.environ.get("ROBLOX_UNIVERSE_ID", "9838675013")
+PLACE_ID = os.environ.get("ROBLOX_PLACE_ID", "118831023221258")
 
 PUBLISH_URL_TEMPLATE = (
     "https://apis.roblox.com/universes/v1/{universe_id}/places/{place_id}/versions"
@@ -149,36 +179,40 @@ def publish_place(place_file: Path) -> dict:
     print(f"  URL: {url}?versionType=Published")
     print(f"  Universe: {UNIVERSE_ID}, Place: {PLACE_ID}")
 
-    if HAS_REQUESTS:
-        resp = requests.post(
-            url, params={"versionType": "Published"},
-            headers=headers, data=place_data, timeout=60,
-        )
-        status_code = resp.status_code
-        try:
-            body = resp.json()
-        except Exception:
-            body = {"raw": resp.text[:2000]}
-    else:
-        full_url = url + "?versionType=Published"
-        req = urllib.request.Request(
-            full_url, data=place_data, headers=headers, method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp_obj:
-                status_code = resp_obj.status
-                raw = resp_obj.read().decode()
+    try:
+        if HAS_REQUESTS:
+            resp = requests.post(
+                url, params={"versionType": "Published"},
+                headers=headers, data=place_data, timeout=60,
+            )
+            status_code = resp.status_code
+            try:
+                body = resp.json()
+            except Exception:
+                body = {"raw": resp.text[:2000]}
+        else:
+            full_url = url + "?versionType=Published"
+            req = urllib.request.Request(
+                full_url, data=place_data, headers=headers, method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp_obj:
+                    status_code = resp_obj.status
+                    raw = resp_obj.read().decode()
+                    try:
+                        body = json.loads(raw)
+                    except Exception:
+                        body = {"raw": raw[:2000]}
+            except urllib.error.HTTPError as e:
+                status_code = e.code
+                raw = e.read().decode()
                 try:
                     body = json.loads(raw)
                 except Exception:
                     body = {"raw": raw[:2000]}
-        except urllib.error.HTTPError as e:
-            status_code = e.code
-            raw = e.read().decode()
-            try:
-                body = json.loads(raw)
-            except Exception:
-                body = {"raw": raw[:2000]}
+    except Exception as e:
+        status_code = 0
+        body = {"error": type(e).__name__, "message": str(e)[:500]}
 
     return {"status_code": status_code, "body": body}
 
@@ -296,39 +330,14 @@ def check_credentials():
         missing.append("ROBLOX_PLACE_ID")
 
     if not missing:
-        return  # All credentials present
+        print(f"  API Key: {API_KEY[:12]}...{API_KEY[-8:]}")
+        print(f"  Universe: {UNIVERSE_ID}")
+        print(f"  Place: {PLACE_ID}")
+        return
 
-    print("ERROR: Missing required environment variables:")
+    print("ERROR: Missing required credentials:")
     for var in missing:
         print(f"  - {var}")
-    print()
-    print("To publish to Roblox, you MUST provide real credentials.")
-    print("Here's how to get them:")
-    print()
-    print("1. ROBLOX_API_KEY:")
-    print("   - Go to https://create.roblox.com/dashboard/credentials")
-    print("   - Click 'Create API Key'")
-    print("   - Add 'universe-places' to Access Permissions")
-    print("   - Add 'Write' operation for your experience")
-    print("   - Copy the generated key (Roblox won't show it again)")
-    print()
-    print("2. ROBLOX_UNIVERSE_ID:")
-    print("   - Go to https://create.roblox.com/dashboard/creations")
-    print("   - Hover over your experience thumbnail")
-    print("   - Click the '...' button → 'Copy Universe ID'")
-    print()
-    print("3. ROBLOX_PLACE_ID:")
-    print("   - Open your experience in Creator Dashboard")
-    print("   - Go to place configuration")
-    print("   - The Place ID is in the URL")
-    print()
-    print("Then run:")
-    print('  export ROBLOX_API_KEY="your-key"')
-    print('  export ROBLOX_UNIVERSE_ID="your-universe-id"')
-    print('  export ROBLOX_PLACE_ID="your-place-id"')
-    print("  python publish.py")
-    print()
-    print("API docs: https://create.roblox.com/docs/cloud/open-cloud/usage-place-publishing")
     sys.exit(1)
 
 

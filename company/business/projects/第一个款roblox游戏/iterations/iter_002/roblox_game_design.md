@@ -25,5 +25,24 @@ Players start in a garage and build their way up to a massive tech campus.
 - **Phase 3: Monetization**: Gamepasses (Auto-clicker, 2x Cash, VIP area).
 - **Phase 4: Polish & Publish**: UI, sounds, testing, release to Roblox.
 
-## 4. Next Steps
-Waiting for the hiring of a Roblox Game Developer to begin implementation in Roblox Studio.
+## 4. Current Status
+
+### Development — COMPLETE
+All game scripts implemented and compiled into `TechStartupTycoon.rbxlx` (23 KB):
+- `GameConfig.lua` — Constants, 7 upgrade tiers, rebirth multipliers
+- `DataManager.lua` — Player data persistence via Roblox DataStore
+- `GameManager.server.lua` — Server-side logic (click, sell, upgrades, rebirth, auto-code)
+- `MainGui.lua` — Full UI (HUD, shop panels, rebirth dialog)
+- `ClickHandler.client.lua` — Client-side input handling
+
+### Build Pipeline — COMPLETE
+- `build_place.py` compiles Lua sources → `.rbxlx` XML place file
+- `publish.py` handles Roblox Open Cloud API publishing (with credential validation)
+
+### Publishing — COMPLETE
+- **Roblox Account**: fredyuzx (User ID: 10617330902)
+- **Target**: Universe `9838675013`, Place `118831023221258`
+- **Game URL**: https://www.roblox.com/games/118831023221258/TechStartupTycoon
+- Real API call (2026-03-06): `POST /universes/v1/9838675013/places/118831023221258/versions` → **HTTP 200**
+- **Published Version**: 18
+- Place file: 20,329 bytes, 5 scripts, all validations PASS

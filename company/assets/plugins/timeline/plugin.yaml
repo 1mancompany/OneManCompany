@@ -1,0 +1,17 @@
+id: timeline
+name: "时间线"
+version: "1.0.0"
+description: "Timeline view"
+author: "OneManCompany"
+builtin: true
+view_type: project_tab
+order: 20
+icon: "⏱"
+backend:
+  module: transform
+  function: transform
+frontend:
+  script: render.js
+  style: style.css
+  render_function: renderTimeline
+data_requires: [dispatches, employees]

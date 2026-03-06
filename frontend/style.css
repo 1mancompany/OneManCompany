@@ -2283,6 +2283,143 @@ body {
   white-space: nowrap;
 }
 
+/* ===== Settings Panel ===== */
+#settings-body {
+  overflow-y: auto;
+}
+
+/* Settings sub-section headers */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section-header:hover {
+  background: rgba(0, 255, 255, 0.05);
+}
+.settings-section-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--pixel-cyan);
+}
+.settings-collapse-arrow {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.settings-section-header:not(.collapsed) .settings-collapse-arrow {
+  transform: rotate(90deg);
+}
+.settings-section-body {
+  overflow: hidden;
+}
+.settings-section-body.collapsed {
+  display: none;
+}
+
+.api-provider-card {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+.api-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.api-card-toggle {
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0;
+}
+.api-card-arrow {
+  font-size: 7px;
+  color: var(--text-dim);
+  margin-left: auto;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.api-card-toggle.collapsed .api-card-arrow {
+  transform: rotate(-90deg);
+}
+.api-card-body.collapsed {
+  display: none;
+}
+.api-card-title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--pixel-white);
+}
+.api-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--pixel-red);
+}
+.api-status-dot.online {
+  background: var(--pixel-green);
+  box-shadow: 0 0 4px var(--pixel-green);
+}
+.api-status-dot.offline {
+  background: var(--pixel-red);
+}
+.api-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.api-field-label {
+  font-size: 6px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.api-key-input {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--pixel-white);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  padding: 4px 6px;
+  border-radius: 2px;
+  width: 100%;
+}
+.api-key-input:focus {
+  border-color: var(--pixel-blue);
+  outline: none;
+}
+.api-card-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
+}
+.api-test-btn {
+  font-size: 7px !important;
+}
+.api-test-result {
+  font-size: 7px;
+  font-family: 'Press Start 2P', monospace;
+  margin-left: 4px;
+}
+.api-test-result.success {
+  color: var(--pixel-green);
+}
+.api-test-result.fail {
+  color: var(--pixel-red);
+}
+#api-settings-content {
+  padding: 4px;
+}
+
 /* ===== Company Culture ===== */
 .company-culture-modal-content {
   max-width: 600px;
@@ -3285,3 +3422,18 @@ body {
   min-width: 24px;
   text-align: right;
 }
+
+/* ===== Project Tabs ===== */
+.project-tabs { display: flex; gap: 2px; margin-bottom: 4px; }
+.project-tab {
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  border: none; padding: 3px 8px; cursor: pointer;
+  font-size: 8px; font-family: inherit;
+}
+.project-tab.active {
+  background: var(--pixel-cyan);
+  color: var(--bg-dark);
+}
+
+/* Kanban + Timeline styles are now loaded dynamically from plugins */

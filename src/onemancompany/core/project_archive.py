@@ -634,33 +634,117 @@ def set_acceptance_criteria(project_id: str, criteria: list[str], responsible_of
     _save_resolved(version, key, doc)
 
 
-def record_dispatch(project_id: str, employee_id: str, description: str) -> None:
-    """Record that a task was dispatched to an agent for this project."""
+def record_dispatch(
+    project_id: str,
+    employee_id: str,
+    description: str,
+    task_type: str = "execution",
+    scheduled_start: str = "",
+    estimated_duration_min: int = 0,
+    estimated_cost_usd: float = 0.0,
+) -> str:
+    """Record that a task was dispatched to an agent for this project. Returns dispatch_id."""
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
-        return
+        return ""
     dispatches = doc.get("dispatches", [])
+
+    # Resolve assignee name for frontend convenience
+    assignee_name = employee_id
+    try:
+        from onemancompany.core.state import company_state
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            assignee_name = emp.nickname or emp.name
+    except Exception as _e:
+        logger.debug("Could not resolve assignee name for {}: {}", employee_id, _e)
+
+    dispatch_id = uuid.uuid4().hex[:8]
     dispatches.append({
+        "dispatch_id": dispatch_id,
         "employee_id": employee_id,
         "description": description[:200],
         "status": "in_progress",
+        "phase": 1,
+        "depends_on": [],
         "dispatched_at": datetime.now().isoformat(),
+        "completed_at": None,
+        "task_type": task_type,
+        "scheduled_start": scheduled_start,
+        "estimated_duration_min": estimated_duration_min,
+        "estimated_cost_usd": estimated_cost_usd,
+        "assignee_name": assignee_name,
     })
     doc["dispatches"] = dispatches
     _save_resolved(version, key, doc)
+    return dispatch_id
 
 
-def record_dispatch_completion(project_id: str, employee_id: str) -> None:
-    """Mark a dispatch as completed."""
+def find_duplicate_dispatch(project_id: str, employee_id: str, description: str) -> dict | None:
+    """检查项目中是否已有给同一 employee 的类似 in_progress 任务。
+
+    匹配逻辑：同 employee_id + 描述文本关键词相似度 > 0.7
+    返回已有的 dispatch dict，或 None。
+    """
+    _version, doc, _key = _resolve_and_load(project_id)
+    if not doc:
+        return None
+    dispatches = doc.get("dispatches", [])
+    if not dispatches:
+        return None
+
+    # Tokenize: split on whitespace and punctuation, lowercase, filter short tokens
+    def _keywords(text: str) -> set[str]:
+        tokens = re.split(r'[\s\-_/\\,.;:!?()（）【】""]+', text.lower())
+        return {t for t in tokens if len(t) >= 2}
+
+    new_kw = _keywords(description)
+    if not new_kw:
+        return None
+
+    for d in dispatches:
+        if d.get("employee_id") != employee_id:
+            continue
+        if d.get("status") not in ("in_progress", "pending"):
+            continue
+        existing_kw = _keywords(d.get("description", ""))
+        if not existing_kw:
+            continue
+        overlap = len(new_kw & existing_kw)
+        union = len(new_kw | existing_kw)
+        if union > 0 and overlap / union > 0.7:
+            return d
+    return None
+
+
+def record_dispatch_completion(project_id: str, employee_id: str) -> bool:
+    """Mark a dispatch as completed. Returns True if new dispatches became ready."""
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
-        return
+        return False
     for d in doc.get("dispatches", []):
-        if d["employee_id"] == employee_id and d["status"] == "in_progress":
+        if d["employee_id"] == employee_id and d.get("status") == "in_progress":
             d["status"] = "completed"
             d["completed_at"] = datetime.now().isoformat()
             break
     _save_resolved(version, key, doc)
+
+    # Publish dispatch status change event for live UI updates
+    try:
+        import asyncio
+        from onemancompany.core.events import CompanyEvent, event_bus
+        loop = asyncio.get_running_loop()
+        loop.create_task(event_bus.publish(CompanyEvent(
+            type="dispatch_status_change",
+            payload={"project_id": project_id, "employee_id": employee_id, "status": "completed"},
+            agent="SYSTEM",
+        )))
+    except RuntimeError:
+        logger.debug("No event loop for dispatch_status_change event (sync context)")
+
+    # Check if any pending dispatches became ready
+    ready = get_ready_dispatches(project_id)
+    return len(ready) > 0
 
 
 def all_dispatches_complete(project_id: str) -> bool:
@@ -672,6 +756,55 @@ def all_dispatches_complete(project_id: str) -> bool:
     if not dispatches:
         return True
     return all(d["status"] == "completed" for d in dispatches)
+
+
+def record_team_dispatches(project_id: str, dispatches_list: list[dict]) -> None:
+    """Batch-write all dispatches for a team project.
+
+    Each dispatch dict: {dispatch_id, employee_id, description, status, phase, depends_on, dispatched_at, completed_at}
+    """
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        return
+    existing = doc.get("dispatches", [])
+    existing.extend(dispatches_list)
+    doc["dispatches"] = existing
+    _save_resolved(version, key, doc)
+
+
+def get_ready_dispatches(project_id: str) -> list[dict]:
+    """Return dispatches where depends_on are all completed and status=='pending'."""
+    _version, doc, _key = _resolve_and_load(project_id)
+    if not doc:
+        return []
+    dispatches = doc.get("dispatches", [])
+    # Build set of completed dispatch_ids
+    completed_ids = {
+        d.get("dispatch_id", "")
+        for d in dispatches
+        if d.get("status") == "completed" and d.get("dispatch_id")
+    }
+    ready = []
+    for d in dispatches:
+        if d.get("status") != "pending":
+            continue
+        deps = d.get("depends_on", [])
+        if all(dep in completed_ids for dep in deps):
+            ready.append(d)
+    return ready
+
+
+def activate_dispatch(project_id: str, dispatch_id: str) -> None:
+    """Set a dispatch's status to 'in_progress' and set dispatched_at."""
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        return
+    for d in doc.get("dispatches", []):
+        if d.get("dispatch_id") == dispatch_id:
+            d["status"] = "in_progress"
+            d["dispatched_at"] = datetime.now().isoformat()
+            break
+    _save_resolved(version, key, doc)
 
 
 def set_acceptance_result(project_id: str, accepted: bool, officer_id: str, notes: str = "") -> None:

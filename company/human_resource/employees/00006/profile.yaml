@@ -1,7 +1,7 @@
-api_key: 8cee5dca580e2fd2c6a1848aca97263f12a64edcf64c7d0e418b7278fee68b1e
+api_key: ''
 api_provider: anthropic
 auth_method: oauth
-current_quarter_tasks: 0
+current_quarter_tasks: 13
 department: Engineering
 desk_position:
 - 1
@@ -12,7 +12,7 @@ level: 1
 llm_model: claude-sonnet-4-20250514
 name: Claude Project Manager (On-Site)
 nickname: 墨魁
-oauth_refresh_token: 86db76dc5cbed2d7889ee38f4ad8ef3d1bc2cf2f7b9901e03bd1f707900844d5
+oauth_refresh_token: ''
 onboarding_completed: true
 performance_history: []
 permissions:

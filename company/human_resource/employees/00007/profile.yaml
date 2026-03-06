@@ -1,7 +1,7 @@
-api_key: 896ac656391b881dd3e24c02673f49b1c2559da7d981f3bf85be8c9d9905a04c
+api_key: ''
 api_provider: anthropic
 auth_method: oauth
-current_quarter_tasks: 1
+current_quarter_tasks: 14
 department: Engineering
 desk_position:
 - 4
@@ -12,7 +12,7 @@ level: 1
 llm_model: claude-sonnet-4-20250514
 name: Claude Game Dev Engineer (On-Site)
 nickname: 铸客
-oauth_refresh_token: c494d928b56e92ab6399163b024ec7bf836d1270b7b71fa13a7167b8898ec95d
+oauth_refresh_token: ''
 onboarding_completed: true
 performance_history: []
 permissions:

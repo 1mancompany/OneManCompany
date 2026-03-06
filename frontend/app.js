@@ -25,8 +25,13 @@ class AppController {
     this._historyDraft = '';
     // Task attachment files
     this._taskPendingFiles = [];
-    this.connect();
-    this.bindUI();
+    // Board view: track which project's plugin tab is being viewed
+    this._viewingBoardProjectId = null;
+    // Initialize plugin system before connecting
+    window.pluginLoader.init().then(() => {
+      this.connect();
+      this.bindUI();
+    });
     this.bindCollapsibles();
     this._initPanelDividers();
   }
@@ -210,6 +215,25 @@ class AppController {
           this._fetchTaskBoard(this.viewingEmployeeId);
         }
         return { text: `📋 ${p.employee_id} task: ${p.status || 'updated'}`, cls: 'system', agent: 'AGENT' };
+      },
+      'dispatch_status_change': (p) => {
+        // Refresh the active plugin tab if viewing that project
+        if (this._viewingBoardProjectId && p.project_id) {
+          const activeTab = document.querySelector('.project-tab.active');
+          if (activeTab && activeTab.dataset.tab && activeTab.dataset.tab.startsWith('plugin-')) {
+            const pluginId = activeTab.dataset.tab.replace('plugin-', '');
+            const container = document.querySelector(`.project-tab-content[data-tab="${activeTab.dataset.tab}"]`);
+            if (container) {
+              window.pluginLoader.render(pluginId, this._viewingBoardProjectId, container, {escHtml: this._escHtml, projectId: this._viewingBoardProjectId});
+            }
+          }
+        }
+        return null;
+      },
+      'ceo_report': (p) => {
+        this._showCeoReport(p);
+        const icon = p.action_required ? '🚨' : '📊';
+        return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'code_update_available': (p) => {
         this._showCodeUpdateBanner(p.count, p.changed_files);
@@ -829,6 +853,37 @@ class AppController {
     document.getElementById('workflow-modal').addEventListener('click', (e) => {
       if (e.target.id === 'workflow-modal') this.closeWorkflowPanel();
     });
+
+    // Settings panel: fetch API settings on first expand
+    this._settingsLoaded = false;
+    const settingsHeader = document.querySelector('[data-target="settings-body"]');
+    if (settingsHeader) {
+      settingsHeader.addEventListener('click', () => {
+        if (!this._settingsLoaded) {
+          this._settingsLoaded = true;
+          this._renderApiSettings();
+        }
+      });
+    }
+
+    // Settings sub-section toggle
+    document.querySelectorAll('.settings-section-header').forEach(hdr => {
+      hdr.addEventListener('click', () => {
+        const targetId = hdr.getAttribute('data-target');
+        const body = document.getElementById(targetId);
+        if (body) {
+          hdr.classList.toggle('collapsed');
+          body.classList.toggle('collapsed');
+        }
+      });
+    });
+
+    // Listen for OAuth popup completion (company-level)
+    window.addEventListener('message', (e) => {
+      if (e.data === 'oauth_done' && this._settingsLoaded) {
+        setTimeout(() => this._renderApiSettings(), 500);
+      }
+    });
   }
 
   // ===== 1-on-1 Meeting (Conversational Chat) =====
@@ -1353,6 +1408,39 @@ class AppController {
   }
 
   // ===== Code Update Banner =====
+  _showCeoReport(payload) {
+    const { subject, report, action_required } = payload;
+    const icon = action_required ? '🚨' : '📊';
+    const urgency = action_required ? ' (需要CEO操作)' : '';
+
+    // Build a modal overlay for the report
+    let overlay = document.getElementById('ceo-report-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ceo-report-overlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+      document.body.appendChild(overlay);
+    }
+
+    const reportHtml = this._escHtml(report).replace(/\n/g, '<br>');
+    overlay.innerHTML = `
+      <div style="background:var(--bg-panel,#1a1a2e);border:2px solid ${action_required ? '#ff6b6b' : 'var(--accent,#4fc3f7)'};border-radius:4px;padding:12px;max-width:500px;max-height:70vh;overflow-y:auto;font-family:var(--font-mono,monospace);font-size:7px;color:var(--text,#e0e0e0);">
+        <div style="font-size:9px;font-weight:bold;margin-bottom:8px;color:${action_required ? '#ff6b6b' : 'var(--accent,#4fc3f7)'};">
+          ${icon} ${this._escHtml(subject)}${urgency}
+        </div>
+        <div style="line-height:1.5;margin-bottom:10px;white-space:pre-wrap;">${reportHtml}</div>
+        <div style="text-align:right;">
+          <button class="pixel-btn small" id="ceo-report-dismiss">知道了</button>
+        </div>
+      </div>
+    `;
+    overlay.classList.remove('hidden');
+    overlay.style.display = 'flex';
+    document.getElementById('ceo-report-dismiss').onclick = () => {
+      overlay.style.display = 'none';
+    };
+  }
+
   _showCodeUpdateBanner(count, files) {
     const banner = document.getElementById('code-update-banner');
     const textEl = document.getElementById('code-update-text');
@@ -1599,14 +1687,53 @@ class AppController {
   }
 
   _renderFallbackModelSection(empId, empData, container) {
-    // Simple OpenRouter model dropdown fallback
+    const currentProvider = empData.api_provider || 'openrouter';
     const section = document.createElement('div');
     section.className = 'emp-detail-section-content emp-model-section';
+    section.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
     section.innerHTML = `
-      <select id="emp-detail-model" class="emp-model-select"><option value="">Loading...</option></select>
-      <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:45px;">Provider</span>
+        <select id="emp-detail-provider" class="emp-model-select" style="flex:1;">
+          <option value="openrouter"${currentProvider === 'openrouter' ? ' selected' : ''}>OpenRouter</option>
+          <option value="anthropic"${currentProvider === 'anthropic' ? ' selected' : ''}>Anthropic</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:45px;">Model</span>
+        <select id="emp-detail-model" class="emp-model-select" style="flex:1;"><option value="">Loading...</option></select>
+      </div>
+      <div style="display:flex;gap:4px;justify-content:flex-end;">
+        <button id="emp-model-save-btn" class="pixel-btn small" disabled>Save</button>
+      </div>
     `;
     container.appendChild(section);
+
+    // Provider change handler
+    document.getElementById('emp-detail-provider').addEventListener('change', (e) => {
+      const provider = e.target.value;
+      const saveBtn = document.getElementById('emp-model-save-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Switching...';
+      fetch(`/api/employee/${empId}/provider`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_provider: provider }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) {
+            this.logEntry('SYSTEM', `Provider switch failed: ${data.error}`, 'system');
+          } else {
+            this.logEntry('CEO', `Switched to ${provider}`, 'ceo');
+            // Reload settings to reflect new provider
+            this._loadModelOrApiKeySection(empId);
+          }
+        })
+        .catch(err => this.logEntry('SYSTEM', `Switch failed: ${err.message}`, 'system'))
+        .finally(() => { saveBtn.disabled = false; saveBtn.textContent = 'Save'; });
+    });
+
     this._loadModelDropdown(empId, empData);
   }
 
@@ -3193,6 +3320,148 @@ class AppController {
       .catch(err => this.logEntry('SYSTEM', `Error: ${err.message}`, 'system'));
   }
 
+  // ===== Global API Settings =====
+  async _renderApiSettings() {
+    const container = document.getElementById('api-settings-content');
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:6px;">Loading...</div>';
+    try {
+      const resp = await fetch('/api/settings/api');
+      const data = await resp.json();
+      const or = data.openrouter || {};
+      const ant = data.anthropic || {};
+
+      // Fetch models for dropdown (cached)
+      let modelOptions = '';
+      if (!this.cachedModels) {
+        try {
+          const mResp = await fetch('/api/models');
+          const mData = await mResp.json();
+          this.cachedModels = mData.models || [];
+        } catch { this.cachedModels = []; }
+      }
+      for (const m of this.cachedModels) {
+        const sel = m.id === or.default_model ? ' selected' : '';
+        modelOptions += `<option value="${m.id}"${sel}>${m.name || m.id}</option>`;
+      }
+      if (!modelOptions) {
+        modelOptions = `<option value="${or.default_model || ''}" selected>${or.default_model || '(none)'}</option>`;
+      }
+
+      container.innerHTML = `
+        <div class="api-provider-card">
+          <div class="api-card-header api-card-toggle" data-target="api-or-body">
+            <span class="api-status-dot ${or.api_key_set ? 'online' : 'offline'}"></span>
+            <span class="api-card-title">OpenRouter</span>
+            <span class="api-card-arrow">&#9660;</span>
+          </div>
+          <div id="api-or-body" class="api-card-body collapsed">
+            <label class="api-field-label">API Key</label>
+            <input type="password" id="api-or-key" class="api-key-input" placeholder="${or.api_key_set ? or.api_key_preview : 'sk-or-...'}" />
+            <label class="api-field-label">Base URL</label>
+            <input type="text" id="api-or-url" class="api-key-input" value="${this._escHtml(or.base_url || '')}" />
+            <label class="api-field-label">Default Model</label>
+            <select id="api-or-model" class="api-key-input">${modelOptions}</select>
+            <div class="api-card-actions">
+              <button class="pixel-btn small api-test-btn" onclick="app._testApiConnection('openrouter')">Test</button>
+              <button class="pixel-btn small" onclick="app._saveApiSettings('openrouter')">Save</button>
+              <span id="api-or-result" class="api-test-result"></span>
+            </div>
+          </div>
+        </div>
+        <div class="api-provider-card">
+          <div class="api-card-header api-card-toggle" data-target="api-ant-body">
+            <span class="api-status-dot ${ant.api_key_set ? 'online' : 'offline'}"></span>
+            <span class="api-card-title">Anthropic</span>
+            <span class="api-card-arrow">&#9660;</span>
+          </div>
+          <div id="api-ant-body" class="api-card-body collapsed">
+            <div class="api-card-actions">
+              <button class="pixel-btn small" onclick="app._startCompanyOAuth()">OAuth Login</button>
+              <span class="api-field-label" style="margin-left:4px;">${ant.api_key_set ? '&#9989; Connected' : '&#10060; Not connected'}</span>
+            </div>
+          </div>
+        </div>
+      `;
+      // Bind toggle for provider cards
+      container.querySelectorAll('.api-card-toggle').forEach(hdr => {
+        hdr.addEventListener('click', () => {
+          const body = document.getElementById(hdr.dataset.target);
+          if (body) {
+            hdr.classList.toggle('collapsed');
+            body.classList.toggle('collapsed');
+          }
+        });
+      });
+    } catch (e) {
+      container.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;padding:6px;">Error: ${e.message}</div>`;
+    }
+  }
+
+  async _saveApiSettings(provider) {
+    const body = { provider };
+    if (provider === 'openrouter') {
+      const key = document.getElementById('api-or-key').value.trim();
+      const url = document.getElementById('api-or-url').value.trim();
+      const model = document.getElementById('api-or-model').value;
+      if (key) body.api_key = key;
+      if (url) body.base_url = url;
+      if (model) body.default_model = model;
+    } else {
+      const key = document.getElementById('api-ant-key').value.trim();
+      if (key) body.api_key = key;
+    }
+    try {
+      const resp = await fetch('/api/settings/api', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (data.status === 'updated') {
+        this._settingsLoaded = false;
+        this._renderApiSettings();
+      }
+    } catch (e) {
+      console.error('Save API settings error:', e);
+    }
+  }
+
+  async _testApiConnection(provider) {
+    const resultEl = document.getElementById(provider === 'openrouter' ? 'api-or-result' : 'api-ant-result');
+    resultEl.textContent = '...';
+    resultEl.className = 'api-test-result';
+    try {
+      const resp = await fetch('/api/settings/api/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        resultEl.textContent = 'OK';
+        resultEl.classList.add('success');
+      } else {
+        resultEl.textContent = 'FAIL';
+        resultEl.classList.add('fail');
+      }
+    } catch (e) {
+      resultEl.textContent = 'ERR';
+      resultEl.classList.add('fail');
+    }
+  }
+
+  async _startCompanyOAuth() {
+    try {
+      const resp = await fetch('/api/settings/api/oauth/start', { method: 'POST' });
+      const data = await resp.json();
+      if (data.auth_url) {
+        window.open(data.auth_url, 'anthropic_oauth', 'width=600,height=700');
+      }
+    } catch (e) {
+      console.error('Company OAuth start error:', e);
+    }
+  }
+
   // ===== Operations Dashboard =====
   openDashboard() {
     const modal = document.getElementById('dashboard-modal');
@@ -3950,89 +4219,88 @@ class AppController {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
           return;
         }
-        let html = '';
 
-        // Task description
-        html += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
-        html += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
+        // Tab bar — "详情" fixed + dynamic plugin tabs
+        const plugins = window.pluginLoader.getPlugins();
+        let tabBarHtml = `<div class="project-tabs"><button class="project-tab active" data-tab="detail">详情</button>`;
+        for (const p of plugins) {
+          tabBarHtml += `<button class="project-tab" data-tab="plugin-${p.id}">${p.icon ? p.icon + ' ' : ''}${p.name}</button>`;
+        }
+        tabBarHtml += `</div>`;
+
+        // Detail tab content
+        let detailHtml = '';
+        detailHtml += `<div style="color:var(--pixel-yellow);font-size:7px;margin-bottom:6px;">${this._escHtml(doc.task || '')}</div>`;
+        detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin-bottom:8px;">Status: ${doc.status} | Owner: ${doc.current_owner || '-'}</div>`;
 
         // Acceptance criteria
         const criteria = doc.acceptance_criteria || [];
         if (criteria.length > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">验收标准 (${criteria.length})</div>`;
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">验收标准 (${criteria.length})</div>`;
           const ar = doc.acceptance_result;
           for (let i = 0; i < criteria.length; i++) {
             const icon = ar ? (ar.accepted ? '\u2705' : '\u274C') : '\u2B1C';
-            html += `<div style="font-size:5px;color:var(--pixel-white);padding:1px 0;">${icon} ${i + 1}. ${this._escHtml(criteria[i])}</div>`;
+            detailHtml += `<div style="font-size:5px;color:var(--pixel-white);padding:1px 0;">${icon} ${i + 1}. ${this._escHtml(criteria[i])}</div>`;
           }
-
-          // Acceptance result
           if (ar) {
             const arIcon = ar.accepted ? '\u2705' : '\u274C';
             const arLabel = ar.accepted ? '通过' : '未通过';
             const arNotes = ar.notes ? ` — ${this._escHtml(ar.notes.substring(0, 200))}${ar.notes.length > 200 ? '...' : ''}` : '';
-            html += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} 验收结果: ${arLabel}${arNotes}</div>`;
+            detailHtml += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} 验收结果: ${arLabel}${arNotes}</div>`;
           }
-
-          // EA review result
           const ear = doc.ea_review_result;
           if (ear) {
             const earIcon = ear.approved ? '\u2705' : '\u274C';
             const earLabel = ear.approved ? '通过' : '驳回';
             const earNotes = ear.notes ? ` — ${this._escHtml(ear.notes.substring(0, 200))}${ear.notes.length > 200 ? '...' : ''}` : '';
-            html += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA审核: ${earIcon} ${earLabel}${earNotes}</div>`;
+            detailHtml += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA审核: ${earIcon} ${earLabel}${earNotes}</div>`;
           }
         }
 
-        // Continue button for incomplete iterations
         if (doc.status !== 'completed') {
-          html += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
+          detailHtml += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
         }
 
-        // Output documents / files
         const files = doc.files || [];
         const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
-        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
+        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
         if (files.length > 0) {
           for (const f of files) {
             const ext = f.split('.').pop().toLowerCase();
             const icon = {png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'}[ext] || '\uD83D\uDCC4';
-            html += `<div class="project-file-item" data-file="${this._escHtml(f)}" data-url="${fileBaseUrl}${encodeURIComponent(f)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:3px 2px;border-bottom:1px solid var(--border);cursor:pointer;">${icon} ${this._escHtml(f)}</div>`;
+            detailHtml += `<div class="project-file-item" data-file="${this._escHtml(f)}" data-url="${fileBaseUrl}${encodeURIComponent(f)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:3px 2px;border-bottom:1px solid var(--border);cursor:pointer;">${icon} ${this._escHtml(f)}</div>`;
           }
         } else {
-          html += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
         }
 
-        // Final output
         if (doc.output) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
-          html += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output).substring(0, 500)}</div>`;
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output).substring(0, 500)}</div>`;
         }
 
-        // Timeline / Log
         const timeline = doc.timeline || [];
-        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Log (${timeline.length})</div>`;
+        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Log (${timeline.length})</div>`;
         if (timeline.length > 0) {
-          html += `<div style="max-height:120px;overflow-y:auto;">`;
+          detailHtml += `<div style="max-height:120px;overflow-y:auto;">`;
           for (const entry of timeline) {
             const time = (entry.time || '').substring(11, 19);
-            html += `<div style="font-size:5px;line-height:1.6;border-left:2px solid var(--border);padding-left:4px;margin:1px 0;">`;
-            html += `<span style="color:var(--text-dim);">[${time}]</span> `;
-            html += `<span style="color:var(--pixel-green);">${entry.employee_id}</span> `;
-            html += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
+            detailHtml += `<div style="font-size:5px;line-height:1.6;border-left:2px solid var(--border);padding-left:4px;margin:1px 0;">`;
+            detailHtml += `<span style="color:var(--text-dim);">[${time}]</span> `;
+            detailHtml += `<span style="color:var(--pixel-green);">${entry.employee_id}</span> `;
+            detailHtml += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
             if (entry.detail) {
-              html += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail.substring(0, 150))}${entry.detail.length > 150 ? '...' : ''}</div>`;
+              detailHtml += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail.substring(0, 150))}${entry.detail.length > 150 ? '...' : ''}</div>`;
             }
-            html += `</div>`;
+            detailHtml += `</div>`;
           }
-          html += `</div>`;
+          detailHtml += `</div>`;
         } else {
-          html += `<div style="font-size:5px;color:var(--text-dim);">No log entries</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No log entries</div>`;
         }
 
-        // Cost & Budget
         const cost = doc.cost || {};
-        html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Cost & Budget</div>`;
+        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Cost & Budget</div>`;
         const actual = cost.actual_cost_usd || 0;
         const budget = cost.budget_estimate_usd || 0;
         const tokens = cost.token_usage || {};
@@ -4043,23 +4311,49 @@ class AppController {
             const pctColor = pct > 100 ? 'var(--pixel-red)' : 'var(--pixel-green)';
             budgetLine = ` / Budget: $${budget.toFixed(3)} (<span style="color:${pctColor};">${pct}%</span>)`;
           }
-          html += `<div style="font-size:6px;color:var(--pixel-white);margin:2px 0;">Actual: $${actual.toFixed(4)}${budgetLine}</div>`;
-          html += `<div style="font-size:5px;color:var(--text-dim);margin:2px 0;">Tokens: ${(tokens.input||0).toLocaleString()} in / ${(tokens.output||0).toLocaleString()} out</div>`;
-          // Breakdown
+          detailHtml += `<div style="font-size:6px;color:var(--pixel-white);margin:2px 0;">Actual: $${actual.toFixed(4)}${budgetLine}</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--text-dim);margin:2px 0;">Tokens: ${(tokens.input||0).toLocaleString()} in / ${(tokens.output||0).toLocaleString()} out</div>`;
           const breakdown = cost.breakdown || [];
           if (breakdown.length > 0) {
-            html += `<table style="font-size:5px;width:100%;border-collapse:collapse;margin-top:3px;">`;
-            html += `<tr style="color:var(--text-dim);"><th style="text-align:left;">Employee</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>`;
+            detailHtml += `<table style="font-size:5px;width:100%;border-collapse:collapse;margin-top:3px;">`;
+            detailHtml += `<tr style="color:var(--text-dim);"><th style="text-align:left;">Employee</th><th>Model</th><th>Tokens</th><th>Cost</th></tr>`;
             for (const b of breakdown) {
-              html += `<tr><td>${b.employee_id}</td><td>${(b.model||'').split('/').pop()}</td><td>${(b.total_tokens||0).toLocaleString()}</td><td>$${(b.cost_usd||0).toFixed(4)}</td></tr>`;
+              detailHtml += `<tr><td>${b.employee_id}</td><td>${(b.model||'').split('/').pop()}</td><td>${(b.total_tokens||0).toLocaleString()}</td><td>$${(b.cost_usd||0).toFixed(4)}</td></tr>`;
             }
-            html += `</table>`;
+            detailHtml += `</table>`;
           }
         } else {
-          html += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
         }
 
-        panel.innerHTML = html;
+        // Build full panel HTML with tabs — detail + dynamic plugin containers
+        let fullHtml = tabBarHtml + `<div class="project-tab-content" data-tab="detail">${detailHtml}</div>`;
+        for (const p of plugins) {
+          fullHtml += `<div class="project-tab-content" data-tab="plugin-${p.id}" style="display:none;"><div style="color:var(--text-dim);font-size:6px;">Loading...</div></div>`;
+        }
+        panel.innerHTML = fullHtml;
+
+        // Bind tab switching
+        panel.querySelectorAll('.project-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            panel.querySelectorAll('.project-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const tabName = tab.dataset.tab;
+            panel.querySelectorAll('.project-tab-content').forEach(c => {
+              c.style.display = c.dataset.tab === tabName ? '' : 'none';
+            });
+            if (tabName.startsWith('plugin-')) {
+              const pluginId = tabName.replace('plugin-', '');
+              this._viewingBoardProjectId = projectId;
+              const container = panel.querySelector(`.project-tab-content[data-tab="${tabName}"]`);
+              if (container) {
+                window.pluginLoader.render(pluginId, projectId, container, {escHtml: this._escHtml, projectId});
+              }
+            } else {
+              this._viewingBoardProjectId = null;
+            }
+          });
+        });
 
         // Bind file click handlers
         panel.querySelectorAll('.project-file-item').forEach(item => {

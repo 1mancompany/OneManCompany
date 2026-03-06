@@ -1,0 +1,2425 @@
+<?xml version="1.0" encoding="utf-8"?>
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+  <Item class="Workspace" referent="RBX00000001">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="FilteringEnabled">true</bool>
+    </Properties>
+    <Item class="Part" referent="RBX00000002">
+      <Properties>
+        <string name="Name">Baseplate</string>
+        <bool name="Anchored">true</bool>
+        <Vector3 name="size">
+          <X>512</X>
+          <Y>1</Y>
+          <Z>512</Z>
+        </Vector3>
+        <CoordinateFrame name="CFrame">
+          <X>0</X>
+          <Y>-0.5</Y>
+          <Z>0</Z>
+          <R00>1</R00>
+          <R01>0</R01>
+          <R02>0</R02>
+          <R10>0</R10>
+          <R11>1</R11>
+          <R12>0</R12>
+          <R20>0</R20>
+          <R21>0</R21>
+          <R22>1</R22>
+        </CoordinateFrame>
+        <Color3 name="Color3uint8">
+          <R>20</R>
+          <G>20</G>
+          <B>30</B>
+        </Color3>
+        <float name="Transparency">0</float>
+      </Properties>
+    </Item>
+    <Item class="Camera" referent="RBX00000003">
+      <Properties>
+        <string name="Name">Camera</string>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="Lighting" referent="RBX00000004">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="Brightness">1</float>
+      <float name="ClockTime">0</float>
+      <Color3 name="Ambient">
+        <R>0.15</R>
+        <G>0.15</G>
+        <B>0.2</B>
+      </Color3>
+      <Color3 name="OutdoorAmbient">
+        <R>0.1</R>
+        <G>0.1</G>
+        <B>0.15</B>
+      </Color3>
+      <float name="FogEnd">300</float>
+      <Color3 name="FogColor">
+        <R>0.05</R>
+        <G>0.05</G>
+        <B>0.1</B>
+      </Color3>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="RBX00000005">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="ModuleScript" referent="RBX00000006">
+      <Properties>
+        <string name="Name">GameConfig</string>
+        <ProtectedString name="Source">-- GameConfig: shared constants for Shadow Dungeon: Descent
+local GameConfig = {}
+
+-- ── Classes ─────────────────────────────────────────────
+GameConfig.CLASSES = {
+	Warrior = {
+		hp = 150, atk = 15, def = 12, speed = 14,
+		ability = &quot;Shield Bash&quot;,
+		abilityCooldown = 5,
+		abilityDamage = 25,
+		abilityEffect = &quot;stun&quot;,
+		ultimate = &quot;Berserker Rage&quot;,
+		ultimateCooldown = 30,
+		color = Color3.fromRGB(200, 50, 50),
+	},
+	Mage = {
+		hp = 80, atk = 25, def = 5, speed = 12,
+		ability = &quot;Fireball&quot;,
+		abilityCooldown = 4,
+		abilityDamage = 40,
+		abilityEffect = &quot;burn&quot;,
+		ultimate = &quot;Arcane Storm&quot;,
+		ultimateCooldown = 35,
+		color = Color3.fromRGB(80, 80, 220),
+	},
+	Archer = {
+		hp = 100, atk = 20, def = 8, speed = 18,
+		ability = &quot;Power Shot&quot;,
+		abilityCooldown = 3,
+		abilityDamage = 35,
+		abilityEffect = &quot;pierce&quot;,
+		ultimate = &quot;Arrow Rain&quot;,
+		ultimateCooldown = 25,
+		color = Color3.fromRGB(50, 180, 50),
+	},
+}
+
+-- ── Enemies ─────────────────────────────────────────────
+GameConfig.ENEMIES = {
+	Skeleton = {
+		hp = 30, atk = 5, def = 2, speed = 10,
+		floorMin = 1, floorMax = 5,
+		xpReward = 5, soulGemChance = 0.1,
+		color = Color3.fromRGB(200, 200, 200),
+		size = Vector3.new(4, 5, 4),
+	},
+	Zombie = {
+		hp = 50, atk = 8, def = 4, speed = 7,
+		floorMin = 1, floorMax = 10,
+		xpReward = 8, soulGemChance = 0.15,
+		special = &quot;slow&quot;,
+		color = Color3.fromRGB(80, 140, 80),
+		size = Vector3.new(4, 5, 4),
+	},
+	DarkKnight = {
+		hp = 80, atk = 12, def = 10, speed = 9,
+		floorMin = 5, floorMax = 15,
+		xpReward = 15, soulGemChance = 0.2,
+		special = &quot;block&quot;,
+		color = Color3.fromRGB(40, 40, 60),
+		size = Vector3.new(5, 6, 5),
+	},
+	ShadowMage = {
+		hp = 60, atk = 18, def = 3, speed = 13,
+		floorMin = 8, floorMax = 20,
+		xpReward = 20, soulGemChance = 0.25,
+		special = &quot;teleport&quot;,
+		color = Color3.fromRGB(100, 0, 150),
+		size = Vector3.new(4, 5, 4),
+	},
+	FireElemental = {
+		hp = 100, atk = 15, def = 6, speed = 11,
+		floorMin = 10, floorMax = 25,
+		xpReward = 25, soulGemChance = 0.3,
+		special = &quot;burn_aoe&quot;,
+		color = Color3.fromRGB(255, 100, 0),
+		size = Vector3.new(5, 6, 5),
+	},
+}
+
+-- ── Bosses ──────────────────────────────────────────────
+GameConfig.BOSSES = {
+	[5]  = {
+		name = &quot;Skeleton King&quot;, hp = 300, atk = 20, def = 8, speed = 8,
+		xpReward = 100, soulGemReward = 5,
+		special = &quot;summon&quot;,
+		color = Color3.fromRGB(255, 255, 200),
+		size = Vector3.new(8, 10, 8),
+	},
+	[10] = {
+		name = &quot;Shadow Dragon&quot;, hp = 500, atk = 30, def = 12, speed = 14,
+		xpReward = 200, soulGemReward = 10,
+		special = &quot;breath&quot;,
+		color = Color3.fromRGB(60, 0, 100),
+		size = Vector3.new(10, 8, 12),
+	},
+	[15] = {
+		name = &quot;Void Lord&quot;, hp = 800, atk = 40, def = 15, speed = 10,
+		xpReward = 350, soulGemReward = 20,
+		special = &quot;phase&quot;,
+		color = Color3.fromRGB(20, 20, 20),
+		size = Vector3.new(12, 14, 12),
+	},
+}
+
+-- ── Loot ────────────────────────────────────────────────
+GameConfig.RARITY = {
+	{ name = &quot;Common&quot;,    weight = 60, multiplier = 1.0, color = Color3.fromRGB(200, 200, 200) },
+	{ name = &quot;Uncommon&quot;,  weight = 25, multiplier = 1.3, color = Color3.fromRGB(50, 200, 50)   },
+	{ name = &quot;Rare&quot;,      weight = 10, multiplier = 1.7, color = Color3.fromRGB(50, 100, 255)  },
+	{ name = &quot;Epic&quot;,      weight = 4,  multiplier = 2.5, color = Color3.fromRGB(160, 50, 255)  },
+	{ name = &quot;Legendary&quot;, weight = 1,  multiplier = 4.0, color = Color3.fromRGB(255, 200, 0)   },
+}
+
+GameConfig.ITEM_TYPES = {
+	{ name = &quot;Sword&quot;,      slot = &quot;weapon&quot;, baseAtk = 5,  classPref = &quot;Warrior&quot; },
+	{ name = &quot;Staff&quot;,      slot = &quot;weapon&quot;, baseAtk = 8,  classPref = &quot;Mage&quot;    },
+	{ name = &quot;Bow&quot;,        slot = &quot;weapon&quot;, baseAtk = 6,  classPref = &quot;Archer&quot;  },
+	{ name = &quot;Helmet&quot;,     slot = &quot;helmet&quot;, baseDef = 3,  baseHp = 10 },
+	{ name = &quot;Chestplate&quot;, slot = &quot;chest&quot;,  baseDef = 5,  baseHp = 20 },
+	{ name = &quot;Boots&quot;,      slot = &quot;boots&quot;,  baseDef = 2,  baseHp = 5, baseSpeed = 2 },
+}
+
+GameConfig.POTIONS = {
+	{ name = &quot;Health Potion&quot;,  effect = &quot;heal&quot;,  value = 50 },
+	{ name = &quot;Speed Potion&quot;,   effect = &quot;speed&quot;, value = 1.5, duration = 15 },
+}
+
+-- ── Meta-Progression (Soul Gems) ────────────────────────
+GameConfig.SOUL_UPGRADES = {
+	{ name = &quot;Vitality&quot;,  stat = &quot;hp&quot;,    perLevel = 10, maxLevel = 5, baseCost = 10 },
+	{ name = &quot;Strength&quot;,  stat = &quot;atk&quot;,   perLevel = 3,  maxLevel = 5, baseCost = 10 },
+	{ name = &quot;Armor&quot;,     stat = &quot;def&quot;,   perLevel = 3,  maxLevel = 5, baseCost = 10 },
+	{ name = &quot;Agility&quot;,   stat = &quot;speed&quot;, perLevel = 2,  maxLevel = 5, baseCost = 10 },
+	{ name = &quot;Lucky&quot;,     stat = &quot;luck&quot;,  perLevel = 2,  maxLevel = 3, baseCost = 30 },
+}
+
+-- ── Dungeon ─────────────────────────────────────────────
+GameConfig.ROOM_SIZE = 60           -- studs per room side
+GameConfig.ROOM_HEIGHT = 20         -- wall height
+GameConfig.ENEMIES_PER_FLOOR_BASE = 3
+GameConfig.ENEMIES_PER_FLOOR_SCALE = 0.5  -- +0.5 per floor
+GameConfig.BOSS_FLOOR_INTERVAL = 5
+
+-- ── Soul Gems ───────────────────────────────────────────
+GameConfig.SOUL_GEMS_PER_FLOOR = 1
+GameConfig.SOUL_GEMS_PER_BOSS = 5
+
+-- ── Combat ──────────────────────────────────────────────
+GameConfig.ATTACK_RANGE = 8         -- studs
+GameConfig.ATTACK_COOLDOWN = 0.8    -- seconds
+GameConfig.ABILITY_RANGE = 15
+GameConfig.STUN_DURATION = 2        -- seconds
+GameConfig.BURN_DAMAGE = 3          -- per tick
+GameConfig.BURN_DURATION = 5        -- seconds
+GameConfig.ENEMY_AGGRO_RANGE = 25   -- studs
+GameConfig.ENEMY_ATTACK_RANGE = 6
+
+-- ── DataStore ───────────────────────────────────────────
+GameConfig.DATASTORE_NAME = &quot;ShadowDungeon_PlayerData_v1&quot;
+GameConfig.AUTO_SAVE_INTERVAL = 60
+
+return GameConfig
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="RBX00000007">
+      <Properties>
+        <string name="Name">DungeonGenerator</string>
+        <ProtectedString name="Source">-- DungeonGenerator: procedural dungeon floor generation
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+
+local DungeonGenerator = {}
+
+local ROOM = GameConfig.ROOM_SIZE
+local HEIGHT = GameConfig.ROOM_HEIGHT
+
+-- Seed-based random for deterministic floors
+local function seededRandom(seed)
+	local rng = Random.new(seed)
+	return rng
+end
+
+-- Create a basic material part
+local function makePart(parent, name, size, position, color, material, transparency)
+	local part = Instance.new(&quot;Part&quot;)
+	part.Name = name
+	part.Size = size
+	part.Position = position
+	part.Anchored = true
+	part.Color = color or Color3.fromRGB(60, 60, 60)
+	part.Material = material or Enum.Material.Slate
+	part.Transparency = transparency or 0
+	part.Parent = parent
+	return part
+end
+
+-- Build the floor (ground plate)
+local function buildFloor(parent, origin)
+	makePart(parent, &quot;Floor&quot;, Vector3.new(ROOM, 1, ROOM),
+		origin + Vector3.new(0, -0.5, 0),
+		Color3.fromRGB(40, 40, 50), Enum.Material.Slate)
+end
+
+-- Build walls with an entrance gap
+local function buildWalls(parent, origin, hasExit)
+	local wallThickness = 3
+	-- North wall
+	makePart(parent, &quot;WallNorth&quot;, Vector3.new(ROOM, HEIGHT, wallThickness),
+		origin + Vector3.new(0, HEIGHT / 2, -ROOM / 2),
+		Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+	-- South wall (with exit gap if hasExit)
+	if hasExit then
+		local gapWidth = 10
+		local sideWidth = (ROOM - gapWidth) / 2
+		makePart(parent, &quot;WallSouthL&quot;, Vector3.new(sideWidth, HEIGHT, wallThickness),
+			origin + Vector3.new(-(sideWidth / 2 + gapWidth / 2), HEIGHT / 2, ROOM / 2),
+			Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+		makePart(parent, &quot;WallSouthR&quot;, Vector3.new(sideWidth, HEIGHT, wallThickness),
+			origin + Vector3.new((sideWidth / 2 + gapWidth / 2), HEIGHT / 2, ROOM / 2),
+			Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+	else
+		makePart(parent, &quot;WallSouth&quot;, Vector3.new(ROOM, HEIGHT, wallThickness),
+			origin + Vector3.new(0, HEIGHT / 2, ROOM / 2),
+			Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+	end
+	-- East wall
+	makePart(parent, &quot;WallEast&quot;, Vector3.new(wallThickness, HEIGHT, ROOM),
+		origin + Vector3.new(ROOM / 2, HEIGHT / 2, 0),
+		Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+	-- West wall
+	makePart(parent, &quot;WallWest&quot;, Vector3.new(wallThickness, HEIGHT, ROOM),
+		origin + Vector3.new(-ROOM / 2, HEIGHT / 2, 0),
+		Color3.fromRGB(50, 50, 60), Enum.Material.Cobblestone)
+end
+
+-- Place torches/lights for ambience
+local function buildLighting(parent, origin, rng)
+	local torchPositions = {
+		origin + Vector3.new(-ROOM / 2 + 2, 8, -ROOM / 2 + 2),
+		origin + Vector3.new(ROOM / 2 - 2, 8, -ROOM / 2 + 2),
+		origin + Vector3.new(-ROOM / 2 + 2, 8, ROOM / 2 - 2),
+		origin + Vector3.new(ROOM / 2 - 2, 8, ROOM / 2 - 2),
+	}
+	for _, pos in ipairs(torchPositions) do
+		local torch = makePart(parent, &quot;Torch&quot;, Vector3.new(1, 3, 1), pos,
+			Color3.fromRGB(139, 90, 43), Enum.Material.Wood)
+		local light = Instance.new(&quot;PointLight&quot;)
+		light.Color = Color3.fromRGB(255, 150, 50)
+		light.Brightness = 1.5
+		light.Range = 20
+		light.Parent = torch
+		-- Fire effect
+		local fire = Instance.new(&quot;Fire&quot;)
+		fire.Size = 3
+		fire.Heat = 5
+		fire.Parent = torch
+	end
+end
+
+-- Place random obstacles (pillars, crates)
+local function buildObstacles(parent, origin, rng, count)
+	for i = 1, count do
+		local x = rng:NextNumber(-ROOM / 2 + 5, ROOM / 2 - 5)
+		local z = rng:NextNumber(-ROOM / 2 + 5, ROOM / 2 - 5)
+		local height = rng:NextNumber(3, 8)
+		local width = rng:NextNumber(2, 5)
+		local obstacle = makePart(parent, &quot;Obstacle_&quot; .. i,
+			Vector3.new(width, height, width),
+			origin + Vector3.new(x, height / 2, z),
+			Color3.fromRGB(70, 70, 80), Enum.Material.Cobblestone)
+	end
+end
+
+-- Determine which enemies to spawn on this floor
+function DungeonGenerator.getEnemiesForFloor(floorNum)
+	local enemies = {}
+	for name, data in pairs(GameConfig.ENEMIES) do
+		if floorNum &gt;= data.floorMin and floorNum &lt;= data.floorMax then
+			table.insert(enemies, { name = name, data = data })
+		end
+	end
+	return enemies
+end
+
+-- Get spawn positions for enemies within the room
+function DungeonGenerator.getEnemySpawnPositions(origin, count, seed)
+	local rng = seededRandom(seed)
+	local positions = {}
+	local margin = 8
+	for i = 1, count do
+		local x = rng:NextNumber(-ROOM / 2 + margin, ROOM / 2 - margin)
+		local z = rng:NextNumber(-ROOM / 2 + margin, ROOM / 2 - margin)
+		table.insert(positions, origin + Vector3.new(x, 3, z))
+	end
+	return positions
+end
+
+-- Calculate enemy count for this floor
+function DungeonGenerator.getEnemyCount(floorNum)
+	local base = GameConfig.ENEMIES_PER_FLOOR_BASE
+	local scale = GameConfig.ENEMIES_PER_FLOOR_SCALE
+	return math.floor(base + floorNum * scale)
+end
+
+-- Build a complete dungeon floor
+-- Returns: the folder containing all floor geometry
+function DungeonGenerator.buildFloor(floorNum, origin, parentFolder)
+	local seed = floorNum * 12345 + 67890
+	local rng = seededRandom(seed)
+
+	local folder = Instance.new(&quot;Folder&quot;)
+	folder.Name = &quot;Floor_&quot; .. floorNum
+	folder.Parent = parentFolder
+
+	local isBossFloor = (floorNum % GameConfig.BOSS_FLOOR_INTERVAL == 0)
+	local hasExit = true  -- All floors have exit (blocked until enemies cleared)
+
+	-- Build room geometry
+	buildFloor(folder, origin)
+	buildWalls(folder, origin, hasExit)
+	buildLighting(folder, origin, rng)
+
+	local obstacleCount = rng:NextInteger(2, 5)
+	if isBossFloor then
+		obstacleCount = 1  -- Boss rooms are more open
+	end
+	buildObstacles(folder, origin, rng, obstacleCount)
+
+	-- Exit door (locked until floor cleared)
+	local doorPart = makePart(folder, &quot;ExitDoor&quot;,
+		Vector3.new(10, HEIGHT, 2),
+		origin + Vector3.new(0, HEIGHT / 2, ROOM / 2),
+		Color3.fromRGB(180, 0, 0), Enum.Material.Neon, 0.5)
+	doorPart:SetAttribute(&quot;Locked&quot;, true)
+	doorPart:SetAttribute(&quot;FloorNum&quot;, floorNum)
+
+	-- Spawn point indicator
+	local spawnMarker = makePart(folder, &quot;SpawnPoint&quot;,
+		Vector3.new(4, 0.2, 4),
+		origin + Vector3.new(0, 0.1, -ROOM / 2 + 8),
+		Color3.fromRGB(0, 200, 0), Enum.Material.Neon, 0.3)
+
+	-- Floor number indicator (billboard)
+	local floorLabel = Instance.new(&quot;BillboardGui&quot;)
+	floorLabel.Name = &quot;FloorLabel&quot;
+	floorLabel.Size = UDim2.new(4, 0, 2, 0)
+	floorLabel.StudsOffset = Vector3.new(0, 12, -ROOM / 2 + 2)
+	floorLabel.Adornee = spawnMarker
+	floorLabel.AlwaysOnTop = true
+	floorLabel.Parent = folder
+
+	local label = Instance.new(&quot;TextLabel&quot;)
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = isBossFloor and (&quot;BOSS - Floor &quot; .. floorNum) or (&quot;Floor &quot; .. floorNum)
+	label.TextColor3 = isBossFloor and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 255)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Parent = floorLabel
+
+	return folder, isBossFloor
+end
+
+-- Clean up a floor
+function DungeonGenerator.destroyFloor(floorFolder)
+	if floorFolder then
+		floorFolder:Destroy()
+	end
+end
+
+return DungeonGenerator
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="RBX00000008">
+      <Properties>
+        <string name="Name">LootSystem</string>
+        <ProtectedString name="Source">-- LootSystem: item generation with weighted rarity rolls
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+
+local LootSystem = {}
+
+local rng = Random.new()
+
+-- Roll a rarity based on weighted probabilities
+-- luckBonus: shifts weight toward rarer items (0 = normal)
+function LootSystem.rollRarity(luckBonus)
+	local rarities = GameConfig.RARITY
+	local totalWeight = 0
+	local adjustedWeights = {}
+
+	for i, r in ipairs(rarities) do
+		local w = r.weight
+		-- Luck bonus: reduce common weight, increase rare weight
+		if i == 1 then
+			w = math.max(10, w - luckBonus * 5)
+		elseif i &gt;= 3 then
+			w = w + luckBonus
+		end
+		adjustedWeights[i] = w
+		totalWeight = totalWeight + w
+	end
+
+	local roll = rng:NextNumber(0, totalWeight)
+	local cumulative = 0
+	for i, w in ipairs(adjustedWeights) do
+		cumulative = cumulative + w
+		if roll &lt;= cumulative then
+			return rarities[i]
+		end
+	end
+	return rarities[1] -- fallback to Common
+end
+
+-- Generate a random item for a given floor level
+function LootSystem.generateItem(floorNum, luckBonus)
+	local rarity = LootSystem.rollRarity(luckBonus or 0)
+	local itemTypes = GameConfig.ITEM_TYPES
+
+	-- Pick random item type
+	local base = itemTypes[rng:NextInteger(1, #itemTypes)]
+
+	local item = {
+		name = rarity.name .. &quot; &quot; .. base.name,
+		slot = base.slot,
+		rarity = rarity.name,
+		rarityColor = rarity.color,
+		level = floorNum,
+	}
+
+	-- Calculate stats based on rarity + floor scaling
+	local floorScale = 1 + (floorNum - 1) * 0.1
+	local mult = rarity.multiplier * floorScale
+
+	if base.baseAtk then
+		item.atk = math.floor(base.baseAtk * mult)
+	end
+	if base.baseDef then
+		item.def = math.floor(base.baseDef * mult)
+	end
+	if base.baseHp then
+		item.hp = math.floor(base.baseHp * mult)
+	end
+	if base.baseSpeed then
+		item.speed = math.floor(base.baseSpeed * mult)
+	end
+	if base.classPref then
+		item.classPref = base.classPref
+	end
+
+	return item
+end
+
+-- Generate a potion drop
+function LootSystem.generatePotion()
+	local potions = GameConfig.POTIONS
+	local potion = potions[rng:NextInteger(1, #potions)]
+	return {
+		name = potion.name,
+		slot = &quot;potion&quot;,
+		effect = potion.effect,
+		value = potion.value,
+		duration = potion.duration,
+		rarity = &quot;Common&quot;,
+		rarityColor = Color3.fromRGB(200, 200, 200),
+	}
+end
+
+-- Determine drops from an enemy kill
+-- Returns: list of items (can be empty)
+function LootSystem.rollDrops(enemyData, floorNum, luckBonus)
+	local drops = {}
+
+	-- 40% chance for item drop
+	if rng:NextNumber() &lt; 0.4 then
+		table.insert(drops, LootSystem.generateItem(floorNum, luckBonus or 0))
+	end
+
+	-- 30% chance for potion
+	if rng:NextNumber() &lt; 0.3 then
+		table.insert(drops, LootSystem.generatePotion())
+	end
+
+	-- Soul gem based on enemy soulGemChance
+	if enemyData.soulGemChance and rng:NextNumber() &lt; enemyData.soulGemChance then
+		table.insert(drops, {
+			name = &quot;Soul Gem&quot;,
+			slot = &quot;soul_gem&quot;,
+			value = 1,
+			rarity = &quot;Epic&quot;,
+			rarityColor = Color3.fromRGB(160, 50, 255),
+		})
+	end
+
+	return drops
+end
+
+-- Boss drops (guaranteed)
+function LootSystem.rollBossDrops(bossData, floorNum, luckBonus)
+	local drops = {}
+
+	-- Guaranteed equipment drop (high rarity boost)
+	table.insert(drops, LootSystem.generateItem(floorNum, (luckBonus or 0) + 5))
+
+	-- Guaranteed soul gems
+	table.insert(drops, {
+		name = &quot;Soul Gem Bundle&quot;,
+		slot = &quot;soul_gem&quot;,
+		value = bossData.soulGemReward or 5,
+		rarity = &quot;Legendary&quot;,
+		rarityColor = Color3.fromRGB(255, 200, 0),
+	})
+
+	-- 50% chance for second item
+	if rng:NextNumber() &lt; 0.5 then
+		table.insert(drops, LootSystem.generateItem(floorNum, (luckBonus or 0) + 3))
+	end
+
+	-- Guaranteed health potion
+	table.insert(drops, LootSystem.generatePotion())
+
+	return drops
+end
+
+return LootSystem
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="RBX00000009">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="ModuleScript" referent="RBX0000000A">
+      <Properties>
+        <string name="Name">DataManager</string>
+        <ProtectedString name="Source">-- DataManager: player data persistence via Roblox DataStore
+local DataStoreService = game:GetService(&quot;DataStoreService&quot;)
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+
+local DataManager = {}
+
+local dataStore = DataStoreService:GetDataStore(GameConfig.DATASTORE_NAME)
+local playerCache = {}
+
+-- Default data for a new player
+local function defaultData()
+	return {
+		-- Meta-progression (persists across runs)
+		soulGems = 0,
+		totalSoulGems = 0,
+		bestFloor = 0,
+		totalRuns = 0,
+		totalKills = 0,
+		selectedClass = &quot;Warrior&quot;,
+
+		-- Soul gem upgrades (permanent)
+		soulUpgrades = {}, -- { [upgradeName] = level }
+
+		-- Current run state (reset on death)
+		currentFloor = 0,
+		runActive = false,
+
+		-- Equipped items (reset on death)
+		equipment = {}, -- { weapon = item, helmet = item, chest = item, boots = item }
+
+		-- Inventory (reset on death)
+		inventory = {}, -- list of items
+		potions = 0,
+
+		-- Current run combat stats (calculated from class + gear + upgrades)
+		hp = 0,
+		maxHp = 0,
+		atk = 0,
+		def = 0,
+		speed = 0,
+	}
+end
+
+function DataManager.loadData(player)
+	local key = &quot;player_&quot; .. player.UserId
+	local success, data = pcall(function()
+		return dataStore:GetAsync(key)
+	end)
+
+	if success and data then
+		-- Merge with defaults to handle schema evolution
+		local defaults = defaultData()
+		for k, v in pairs(defaults) do
+			if data[k] == nil then
+				data[k] = v
+			end
+		end
+		playerCache[player.UserId] = data
+	else
+		playerCache[player.UserId] = defaultData()
+	end
+
+	return playerCache[player.UserId]
+end
+
+function DataManager.saveData(player)
+	local data = playerCache[player.UserId]
+	if not data then return end
+
+	local key = &quot;player_&quot; .. player.UserId
+	local success, err = pcall(function()
+		dataStore:SetAsync(key, data)
+	end)
+
+	if not success then
+		warn(&quot;[DataManager] Failed to save for &quot; .. player.Name .. &quot;: &quot; .. tostring(err))
+	end
+end
+
+function DataManager.getData(player)
+	return playerCache[player.UserId]
+end
+
+function DataManager.clearCache(player)
+	playerCache[player.UserId] = nil
+end
+
+-- Initialize run stats based on class + soul upgrades
+function DataManager.initRunStats(player, className)
+	local data = playerCache[player.UserId]
+	if not data then return end
+
+	local classData = GameConfig.CLASSES[className]
+	if not classData then return end
+
+	data.selectedClass = className
+	data.runActive = true
+	data.currentFloor = 0
+	data.equipment = {}
+	data.inventory = {}
+	data.potions = 2 -- Start with 2 health potions
+
+	-- Base stats from class
+	data.maxHp = classData.hp
+	data.atk = classData.atk
+	data.def = classData.def
+	data.speed = classData.speed
+
+	-- Apply soul gem upgrades
+	local upgrades = data.soulUpgrades or {}
+	for _, upDef in ipairs(GameConfig.SOUL_UPGRADES) do
+		local level = upgrades[upDef.name] or 0
+		if level &gt; 0 then
+			if upDef.stat == &quot;hp&quot; then
+				data.maxHp = data.maxHp + upDef.perLevel * level
+			elseif upDef.stat == &quot;atk&quot; then
+				data.atk = data.atk + upDef.perLevel * level
+			elseif upDef.stat == &quot;def&quot; then
+				data.def = data.def + upDef.perLevel * level
+			elseif upDef.stat == &quot;speed&quot; then
+				data.speed = data.speed + upDef.perLevel * level
+			end
+		end
+	end
+
+	data.hp = data.maxHp
+	return data
+end
+
+-- End run (death or quit)
+function DataManager.endRun(player)
+	local data = playerCache[player.UserId]
+	if not data then return end
+
+	data.totalRuns = data.totalRuns + 1
+	if data.currentFloor &gt; data.bestFloor then
+		data.bestFloor = data.currentFloor
+	end
+
+	data.runActive = false
+	data.currentFloor = 0
+	data.equipment = {}
+	data.inventory = {}
+	data.potions = 0
+	data.hp = 0
+end
+
+-- Apply equipment stats
+function DataManager.recalcStats(player)
+	local data = playerCache[player.UserId]
+	if not data then return end
+
+	local classData = GameConfig.CLASSES[data.selectedClass]
+	if not classData then return end
+
+	-- Reset to base
+	data.maxHp = classData.hp
+	data.atk = classData.atk
+	data.def = classData.def
+	data.speed = classData.speed
+
+	-- Soul upgrades
+	local upgrades = data.soulUpgrades or {}
+	for _, upDef in ipairs(GameConfig.SOUL_UPGRADES) do
+		local level = upgrades[upDef.name] or 0
+		if level &gt; 0 then
+			if upDef.stat == &quot;hp&quot; then
+				data.maxHp = data.maxHp + upDef.perLevel * level
+			elseif upDef.stat == &quot;atk&quot; then
+				data.atk = data.atk + upDef.perLevel * level
+			elseif upDef.stat == &quot;def&quot; then
+				data.def = data.def + upDef.perLevel * level
+			elseif upDef.stat == &quot;speed&quot; then
+				data.speed = data.speed + upDef.perLevel * level
+			end
+		end
+	end
+
+	-- Equipment bonuses
+	for _, item in pairs(data.equipment) do
+		if item.atk then data.atk = data.atk + item.atk end
+		if item.def then data.def = data.def + item.def end
+		if item.hp then data.maxHp = data.maxHp + item.hp end
+		if item.speed then data.speed = data.speed + item.speed end
+	end
+
+	-- Clamp HP
+	if data.hp &gt; data.maxHp then
+		data.hp = data.maxHp
+	end
+end
+
+return DataManager
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+    <Item class="ModuleScript" referent="RBX0000000B">
+      <Properties>
+        <string name="Name">CombatManager</string>
+        <ProtectedString name="Source">-- CombatManager: server-side combat logic, enemy AI, damage calculation
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+
+local CombatManager = {}
+
+local rng = Random.new()
+
+-- ── Damage Calculation ──────────────────────────────────
+function CombatManager.calculateDamage(attackerAtk, defenderDef)
+	-- Base damage = ATK - DEF/2, minimum 1
+	local baseDmg = math.max(1, attackerAtk - math.floor(defenderDef / 2))
+	-- Add ±15% variance
+	local variance = rng:NextNumber(0.85, 1.15)
+	return math.floor(baseDmg * variance)
+end
+
+-- Player attacks enemy
+function CombatManager.playerAttackEnemy(playerData, enemyState)
+	if not enemyState or enemyState.hp &lt;= 0 then return 0, false end
+
+	-- Check if enemy is blocking (DarkKnight special)
+	local def = enemyState.def
+	if enemyState.blocking then
+		def = def * 2
+	end
+
+	local damage = CombatManager.calculateDamage(playerData.atk, def)
+	enemyState.hp = enemyState.hp - damage
+
+	local killed = enemyState.hp &lt;= 0
+	return damage, killed
+end
+
+-- Enemy attacks player (returns damage dealt)
+function CombatManager.enemyAttackPlayer(enemyData, playerData)
+	if not playerData or playerData.hp &lt;= 0 then return 0 end
+
+	local damage = CombatManager.calculateDamage(enemyData.atk, playerData.def)
+
+	-- Apply special effects
+	if enemyData.special == &quot;slow&quot; then
+		-- Slow effect handled by caller
+	end
+
+	playerData.hp = playerData.hp - damage
+	return damage
+end
+
+-- ── Ability Execution ───────────────────────────────────
+function CombatManager.executeAbility(playerData, className, targetEnemies)
+	local classData = GameConfig.CLASSES[className]
+	if not classData then return {} end
+
+	local results = {}
+
+	if classData.abilityEffect == &quot;stun&quot; then
+		-- Shield Bash: single target, high damage + stun
+		if #targetEnemies &gt; 0 then
+			local target = targetEnemies[1]
+			local damage = CombatManager.calculateDamage(
+				playerData.atk + classData.abilityDamage, target.def)
+			target.hp = target.hp - damage
+			target.stunned = true
+			target.stunTimer = GameConfig.STUN_DURATION
+			table.insert(results, {
+				enemy = target,
+				damage = damage,
+				effect = &quot;stun&quot;,
+				killed = target.hp &lt;= 0,
+			})
+		end
+
+	elseif classData.abilityEffect == &quot;burn&quot; then
+		-- Fireball: AoE damage + burn DOT
+		for _, enemy in ipairs(targetEnemies) do
+			local damage = CombatManager.calculateDamage(
+				playerData.atk + classData.abilityDamage, enemy.def)
+			enemy.hp = enemy.hp - damage
+			enemy.burning = true
+			enemy.burnTimer = GameConfig.BURN_DURATION
+			table.insert(results, {
+				enemy = enemy,
+				damage = damage,
+				effect = &quot;burn&quot;,
+				killed = enemy.hp &lt;= 0,
+			})
+		end
+
+	elseif classData.abilityEffect == &quot;pierce&quot; then
+		-- Power Shot: single target, ignores defense
+		if #targetEnemies &gt; 0 then
+			local target = targetEnemies[1]
+			local damage = playerData.atk + classData.abilityDamage
+			damage = math.floor(damage * rng:NextNumber(0.9, 1.1))
+			target.hp = target.hp - damage
+			table.insert(results, {
+				enemy = target,
+				damage = damage,
+				effect = &quot;pierce&quot;,
+				killed = target.hp &lt;= 0,
+			})
+		end
+	end
+
+	return results
+end
+
+-- ── Ultimate Execution ──────────────────────────────────
+function CombatManager.executeUltimate(playerData, className, targetEnemies)
+	local classData = GameConfig.CLASSES[className]
+	if not classData then return {} end
+
+	local results = {}
+
+	if className == &quot;Warrior&quot; then
+		-- Berserker Rage: buff self (2x ATK for 10s, handled by caller)
+		table.insert(results, {
+			effect = &quot;buff&quot;,
+			stat = &quot;atk&quot;,
+			multiplier = 2,
+			duration = 10,
+		})
+
+	elseif className == &quot;Mage&quot; then
+		-- Arcane Storm: massive AoE
+		for _, enemy in ipairs(targetEnemies) do
+			local damage = CombatManager.calculateDamage(
+				playerData.atk * 3, enemy.def)
+			enemy.hp = enemy.hp - damage
+			table.insert(results, {
+				enemy = enemy,
+				damage = damage,
+				effect = &quot;arcane_storm&quot;,
+				killed = enemy.hp &lt;= 0,
+			})
+		end
+
+	elseif className == &quot;Archer&quot; then
+		-- Arrow Rain: AoE with moderate damage
+		for _, enemy in ipairs(targetEnemies) do
+			local damage = CombatManager.calculateDamage(
+				playerData.atk * 2, enemy.def)
+			enemy.hp = enemy.hp - damage
+			table.insert(results, {
+				enemy = enemy,
+				damage = damage,
+				effect = &quot;arrow_rain&quot;,
+				killed = enemy.hp &lt;= 0,
+			})
+		end
+	end
+
+	return results
+end
+
+-- ── Enemy AI Tick ───────────────────────────────────────
+-- Returns an action for the enemy to take
+function CombatManager.enemyAITick(enemyState, enemyData, playerPosition, dt)
+	if not enemyState or enemyState.hp &lt;= 0 then
+		return { action = &quot;dead&quot; }
+	end
+
+	-- Handle stun
+	if enemyState.stunned then
+		enemyState.stunTimer = (enemyState.stunTimer or 0) - dt
+		if enemyState.stunTimer &lt;= 0 then
+			enemyState.stunned = false
+		end
+		return { action = &quot;stunned&quot; }
+	end
+
+	-- Handle burn DOT
+	if enemyState.burning then
+		enemyState.burnTimer = (enemyState.burnTimer or 0) - dt
+		if enemyState.burnTimer &lt;= 0 then
+			enemyState.burning = false
+		else
+			-- Apply burn damage every second
+			enemyState.burnAccum = (enemyState.burnAccum or 0) + dt
+			if enemyState.burnAccum &gt;= 1 then
+				enemyState.burnAccum = 0
+				enemyState.hp = enemyState.hp - GameConfig.BURN_DAMAGE
+				if enemyState.hp &lt;= 0 then
+					return { action = &quot;died_from_burn&quot; }
+				end
+			end
+		end
+	end
+
+	-- Calculate distance to player
+	local distance = (playerPosition - enemyState.position).Magnitude
+
+	-- Aggro check
+	if distance &gt; GameConfig.ENEMY_AGGRO_RANGE then
+		return { action = &quot;idle&quot; }
+	end
+
+	-- Attack if in range
+	if distance &lt;= GameConfig.ENEMY_ATTACK_RANGE then
+		enemyState.attackCooldown = (enemyState.attackCooldown or 0) - dt
+		if enemyState.attackCooldown &lt;= 0 then
+			enemyState.attackCooldown = 1.2  -- Attack every 1.2 seconds
+
+			-- Special behaviors
+			if enemyData.special == &quot;block&quot; and rng:NextNumber() &lt; 0.3 then
+				enemyState.blocking = true
+				return { action = &quot;block&quot; }
+			end
+			if enemyData.special == &quot;teleport&quot; and rng:NextNumber() &lt; 0.2 then
+				-- Teleport to random position near player
+				local offset = Vector3.new(
+					rng:NextNumber(-10, 10), 0, rng:NextNumber(-10, 10))
+				enemyState.position = playerPosition + offset
+				return { action = &quot;teleport&quot;, position = enemyState.position }
+			end
+
+			enemyState.blocking = false
+			return { action = &quot;attack&quot; }
+		end
+		return { action = &quot;idle_near&quot; }
+	end
+
+	-- Move toward player
+	local direction = (playerPosition - enemyState.position).Unit
+	local moveSpeed = (enemyData.speed or 10) * dt
+	enemyState.position = enemyState.position + direction * moveSpeed
+	return { action = &quot;move&quot;, position = enemyState.position }
+end
+
+-- ── Boss Special Attacks ────────────────────────────────
+function CombatManager.bossSpecialAttack(bossState, bossData, playerPosition)
+	if not bossData.special then return nil end
+
+	if bossData.special == &quot;summon&quot; then
+		-- Skeleton King: summon 2 skeletons
+		return {
+			type = &quot;summon&quot;,
+			enemy = &quot;Skeleton&quot;,
+			count = 2,
+			positions = {
+				bossState.position + Vector3.new(8, 0, 0),
+				bossState.position + Vector3.new(-8, 0, 0),
+			},
+		}
+	elseif bossData.special == &quot;breath&quot; then
+		-- Shadow Dragon: cone attack in player direction
+		return {
+			type = &quot;breath&quot;,
+			damage = bossData.atk * 2,
+			direction = (playerPosition - bossState.position).Unit,
+			range = 20,
+		}
+	elseif bossData.special == &quot;phase&quot; then
+		-- Void Lord: become invulnerable briefly + AoE
+		bossState.phasing = true
+		return {
+			type = &quot;phase&quot;,
+			duration = 3,
+			aoeDamage = bossData.atk * 1.5,
+			aoeRange = 15,
+		}
+	end
+	return nil
+end
+
+return CombatManager
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+    <Item class="Script" referent="RBX0000000C">
+      <Properties>
+        <string name="Name">GameManager</string>
+        <ProtectedString name="Source">-- GameManager: main server script for Shadow Dungeon: Descent
+local Players = game:GetService(&quot;Players&quot;)
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local RunService = game:GetService(&quot;RunService&quot;)
+
+local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+local DataManager = require(script.Parent:WaitForChild(&quot;DataManager&quot;))
+local CombatManager = require(script.Parent:WaitForChild(&quot;CombatManager&quot;))
+local DungeonGenerator = require(ReplicatedStorage:WaitForChild(&quot;DungeonGenerator&quot;))
+local LootSystem = require(ReplicatedStorage:WaitForChild(&quot;LootSystem&quot;))
+
+-- ── Remote Events / Functions ───────────────────────────
+local function createRemote(className, name)
+	local remote = Instance.new(className)
+	remote.Name = name
+	remote.Parent = ReplicatedStorage
+	return remote
+end
+
+-- Client → Server events
+local SelectClassEvent = createRemote(&quot;RemoteFunction&quot;, &quot;SelectClassEvent&quot;)
+local AttackEvent = createRemote(&quot;RemoteEvent&quot;, &quot;AttackEvent&quot;)
+local UseAbilityEvent = createRemote(&quot;RemoteEvent&quot;, &quot;UseAbilityEvent&quot;)
+local UseUltimateEvent = createRemote(&quot;RemoteEvent&quot;, &quot;UseUltimateEvent&quot;)
+local UsePotionEvent = createRemote(&quot;RemoteEvent&quot;, &quot;UsePotionEvent&quot;)
+local EquipItemEvent = createRemote(&quot;RemoteFunction&quot;, &quot;EquipItemEvent&quot;)
+local BuySoulUpgradeEvent = createRemote(&quot;RemoteFunction&quot;, &quot;BuySoulUpgradeEvent&quot;)
+local StartRunEvent = createRemote(&quot;RemoteEvent&quot;, &quot;StartRunEvent&quot;)
+
+-- Server → Client events
+local DataUpdateEvent = createRemote(&quot;RemoteEvent&quot;, &quot;DataUpdateEvent&quot;)
+local FloorUpdateEvent = createRemote(&quot;RemoteEvent&quot;, &quot;FloorUpdateEvent&quot;)
+local CombatFeedbackEvent = createRemote(&quot;RemoteEvent&quot;, &quot;CombatFeedbackEvent&quot;)
+local LootDropEvent = createRemote(&quot;RemoteEvent&quot;, &quot;LootDropEvent&quot;)
+local GameOverEvent = createRemote(&quot;RemoteEvent&quot;, &quot;GameOverEvent&quot;)
+local EnemyUpdateEvent = createRemote(&quot;RemoteEvent&quot;, &quot;EnemyUpdateEvent&quot;)
+
+-- ── Per-Player State ────────────────────────────────────
+local playerStates = {}  -- [userId] = { enemies, floor, abilityCooldown, ... }
+
+local function getPlayerState(player)
+	return playerStates[player.UserId]
+end
+
+local function syncData(player)
+	local data = DataManager.getData(player)
+	if data then
+		DataUpdateEvent:FireClient(player, data)
+	end
+end
+
+-- ── Dungeon Management ──────────────────────────────────
+local dungeonFolder = Instance.new(&quot;Folder&quot;)
+dungeonFolder.Name = &quot;Dungeons&quot;
+dungeonFolder.Parent = workspace
+
+local function spawnEnemiesForFloor(player, state, floorNum, origin, isBoss)
+	state.enemies = {}
+
+	if isBoss then
+		local bossData = GameConfig.BOSSES[floorNum]
+		if bossData then
+			local bossState = {
+				id = &quot;boss_&quot; .. floorNum,
+				name = bossData.name,
+				data = bossData,
+				hp = bossData.hp,
+				maxHp = bossData.hp,
+				atk = bossData.atk,
+				def = bossData.def,
+				speed = bossData.speed,
+				position = origin + Vector3.new(0, 3, 0),
+				isBoss = true,
+				attackCooldown = 0,
+				specialCooldown = 10,
+			}
+			table.insert(state.enemies, bossState)
+		end
+	else
+		local count = DungeonGenerator.getEnemyCount(floorNum)
+		local available = DungeonGenerator.getEnemiesForFloor(floorNum)
+		if #available == 0 then return end
+
+		local positions = DungeonGenerator.getEnemySpawnPositions(
+			origin, count, floorNum * 99 + player.UserId)
+
+		local rng = Random.new(floorNum * 777 + player.UserId)
+		for i = 1, count do
+			local pick = available[rng:NextInteger(1, #available)]
+			local enemyState = {
+				id = &quot;enemy_&quot; .. floorNum .. &quot;_&quot; .. i,
+				name = pick.name,
+				data = pick.data,
+				hp = pick.data.hp,
+				maxHp = pick.data.hp,
+				atk = pick.data.atk,
+				def = pick.data.def,
+				speed = pick.data.speed,
+				position = positions[i] or (origin + Vector3.new(i * 5, 3, 0)),
+				isBoss = false,
+				attackCooldown = 0,
+			}
+			table.insert(state.enemies, enemyState)
+		end
+	end
+
+	-- Send initial enemy data to client
+	local enemyInfo = {}
+	for _, e in ipairs(state.enemies) do
+		table.insert(enemyInfo, {
+			id = e.id,
+			name = e.name,
+			hp = e.hp,
+			maxHp = e.maxHp,
+			position = e.position,
+			isBoss = e.isBoss,
+			color = e.data.color,
+			size = e.data.size,
+		})
+	end
+	EnemyUpdateEvent:FireClient(player, { type = &quot;spawn&quot;, enemies = enemyInfo })
+end
+
+local function advanceFloor(player)
+	local data = DataManager.getData(player)
+	local state = getPlayerState(player)
+	if not data or not state then return end
+
+	-- Clean up previous floor
+	if state.floorFolder then
+		DungeonGenerator.destroyFloor(state.floorFolder)
+	end
+
+	data.currentFloor = data.currentFloor + 1
+	local floorNum = data.currentFloor
+
+	-- Award soul gems for clearing floor
+	if floorNum &gt; 1 then
+		data.soulGems = data.soulGems + GameConfig.SOUL_GEMS_PER_FLOOR
+		data.totalSoulGems = data.totalSoulGems + GameConfig.SOUL_GEMS_PER_FLOOR
+	end
+
+	-- Build new floor
+	local origin = Vector3.new(0, 0, 0)
+	local floorFolder, isBoss = DungeonGenerator.buildFloor(floorNum, origin, dungeonFolder)
+	state.floorFolder = floorFolder
+	state.floorCleared = false
+
+	-- Spawn enemies
+	spawnEnemiesForFloor(player, state, floorNum, origin, isBoss)
+
+	-- Teleport player to spawn point
+	local character = player.Character
+	if character then
+		local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+		if hrp then
+			hrp.CFrame = CFrame.new(origin + Vector3.new(0, 5, -GameConfig.ROOM_SIZE / 2 + 10))
+		end
+	end
+
+	FloorUpdateEvent:FireClient(player, {
+		floor = floorNum,
+		isBoss = isBoss,
+		enemyCount = #state.enemies,
+	})
+	syncData(player)
+end
+
+local function handlePlayerDeath(player)
+	local data = DataManager.getData(player)
+	local state = getPlayerState(player)
+	if not data or not state then return end
+
+	DataManager.endRun(player)
+
+	if state.floorFolder then
+		DungeonGenerator.destroyFloor(state.floorFolder)
+		state.floorFolder = nil
+	end
+	state.enemies = {}
+
+	GameOverEvent:FireClient(player, {
+		floor = data.bestFloor,
+		soulGems = data.soulGems,
+		totalRuns = data.totalRuns,
+	})
+	syncData(player)
+end
+
+-- ── Remote Event Handlers ───────────────────────────────
+
+-- Class selection + start run
+SelectClassEvent.OnServerInvoke = function(player, className)
+	if not GameConfig.CLASSES[className] then
+		return false, &quot;Invalid class&quot;
+	end
+
+	local data = DataManager.initRunStats(player, className)
+	if not data then return false, &quot;Failed to init&quot; end
+
+	playerStates[player.UserId] = {
+		enemies = {},
+		floorFolder = nil,
+		abilityCooldown = 0,
+		ultimateCooldown = 0,
+		attackCooldown = 0,
+		floorCleared = false,
+		atkBuff = 1,
+		atkBuffTimer = 0,
+	}
+
+	syncData(player)
+	return true, &quot;Class selected: &quot; .. className
+end
+
+-- Start run (after class selection)
+StartRunEvent.OnServerEvent:Connect(function(player)
+	local data = DataManager.getData(player)
+	if not data or not data.runActive then return end
+	advanceFloor(player)
+end)
+
+-- Basic attack
+AttackEvent.OnServerEvent:Connect(function(player, targetId)
+	local data = DataManager.getData(player)
+	local state = getPlayerState(player)
+	if not data or not state or data.hp &lt;= 0 then return end
+
+	-- Cooldown check
+	if state.attackCooldown &gt; 0 then return end
+	state.attackCooldown = GameConfig.ATTACK_COOLDOWN
+
+	-- Find target enemy
+	local target = nil
+	for _, e in ipairs(state.enemies) do
+		if e.id == targetId and e.hp &gt; 0 then
+			target = e
+			break
+		end
+	end
+	if not target then return end
+
+	-- Apply ATK buff
+	local effectiveData = { atk = data.atk * state.atkBuff, def = data.def }
+	local damage, killed = CombatManager.playerAttackEnemy(effectiveData, target)
+
+	CombatFeedbackEvent:FireClient(player, {
+		type = &quot;player_attack&quot;,
+		damage = damage,
+		targetId = targetId,
+		killed = killed,
+	})
+
+	if killed then
+		data.totalKills = data.totalKills + 1
+
+		-- Loot drops
+		local luckBonus = 0
+		local upgrades = data.soulUpgrades or {}
+		if upgrades[&quot;Lucky&quot;] then
+			luckBonus = upgrades[&quot;Lucky&quot;] * 2
+		end
+
+		local drops
+		if target.isBoss then
+			drops = LootSystem.rollBossDrops(target.data, data.currentFloor, luckBonus)
+			data.soulGems = data.soulGems + (target.data.soulGemReward or 5)
+			data.totalSoulGems = data.totalSoulGems + (target.data.soulGemReward or 5)
+		else
+			drops = LootSystem.rollDrops(target.data, data.currentFloor, luckBonus)
+		end
+
+		-- Add drops to inventory
+		for _, item in ipairs(drops) do
+			if item.slot == &quot;soul_gem&quot; then
+				data.soulGems = data.soulGems + item.value
+				data.totalSoulGems = data.totalSoulGems + item.value
+			elseif item.slot == &quot;potion&quot; then
+				data.potions = data.potions + 1
+			else
+				table.insert(data.inventory, item)
+			end
+		end
+
+		if #drops &gt; 0 then
+			LootDropEvent:FireClient(player, drops)
+		end
+
+		-- Check if floor is cleared
+		local allDead = true
+		for _, e in ipairs(state.enemies) do
+			if e.hp &gt; 0 then
+				allDead = false
+				break
+			end
+		end
+		if allDead then
+			state.floorCleared = true
+			FloorUpdateEvent:FireClient(player, {
+				type = &quot;floor_cleared&quot;,
+				floor = data.currentFloor,
+			})
+		end
+	end
+
+	-- Update enemy states for client
+	local enemyUpdates = {}
+	for _, e in ipairs(state.enemies) do
+		table.insert(enemyUpdates, {
+			id = e.id, hp = e.hp, maxHp = e.maxHp,
+			position = e.position, stunned = e.stunned, burning = e.burning,
+		})
+	end
+	EnemyUpdateEvent:FireClient(player, { type = &quot;update&quot;, enemies = enemyUpdates })
+	syncData(player)
+end)
+
+-- Use ability
+UseAbilityEvent.OnServerEvent:Connect(function(player)
+	local data = DataManager.getData(player)
+	local state = getPlayerState(player)
+	if not data or not state or data.hp &lt;= 0 then return end
+
+	local classData = GameConfig.CLASSES[data.selectedClass]
+	if not classData then return end
+
+	if state.abilityCooldown &gt; 0 then return end
+	state.abilityCooldown = classData.abilityCooldown
+
+	-- Get enemies in ability range
+	local character = player.Character
+	if not character then return end
+	local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+	if not hrp then return end
+	local playerPos = hrp.Position
+
+	local targets = {}
+	for _, e in ipairs(state.enemies) do
+		if e.hp &gt; 0 then
+			local dist = (e.position - playerPos).Magnitude
+			if dist &lt;= GameConfig.ABILITY_RANGE then
+				table.insert(targets, e)
+			end
+		end
+	end
+
+	local effectiveData = { atk = data.atk * state.atkBuff, def = data.def }
+	local results = CombatManager.executeAbility(effectiveData, data.selectedClass, targets)
+
+	for _, r in ipairs(results) do
+		if r.killed then
+			data.totalKills = data.totalKills + 1
+		end
+	end
+
+	CombatFeedbackEvent:FireClient(player, {
+		type = &quot;ability&quot;,
+		abilityName = classData.ability,
+		results = results,
+	})
+
+	-- Check floor cleared
+	local allDead = true
+	for _, e in ipairs(state.enemies) do
+		if e.hp &gt; 0 then allDead = false; break end
+	end
+	if allDead then
+		state.floorCleared = true
+		FloorUpdateEvent:FireClient(player, { type = &quot;floor_cleared&quot;, floor = data.currentFloor })
+	end
+
+	syncData(player)
+end)
+
+-- Use ultimate
+UseUltimateEvent.OnServerEvent:Connect(function(player)
+	local data = DataManager.getData(player)
+	local state = getPlayerState(player)
+	if not data or not state or data.hp &lt;= 0 then return end
+
+	local classData = GameConfig.CLASSES[data.selectedClass]
+	if not classData then return end
+
+	if state.ultimateCooldown &gt; 0 then return end
+	state.ultimateCooldown = classData.ultimateCooldown
+
+	local character = player.Character
+	if not character then return end
+	local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+	if not hrp then return end
+
+	-- All enemies as targets for AoE ultimates
+	local targets = {}
+	for _, e in ipairs(state.enemies) do
+		if e.hp &gt; 0 then
+			table.insert(targets, e)
+		end
+	end
+
+	local effectiveData = { atk = data.atk * state.atkBuff, def = data.def }
+	local results = CombatManager.executeUltimate(effectiveData, data.selectedClass, targets)
+
+	-- Handle buff results (Warrior)
+	for _, r in ipairs(results) do
+		if r.effect == &quot;buff&quot; and r.stat == &quot;atk&quot; then
+			state.atkBuff = r.multiplier
+			state.atkBuffTimer = r.duration
+		end
+		if r.killed then
+			data.totalKills = data.totalKills + 1
+		end
+	end
+
+	CombatFeedbackEvent:FireClient(player, {
+		type = &quot;ultimate&quot;,
+		ultimateName = classData.ultimate,
+		results = results,
+	})
+
+	syncData(player)
+end)
+
+-- Use potion
+UsePotionEvent.OnServerEvent:Connect(function(player)
+	local data = DataManager.getData(player)
+	if not data or data.potions &lt;= 0 then return end
+
+	data.potions = data.potions - 1
+	local healAmount = 50
+	data.hp = math.min(data.hp + healAmount, data.maxHp)
+
+	CombatFeedbackEvent:FireClient(player, {
+		type = &quot;potion&quot;,
+		healAmount = healAmount,
+		newHp = data.hp,
+	})
+	syncData(player)
+end)
+
+-- Equip item from inventory
+EquipItemEvent.OnServerInvoke = function(player, inventoryIndex)
+	local data = DataManager.getData(player)
+	if not data then return false, &quot;No data&quot; end
+	if not data.inventory[inventoryIndex] then return false, &quot;Invalid item&quot; end
+
+	local item = data.inventory[inventoryIndex]
+	local slot = item.slot
+	if not slot or slot == &quot;potion&quot; or slot == &quot;soul_gem&quot; then
+		return false, &quot;Cannot equip this item&quot;
+	end
+
+	-- Swap with currently equipped
+	local old = data.equipment[slot]
+	data.equipment[slot] = item
+	table.remove(data.inventory, inventoryIndex)
+	if old then
+		table.insert(data.inventory, old)
+	end
+
+	DataManager.recalcStats(player)
+	syncData(player)
+	return true, &quot;Equipped &quot; .. item.name
+end
+
+-- Buy soul upgrade
+BuySoulUpgradeEvent.OnServerInvoke = function(player, upgradeName)
+	local data = DataManager.getData(player)
+	if not data then return false, &quot;No data&quot; end
+
+	-- Find upgrade definition
+	local upDef = nil
+	for _, u in ipairs(GameConfig.SOUL_UPGRADES) do
+		if u.name == upgradeName then
+			upDef = u
+			break
+		end
+	end
+	if not upDef then return false, &quot;Invalid upgrade&quot; end
+
+	local currentLevel = (data.soulUpgrades[upgradeName] or 0)
+	if currentLevel &gt;= upDef.maxLevel then
+		return false, &quot;Already at max level&quot;
+	end
+
+	local cost = upDef.baseCost * (currentLevel + 1)
+	if data.soulGems &lt; cost then
+		return false, &quot;Not enough Soul Gems (need &quot; .. cost .. &quot;)&quot;
+	end
+
+	data.soulGems = data.soulGems - cost
+	data.soulUpgrades[upgradeName] = currentLevel + 1
+
+	syncData(player)
+	return true, upgradeName .. &quot; upgraded to level &quot; .. (currentLevel + 1)
+end
+
+-- ── Game Loop (enemy AI + cooldowns) ────────────────────
+RunService.Heartbeat:Connect(function(dt)
+	for _, player in ipairs(Players:GetPlayers()) do
+		local state = getPlayerState(player)
+		local data = DataManager.getData(player)
+		if not state or not data or not data.runActive or data.hp &lt;= 0 then
+			continue
+		end
+
+		-- Update cooldowns
+		if state.attackCooldown &gt; 0 then
+			state.attackCooldown = state.attackCooldown - dt
+		end
+		if state.abilityCooldown &gt; 0 then
+			state.abilityCooldown = state.abilityCooldown - dt
+		end
+		if state.ultimateCooldown &gt; 0 then
+			state.ultimateCooldown = state.ultimateCooldown - dt
+		end
+
+		-- ATK buff timer
+		if state.atkBuffTimer &gt; 0 then
+			state.atkBuffTimer = state.atkBuffTimer - dt
+			if state.atkBuffTimer &lt;= 0 then
+				state.atkBuff = 1
+			end
+		end
+
+		-- Floor cleared: wait for player to walk to exit
+		if state.floorCleared then
+			local character = player.Character
+			if character then
+				local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+				if hrp then
+					local exitPos = Vector3.new(0, 3, GameConfig.ROOM_SIZE / 2)
+					local dist = (hrp.Position - exitPos).Magnitude
+					if dist &lt; 8 then
+						advanceFloor(player)
+					end
+				end
+			end
+			continue
+		end
+
+		-- Enemy AI
+		local character = player.Character
+		if not character then continue end
+		local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+		if not hrp then continue end
+		local playerPos = hrp.Position
+
+		for _, enemy in ipairs(state.enemies) do
+			if enemy.hp &gt; 0 then
+				local action = CombatManager.enemyAITick(
+					enemy, enemy.data, playerPos, dt)
+
+				if action.action == &quot;attack&quot; then
+					local damage = CombatManager.enemyAttackPlayer(enemy.data, data)
+					CombatFeedbackEvent:FireClient(player, {
+						type = &quot;enemy_attack&quot;,
+						damage = damage,
+						enemyName = enemy.name,
+						playerHp = data.hp,
+					})
+
+					if data.hp &lt;= 0 then
+						handlePlayerDeath(player)
+						break
+					end
+				end
+
+				-- Boss special attacks
+				if enemy.isBoss and enemy.hp &gt; 0 then
+					enemy.specialCooldown = (enemy.specialCooldown or 0) - dt
+					if enemy.specialCooldown &lt;= 0 then
+						enemy.specialCooldown = 12
+						local special = CombatManager.bossSpecialAttack(
+							enemy, enemy.data, playerPos)
+						if special then
+							CombatFeedbackEvent:FireClient(player, {
+								type = &quot;boss_special&quot;,
+								special = special,
+								bossName = enemy.name,
+							})
+
+							if special.type == &quot;summon&quot; then
+								-- Add summoned enemies
+								for j, pos in ipairs(special.positions) do
+									local summonData = GameConfig.ENEMIES[special.enemy]
+									if summonData then
+										table.insert(state.enemies, {
+											id = &quot;summon_&quot; .. os.clock() .. &quot;_&quot; .. j,
+											name = special.enemy,
+											data = summonData,
+											hp = summonData.hp,
+											maxHp = summonData.hp,
+											atk = summonData.atk,
+											def = summonData.def,
+											speed = summonData.speed,
+											position = pos,
+											isBoss = false,
+											attackCooldown = 0,
+										})
+									end
+								end
+							elseif special.type == &quot;breath&quot; or special.type == &quot;phase&quot; then
+								local dist = (playerPos - enemy.position).Magnitude
+								if dist &lt;= (special.range or special.aoeRange or 15) then
+									local damage = math.floor(special.damage or special.aoeDamage or 0)
+									data.hp = data.hp - damage
+									CombatFeedbackEvent:FireClient(player, {
+										type = &quot;boss_damage&quot;,
+										damage = damage,
+										playerHp = data.hp,
+									})
+									if data.hp &lt;= 0 then
+										handlePlayerDeath(player)
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+end)
+
+-- ── Auto-Save ───────────────────────────────────────────
+local saveTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+	saveTimer = saveTimer + dt
+	if saveTimer &lt; GameConfig.AUTO_SAVE_INTERVAL then return end
+	saveTimer = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		DataManager.saveData(player)
+	end
+end)
+
+-- ── Player Join/Leave ───────────────────────────────────
+Players.PlayerAdded:Connect(function(player)
+	DataManager.loadData(player)
+	syncData(player)
+
+	-- Respawn handler
+	player.CharacterAdded:Connect(function(character)
+		local data = DataManager.getData(player)
+		if data and data.runActive and data.hp &gt; 0 then
+			-- Restore run state if player respawns mid-run
+			local hrp = character:WaitForChild(&quot;HumanoidRootPart&quot;)
+			hrp.CFrame = CFrame.new(0, 5, -GameConfig.ROOM_SIZE / 2 + 10)
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	DataManager.saveData(player)
+	DataManager.clearCache(player)
+
+	-- Clean up dungeon
+	local state = playerStates[player.UserId]
+	if state and state.floorFolder then
+		DungeonGenerator.destroyFloor(state.floorFolder)
+	end
+	playerStates[player.UserId] = nil
+end)
+
+game:BindToClose(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		DataManager.saveData(player)
+	end
+end)
+
+print(&quot;[ShadowDungeon] GameManager loaded successfully&quot;)
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="StarterGui" referent="RBX0000000D">
+    <Properties>
+      <string name="Name">StarterGui</string>
+    </Properties>
+    <Item class="LocalScript" referent="RBX0000000E">
+      <Properties>
+        <string name="Name">MainGui</string>
+        <ProtectedString name="Source">-- MainGui: client-side UI for Shadow Dungeon: Descent
+local Players = game:GetService(&quot;Players&quot;)
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild(&quot;PlayerGui&quot;)
+
+-- Wait for remotes
+local DataUpdateEvent = ReplicatedStorage:WaitForChild(&quot;DataUpdateEvent&quot;)
+local FloorUpdateEvent = ReplicatedStorage:WaitForChild(&quot;FloorUpdateEvent&quot;)
+local CombatFeedbackEvent = ReplicatedStorage:WaitForChild(&quot;CombatFeedbackEvent&quot;)
+local LootDropEvent = ReplicatedStorage:WaitForChild(&quot;LootDropEvent&quot;)
+local GameOverEvent = ReplicatedStorage:WaitForChild(&quot;GameOverEvent&quot;)
+local SelectClassEvent = ReplicatedStorage:WaitForChild(&quot;SelectClassEvent&quot;)
+local StartRunEvent = ReplicatedStorage:WaitForChild(&quot;StartRunEvent&quot;)
+local BuySoulUpgradeEvent = ReplicatedStorage:WaitForChild(&quot;BuySoulUpgradeEvent&quot;)
+local EquipItemEvent = ReplicatedStorage:WaitForChild(&quot;EquipItemEvent&quot;)
+
+-- ── ScreenGui ───────────────────────────────────────────
+local screenGui = Instance.new(&quot;ScreenGui&quot;)
+screenGui.Name = &quot;ShadowDungeonGui&quot;
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+local currentData = nil
+
+-- ── Utility ─────────────────────────────────────────────
+local function makeFrame(parent, name, size, position, color, transparency)
+	local frame = Instance.new(&quot;Frame&quot;)
+	frame.Name = name
+	frame.Size = size
+	frame.Position = position
+	frame.BackgroundColor3 = color or Color3.fromRGB(20, 20, 30)
+	frame.BackgroundTransparency = transparency or 0.3
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+
+	local corner = Instance.new(&quot;UICorner&quot;)
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+
+	return frame
+end
+
+local function makeLabel(parent, name, text, size, position, color, textSize)
+	local label = Instance.new(&quot;TextLabel&quot;)
+	label.Name = name
+	label.Text = text
+	label.Size = size or UDim2.new(1, 0, 0, 30)
+	label.Position = position or UDim2.new(0, 0, 0, 0)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = color or Color3.fromRGB(255, 255, 255)
+	label.TextScaled = false
+	label.TextSize = textSize or 18
+	label.Font = Enum.Font.GothamBold
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = parent
+	return label
+end
+
+local function makeButton(parent, name, text, size, position, color)
+	local btn = Instance.new(&quot;TextButton&quot;)
+	btn.Name = name
+	btn.Text = text
+	btn.Size = size
+	btn.Position = position
+	btn.BackgroundColor3 = color or Color3.fromRGB(60, 60, 100)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.TextSize = 16
+	btn.Font = Enum.Font.GothamBold
+	btn.BorderSizePixel = 0
+	btn.Parent = parent
+
+	local corner = Instance.new(&quot;UICorner&quot;)
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = btn
+
+	return btn
+end
+
+-- ── HUD (top bar: HP, Floor, Soul Gems) ─────────────────
+local hudFrame = makeFrame(screenGui, &quot;HUD&quot;,
+	UDim2.new(0, 400, 0, 80), UDim2.new(0.5, -200, 0, 10))
+
+local hpBarBg = makeFrame(hudFrame, &quot;HpBarBg&quot;,
+	UDim2.new(0.9, 0, 0, 20), UDim2.new(0.05, 0, 0, 10),
+	Color3.fromRGB(40, 0, 0), 0)
+
+local hpBarFill = makeFrame(hpBarBg, &quot;HpBarFill&quot;,
+	UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0),
+	Color3.fromRGB(200, 30, 30), 0)
+
+local hpLabel = makeLabel(hpBarBg, &quot;HpText&quot;, &quot;HP: 0/0&quot;,
+	UDim2.new(1, 0, 1, 0), UDim2.new(0, 5, 0, 0),
+	Color3.fromRGB(255, 255, 255), 14)
+hpLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+local floorLabel = makeLabel(hudFrame, &quot;FloorLabel&quot;, &quot;Floor: 0&quot;,
+	UDim2.new(0.3, 0, 0, 25), UDim2.new(0.05, 0, 0, 40),
+	Color3.fromRGB(255, 200, 50), 16)
+
+local soulGemLabel = makeLabel(hudFrame, &quot;SoulGemLabel&quot;, &quot;Soul Gems: 0&quot;,
+	UDim2.new(0.35, 0, 0, 25), UDim2.new(0.35, 0, 0, 40),
+	Color3.fromRGB(180, 100, 255), 16)
+
+local potionLabel = makeLabel(hudFrame, &quot;PotionLabel&quot;, &quot;Potions: 0&quot;,
+	UDim2.new(0.25, 0, 0, 25), UDim2.new(0.72, 0, 0, 40),
+	Color3.fromRGB(100, 255, 100), 16)
+
+hudFrame.Visible = false
+
+-- ── Ability Buttons (bottom) ────────────────────────────
+local abilityFrame = makeFrame(screenGui, &quot;Abilities&quot;,
+	UDim2.new(0, 400, 0, 60), UDim2.new(0.5, -200, 1, -70))
+
+local attackBtn = makeButton(abilityFrame, &quot;AttackBtn&quot;, &quot;Attack [LMB]&quot;,
+	UDim2.new(0, 90, 0, 40), UDim2.new(0, 5, 0.5, -20),
+	Color3.fromRGB(180, 50, 50))
+
+local abilityBtn = makeButton(abilityFrame, &quot;AbilityBtn&quot;, &quot;Ability [Q]&quot;,
+	UDim2.new(0, 90, 0, 40), UDim2.new(0, 100, 0.5, -20),
+	Color3.fromRGB(50, 100, 200))
+
+local ultimateBtn = makeButton(abilityFrame, &quot;UltimateBtn&quot;, &quot;Ultimate [E]&quot;,
+	UDim2.new(0, 90, 0, 40), UDim2.new(0, 195, 0.5, -20),
+	Color3.fromRGB(200, 100, 0))
+
+local potionBtn = makeButton(abilityFrame, &quot;PotionBtn&quot;, &quot;Potion [F]&quot;,
+	UDim2.new(0, 90, 0, 40), UDim2.new(0, 290, 0.5, -20),
+	Color3.fromRGB(50, 180, 50))
+
+abilityFrame.Visible = false
+
+-- ── Class Selection Screen ──────────────────────────────
+local classSelectFrame = makeFrame(screenGui, &quot;ClassSelect&quot;,
+	UDim2.new(0, 500, 0, 400), UDim2.new(0.5, -250, 0.5, -200),
+	Color3.fromRGB(15, 15, 25), 0.1)
+
+local titleLabel = makeLabel(classSelectFrame, &quot;Title&quot;, &quot;SHADOW DUNGEON: DESCENT&quot;,
+	UDim2.new(1, 0, 0, 50), UDim2.new(0, 0, 0, 10),
+	Color3.fromRGB(255, 100, 50), 28)
+titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+local subtitleLabel = makeLabel(classSelectFrame, &quot;Subtitle&quot;, &quot;Choose Your Class&quot;,
+	UDim2.new(1, 0, 0, 30), UDim2.new(0, 0, 0, 60),
+	Color3.fromRGB(200, 200, 200), 20)
+subtitleLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+-- Class buttons
+local classes = {
+	{ name = &quot;Warrior&quot;, desc = &quot;HP: 150 | ATK: 15 | DEF: 12\nAbility: Shield Bash (Stun)&quot;, color = Color3.fromRGB(200, 50, 50) },
+	{ name = &quot;Mage&quot;,    desc = &quot;HP: 80 | ATK: 25 | DEF: 5\nAbility: Fireball (AoE Burn)&quot;, color = Color3.fromRGB(80, 80, 220) },
+	{ name = &quot;Archer&quot;,  desc = &quot;HP: 100 | ATK: 20 | DEF: 8\nAbility: Power Shot (Pierce)&quot;, color = Color3.fromRGB(50, 180, 50) },
+}
+
+for i, cls in ipairs(classes) do
+	local yPos = 100 + (i - 1) * 90
+
+	local classBtn = makeButton(classSelectFrame, cls.name .. &quot;Btn&quot;, cls.name,
+		UDim2.new(0, 150, 0, 70), UDim2.new(0, 30, 0, yPos), cls.color)
+	classBtn.TextSize = 22
+
+	local descLabel = makeLabel(classSelectFrame, cls.name .. &quot;Desc&quot;, cls.desc,
+		UDim2.new(0, 280, 0, 70), UDim2.new(0, 190, 0, yPos),
+		Color3.fromRGB(180, 180, 180), 14)
+	descLabel.TextWrapped = true
+
+	classBtn.MouseButton1Click:Connect(function()
+		local success, msg = SelectClassEvent:InvokeServer(cls.name)
+		if success then
+			classSelectFrame.Visible = false
+			hudFrame.Visible = true
+			abilityFrame.Visible = true
+			StartRunEvent:FireServer()
+		end
+	end)
+end
+
+-- Stats display on class select
+local statsFrame = makeFrame(classSelectFrame, &quot;StatsDisplay&quot;,
+	UDim2.new(0.9, 0, 0, 40), UDim2.new(0.05, 0, 0, 370))
+
+local statsLabel = makeLabel(statsFrame, &quot;StatsText&quot;, &quot;Best Floor: 0 | Runs: 0 | Soul Gems: 0&quot;,
+	UDim2.new(1, 0, 1, 0), UDim2.new(0, 0, 0, 0),
+	Color3.fromRGB(180, 180, 180), 14)
+statsLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+-- ── Soul Upgrade Shop (accessible from class select) ────
+local shopBtn = makeButton(classSelectFrame, &quot;ShopBtn&quot;, &quot;Soul Upgrades&quot;,
+	UDim2.new(0, 140, 0, 35), UDim2.new(0.5, -70, 0, 330),
+	Color3.fromRGB(160, 50, 255))
+
+local shopFrame = makeFrame(screenGui, &quot;SoulShop&quot;,
+	UDim2.new(0, 350, 0, 350), UDim2.new(0.5, -175, 0.5, -175),
+	Color3.fromRGB(20, 10, 30), 0.1)
+shopFrame.Visible = false
+
+makeLabel(shopFrame, &quot;ShopTitle&quot;, &quot;Soul Gem Upgrades&quot;,
+	UDim2.new(1, 0, 0, 35), UDim2.new(0, 0, 0, 5),
+	Color3.fromRGB(200, 150, 255), 22).TextXAlignment = Enum.TextXAlignment.Center
+
+local shopCloseBtn = makeButton(shopFrame, &quot;CloseBtn&quot;, &quot;X&quot;,
+	UDim2.new(0, 30, 0, 30), UDim2.new(1, -35, 0, 5),
+	Color3.fromRGB(180, 50, 50))
+shopCloseBtn.MouseButton1Click:Connect(function()
+	shopFrame.Visible = false
+end)
+
+local upgradeButtons = {}
+local upgradeNames = { &quot;Vitality&quot;, &quot;Strength&quot;, &quot;Armor&quot;, &quot;Agility&quot;, &quot;Lucky&quot; }
+
+for i, upgName in ipairs(upgradeNames) do
+	local yPos = 45 + (i - 1) * 55
+	local upFrame = makeFrame(shopFrame, upgName .. &quot;Frame&quot;,
+		UDim2.new(0.9, 0, 0, 45), UDim2.new(0.05, 0, 0, yPos),
+		Color3.fromRGB(30, 20, 40))
+
+	local upLabel = makeLabel(upFrame, &quot;Label&quot;, upgName .. &quot; Lv.0&quot;,
+		UDim2.new(0.5, 0, 1, 0), UDim2.new(0, 10, 0, 0),
+		Color3.fromRGB(220, 220, 220), 15)
+
+	local upBtn = makeButton(upFrame, &quot;BuyBtn&quot;, &quot;Buy (10 SG)&quot;,
+		UDim2.new(0, 100, 0, 30), UDim2.new(1, -110, 0.5, -15),
+		Color3.fromRGB(100, 50, 180))
+
+	upgradeButtons[upgName] = { label = upLabel, button = upBtn }
+
+	upBtn.MouseButton1Click:Connect(function()
+		local success, msg = BuySoulUpgradeEvent:InvokeServer(upgName)
+		-- UI will update via DataUpdateEvent
+	end)
+end
+
+shopBtn.MouseButton1Click:Connect(function()
+	shopFrame.Visible = not shopFrame.Visible
+end)
+
+-- ── Game Over Screen ────────────────────────────────────
+local gameOverFrame = makeFrame(screenGui, &quot;GameOver&quot;,
+	UDim2.new(0, 400, 0, 250), UDim2.new(0.5, -200, 0.5, -125),
+	Color3.fromRGB(30, 0, 0), 0.1)
+gameOverFrame.Visible = false
+
+makeLabel(gameOverFrame, &quot;GOTitle&quot;, &quot;YOU DIED&quot;,
+	UDim2.new(1, 0, 0, 50), UDim2.new(0, 0, 0, 20),
+	Color3.fromRGB(255, 50, 50), 36).TextXAlignment = Enum.TextXAlignment.Center
+
+local goStatsLabel = makeLabel(gameOverFrame, &quot;GOStats&quot;, &quot;&quot;,
+	UDim2.new(0.8, 0, 0, 80), UDim2.new(0.1, 0, 0, 80),
+	Color3.fromRGB(200, 200, 200), 16)
+goStatsLabel.TextWrapped = true
+goStatsLabel.TextXAlignment = Enum.TextXAlignment.Center
+
+local retryBtn = makeButton(gameOverFrame, &quot;RetryBtn&quot;, &quot;Try Again&quot;,
+	UDim2.new(0, 150, 0, 40), UDim2.new(0.5, -75, 0, 180),
+	Color3.fromRGB(80, 130, 80))
+
+retryBtn.MouseButton1Click:Connect(function()
+	gameOverFrame.Visible = false
+	classSelectFrame.Visible = true
+	hudFrame.Visible = false
+	abilityFrame.Visible = false
+end)
+
+-- ── Combat Log (bottom-left) ────────────────────────────
+local logFrame = makeFrame(screenGui, &quot;CombatLog&quot;,
+	UDim2.new(0, 300, 0, 200), UDim2.new(0, 10, 1, -210),
+	Color3.fromRGB(10, 10, 20), 0.5)
+
+local logScroll = Instance.new(&quot;ScrollingFrame&quot;)
+logScroll.Size = UDim2.new(1, -10, 1, -10)
+logScroll.Position = UDim2.new(0, 5, 0, 5)
+logScroll.BackgroundTransparency = 1
+logScroll.ScrollBarThickness = 4
+logScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+logScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+logScroll.Parent = logFrame
+
+local logLayout = Instance.new(&quot;UIListLayout&quot;)
+logLayout.SortOrder = Enum.SortOrder.LayoutOrder
+logLayout.Padding = UDim.new(0, 2)
+logLayout.Parent = logScroll
+
+local logOrder = 0
+local function addLogMessage(text, color)
+	logOrder = logOrder + 1
+	local msg = Instance.new(&quot;TextLabel&quot;)
+	msg.Size = UDim2.new(1, 0, 0, 18)
+	msg.BackgroundTransparency = 1
+	msg.TextColor3 = color or Color3.fromRGB(200, 200, 200)
+	msg.Text = text
+	msg.TextSize = 12
+	msg.Font = Enum.Font.Gotham
+	msg.TextXAlignment = Enum.TextXAlignment.Left
+	msg.TextWrapped = true
+	msg.AutomaticSize = Enum.AutomaticSize.Y
+	msg.LayoutOrder = logOrder
+	msg.Parent = logScroll
+
+	-- Auto-scroll to bottom
+	logScroll.CanvasPosition = Vector2.new(0, logScroll.AbsoluteCanvasSize.Y)
+
+	-- Limit log entries
+	local children = logScroll:GetChildren()
+	local labels = {}
+	for _, c in ipairs(children) do
+		if c:IsA(&quot;TextLabel&quot;) then table.insert(labels, c) end
+	end
+	if #labels &gt; 50 then
+		labels[1]:Destroy()
+	end
+end
+
+logFrame.Visible = false
+
+-- ── Event Handlers ──────────────────────────────────────
+DataUpdateEvent.OnClientEvent:Connect(function(data)
+	currentData = data
+
+	-- Update HUD
+	if data.hp and data.maxHp then
+		local ratio = math.clamp(data.hp / math.max(data.maxHp, 1), 0, 1)
+		hpBarFill.Size = UDim2.new(ratio, 0, 1, 0)
+		hpBarFill.BackgroundColor3 = ratio &gt; 0.5
+			and Color3.fromRGB(50, 200, 50)
+			or (ratio &gt; 0.25 and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(200, 30, 30))
+		hpLabel.Text = &quot;HP: &quot; .. math.floor(data.hp) .. &quot;/&quot; .. data.maxHp
+	end
+
+	floorLabel.Text = &quot;Floor: &quot; .. (data.currentFloor or 0)
+	soulGemLabel.Text = &quot;Gems: &quot; .. (data.soulGems or 0)
+	potionLabel.Text = &quot;Potions: &quot; .. (data.potions or 0)
+
+	-- Update stats on class select
+	statsLabel.Text = &quot;Best Floor: &quot; .. (data.bestFloor or 0)
+		.. &quot; | Runs: &quot; .. (data.totalRuns or 0)
+		.. &quot; | Soul Gems: &quot; .. (data.soulGems or 0)
+
+	-- Update soul shop
+	for _, upDef in ipairs(upgradeNames) do
+		local info = upgradeButtons[upDef]
+		if info then
+			local level = (data.soulUpgrades and data.soulUpgrades[upDef]) or 0
+			info.label.Text = upDef .. &quot; Lv.&quot; .. level
+			local cost = (level + 1) * 10
+			if upDef == &quot;Lucky&quot; then cost = (level + 1) * 30 end
+			info.button.Text = &quot;Buy (&quot; .. cost .. &quot; SG)&quot;
+		end
+	end
+end)
+
+FloorUpdateEvent.OnClientEvent:Connect(function(info)
+	if info.type == &quot;floor_cleared&quot; then
+		addLogMessage(&quot;Floor &quot; .. info.floor .. &quot; CLEARED! Walk to the exit.&quot;, Color3.fromRGB(50, 255, 50))
+	else
+		local text = info.isBoss
+			and (&quot;BOSS FLOOR &quot; .. info.floor .. &quot;!&quot;)
+			or (&quot;Floor &quot; .. info.floor .. &quot; — &quot; .. info.enemyCount .. &quot; enemies&quot;)
+		addLogMessage(text, info.isBoss and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 200, 50))
+		logFrame.Visible = true
+	end
+end)
+
+CombatFeedbackEvent.OnClientEvent:Connect(function(info)
+	if info.type == &quot;player_attack&quot; then
+		local color = info.killed and Color3.fromRGB(255, 100, 0) or Color3.fromRGB(255, 255, 100)
+		addLogMessage(&quot;Hit! &quot; .. info.damage .. &quot; damage&quot; .. (info.killed and &quot; — KILLED!&quot; or &quot;&quot;), color)
+	elseif info.type == &quot;enemy_attack&quot; then
+		addLogMessage(info.enemyName .. &quot; hits you for &quot; .. info.damage .. &quot; damage!&quot;, Color3.fromRGB(255, 80, 80))
+	elseif info.type == &quot;ability&quot; then
+		addLogMessage(&quot;Used &quot; .. info.abilityName .. &quot;!&quot;, Color3.fromRGB(100, 150, 255))
+	elseif info.type == &quot;ultimate&quot; then
+		addLogMessage(&quot;ULTIMATE: &quot; .. info.ultimateName .. &quot;!&quot;, Color3.fromRGB(255, 200, 0))
+	elseif info.type == &quot;potion&quot; then
+		addLogMessage(&quot;Healed &quot; .. info.healAmount .. &quot; HP!&quot;, Color3.fromRGB(50, 255, 50))
+	elseif info.type == &quot;boss_special&quot; then
+		addLogMessage(&quot;BOSS uses &quot; .. (info.special.type or &quot;special&quot;) .. &quot;!&quot;, Color3.fromRGB(255, 0, 0))
+	elseif info.type == &quot;boss_damage&quot; then
+		addLogMessage(&quot;Boss deals &quot; .. info.damage .. &quot; damage!&quot;, Color3.fromRGB(255, 0, 0))
+	end
+end)
+
+LootDropEvent.OnClientEvent:Connect(function(drops)
+	for _, item in ipairs(drops) do
+		local color = item.rarityColor or Color3.fromRGB(200, 200, 200)
+		addLogMessage(&quot;Loot: &quot; .. item.name, color)
+	end
+end)
+
+GameOverEvent.OnClientEvent:Connect(function(info)
+	hudFrame.Visible = false
+	abilityFrame.Visible = false
+	logFrame.Visible = false
+	gameOverFrame.Visible = true
+	goStatsLabel.Text = &quot;Best Floor: &quot; .. (info.floor or 0)
+		.. &quot;\nSoul Gems: &quot; .. (info.soulGems or 0)
+		.. &quot;\nTotal Runs: &quot; .. (info.totalRuns or 0)
+end)
+
+-- Start with class selection visible
+classSelectFrame.Visible = true
+
+print(&quot;[ShadowDungeon] MainGui loaded&quot;)
+</ProtectedString>
+        <bool name="Disabled">false</bool>
+      </Properties>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="RBX0000000F">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="RBX00000010">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="RBX00000011">
+        <Properties>
+          <string name="Name">PlayerController</string>
+          <ProtectedString name="Source">-- PlayerController: client-side input handling for Shadow Dungeon: Descent
+local Players = game:GetService(&quot;Players&quot;)
+local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
+local UserInputService = game:GetService(&quot;UserInputService&quot;)
+local RunService = game:GetService(&quot;RunService&quot;)
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+-- Wait for remotes
+local AttackEvent = ReplicatedStorage:WaitForChild(&quot;AttackEvent&quot;)
+local UseAbilityEvent = ReplicatedStorage:WaitForChild(&quot;UseAbilityEvent&quot;)
+local UseUltimateEvent = ReplicatedStorage:WaitForChild(&quot;UseUltimateEvent&quot;)
+local UsePotionEvent = ReplicatedStorage:WaitForChild(&quot;UsePotionEvent&quot;)
+local EquipItemEvent = ReplicatedStorage:WaitForChild(&quot;EquipItemEvent&quot;)
+local EnemyUpdateEvent = ReplicatedStorage:WaitForChild(&quot;EnemyUpdateEvent&quot;)
+local DataUpdateEvent = ReplicatedStorage:WaitForChild(&quot;DataUpdateEvent&quot;)
+
+-- ── Enemy Visual Tracking ───────────────────────────────
+local enemyModels = {}  -- [id] = { model, hpBar, ... }
+
+local function createEnemyModel(enemyInfo)
+	local model = Instance.new(&quot;Model&quot;)
+	model.Name = &quot;Enemy_&quot; .. enemyInfo.id
+
+	-- Body part
+	local body = Instance.new(&quot;Part&quot;)
+	body.Name = &quot;Body&quot;
+	body.Size = enemyInfo.size or Vector3.new(4, 5, 4)
+	body.Position = enemyInfo.position
+	body.Anchored = true
+	body.CanCollide = true
+	body.Color = enemyInfo.color or Color3.fromRGB(200, 50, 50)
+	body.Material = Enum.Material.SmoothPlastic
+	body.Parent = model
+
+	-- Humanoid-like properties
+	local clickDetector = Instance.new(&quot;ClickDetector&quot;)
+	clickDetector.MaxActivationDistance = 20
+	clickDetector.Parent = body
+
+	-- Name tag
+	local billboard = Instance.new(&quot;BillboardGui&quot;)
+	billboard.Size = UDim2.new(4, 0, 1.5, 0)
+	billboard.StudsOffset = Vector3.new(0, 4, 0)
+	billboard.Adornee = body
+	billboard.AlwaysOnTop = true
+	billboard.Parent = model
+
+	local nameLabel = Instance.new(&quot;TextLabel&quot;)
+	nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = enemyInfo.name .. (enemyInfo.isBoss and &quot; [BOSS]&quot; or &quot;&quot;)
+	nameLabel.TextColor3 = enemyInfo.isBoss and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 255)
+	nameLabel.TextScaled = true
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Parent = billboard
+
+	-- HP bar background
+	local hpBarBg = Instance.new(&quot;Frame&quot;)
+	hpBarBg.Size = UDim2.new(0.8, 0, 0.15, 0)
+	hpBarBg.Position = UDim2.new(0.1, 0, 0.55, 0)
+	hpBarBg.BackgroundColor3 = Color3.fromRGB(40, 0, 0)
+	hpBarBg.BorderSizePixel = 0
+	hpBarBg.Parent = billboard
+
+	local hpBarFill = Instance.new(&quot;Frame&quot;)
+	hpBarFill.Name = &quot;Fill&quot;
+	hpBarFill.Size = UDim2.new(1, 0, 1, 0)
+	hpBarFill.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+	hpBarFill.BorderSizePixel = 0
+	hpBarFill.Parent = hpBarBg
+
+	model.PrimaryPart = body
+	model.Parent = workspace
+
+	-- Click to attack
+	clickDetector.MouseClick:Connect(function()
+		AttackEvent:FireServer(enemyInfo.id)
+	end)
+
+	enemyModels[enemyInfo.id] = {
+		model = model,
+		body = body,
+		hpBarFill = hpBarFill,
+		nameLabel = nameLabel,
+	}
+end
+
+local function updateEnemyModel(enemyData)
+	local entry = enemyModels[enemyData.id]
+	if not entry then return end
+
+	-- Update HP bar
+	local ratio = math.clamp(enemyData.hp / math.max(enemyData.maxHp, 1), 0, 1)
+	entry.hpBarFill.Size = UDim2.new(ratio, 0, 1, 0)
+
+	if ratio &gt; 0.5 then
+		entry.hpBarFill.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+	elseif ratio &gt; 0.25 then
+		entry.hpBarFill.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+	else
+		entry.hpBarFill.BackgroundColor3 = Color3.fromRGB(200, 30, 30)
+	end
+
+	-- Update position
+	if enemyData.position then
+		entry.body.Position = enemyData.position
+	end
+
+	-- Visual effects for status
+	if enemyData.stunned then
+		entry.body.Color = Color3.fromRGB(255, 255, 0)
+	elseif enemyData.burning then
+		entry.body.Color = Color3.fromRGB(255, 100, 0)
+	end
+
+	-- Remove if dead
+	if enemyData.hp &lt;= 0 then
+		entry.model:Destroy()
+		enemyModels[enemyData.id] = nil
+	end
+end
+
+local function clearAllEnemies()
+	for id, entry in pairs(enemyModels) do
+		entry.model:Destroy()
+	end
+	enemyModels = {}
+end
+
+-- ── Enemy Update Handler ────────────────────────────────
+EnemyUpdateEvent.OnClientEvent:Connect(function(info)
+	if info.type == &quot;spawn&quot; then
+		clearAllEnemies()
+		for _, enemyInfo in ipairs(info.enemies) do
+			createEnemyModel(enemyInfo)
+		end
+	elseif info.type == &quot;update&quot; then
+		for _, enemyData in ipairs(info.enemies) do
+			updateEnemyModel(enemyData)
+		end
+	end
+end)
+
+-- ── Keyboard Input ──────────────────────────────────────
+local function findNearestEnemy()
+	local character = player.Character
+	if not character then return nil end
+	local hrp = character:FindFirstChild(&quot;HumanoidRootPart&quot;)
+	if not hrp then return nil end
+
+	local nearest = nil
+	local nearestDist = math.huge
+
+	for id, entry in pairs(enemyModels) do
+		if entry.body and entry.body.Parent then
+			local dist = (entry.body.Position - hrp.Position).Magnitude
+			if dist &lt; nearestDist then
+				nearestDist = dist
+				nearest = id
+			end
+		end
+	end
+
+	return nearest
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+
+	-- Q = Ability
+	if input.KeyCode == Enum.KeyCode.Q then
+		UseAbilityEvent:FireServer()
+	end
+
+	-- E = Ultimate
+	if input.KeyCode == Enum.KeyCode.E then
+		UseUltimateEvent:FireServer()
+	end
+
+	-- F = Potion
+	if input.KeyCode == Enum.KeyCode.F then
+		UsePotionEvent:FireServer()
+	end
+
+	-- Left Click = Attack nearest enemy
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local target = findNearestEnemy()
+		if target then
+			AttackEvent:FireServer(target)
+		end
+	end
+end)
+
+-- ── Damage Flash Effect ─────────────────────────────────
+local damageOverlay = Instance.new(&quot;Frame&quot;)
+damageOverlay.Size = UDim2.new(1, 0, 1, 0)
+damageOverlay.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+damageOverlay.BackgroundTransparency = 1
+damageOverlay.BorderSizePixel = 0
+damageOverlay.ZIndex = 100
+
+local playerGui = player:WaitForChild(&quot;PlayerGui&quot;)
+local overlayGui = Instance.new(&quot;ScreenGui&quot;)
+overlayGui.Name = &quot;DamageOverlay&quot;
+overlayGui.IgnoreGuiInset = true
+overlayGui.Parent = playerGui
+damageOverlay.Parent = overlayGui
+
+local CombatFeedbackEvent = ReplicatedStorage:WaitForChild(&quot;CombatFeedbackEvent&quot;)
+CombatFeedbackEvent.OnClientEvent:Connect(function(info)
+	if info.type == &quot;enemy_attack&quot; or info.type == &quot;boss_damage&quot; then
+		-- Flash red
+		damageOverlay.BackgroundTransparency = 0.6
+		task.spawn(function()
+			for i = 1, 10 do
+				damageOverlay.BackgroundTransparency = 0.6 + (i / 10) * 0.4
+				task.wait(0.03)
+			end
+			damageOverlay.BackgroundTransparency = 1
+		end)
+	end
+end)
+
+print(&quot;[ShadowDungeon] PlayerController loaded&quot;)
+</ProtectedString>
+          <bool name="Disabled">false</bool>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+</roblox>

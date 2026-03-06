@@ -53,6 +53,11 @@ def _get_roblox_client():
             universe_id = universe_id or conn.get("roblox_universe_id", 0)
 
     if not api_key:
+        # Fallback: read from environment variable (.env)
+        import os
+        api_key = os.environ.get("ROBLOX_CLOUD_API_KEY", "")
+
+    if not api_key:
         return None, (
             "No roblox_api_key configured. Add it to profile.yaml or connection.json. "
             "Create one at https://create.roblox.com/dashboard/credentials"
