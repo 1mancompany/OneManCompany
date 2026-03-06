@@ -65,12 +65,31 @@ When receiving CEO action plans:
 - List/manage: list_tools(), grant_tool_access(), revoke_tool_access().
 - All project outputs that become company tools must go through register_asset().
 
-### 工具注册标准
+### 工具注册标准（严格执行）
+
+**工具的定义**：工具是原子性的、可复用的功能单元，用于加快效率或完成特殊功能。
+
+**什么是工具**：
+- 可执行脚本（自动化发布、构建、部署等）
+- API交互模块（与外部服务通信）
+- 沙箱/运行时环境
+- 项目管理/查询工具
+
+**什么不是工具（严禁注册）**：
+- 参考代码/示例代码 — 这是文档，不是工具
+- 游戏模板/代码脚手架 — 这是项目产物，留在项目目录里
+- 文档模板 — 这是知识，用 deposit_company_knowledge 存
+- 同一功能的多个副本 — 一个功能只应有一个工具
+- 只有描述没有实际可执行内容的空壳
+
+**注册前必须自查**：
+1. 这个东西能直接运行/调用吗？不能 → 不是工具
+2. 公司已有类似功能的工具吗？有 → 不要重复注册
+3. 这只是某个项目的源码吗？是 → 留在项目目录，不要注册为工具
+
+**类型要求**：
 - tool_type="script"：必须包含真实可执行的 .py/.sh 文件，系统会验证语法
-- tool_type="template"：文档/模板类，无代码要求
 - tool_type="reference"：外部服务引用，必须有 reference_url
-- 绝对禁止注册只有名字和描述、没有实际内容的工具
-- 所有复盘产出的工具和流程必须是可用级别
 
 ### Meeting Rooms
 - book_meeting_room() / release_meeting_room() / list_meeting_rooms().
@@ -293,8 +312,9 @@ def register_asset(
     Args:
         name: Short name for the tool (e.g. 'Code Review Bot', 'CI/CD Pipeline').
         description: What this tool does for the company.
-        tool_type: Type of tool — "template" (doc/template), "script" (executable code),
-            or "reference" (external service link).
+        tool_type: Type of tool — "script" (executable code/automation),
+            or "reference" (external service link). Do NOT register templates or
+            reference code as tools — use deposit_company_knowledge() instead.
         source_project_dir: (Optional) Absolute path to a project workspace directory.
             If provided, source_files will be copied from this directory into the tool folder.
         source_files: (Optional) List of filenames (relative to source_project_dir) to copy
@@ -307,6 +327,22 @@ def register_asset(
     import ast
     import shutil
     from pathlib import Path
+
+    # Reject reference code / templates / non-tool items
+    _reject_keywords = ["参考代码", "参考", "reference code", "模板", "template",
+                        "脚手架", "scaffold", "示例", "example", "sample"]
+    name_lower = name.lower()
+    desc_lower = description.lower()
+    for kw in _reject_keywords:
+        if kw in name_lower or kw in desc_lower:
+            return {"status": "error", "message": f"Rejected: '{kw}' found in name/description. "
+                    "Reference code, templates, and examples are NOT tools. "
+                    "Use deposit_company_knowledge() for knowledge, or keep in project directory."}
+
+    # Reject duplicates — check existing tools for similar names
+    existing_names = [t.name.lower() for t in company_state.tools]
+    if name_lower in existing_names:
+        return {"status": "error", "message": f"Rejected: tool '{name}' already exists. Do not register duplicates."}
 
     # Validate by tool_type
     if tool_type == "script":

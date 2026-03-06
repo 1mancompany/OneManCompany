@@ -206,6 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Roblox OAuth token cache (contains secrets)
+.roblox_tokens.json
+
 # In-place file edit backups
 .backups/
 company/business/projects/.DS_Store

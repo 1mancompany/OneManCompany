@@ -12,7 +12,7 @@ import yaml
 from onemancompany.core.routine import (
     StepContext,
     _build_summary,
-    _handle_ceo_review,
+    _handle_ea_approval,
     _handle_meeting_prep,
     _resolve_handler,
     _save_report,
@@ -258,7 +258,7 @@ class TestResolveHandler:
     def test_title_match_ceo_approval(self):
         step = _make_step(title="CEO Approval")
         handler = _resolve_handler(step)
-        assert handler.__name__ == "_handle_ceo_review"
+        assert handler.__name__ == "_handle_ea_approval"
 
     def test_owner_based_fallback_employees(self):
         step = _make_step(title="Some Unknown Title", owner="Each participating employee")
@@ -278,7 +278,7 @@ class TestResolveHandler:
     def test_owner_based_fallback_ceo(self):
         step = _make_step(title="Unknown", owner="CEO")
         handler = _resolve_handler(step)
-        assert handler.__name__ == "_handle_ceo_review"
+        assert handler.__name__ == "_handle_ea_approval"
 
     def test_generic_fallback(self):
         step = _make_step(title="Completely Unknown", owner="Random Person")
@@ -307,13 +307,13 @@ class TestHandleMeetingPrep:
 
 
 # ---------------------------------------------------------------------------
-# _handle_ceo_review (simple handler)
+# _handle_ea_approval
 # ---------------------------------------------------------------------------
 
-class TestHandleCeoReview:
+class TestHandleEaApproval:
     @pytest.mark.asyncio
-    async def test_returns_awaiting(self):
-        step = _make_step(title="CEO Approval")
+    async def test_no_actions_returns_empty(self):
+        step = _make_step(title="EA Approval")
         ctx = StepContext(
             task_summary="test",
             participants=[],
@@ -321,9 +321,44 @@ class TestHandleCeoReview:
             workflow=_make_workflow(),
             meeting_doc={},
         )
-        with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
-            result = await _handle_ceo_review(step, ctx)
-        assert result == {"status": "awaiting_ceo_review"}
+        # action_items is empty by default
+        with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
+             patch("onemancompany.core.routine._chat", new_callable=AsyncMock):
+            result = await _handle_ea_approval(step, ctx)
+        assert result["status"] == "no_actions"
+        assert result["approved"] == []
+
+    @pytest.mark.asyncio
+    async def test_ea_approves_actions(self):
+        step = _make_step(title="EA Approval")
+        ctx = StepContext(
+            task_summary="test",
+            participants=[],
+            room_id="r1",
+            workflow=_make_workflow(),
+            meeting_doc={},
+        )
+        ctx.action_items = [
+            {"source": "HR", "description": "hire engineer", "priority": "high"},
+            {"source": "COO", "description": "buy monitor", "priority": "low"},
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.content = json.dumps({
+            "approved_indices": [0, 1],
+            "rejected_indices": [],
+            "reason": "all good",
+        })
+
+        with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
+             patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
+             patch("onemancompany.core.routine.make_llm") as mock_llm, \
+             patch("onemancompany.core.routine.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()):
+            result = await _handle_ea_approval(step, ctx)
+
+        assert result["status"] == "ea_approved"
+        assert len(result["approved"]) == 2
 
 
 # ---------------------------------------------------------------------------

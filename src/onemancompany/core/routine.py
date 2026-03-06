@@ -674,13 +674,189 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     return {"action_items": action_items}
 
 
-async def _handle_ceo_review(step: WorkflowStep, ctx: StepContext) -> dict:
-    """CEO review step — this just produces the report; actual approval is async."""
+async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
+    """EA reviews and approves meeting action items on behalf of CEO."""
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    if not ctx.action_items:
+        await _publish("routine_phase", {
+            "phase": step.title,
+            "message": "无待审批行动计划，跳过EA审批环节"
+        })
+        await _chat(ctx.room_id, "EA", "EA", "本次会议无需审批的行动计划。")
+        return {"status": "no_actions", "approved": [], "rejected": [], "skipped_duplicates": []}
+
+    # Dedup: filter out items already proposed in past meetings
+    unique_items, dup_items, recurring_items = _dedup_action_items(ctx.action_items)
+
+    if dup_items:
+        dup_descs = "; ".join(d.get("description", "")[:40] for d in dup_items)
+        await _chat(ctx.room_id, "EA", "EA",
+                    f"[去重] 跳过 {len(dup_items)} 项已提出过的改进: {dup_descs}")
+        await _publish("routine_phase", {
+            "phase": step.title,
+            "message": f"去重跳过 {len(dup_items)} 项重复改进"
+        })
+
+    # Recurring items (proposed 2+ times before) — escalate to CEO
+    if recurring_items:
+        recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
+        await _chat(ctx.room_id, "EA", "EA",
+                    f"[警告] 以下 {len(recurring_items)} 项改进已多次提出但未能解决，需CEO关注:\n{recurring_descs}")
+        await _publish("recurring_action_items", {
+            "items": [r.get("description", "") for r in recurring_items],
+            "message": f"{len(recurring_items)} 项改进反复出现，可能无法通过常规方式解决，请CEO决策",
+        })
+
+    if not unique_items:
+        await _chat(ctx.room_id, "EA", "EA", "所有改进项均已在之前会议中提出过，无新行动计划。")
+        return {
+            "status": "all_duplicates",
+            "approved": [],
+            "rejected": [],
+            "skipped_duplicates": [d.get("description", "") for d in dup_items],
+            "recurring_escalated": [r.get("description", "") for r in recurring_items],
+        }
+
+    # Update action_items to only contain unique items for EA review
+    ctx.action_items = unique_items
+
+    llm = make_llm(EA_ID)
+
+    items_text = "\n".join(
+        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (优先级: {a.get('priority', '')})"
+        for i, a in enumerate(unique_items)
+    )
+
+    step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
+    workflow_ctx = ""
+    if step_instructions:
+        workflow_ctx = f"\n\n【本阶段工作流要求】\n{step_instructions}\n请按以上要求执行。\n"
+
+    prompt = (
+        "你是EA（行政助理），代表CEO严格审核会议行动计划。\n\n"
+        "⚠️ 审批核心原则：改进项不是越多越好，而是越精越关键越好。\n"
+        "CEO最关注的是提高组织效率，一切不直接服务于此目标的行动都应被否决。\n\n"
+        f"会议概要: {ctx.task_summary}\n\n"
+        f"COO运营报告: {ctx.coo_report}\n\n"
+        f"待审核行动计划:\n{items_text}\n\n"
+        "严格审核标准（必须全部满足才能批准）:\n"
+        "1. 具体可执行：有明确的执行步骤，不是空话套话（如「加强管理」「提高效率」「优化流程」等空泛表述一律否决）\n"
+        "2. 直接相关：必须与本次项目的实际问题直接相关，不是泛泛而谈的通用建议\n"
+        "3. 可衡量效果：执行后能明确看到效果，有判断成功/失败的标准\n"
+        "4. 投入产出合理：改进带来的收益必须大于执行成本\n"
+        "5. 无重复矛盾：不与其他行动项重复或矛盾\n\n"
+        "应该否决的典型例子:\n"
+        "- 「加强代码审查流程」→ 太空泛，怎么加强？具体做什么？\n"
+        "- 「提升团队协作能力」→ 假大空，没有实际行动\n"
+        "- 「优化项目管理机制」→ 形式主义，不解决具体问题\n"
+        "- 与本项目无关的通用改进建议\n\n"
+        "请严格审核，宁可少批不可多批。以JSON格式返回你的决定:\n"
+        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "审核说明"}\n'
+        "approved_indices 是你批准的行动编号（0-based），rejected_indices 是你否决的。\n"
+        f"只返回JSON，不要其他内容。{workflow_ctx}"
+    )
+
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": "所有材料已整理完毕，等待CEO审阅"
+        "message": "EA正在审核行动计划"
     })
-    return {"status": "awaiting_ceo_review"}
+
+    resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=EA_ID)
+    raw = resp.content
+
+    # Parse EA decision
+    approved_indices: list[int] = []
+    rejected_indices: list[int] = []
+    ea_reason = ""
+    try:
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            decision = json.loads(json_match.group())
+            approved_indices = decision.get("approved_indices", [])
+            rejected_indices = decision.get("rejected_indices", [])
+            ea_reason = decision.get("reason", "")
+        else:
+            # If EA can't produce JSON, approve all by default
+            approved_indices = list(range(len(ctx.action_items)))
+            ea_reason = "EA未返回有效JSON，默认全部批准"
+    except json.JSONDecodeError:
+        approved_indices = list(range(len(ctx.action_items)))
+        ea_reason = "EA返回格式错误，默认全部批准"
+
+    approved = [ctx.action_items[i] for i in approved_indices if i < len(ctx.action_items)]
+    rejected = [ctx.action_items[i] for i in rejected_indices if i < len(ctx.action_items)]
+
+    # Chat announcement
+    await _chat(ctx.room_id, "EA", "EA",
+                f"[审批结果] 批准 {len(approved)} 项，否决 {len(rejected)} 项。{ea_reason}")
+
+    if not approved:
+        await _publish("routine_phase", {
+            "phase": step.title,
+            "message": "EA未批准任何行动计划"
+        })
+        return {"status": "none_approved", "approved": [], "rejected": rejected, "reason": ea_reason}
+
+    # Execute approved actions directly
+
+    # 1. Handle asset consolidation actions
+    from onemancompany.agents.coo_agent import register_asset
+    asset_results = []
+    remaining_actions = []
+    for a in approved:
+        if a.get("type") == "asset_consolidation":
+            result = register_asset.invoke({
+                "name": a.get("name", ""),
+                "description": a.get("asset_description", a.get("description", "")),
+                "source_project_dir": a.get("project_dir", ""),
+                "source_files": a.get("files", []),
+            })
+            asset_results.append(result)
+            logger.info("Asset registered: %s -> %s", a.get("name"), result)
+        else:
+            remaining_actions.append(a)
+
+    if asset_results:
+        await _publish("routine_phase", {
+            "phase": "资产沉淀",
+            "message": f"已注册 {len(asset_results)} 项公司资产"
+        })
+
+    # 2. Push remaining actions to COO for dispatch
+    if remaining_actions:
+        action_lines = []
+        for a in remaining_actions:
+            source = a.get("source", "COO")
+            action_lines.append(f"- [{source}] {a['description']}")
+
+        coo_task = (
+            "EA已批准以下行动计划。请按source字段分配执行：\n"
+            "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+            "- source=COO的行动：由你自己执行\n\n"
+            "行动计划:\n" + "\n".join(action_lines)
+        )
+
+        coo_loop = get_agent_loop(COO_ID)
+        if coo_loop:
+            coo_loop.push_task(coo_task)
+            await _chat(ctx.room_id, "EA", "EA",
+                        f"已推送 {len(remaining_actions)} 项批准行动到COO任务板")
+
+    await _publish("routine_phase", {
+        "phase": step.title,
+        "message": f"EA审批完成：批准 {len(approved)} 项，否决 {len(rejected)} 项"
+    })
+
+    return {
+        "status": "ea_approved",
+        "approved": [a.get("description", "") for a in approved],
+        "rejected": [a.get("description", "") for a in rejected],
+        "skipped_duplicates": [d.get("description", "") for d in dup_items],
+        "recurring_escalated": [r.get("description", "") for r in recurring_items],
+        "asset_results": asset_results,
+        "reason": ea_reason,
+    }
 
 
 async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
@@ -726,14 +902,15 @@ _register_title_handler("Asset Consolidation", _handle_asset_consolidation)
 _register_title_handler("Employee Open Floor", _handle_employee_open_floor)
 _register_title_handler("Open Floor", _handle_employee_open_floor)
 _register_title_handler("Action Plan", _handle_action_plan)
-_register_title_handler("CEO Approval", _handle_ceo_review)
-_register_title_handler("Approval", _handle_ceo_review)
+_register_title_handler("CEO Approval", _handle_ea_approval)
+_register_title_handler("EA Approval", _handle_ea_approval)
+_register_title_handler("Approval", _handle_ea_approval)
 
 # Owner-based fallback handlers
 _register_owner_handler("employees", _handle_self_evaluation)
 _register_owner_handler("senior", _handle_senior_review)
 _register_owner_handler("coo_hr", _handle_action_plan)
-_register_owner_handler("ceo", _handle_ceo_review)
+_register_owner_handler("ceo", _handle_ea_approval)
 
 
 # ---------------------------------------------------------------------------
@@ -945,14 +1122,12 @@ async def run_post_task_routine(
         # Save report to disk
         _save_report(report_id, meeting_doc)
 
-        # Publish to CEO for review
+        # Publish informational event (EA already handled approval in workflow)
         summary_text = _build_summary(meeting_doc)
-        pending_reports[report_id] = meeting_doc
 
-        await _publish("meeting_report_ready", {
+        await _publish("meeting_report_complete", {
             "report_id": report_id,
             "summary": summary_text,
-            "action_items": ctx.action_items,
         })
 
         # Record routine results in project archive
@@ -975,6 +1150,237 @@ async def run_post_task_routine(
         room.booked_by = ""
         room.participants = []
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+
+
+# ---------------------------------------------------------------------------
+# Action item dedup — check historical meeting reports
+# ---------------------------------------------------------------------------
+
+def _load_past_action_items() -> list[dict]:
+    """Load action items from all past meeting reports.
+
+    Returns a list of dicts with keys: description, approved (bool), report_id.
+    """
+    items: list[dict] = []
+    if not REPORTS_DIR.exists():
+        return items
+    for report_path in REPORTS_DIR.glob("*.yaml"):
+        try:
+            with open(report_path) as f:
+                doc = yaml.safe_load(f)
+            if not doc or not isinstance(doc, dict):
+                continue
+            report_id = doc.get("id", report_path.stem)
+            # Collect all action items
+            for ai in doc.get("action_items", []):
+                if isinstance(ai, dict):
+                    desc = ai.get("description", "")
+                    items.append({"description": desc, "report_id": report_id})
+        except Exception:
+            logger.debug("Failed to load report %s for dedup check", report_path)
+    return items
+
+
+def _tokenize(text: str) -> set[str]:
+    """Simple tokenizer for similarity comparison."""
+    return set(re.findall(r'[\w\u4e00-\u9fff]+', text.lower()))
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def _dedup_action_items(
+    new_items: list[dict],
+    threshold: float = 0.6,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Filter out action items that are similar to previously proposed ones.
+
+    Returns (unique_items, duplicate_items, recurring_items).
+    - duplicate_items: appeared once before → skip silently
+    - recurring_items: appeared 2+ times before → likely unresolvable, escalate to CEO
+    """
+    past_items = _load_past_action_items()
+    if not past_items:
+        return new_items, [], []
+
+    # Count how many times each past description appeared
+    past_tokens_with_count: list[tuple[set[str], int]] = []
+    desc_counts: dict[str, int] = {}
+    for p in past_items:
+        desc = p["description"]
+        tokens = _tokenize(desc)
+        frozen = frozenset(tokens)
+        key = str(sorted(frozen))
+        desc_counts[key] = desc_counts.get(key, 0) + 1
+
+    # Build lookup: tokens → count
+    seen_keys: dict[str, tuple[set[str], int]] = {}
+    for p in past_items:
+        tokens = _tokenize(p["description"])
+        frozen = frozenset(tokens)
+        key = str(sorted(frozen))
+        if key not in seen_keys:
+            seen_keys[key] = (tokens, desc_counts.get(key, 1))
+
+    unique: list[dict] = []
+    duplicates: list[dict] = []
+    recurring: list[dict] = []
+
+    for item in new_items:
+        desc = item.get("description", "")
+        item_tokens = _tokenize(desc)
+        match_count = 0
+        for key, (pt, count) in seen_keys.items():
+            if _jaccard(item_tokens, pt) > threshold:
+                match_count = count
+                break
+        if match_count >= 2:
+            recurring.append(item)
+        elif match_count == 1:
+            duplicates.append(item)
+        else:
+            unique.append(item)
+
+    return unique, duplicates, recurring
+
+
+# ---------------------------------------------------------------------------
+# EA auto-approval helper (shared by workflow and fallback paths)
+# ---------------------------------------------------------------------------
+
+async def _ea_auto_approve_actions(
+    action_items: list[dict],
+    task_summary: str,
+    coo_report: str,
+    room_id: str,
+) -> dict:
+    """EA reviews action items via LLM and executes approved ones.
+
+    Used by the fallback path (the workflow path uses _handle_ea_approval).
+    """
+    from onemancompany.core.agent_loop import get_agent_loop
+
+    # Dedup: filter out items already proposed in past meetings
+    unique_items, dup_items, recurring_items = _dedup_action_items(action_items)
+
+    if dup_items:
+        dup_descs = "; ".join(d.get("description", "")[:40] for d in dup_items)
+        await _chat(room_id, "EA", "EA",
+                    f"[去重] 跳过 {len(dup_items)} 项已提出过的改进: {dup_descs}")
+
+    if recurring_items:
+        recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
+        await _chat(room_id, "EA", "EA",
+                    f"[警告] 以下 {len(recurring_items)} 项改进已多次提出但未能解决，需CEO关注:\n{recurring_descs}")
+        await _publish("recurring_action_items", {
+            "items": [r.get("description", "") for r in recurring_items],
+            "message": f"{len(recurring_items)} 项改进反复出现，可能无法通过常规方式解决，请CEO决策",
+        })
+
+    if not unique_items:
+        await _chat(room_id, "EA", "EA", "所有改进项均已在之前会议中提出过，无新行动计划。")
+        return {"approved": [], "rejected_count": 0, "skipped_duplicates": len(dup_items), "reason": "全部为重复项"}
+
+    action_items = unique_items
+
+    llm = make_llm(EA_ID)
+
+    items_text = "\n".join(
+        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (优先级: {a.get('priority', '')})"
+        for i, a in enumerate(action_items)
+    )
+
+    prompt = (
+        "你是EA（行政助理），代表CEO严格审核会议行动计划。\n\n"
+        "⚠️ 审批核心原则：改进项不是越多越好，而是越精越关键越好。\n"
+        "CEO最关注的是提高组织效率，一切不直接服务于此目标的行动都应被否决。\n\n"
+        f"会议概要: {task_summary}\n\n"
+        f"COO运营报告: {coo_report}\n\n"
+        f"待审核行动计划:\n{items_text}\n\n"
+        "严格审核标准（必须全部满足才能批准）:\n"
+        "1. 具体可执行：有明确的执行步骤，不是空话套话（如「加强管理」「提高效率」「优化流程」等空泛表述一律否决）\n"
+        "2. 直接相关：必须与本次项目的实际问题直接相关，不是泛泛而谈的通用建议\n"
+        "3. 可衡量效果：执行后能明确看到效果，有判断成功/失败的标准\n"
+        "4. 投入产出合理：改进带来的收益必须大于执行成本\n"
+        "5. 无重复矛盾：不与其他行动项重复或矛盾\n\n"
+        "应该否决的典型例子:\n"
+        "- 「加强代码审查流程」→ 太空泛，怎么加强？具体做什么？\n"
+        "- 「提升团队协作能力」→ 假大空，没有实际行动\n"
+        "- 「优化项目管理机制」→ 形式主义，不解决具体问题\n"
+        "- 与本项目无关的通用改进建议\n\n"
+        "请严格审核，宁可少批不可多批。以JSON格式返回你的决定:\n"
+        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "审核说明"}\n'
+        "approved_indices 是你批准的行动编号（0-based），rejected_indices 是你否决的。\n"
+        "只返回JSON，不要其他内容。"
+    )
+
+    await _publish("routine_phase", {"phase": "EA审批", "message": "EA正在审核行动计划"})
+
+    resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=EA_ID)
+    raw = resp.content
+
+    approved_indices: list[int] = []
+    rejected_indices: list[int] = []
+    ea_reason = ""
+    try:
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            decision = json.loads(json_match.group())
+            approved_indices = decision.get("approved_indices", [])
+            rejected_indices = decision.get("rejected_indices", [])
+            ea_reason = decision.get("reason", "")
+        else:
+            approved_indices = list(range(len(action_items)))
+            ea_reason = "EA未返回有效JSON，默认全部批准"
+    except json.JSONDecodeError:
+        approved_indices = list(range(len(action_items)))
+        ea_reason = "EA返回格式错误，默认全部批准"
+
+    approved = [action_items[i] for i in approved_indices if i < len(action_items)]
+
+    await _chat(room_id, "EA", "EA",
+                f"[审批结果] 批准 {len(approved)} 项，否决 {len(rejected_indices)} 项。{ea_reason}")
+
+    if approved:
+        # Execute: push remaining (non-asset) actions to COO
+        remaining = []
+        for a in approved:
+            if a.get("type") == "asset_consolidation":
+                from onemancompany.agents.coo_agent import register_asset
+                register_asset.invoke({
+                    "name": a.get("name", ""),
+                    "description": a.get("asset_description", a.get("description", "")),
+                    "source_project_dir": a.get("project_dir", ""),
+                    "source_files": a.get("files", []),
+                })
+            else:
+                remaining.append(a)
+
+        if remaining:
+            action_lines = [f"- [{a.get('source', 'COO')}] {a['description']}" for a in remaining]
+            coo_task = (
+                "EA已批准以下行动计划。请按source字段分配执行：\n"
+                "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+                "- source=COO的行动：由你自己执行\n\n"
+                "行动计划:\n" + "\n".join(action_lines)
+            )
+            coo_loop = get_agent_loop(COO_ID)
+            if coo_loop:
+                coo_loop.push_task(coo_task)
+
+    await _publish("routine_phase", {
+        "phase": "EA审批",
+        "message": f"EA审批完成：批准 {len(approved)} 项，否决 {len(rejected_indices)} 项"
+    })
+
+    return {
+        "approved": [a.get("description", "") for a in approved],
+        "rejected_count": len(rejected_indices),
+        "reason": ea_reason,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1041,15 +1447,20 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         action_items = phase2_result.get("action_items", [])
         meeting_doc["action_items"] = action_items
 
+        # EA auto-approval for fallback path
+        if action_items:
+            ea_approved = await _ea_auto_approve_actions(
+                action_items, task_summary, phase2_result.get("coo_report", ""), room.id,
+            )
+            meeting_doc["ea_approval"] = ea_approved
+
         _save_report(report_id, meeting_doc)
 
         summary_text = _build_summary(meeting_doc)
-        pending_reports[report_id] = meeting_doc
 
-        await _publish("meeting_report_ready", {
+        await _publish("meeting_report_complete", {
             "report_id": report_id,
             "summary": summary_text,
-            "action_items": action_items,
         })
 
     finally:

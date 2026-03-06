@@ -1,9 +1,0 @@
-added_by: COO
-allowed_users: []
-description: 用于规范定义和管理单页/小型任务的Markdown模板，可在公司其他项目中复用，以统一任务分配与需求描述的标准。
-desk_position:
-- 15
-- 17
-id: 4f20d08f
-name: One Page Task Template
-sprite: desk_equipment
