@@ -1,7 +1,7 @@
 api_key: 896ac656391b881dd3e24c02673f49b1c2559da7d981f3bf85be8c9d9905a04c
 api_provider: anthropic
 auth_method: oauth
-current_quarter_tasks: 0
+current_quarter_tasks: 1
 department: Engineering
 desk_position:
 - 4
