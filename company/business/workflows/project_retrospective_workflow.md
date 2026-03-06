@@ -90,13 +90,13 @@
   3. Each action plan specifies the responsible person and priority
 - **Output**: Action plan list
 
-## Phase 8: CEO Approval and Execution
+## Phase 8: EA Approval and Execution
 
-- **Responsible**: CEO
+- **Responsible**: EA
 - **Steps**:
-  1. All materials are compiled into a complete meeting document and submitted to CEO
-  2. CEO reviews and selects which improvement points should be executed
-  3. Approved action plans are executed by HR and COO respectively
-  4. HR executes personnel-related improvements (hiring, training, promotions)
-  5. COO executes operations-related improvements (equipment procurement, process adjustments)
-- **Output**: Approved execution list, execution results report
+  1. All materials are compiled into a complete meeting document
+  2. EA reviews action plans on behalf of CEO, evaluating feasibility, relevance, and priority
+  3. EA approves or rejects each action item based on review criteria
+  4. Approved action plans are dispatched to COO for execution
+  5. COO routes HR-related actions to HR, and executes operations-related actions directly
+- **Output**: EA approval results, execution status report

@@ -276,13 +276,16 @@ def validate_place_file(place_file: Path) -> dict:
 
 # ── Publish ──────────────────────────────────────────────
 
-def publish_place(api_key, universe_id, place_id, place_file: Path):
+def publish_place(api_key, universe_id, place_id, place_file: Path, auth_header: dict = None):
     """Upload place file to Roblox Open Cloud Place Publishing API."""
     url = PUBLISH_URL.format(universe_id=universe_id, place_id=place_id)
-    headers = {
-        "x-api-key": api_key,
-        "Content-Type": "application/xml",
-    }
+
+    # Support OAuth Bearer token or API key
+    if auth_header:
+        headers = {**auth_header, "Content-Type": "application/xml"}
+    else:
+        headers = {"x-api-key": api_key, "Content-Type": "application/xml"}
+
     place_data = place_file.read_bytes()
     log(f"\n  Uploading {len(place_data)} bytes to Roblox Open Cloud ...")
     log(f"  Target: universe={universe_id}, place={place_id}")
@@ -458,20 +461,61 @@ def main():
     log("Mode: REAL API (zero mock)")
     log("=" * 60)
 
-    # ── Step 1: Validate API key ─────────────────────────
-    log("\n[1/5] Validating API key ...")
-    if not api_key:
-        log("ERROR: No API key. Use --api-key or ROBLOX_API_KEY env var.")
-        sys.exit(1)
-    log(f"  Key length: {len(api_key)} chars")
+    # ── Step 1: Authenticate (OAuth first, then API key) ──
+    log("\n[1/5] Authenticating ...")
+    auth_header = None
+    key_expired = False
+    key_info = ""
+    owner_id = ""
 
-    key_expired, key_info, owner_id = check_api_key_expiry(api_key)
-    log(f"  Owner ID: {owner_id or 'unknown'}")
-    log(f"  Status: {key_info}")
+    # Try OAuth first — roblox_oauth lives in company/assets/tools/roblox_cloud/
+    try:
+        # Walk up from project dir to find company/assets/tools/roblox_cloud
+        company_dir = SCRIPT_DIR
+        for _ in range(10):
+            candidate = company_dir / "assets" / "tools" / "roblox_cloud"
+            if candidate.exists():
+                break
+            company_dir = company_dir.parent
+        else:
+            candidate = None
 
-    if key_expired:
-        log(f"\n  WARNING: {key_info}")
-        log("  Continuing anyway to demonstrate the full pipeline...")
+        if candidate and candidate.exists():
+            sys.path.insert(0, str(candidate))
+            from roblox_oauth import get_auth_header, _load_cache
+            auth_header = get_auth_header()
+            if auth_header:
+                auth_mode = "Bearer" if "Authorization" in auth_header else "API Key"
+                log(f"  Auth mode: {auth_mode}")
+                if auth_mode == "Bearer":
+                    log("  Using OAuth 2.0 access token (auto-refreshable)")
+    except Exception as e:
+        log(f"  OAuth not available ({e}), falling back to API key")
+
+    if not auth_header:
+        if not api_key:
+            api_key = os.environ.get("ROBLOX_CLOUD_API_KEY", "")
+        if not api_key:
+            log("ERROR: No API key or OAuth tokens. Use --api-key, ROBLOX_API_KEY, or setup OAuth.")
+            sys.exit(1)
+        auth_header = {"x-api-key": api_key}
+        log(f"  Auth mode: API Key ({len(api_key)} chars)")
+
+        key_expired, key_info, owner_id = check_api_key_expiry(api_key)
+        log(f"  Owner ID: {owner_id or 'unknown'}")
+        log(f"  Status: {key_info}")
+
+        if key_expired:
+            log(f"\n  WARNING: {key_info}")
+            log("  Continuing anyway to demonstrate the full pipeline...")
+    else:
+        # For OAuth, try to extract owner_id from the API key if available
+        if api_key:
+            _, _, owner_id = check_api_key_expiry(api_key)
+        elif os.environ.get("ROBLOX_CLOUD_API_KEY"):
+            _, _, owner_id = check_api_key_expiry(os.environ["ROBLOX_CLOUD_API_KEY"])
+        if owner_id:
+            log(f"  Owner ID: {owner_id}")
 
     # ── Step 2: Discover universe/place ──────────────────
     log("\n[2/5] Discovering universe & place IDs ...")
@@ -514,7 +558,7 @@ def main():
             "body": {"error": "No universe/place IDs discovered"},
         }
     else:
-        result = publish_place(api_key, universe_id, place_id, place_file)
+        result = publish_place(api_key, universe_id, place_id, place_file, auth_header=auth_header)
 
     # ── Save & Report ────────────────────────────────────
     log("\nSaving results ...")

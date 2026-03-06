@@ -1,9 +1,0 @@
-added_by: COO
-allowed_users: []
-description: 基于HTML5的物理类小游戏（愤怒的小鸟）底层实现源码，可作为后续开发Web端H5互动游戏或集成物理引擎时的参考代码。
-desk_position:
-- 5
-- 17
-id: '72387387'
-name: H5物理小游戏参考代码
-sprite: desk_equipment

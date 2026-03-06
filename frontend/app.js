@@ -156,8 +156,15 @@ class AppController {
       'meeting_denied':     (p) => ({ text: `🚫 Room request denied: no rooms available`, cls: 'coo', agent: 'COO' }),
       'routine_phase':      (p) => ({ text: `🔄 ${p.phase}: ${p.message}`, cls: 'system', agent: 'ROUTINE' }),
       'meeting_report_ready': (p) => {
-        this._enqueueReviewItems(p);
-        return { text: `📄 Meeting report ready for CEO review`, cls: 'ceo', agent: 'SYSTEM' };
+        // Legacy event — no longer enqueues for CEO review (EA handles approval)
+        return { text: `📄 Meeting report ready (EA reviewed)`, cls: 'system', agent: 'EA' };
+      },
+      'meeting_report_complete': (p) => {
+        return { text: `📄 Meeting report complete (EA approved)`, cls: 'system', agent: 'EA' };
+      },
+      'recurring_action_items': (p) => {
+        const items = (p.items || []).map(i => `  - ${i}`).join('\n');
+        return { text: `⚠️ ${p.message || 'Recurring issues'}:\n${items}`, cls: 'ceo', agent: 'EA' };
       },
       'meeting_chat':       (p) => {
         const roomId = p.room_id || '';

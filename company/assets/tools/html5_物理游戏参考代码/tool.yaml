@@ -1,9 +1,0 @@
-added_by: COO
-allowed_users: []
-description: 基于 HTML5 Canvas 实现的类《愤怒的小鸟》2D 物理游戏源码，可作为后续开发类似物理抛射类小游戏的参考代码。
-desk_position:
-- 15
-- 20
-id: 2f63bda4
-name: HTML5 物理游戏参考代码
-sprite: desk_equipment

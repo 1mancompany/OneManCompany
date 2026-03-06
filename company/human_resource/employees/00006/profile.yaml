@@ -1,7 +1,7 @@
 api_key: ''
 api_provider: anthropic
 auth_method: oauth
-current_quarter_tasks: 13
+current_quarter_tasks: 17
 department: Engineering
 desk_position:
 - 1
