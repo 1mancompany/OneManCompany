@@ -1,9 +1,12 @@
+api_provider: anthropic
+auth_method: oauth
 current_quarter_tasks: 0
 department: Sales
 desk_position:
 - 15
 - 0
 employee_number: '00005'
+hosting: self
 level: 4
 llm_model: openai/gpt-5.2
 name: Morgan CSO
@@ -14,7 +17,7 @@ permissions:
 - web_search
 - sales_management
 role: CSO
-salary_per_1m_tokens: 5.0
+salary_per_1m_tokens: 7.875
 skills:
 - sales_management
 - contract_review

@@ -1,9 +1,12 @@
+api_provider: anthropic
+auth_method: oauth
 current_quarter_tasks: 0
 department: CEO Office
 desk_position:
 - 7
 - 0
 employee_number: '00004'
+hosting: self
 level: 4
 llm_model: google/gemini-3.1-pro-preview
 name: Pat EA

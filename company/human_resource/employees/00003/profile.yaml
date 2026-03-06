@@ -1,9 +1,12 @@
+api_provider: anthropic
+auth_method: oauth
 current_quarter_tasks: 0
 department: Operations
 desk_position:
 - 11
 - 0
 employee_number: '00003'
+hosting: self
 level: 4
 llm_model: google/gemini-3.1-pro-preview-customtools
 name: Alex COO

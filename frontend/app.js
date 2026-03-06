@@ -50,6 +50,13 @@ class AppController {
       statusEl.classList.add('online');
       // Hide reconnecting overlay
       document.getElementById('reconnecting-overlay').classList.add('hidden');
+      // Clear restart banner after successful reconnect (server restarted)
+      const banner = document.getElementById('code-update-banner');
+      if (banner) {
+        banner.classList.add('hidden');
+        const applyBtn = document.getElementById('code-update-apply-btn');
+        if (applyBtn) { applyBtn.textContent = 'Apply'; applyBtn.disabled = false; }
+      }
     };
 
     this.ws.onmessage = (evt) => {

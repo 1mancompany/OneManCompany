@@ -3,9 +3,21 @@
   "name": "HR Manager",
   "version": "1.0.0",
   "role": "HR",
-  "hosting": "company",
+  "hosting": "self",
   "settings": {
     "sections": [
+      {
+        "id": "connection",
+        "title": "Connection",
+        "fields": [
+          {
+            "key": "oauth",
+            "type": "oauth_button",
+            "label": "Anthropic Login",
+            "provider": "anthropic"
+          }
+        ]
+      },
       {
         "id": "hosting",
         "title": "Hosting Mode",
@@ -24,27 +36,6 @@
                 "label": "Self-hosted (Claude Code)"
               }
             ]
-          }
-        ]
-      },
-      {
-        "id": "llm",
-        "title": "LLM Configuration",
-        "fields": [
-          {
-            "key": "llm_model",
-            "type": "select",
-            "label": "Model",
-            "options_from": "api:models"
-          },
-          {
-            "key": "temperature",
-            "type": "number",
-            "label": "Temperature",
-            "default": 0.7,
-            "min": 0,
-            "max": 2,
-            "step": 0.1
           }
         ]
       }

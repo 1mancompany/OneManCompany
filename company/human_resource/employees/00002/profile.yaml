@@ -6,7 +6,7 @@ desk_position:
 - 3
 - 0
 employee_number: '00002'
-hosting: company
+hosting: self
 level: 4
 llm_model: google/gemini-3.1-pro-preview
 name: Sam HR
