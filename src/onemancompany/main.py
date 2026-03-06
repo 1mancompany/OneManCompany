@@ -47,6 +47,7 @@ def _save_ephemeral_state() -> None:
     from onemancompany.core.file_editor import pending_file_edits
     from onemancompany.agents.hr_agent import pending_candidates
     from onemancompany.agents.coo_agent import pending_hiring_requests
+    from onemancompany.api.routes import _pending_coo_hire_queue, _pending_oauth_hire
 
     snapshot = {
         "saved_at": time.time(),
@@ -54,6 +55,8 @@ def _save_ephemeral_state() -> None:
         "pending_file_edits": pending_file_edits,
         "pending_candidates": pending_candidates,
         "pending_hiring_requests": pending_hiring_requests,
+        "pending_coo_hire_queue": _pending_coo_hire_queue,
+        "pending_oauth_hire": _pending_oauth_hire,
     }
     try:
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -99,11 +102,22 @@ def _restore_ephemeral_state() -> None:
         if restored_hiring:
             pending_hiring_requests.update(restored_hiring)
 
+        # Restore COO hiring context (role override + project link for in-flight hires)
+        from onemancompany.api.routes import _pending_coo_hire_queue, _pending_oauth_hire
+        restored_coo_queue = raw.get("pending_coo_hire_queue", [])
+        if restored_coo_queue:
+            _pending_coo_hire_queue.extend(restored_coo_queue)
+        restored_oauth = raw.get("pending_oauth_hire", {})
+        if restored_oauth:
+            _pending_oauth_hire.update(restored_oauth)
+
         print(f"Restored state snapshot ({age:.1f}s old): "
               f"{len(old_log)} log entries, "
               f"{len(restored_edits)} pending edits, "
               f"{len(restored_candidates)} candidate batches, "
-              f"{len(restored_hiring)} hiring requests")
+              f"{len(restored_hiring)} hiring requests, "
+              f"{len(restored_coo_queue)} COO hire contexts, "
+              f"{len(restored_oauth)} OAuth hire waits")
 
         # Clean up snapshot file after successful restore
         SNAPSHOT_PATH.unlink(missing_ok=True)
@@ -342,6 +356,13 @@ async def lifespan(app: FastAPI):
     from onemancompany.tools.sandbox import start_sandbox_server
     start_sandbox_server()
 
+    # Kill orphaned claude session processes from a previous server run.
+    # Session IDs are preserved in sessions.json so --resume works for future tasks.
+    from onemancompany.core.claude_session import cleanup_orphan_sessions
+    orphans_killed = cleanup_orphan_sessions()
+    if orphans_killed:
+        print(f"[startup] Killed {orphans_killed} orphaned claude session(s) — sessions preserved for --resume")
+
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
@@ -440,7 +461,7 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, code_watcher_task, return_exceptions=True)
     except asyncio.CancelledError:
-        pass
+        print("[shutdown] Background tasks cancelled")
 
 
 app = FastAPI(title="One Man Company", lifespan=lifespan)

@@ -101,6 +101,72 @@ def _mark_session_used(employee_id: str, project_id: str) -> None:
         _save_sessions(employee_id, sessions)
 
 
+def _save_running_pid(employee_id: str, project_id: str, pid: int) -> None:
+    """Record the running subprocess PID in sessions.json for orphan cleanup."""
+    sessions = _load_sessions(employee_id)
+    entry = sessions.get(project_id)
+    if entry:
+        entry["running_pid"] = pid
+        _save_sessions(employee_id, sessions)
+
+
+def _clear_running_pid(employee_id: str, project_id: str) -> None:
+    """Remove the running PID after the subprocess finishes."""
+    sessions = _load_sessions(employee_id)
+    entry = sessions.get(project_id)
+    if entry and "running_pid" in entry:
+        del entry["running_pid"]
+        _save_sessions(employee_id, sessions)
+
+
+def cleanup_orphan_sessions() -> int:
+    """Kill orphaned claude session processes from a previous server run.
+
+    Scans all employee sessions.json files for ``running_pid`` entries.
+    - If the PID is still alive: terminates it (the session ID is preserved
+      in sessions.json so future tasks can ``--resume`` the session).
+    - If the PID is dead: just clears the stale PID record.
+
+    Returns the number of orphan processes killed.
+    """
+    import signal
+
+    killed = 0
+    if not EMPLOYEES_DIR.exists():
+        return killed
+
+    for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
+        if not emp_dir.is_dir():
+            continue
+        employee_id = emp_dir.name
+        sessions = _load_sessions(employee_id)
+        dirty = False
+        for project_id, entry in sessions.items():
+            pid = entry.get("running_pid")
+            if pid is None:
+                continue
+            # Try to kill the orphaned process
+            try:
+                os.kill(pid, signal.SIGTERM)
+                killed += 1
+                logger.info(f"[session-cleanup] Killed orphan PID {pid} "
+                            f"(employee={employee_id} project={project_id}) "
+                            f"— session preserved for --resume")
+            except ProcessLookupError:
+                logger.debug(f"[session-cleanup] PID {pid} already gone "
+                             f"(employee={employee_id})")
+            except PermissionError:
+                logger.warning(f"[session-cleanup] No permission to kill PID {pid} "
+                               f"(employee={employee_id})")
+            # Clear the PID but keep the session_id for --resume
+            del entry["running_pid"]
+            dirty = True
+        if dirty:
+            _save_sessions(employee_id, sessions)
+
+    return killed
+
+
 async def run_claude_session(
     employee_id: str,
     project_id: str,
@@ -145,7 +211,12 @@ async def run_claude_session(
                 cwd=cwd,
                 env=env,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            # Track PID on disk so orphans can be cleaned up after restart
+            _save_running_pid(employee_id, project_id, proc.pid)
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            finally:
+                _clear_running_pid(employee_id, project_id)
             output = stdout.decode("utf-8", errors="replace").strip()
             if proc.returncode != 0 and not output:
                 err = stderr.decode("utf-8", errors="replace").strip()
@@ -155,6 +226,7 @@ async def run_claude_session(
                 _mark_session_used(employee_id, project_id)
             return output
         except asyncio.TimeoutError:
+            _clear_running_pid(employee_id, project_id)
             try:
                 proc.terminate()  # type: ignore[possibly-undefined]
             except Exception as _e:
@@ -163,6 +235,7 @@ async def run_claude_session(
         except FileNotFoundError:
             return "[claude-session error] `claude` CLI not found on PATH"
         except Exception as e:
+            _clear_running_pid(employee_id, project_id)
             return f"[claude-session error] {e}"
 
 

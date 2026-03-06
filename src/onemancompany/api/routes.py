@@ -672,11 +672,13 @@ async def oneonone_chat(body: dict) -> dict:
 
 @router.post("/api/oneonone/end")
 async def oneonone_end(body: dict) -> dict:
-    """End meeting. LLM reflects on transcript and conditionally updates work principles."""
+    """End meeting. LLM reflects on transcript, updates work principles, and saves 1-1 note."""
+    from datetime import datetime
+
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
-    from onemancompany.core.config import save_work_principles
+    from onemancompany.core.config import save_employee_guidance, save_work_principles
 
     employee_id = body.get("employee_id", "")
     history = body.get("history", [])
@@ -689,6 +691,7 @@ async def oneonone_end(body: dict) -> dict:
         return {"error": f"Employee '{employee_id}' not found"}
 
     principles_updated = False
+    note_saved = False
 
     if history:
         # Build transcript
@@ -700,17 +703,23 @@ async def oneonone_end(body: dict) -> dict:
 
         current_principles = emp.work_principles or "(No work principles yet)"
 
+        # Combined prompt: reflect on principles AND generate 1-1 summary
         reflection_prompt = (
             f"You are {emp.name} ({emp.nickname}, {emp.role}, Department: {emp.department}).\n\n"
             f"You just had a 1-on-1 meeting with the CEO. Here is the conversation transcript:\n\n"
             f"{transcript}\n\n"
             f"Your current work principles:\n{current_principles}\n\n"
-            f"Reflect: Did the CEO convey any actionable guidance, directives, or expectations "
-            f"that should be incorporated into your work principles?\n\n"
-            f"If YES — output UPDATED: followed by the complete updated work principles in Markdown format. "
-            f"Keep existing principles that are still valid, incorporate the new guidance, "
-            f"and resolve any conflicts (new guidance takes precedence).\n\n"
-            f"If NO (it was casual chat, no actionable guidance) — output exactly: NO_UPDATE"
+            f"Do TWO things:\n\n"
+            f"1. PRINCIPLES: Did the CEO convey any actionable guidance, directives, or expectations "
+            f"that should be incorporated into your work principles?\n"
+            f"   If YES — output UPDATED: followed by the complete updated work principles in Markdown.\n"
+            f"   If NO — output NO_UPDATE\n\n"
+            f"2. SUMMARY: Write a concise 1-1 meeting note (2-4 sentences) summarizing the key "
+            f"discussion points, decisions, and any action items from this conversation. "
+            f"Include the date. Format: SUMMARY: followed by the note text.\n\n"
+            f"Output format (both sections required):\n"
+            f"UPDATED: ... or NO_UPDATE\n"
+            f"SUMMARY: ..."
         )
 
         llm = make_llm(employee_id)
@@ -720,11 +729,30 @@ async def oneonone_end(body: dict) -> dict:
         ], category="oneonone", employee_id=employee_id)
         response_text = result.content.strip()
 
-        if response_text.startswith("UPDATED:"):
-            new_principles = response_text[len("UPDATED:"):].strip()
-            emp.work_principles = new_principles
-            save_work_principles(employee_id, new_principles)
-            principles_updated = True
+        # Parse principles update
+        if "UPDATED:" in response_text and "NO_UPDATE" not in response_text.split("SUMMARY:")[0]:
+            # Extract the UPDATED section (between UPDATED: and SUMMARY:)
+            updated_start = response_text.index("UPDATED:") + len("UPDATED:")
+            summary_start = response_text.find("SUMMARY:")
+            if summary_start > updated_start:
+                new_principles = response_text[updated_start:summary_start].strip()
+            else:
+                new_principles = response_text[updated_start:].strip()
+            if new_principles:
+                emp.work_principles = new_principles
+                save_work_principles(employee_id, new_principles)
+                principles_updated = True
+
+        # Parse and save 1-1 summary as guidance note
+        if "SUMMARY:" in response_text:
+            summary_start = response_text.index("SUMMARY:") + len("SUMMARY:")
+            summary_text = response_text[summary_start:].strip()
+            if summary_text:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                note = f"**{date_str} 1-1 Meeting**\n{summary_text}"
+                emp.guidance_notes.append(note)
+                save_employee_guidance(employee_id, emp.guidance_notes)
+                note_saved = True
 
     # End the meeting
     emp.is_listening = False
@@ -735,6 +763,7 @@ async def oneonone_end(body: dict) -> dict:
                 "employee_id": employee_id,
                 "name": emp.name,
                 "principles_updated": principles_updated,
+                "note_saved": note_saved,
             },
             agent="CEO",
         )
@@ -744,6 +773,7 @@ async def oneonone_end(body: dict) -> dict:
         "status": "ended",
         "employee_id": employee_id,
         "principles_updated": principles_updated,
+        "note_saved": note_saved,
     }
 
 
@@ -2195,7 +2225,8 @@ async def continue_iteration(body: dict) -> dict:
         f"请根据以上信息:\n"
         f"1. 分析未完成或需改进的部分\n"
         f"2. 将任务 dispatch_task() 给相关员工执行\n"
-        f"3. 完成后重新进行验收\n\n"
+        f"3. 你的任务到此结束——dispatch之后即可完成。\n"
+        f"   验收会在员工完成后由系统自动发起，无需你手动调用 accept_project。\n\n"
         f"[Project ID: {ctx_id}] [Project workspace: {project_dir}]"
     )
 

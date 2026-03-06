@@ -165,6 +165,7 @@ class TestRunClaudeSession:
     async def test_successful_new_session(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.returncode = 0
             mock_proc.communicate = AsyncMock(return_value=(b"output text", b""))
 
@@ -179,6 +180,7 @@ class TestRunClaudeSession:
     async def test_nonzero_exit_with_output(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.returncode = 1
             mock_proc.communicate = AsyncMock(return_value=(b"partial output", b"some error"))
 
@@ -190,6 +192,7 @@ class TestRunClaudeSession:
     async def test_nonzero_exit_without_output(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.returncode = 1
             mock_proc.communicate = AsyncMock(return_value=(b"", b"error details"))
 
@@ -201,6 +204,7 @@ class TestRunClaudeSession:
     async def test_timeout_handling(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
             mock_proc.terminate = MagicMock()
 
@@ -212,6 +216,7 @@ class TestRunClaudeSession:
         """Lines 159-160: proc.terminate() raises — should be swallowed."""
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
             mock_proc.terminate = MagicMock(side_effect=ProcessLookupError("already dead"))
 
@@ -240,6 +245,7 @@ class TestRunClaudeSession:
             _save_sessions("00010", data)
 
             mock_proc = AsyncMock()
+            mock_proc.pid = 12345
             mock_proc.returncode = 0
             mock_proc.communicate = AsyncMock(return_value=(b"resumed", b""))
 
