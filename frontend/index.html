@@ -112,6 +112,21 @@
         </div>
       </div>
 
+      <div class="collapsible-header collapsed" data-target="settings-body">
+        <span class="collapse-arrow">&#9660;</span>
+        <h3 class="pixel-title">&#9881; SETTINGS</h3>
+      </div>
+      <div id="settings-body" class="collapsible-body collapsed">
+        <div class="settings-section-header" data-target="settings-api-body">
+          <span class="settings-collapse-arrow">&#9654;</span>
+          <span class="settings-section-title">&#128273; API Connections</span>
+        </div>
+        <div id="settings-api-body" class="settings-section-body">
+          <div id="api-settings-content"></div>
+        </div>
+        <!-- future settings sections go here -->
+      </div>
+
       <!-- Unified Review Queue -->
       <div id="review-queue-section" class="hidden">
         <div class="review-queue-header">
@@ -534,6 +549,7 @@
   </div>
 
   <script src="office.js"></script>
+  <script src="plugin-loader.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

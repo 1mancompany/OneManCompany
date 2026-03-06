@@ -352,6 +352,10 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()
 
+    # Discover and load view plugins
+    from onemancompany.core.plugin_registry import plugin_registry
+    plugin_registry.discover_and_load()
+
     # Start sandbox server if enabled
     from onemancompany.tools.sandbox import start_sandbox_server
     start_sandbox_server()
@@ -378,15 +382,26 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.hr_agent import start_boss_online, stop_boss_online
     await start_boss_online()
 
-    # Founding employees — LangChain agents
-    register_agent(_HR_ID, HRAgent())
-    register_agent(_COO_ID, COOAgent())
-    register_agent(_EA_ID, EAAgent())
-    register_agent(_CSO_ID, CSOAgent())
-
     # Migrate existing employees from agent/ to vessel/ directory structure
     from onemancompany.core.vessel_config import migrate_agent_to_vessel, load_vessel_config
-    from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR
+    from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
+
+    # Founding employees — hosting-aware registration
+    _founding_agents = {
+        _HR_ID: HRAgent, _COO_ID: COOAgent,
+        _EA_ID: EAAgent, _CSO_ID: CSOAgent,
+    }
+    _registered_founding = set()
+    for _fid, _agent_cls in _founding_agents.items():
+        _fcfg = _emp_cfgs.get(_fid)
+        _emp_dir_f = _EMPLOYEES_DIR / _fid
+        _f_vessel = load_vessel_config(_emp_dir_f) if _emp_dir_f.exists() else None
+        if _fcfg and _fcfg.hosting == "self":
+            register_self_hosted(_fid, config=_f_vessel)
+            print(f"[startup] Registered self-hosted founding {_fid}")
+        else:
+            register_agent(_fid, _agent_cls(), config=_f_vessel)
+        _registered_founding.add(_fid)
     for _emp_dir in _EMPLOYEES_DIR.iterdir():
         if _emp_dir.is_dir():
             if migrate_agent_to_vessel(_emp_dir):
@@ -394,9 +409,9 @@ async def lifespan(app: FastAPI):
 
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
-    from onemancompany.core.config import FOUNDING_LEVEL, employee_configs as _emp_cfgs
+    from onemancompany.core.config import FOUNDING_LEVEL
     from onemancompany.core.state import company_state
-    founding_ids = {_HR_ID, _COO_ID, _EA_ID, _CSO_ID, "00001"}
+    founding_ids = {"00001"} | _registered_founding
     for emp_id, emp in company_state.employees.items():
         if emp_id in founding_ids:
             continue

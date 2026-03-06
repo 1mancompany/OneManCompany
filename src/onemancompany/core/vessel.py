@@ -1175,11 +1175,13 @@ class EmployeeManager:
             return (
                 "[Manager Execution Guide]\n"
                 "As a manager receiving a project task:\n"
-                "  1. Identify which employees can handle this work (use list_colleagues()).\n"
-                "  2. dispatch_task() to the best-suited employee with clear instructions.\n"
-                "  3. Include the project workspace path in dispatch so deliverables are saved correctly.\n"
-                "  4. If no suitable employee exists, dispatch to HR to hire one.\n"
-                "  5. Only execute yourself if absolutely no one else can do it.\n"
+                "  1. list_colleagues() 了解所有可用团队成员及其技能。\n"
+                "  2. 充分利用团队：PM可做项目管理/调研/文档，Engineer做开发，各司其职。\n"
+                "  3. dispatch_task() 给最合适的员工，附上清晰指令和 project workspace 路径。\n"
+                "  4. 复杂项目用 dispatch_team_tasks() 分阶段调度多人协作。\n"
+                "  5. 如果没有合适员工，dispatch 给 HR 招聘。\n"
+                "  6. 你可以在任何阶段拉人加入项目（不仅限于初始分工），包括验收、整改、诊断等。\n"
+                "  7. 只在没人能做的情况下才自己动手。\n"
                 "Do NOT loop or re-analyze — dispatch quickly and move on."
             )
 
@@ -1222,6 +1224,7 @@ class EmployeeManager:
         from onemancompany.core.project_archive import (
             append_action, load_project,
             record_dispatch_completion, all_dispatches_complete,
+            get_ready_dispatches, activate_dispatch,
         )
         from onemancompany.core.resolutions import create_resolution
 
@@ -1257,7 +1260,13 @@ class EmployeeManager:
 
         # CASE A: Has criteria, not yet accepted
         if acceptance_criteria and not acceptance_result:
-            record_dispatch_completion(project_id, employee_id)
+            new_ready = record_dispatch_completion(project_id, employee_id)
+            if new_ready:
+                for rd in get_ready_dispatches(project_id):
+                    activate_dispatch(project_id, rd["dispatch_id"])
+                    target = self.get_handle(rd["employee_id"])
+                    if target:
+                        target.push_task(rd["description"], project_id=project_id, project_dir=task.project_dir or task.original_project_dir)
             if all_dispatches_complete(project_id):
                 from onemancompany.core.config import COO_ID
                 officer_id = project.get("responsible_officer") or COO_ID
@@ -1266,6 +1275,23 @@ class EmployeeManager:
                     task.project_dir or task.original_project_dir,
                     acceptance_criteria, project,
                 )
+            await self._minimal_cleanup(project_id)
+            return
+
+        # CASE B2: Officer rejected → push rectification task with diagnosis
+        if acceptance_result and not acceptance_result.get("accepted"):
+            from onemancompany.core.config import COO_ID
+            officer_id = acceptance_result.get("officer_id") or project.get("responsible_officer") or COO_ID
+            rejection_notes = acceptance_result.get("notes", "")
+            self._push_rectification_task(
+                officer_id, project_id,
+                task.project_dir or task.original_project_dir,
+                acceptance_criteria, rejection_notes, project,
+                source="officer",
+            )
+            from onemancompany.core.project_archive import _save_project
+            project["acceptance_result"] = None
+            _save_project(project_id, project)
             await self._minimal_cleanup(project_id)
             return
 
@@ -1302,14 +1328,26 @@ class EmployeeManager:
 
         # CASE C: No criteria
         if not acceptance_criteria:
-            record_dispatch_completion(project_id, employee_id)
+            new_ready = record_dispatch_completion(project_id, employee_id)
+            if new_ready:
+                for rd in get_ready_dispatches(project_id):
+                    activate_dispatch(project_id, rd["dispatch_id"])
+                    target = self.get_handle(rd["employee_id"])
+                    if target:
+                        target.push_task(rd["description"], project_id=project_id, project_dir=task.project_dir or task.original_project_dir)
             if all_dispatches_complete(project_id):
                 await self._full_cleanup(employee_id, task, agent_error, project_id)
             else:
                 await self._minimal_cleanup(project_id)
             return
 
-        record_dispatch_completion(project_id, employee_id)
+        new_ready = record_dispatch_completion(project_id, employee_id)
+        if new_ready:
+            for rd in get_ready_dispatches(project_id):
+                activate_dispatch(project_id, rd["dispatch_id"])
+                target = self.get_handle(rd["employee_id"])
+                if target:
+                    target.push_task(rd["description"], project_id=project_id, project_dir=task.project_dir or task.original_project_dir)
         await self._minimal_cleanup(project_id)
 
     async def _full_cleanup(self, employee_id: str, task: AgentTask, agent_error: bool, project_id: str) -> None:
@@ -1394,6 +1432,10 @@ class EmployeeManager:
             print(f"[acceptance] WARNING: No handle for officer {officer_id}")
             return
 
+        # Record dispatch for acceptance task (visible in Gantt)
+        from onemancompany.core.project_archive import record_dispatch
+        record_dispatch(project_id, officer_id, "项目验收", task_type="acceptance")
+
         criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
         timeline = project.get("timeline", [])
         timeline_lines = []
@@ -1418,8 +1460,12 @@ class EmployeeManager:
             f"3. 质量抽查: 检查代码质量、边界情况处理、错误处理等\n"
             f"4. 验收决定:\n"
             f"   - 全部通过: 调用 accept_project(accepted=true)，附上验证证据\n"
-            f"   - 任一不通过: 调用 accept_project(accepted=false)，详细列出不通过项和具体问题，"
-            f"相关员工将被要求整改后重新提交\n\n"
+            f"   - 任一不通过:\n"
+            f"     a. 诊断根因：调查具体为什么失败（检查 workspace 文件、错误日志、工具可用性、API 凭证等）\n"
+            f"     b. 分类问题：缺少工具/凭证 | 技术能力不足 | 需求不清晰 | 时间/资源不够 | 代码质量问题\n"
+            f"     c. 提出可执行建议：明确下一步该怎么修复（如'需要配置 API Key'、'需要增加发布工具'）\n"
+            f"     d. 调用 accept_project(accepted=false, notes='...')，notes 必须包含：不通过项、根因分析、修复建议\n"
+            f"     系统将自动触发整改流程，相关员工将被要求整改后重新提交\n\n"
             f"如果需要补充或调整验收标准，请先调用 set_acceptance_criteria() 更新。\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
@@ -1439,6 +1485,10 @@ class EmployeeManager:
         if not handle:
             print(f"[ea-review] WARNING: No handle for EA {ea_id}")
             return
+
+        # Record dispatch for EA review task (visible in Gantt)
+        from onemancompany.core.project_archive import record_dispatch
+        record_dispatch(project_id, ea_id, "EA质量审核", task_type="ea_review")
 
         criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
         officer_notes = acceptance_result.get("notes", "(无备注)")
@@ -1482,8 +1532,9 @@ class EmployeeManager:
         project_id: str,
         project_dir: str,
         criteria: list[str],
-        ea_rejection_notes: str,
+        rejection_notes: str,
         project: dict,
+        source: str = "ea",
     ) -> None:
         handle = self.get_handle(officer_id)
         if not handle:
@@ -1501,20 +1552,31 @@ class EmployeeManager:
         if doc:
             doc["dispatches"] = []
             _save_resolved(version, key, doc)
-        record_dispatch(project_id, officer_id, "Rectification coordinator")
+        record_dispatch(project_id, officer_id, "Rectification coordinator", task_type="rectification")
 
         criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria))
 
+        if source == "officer":
+            title = "项目整改通知（验收未通过）"
+            reason_label = "验收驳回理由"
+            context_text = "验收未通过，需要整改。"
+        else:
+            title = "项目整改通知（EA代CEO驳回）"
+            reason_label = "EA驳回理由"
+            context_text = "EA代表CEO认为项目交付物未达标，需要整改。"
+
         rectification_task = (
-            f"项目整改通知（EA代CEO驳回）\n\n"
+            f"{title}\n\n"
             f"项目任务: {project.get('task', '')}\n\n"
             f"验收标准:\n{criteria_text}\n\n"
-            f"EA驳回理由:\n{ea_rejection_notes}\n\n"
-            f"⚠️ EA代表CEO认为项目交付物未达标，需要整改。\n"
+            f"{reason_label}:\n{rejection_notes}\n\n"
+            f"⚠️ {context_text}\n"
             f"请根据以上驳回理由:\n"
-            f"1. 分析具体哪些问题需要修复\n"
-            f"2. 将整改任务 dispatch_task() 给相关员工执行\n"
-            f"3. 整改完成后重新进行验收\n\n"
+            f"1. 分析驳回理由中指出的问题\n"
+            f"2. 判断是否需要 CEO 介入（如需要购买工具、配置凭证、调整需求等）\n"
+            f"   → 如需要，调用 report_to_ceo() 反馈具体需求\n"
+            f"3. 能自行解决的问题，dispatch_task() 给相关员工整改\n"
+            f"4. 整改完成后重新进行验收\n\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
         handle.push_task(rectification_task, project_id=project_id, project_dir=project_dir)

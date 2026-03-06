@@ -77,6 +77,7 @@ class TestMakeLlm:
         mock_settings.default_llm_model = "default-model"
         mock_settings.openrouter_api_key = "test-key"
         mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
+        mock_settings.anthropic_api_key = ""  # no company-level key either
         monkeypatch.setattr(base_mod, "settings", mock_settings)
 
         cfg = MagicMock()

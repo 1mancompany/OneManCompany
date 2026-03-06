@@ -1383,6 +1383,80 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     return {"status": "updated", "employee_id": employee_id, "model": model_id, "salary_per_1m_tokens": new_salary}
 
 
+@router.put("/api/employee/{employee_id}/provider")
+async def update_employee_provider(employee_id: str, body: dict) -> dict:
+    """Switch the API provider for an employee (openrouter / anthropic)."""
+    import yaml
+
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    new_provider = body.get("api_provider", "")
+    if new_provider not in ("openrouter", "anthropic"):
+        return {"error": "Invalid provider. Use 'openrouter' or 'anthropic'."}
+
+    emp = company_state.employees.get(employee_id)
+    if not emp:
+        return {"error": "Employee not found"}
+
+    cfg = employee_configs.get(employee_id)
+    if not cfg:
+        return {"error": "Employee config not found"}
+
+    old_provider = cfg.api_provider
+    cfg.api_provider = new_provider
+    emp.api_provider = new_provider
+
+    # When switching to anthropic, use company-level key if employee has none
+    if new_provider == "anthropic" and not cfg.api_key:
+        cfg.api_key = settings.anthropic_api_key
+        cfg.auth_method = settings.anthropic_auth_method
+
+    # Update profile.yaml
+    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    if profile_path.exists():
+        with open(profile_path) as f:
+            data = yaml.safe_load(f) or {}
+        data["api_provider"] = new_provider
+        if new_provider == "anthropic" and not data.get("api_key"):
+            data["api_key"] = settings.anthropic_api_key
+            data["auth_method"] = settings.anthropic_auth_method
+        with open(profile_path, "w") as f:
+            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
+
+    # Rebuild agent LLM
+    from onemancompany.core.agent_loop import get_agent_loop
+    loop = get_agent_loop(employee_id)
+    if loop and loop.agent:
+        from onemancompany.agents.base import make_llm
+        from langgraph.prebuilt import create_react_agent
+        new_llm = make_llm(employee_id)
+        if hasattr(loop.agent, '_agent') and loop.agent._agent:
+            from onemancompany.agents.common_tools import COMMON_TOOLS
+            from onemancompany.core.config import load_employee_custom_tools
+            custom_tools = load_employee_custom_tools(employee_id)
+            old_tools = list(COMMON_TOOLS) + custom_tools
+            loop.agent._agent = create_react_agent(model=new_llm, tools=old_tools)
+
+    await event_bus.publish(
+        CompanyEvent(
+            type="agent_done",
+            payload={
+                "role": "CEO",
+                "summary": f"Switched {emp.name}'s provider: {old_provider} → {new_provider}",
+            },
+            agent="CEO",
+        )
+    )
+
+    return {
+        "status": "updated",
+        "employee_id": employee_id,
+        "api_provider": new_provider,
+        "api_key_set": bool(cfg.api_key),
+        "model": cfg.llm_model,
+    }
+
+
 @router.put("/api/employee/{employee_id}/api-key")
 async def update_employee_api_key(employee_id: str, body: dict) -> dict:
     """Update the API key (and optionally model) for a custom-provider employee."""
@@ -1456,6 +1530,129 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
         "model": cfg.llm_model,
         "hosting": cfg.hosting,
     }
+
+
+# ===== Global API Settings =====
+
+
+@router.get("/api/settings/api")
+async def get_api_settings() -> dict:
+    """Return current global API configuration status."""
+    from onemancompany.core.config import settings
+
+    or_key = settings.openrouter_api_key
+    ant_key = settings.anthropic_api_key
+
+    return {
+        "openrouter": {
+            "api_key_set": bool(or_key),
+            "api_key_preview": ("..." + or_key[-4:]) if len(or_key) >= 4 else "",
+            "base_url": settings.openrouter_base_url,
+            "default_model": settings.default_llm_model,
+        },
+        "anthropic": {
+            "api_key_set": bool(ant_key),
+            "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
+            "auth_method": settings.anthropic_auth_method,
+        },
+    }
+
+
+@router.put("/api/settings/api")
+async def update_api_settings(body: dict) -> dict:
+    """Update global API configuration (writes to .env + refreshes in-memory)."""
+    from onemancompany.core.config import settings, update_env_var
+
+    provider = body.get("provider", "")
+    if provider not in ("openrouter", "anthropic"):
+        return {"error": "Invalid provider. Must be 'openrouter' or 'anthropic'."}
+
+    if provider == "openrouter":
+        api_key = body.get("api_key", "")
+        if api_key:
+            update_env_var("OPENROUTER_API_KEY", api_key)
+        base_url = body.get("base_url", "")
+        if base_url:
+            update_env_var("OPENROUTER_BASE_URL", base_url)
+        default_model = body.get("default_model", "")
+        if default_model:
+            update_env_var("DEFAULT_LLM_MODEL", default_model)
+    elif provider == "anthropic":
+        api_key = body.get("api_key", "")
+        if api_key:
+            update_env_var("ANTHROPIC_API_KEY", api_key)
+            update_env_var("ANTHROPIC_AUTH_METHOD", "api_key")
+
+    # Return refreshed status
+    from onemancompany.core.config import settings as refreshed
+    or_key = refreshed.openrouter_api_key
+    ant_key = refreshed.anthropic_api_key
+    return {
+        "status": "updated",
+        "openrouter": {
+            "api_key_set": bool(or_key),
+            "api_key_preview": ("..." + or_key[-4:]) if len(or_key) >= 4 else "",
+            "base_url": refreshed.openrouter_base_url,
+            "default_model": refreshed.default_llm_model,
+        },
+        "anthropic": {
+            "api_key_set": bool(ant_key),
+            "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
+            "auth_method": refreshed.anthropic_auth_method,
+        },
+    }
+
+
+@router.post("/api/settings/api/test")
+async def test_api_connection(body: dict) -> dict:
+    """Test connectivity for a given API provider."""
+    from onemancompany.core.heartbeat import _check_anthropic_key, _check_openrouter_key
+    from onemancompany.core.config import settings
+
+    provider = body.get("provider", "")
+    if provider == "openrouter":
+        ok = await _check_openrouter_key()
+        return {"provider": "openrouter", "ok": ok}
+    elif provider == "anthropic":
+        ok = await _check_anthropic_key(settings.anthropic_api_key)
+        return {"provider": "anthropic", "ok": ok}
+    return {"error": "Invalid provider"}
+
+
+@router.post("/api/settings/api/oauth/start")
+async def company_oauth_start() -> dict:
+    """Start company-level Anthropic OAuth PKCE flow.
+
+    Same as per-employee OAuth, but saves the token to .env (company level).
+    """
+    import base64
+    import hashlib
+    import secrets
+
+    code_verifier = secrets.token_urlsafe(43)
+    digest = hashlib.sha256(code_verifier.encode()).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+    state = "company_" + secrets.token_urlsafe(32)
+
+    _oauth_sessions[state] = {
+        "employee_id": "__company__",
+        "code_verifier": code_verifier,
+        "redirect_uri": ANTHROPIC_REDIRECT_URI,
+    }
+
+    auth_url = (
+        f"{ANTHROPIC_AUTH_URL}"
+        f"?client_id={ANTHROPIC_OAUTH_CLIENT_ID}"
+        f"&redirect_uri={ANTHROPIC_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&scope=user:inference+user:profile"
+        f"&code_challenge={code_challenge}"
+        f"&code_challenge_method=S256"
+        f"&state={state}"
+    )
+
+    return {"auth_url": auth_url, "state": state}
 
 
 # ===== OAuth Login (Anthropic PKCE) =====
@@ -1678,25 +1875,33 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
 
     access_token = tokens.get("access_token", "")
     refresh_token = tokens.get("refresh_token", "")
+    api_key = access_token
 
-    # Try to create a permanent API key using the OAuth token
-    api_key = access_token  # fallback: use access token directly
-    try:
-        async with httpx.AsyncClient() as client2:
-            key_resp = await client2.post(
-                ANTHROPIC_CREATE_KEY_URL,
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-                json={"name": f"OneManCompany-{employee_id}"},
-                timeout=15.0,
+    # Company-level OAuth: save to .env instead of employee profile
+    if employee_id == "__company__":
+        from onemancompany.core.config import update_env_var
+        update_env_var("ANTHROPIC_API_KEY", api_key)
+        update_env_var("ANTHROPIC_AUTH_METHOD", "oauth")
+        if refresh_token:
+            update_env_var("ANTHROPIC_REFRESH_TOKEN", refresh_token)
+
+        await event_bus.publish(
+            CompanyEvent(
+                type="agent_done",
+                payload={"role": "CEO", "summary": "Company Anthropic OAuth login successful."},
+                agent="CEO",
             )
-            if key_resp.status_code == 200:
-                key_data = key_resp.json()
-                api_key = key_data.get("api_key", access_token)
-    except Exception as _e:
-        logger.debug("OAuth key exchange failed, falling back to access token: {}", _e)
+        )
+
+        return HTMLResponse(
+            "<html><body style='font-family:monospace;text-align:center;padding:40px;'>"
+            "<h2>Login Successful</h2>"
+            "<p>Company Anthropic API is now authenticated.</p>"
+            "<p>This window will close automatically...</p>"
+            "<script>window.opener && window.opener.postMessage('oauth_done','*'); "
+            "setTimeout(()=>window.close(), 1500);</script>"
+            "</body></html>"
+        )
 
     # Store tokens in employee config
     cfg = employee_configs.get(employee_id)
@@ -2258,6 +2463,115 @@ async def continue_iteration(body: dict) -> dict:
         "routed_to": officer_id,
         "iteration_id": iteration_id,
     }
+
+
+def _build_plugin_context(dispatches: list[dict], project_id: str, project_status: str = "") -> dict:
+    """Build the context dict that plugin transformers consume."""
+    employees: dict[str, dict] = {}
+    for d in dispatches:
+        emp_id = d.get("employee_id", "")
+        if emp_id and emp_id not in employees:
+            emp = company_state.employees.get(emp_id)
+            if emp:
+                employees[emp_id] = {"name": emp.name, "nickname": emp.nickname}
+    return {"employees": employees, "project_id": project_id, "project_status": project_status}
+
+
+@router.get("/api/projects/{project_id}/board")
+async def get_project_board(project_id: str) -> dict:
+    """Get kanban board data — backward-compatible wrapper over plugin transformers."""
+    from onemancompany.core.plugin_registry import plugin_registry
+    from onemancompany.core.project_archive import _resolve_and_load
+
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        raise HTTPException(404, "Project not found")
+
+    dispatches = doc.get("dispatches", [])
+    ctx = _build_plugin_context(dispatches, project_id, doc.get("status", ""))
+
+    # Delegate to plugin transformers
+    kanban_data = plugin_registry.transform("kanban", dispatches, ctx)
+    timeline_data = plugin_registry.transform("timeline", dispatches, ctx)
+
+    return {
+        "columns": kanban_data.get("columns", {}),
+        "timeline": timeline_data.get("timeline", []),
+        "phases": kanban_data.get("phases", []),
+    }
+
+
+# ===== Plugin System Endpoints =====
+
+@router.get("/api/plugins")
+async def list_plugins(view_type: str | None = None) -> list[dict]:
+    """List registered plugins, optionally filtered by view_type."""
+    from onemancompany.core.plugin_registry import plugin_registry
+
+    manifests = plugin_registry.list_plugins(view_type)
+    return [
+        {
+            "id": m.id,
+            "name": m.name,
+            "version": m.version,
+            "description": m.description,
+            "icon": m.icon,
+            "order": m.order,
+            "view_type": m.view_type,
+            "render_function": m.render_function,
+        }
+        for m in manifests
+    ]
+
+
+@router.get("/api/plugins/{plugin_id}/script")
+async def get_plugin_script(plugin_id: str):
+    """Serve a plugin's JavaScript file."""
+    from onemancompany.core.plugin_registry import plugin_registry
+
+    plugin = plugin_registry.get(plugin_id)
+    if not plugin:
+        raise HTTPException(404, f"Plugin '{plugin_id}' not found")
+    script_path = plugin.plugin_dir / plugin.manifest.frontend_script
+    if not script_path.exists():
+        raise HTTPException(404, f"Script not found for plugin '{plugin_id}'")
+    return FileResponse(str(script_path), media_type="application/javascript")
+
+
+@router.get("/api/plugins/{plugin_id}/style")
+async def get_plugin_style(plugin_id: str):
+    """Serve a plugin's CSS file."""
+    from onemancompany.core.plugin_registry import plugin_registry
+
+    plugin = plugin_registry.get(plugin_id)
+    if not plugin:
+        raise HTTPException(404, f"Plugin '{plugin_id}' not found")
+    if not plugin.manifest.frontend_style:
+        raise HTTPException(404, f"No style for plugin '{plugin_id}'")
+    style_path = plugin.plugin_dir / plugin.manifest.frontend_style
+    if not style_path.exists():
+        raise HTTPException(404, f"Style not found for plugin '{plugin_id}'")
+    return FileResponse(str(style_path), media_type="text/css")
+
+
+@router.get("/api/projects/{project_id}/plugin/{plugin_id}")
+async def get_project_plugin_data(project_id: str, plugin_id: str) -> dict:
+    """Execute a plugin's transformer on a project's dispatches."""
+    from onemancompany.core.plugin_registry import plugin_registry
+    from onemancompany.core.project_archive import _resolve_and_load
+
+    plugin = plugin_registry.get(plugin_id)
+    if not plugin:
+        raise HTTPException(404, f"Plugin '{plugin_id}' not found")
+
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        raise HTTPException(404, "Project not found")
+
+    dispatches = doc.get("dispatches", [])
+    ctx = _build_plugin_context(dispatches, project_id, doc.get("status", ""))
+
+    return plugin_registry.transform(plugin_id, dispatches, ctx)
 
 
 @router.get("/api/projects/{project_id}")

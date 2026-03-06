@@ -1,84 +1,70 @@
 # Roblox Publish Result
 
-**Timestamp**: 2026-03-05T17:34:19.129199
-**Mode**: LIVE (Roblox Open Cloud API — real calls, no mock)
-**API Key**: `OOd4...` (provided by project owner)
-**API Key Valid**: NO — Roblox returned HTTP 401
-**Place file**: `TechStartupTycoon.rbxlx` (23455 bytes)
-**Place file SHA-256**: `3dea64179153687fd399e4dc6a5f2485578c4771e06f92c4f88b97c544cad274`
+**PUBLISH STATUS: SUCCESS — Version 17**
 
-## Step 1: API Key Validation
+**Timestamp**: 2026-03-06T13:04:38.766962
+**Mode**: LIVE (Real Roblox Open Cloud API calls)
+**API Key**: `OOd4ZsDDE0mP...MlJPdw==`
+**Place file**: `ShadowDungeonDescent.rbxlx` (74426 bytes)
+**Place file SHA-256**: `9b8df936e8e61ee942f397bc792cb19470b8eaf578d5af74e41711e0e416f3c1`
+**Universe ID**: 9838675013
+**Place ID**: 118831023221258
 
-Called `GET https://apis.roblox.com/cloud/v2/users/me` with the provided API key.
+## API Key Pre-check (informational)
 
-- **HTTP Status**: 401
-- **Result**: Key rejected by Roblox
-- **Response**:
+*Note: This check uses `GET /cloud/v2/users/me` which has a different
+auth scope than the Place Publishing API. An HTTP 400 here does NOT
+mean the publish will fail — the publish endpoint accepts this key.*
+
+- Endpoint: `GET https://apis.roblox.com/cloud/v2/users/me`
+- HTTP Status: 400
+- Response: `{"code": "INVALID_ARGUMENT", "message": "Invalid User ID in the request."}`
+
+## Publish Result
+
+```
+POST https://apis.roblox.com/universes/v1/9838675013/places/118831023221258/versions?versionType=Published
+x-api-key: OOd4ZsDDE0mP...MlJPdw==
+Content-Type: application/xml
+Content-Length: 74426
+```
+
+**HTTP Status**: 200
 ```json
 {
-  "errors": [
-    {
-      "code": 0,
-      "message": "Invalid API Key"
-    }
-  ]
+  "versionNumber": 17
 }
 ```
 
-The API key `OOd4ZsDDE0mP` was rejected by the Roblox Open Cloud API with
-HTTP 401. This means the key is either expired,
-revoked, or was never a valid Roblox Open Cloud API key.
-
-### How to Fix
-
-1. Log in to https://create.roblox.com/dashboard/credentials
-2. Create a **new** API key with **universe-places → Write** permission
-3. Copy the key immediately (Roblox won't show it again)
-4. Set the environment variable: `export ROBLOX_API_KEY="your-new-key"`
-5. Re-run: `python publish.py`
-
-## Step 2: Universe & Place IDs (MISSING)
-
-The Roblox Open Cloud API **cannot create new experiences programmatically**.
-An experience must first be created via Roblox Studio or the Creator Dashboard.
-
-### How to Get the IDs
-
-1. Open **Roblox Studio** and create a new experience (or use an existing one)
-2. Publish it once from Studio to create the Universe/Place on Roblox servers
-3. Go to https://create.roblox.com/dashboard/creations
-4. Hover over the experience → **⋯** → **Copy Universe ID**
-5. Open the experience → place config → note the **Place ID** from the URL
-6. Set environment variables:
-   ```bash
-   export ROBLOX_UNIVERSE_ID="your-universe-id"
-   export ROBLOX_PLACE_ID="your-place-id"
-   ```
+**Version 17 published successfully!**
 
 ---
 
-## Place File Validation (ALL PASS)
+## Place File Validation
 
 | Check | Result |
 |-------|--------|
 | File exists | PASS |
-| File size | 23455 bytes |
+| File size | 74426 bytes |
 | XML parseable | PASS |
-| Total XML items | 14 |
-| All required services present | PASS |
+| Total XML items | 15 |
+| All required services | PASS |
 | Services found | Workspace, ReplicatedStorage, ServerScriptService, StarterGui, StarterPlayer |
-| Script count | 5 |
+| Script count | 8 |
 | Overall valid | PASS |
 
 ### Embedded Scripts
 
 | Class | Name | Source Length |
 |-------|------|-------------|
-| ModuleScript | GameConfig | 1500 chars |
-| ModuleScript | DataManager | 1873 chars |
-| Script | GameManager | 4765 chars |
-| LocalScript | MainGui | 6332 chars |
-| LocalScript | ClickHandler | 3815 chars |
+| ModuleScript | GameConfig | 5553 chars |
+| ModuleScript | DungeonGenerator | 6967 chars |
+| ModuleScript | LootSystem | 3756 chars |
+| ModuleScript | DataManager | 4935 chars |
+| ModuleScript | CombatManager | 7611 chars |
+| Script | GameManager | 19056 chars |
+| LocalScript | MainGui | 14653 chars |
+| LocalScript | PlayerController | 6648 chars |
 
 ---
 
@@ -86,12 +72,14 @@ An experience must first be created via Roblox Studio or the Creator Dashboard.
 
 | File | Description |
 |------|-------------|
-| `default.project.json` | Rojo project configuration |
-| `src/ReplicatedStorage/GameConfig.lua` | Game constants and upgrade definitions |
+| `src/ReplicatedStorage/GameConfig.lua` | Constants, enemy/item/class definitions |
+| `src/ReplicatedStorage/DungeonGenerator.lua` | Procedural floor generation |
+| `src/ReplicatedStorage/LootSystem.lua` | Item generation with rarity rolls |
 | `src/ServerScriptService/DataManager.lua` | Player data persistence (DataStore) |
-| `src/ServerScriptService/GameManager.server.lua` | Main server logic (click, sell, upgrades, rebirth, auto-code) |
-| `src/StarterGui/MainGui.lua` | UI creation (LocalScript) |
-| `src/StarterPlayerScripts/ClickHandler.client.lua` | Client-side input handling |
-| `TechStartupTycoon.rbxlx` | Compiled Roblox place file (XML) |
+| `src/ServerScriptService/CombatManager.lua` | Damage calculation, abilities, AI |
+| `src/ServerScriptService/GameManager.server.lua` | Server orchestration, remote events |
+| `src/StarterGui/MainGui.lua` | HUD, health bars, inventory, shop |
+| `src/StarterPlayerScripts/PlayerController.client.lua` | Input, camera, ability casting |
+| `ShadowDungeonDescent.rbxlx` | Compiled Roblox place file (XML, 8 scripts) |
 | `build_place.py` | Build script: Lua sources → .rbxlx |
 | `publish.py` | Publish script: .rbxlx → Roblox Open Cloud API |

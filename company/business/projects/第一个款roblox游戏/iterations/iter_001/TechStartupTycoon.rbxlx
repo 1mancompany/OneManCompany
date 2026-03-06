@@ -1,67 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
-  <Item class="Workspace" referent="RBX00000001">
-    <Properties>
-      <string name="Name">Workspace</string>
-      <bool name="FilteringEnabled">true</bool>
-    </Properties>
-    <Item class="Part" referent="RBX00000002">
-      <Properties>
-        <string name="Name">Baseplate</string>
-        <bool name="Anchored">true</bool>
-        <Vector3 name="size">
-          <X>512</X>
-          <Y>1</Y>
-          <Z>512</Z>
-        </Vector3>
-        <CoordinateFrame name="CFrame">
-          <X>0</X>
-          <Y>-0.5</Y>
-          <Z>0</Z>
-          <R00>1</R00>
-          <R01>0</R01>
-          <R02>0</R02>
-          <R10>0</R10>
-          <R11>1</R11>
-          <R12>0</R12>
-          <R20>0</R20>
-          <R21>0</R21>
-          <R22>1</R22>
-        </CoordinateFrame>
-        <Color3 name="Color3uint8">
-          <R>91</R>
-          <G>154</G>
-          <B>76</B>
-        </Color3>
-        <float name="Transparency">0</float>
-      </Properties>
-    </Item>
-    <Item class="Camera" referent="RBX00000003">
-      <Properties>
-        <string name="Name">Camera</string>
-      </Properties>
-    </Item>
-  </Item>
-  <Item class="Lighting" referent="RBX00000004">
-    <Properties>
-      <string name="Name">Lighting</string>
-      <float name="Brightness">2</float>
-      <float name="ClockTime">14</float>
-      <Color3 name="Ambient">
-        <R>0.4</R>
-        <G>0.4</G>
-        <B>0.4</B>
-      </Color3>
-    </Properties>
-  </Item>
-  <Item class="ReplicatedStorage" referent="RBX00000005">
-    <Properties>
-      <string name="Name">ReplicatedStorage</string>
-    </Properties>
-    <Item class="ModuleScript" referent="RBX00000006">
-      <Properties>
-        <string name="Name">GameConfig</string>
-        <ProtectedString name="Source">-- GameConfig: shared constants for Tech Startup Tycoon
+<roblox version="4">
+<Item class="Workspace" referent="RBX00000001">
+<Properties><string name="Name">Workspace</string></Properties>
+</Item>
+<Item class="Lighting" referent="RBX00000002">
+<Properties><string name="Name">Lighting</string></Properties>
+</Item>
+<Item class="ReplicatedStorage" referent="RBX00000003">
+<Properties><string name="Name">ReplicatedStorage</string></Properties>
+<Item class="ModuleScript" referent="RBX00000004">
+<Properties>
+<string name="Name">GameConfig</string>
+<ProtectedString name="Source"><![CDATA[-- GameConfig: shared constants for Tech Startup Tycoon
 local GameConfig = {}
 
 -- Currency
@@ -71,53 +20,53 @@ GameConfig.CODE_TO_CASH_RATE = 10  -- 10 code = 1 cash
 -- Upgrades: { name, cost, type, value, description }
 GameConfig.UPGRADES = {
 	{
-		name = &quot;Better Keyboard&quot;,
+		name = "Better Keyboard",
 		cost = 10,
-		type = &quot;click_multiplier&quot;,
+		type = "click_multiplier",
 		value = 2,
-		description = &quot;+1 Code per click&quot;,
+		description = "+1 Code per click",
 	},
 	{
-		name = &quot;Gaming Monitor&quot;,
+		name = "Gaming Monitor",
 		cost = 50,
-		type = &quot;click_multiplier&quot;,
+		type = "click_multiplier",
 		value = 3,
-		description = &quot;+2 Code per click&quot;,
+		description = "+2 Code per click",
 	},
 	{
-		name = &quot;Intern&quot;,
+		name = "Intern",
 		cost = 100,
-		type = &quot;auto_coder&quot;,
+		type = "auto_coder",
 		value = 1,
-		description = &quot;Generates 1 Code/sec automatically&quot;,
+		description = "Generates 1 Code/sec automatically",
 	},
 	{
-		name = &quot;Junior Dev&quot;,
+		name = "Junior Dev",
 		cost = 500,
-		type = &quot;auto_coder&quot;,
+		type = "auto_coder",
 		value = 5,
-		description = &quot;Generates 5 Code/sec automatically&quot;,
+		description = "Generates 5 Code/sec automatically",
 	},
 	{
-		name = &quot;Senior Dev&quot;,
+		name = "Senior Dev",
 		cost = 2000,
-		type = &quot;auto_coder&quot;,
+		type = "auto_coder",
 		value = 20,
-		description = &quot;Generates 20 Code/sec automatically&quot;,
+		description = "Generates 20 Code/sec automatically",
 	},
 	{
-		name = &quot;Server Rack&quot;,
+		name = "Server Rack",
 		cost = 5000,
-		type = &quot;auto_coder&quot;,
+		type = "auto_coder",
 		value = 50,
-		description = &quot;Generates 50 Code/sec automatically&quot;,
+		description = "Generates 50 Code/sec automatically",
 	},
 	{
-		name = &quot;AI Assistant&quot;,
+		name = "AI Assistant",
 		cost = 20000,
-		type = &quot;auto_coder&quot;,
+		type = "auto_coder",
 		value = 200,
-		description = &quot;Generates 200 Code/sec automatically&quot;,
+		description = "Generates 200 Code/sec automatically",
 	},
 }
 
@@ -126,29 +75,27 @@ GameConfig.REBIRTH_COST = 100000  -- Cash needed to rebirth
 GameConfig.REBIRTH_MULTIPLIER = 1.5  -- Each rebirth multiplies all earnings
 
 -- DataStore
-GameConfig.DATASTORE_NAME = &quot;TechStartupTycoon_PlayerData&quot;
+GameConfig.DATASTORE_NAME = "TechStartupTycoon_PlayerData"
 
 -- Auto-save interval (seconds)
 GameConfig.AUTO_SAVE_INTERVAL = 60
 
 return GameConfig
-</ProtectedString>
-        <bool name="Disabled">false</bool>
-      </Properties>
-    </Item>
-  </Item>
-  <Item class="ServerScriptService" referent="RBX00000007">
-    <Properties>
-      <string name="Name">ServerScriptService</string>
-    </Properties>
-    <Item class="ModuleScript" referent="RBX00000008">
-      <Properties>
-        <string name="Name">DataManager</string>
-        <ProtectedString name="Source">-- DataManager: handles player data persistence via DataStoreService
-local DataStoreService = game:GetService(&quot;DataStoreService&quot;)
-local Players = game:GetService(&quot;Players&quot;)
+]]></ProtectedString>
+<bool name="Disabled">false</bool>
+</Properties>
+</Item>
+</Item>
+<Item class="ServerScriptService" referent="RBX00000005">
+<Properties><string name="Name">ServerScriptService</string></Properties>
+<Item class="ModuleScript" referent="RBX00000006">
+<Properties>
+<string name="Name">DataManager</string>
+<ProtectedString name="Source"><![CDATA[-- DataManager: handles player data persistence via DataStoreService
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
 
-local GameConfig = require(game.ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+local GameConfig = require(game.ReplicatedStorage:WaitForChild("GameConfig"))
 
 local DataManager = {}
 
@@ -159,7 +106,7 @@ end)
 if success then
 	dataStore = result
 else
-	warn(&quot;[DataManager] DataStore unavailable, using memory-only storage: &quot; .. tostring(result))
+	warn("[DataManager] DataStore unavailable, using memory-only storage: " .. tostring(result))
 end
 
 local DEFAULT_DATA = {
@@ -177,7 +124,7 @@ local DEFAULT_DATA = {
 local playerData = {}
 
 function DataManager.loadData(player)
-	local key = &quot;Player_&quot; .. player.UserId
+	local key = "Player_" .. player.UserId
 	local success, data = false, nil
 	if dataStore then
 		success, data = pcall(function()
@@ -205,13 +152,13 @@ function DataManager.saveData(player)
 	if not data then return false end
 
 	if not dataStore then return true end
-	local key = &quot;Player_&quot; .. player.UserId
+	local key = "Player_" .. player.UserId
 	local success, err = pcall(function()
 		dataStore:SetAsync(key, data)
 	end)
 
 	if not success then
-		warn(&quot;[DataManager] Failed to save data for &quot; .. player.Name .. &quot;: &quot; .. tostring(err))
+		warn("[DataManager] Failed to save data for " .. player.Name .. ": " .. tostring(err))
 	end
 	return success
 end
@@ -225,20 +172,20 @@ function DataManager.clearCache(player)
 end
 
 return DataManager
-</ProtectedString>
-        <bool name="Disabled">false</bool>
-      </Properties>
-    </Item>
-    <Item class="Script" referent="RBX00000009">
-      <Properties>
-        <string name="Name">GameManager</string>
-        <ProtectedString name="Source">-- GameManager: main server script for Tech Startup Tycoon
-local Players = game:GetService(&quot;Players&quot;)
-local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
-local RunService = game:GetService(&quot;RunService&quot;)
+]]></ProtectedString>
+<bool name="Disabled">false</bool>
+</Properties>
+</Item>
+<Item class="Script" referent="RBX00000007">
+<Properties>
+<string name="Name">GameManager</string>
+<ProtectedString name="Source"><![CDATA[-- GameManager: main server script for Tech Startup Tycoon
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
-local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
-local DataManager = require(script.Parent:WaitForChild(&quot;DataManager&quot;))
+local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
+local DataManager = require(script.Parent:WaitForChild("DataManager"))
 
 -- Create RemoteEvents / RemoteFunctions
 local function createRemote(className, name)
@@ -248,11 +195,11 @@ local function createRemote(className, name)
 	return remote
 end
 
-local ClickEvent = createRemote(&quot;RemoteEvent&quot;, &quot;ClickEvent&quot;)
-local SellCodeEvent = createRemote(&quot;RemoteEvent&quot;, &quot;SellCodeEvent&quot;)
-local BuyUpgradeEvent = createRemote(&quot;RemoteFunction&quot;, &quot;BuyUpgradeEvent&quot;)
-local RebirthEvent = createRemote(&quot;RemoteFunction&quot;, &quot;RebirthEvent&quot;)
-local DataUpdateEvent = createRemote(&quot;RemoteEvent&quot;, &quot;DataUpdateEvent&quot;)
+local ClickEvent = createRemote("RemoteEvent", "ClickEvent")
+local SellCodeEvent = createRemote("RemoteEvent", "SellCodeEvent")
+local BuyUpgradeEvent = createRemote("RemoteFunction", "BuyUpgradeEvent")
+local RebirthEvent = createRemote("RemoteFunction", "RebirthEvent")
+local DataUpdateEvent = createRemote("RemoteEvent", "DataUpdateEvent")
 
 -- Send updated data to client
 local function syncData(player)
@@ -279,7 +226,7 @@ end)
 SellCodeEvent.OnServerEvent:Connect(function(player)
 	local data = DataManager.getData(player)
 	if not data then return end
-	if data.code &lt; GameConfig.CODE_TO_CASH_RATE then return end
+	if data.code < GameConfig.CODE_TO_CASH_RATE then return end
 
 	local cashGained = math.floor(data.code / GameConfig.CODE_TO_CASH_RATE)
 	data.cash = data.cash + cashGained
@@ -292,20 +239,20 @@ end)
 -- Handle buy upgrade
 BuyUpgradeEvent.OnServerInvoke = function(player, upgradeIndex)
 	local data = DataManager.getData(player)
-	if not data then return false, &quot;No data&quot; end
+	if not data then return false, "No data" end
 
 	local upgrade = GameConfig.UPGRADES[upgradeIndex]
-	if not upgrade then return false, &quot;Invalid upgrade&quot; end
+	if not upgrade then return false, "Invalid upgrade" end
 
-	if data.cash &lt; upgrade.cost then
-		return false, &quot;Not enough cash&quot;
+	if data.cash < upgrade.cost then
+		return false, "Not enough cash"
 	end
 
 	data.cash = data.cash - upgrade.cost
 
-	if upgrade.type == &quot;click_multiplier&quot; then
+	if upgrade.type == "click_multiplier" then
 		data.click_multiplier = upgrade.value
-	elseif upgrade.type == &quot;auto_coder&quot; then
+	elseif upgrade.type == "auto_coder" then
 		data.auto_code_per_sec = data.auto_code_per_sec + upgrade.value
 	end
 
@@ -316,16 +263,16 @@ BuyUpgradeEvent.OnServerInvoke = function(player, upgradeIndex)
 	data.upgrades_owned[tostring(upgradeIndex)] = data.upgrades_owned[tostring(upgradeIndex)] + 1
 
 	syncData(player)
-	return true, &quot;Purchased &quot; .. upgrade.name
+	return true, "Purchased " .. upgrade.name
 end
 
 -- Handle rebirth
 RebirthEvent.OnServerInvoke = function(player)
 	local data = DataManager.getData(player)
-	if not data then return false, &quot;No data&quot; end
+	if not data then return false, "No data" end
 
-	if data.cash &lt; GameConfig.REBIRTH_COST then
-		return false, &quot;Need &quot; .. GameConfig.REBIRTH_COST .. &quot; Cash to rebirth&quot;
+	if data.cash < GameConfig.REBIRTH_COST then
+		return false, "Need " .. GameConfig.REBIRTH_COST .. " Cash to rebirth"
 	end
 
 	-- Reset progress but keep rebirths
@@ -337,19 +284,19 @@ RebirthEvent.OnServerInvoke = function(player)
 	data.rebirths = data.rebirths + 1
 
 	syncData(player)
-	return true, &quot;Rebirth #&quot; .. data.rebirths .. &quot;! Multiplier: &quot; .. (GameConfig.REBIRTH_MULTIPLIER ^ data.rebirths) .. &quot;x&quot;
+	return true, "Rebirth #" .. data.rebirths .. "! Multiplier: " .. (GameConfig.REBIRTH_MULTIPLIER ^ data.rebirths) .. "x"
 end
 
 -- Auto-code generation (runs every second on server)
 local autoCodeTimer = 0
 RunService.Heartbeat:Connect(function(dt)
 	autoCodeTimer = autoCodeTimer + dt
-	if autoCodeTimer &lt; 1 then return end
+	if autoCodeTimer < 1 then return end
 	autoCodeTimer = 0
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		local data = DataManager.getData(player)
-		if data and data.auto_code_per_sec &gt; 0 then
+		if data and data.auto_code_per_sec > 0 then
 			local rebirthBonus = GameConfig.REBIRTH_MULTIPLIER ^ data.rebirths
 			local codeGained = data.auto_code_per_sec * rebirthBonus
 			data.code = data.code + codeGained
@@ -363,7 +310,7 @@ end)
 local saveTimer = 0
 RunService.Heartbeat:Connect(function(dt)
 	saveTimer = saveTimer + dt
-	if saveTimer &lt; GameConfig.AUTO_SAVE_INTERVAL then return end
+	if saveTimer < GameConfig.AUTO_SAVE_INTERVAL then return end
 	saveTimer = 0
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -389,73 +336,71 @@ game:BindToClose(function()
 	end
 end)
 
-print(&quot;[TechStartupTycoon] GameManager loaded successfully&quot;)
-</ProtectedString>
-        <bool name="Disabled">false</bool>
-      </Properties>
-    </Item>
-  </Item>
-  <Item class="StarterGui" referent="RBX0000000A">
-    <Properties>
-      <string name="Name">StarterGui</string>
-    </Properties>
-    <Item class="LocalScript" referent="RBX0000000B">
-      <Properties>
-        <string name="Name">MainGui</string>
-        <ProtectedString name="Source">-- MainGui: builds the entire UI programmatically
+print("[TechStartupTycoon] GameManager loaded successfully")
+]]></ProtectedString>
+<bool name="Disabled">false</bool>
+</Properties>
+</Item>
+</Item>
+<Item class="StarterGui" referent="RBX00000008">
+<Properties><string name="Name">StarterGui</string></Properties>
+<Item class="LocalScript" referent="RBX00000009">
+<Properties>
+<string name="Name">MainGui</string>
+<ProtectedString name="Source"><![CDATA[-- MainGui: builds the entire UI programmatically
 -- This is a LocalScript that creates the ScreenGui and all child elements
 
-local Players = game:GetService(&quot;Players&quot;)
+local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild(&quot;PlayerGui&quot;)
+local playerGui = player:WaitForChild("PlayerGui")
 
 -- Create ScreenGui
-local screenGui = Instance.new(&quot;ScreenGui&quot;)
-screenGui.Name = &quot;MainScreenGui&quot;
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MainScreenGui"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
 -- Main container frame
-local mainFrame = Instance.new(&quot;Frame&quot;)
-mainFrame.Name = &quot;MainFrame&quot;
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(1, 0, 1, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
 
 -- Title
-local title = Instance.new(&quot;TextLabel&quot;)
-title.Name = &quot;Title&quot;
+local title = Instance.new("TextLabel")
+title.Name = "Title"
 title.Size = UDim2.new(1, 0, 0, 60)
 title.Position = UDim2.new(0, 0, 0, 10)
 title.BackgroundTransparency = 1
-title.Text = &quot;TECH STARTUP TYCOON&quot;
+title.Text = "TECH STARTUP TYCOON"
 title.TextColor3 = Color3.fromRGB(0, 255, 200)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 32
 title.Parent = mainFrame
 
 -- Stats panel (top area)
-local statsFrame = Instance.new(&quot;Frame&quot;)
-statsFrame.Name = &quot;StatsFrame&quot;
+local statsFrame = Instance.new("Frame")
+statsFrame.Name = "StatsFrame"
 statsFrame.Size = UDim2.new(0.5, -20, 0, 100)
 statsFrame.Position = UDim2.new(0.25, 10, 0, 75)
 statsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
 statsFrame.BorderSizePixel = 0
 statsFrame.Parent = mainFrame
 
-local statsCorner = Instance.new(&quot;UICorner&quot;)
+local statsCorner = Instance.new("UICorner")
 statsCorner.CornerRadius = UDim.new(0, 10)
 statsCorner.Parent = statsFrame
 
 -- Code label
-local codeLabel = Instance.new(&quot;TextLabel&quot;)
-codeLabel.Name = &quot;CodeLabel&quot;
+local codeLabel = Instance.new("TextLabel")
+codeLabel.Name = "CodeLabel"
 codeLabel.Size = UDim2.new(0.5, 0, 0, 30)
 codeLabel.Position = UDim2.new(0, 10, 0, 10)
 codeLabel.BackgroundTransparency = 1
-codeLabel.Text = &quot;Code: 0&quot;
+codeLabel.Text = "Code: 0"
 codeLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
 codeLabel.Font = Enum.Font.GothamBold
 codeLabel.TextSize = 20
@@ -463,12 +408,12 @@ codeLabel.TextXAlignment = Enum.TextXAlignment.Left
 codeLabel.Parent = mainFrame
 
 -- Cash label
-local cashLabel = Instance.new(&quot;TextLabel&quot;)
-cashLabel.Name = &quot;CashLabel&quot;
+local cashLabel = Instance.new("TextLabel")
+cashLabel.Name = "CashLabel"
 cashLabel.Size = UDim2.new(0.5, 0, 0, 30)
 cashLabel.Position = UDim2.new(0.5, 0, 0, 10)
 cashLabel.BackgroundTransparency = 1
-cashLabel.Text = &quot;Cash: $0&quot;
+cashLabel.Text = "Cash: $0"
 cashLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
 cashLabel.Font = Enum.Font.GothamBold
 cashLabel.TextSize = 20
@@ -476,12 +421,12 @@ cashLabel.TextXAlignment = Enum.TextXAlignment.Left
 cashLabel.Parent = mainFrame
 
 -- Rebirth label
-local rebirthLabel = Instance.new(&quot;TextLabel&quot;)
-rebirthLabel.Name = &quot;RebirthLabel&quot;
+local rebirthLabel = Instance.new("TextLabel")
+rebirthLabel.Name = "RebirthLabel"
 rebirthLabel.Size = UDim2.new(0.5, 0, 0, 25)
 rebirthLabel.Position = UDim2.new(0, 10, 0, 45)
 rebirthLabel.BackgroundTransparency = 1
-rebirthLabel.Text = &quot;Rebirths: 0&quot;
+rebirthLabel.Text = "Rebirths: 0"
 rebirthLabel.TextColor3 = Color3.fromRGB(200, 100, 255)
 rebirthLabel.Font = Enum.Font.Gotham
 rebirthLabel.TextSize = 16
@@ -489,12 +434,12 @@ rebirthLabel.TextXAlignment = Enum.TextXAlignment.Left
 rebirthLabel.Parent = mainFrame
 
 -- Auto-code label
-local autoLabel = Instance.new(&quot;TextLabel&quot;)
-autoLabel.Name = &quot;AutoLabel&quot;
+local autoLabel = Instance.new("TextLabel")
+autoLabel.Name = "AutoLabel"
 autoLabel.Size = UDim2.new(0.5, 0, 0, 25)
 autoLabel.Position = UDim2.new(0.5, 0, 0, 45)
 autoLabel.BackgroundTransparency = 1
-autoLabel.Text = &quot;Auto: 0 code/s&quot;
+autoLabel.Text = "Auto: 0 code/s"
 autoLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
 autoLabel.Font = Enum.Font.Gotham
 autoLabel.TextSize = 16
@@ -502,56 +447,56 @@ autoLabel.TextXAlignment = Enum.TextXAlignment.Left
 autoLabel.Parent = mainFrame
 
 -- Click Button (big center button)
-local clickButton = Instance.new(&quot;TextButton&quot;)
-clickButton.Name = &quot;ClickButton&quot;
+local clickButton = Instance.new("TextButton")
+clickButton.Name = "ClickButton"
 clickButton.Size = UDim2.new(0, 200, 0, 200)
 clickButton.Position = UDim2.new(0.5, -100, 0.35, 0)
 clickButton.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
-clickButton.Text = &quot;WRITE\nCODE&quot;
+clickButton.Text = "WRITE\nCODE"
 clickButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 clickButton.Font = Enum.Font.GothamBold
 clickButton.TextSize = 28
 clickButton.Parent = mainFrame
 
-local clickCorner = Instance.new(&quot;UICorner&quot;)
+local clickCorner = Instance.new("UICorner")
 clickCorner.CornerRadius = UDim.new(0.5, 0)
 clickCorner.Parent = clickButton
 
 -- Sell Button
-local sellButton = Instance.new(&quot;TextButton&quot;)
-sellButton.Name = &quot;SellButton&quot;
+local sellButton = Instance.new("TextButton")
+sellButton.Name = "SellButton"
 sellButton.Size = UDim2.new(0, 180, 0, 50)
 sellButton.Position = UDim2.new(0.5, -90, 0.65, 10)
 sellButton.BackgroundColor3 = Color3.fromRGB(40, 160, 40)
-sellButton.Text = &quot;SELL CODE FOR CASH&quot;
+sellButton.Text = "SELL CODE FOR CASH"
 sellButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 sellButton.Font = Enum.Font.GothamBold
 sellButton.TextSize = 16
 sellButton.Parent = mainFrame
 
-local sellCorner = Instance.new(&quot;UICorner&quot;)
+local sellCorner = Instance.new("UICorner")
 sellCorner.CornerRadius = UDim.new(0, 10)
 sellCorner.Parent = sellButton
 
 -- Rebirth Button
-local rebirthButton = Instance.new(&quot;TextButton&quot;)
-rebirthButton.Name = &quot;RebirthButton&quot;
+local rebirthButton = Instance.new("TextButton")
+rebirthButton.Name = "RebirthButton"
 rebirthButton.Size = UDim2.new(0, 180, 0, 50)
 rebirthButton.Position = UDim2.new(0.5, -90, 0.75, 10)
 rebirthButton.BackgroundColor3 = Color3.fromRGB(160, 40, 200)
-rebirthButton.Text = &quot;REBIRTH ($100K)&quot;
+rebirthButton.Text = "REBIRTH ($100K)"
 rebirthButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 rebirthButton.Font = Enum.Font.GothamBold
 rebirthButton.TextSize = 16
 rebirthButton.Parent = mainFrame
 
-local rebirthCorner = Instance.new(&quot;UICorner&quot;)
+local rebirthCorner = Instance.new("UICorner")
 rebirthCorner.CornerRadius = UDim.new(0, 10)
 rebirthCorner.Parent = rebirthButton
 
 -- Shop Frame (right side scrolling)
-local shopFrame = Instance.new(&quot;ScrollingFrame&quot;)
-shopFrame.Name = &quot;ShopFrame&quot;
+local shopFrame = Instance.new("ScrollingFrame")
+shopFrame.Name = "ShopFrame"
 shopFrame.Size = UDim2.new(0.25, -10, 0.7, 0)
 shopFrame.Position = UDim2.new(0.73, 0, 0.1, 0)
 shopFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
@@ -560,85 +505,81 @@ shopFrame.ScrollBarThickness = 6
 shopFrame.CanvasSize = UDim2.new(0, 0, 0, 400)
 shopFrame.Parent = mainFrame
 
-local shopCorner = Instance.new(&quot;UICorner&quot;)
+local shopCorner = Instance.new("UICorner")
 shopCorner.CornerRadius = UDim.new(0, 10)
 shopCorner.Parent = shopFrame
 
-local shopLayout = Instance.new(&quot;UIListLayout&quot;)
+local shopLayout = Instance.new("UIListLayout")
 shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Padding = UDim.new(0, 5)
 shopLayout.Parent = shopFrame
 
-local shopPadding = Instance.new(&quot;UIPadding&quot;)
+local shopPadding = Instance.new("UIPadding")
 shopPadding.PaddingTop = UDim.new(0, 5)
 shopPadding.PaddingLeft = UDim.new(0, 5)
 shopPadding.PaddingRight = UDim.new(0, 5)
 shopPadding.Parent = shopFrame
 
 -- Shop title
-local shopTitle = Instance.new(&quot;TextLabel&quot;)
-shopTitle.Name = &quot;ShopTitle&quot;
+local shopTitle = Instance.new("TextLabel")
+shopTitle.Name = "ShopTitle"
 shopTitle.Size = UDim2.new(0.25, -10, 0, 35)
 shopTitle.Position = UDim2.new(0.73, 0, 0.04, 0)
 shopTitle.BackgroundTransparency = 1
-shopTitle.Text = &quot;UPGRADES&quot;
+shopTitle.Text = "UPGRADES"
 shopTitle.TextColor3 = Color3.fromRGB(255, 200, 50)
 shopTitle.Font = Enum.Font.GothamBold
 shopTitle.TextSize = 20
 shopTitle.Parent = mainFrame
 
-print(&quot;[TechStartupTycoon] MainGui created&quot;)
-</ProtectedString>
-        <bool name="Disabled">false</bool>
-      </Properties>
-    </Item>
-  </Item>
-  <Item class="StarterPlayer" referent="RBX0000000C">
-    <Properties>
-      <string name="Name">StarterPlayer</string>
-    </Properties>
-    <Item class="StarterPlayerScripts" referent="RBX0000000D">
-      <Properties>
-        <string name="Name">StarterPlayerScripts</string>
-      </Properties>
-      <Item class="LocalScript" referent="RBX0000000E">
-        <Properties>
-          <string name="Name">ClickHandler</string>
-          <ProtectedString name="Source">-- ClickHandler: client-side click processing
-local ReplicatedStorage = game:GetService(&quot;ReplicatedStorage&quot;)
-local Players = game:GetService(&quot;Players&quot;)
+print("[TechStartupTycoon] MainGui created")
+]]></ProtectedString>
+<bool name="Disabled">false</bool>
+</Properties>
+</Item>
+</Item>
+<Item class="StarterPlayer" referent="RBX0000000A">
+<Properties><string name="Name">StarterPlayer</string></Properties>
+<Item class="StarterPlayerScripts" referent="RBX0000000B">
+<Properties><string name="Name">StarterPlayerScripts</string></Properties>
+<Item class="LocalScript" referent="RBX0000000C">
+<Properties>
+<string name="Name">ClickHandler</string>
+<ProtectedString name="Source"><![CDATA[-- ClickHandler: client-side click processing
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
-local ClickEvent = ReplicatedStorage:WaitForChild(&quot;ClickEvent&quot;)
-local SellCodeEvent = ReplicatedStorage:WaitForChild(&quot;SellCodeEvent&quot;)
-local BuyUpgradeEvent = ReplicatedStorage:WaitForChild(&quot;BuyUpgradeEvent&quot;)
-local RebirthEvent = ReplicatedStorage:WaitForChild(&quot;RebirthEvent&quot;)
-local DataUpdateEvent = ReplicatedStorage:WaitForChild(&quot;DataUpdateEvent&quot;)
-local GameConfig = require(ReplicatedStorage:WaitForChild(&quot;GameConfig&quot;))
+local ClickEvent = ReplicatedStorage:WaitForChild("ClickEvent")
+local SellCodeEvent = ReplicatedStorage:WaitForChild("SellCodeEvent")
+local BuyUpgradeEvent = ReplicatedStorage:WaitForChild("BuyUpgradeEvent")
+local RebirthEvent = ReplicatedStorage:WaitForChild("RebirthEvent")
+local DataUpdateEvent = ReplicatedStorage:WaitForChild("DataUpdateEvent")
+local GameConfig = require(ReplicatedStorage:WaitForChild("GameConfig"))
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild(&quot;PlayerGui&quot;)
+local playerGui = player:WaitForChild("PlayerGui")
 
 -- Wait for GUI
-local mainGui = playerGui:WaitForChild(&quot;MainScreenGui&quot;)
-local mainFrame = mainGui:WaitForChild(&quot;MainFrame&quot;)
+local mainGui = playerGui:WaitForChild("MainScreenGui")
+local mainFrame = mainGui:WaitForChild("MainFrame")
 
 -- UI References
-local codeLabel = mainFrame:WaitForChild(&quot;CodeLabel&quot;)
-local cashLabel = mainFrame:WaitForChild(&quot;CashLabel&quot;)
-local rebirthLabel = mainFrame:WaitForChild(&quot;RebirthLabel&quot;)
-local autoLabel = mainFrame:WaitForChild(&quot;AutoLabel&quot;)
-local clickButton = mainFrame:WaitForChild(&quot;ClickButton&quot;)
-local sellButton = mainFrame:WaitForChild(&quot;SellButton&quot;)
-local rebirthButton = mainFrame:WaitForChild(&quot;RebirthButton&quot;)
-local shopFrame = mainFrame:WaitForChild(&quot;ShopFrame&quot;)
+local codeLabel = mainFrame:WaitForChild("CodeLabel")
+local cashLabel = mainFrame:WaitForChild("CashLabel")
+local rebirthLabel = mainFrame:WaitForChild("RebirthLabel")
+local autoLabel = mainFrame:WaitForChild("AutoLabel")
+local clickButton = mainFrame:WaitForChild("ClickButton")
+local sellButton = mainFrame:WaitForChild("SellButton")
+local rebirthButton = mainFrame:WaitForChild("RebirthButton")
+local shopFrame = mainFrame:WaitForChild("ShopFrame")
 
 -- Format numbers nicely
 local function formatNumber(n)
 	n = math.floor(n)
-	if n &gt;= 1000000 then
-		return string.format(&quot;%.1fM&quot;, n / 1000000)
-	elseif n &gt;= 1000 then
-		return string.format(&quot;%.1fK&quot;, n / 1000)
+	if n >= 1000000 then
+		return string.format("%.1fM", n / 1000000)
+	elseif n >= 1000 then
+		return string.format("%.1fK", n / 1000)
 	end
 	return tostring(n)
 end
@@ -654,14 +595,14 @@ local currentData = {
 
 -- Update UI
 local function updateUI()
-	codeLabel.Text = &quot;Code: &quot; .. formatNumber(currentData.code)
-	cashLabel.Text = &quot;Cash: $&quot; .. formatNumber(currentData.cash)
-	rebirthLabel.Text = &quot;Rebirths: &quot; .. currentData.rebirths
-	autoLabel.Text = &quot;Auto: &quot; .. formatNumber(currentData.auto_code_per_sec) .. &quot; code/s&quot;
+	codeLabel.Text = "Code: " .. formatNumber(currentData.code)
+	cashLabel.Text = "Cash: $" .. formatNumber(currentData.cash)
+	rebirthLabel.Text = "Rebirths: " .. currentData.rebirths
+	autoLabel.Text = "Auto: " .. formatNumber(currentData.auto_code_per_sec) .. " code/s"
 
 	local rebirthMult = GameConfig.REBIRTH_MULTIPLIER ^ currentData.rebirths
-	if currentData.rebirths &gt; 0 then
-		rebirthLabel.Text = rebirthLabel.Text .. &quot; (&quot; .. string.format(&quot;%.1fx&quot;, rebirthMult) .. &quot;)&quot;
+	if currentData.rebirths > 0 then
+		rebirthLabel.Text = rebirthLabel.Text .. " (" .. string.format("%.1fx", rebirthMult) .. ")"
 	end
 end
 
@@ -687,25 +628,25 @@ rebirthButton.MouseButton1Click:Connect(function()
 	if not success then
 		rebirthButton.Text = msg
 		task.wait(1.5)
-		rebirthButton.Text = &quot;REBIRTH ($&quot; .. formatNumber(GameConfig.REBIRTH_COST) .. &quot;)&quot;
+		rebirthButton.Text = "REBIRTH ($" .. formatNumber(GameConfig.REBIRTH_COST) .. ")"
 	end
 end)
 
 -- Create shop buttons dynamically
 for i, upgrade in ipairs(GameConfig.UPGRADES) do
-	local btn = Instance.new(&quot;TextButton&quot;)
-	btn.Name = &quot;Upgrade_&quot; .. i
+	local btn = Instance.new("TextButton")
+	btn.Name = "Upgrade_" .. i
 	btn.Size = UDim2.new(1, -10, 0, 50)
 	btn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 14
 	btn.TextWrapped = true
-	btn.Text = upgrade.name .. &quot; - $&quot; .. formatNumber(upgrade.cost) .. &quot;\n&quot; .. upgrade.description
+	btn.Text = upgrade.name .. " - $" .. formatNumber(upgrade.cost) .. "\n" .. upgrade.description
 	btn.LayoutOrder = i
 	btn.Parent = shopFrame
 
-	local corner = Instance.new(&quot;UICorner&quot;)
+	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 6)
 	corner.Parent = btn
 
@@ -723,11 +664,11 @@ for i, upgrade in ipairs(GameConfig.UPGRADES) do
 	end)
 end
 
-print(&quot;[TechStartupTycoon] ClickHandler loaded for &quot; .. player.Name)
-</ProtectedString>
-          <bool name="Disabled">false</bool>
-        </Properties>
-      </Item>
-    </Item>
-  </Item>
+print("[TechStartupTycoon] ClickHandler loaded for " .. player.Name)
+]]></ProtectedString>
+<bool name="Disabled">false</bool>
+</Properties>
+</Item>
+</Item>
+</Item>
 </roblox>

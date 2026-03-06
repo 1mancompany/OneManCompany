@@ -1,0 +1,17 @@
+id: kanban
+name: "看板"
+version: "1.0.0"
+description: "Kanban board view"
+author: "OneManCompany"
+builtin: true
+view_type: project_tab
+order: 10
+icon: "📋"
+backend:
+  module: transform
+  function: transform
+frontend:
+  script: render.js
+  style: style.css
+  render_function: renderKanban
+data_requires: [dispatches, employees]

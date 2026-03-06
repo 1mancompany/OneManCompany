@@ -46,6 +46,11 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
     return "openrouter_key"
 
 
+def _resolve_anthropic_key(cfg) -> str:
+    """Return per-employee Anthropic key, falling back to company-level key."""
+    return cfg.api_key or settings.anthropic_api_key
+
+
 def check_needs_setup(emp_id: str) -> bool:
     """Check whether an employee needs API key / OAuth configuration (pure local check)."""
     cfg = employee_configs.get(emp_id)
@@ -57,13 +62,13 @@ def check_needs_setup(emp_id: str) -> bool:
         if not (EMPLOYEES_DIR / emp_id / "launch.sh").exists():
             return True
         # Self-hosted with Anthropic provider still needs API key / OAuth token
-        if cfg.api_provider == "anthropic" and not bool(cfg.api_key):
+        if cfg.api_provider == "anthropic" and not bool(_resolve_anthropic_key(cfg)):
             return True
         return False
 
     if cfg.api_provider == "anthropic":
-        # Anthropic employees need their own API key or OAuth token
-        return not bool(cfg.api_key)
+        # Anthropic employees need their own API key or company-level key
+        return not bool(_resolve_anthropic_key(cfg))
 
     # OpenRouter: uses company key — no per-employee setup needed
     return False
@@ -209,7 +214,13 @@ async def run_heartbeat_cycle() -> list[str]:
         elif method == "script":
             script_employees.append(emp_id)
         elif method == "anthropic_key":
-            anthropic_checks[emp_id] = cfg.api_key
+            key = _resolve_anthropic_key(cfg)
+            # OAuth tokens can't be validated via /v1/models — just check existence
+            auth_method = cfg.auth_method if cfg.auth_method == "oauth" else settings.anthropic_auth_method
+            if auth_method == "oauth":
+                _update_online(emp_id, bool(key), changed)
+            else:
+                anthropic_checks[emp_id] = key
         else:  # openrouter_key
             openrouter_employees.append(emp_id)
 
