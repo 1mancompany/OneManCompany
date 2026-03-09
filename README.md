@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-09 | `ba21099` | Update: test_tree_tools, tree_tools |
 | 2026-03-09 | `91ccaee` | Update: task_tree, test_task_tree |
 | 2026-03-09 | `9bbea9e` | Update: test_agent_loop, vessel |
 | 2026-03-09 | `c8e6451` | Update: __init__, 人员缺口分析报告, 1df8f2de, 2026-03-09-unified-tool-registry, 2026-03-09-unified-tool-registry-design |
