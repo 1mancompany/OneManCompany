@@ -11,10 +11,10 @@
         "title": "Connection",
         "fields": [
           {
-            "key": "oauth",
-            "type": "oauth_button",
-            "label": "Anthropic Login",
-            "provider": "anthropic"
+            "key": "sessions",
+            "type": "readonly",
+            "label": "Sessions",
+            "value_from": "api:sessions"
           }
         ]
       },
