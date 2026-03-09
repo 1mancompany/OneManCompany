@@ -1396,6 +1396,11 @@ class EmployeeManager:
         if not project:
             return EmployeeManager._PHASE_COMPLETE
 
+        # Simple tasks NEVER enter the acceptance/review flow — hardcoded rule
+        task_type = project.get("task_type", "simple")
+        if task_type != "project":
+            return EmployeeManager._PHASE_COMPLETE
+
         criteria = project.get("acceptance_criteria", [])
         acceptance = project.get("acceptance_result")
         ea_review = project.get("ea_review_result")
@@ -1678,6 +1683,19 @@ class EmployeeManager:
             added = flush_result.get("employees_added", [])
             if updated or added:
                 print(f"[hot-reload] Post-task flush: {len(updated)} updated, {len(added)} added")
+
+        # Notify CEO that the task is done
+        role = self._get_role(employee_id)
+        summary = (task.result or task.description or "Task completed")[:MAX_SUMMARY_LEN]
+        if agent_error:
+            summary = f"(with errors) {summary}"
+        await event_bus.publish(
+            CompanyEvent(
+                type="agent_done",
+                payload={"role": role, "summary": summary, "employee_id": employee_id, "project_id": project_id},
+                agent=role,
+            )
+        )
 
         await event_bus.publish(
             CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
