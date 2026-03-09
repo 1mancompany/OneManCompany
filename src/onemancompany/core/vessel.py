@@ -5,7 +5,7 @@ EmployeeManager 管理躯壳与灵魂结合后的完整员工。
 
 Key concepts:
 - Vessel: 员工执行容器（原 EmployeeHandle）
-- ExecutionHarness / *Executor: 执行后端（原 Launcher）
+- *Executor / Launcher: 执行后端
 - VesselConfig: 躯壳 DNA（vessel.yaml）
 - VesselHarness protocols: 套接件标准（解耦公司系统交互）
 
@@ -26,7 +26,6 @@ from abc import ABC, abstractmethod
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Callable
 
@@ -52,33 +51,28 @@ from loguru import logger
 _current_vessel: ContextVar["Vessel | None"] = ContextVar("_current_vessel", default=None)
 _current_task_id: ContextVar[str] = ContextVar("_current_task_id", default="")
 
-# Backward compat alias
-_current_loop = _current_vessel
 
 
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
 
-class TaskStatus(str, Enum):
-    """Valid states for an AgentTask."""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+from onemancompany.core.task_lifecycle import TaskPhase
+
 
 
 @dataclass
 class AgentTask:
     id: str
     description: str
-    status: TaskStatus = TaskStatus.PENDING
+    status: TaskPhase = TaskPhase.PENDING
+    task_type: str = "simple"  # "simple" or "project" — from TaskType enum
     parent_id: str = ""  # non-empty if this is a sub-task
     project_id: str = ""  # links to company project archive
     project_dir: str = ""  # project workspace path
     original_project_id: str = ""  # preserved across multiple dispatch_task calls
     original_project_dir: str = ""
+    depends_on: list[str] = field(default_factory=list)  # dispatch_ids this task waits on
     sub_task_ids: list[str] = field(default_factory=list)
     logs: list[dict] = field(default_factory=list)  # [{timestamp, type, content}]
     result: str = ""
@@ -95,14 +89,20 @@ class AgentTask:
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
 
+    @property
+    def is_project(self) -> bool:
+        return self.task_type == "project"
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "description": self.description,
             "status": self.status,
+            "task_type": self.task_type,
             "parent_id": self.parent_id,
             "project_id": self.project_id,
             "original_project_id": self.original_project_id,
+            "depends_on": self.depends_on,
             "sub_task_ids": self.sub_task_ids,
             "logs": self.logs[-50:],
             "result": self.result[:MAX_SUMMARY_LEN] if self.result else "",
@@ -145,25 +145,25 @@ class AgentTaskBoard:
 
     def get_next_pending(self) -> AgentTask | None:
         for t in self.tasks:
-            if t.status == TaskStatus.PENDING and not t.parent_id:
+            if t.status == TaskPhase.PENDING and not t.parent_id:
                 return t
         return None
 
     def get_pending_subtasks(self, parent_id: str) -> list[AgentTask]:
-        return [t for t in self.tasks if t.parent_id == parent_id and t.status == TaskStatus.PENDING]
+        return [t for t in self.tasks if t.parent_id == parent_id and t.status == TaskPhase.PENDING]
 
     def cancel_by_project(self, project_id: str) -> list[AgentTask]:
         cancelled = []
         for t in self.tasks:
-            if t.project_id == project_id and t.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
-                t.status = TaskStatus.CANCELLED
+            if t.project_id == project_id and t.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
+                t.status = TaskPhase.CANCELLED
                 t.completed_at = datetime.now().isoformat()
                 t.result = "Cancelled by CEO"
                 cancelled.append(t)
                 for sid in t.sub_task_ids:
                     sub = self.get_task(sid)
-                    if sub and sub.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
-                        sub.status = TaskStatus.CANCELLED
+                    if sub and sub.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
+                        sub.status = TaskPhase.CANCELLED
                         sub.completed_at = datetime.now().isoformat()
                         sub.result = "Parent task cancelled"
                         cancelled.append(sub)
@@ -208,8 +208,7 @@ class Launcher(ABC):
     Launchers are pluggable execution backends. The platform defines the protocol;
     each launcher implements it for a specific AI/execution environment.
 
-    NOTE: This is the original ABC name, kept for backward compatibility.
-    New code should use the Protocol-based ExecutionHarness from vessel_harness.py.
+    See also: Protocol-based ExecutionHarness in vessel_harness.py.
     """
 
     @abstractmethod
@@ -225,8 +224,6 @@ class Launcher(ABC):
         return True
 
 
-# Alias: ExecutionHarness points to the same ABC for runtime use
-ExecutionHarness = Launcher
 
 
 class LangChainExecutor(Launcher):
@@ -266,16 +263,25 @@ class ClaudeSessionExecutor(Launcher):
     ) -> LaunchResult:
         from onemancompany.core.claude_session import run_claude_session
 
-        output = await run_claude_session(
+        result = await run_claude_session(
             self.employee_id,
             context.project_id or "default",
             prompt=task_description,
             work_dir=context.work_dir,
             task_id=context.task_id,
         )
+        output = result.get("output", "")
         if on_log:
             on_log("result", (output or "")[:500])
-        return LaunchResult(output=output or "")
+        input_tokens = result.get("input_tokens", 0)
+        output_tokens = result.get("output_tokens", 0)
+        return LaunchResult(
+            output=output or "",
+            model_used=result.get("model", ""),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_tokens=input_tokens + output_tokens,
+        )
 
 
 class ScriptExecutor(Launcher):
@@ -326,10 +332,6 @@ class ScriptExecutor(Launcher):
             return LaunchResult(output=f"[script error] {e}")
 
 
-# Backward compat aliases
-LangChainLauncher = LangChainExecutor
-ClaudeSessionLauncher = ClaudeSessionExecutor
-ScriptLauncher = ScriptExecutor
 
 
 # ---------------------------------------------------------------------------
@@ -348,15 +350,12 @@ class _VesselRef:
         return emp.role if emp else "Employee"
 
 
-# Backward compat alias
-_AgentRef = _VesselRef
 
 
 class Vessel:
     """Per-employee view into the EmployeeManager.
 
-    Provides the same interface that EmployeeHandle (PersistentAgentLoop) exposed
-    so that existing callers (common_tools, routes.py) don't need changes.
+    Per-employee view providing task management and history access.
     """
 
     def __init__(self, manager: "EmployeeManager", employee_id: str) -> None:
@@ -377,7 +376,7 @@ class Vessel:
         if not board:
             return None
         for task in board.tasks:
-            if task.status == TaskStatus.IN_PROGRESS:
+            if task.status == TaskPhase.PROCESSING:
                 return task
         return None
 
@@ -400,8 +399,6 @@ class Vessel:
         return self.manager.get_history_context(self.employee_id)
 
 
-# Backward compat alias
-EmployeeHandle = Vessel
 
 
 # ---------------------------------------------------------------------------
@@ -469,22 +466,14 @@ class EmployeeManager:
         self._event_loop: asyncio.AbstractEventLoop | None = None  # set by drain_pending
         self._restart_pending: bool = False
 
-    # Backward compat properties
+    # Backward-compat aliases (properties so they stay in sync)
     @property
     def launchers(self) -> dict[str, Launcher]:
         return self.executors
 
-    @launchers.setter
-    def launchers(self, value: dict[str, Launcher]) -> None:
-        self.executors = value
-
     @property
     def _handles(self) -> dict[str, Vessel]:
         return self.vessels
-
-    @_handles.setter
-    def _handles(self, value: dict[str, Vessel]) -> None:
-        self.vessels = value
 
     # ------------------------------------------------------------------
     # Registration
@@ -617,7 +606,7 @@ class EmployeeManager:
         tasks_to_save: list[dict] = []
         for emp_id, board in self.boards.items():
             for task in board.tasks:
-                if task.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS):
+                if task.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
                     tasks_to_save.append({
                         "employee_id": emp_id,
                         "description": task.description,
@@ -687,7 +676,7 @@ class EmployeeManager:
                         TaskEntry(
                             project_id=at["project_id"],
                             task=at.get("task", ""),
-                            employee_id=at.get("employee_id", ""),
+                            current_owner=at.get("employee_id", at.get("current_owner", "")),
                         )
                     )
 
@@ -755,7 +744,7 @@ class EmployeeManager:
         max_subtask_depth = cfg.limits.max_subtask_depth if cfg else MAX_SUBTASK_DEPTH
 
         # 1. Mark in_progress
-        task.status = TaskStatus.IN_PROGRESS
+        task.status = TaskPhase.PROCESSING
         self._set_employee_status(employee_id, STATUS_WORKING)
         self._log(employee_id, task, "start", f"Starting task: {task.description}")
         self._publish_task_update(employee_id, task)
@@ -876,7 +865,7 @@ class EmployeeManager:
 
             # 7. Sub-task loop
             for iteration in range(max_subtask_iterations):
-                if task.status == TaskStatus.CANCELLED:
+                if task.status == TaskPhase.CANCELLED:
                     break
                 pending_subs = self.boards[employee_id].get_pending_subtasks(task.id)
                 if not pending_subs:
@@ -885,11 +874,11 @@ class EmployeeManager:
                 self._log(employee_id, task, "subtask_phase", f"Processing {len(pending_subs)} sub-tasks (iteration {iteration + 1})")
 
                 for sub in pending_subs:
-                    if task.status == TaskStatus.CANCELLED:
+                    if task.status == TaskPhase.CANCELLED:
                         break
                     await self._execute_subtask(employee_id, sub, depth=1, max_retries=max_retries, retry_delays=retry_delays, max_subtask_depth=max_subtask_depth)
 
-                if task.status == TaskStatus.CANCELLED:
+                if task.status == TaskPhase.CANCELLED:
                     break
                 is_complete = await self._completion_check(employee_id, task)
                 if is_complete:
@@ -897,15 +886,15 @@ class EmployeeManager:
 
         except asyncio.CancelledError:
             agent_error = True
-            if task.status != TaskStatus.CANCELLED:
-                task.status = TaskStatus.CANCELLED
+            if task.status != TaskPhase.CANCELLED:
+                task.status = TaskPhase.CANCELLED
             task.result = task.result or "Cancelled by CEO"
             if not task.completed_at:
                 task.completed_at = datetime.now().isoformat()
             self._log(employee_id, task, "cancelled", "Task cancelled (asyncio abort)")
         except Exception as e:
             agent_error = True
-            task.status = TaskStatus.FAILED
+            task.status = TaskPhase.FAILED
             task.result = f"Error: {e!s}"
             self._log(employee_id, task, "error", f"Task failed after {max_retries} attempts: {e!s}")
             traceback.print_exc()
@@ -923,15 +912,15 @@ class EmployeeManager:
                 current_project_id.reset(ctx_token)
 
         # 8. Mark completed
-        if task.status not in (TaskStatus.FAILED, TaskStatus.CANCELLED):
-            task.status = TaskStatus.COMPLETED
+        if task.status not in (TaskPhase.FAILED, TaskPhase.CANCELLED):
+            task.status = TaskPhase.COMPLETE
         if not task.completed_at:
             task.completed_at = datetime.now().isoformat()
         self._log(employee_id, task, "end", f"Task {task.status}")
         self._publish_task_update(employee_id, task)
 
         # 9. Record to history + progress log
-        if task.status == TaskStatus.COMPLETED:
+        if task.status == TaskPhase.COMPLETE:
             self._append_history(employee_id, task)
             summary = (task.result or "")[:200]
             _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
@@ -961,15 +950,15 @@ class EmployeeManager:
         *, max_retries: int = MAX_RETRIES, retry_delays: list[int] = RETRY_DELAYS,
         max_subtask_depth: int = MAX_SUBTASK_DEPTH,
     ) -> None:
-        if sub.status == TaskStatus.CANCELLED:
+        if sub.status == TaskPhase.CANCELLED:
             return
         if depth > max_subtask_depth:
-            sub.status = TaskStatus.FAILED
+            sub.status = TaskPhase.FAILED
             sub.result = "Max sub-task depth exceeded"
             self._log(employee_id, sub, "error", "Max sub-task depth exceeded")
             return
 
-        sub.status = TaskStatus.IN_PROGRESS
+        sub.status = TaskPhase.PROCESSING
         self._log(employee_id, sub, "start", f"Sub-task: {sub.description}")
         self._publish_task_update(employee_id, sub)
 
@@ -1008,7 +997,7 @@ class EmployeeManager:
                 raise last_err
 
             sub.result = launch_result.output if launch_result else ""
-            sub.status = TaskStatus.COMPLETED
+            sub.status = TaskPhase.COMPLETE
             self._log(employee_id, sub, "result", (sub.result or "")[:300])
 
             # Accumulate subtask token usage
@@ -1028,7 +1017,7 @@ class EmployeeManager:
                         parent.input_tokens * costs["input"] + parent.output_tokens * costs["output"]
                     ) / 1_000_000
         except Exception as e:
-            sub.status = TaskStatus.FAILED
+            sub.status = TaskPhase.FAILED
             sub.result = f"Error: {e!s}"
             self._log(employee_id, sub, "error", f"Sub-task failed after {max_retries} attempts: {e!s}")
             traceback.print_exc()
@@ -1284,7 +1273,7 @@ class EmployeeManager:
                 parts.append(f"  ... and {len(files) - self._CTX_MAX_WORKSPACE_FILES} more")
             from onemancompany.core.project_archive import get_project_workspace
             ws_path = get_project_workspace(slug)
-            parts.append(f'\nUse read_file("{ws_path}/{{filename}}") to read file contents.')
+            parts.append(f'\nUse read("{ws_path}/{{filename}}") to read file contents.')
 
         return "\n".join(parts)
 
@@ -1340,7 +1329,7 @@ class EmployeeManager:
             "[Self-Verification Before Completion]\n"
             "After producing your deliverable, verify once:\n"
             f"{verification_instructions}"
-            "Save all outputs to the project workspace using save_to_project().\n"
+            "Save all outputs to the project workspace using write().\n"
             "Include a brief verification note in your result.\n"
             "Do NOT re-read files you already read. Do NOT loop — verify once, then finish."
         )
@@ -1351,16 +1340,31 @@ class EmployeeManager:
 
     def _dispatch_ready_subtasks(
         self, project_id: str, employee_id: str, task: AgentTask,
+        failed: bool = False,
     ) -> bool:
-        """Mark employee's dispatch complete; activate any ready follow-up tasks.
+        """Mark employee's dispatch complete (or failed); activate any ready follow-up tasks.
 
-        Returns True if ALL dispatches for this project are now complete.
+        If failed=True, marks the dispatch as failed and blocks all dependent dispatches,
+        then notifies the responsible officer about the failure.
+
+        Returns True if ALL dispatches for this project are now terminal.
         """
         from onemancompany.core.project_archive import (
-            record_dispatch_completion, all_dispatches_complete,
-            get_ready_dispatches, activate_dispatch,
+            record_dispatch_completion, record_dispatch_failure,
+            all_dispatches_complete, get_ready_dispatches, activate_dispatch,
         )
-        record_dispatch_completion(project_id, employee_id)
+
+        if failed:
+            blocked = record_dispatch_failure(project_id, employee_id, task.result or "Task failed")
+            if blocked:
+                logger.warning(
+                    "Dispatch failure for {} in project {} — {} dependent tasks blocked",
+                    employee_id, project_id, len(blocked),
+                )
+        else:
+            record_dispatch_completion(project_id, employee_id)
+
+        # Activate newly-ready dispatches (only makes sense if not a failure cascade)
         for rd in get_ready_dispatches(project_id):
             activate_dispatch(project_id, rd["dispatch_id"])
             target = self.get_handle(rd["employee_id"])
@@ -1373,42 +1377,52 @@ class EmployeeManager:
     # Phase determination + dispatch table
     # ------------------------------------------------------------------
 
+    # Internal phase keys for the dispatch table — these are string literals,
+    # not TaskPhase enum values, because we need to distinguish sub-states
+    # (e.g., EA_APPROVED vs ACCEPTED) that the simplified TaskPhase merges.
+    _PHASE_COMPLETE = "complete"
+    _PHASE_NEEDS_ACCEPTANCE = "needs_acceptance"
+    _PHASE_REJECTED_BY_OFFICER = "rejected_by_officer"
+    _PHASE_ACCEPTED = "accepted"
+    _PHASE_EA_APPROVED = "ea_approved"
+    _PHASE_EA_REJECTED = "ea_rejected"
+
     @staticmethod
     def _determine_project_phase(project: dict | None) -> str:
-        """Derive TaskPhase from project dict fields."""
-        from onemancompany.core.task_lifecycle import TaskPhase
+        """Derive internal phase key from project dict fields.
 
+        Returns one of the _PHASE_* constants for the handler dispatch table.
+        """
         if not project:
-            return TaskPhase.COMPLETED
+            return EmployeeManager._PHASE_COMPLETE
 
         criteria = project.get("acceptance_criteria", [])
         acceptance = project.get("acceptance_result")
         ea_review = project.get("ea_review_result")
 
         if not criteria:
-            return TaskPhase.COMPLETED
+            return EmployeeManager._PHASE_COMPLETE
 
         if not acceptance:
-            return TaskPhase.NEEDS_ACCEPTANCE
+            return EmployeeManager._PHASE_NEEDS_ACCEPTANCE
 
         if not acceptance.get("accepted"):
-            return TaskPhase.REJECTED_BY_COO
+            return EmployeeManager._PHASE_REJECTED_BY_OFFICER
 
         # Accepted by officer
         if not ea_review:
-            return TaskPhase.ACCEPTED
+            return EmployeeManager._PHASE_ACCEPTED
 
         if ea_review.get("approved"):
-            return TaskPhase.EA_APPROVED
+            return EmployeeManager._PHASE_EA_APPROVED
 
-        return TaskPhase.EA_REJECTED
+        return EmployeeManager._PHASE_EA_REJECTED
 
     async def _post_task_cleanup(self, employee_id: str, task: AgentTask, agent_error: bool, project_id: str = "") -> None:
         from onemancompany.core.project_archive import (
             append_action, load_project,
         )
         from onemancompany.core.resolutions import create_resolution
-        from onemancompany.core.task_lifecycle import TaskPhase
 
         role = self._get_role(employee_id)
 
@@ -1431,6 +1445,7 @@ class EmployeeManager:
 
         resolution = create_resolution(project_id, task.description)
         if resolution:
+            resolution["employee_id"] = employee_id
             await event_bus.publish(
                 CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
             )
@@ -1438,14 +1453,14 @@ class EmployeeManager:
         project = load_project(project_id)
         phase = self._determine_project_phase(project)
 
-        # Phase dispatch table
+        # Phase dispatch table — keys are _PHASE_* string constants
         handlers = {
-            TaskPhase.COMPLETED: self._handle_completed,
-            TaskPhase.NEEDS_ACCEPTANCE: self._handle_needs_acceptance,
-            TaskPhase.REJECTED_BY_COO: self._handle_rejected_by_coo,
-            TaskPhase.ACCEPTED: self._handle_accepted,
-            TaskPhase.EA_APPROVED: self._handle_ea_approved,
-            TaskPhase.EA_REJECTED: self._handle_ea_rejected,
+            self._PHASE_COMPLETE: self._handle_completed,
+            self._PHASE_NEEDS_ACCEPTANCE: self._handle_needs_acceptance,
+            self._PHASE_REJECTED_BY_OFFICER: self._handle_rejected_by_coo,
+            self._PHASE_ACCEPTED: self._handle_accepted,
+            self._PHASE_EA_APPROVED: self._handle_ea_approved,
+            self._PHASE_EA_REJECTED: self._handle_ea_rejected,
         }
 
         handler = handlers.get(phase)
@@ -1465,7 +1480,9 @@ class EmployeeManager:
         project_id: str, project: dict | None,
     ) -> None:
         """No acceptance criteria — dispatch subtasks, then full cleanup if all done."""
-        all_done = self._dispatch_ready_subtasks(project_id, employee_id, task)
+        all_done = self._dispatch_ready_subtasks(
+            project_id, employee_id, task, failed=agent_error,
+        )
         if all_done:
             await self._full_cleanup(employee_id, task, agent_error, project_id)
         else:
@@ -1476,11 +1493,52 @@ class EmployeeManager:
         project_id: str, project: dict | None,
     ) -> None:
         """Has criteria, not yet accepted — dispatch subtasks, push acceptance if all done."""
-        all_done = self._dispatch_ready_subtasks(project_id, employee_id, task)
+        # Guard: if the just-completed task WAS an acceptance task but accept_project()
+        # was never called (acceptance_result still None), don't re-push immediately.
+        # This prevents infinite loops when the acceptance executor fails silently.
+        is_acceptance_task = "验收" in (task.description or "")[:20]
+        if is_acceptance_task:
+            from onemancompany.core.project_archive import load_project as _reload
+            fresh = _reload(project_id)
+            if fresh and fresh.get("acceptance_result") is None:
+                # Acceptance task ran but didn't produce a result — escalate to CEO
+                fails = fresh.get("acceptance_failures", 0) + 1
+                fresh["acceptance_failures"] = fails
+                from onemancompany.core.project_archive import _save_project
+                _save_project(project_id, fresh)
+                if fails >= 3:
+                    await event_bus.publish(CompanyEvent(
+                        type="ceo_report",
+                        payload={
+                            "subject": f"验收任务执行异常 — {project.get('task', '')[:60]}",
+                            "report": (
+                                f"项目 {project_id} 的验收任务已连续 {fails} 次未能产生验收结果。\n"
+                                f"任务输出: {(task.result or '')[:200]}\n"
+                                f"可能原因: 工具调用失败、API 凭证无效等。请检查后手动重试。"
+                            ),
+                            "action_required": True,
+                            "project_id": project_id,
+                        },
+                        agent="SYSTEM",
+                    ))
+                    await self._minimal_cleanup(project_id)
+                    return
+                # Allow a few retries before escalating
+                await self._minimal_cleanup(project_id)
+                return
+
+        all_done = self._dispatch_ready_subtasks(
+            project_id, employee_id, task, failed=agent_error,
+        )
         if all_done:
             from onemancompany.core.config import COO_ID
             criteria = project.get("acceptance_criteria", [])
             officer_id = project.get("responsible_officer") or COO_ID
+            # Reset acceptance_failures on fresh acceptance dispatch
+            if project.get("acceptance_failures"):
+                from onemancompany.core.project_archive import _save_project
+                project["acceptance_failures"] = 0
+                _save_project(project_id, project)
             self._push_acceptance_task(
                 officer_id, project_id,
                 task.project_dir or task.original_project_dir,
@@ -1528,8 +1586,12 @@ class EmployeeManager:
         self, employee_id: str, task: AgentTask, agent_error: bool,
         project_id: str, project: dict | None,
     ) -> None:
-        """EA approved — project complete, trigger retrospective."""
-        await self._full_cleanup(employee_id, task, agent_error, project_id, run_retrospective=True)
+        """EA approved — project complete. Retrospective only for PROJECT tasks and if EA flagged it."""
+        task_type = (project or {}).get("task_type", "simple")
+        ea_review = (project or {}).get("ea_review_result", {})
+        # Simple tasks NEVER get retrospective — hardcoded rule
+        needs_retro = (task_type == "project") and ea_review.get("needs_retrospective", False)
+        await self._full_cleanup(employee_id, task, agent_error, project_id, run_retrospective=needs_retro)
 
     async def _handle_ea_rejected(
         self, employee_id: str, task: AgentTask, agent_error: bool,
@@ -1581,9 +1643,13 @@ class EmployeeManager:
 
             routine_resolution = create_resolution(project_id, f"Routine: {task.description}")
             if routine_resolution:
+                routine_resolution["employee_id"] = employee_id
                 await event_bus.publish(
                     CompanyEvent(type="resolution_ready", payload=routine_resolution, agent="SYSTEM")
                 )
+
+        # Trigger SOUL.md self-update for the task executor
+        await self._update_soul(employee_id, task)
 
         from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
         await _cleanup_sandbox()
@@ -1646,6 +1712,68 @@ class EmployeeManager:
 
         logger.info("Graceful restart: os.execv")
         os.execv(sys.executable, [sys.executable, "-m", "onemancompany.main"])
+
+    # ------------------------------------------------------------------
+    # SOUL.md self-update
+    # ------------------------------------------------------------------
+
+    async def _update_soul(self, employee_id: str, task: AgentTask) -> None:
+        """Ask the employee to update their SOUL.md after a task completes.
+
+        Runs as a lightweight LLM call — reads existing SOUL.md, asks the agent
+        to update it with lessons from the completed task, writes back.
+        """
+        from onemancompany.core.config import EMPLOYEES_DIR, FOUNDING_IDS, get_workspace_dir
+        from onemancompany.agents.base import make_llm, tracked_ainvoke
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        # Skip for founding employees and system tasks
+        if employee_id in FOUNDING_IDS:
+            return
+        if not task.result:
+            return
+
+        soul_path = get_workspace_dir(employee_id) / "SOUL.md"
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing = ""
+        if soul_path.exists():
+            try:
+                existing = soul_path.read_text(encoding="utf-8")
+            except Exception as exc:
+                logger.debug("Failed to read SOUL.md for {}: {}", employee_id, exc)
+
+        emp = company_state.employees.get(employee_id)
+        if not emp:
+            return
+
+        try:
+            llm = make_llm(employee_id)
+            prompt = (
+                f"You are {emp.name} ({emp.nickname}), {emp.role}.\n"
+                f"You just completed a task: {task.description[:500]}\n"
+                f"Task result summary: {task.result[:1000]}\n\n"
+                f"Your current SOUL.md (your personal knowledge file):\n"
+                f"---\n{existing or '(empty — this is your first entry)'}\n---\n\n"
+                f"Update your SOUL.md with any lessons learned, patterns discovered, "
+                f"or knowledge gained from this task. Keep it concise and useful for future you.\n"
+                f"Output ONLY the complete updated SOUL.md content, nothing else."
+            )
+            result = await tracked_ainvoke(
+                llm,
+                [
+                    SystemMessage(content="You maintain a personal knowledge file. Be concise, focus on actionable insights."),
+                    HumanMessage(content=prompt),
+                ],
+                category="soul_update",
+                employee_id=employee_id,
+            )
+            new_content = result.content.strip()
+            if new_content and len(new_content) > 10:
+                soul_path.write_text(new_content, encoding="utf-8")
+                logger.info(f"[soul] Updated SOUL.md for employee {employee_id}")
+        except Exception as e:
+            logger.debug(f"[soul] Failed to update SOUL.md for {employee_id}: {e}")
 
     # ------------------------------------------------------------------
     # System task runner — for non-employee operations
@@ -1849,8 +1977,11 @@ class EmployeeManager:
             f"   - 文档: 阅读实际文档内容，确认质量达标\n"
             f"   - 检查是否有遗漏、敷衍了事、或明显质量问题\n"
             f"3. 对照CEO原始需求: 确认交付物真正满足CEO最初提出的要求\n"
-            f"4. 审核决定:\n"
-            f"   - 通过: 调用 ea_review_project(approved=true, review_notes='验证详情...')\n"
+            f"4. 判断是否需要复盘(retrospective):\n"
+            f"   - 项目性质的任务（开发、设计、多步骤工作）→ needs_retrospective=true\n"
+            f"   - 简单操作性任务（发邮件、查询、单步执行）→ needs_retrospective=false\n"
+            f"5. 审核决定:\n"
+            f"   - 通过: 调用 ea_review_project(approved=true, review_notes='验证详情...', needs_retrospective=true/false)\n"
             f"   - 不通过: 调用 ea_review_project(approved=false, review_notes='具体问题...')\n"
             f"     不通过时，相关负责人将收到整改通知并重新验收\n\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
@@ -1979,8 +2110,6 @@ employee_manager = EmployeeManager()
 # Backward-compatible API
 # ---------------------------------------------------------------------------
 
-# Legacy registry alias (used by some imports)
-agent_loops: dict[str, Vessel] = employee_manager.vessels
 
 
 def register_agent(
@@ -2025,3 +2154,15 @@ async def stop_all_loops() -> None:
 async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunner) -> Vessel:
     """Register a new agent (no persistent loop to start)."""
     return register_agent(employee_id, agent_runner)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases (old names → new names)
+# ---------------------------------------------------------------------------
+EmployeeHandle = Vessel
+_AgentRef = _VesselRef
+_current_loop = _current_vessel
+LangChainLauncher = LangChainExecutor
+ClaudeSessionLauncher = ClaudeSessionExecutor
+ScriptLauncher = ScriptExecutor
+agent_loops = employee_manager.vessels

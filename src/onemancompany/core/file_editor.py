@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import COMPANY_DIR, PROJECT_ROOT
+from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, PROJECT_ROOT
 from onemancompany.core.events import CompanyEvent, event_bus
 
 # Backup subfolder name (created alongside the modified file)
@@ -55,6 +55,30 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
         return None
     except Exception:
         return None
+
+
+def is_in_free_zone(resolved_path: Path, employee_id: str = "", project_dir: str = "") -> bool:
+    """Check if a resolved path is in an employee's free zone (no approval needed).
+
+    Free zones:
+    - employees/{employee_id}/workspace/ — employee's private workspace
+    - The current task's project_dir/ — project workspace
+    """
+    p = str(resolved_path)
+
+    # Employee workspace
+    if employee_id:
+        workspace = str((EMPLOYEES_DIR / employee_id / "workspace").resolve())
+        if p.startswith(workspace):
+            return True
+
+    # Project workspace
+    if project_dir:
+        proj = str(Path(project_dir).resolve())
+        if p.startswith(proj) and str(PROJECTS_DIR.resolve()) in proj:
+            return True
+
+    return False
 
 
 def propose_edit(

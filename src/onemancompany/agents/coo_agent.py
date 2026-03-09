@@ -17,7 +17,6 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
-from onemancompany.agents.common_tools import COMMON_TOOLS
 from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
@@ -131,7 +130,7 @@ When you receive a "项目验收任务":
 
 **1a. 内部盘点**
 - list_colleagues() 盘点团队能力、各员工技能栈和当前负载
-- 用 read_file / list_directory 检查公司已有资产（工具、文档、代码库）
+- 用 read / ls 检查公司已有资产（工具、文档、代码库）
 - 查看相关项目历史（复用已有成果，避免重复造轮子）
 - 识别缺口：缺人？缺工具？缺技术栈？缺依赖资源？
 
@@ -184,7 +183,7 @@ When you receive a "项目验收任务":
 ### Step 4: 执行调度
 - 计划保存后，才开始 dispatch_team_tasks() 或 dispatch_task()
 - 每个 dispatch 的 task_description 引用 plan.md 中对应的章节
-- 员工收到任务后可以 read_file("plan.md") 了解完整上下文
+- 员工收到任务后可以 read("plan.md") 了解完整上下文
 
 ### 简单任务豁免
 判断标准：单人 + 单一交付物 + 无需技术选型 → 跳过 Plan Mode，直接 dispatch_task()。
@@ -746,12 +745,12 @@ def request_hiring(
         Confirmation that the request was submitted for CEO review.
     """
     from datetime import datetime
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
 
     # Capture project context from COO's current task
     project_id = ""
     project_dir = ""
-    caller_loop = _current_loop.get()
+    caller_loop = _current_vessel.get()
     caller_task_id = _current_task_id.get()
     if caller_loop and caller_task_id:
         caller_task = caller_loop.board.get_task(caller_task_id)
@@ -894,27 +893,32 @@ def deposit_company_knowledge(
     }
 
 
+def _register_coo_tools() -> None:
+    from onemancompany.core.tool_registry import ToolMeta, tool_registry
+
+    for t in [
+        register_asset, remove_tool, list_tools,
+        grant_tool_access, revoke_tool_access,
+        list_assets, list_meeting_rooms, book_meeting_room,
+        release_meeting_room, add_meeting_room,
+        request_hiring, deposit_company_knowledge,
+    ]:
+        tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["COO"]))
+
+
+_register_coo_tools()
+
+
 class COOAgent(BaseAgentRunner):
     role = "COO"
     employee_id = COO_ID
 
     def __init__(self) -> None:
+        from onemancompany.core.tool_registry import tool_registry
+
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=[
-                register_asset,
-                remove_tool,
-                list_tools,
-                grant_tool_access,
-                revoke_tool_access,
-                list_assets,
-                list_meeting_rooms,
-                book_meeting_room,
-                release_meeting_room,
-                add_meeting_room,
-                request_hiring,
-                deposit_company_knowledge,
-            ] + COMMON_TOOLS,
+            tools=tool_registry.get_tools_for(self.employee_id),
         )
 
     def _customize_prompt(self, pb) -> None:

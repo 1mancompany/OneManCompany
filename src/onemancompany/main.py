@@ -7,10 +7,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+
+# Load .env before any other imports that might read env vars
+load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
 
 from onemancompany.api.routes import router
 from onemancompany.api.websocket import ws_manager
@@ -349,6 +353,10 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.state import company_state as _cs
     compute_asset_layout(_cs, _cs.office_layout)
 
+    # Register asset tools (gmail, roblox, etc.) from company/assets/tools/
+    from onemancompany.core.tool_registry import tool_registry
+    tool_registry.load_asset_tools()
+
     # Discover and load view plugins
     from onemancompany.core.plugin_registry import plugin_registry
     plugin_registry.discover_and_load()
@@ -376,7 +384,7 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.cso_agent import CSOAgent
 
     # Start Boss Online MCP server (persistent subprocess)
-    from onemancompany.agents.hr_agent import start_boss_online, stop_boss_online
+    from onemancompany.agents.recruitment import start_boss_online, stop_boss_online
     await start_boss_online()
 
     # Migrate existing employees from agent/ to vessel/ directory structure
@@ -423,7 +431,7 @@ async def lifespan(app: FastAPI):
 
         _cfg = _emp_cfgs.get(emp_id)
         if _cfg and _cfg.hosting == "self":
-            # Self-hosted: register with ClaudeSessionLauncher (on-demand CLI sessions)
+            # Self-hosted: register with ClaudeSessionExecutor (on-demand CLI sessions)
             register_self_hosted(emp_id, config=_vessel_cfg)
             print(f"[startup] Registered self-hosted {emp.name} ({emp_id}) — on-demand sessions")
             continue
@@ -455,12 +463,31 @@ async def lifespan(app: FastAPI):
     # Start code change watcher (CEO-controlled hot reload)
     code_watcher_task = asyncio.create_task(_start_code_watcher())
 
+    # Restore persisted automations (crons + webhooks)
+    from onemancompany.core.automation import restore_all_crons, restore_all_webhooks
+    _crons_restored = restore_all_crons()
+    _webhooks_restored = restore_all_webhooks()
+    if _crons_restored or _webhooks_restored:
+        print(f"[startup] Restored {_crons_restored} cron(s), {_webhooks_restored} webhook(s)")
+
     print(f"🏢 One Man Company HQ is open!")
     print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
     yield
 
     # Stop agent loops
     await stop_all_loops()
+
+    # Stop automations (crons + webhooks)
+    from onemancompany.core.automation import stop_all_automations
+    automations_stopped = await stop_all_automations()
+    if automations_stopped:
+        print(f"[shutdown] Stopped {automations_stopped} automation(s)")
+
+    # Stop persistent Claude daemons
+    from onemancompany.core.claude_session import stop_all_daemons
+    daemons_stopped = await stop_all_daemons()
+    if daemons_stopped:
+        print(f"[shutdown] Stopped {daemons_stopped} Claude daemon(s)")
 
     # Stop Boss Online MCP server
     await stop_boss_online()

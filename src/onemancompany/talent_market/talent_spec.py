@@ -326,8 +326,8 @@ class TalentPackage:
         7. 注册到 EmployeeManager
 
     运行时行为按 hosting 不同:
-        - company: 平台内 LangChain agent，由 LangChainLauncher 执行
-        - self:    独立进程（如 Claude Code CLI），由 ScriptLauncher 启动
+        - company: 平台内 LangChain agent，由 LangChainExecutor 执行
+        - self:    独立进程（如 Claude Code CLI），由 ScriptExecutor 启动
         - remote:  外部 worker 通过 HTTP 轮询任务队列
     """
     profile: TalentProfile

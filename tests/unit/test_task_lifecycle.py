@@ -13,73 +13,68 @@ from onemancompany.core.task_lifecycle import (
 
 class TestTaskLifecycle:
     def test_valid_transition(self):
-        result = transition("t1", TaskPhase.CREATED, TaskPhase.ROUTED)
-        assert result == TaskPhase.ROUTED
+        result = transition("t1", TaskPhase.PENDING, TaskPhase.PROCESSING)
+        assert result == TaskPhase.PROCESSING
 
     def test_invalid_transition_raises(self):
         with pytest.raises(TaskTransitionError) as exc_info:
-            transition("t1", TaskPhase.CREATED, TaskPhase.SETTLED)
+            transition("t1", TaskPhase.PENDING, TaskPhase.FINISHED)
         assert "illegal transition" in str(exc_info.value)
-        assert "created" in str(exc_info.value)
-        assert "settled" in str(exc_info.value)
+        assert "pending" in str(exc_info.value)
+        assert "finished" in str(exc_info.value)
 
     def test_full_happy_path(self):
-        """CEO -> EA -> Agent -> COO -> EA -> CEO -> Settled."""
+        """Pending -> Processing -> Complete -> Acceptance -> Review -> Finished."""
         phases = [
-            TaskPhase.CREATED,
-            TaskPhase.ROUTED,
-            TaskPhase.IN_PROGRESS,
-            TaskPhase.COMPLETED,
+            TaskPhase.PENDING,
+            TaskPhase.PROCESSING,
+            TaskPhase.COMPLETE,
             TaskPhase.NEEDS_ACCEPTANCE,
             TaskPhase.ACCEPTED,
-            TaskPhase.EA_REVIEW,
-            TaskPhase.EA_APPROVED,
-            TaskPhase.CEO_APPROVAL,
-            TaskPhase.SETTLED,
+            TaskPhase.REVIEWING,
+            TaskPhase.FINISHED,
         ]
         current = phases[0]
         for target in phases[1:]:
             current = transition("t1", current, target)
-        assert current == TaskPhase.SETTLED
+        assert current == TaskPhase.FINISHED
 
     def test_rectification_path(self):
-        """Rejected by COO -> rectification -> retry."""
-        current = transition("t1", TaskPhase.CREATED, TaskPhase.ROUTED)
-        current = transition("t1", current, TaskPhase.IN_PROGRESS)
+        """Rejected -> rectification -> retry."""
+        current = transition("t1", TaskPhase.PENDING, TaskPhase.PROCESSING)
+        current = transition("t1", current, TaskPhase.COMPLETE)
         current = transition("t1", current, TaskPhase.NEEDS_ACCEPTANCE)
-        current = transition("t1", current, TaskPhase.REJECTED_BY_COO)
+        current = transition("t1", current, TaskPhase.REJECTED)
         current = transition("t1", current, TaskPhase.RECTIFICATION)
-        current = transition("t1", current, TaskPhase.IN_PROGRESS)
-        assert current == TaskPhase.IN_PROGRESS
+        current = transition("t1", current, TaskPhase.PROCESSING)
+        assert current == TaskPhase.PROCESSING
 
     def test_ea_rejection_path(self):
-        """EA rejects -> rectification -> retry."""
-        current = TaskPhase.EA_REVIEW
-        current = transition("t1", current, TaskPhase.EA_REJECTED)
+        """Accepted then rejected -> rectification -> retry."""
+        current = TaskPhase.ACCEPTED
+        current = transition("t1", current, TaskPhase.REJECTED)
         current = transition("t1", current, TaskPhase.RECTIFICATION)
-        current = transition("t1", current, TaskPhase.IN_PROGRESS)
-        assert current == TaskPhase.IN_PROGRESS
+        current = transition("t1", current, TaskPhase.PROCESSING)
+        assert current == TaskPhase.PROCESSING
 
-    def test_settled_is_terminal(self):
-        """No transitions from SETTLED."""
-        assert get_valid_targets(TaskPhase.SETTLED) == []
+    def test_finished_is_terminal(self):
+        """No transitions from FINISHED."""
+        assert get_valid_targets(TaskPhase.FINISHED) == []
         with pytest.raises(TaskTransitionError):
-            transition("t1", TaskPhase.SETTLED, TaskPhase.CREATED)
+            transition("t1", TaskPhase.FINISHED, TaskPhase.PENDING)
 
     def test_can_transition(self):
-        assert can_transition(TaskPhase.CREATED, TaskPhase.ROUTED) is True
-        assert can_transition(TaskPhase.CREATED, TaskPhase.SETTLED) is False
+        assert can_transition(TaskPhase.PENDING, TaskPhase.PROCESSING) is True
+        assert can_transition(TaskPhase.PENDING, TaskPhase.FINISHED) is False
 
     def test_get_valid_targets(self):
-        targets = get_valid_targets(TaskPhase.COMPLETED)
+        targets = get_valid_targets(TaskPhase.COMPLETE)
+        assert TaskPhase.FINISHED in targets
         assert TaskPhase.NEEDS_ACCEPTANCE in targets
-        assert TaskPhase.EA_REVIEW in targets
-        assert TaskPhase.SETTLED in targets
 
-    def test_skip_to_settled(self):
-        """Simple task can go directly from COMPLETED to SETTLED."""
-        current = transition("t1", TaskPhase.CREATED, TaskPhase.ROUTED)
-        current = transition("t1", current, TaskPhase.IN_PROGRESS)
-        current = transition("t1", current, TaskPhase.COMPLETED)
-        current = transition("t1", current, TaskPhase.SETTLED)
-        assert current == TaskPhase.SETTLED
+    def test_skip_to_finished(self):
+        """Simple task can go directly from COMPLETE to FINISHED."""
+        current = transition("t1", TaskPhase.PENDING, TaskPhase.PROCESSING)
+        current = transition("t1", current, TaskPhase.COMPLETE)
+        current = transition("t1", current, TaskPhase.FINISHED)
+        assert current == TaskPhase.FINISHED

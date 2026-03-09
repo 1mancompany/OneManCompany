@@ -53,7 +53,7 @@ def _make_emp(
 
 class TestHRTalentToCandidate:
     def test_basic_conversion(self, monkeypatch):
-        from onemancompany.agents import hr_agent
+        from onemancompany.agents import recruitment
         from onemancompany.core import config as config_mod
         import onemancompany.core.model_costs as mc
 
@@ -77,7 +77,7 @@ class TestHRTalentToCandidate:
         }
 
         random.seed(42)
-        candidate = hr_agent._talent_to_candidate(talent)
+        candidate = recruitment._talent_to_candidate(talent)
 
         assert candidate["id"] == "test_talent"
         assert candidate["name"] == "Test Dev"
@@ -90,7 +90,7 @@ class TestHRTalentToCandidate:
         assert candidate["jd_relevance"] == 1.0
 
     def test_non_openrouter_has_zero_cost(self, monkeypatch):
-        from onemancompany.agents import hr_agent
+        from onemancompany.agents import recruitment
         from onemancompany.core import config as config_mod
 
         monkeypatch.setattr(config_mod, "load_talent_skills", lambda tid: [])
@@ -102,7 +102,7 @@ class TestHRTalentToCandidate:
             "llm_model": "claude-sonnet",
         }
 
-        candidate = hr_agent._talent_to_candidate(talent)
+        candidate = recruitment._talent_to_candidate(talent)
         assert candidate["cost_per_1m_tokens"] == 0.0
 
 

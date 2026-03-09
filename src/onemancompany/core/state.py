@@ -50,21 +50,28 @@ class SalesTask:
 
 @dataclass
 class TaskEntry:
-    """A tracked task in the task queue."""
+    """A tracked task in the company task queue.
+
+    Status values follow TaskPhase:
+      pending, processing, holding, complete, needs_acceptance,
+      accepted, rejected, rectification, reviewing, finished,
+      failed, blocked, cancelled
+    """
 
     project_id: str        # v1 = timestamp ID, v2 = project slug
     task: str
-    routed_to: str  # "HR" or "COO"
+    routed_to: str = ""    # "HR", "COO", "EA", etc.
+    task_type: str = "simple"  # "simple" or "project"
     iteration_id: str = ""  # v2 = iter_XXX, v1 = empty
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
-    status: str = "running"  # running / queued
+    status: str = "pending"  # follows TaskPhase values
     created_at: str = ""
 
     def __post_init__(self) -> None:
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
-        if not self.current_owner:
+        if not self.current_owner and self.routed_to:
             self.current_owner = self.routed_to.lower()
 
     def to_dict(self) -> dict:
@@ -72,6 +79,7 @@ class TaskEntry:
             "project_id": self.project_id,
             "iteration_id": self.iteration_id,
             "task": self.task,
+            "task_type": self.task_type,
             "routed_to": self.routed_to,
             "project_dir": self.project_dir,
             "current_owner": self.current_owner,
@@ -579,10 +587,10 @@ def reload_all_from_disk() -> dict:
         summary.setdefault("employees_removed", []).append(eid)
         # Stop agent loop if running
         try:
-            from onemancompany.core.agent_loop import get_agent_loop, agent_loops
+            from onemancompany.core.agent_loop import get_agent_loop, employee_manager
             loop = get_agent_loop(eid)
             if loop:
-                agent_loops.pop(eid, None)
+                employee_manager.vessels.pop(eid, None)
         except Exception as _e:
             logger.warning("Failed to stop agent loop for %s: %s", eid, _e)
 
@@ -618,6 +626,9 @@ def reload_all_from_disk() -> dict:
     # --- 4. Reload assets (tools + meeting rooms) ---
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()
+    # Reload asset tools into unified registry
+    from onemancompany.core.tool_registry import tool_registry
+    tool_registry.load_asset_tools()
     summary["assets_reloaded"] = True
 
     # --- 5. Recompute office layout ---
@@ -689,7 +700,7 @@ class _CompanyStateSnapshot:
                     TaskEntry(
                         project_id=at["project_id"],
                         task=at.get("task", ""),
-                        employee_id=at.get("employee_id", ""),
+                        current_owner=at.get("employee_id", at.get("current_owner", "")),
                     )
                 )
 

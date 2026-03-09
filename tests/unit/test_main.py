@@ -640,8 +640,6 @@ class TestLifespan:
 
         mock_start_boss = AsyncMock()
         mock_stop_boss = AsyncMock()
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", mock_start_boss)
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", mock_stop_boss)
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", mock_start_boss)
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", mock_stop_boss)
 
@@ -713,8 +711,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -777,8 +773,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -839,8 +833,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -897,8 +889,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -955,8 +945,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -1014,8 +1002,6 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 
@@ -1078,8 +1064,6 @@ class TestLifespanGatherCancelledError:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.hr_agent.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.hr_agent.stop_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
         monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
 

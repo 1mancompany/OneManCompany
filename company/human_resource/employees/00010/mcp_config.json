@@ -4,16 +4,21 @@
       "command": "/Users/yuzhengxu/projects/OneManCompany/.venv/bin/python",
       "args": [
         "-m",
-        "onemancompany.mcp.server"
+        "onemancompany.tools.mcp.server"
       ],
       "env": {
         "OMC_EMPLOYEE_ID": "00010",
         "OMC_TASK_ID": "",
         "OMC_PROJECT_ID": "proj1",
         "OMC_PROJECT_DIR": "",
-        "OMC_SERVER_URL": "http://localhost:8000",
-        "OMC_TOOLS": "create_subtask,dispatch_task,list_colleagues,list_project_workspace,pull_meeting,report_to_ceo,request_tool_access,save_to_project"
+        "OMC_SERVER_URL": "http://localhost:8000"
       }
+    },
+    "gmail": {
+      "command": "/Users/yuzhengxu/projects/OneManCompany/.venv/bin/python",
+      "args": [
+        "/Users/yuzhengxu/projects/OneManCompany/company/assets/tools/gmail/mcp_server.py"
+      ]
     }
   }
 }

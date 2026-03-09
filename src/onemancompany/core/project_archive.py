@@ -401,14 +401,19 @@ def get_project_workspace(project_id: str) -> str:
 # Public API (v1-compatible, bridged for v2)
 # ─────────────────────────────────────────────
 
-def create_project(task: str, routed_to: str, participants: list[str] | None = None) -> str:
-    """Create a new v1 project record. Returns the project_id."""
+def create_project(task: str, routed_to: str, participants: list[str] | None = None, task_type: str = "simple") -> str:
+    """Create a new v1 project record. Returns the project_id.
+
+    Args:
+        task_type: "simple" or "project" — determines lifecycle complexity.
+    """
     project_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     project_dir = _ensure_project_dir(project_id)
     doc = {
         "project_id": project_id,
         "project_dir": str(project_dir),
         "task": task,
+        "task_type": task_type,
         "routed_to": routed_to,
         "participants": participants or [],
         "current_owner": routed_to.lower(),
@@ -747,15 +752,80 @@ def record_dispatch_completion(project_id: str, employee_id: str) -> bool:
     return len(ready) > 0
 
 
+def record_dispatch_failure(project_id: str, employee_id: str, error: str = "") -> list[dict]:
+    """Mark a dispatch as failed and block all dispatches that depend on it.
+
+    Returns list of blocked dispatch dicts (so the caller can notify the responsible officer).
+    """
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        return []
+
+    dispatches = doc.get("dispatches", [])
+    failed_dispatch_id = ""
+
+    # Mark the failed dispatch
+    for d in dispatches:
+        if d["employee_id"] == employee_id and d.get("status") == "in_progress":
+            d["status"] = "failed"
+            d["completed_at"] = datetime.now().isoformat()
+            d["error"] = error[:500]
+            failed_dispatch_id = d.get("dispatch_id", "")
+            break
+
+    if not failed_dispatch_id:
+        _save_resolved(version, key, doc)
+        return []
+
+    # Propagate: block all dispatches that depend (directly or transitively) on the failed one
+    blocked = []
+    failed_ids = {failed_dispatch_id}
+    changed = True
+    while changed:
+        changed = False
+        for d in dispatches:
+            if d.get("status") in ("pending", "in_progress") and d.get("dispatch_id") not in failed_ids:
+                deps = d.get("depends_on", [])
+                if any(dep in failed_ids for dep in deps):
+                    d["status"] = "blocked"
+                    d["error"] = f"Blocked by failed dispatch {failed_dispatch_id}"
+                    blocked.append(d)
+                    failed_ids.add(d.get("dispatch_id", ""))
+                    changed = True
+
+    _save_resolved(version, key, doc)
+
+    # Publish event
+    try:
+        import asyncio
+        from onemancompany.core.events import CompanyEvent, event_bus
+        loop = asyncio.get_running_loop()
+        loop.create_task(event_bus.publish(CompanyEvent(
+            type="dispatch_status_change",
+            payload={
+                "project_id": project_id,
+                "employee_id": employee_id,
+                "status": "failed",
+                "blocked_count": len(blocked),
+            },
+            agent="SYSTEM",
+        )))
+    except RuntimeError:
+        logger.debug("No event loop available for dispatch failure broadcast")
+
+    return blocked
+
+
 def all_dispatches_complete(project_id: str) -> bool:
-    """Check if all dispatches for a project are completed."""
+    """Check if all dispatches for a project are completed (or terminal: failed/blocked/cancelled)."""
     _version, doc, _key = _resolve_and_load(project_id)
     if not doc:
         return True
     dispatches = doc.get("dispatches", [])
     if not dispatches:
         return True
-    return all(d["status"] == "completed" for d in dispatches)
+    terminal = {"completed", "failed", "blocked", "cancelled"}
+    return all(d["status"] in terminal for d in dispatches)
 
 
 def record_team_dispatches(project_id: str, dispatches_list: list[dict]) -> None:
@@ -821,7 +891,8 @@ def set_acceptance_result(project_id: str, accepted: bool, officer_id: str, note
     _save_resolved(version, key, doc)
 
 
-def set_ea_review_result(project_id: str, approved: bool, notes: str = "") -> None:
+def set_ea_review_result(project_id: str, approved: bool, notes: str = "",
+                         needs_retrospective: bool = False) -> None:
     """Record the EA quality review result (CEO's quality gate)."""
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
@@ -829,6 +900,7 @@ def set_ea_review_result(project_id: str, approved: bool, notes: str = "") -> No
     doc["ea_review_result"] = {
         "approved": approved,
         "notes": notes,
+        "needs_retrospective": needs_retrospective,
         "timestamp": datetime.now().isoformat(),
     }
     _save_resolved(version, key, doc)

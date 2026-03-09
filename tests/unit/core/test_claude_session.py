@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from onemancompany.core.claude_session import (
+    _daemons,
     _get_session_lock,
     _load_sessions,
     _mark_session_used,
@@ -24,10 +25,12 @@ from onemancompany.core.claude_session import (
 
 @pytest.fixture(autouse=True)
 def _clear_locks():
-    """Clear session locks between tests."""
+    """Clear session locks and daemons between tests."""
     _session_locks.clear()
+    _daemons.clear()
     yield
     _session_locks.clear()
+    _daemons.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -162,99 +165,99 @@ class TestMarkSessionUsed:
 # ---------------------------------------------------------------------------
 
 class TestRunClaudeSession:
+    def _make_mock_daemon(self, output="output text", model="test-model",
+                          input_tokens=100, output_tokens=50, alive=True):
+        """Create a mock ClaudeDaemon for testing."""
+        daemon = AsyncMock()
+        daemon.alive = alive
+        daemon.send_prompt = AsyncMock(return_value={
+            "output": output,
+            "model": model,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        })
+        return daemon
+
     async def test_successful_new_session(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(b"output text", b""))
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            mock_daemon = self._make_mock_daemon(output="output text")
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       return_value=mock_daemon):
                 result = await run_claude_session("00010", "proj1", "do something")
-                assert result == "output text"
+                assert isinstance(result, dict)
+                assert result["output"] == "output text"
+                assert result["model"] == "test-model"
+                assert result["input_tokens"] == 100
+                assert result["output_tokens"] == 50
 
-                # Session should be marked as used
-                loaded = _load_sessions("00010")
-                assert loaded["proj1"]["used"] is True
-
-    async def test_nonzero_exit_with_output(self, tmp_path):
+    async def test_returns_dict_with_expected_keys(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.returncode = 1
-            mock_proc.communicate = AsyncMock(return_value=(b"partial output", b"some error"))
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            mock_daemon = self._make_mock_daemon(output="partial output")
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       return_value=mock_daemon):
                 result = await run_claude_session("00010", "proj1", "do something")
-                # When there IS output, even with non-zero exit, output is returned
-                assert result == "partial output"
+                assert set(result.keys()) == {"output", "model", "input_tokens", "output_tokens"}
+                assert result["output"] == "partial output"
 
-    async def test_nonzero_exit_without_output(self, tmp_path):
+    async def test_daemon_returns_empty_output(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.returncode = 1
-            mock_proc.communicate = AsyncMock(return_value=(b"", b"error details"))
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            mock_daemon = self._make_mock_daemon(output="", alive=True)
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       return_value=mock_daemon):
                 result = await run_claude_session("00010", "proj1", "do something")
-                assert "[claude-session error]" in result
-                assert "error details" in result
+                assert result["output"] == ""
 
     async def test_timeout_handling(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-            mock_proc.terminate = MagicMock()
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            mock_daemon = self._make_mock_daemon()
+            mock_daemon.send_prompt = AsyncMock(return_value={
+                "output": "[claude-daemon timeout] 1s exceeded",
+                "model": "", "input_tokens": 0, "output_tokens": 0,
+            })
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       return_value=mock_daemon):
                 result = await run_claude_session("00010", "proj1", "slow task", timeout=1)
-                assert "[claude-session timeout]" in result
+                assert "timeout" in result["output"]
 
-    async def test_timeout_terminate_raises_exception(self, tmp_path):
-        """Lines 159-160: proc.terminate() raises — should be swallowed."""
+    async def test_daemon_dies_and_restarts(self, tmp_path):
+        """When daemon dies during execution with no output, it restarts once."""
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
-            mock_proc.terminate = MagicMock(side_effect=ProcessLookupError("already dead"))
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-                result = await run_claude_session("00010", "proj1", "slow task", timeout=1)
-                assert "[claude-session timeout]" in result
-                mock_proc.terminate.assert_called_once()
+            dead_daemon = self._make_mock_daemon(output="", alive=False)
+            # After first call, daemon.alive is False and output is empty → restart
+            live_daemon = self._make_mock_daemon(output="recovered", alive=True)
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       side_effect=[dead_daemon, live_daemon]):
+                result = await run_claude_session("00010", "proj1", "test")
+                assert result["output"] == "recovered"
 
     async def test_cli_not_found(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError()):
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       side_effect=FileNotFoundError()):
                 result = await run_claude_session("00010", "proj1", "test")
-                assert "CLI not found" in result
+                assert "CLI not found" in result["output"]
 
     async def test_unexpected_error(self, tmp_path):
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
-            with patch("asyncio.create_subprocess_exec", side_effect=OSError("broken pipe")):
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       side_effect=OSError("broken pipe")):
                 result = await run_claude_session("00010", "proj1", "test")
-                assert "[claude-session error]" in result
-                assert "broken pipe" in result
+                assert "broken pipe" in result["output"]
+                assert "[claude-daemon error]" in result["output"]
 
-    async def test_resume_uses_resume_flag(self, tmp_path):
+    async def test_resume_session(self, tmp_path):
+        """Existing used session should be resumed via _get_or_start_daemon."""
         with patch("onemancompany.core.claude_session.EMPLOYEES_DIR", tmp_path):
             # Create a used session first
             data = {"proj1": {"session_id": "old-session", "used": True, "work_dir": "", "created": ""}}
             _save_sessions("00010", data)
 
-            mock_proc = AsyncMock()
-            mock_proc.pid = 12345
-            mock_proc.returncode = 0
-            mock_proc.communicate = AsyncMock(return_value=(b"resumed", b""))
-
-            with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            mock_daemon = self._make_mock_daemon(output="resumed")
+            with patch("onemancompany.core.claude_session._get_or_start_daemon",
+                       return_value=mock_daemon) as mock_get:
                 result = await run_claude_session("00010", "proj1", "continue work")
-                assert result == "resumed"
-                # Check that --resume was used
-                call_args = mock_exec.call_args[0]
-                assert "--resume" in call_args
+                assert result["output"] == "resumed"
+                mock_get.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

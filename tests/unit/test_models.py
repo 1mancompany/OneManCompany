@@ -14,7 +14,7 @@ from onemancompany.core.models import (
     OverheadCosts,
     PerformanceRecord,
     Resolution,
-    TaskStatus,
+    TaskPhase,
 )
 
 
@@ -109,10 +109,12 @@ class TestAgentResult:
 
 
 class TestEnums:
-    def test_task_status_values(self):
-        assert TaskStatus.PENDING.value == "pending"
-        assert TaskStatus.COMPLETED.value == "completed"
-        assert TaskStatus.FAILED.value == "failed"
+    def test_task_phase_values(self):
+        assert TaskPhase.PENDING.value == "pending"
+        assert TaskPhase.COMPLETE.value == "complete"
+        assert TaskPhase.PROCESSING.value == "processing"
+        assert TaskPhase.FAILED.value == "failed"
+        assert TaskPhase.FINISHED.value == "finished"
 
     def test_decision_status_values(self):
         assert DecisionStatus.PENDING.value == "pending"

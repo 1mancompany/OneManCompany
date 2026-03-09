@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "onemancompany": {
+      "command": "/Users/yuzhengxu/projects/OneManCompany/.venv/bin/python",
+      "args": [
+        "-m",
+        "onemancompany.tools.mcp.server"
+      ],
+      "env": {
+        "OMC_EMPLOYEE_ID": "00007",
+        "OMC_TASK_ID": "0f1bd8d8e207",
+        "OMC_PROJECT_ID": "20260309_130037_bb7393",
+        "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_130037_bb7393",
+        "OMC_SERVER_URL": "http://localhost:8000",
+        "OMC_TOOLS": "create_subtask,dispatch_task,edit,list_colleagues,list_directory,ls,propose_file_edit,pull_meeting,read,read_file,report_to_ceo,request_tool_access,sandbox_execute_code,sandbox_read_file,sandbox_run_command,sandbox_write_file,use_tool,write"
+      }
+    }
+  }
+}

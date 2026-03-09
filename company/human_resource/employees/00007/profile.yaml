@@ -1,5 +1,5 @@
 api_key: ''
-api_provider: anthropic
+api_provider: openrouter
 current_quarter_tasks: 18
 department: Engineering
 desk_position:
@@ -29,9 +29,9 @@ sprite: employee_blue
 temperature: 0.6
 title: Junior Engineer
 tool_permissions:
-- read_file
-- list_directory
-- propose_file_edit
+- read
+- ls
+- edit
 - use_tool
 - sandbox_execute_code
 - sandbox_run_command

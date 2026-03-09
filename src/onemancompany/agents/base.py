@@ -389,8 +389,8 @@ class BaseAgentRunner:
     def _build_full_prompt(self) -> str:
         """Build prompt with task history injected from the agent loop."""
         prompt = self._build_prompt()
-        from onemancompany.core.agent_loop import _current_loop
-        loop = _current_loop.get(None)
+        from onemancompany.core.agent_loop import _current_vessel
+        loop = _current_vessel.get(None)
         if loop:
             prompt += loop.get_history_context()
         return prompt
@@ -450,6 +450,11 @@ class BaseAgentRunner:
             f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
         )
 
+    def _get_task_lifecycle_section(self) -> str:
+        """Inject task lifecycle state documentation so agents understand the system."""
+        from onemancompany.core.task_lifecycle import TASK_LIFECYCLE_DOC
+        return f"\n\n{TASK_LIFECYCLE_DOC}"
+
     def _get_dynamic_context_section(self) -> str:
         """Build a dynamic context section with current datetime, team state, and workload."""
         parts = ["\n\n## Current Context"]
@@ -506,16 +511,35 @@ class BaseAgentRunner:
             f"所有工作应围绕公司方向展开，确保产出与公司战略一致。\n"
         )
 
+    def _get_soul_section(self) -> str:
+        """Load the employee's self-maintained SOUL.md knowledge file."""
+        soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / "SOUL.md"
+        if soul_path.exists():
+            try:
+                content = soul_path.read_text(encoding="utf-8").strip()
+                if content:
+                    return (
+                        "## Your Personal Knowledge (SOUL.md)\n"
+                        "This is your self-maintained knowledge file. You wrote this yourself "
+                        "based on past experience. Use it to inform your work.\n\n"
+                        f"{content}"
+                    )
+            except Exception as exc:
+                logger.debug("Failed to read SOUL.md for {}: {}", self.employee_id, exc)
+        return ""
+
     def _build_prompt_builder(self) -> PromptBuilder:
         """Build a PromptBuilder with all standard sections. Override _customize_prompt() to modify."""
         pb = PromptBuilder()
         pb.add("talent_persona", self._get_talent_persona_section(), priority=12)
+        pb.add("soul", self._get_soul_section(), priority=15)
         pb.add("skills", self._get_skills_prompt_section(), priority=30)
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
         pb.add("culture", self._get_company_culture_prompt_section(), priority=45)
         pb.add("principles", self._get_work_principles_prompt_section(), priority=50)
         pb.add("guidance", self._get_guidance_prompt_section(), priority=55)
+        pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)
         self._customize_prompt(pb)
@@ -579,30 +603,22 @@ class EmployeeAgent(BaseAgentRunner):
     """
 
     def __init__(self, employee_id: str) -> None:
-        from onemancompany.agents.common_tools import BASE_TOOLS, GATED_TOOLS
-        from onemancompany.core.config import load_employee_custom_tools
+        from onemancompany.core.tool_registry import tool_registry
 
         self.employee_id = employee_id
         emp = company_state.employees.get(employee_id)
         self.role = emp.role if emp else "Employee"
 
-        # Start with base tools (always available, no permission check)
-        all_tools = list(BASE_TOOLS)
+        all_tools = tool_registry.get_tools_for(employee_id)
 
-        # Add gated tools based on employee's tool_permissions
-        tool_perms = set(emp.tool_permissions) if emp and emp.tool_permissions else set()
-        self._authorized_tool_names: list[str] = []
+        # Track which gated tools are authorized/unauthorized (for prompt injection)
+        authorized = {t.name for t in all_tools}
+        self._authorized_tool_names: list[str] = [t.name for t in all_tools]
         self._unauthorized_tool_names: list[str] = []
-        for name, tool_fn in GATED_TOOLS.items():
-            if name in tool_perms:
-                all_tools.append(tool_fn)
-                self._authorized_tool_names.append(name)
-            else:
+        for name in tool_registry.all_tool_names():
+            meta = tool_registry.get_meta(name)
+            if meta and meta.category == "gated" and name not in authorized:
                 self._unauthorized_tool_names.append(name)
-
-        # Employee-specific custom tools (from tools/ dir)
-        custom_tools = load_employee_custom_tools(employee_id)
-        all_tools.extend(custom_tools)
 
         self._agent = create_react_agent(
             model=make_llm(employee_id),
@@ -639,7 +655,7 @@ class EmployeeAgent(BaseAgentRunner):
                          or self._load_shared_prompt("work_approach.md")
                          or (
                              "## Work Approach\n"
-                             "1. Review: FIRST use list_project_workspace to see what already exists in the project. "
+                             "1. Review: FIRST use ls to see what already exists in the project workspace. "
                              "Read key files to understand what's been done — never start from scratch blindly.\n"
                              "2. Analyze: Understand the task requirements in context of existing deliverables.\n"
                              "3. Execute: Produce the deliverable — iterate on what exists, don't duplicate.\n"
@@ -653,9 +669,9 @@ class EmployeeAgent(BaseAgentRunner):
                       or self._load_shared_prompt("tool_usage.md")
                       or (
                           "## Tool Usage\n"
-                          "- list_project_workspace: ALWAYS call this first to see existing project files.\n"
-                          "- read_file / list_directory: Read existing files to understand context before working.\n"
-                          "- save_to_project: Save ALL deliverables to the project workspace.\n"
+                          "- ls: ALWAYS call this first to see existing project files.\n"
+                          "- read / ls: Read existing files to understand context before working.\n"
+                          "- write: Save ALL deliverables to the project workspace.\n"
                           "- dispatch_task: Delegate sub-work to colleagues if needed.\n"
                           "- pull_meeting: ONLY for multi-person communication/discussion (2+ colleagues). "
                           "Never call a meeting with yourself alone — if you need to think, just think internally.\n"

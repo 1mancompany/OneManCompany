@@ -41,14 +41,7 @@ class Department(str, Enum):
     MARKETING = "Marketing"
 
 
-class TaskStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    NEEDS_REVIEW = "needs_review"
-    RECTIFICATION = "rectification"
+from onemancompany.core.task_lifecycle import TaskPhase
 
 
 class DecisionStatus(str, Enum):
@@ -161,7 +154,7 @@ class TimelineEntry(BaseModel):
 class ProjectIteration(BaseModel):
     id: str
     task: str
-    status: TaskStatus = TaskStatus.PENDING
+    status: TaskPhase = TaskPhase.PENDING
     acceptance_criteria: list[str] = []
     timeline: list[TimelineEntry] = []
     output: str = ""
