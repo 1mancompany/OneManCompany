@@ -2139,7 +2139,7 @@ class TestEmployeeManagerPostTaskCleanup:
 
         with patch("onemancompany.core.project_archive.append_action"):
             with patch("onemancompany.core.project_archive.load_project", return_value={
-                "acceptance_criteria": ["Must work"], "acceptance_result": None, "responsible_officer": "officer01"
+                "task_type": "project", "acceptance_criteria": ["Must work"], "acceptance_result": None, "responsible_officer": "officer01"
             }):
                 with patch("onemancompany.core.project_archive.record_dispatch_completion"):
                     with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
@@ -2165,6 +2165,7 @@ class TestEmployeeManagerPostTaskCleanup:
 
         with patch("onemancompany.core.project_archive.append_action"):
             with patch("onemancompany.core.project_archive.load_project", return_value={
+                "task_type": "project",
                 "acceptance_criteria": ["Must work"],
                 "acceptance_result": {"accepted": True, "notes": "OK"},
                 "ea_review_result": None,
@@ -2219,6 +2220,7 @@ class TestEmployeeManagerPostTaskCleanup:
 
         with patch("onemancompany.core.project_archive.append_action"):
             with patch("onemancompany.core.project_archive.load_project", return_value={
+                "task_type": "project",
                 "acceptance_criteria": ["Must work"],
                 "acceptance_result": {"accepted": True},
                 "ea_review_result": {"approved": False, "notes": "Quality too low"},
@@ -3071,6 +3073,7 @@ class TestPostTaskCleanupFallthrough:
 
         with patch("onemancompany.core.project_archive.append_action"):
             with patch("onemancompany.core.project_archive.load_project", return_value={
+                "task_type": "project",
                 "acceptance_criteria": ["Must work"],
                 "acceptance_result": {"accepted": False, "officer_id": "00003", "notes": "Not good enough"},
                 "ea_review_result": None,
