@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-09 | `149732a` | Update: heartbeat, manifest, profile, routes, test_heartbeat |
 | 2026-03-06 | `0001e37` | Update: .state_snapshot, app, manifest, profile |
 | 2026-03-06 | • update: , .state_snapshot, app, base, config |
 | 2026-03-05 | `7609eec` | 1808 unit tests covering workflow engine, heartbeat, claude session, and more |

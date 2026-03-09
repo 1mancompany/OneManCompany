@@ -112,32 +112,17 @@ class TestCheckNeedsSetup:
         with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
             assert check_needs_setup("emp1") is False
 
-    def test_self_hosted_without_launch_script(self, tmp_path):
+    def test_self_hosted_never_needs_setup(self):
+        """Self-hosted employees use Claude CLI which manages its own auth."""
         cfg = _FakeCfg(hosting="self", api_provider="openrouter")
-        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
-             patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
-            (tmp_path / "emp1").mkdir()
-            assert check_needs_setup("emp1") is True
-
-    def test_self_hosted_with_launch_script(self, tmp_path):
-        cfg = _FakeCfg(hosting="self", api_provider="openrouter")
-        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
-             patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
-            emp_dir = tmp_path / "emp1"
-            emp_dir.mkdir()
-            (emp_dir / "launch.sh").write_text("#!/bin/bash")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
             assert check_needs_setup("emp1") is False
 
-    def test_self_hosted_anthropic_needs_key(self, tmp_path):
+    def test_self_hosted_anthropic_no_key_still_ok(self):
+        """Self-hosted + anthropic provider doesn't need API key (CLI handles auth)."""
         cfg = _FakeCfg(hosting="self", api_provider="anthropic", api_key="")
-        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
-             patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path), \
-             patch("onemancompany.core.heartbeat.settings") as mock_settings:
-            mock_settings.anthropic_api_key = ""
-            emp_dir = tmp_path / "emp1"
-            emp_dir.mkdir()
-            (emp_dir / "launch.sh").write_text("#!/bin/bash")
-            assert check_needs_setup("emp1") is True
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is False
 
 
 # ---------------------------------------------------------------------------

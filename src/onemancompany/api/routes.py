@@ -1295,8 +1295,10 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     if profile_data:
         profile_data["hosting"] = new_hosting
         if new_hosting == "self":
-            profile_data.setdefault("auth_method", "oauth")
             profile_data.setdefault("api_provider", "anthropic")
+            # Self-hosted uses Claude CLI auth, not OAuth
+            profile_data.pop("auth_method", None)
+            cfg.auth_method = "api_key"  # reset in-memory
         save_employee_profile_yaml(employee_id, profile_data)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
@@ -1315,7 +1317,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
                     "id": "connection",
                     "title": "Connection",
                     "fields": [
-                        {"key": "oauth", "type": "oauth_button", "label": "Anthropic Login", "provider": "anthropic"}
+                        {"key": "sessions", "type": "readonly", "label": "Sessions", "value_from": "api:sessions"},
                     ],
                 })
             # Remove LLM section (self-hosted uses its own model)

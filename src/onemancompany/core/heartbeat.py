@@ -58,12 +58,8 @@ def check_needs_setup(emp_id: str) -> bool:
         return False  # founding employees without config don't need setup
 
     if cfg.hosting == "self":
-        # Self-hosted: needs launch.sh AND valid credentials
-        if not (EMPLOYEES_DIR / emp_id / "launch.sh").exists():
-            return True
-        # Self-hosted with Anthropic provider still needs API key / OAuth token
-        if cfg.api_provider == "anthropic" and not bool(_resolve_anthropic_key(cfg)):
-            return True
+        # Self-hosted employees use Claude CLI (run_claude_session) which manages
+        # its own auth — no API key or launch.sh needed from our side.
         return False
 
     if cfg.api_provider == "anthropic":

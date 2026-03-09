@@ -1,5 +1,4 @@
 api_provider: anthropic
-auth_method: oauth
 current_quarter_tasks: 0
 department: CEO Office
 desk_position:
