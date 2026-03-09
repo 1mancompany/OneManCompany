@@ -127,7 +127,7 @@ class HRAgent(BaseAgentRunner):
 
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=tool_registry.get_tools_for(self.employee_id),
+            tools=tool_registry.get_proxied_tools_for(self.employee_id),
         )
 
     def _customize_prompt(self, pb) -> None:

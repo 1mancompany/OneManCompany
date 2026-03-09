@@ -1551,7 +1551,7 @@ class TestEmployeeManagerCompressHistory:
             for i in range(1, 20)
         ]
 
-        with patch("onemancompany.agents.base.make_llm", side_effect=RuntimeError("LLM down")):
+        with patch("onemancompany.core.vessel.make_llm", side_effect=RuntimeError("LLM down")):
             await mgr._maybe_compress_history("emp01")
 
         # Fallback: summary should be set from raw text
@@ -1570,7 +1570,7 @@ class TestEmployeeManagerCompressHistory:
         mock_result = MagicMock()
         mock_result.content = "Updated summary"
 
-        with patch("onemancompany.agents.base.make_llm"):
+        with patch("onemancompany.core.vessel.make_llm"):
             with patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result) as mock_invoke:
                 await mgr._maybe_compress_history("emp01")
 

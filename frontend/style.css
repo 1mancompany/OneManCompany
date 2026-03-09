@@ -3834,3 +3834,97 @@ body {
 
 .status-pass { color: #00ff88; }
 .status-fail { color: #ff4444; }
+
+/* ===== Ask CEO Dialog ===== */
+.ask-ceo-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.15s ease-out;
+}
+
+.ask-ceo-dialog {
+  background: var(--bg-panel);
+  border: 2px solid var(--pixel-cyan);
+  border-radius: 2px;
+  width: 500px;
+  max-width: 90vw;
+  padding: 16px;
+  box-shadow: 0 0 40px rgba(0, 221, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ask-ceo-header {
+  font-size: 11px;
+  color: var(--pixel-cyan);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.ask-ceo-question {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  padding: 10px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--pixel-white);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ask-ceo-context {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  padding: 8px;
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--pixel-gray);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.ask-ceo-input {
+  background: var(--bg-dark);
+  border: 2px solid var(--border);
+  color: var(--pixel-white);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 8px;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+}
+
+.ask-ceo-input:focus {
+  border-color: var(--pixel-cyan);
+}
+
+.ask-ceo-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ask-ceo-submit {
+  background: var(--pixel-cyan);
+  color: #000;
+  border: none;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 9px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+
+.ask-ceo-submit:hover {
+  background: #00eeff;
+}

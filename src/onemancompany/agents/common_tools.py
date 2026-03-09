@@ -20,7 +20,7 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 
 # ---------------------------------------------------------------------------
-# CEO approval wait mechanism — report_to_ceo blocks until CEO responds
+# CEO interaction — blocking wait for CEO response
 # ---------------------------------------------------------------------------
 # Key: "employee_id:project_id" → {"event": asyncio.Event, "response": dict}
 _ceo_pending: dict[str, dict] = {}
@@ -31,7 +31,7 @@ def _ceo_wait_key(employee_id: str, project_id: str) -> str:
 
 
 def resolve_ceo_pending(employee_id: str, project_id: str, response: dict) -> bool:
-    """Called from /api/ceo/respond to unblock a waiting report_to_ceo call."""
+    """Called from API to unblock a waiting ask_ceo / report_to_ceo call."""
     key = _ceo_wait_key(employee_id, project_id)
     entry = _ceo_pending.get(key)
     if not entry:
@@ -39,6 +39,15 @@ def resolve_ceo_pending(employee_id: str, project_id: str, response: dict) -> bo
     entry["response"] = response
     entry["event"].set()
     return True
+
+
+def list_ceo_pending() -> list[dict]:
+    """Return all pending CEO requests (for frontend polling)."""
+    result = []
+    for key, entry in _ceo_pending.items():
+        if not entry["event"].is_set():
+            result.append(entry.get("meta", {}))
+    return result
 from onemancompany.tools.sandbox import SANDBOX_TOOLS
 
 # Context vars for sub-task support — set by Vessel during execution
@@ -864,6 +873,83 @@ async def report_to_ceo(subject: str, report: str, action_required: bool = False
 
 
 @tool
+async def ask_ceo(question: str, context: str = "",
+                  employee_id: str = "", project_id: str = "") -> dict:
+    """Ask CEO a question and wait for their response.
+
+    Use when you need CEO's input, approval, or decision before proceeding.
+    Examples: plan approval, clarification on requirements, budget decisions.
+    This tool will BLOCK until CEO responds (up to 10 minutes).
+
+    Args:
+        question: The specific question or request for CEO.
+        context: Background context to help CEO understand the situation.
+    """
+    if not employee_id:
+        try:
+            vessel = _current_vessel.get()
+            if vessel:
+                employee_id = getattr(vessel, "employee_id", "")
+        except LookupError:
+            pass  # context var not set — expected when called outside agent loop
+    if not project_id:
+        try:
+            task_id = _current_task_id.get()
+            if task_id and employee_id:
+                from onemancompany.core.vessel import employee_manager
+                handle = employee_manager.get_handle(employee_id)
+                if handle:
+                    for t in handle._task_board:
+                        if t.id == task_id and t.project_id:
+                            project_id = t.project_id
+                            break
+        except LookupError:
+            pass  # context var not set — expected when called outside agent loop
+
+    emp_name = ""
+    if employee_id:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            emp_name = emp.name
+
+    key = _ceo_wait_key(employee_id, project_id)
+    entry = {
+        "event": asyncio.Event(),
+        "response": {},
+        "meta": {
+            "type": "ask_ceo",
+            "employee_id": employee_id,
+            "employee_name": emp_name,
+            "project_id": project_id,
+            "question": question,
+            "context": context,
+            "timestamp": datetime.now().isoformat(),
+        },
+    }
+    _ceo_pending[key] = entry
+
+    # Notify frontend to show dialog
+    await _publish("ask_ceo", entry["meta"], agent="SYSTEM")
+
+    try:
+        await asyncio.wait_for(entry["event"].wait(), timeout=600)
+        ceo_response = entry.get("response", {})
+        return {
+            "status": "answered",
+            "question": question,
+            "ceo_response": ceo_response.get("message", ""),
+        }
+    except (asyncio.TimeoutError, TimeoutError):
+        return {
+            "status": "timeout",
+            "question": question,
+            "message": "CEO did not respond within 10 minutes. Proceed with best judgment.",
+        }
+    finally:
+        _ceo_pending.pop(key, None)
+
+
+@tool
 def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> dict:
     """Request access to a restricted tool. The request will be sent to COO for approval.
 
@@ -1041,7 +1127,7 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
-        report_to_ceo, request_tool_access,
+        report_to_ceo, ask_ceo, request_tool_access,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))

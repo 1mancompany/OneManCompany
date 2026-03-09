@@ -7,23 +7,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from onemancompany.api.routes import router, _mcp_tool_registry
+from onemancompany.api.routes import router
+from onemancompany.core.tool_registry import ToolMeta, tool_registry
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _clear_registry():
-    """Clear the cached tool registry so it's rebuilt on next call."""
-    _mcp_tool_registry.clear()
-
-
 @pytest.fixture(autouse=True)
-def clear_registry():
-    _clear_registry()
+def clean_test_tools():
+    """Remove test tools after each test."""
     yield
-    _clear_registry()
+    for name in list(tool_registry._tools.keys()):
+        if name.startswith("test_") or name == "bad_tool":
+            tool_registry._tools.pop(name, None)
+            tool_registry._meta.pop(name, None)
 
 
 def _make_app():
@@ -60,7 +59,9 @@ class TestInternalToolCall:
                 "tool_name": "nonexistent_tool",
                 "args": {},
             })
-        assert resp.status_code == 404
+        # execute_tool returns error dict, not HTTP 404
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_tool_call_with_context(self):
@@ -69,7 +70,7 @@ class TestInternalToolCall:
         mock_tool.name = "test_tool"
         mock_tool.ainvoke = AsyncMock(return_value={"status": "ok", "data": "test"})
 
-        _mcp_tool_registry["test_tool"] = mock_tool
+        tool_registry.register(mock_tool, ToolMeta(name="test_tool", category="base"))
 
         mock_vessel = MagicMock()
         mock_em = MagicMock()
@@ -97,7 +98,7 @@ class TestInternalToolCall:
         mock_tool.name = "bad_tool"
         mock_tool.ainvoke = AsyncMock(side_effect=ValueError("something broke"))
 
-        _mcp_tool_registry["bad_tool"] = mock_tool
+        tool_registry.register(mock_tool, ToolMeta(name="bad_tool", category="base"))
 
         app = _make_app()
         with patch("onemancompany.core.vessel.employee_manager", MagicMock()):

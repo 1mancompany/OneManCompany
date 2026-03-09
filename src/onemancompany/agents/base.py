@@ -609,11 +609,11 @@ class EmployeeAgent(BaseAgentRunner):
         emp = company_state.employees.get(employee_id)
         self.role = emp.role if emp else "Employee"
 
-        all_tools = tool_registry.get_tools_for(employee_id)
+        proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
 
         # Track which gated tools are authorized/unauthorized (for prompt injection)
-        authorized = {t.name for t in all_tools}
-        self._authorized_tool_names: list[str] = [t.name for t in all_tools]
+        authorized = {t.name for t in proxied_tools}
+        self._authorized_tool_names: list[str] = [t.name for t in proxied_tools]
         self._unauthorized_tool_names: list[str] = []
         for name in tool_registry.all_tool_names():
             meta = tool_registry.get_meta(name)
@@ -622,7 +622,7 @@ class EmployeeAgent(BaseAgentRunner):
 
         self._agent = create_react_agent(
             model=make_llm(employee_id),
-            tools=all_tools,
+            tools=proxied_tools,
         )
 
     def _build_prompt(self) -> str:

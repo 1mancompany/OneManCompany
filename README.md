@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-09 | `694e525` | Update: , 人员缺口分析报告, api_key, app, base |
 | 2026-03-09 | `8bc485e` | Update: 2026-03-09-task-timeout-and-tree-ui, 2026-03-09-task-timeout-and-tree-ui-design, 2026-03-09-task-tree-design, 2026-03-09-task-tree-implementation, AI_CODER_GUIDE |
 | 2026-03-09 | `ba21099` | Update: test_tree_tools, tree_tools |
 | 2026-03-09 | `91ccaee` | Update: task_tree, test_task_tree |
