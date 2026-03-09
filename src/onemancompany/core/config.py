@@ -162,17 +162,19 @@ HR_KEYWORDS = [
 ENGINEERING_DEPT = "Engineering"
 
 # Default tool permissions by department (set during hiring)
+# Note: read, ls, write, edit are now BASE_TOOLS (always available, no permission needed).
+# Only gated tools need to be listed here.
 DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
     "Engineering": [
-        "read_file", "list_directory", "propose_file_edit", "use_tool",
+        "bash", "use_tool",
         "sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file",
     ],
-    "Design": ["read_file", "list_directory", "use_tool"],
-    "Analytics": ["read_file", "list_directory", "use_tool"],
-    "Marketing": ["read_file", "list_directory", "use_tool"],
-    "General": ["read_file", "list_directory"],
+    "Design": ["use_tool"],
+    "Analytics": ["use_tool"],
+    "Marketing": ["use_tool"],
+    "General": [],
 }
-DEFAULT_TOOL_PERMISSIONS_FALLBACK = ["read_file", "list_directory"]
+DEFAULT_TOOL_PERMISSIONS_FALLBACK: list[str] = []
 
 SALES_KEYWORDS = [
     "sales", "sell", "client", "customer", "contract", "deal", "revenue",
@@ -419,12 +421,19 @@ def save_work_principles(employee_id: str, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def get_workspace_dir(employee_id: str) -> Path:
+    """Return the private workspace directory for an employee."""
+    return EMPLOYEES_DIR / employee_id / "workspace"
+
+
 def ensure_employee_dir(employee_id: str) -> Path:
-    """Ensure employees/{id}/ and employees/{id}/skills/ directories exist."""
+    """Ensure employees/{id}/, skills/, and workspace/ directories exist."""
     emp_dir = EMPLOYEES_DIR / employee_id
     skills_dir = emp_dir / "skills"
+    workspace_dir = emp_dir / "workspace"
     emp_dir.mkdir(parents=True, exist_ok=True)
     skills_dir.mkdir(exist_ok=True)
+    workspace_dir.mkdir(exist_ok=True)
     return emp_dir
 
 
@@ -762,77 +771,6 @@ def load_talent_profile(talent_id: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def load_employee_custom_tools(employee_id: str) -> list:
-    """Dynamically load custom LangChain @tool functions for an employee.
-
-    Reads manifest.yaml for the list of custom_tools, then for each tool name:
-    1. Tries company/assets/tools/{name}/{name}.py  (central registry)
-    2. Falls back to employees/{id}/tools/{name}.py  (legacy per-employee copy)
-
-    For central tools, checks tool.yaml ``allowed_users`` — the tool is only
-    loaded when the employee is in the whitelist (employee-brought tools are
-    personal and cannot be borrowed by others).
-
-    Collects ALL BaseTool instances from each module (not just the eponymous one),
-    so multi-@tool modules are fully loaded.
-
-    Returns a list of callable tool objects ready for create_react_agent().
-    """
-    import importlib.util
-
-    from langchain_core.tools import BaseTool
-
-    tools_dir = EMPLOYEES_DIR / employee_id / "tools"
-    manifest_path = tools_dir / "manifest.yaml"
-    if not manifest_path.exists():
-        return []
-
-    with open(manifest_path) as f:
-        data = yaml.safe_load(f) or {}
-
-    custom_names: list[str] = data.get("custom_tools", [])
-    loaded = []
-    for name in custom_names:
-        # Prefer central company tool, fallback to employee-local copy
-        central_dir = TOOLS_DIR / name
-        py_file = central_dir / f"{name}.py"
-        if py_file.is_file():
-            # Check allowed_users in tool.yaml — personal tools can't be borrowed.
-            # If the key exists (even as []), it's a restricted tool: only
-            # listed employees may use it.  Omit the key entirely for
-            # unrestricted company-wide tools.
-            tool_yaml = central_dir / "tool.yaml"
-            if tool_yaml.exists():
-                with open(tool_yaml) as f:
-                    tool_meta = yaml.safe_load(f) or {}
-                if "allowed_users" in tool_meta:
-                    allowed = tool_meta["allowed_users"] or []
-                    if employee_id not in allowed:
-                        logger.debug(
-                            "Tool %s not allowed for %s (allowed: %s)",
-                            name, employee_id, allowed,
-                        )
-                        continue
-        else:
-            py_file = tools_dir / f"{name}.py"
-        if not py_file.is_file():
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location(
-                f"emp_tool_{employee_id}_{name}", str(py_file)
-            )
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            # Collect ALL BaseTool instances from the module
-            for attr_name in dir(mod):
-                attr = getattr(mod, attr_name)
-                if isinstance(attr, BaseTool):
-                    loaded.append(attr)
-        except Exception as e:
-            logger.warning(
-                "Failed to load custom tool %s for %s: %s", name, employee_id, e
-            )
-    return loaded
 
 
 def load_talent_tools(talent_id: str) -> list[str]:

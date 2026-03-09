@@ -11,9 +11,6 @@ class AppController {
     this.viewingRoomId = null;
     this.viewingEmployeeId = null;
     this.cachedModels = null;  // cached OpenRouter model list
-    // Review queue — items shown one by one with counter
-    this.reviewQueue = [];      // [{type, data, decision?}]
-    this._reviewIndex = 0;      // current item index in reviewQueue
     // Inquiry session state
     this._inquirySessionId = null;
     this._inquiryRoomId = null;
@@ -195,7 +192,6 @@ class AppController {
         return { text: `📋 HR screening done: ${(p.candidates || []).length} candidates for CEO selection`, cls: 'hr', agent: 'HR' };
       },
       'file_edit_proposed':  (p) => {
-        this._enqueueFileEdit(p);
         return { text: `📝 File edit request: ${p.rel_path} — ${p.reason}`, cls: 'ceo', agent: p.proposed_by || 'AGENT' };
       },
       'file_edit_applied':   (p) => ({ text: `✅ File updated: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
@@ -253,7 +249,6 @@ class AppController {
         return null;
       },
       'ceo_report': (p) => {
-        this._showCeoReport(p);
         const icon = p.action_required ? '🚨' : '📊';
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
@@ -767,10 +762,6 @@ class AppController {
       }
     });
     document.getElementById('oneonone-end-btn').addEventListener('click', () => this.endOneononeMeeting());
-
-    // Review queue panel bindings
-    document.getElementById('review-approve-btn').addEventListener('click', () => this._reviewApprove());
-    document.getElementById('review-reject-btn').addEventListener('click', () => this._reviewReject());
 
     // Resolution review modal bindings
     document.getElementById('resolution-close-btn').addEventListener('click', () => this._closeResolutionModal());
@@ -1457,37 +1448,80 @@ class AppController {
   }
 
   // ===== Code Update Banner =====
-  _showCeoReport(payload) {
-    const { subject, report, action_required } = payload;
-    const icon = action_required ? '🚨' : '📊';
-    const urgency = action_required ? ' (需要CEO操作)' : '';
 
-    // Build a modal overlay for the report
-    let overlay = document.getElementById('ceo-report-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'ceo-report-overlay';
-      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
-      document.body.appendChild(overlay);
-    }
-
-    const reportHtml = this._escHtml(report).replace(/\n/g, '<br>');
-    overlay.innerHTML = `
-      <div style="background:var(--bg-panel,#1a1a2e);border:2px solid ${action_required ? '#ff6b6b' : 'var(--accent,#4fc3f7)'};border-radius:4px;padding:12px;max-width:500px;max-height:70vh;overflow-y:auto;font-family:var(--font-mono,monospace);font-size:7px;color:var(--text,#e0e0e0);">
-        <div style="font-size:9px;font-weight:bold;margin-bottom:8px;color:${action_required ? '#ff6b6b' : 'var(--accent,#4fc3f7)'};">
-          ${icon} ${this._escHtml(subject)}${urgency}
-        </div>
-        <div style="line-height:1.5;margin-bottom:10px;white-space:pre-wrap;">${reportHtml}</div>
-        <div style="text-align:right;">
-          <button class="pixel-btn small" id="ceo-report-dismiss">知道了</button>
-        </div>
-      </div>
-    `;
-    overlay.classList.remove('hidden');
-    overlay.style.display = 'flex';
-    document.getElementById('ceo-report-dismiss').onclick = () => {
-      overlay.style.display = 'none';
+  async _ceoRespond(payload, message, reviewAction) {
+    const body = {
+      employee_id: payload.employee_id || '',
+      project_id: payload.project_id || '',
+      subject: payload.subject || '',
+      message: message || '',
+      action: (message && reviewAction !== 'reject') ? 'revise' : (reviewAction === 'approve' ? 'approve' : 'reject'),
     };
+
+    try {
+      const res = await fetch('/api/ceo/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.error) {
+        this.logEntry('SYSTEM', `CEO respond failed: ${data.error}`, 'system');
+        return;
+      }
+      const action = message ? 'CEO指示已发送' : 'CEO已批准';
+      this.logEntry('CEO', `${action}: ${this._escapeHtml(payload.subject || '')}`, 'ceo');
+    } catch (e) {
+      this.logEntry('SYSTEM', `Failed to send response: ${e.message}`, 'system');
+    }
+  }
+
+  async _loadWorkspaceFiles(containerId, listUrl, title, fileBaseUrl, downloadUrl, isProject = false) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    try {
+      const resp = await fetch(listUrl);
+      const data = await resp.json();
+      const files = isProject ? (data.files || []) : (data.files || []);
+      if (!files.length) {
+        container.innerHTML = '';
+        return;
+      }
+
+      let html = `<div style="border:1px solid #333;border-radius:3px;padding:6px;">`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">`;
+      html += `<span style="font-size:7px;font-weight:bold;color:var(--accent,#4fc3f7);">📁 ${this._escHtml(title)} (${files.length})</span>`;
+      html += `<a href="${downloadUrl}" style="font-size:6px;color:#4fc3f7;text-decoration:underline;cursor:pointer;">⬇ ZIP</a>`;
+      html += `</div>`;
+
+      for (const f of files) {
+        const fname = f.name || f;
+        const fpath = f.path || f;
+        const isDir = f.is_dir || false;
+        const size = f.size != null ? this._formatFileSize(f.size) : '';
+
+        if (isDir) {
+          html += `<div style="padding:2px 4px;color:#888;">📂 ${this._escHtml(fname)}/</div>`;
+        } else {
+          const viewUrl = `${fileBaseUrl}/${encodeURIComponent(fpath)}`;
+          html += `<div style="padding:2px 4px;display:flex;justify-content:space-between;align-items:center;">`;
+          html += `<span style="cursor:pointer;color:#e0e0e0;text-decoration:underline;" onclick="window._ceoViewFile('${this._escHtml(viewUrl)}','${this._escHtml(fname)}')">${this._escHtml(fname)}</span>`;
+          html += `<span style="color:#666;font-size:6px;">${size}</span>`;
+          html += `</div>`;
+        }
+      }
+      html += `</div>`;
+      container.innerHTML = html;
+    } catch (err) {
+      console.error('Failed to load workspace files:', err);
+    }
+  }
+
+  _formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + 'B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
   }
 
   _showCodeUpdateBanner(count, files) {
@@ -2569,116 +2603,6 @@ class AppController {
       });
   }
 
-  // ===== Review Queue =====
-
-  /**
-   * Enqueue meeting report action items — each becomes a separate review entry.
-   */
-  _enqueueReviewItems(payload) {
-    const reportId = payload.report_id || '';
-    const summary = payload.summary || '';
-    const actions = payload.action_items || [];
-
-    // Store report id on the queue batch so we can send bulk approval later
-    const batchId = `report_${Date.now()}`;
-
-    // First item: the report summary (approve = acknowledge, reject = dismiss)
-    if (summary) {
-      this.reviewQueue.push({
-        type: 'report_summary',
-        data: { report_id: reportId, summary, batchId },
-      });
-    }
-
-    // Each action item as an individual review entry
-    actions.forEach((item, idx) => {
-      this.reviewQueue.push({
-        type: 'action_item',
-        data: {
-          report_id: reportId,
-          index: idx,
-          source: item.source || '',
-          description: item.description || (typeof item === 'string' ? item : JSON.stringify(item)),
-          batchId,
-        },
-        decision: null,  // null = pending, true = approved, false = rejected
-      });
-    });
-
-    this._showReviewQueue();
-  }
-
-  /**
-   * Enqueue a file edit proposal.
-   */
-  _enqueueFileEdit(payload) {
-    this.reviewQueue.push({
-      type: 'file_edit',
-      data: payload,
-    });
-    this._showReviewQueue();
-  }
-
-  /**
-   * Show the review queue panel, rendering the current item.
-   */
-  _showReviewQueue() {
-    if (this.reviewQueue.length === 0) {
-      document.getElementById('review-queue-section').classList.add('hidden');
-      return;
-    }
-    // Clamp index
-    if (this._reviewIndex >= this.reviewQueue.length) {
-      this._reviewIndex = 0;
-    }
-    document.getElementById('review-queue-section').classList.remove('hidden');
-    this._renderCurrentReview();
-  }
-
-  /**
-   * Render the current review item with counter.
-   */
-  _renderCurrentReview() {
-    const section = document.getElementById('review-queue-section');
-    const content = document.getElementById('review-queue-content');
-    const counter = document.getElementById('review-queue-counter');
-    const title = document.getElementById('review-queue-title');
-
-    if (this.reviewQueue.length === 0) {
-      section.classList.add('hidden');
-      return;
-    }
-
-    const item = this.reviewQueue[this._reviewIndex];
-    counter.textContent = `${this._reviewIndex + 1}/${this.reviewQueue.length}`;
-
-    if (item.type === 'report_summary') {
-      title.innerHTML = '&#128196; Meeting Report';
-      content.innerHTML = `
-        <div class="review-summary md-rendered">${this._renderMarkdown(item.data.summary || '')}</div>
-      `;
-    } else if (item.type === 'action_item') {
-      title.innerHTML = '&#128203; Improvement Items';
-      content.innerHTML = `
-        <div class="review-action-item" style="padding:4px 6px;">
-          <div style="font-size:6px;color:var(--pixel-cyan);margin-bottom:2px;">Source: ${this._escapeHtml(item.data.source)}</div>
-          <div class="md-rendered" style="font-size:7px;">${this._renderMarkdown(item.data.description)}</div>
-        </div>
-      `;
-    } else if (item.type === 'file_edit') {
-      title.innerHTML = '&#128221; File Edit';
-      const p = item.data;
-      let html = `
-        <div class="file-edit-meta">
-          <div class="file-edit-info"><span class="fe-label">File</span><span class="fe-value">${this._escapeHtml(p.rel_path || '')}</span></div>
-          <div class="file-edit-info"><span class="fe-label">Proposed by</span><span class="fe-value">${this._escapeHtml(p.proposed_by || 'agent')}</span></div>
-          <div class="file-edit-info"><span class="fe-label">Reason</span><span class="fe-value">${this._escapeHtml(p.reason || '')}</span></div>
-        </div>
-      `;
-      html += this._buildDiffView(p.old_content || '', p.new_content || '');
-      content.innerHTML = html;
-    }
-  }
 
   /**
    * Build a side-by-side diff view HTML string.
@@ -2709,150 +2633,6 @@ class AppController {
     return html;
   }
 
-  /**
-   * Handle approve button click for the current review item.
-   */
-  _reviewApprove() {
-    const item = this.reviewQueue[this._reviewIndex];
-    if (!item) return;
-
-    if (item.type === 'report_summary') {
-      // Just acknowledge the summary, move to next
-      this.logEntry('CEO', 'Meeting report reviewed', 'ceo');
-      this._advanceReview();
-
-    } else if (item.type === 'action_item') {
-      this._recordActionDecision(item.data.report_id, item.data.index, true);
-      this.logEntry('CEO', `✅ Approved: ${item.data.description.substring(0, 40)}`, 'ceo');
-      this._advanceReview();
-
-    } else if (item.type === 'file_edit') {
-      const editId = item.data.edit_id;
-      fetch(`/api/file-edits/${editId}/approve`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-          if (data.status === 'error') {
-            this.logEntry('SYSTEM', `Approval failed: ${data.message}`, 'system');
-          } else {
-            this.logEntry('CEO', `✅ File edit approved: ${data.rel_path}`, 'ceo');
-          }
-          this._advanceReview();
-        })
-        .catch(err => {
-          this.logEntry('SYSTEM', `Approval failed: ${err.message}`, 'system');
-          this._advanceReview();
-        });
-    }
-  }
-
-  /**
-   * Handle reject button click for the current review item.
-   */
-  _reviewReject() {
-    const item = this.reviewQueue[this._reviewIndex];
-    if (!item) return;
-
-    if (item.type === 'report_summary') {
-      this.logEntry('CEO', 'Meeting report dismissed', 'ceo');
-      this._advanceReview();
-
-    } else if (item.type === 'action_item') {
-      this._recordActionDecision(item.data.report_id, item.data.index, false);
-      this.logEntry('CEO', `❌ Rejected: ${item.data.description.substring(0, 40)}`, 'ceo');
-      this._advanceReview();
-
-    } else if (item.type === 'file_edit') {
-      const editId = item.data.edit_id;
-      fetch(`/api/file-edits/${editId}/reject`, { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-          if (data.status === 'error') {
-            this.logEntry('SYSTEM', `Action failed: ${data.message}`, 'system');
-          } else {
-            this.logEntry('CEO', `❌ File edit rejected: ${data.rel_path}`, 'ceo');
-          }
-          this._advanceReview();
-        })
-        .catch(err => {
-          this.logEntry('SYSTEM', `Action failed: ${err.message}`, 'system');
-          this._advanceReview();
-        });
-    }
-  }
-
-  /**
-   * Advance to the next review item. When all items in a batch are reviewed,
-   * send the batch approval to the backend.
-   */
-  _advanceReview() {
-    // Remove current item from queue
-    this.reviewQueue.splice(this._reviewIndex, 1);
-
-    // Check if we just finished an action_item batch — collect decisions
-    this._flushActionBatch();
-
-    if (this.reviewQueue.length === 0) {
-      document.getElementById('review-queue-section').classList.add('hidden');
-      this._reviewIndex = 0;
-      return;
-    }
-
-    // Clamp index (stay at same position since we removed current)
-    if (this._reviewIndex >= this.reviewQueue.length) {
-      this._reviewIndex = 0;
-    }
-    this._renderCurrentReview();
-  }
-
-  /**
-   * Record an action item decision for later batch submission.
-   */
-  _recordActionDecision(reportId, index, approved) {
-    if (!this._reviewDecisions) this._reviewDecisions = {};
-    if (!this._reviewDecisions[reportId]) this._reviewDecisions[reportId] = [];
-    this._reviewDecisions[reportId].push({ index, approved });
-  }
-
-  /**
-   * When no more action_items remain for a report, send bulk approval.
-   */
-  _flushActionBatch() {
-    if (!this._reviewDecisions) this._reviewDecisions = {};
-
-    // Check if any report batches have no remaining items in the queue
-    const pendingReportIds = new Set();
-    for (const item of this.reviewQueue) {
-      if (item.type === 'action_item' && item.data.report_id) {
-        pendingReportIds.add(item.data.report_id);
-      }
-    }
-
-    // For each tracked report, if no more items pending, send approval
-    for (const [reportId, decisions] of Object.entries(this._reviewDecisions)) {
-      if (!pendingReportIds.has(reportId) && decisions.length > 0) {
-        const approved = decisions
-          .filter(d => d.approved)
-          .map(d => d.index);
-        if (approved.length > 0) {
-          fetch('/api/routine/approve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ report_id: reportId, approved_indices: approved }),
-          })
-            .then(r => r.json())
-            .then(data => {
-              if (data.error) {
-                this.logEntry('SYSTEM', `Execution failed: ${data.error}`, 'system');
-              } else {
-                this.logEntry('CEO', `✅ Approved ${approved.length} improvements, executing`, 'ceo');
-              }
-            })
-            .catch(err => this.logEntry('SYSTEM', `Execution failed: ${err.message}`, 'system'));
-        }
-        delete this._reviewDecisions[reportId];
-      }
-    }
-  }
 
   // ===== Resolution Review Modal =====
 
@@ -2889,6 +2669,8 @@ class AppController {
 
   _closeResolutionModal() {
     document.getElementById('resolution-modal').classList.add('hidden');
+    const fb = document.getElementById('resolution-ceo-feedback');
+    if (fb) fb.value = '';
     this._currentResolution = null;
   }
 
@@ -2903,6 +2685,9 @@ class AppController {
         decisions[edit.edit_id] = selected.value;
       }
     }
+
+    const feedbackEl = document.getElementById('resolution-ceo-feedback');
+    const ceoFeedback = (feedbackEl && feedbackEl.value || '').trim();
 
     const btn = document.getElementById('resolution-submit-btn');
     btn.disabled = true;
@@ -2923,6 +2708,14 @@ class AppController {
           const deferred = results.filter(r => r.decision === 'defer').length;
           this.logEntry('CEO', `Resolution decided: ${approved} approved, ${rejected} rejected, ${deferred} deferred`, 'ceo');
           this._refreshDeferredPanel();
+        }
+        // If CEO wrote feedback, send it to the employee
+        if (ceoFeedback && resolution.employee_id) {
+          this._ceoRespond({
+            employee_id: resolution.employee_id,
+            project_id: resolution.project_id || '',
+            subject: resolution.task || 'Resolution Review Feedback',
+          }, ceoFeedback, 'revise');
         }
         this._closeResolutionModal();
       })
@@ -4158,6 +3951,196 @@ class AppController {
     return uploaded;
   }
 
+  // ===== Tool Detail — Dynamic Section Renderer Framework =====
+  //
+  // Each tool's definition returns a `sections` array from the backend.
+  // Sections are typed objects: { type: "oauth"|"env_vars"|"info"|"files"|..., ...data }
+  // The frontend renderer registry maps type → render function.
+  // To add a new section type: add one entry to _toolSectionRenderers.
+
+  /** Section renderer registry — type → (toolId, section, escHtml) → HTML string */
+  _toolSectionRenderers = {
+    /** OAuth login/credentials section */
+    oauth: (toolId, s, esc) => {
+      const title = s.title || 'OAuth';
+      const credsFormId = `tool-oauth-creds-${toolId.replace(/\W/g, '')}`;
+      // Help text for obtaining credentials
+      const redirectHint = s.redirect_uri ? `<div style="margin-bottom:4px;font-size:6px;color:#ccc;">Redirect URI: <code style="user-select:all;color:#f0c040;">${esc(s.redirect_uri)}</code></div>` : '';
+      const helpHtml = s.credentials_help_text ? `
+        <div style="margin-bottom:4px;font-size:6px;color:#aaa;">
+          ${esc(s.credentials_help_text)}${s.credentials_help_url ? ` <a href="${esc(s.credentials_help_url)}" target="_blank" rel="noopener" style="color:#6af;">Get credentials &rarr;</a>` : ''}
+        </div>${redirectHint}` : redirectHint;
+      // Credentials form (shared across states — collapsible when already configured)
+      const credsForm = `
+        ${helpHtml}
+        <div id="${credsFormId}" class="tool-oauth-creds-form" ${s.has_credentials ? 'style="display:none;"' : ''}>
+          <div style="margin-bottom:4px;color:#888;font-size:6px;">
+            <code>${esc(s.client_id_env)}</code> / <code>${esc(s.client_secret_env)}</code>
+          </div>
+          <input type="text" id="tool-oauth-client-id" placeholder="Client ID" class="tool-oauth-input" />
+          <input type="password" id="tool-oauth-client-secret" placeholder="Client Secret" class="tool-oauth-input" />
+          <button class="pixel-btn small" onclick="window.app._toolAction('credentials','${esc(toolId)}')">Save</button>
+        </div>`;
+
+      if (!s.has_credentials) {
+        return `
+          <div class="tool-section">
+            <div class="tool-section-title">${esc(title)}</div>
+            <div class="tool-section-body">
+              <div class="tool-oauth-status disconnected">Not configured — credentials required</div>
+              ${credsForm}
+            </div>
+          </div>`;
+      }
+      const preview = s.client_id_preview ? `<span style="color:#666;font-size:6px;margin-left:6px;">Client ID: ${esc(s.client_id_preview)}</span>` : '';
+      const editBtn = `<span class="tool-oauth-edit" onclick="document.getElementById('${credsFormId}').style.display=document.getElementById('${credsFormId}').style.display==='none'?'block':'none'">Edit</span>`;
+      if (!s.is_authorized) {
+        return `
+          <div class="tool-section">
+            <div class="tool-section-title">${esc(title)}</div>
+            <div class="tool-section-body">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <div class="tool-oauth-status disconnected" style="margin:0;">Not connected${preview}</div>
+                ${editBtn}
+              </div>
+              <button class="pixel-btn" onclick="window.app._toolAction('login','${esc(toolId)}')">Login with ${esc(s.service_name)}</button>
+              ${credsForm}
+            </div>
+          </div>`;
+      }
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${esc(title)}</div>
+          <div class="tool-section-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <div class="tool-oauth-status connected" style="margin:0;">Connected${preview}</div>
+              <div>${editBtn} <button class="pixel-btn small" onclick="window.app._toolAction('logout','${esc(toolId)}')">Disconnect</button></div>
+            </div>
+            ${credsForm}
+          </div>
+        </div>`;
+    },
+
+    /** Environment variable configuration */
+    env_vars: (toolId, s, esc) => {
+      const title = s.title || 'Environment Variables';
+      const helpHtml = s.credentials_help_text ? `
+        <div style="margin-bottom:4px;font-size:6px;color:#aaa;">
+          ${esc(s.credentials_help_text)}${s.credentials_help_url ? ` <a href="${esc(s.credentials_help_url)}" target="_blank" rel="noopener" style="color:#6af;">Get API key &rarr;</a>` : ''}
+        </div>` : '';
+      const vars = s.vars || [];
+      const inputs = vars.map((v, i) => {
+        const inputType = v.secret ? 'password' : 'text';
+        const statusDot = v.is_set ? '<span style="color:#4caf50;" title="Set">&#9679;</span>' : '<span style="color:#ff9800;" title="Not set">&#9675;</span>';
+        // For secret fields, show placeholder hint; for non-secret, show actual value
+        const displayVal = v.secret ? '' : (v.value || '');
+        const placeholder = v.secret && v.is_set ? '(configured — enter new value to update)' : (v.placeholder || v.name);
+        return `<div style="margin-bottom:3px;">
+          <label style="font-size:6px;color:#888;">${statusDot} ${esc(v.label || v.name)}</label>
+          <input type="${inputType}" id="tool-env-${i}" placeholder="${esc(placeholder)}"
+                 value="${esc(displayVal)}" class="tool-oauth-input" data-env-name="${esc(v.name)}" />
+        </div>`;
+      }).join('');
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${esc(title)}</div>
+          <div class="tool-section-body">
+            ${helpHtml}
+            ${inputs}
+            <button class="pixel-btn small" onclick="window.app._toolAction('save_env','${esc(toolId)}')">Save</button>
+          </div>
+        </div>`;
+    },
+
+    /** Read-only info / status display */
+    info: (toolId, s, esc) => {
+      const title = s.title || 'Info';
+      const items = (s.items || []).map(item =>
+        `<div class="tool-info-row"><span class="tool-info-label">${esc(item.label)}:</span> <span>${esc(item.value)}</span></div>`
+      ).join('');
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${esc(title)}</div>
+          <div class="tool-section-body">${items || '<span class="empty-hint">No info</span>'}</div>
+        </div>`;
+    },
+
+    /** Allowed users / access control */
+    access: (toolId, s, esc) => {
+      const title = s.title || 'Access Control';
+      const users = s.allowed_users || [];
+      const mode = users.length === 0 && s.open_access ? 'Open to all employees' : `${users.length} employee(s)`;
+      const list = users.map(u => `<span class="perm-tag">${esc(u.name || u.id)}</span>`).join(' ');
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${esc(title)}</div>
+          <div class="tool-section-body">
+            <div style="font-size:7px;margin-bottom:4px;">${esc(mode)}</div>
+            ${list}
+          </div>
+        </div>`;
+    },
+
+    /** Email templates management */
+    templates: (toolId, s, esc) => {
+      const templates = s.templates || [];
+      if (!templates.length) {
+        return `
+          <div class="tool-section">
+            <div class="tool-section-title">${esc(s.title || 'Templates')}</div>
+            <div class="tool-section-body">
+              <span class="empty-hint">No templates</span>
+              <button class="pixel-btn small" style="margin-top:4px;" onclick="window.app._templateNew('${esc(toolId)}','${esc(s.templates_dir || 'templates')}')">+ New Template</button>
+            </div>
+          </div>`;
+      }
+      const items = templates.map(t => `
+        <div class="tool-template-item" style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid #333;">
+          <div>
+            <span style="font-size:7px;color:#e0e0e0;">${esc(t.name)}</span>
+            <span style="font-size:6px;color:#888;margin-left:4px;">${esc(t.description || '')}</span>
+          </div>
+          <div>
+            <button class="pixel-btn small" onclick="window.app._templateOpen('${esc(toolId)}','${esc(t.filename)}')">Edit</button>
+            <button class="pixel-btn small" style="color:#f44;" onclick="window.app._templateDelete('${esc(toolId)}','${esc(t.filename)}')">Del</button>
+          </div>
+        </div>
+      `).join('');
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${esc(s.title || 'Templates')}</div>
+          <div class="tool-section-body">
+            ${items}
+            <button class="pixel-btn small" style="margin-top:4px;" onclick="window.app._templateNew('${esc(toolId)}','${esc(s.templates_dir || 'templates')}')">+ New Template</button>
+          </div>
+        </div>`;
+    },
+
+    /** File listing */
+    files: (toolId, s, esc) => {
+      const files = s.files || [];
+      if (!files.length) return '';
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${s.title || 'Files'}</div>
+          <div class="tool-section-body">
+            <ul class="tool-file-list">${files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+          </div>
+        </div>`;
+    },
+
+    /** Raw YAML definition */
+    definition: (toolId, s, esc) => {
+      return `
+        <div class="tool-section">
+          <div class="tool-section-title">${s.title || 'Definition'}</div>
+          <div class="tool-section-body">
+            <pre class="tool-yaml-content">${esc(s.content || '')}</pre>
+          </div>
+        </div>`;
+    },
+  };
+
   openToolList() {
     const modal = document.getElementById('tool-list-modal');
     const body = document.getElementById('tool-list-body');
@@ -4183,21 +4166,145 @@ class AppController {
     const res = await fetch(`/api/tools/${encodeURIComponent(toolId)}/definition`);
     if (!res.ok) return;
     const data = await res.json();
-
     const body = document.getElementById('tool-list-body');
+    const esc = (t) => this._escapeHtml(t);
+
+    // Render all sections dynamically
+    const sections = (data.sections || []);
+    const sectionsHtml = sections.map(s => {
+      const renderer = this._toolSectionRenderers[s.type];
+      if (!renderer) return `<div class="tool-section"><div class="tool-section-title">${esc(s.type)}</div><div class="tool-section-body"><span class="empty-hint">Unknown section type: ${esc(s.type)}</span></div></div>`;
+      return renderer(toolId, s, esc);
+    }).join('');
+
     body.innerHTML = `
       <button class="btn-back" onclick="window.app.openToolList()">&larr; Back</button>
       <div class="tool-detail">
-        <h3>${this._escapeHtml(data.name)}</h3>
-        <p>${this._escapeHtml(data.description || '')}</p>
-        <div class="tool-detail-section-title">Definition (tool.yaml)</div>
-        <pre class="tool-yaml-content">${this._escapeHtml(data.yaml_content)}</pre>
-        ${data.files.length > 0 ? `
-          <div class="tool-detail-section-title">Files</div>
-          <ul class="tool-file-list">${data.files.map(f => `<li>${this._escapeHtml(f)}</li>`).join('')}</ul>
-        ` : ''}
+        <div class="tool-detail-header">
+          ${data.has_icon ? `<img src="/api/tools/${encodeURIComponent(toolId)}/icon" class="tool-detail-icon" />` : ''}
+          <div>
+            <h3>${esc(data.name)}</h3>
+            <p>${esc(data.description || '')}</p>
+          </div>
+        </div>
+        ${sectionsHtml}
       </div>
     `;
+  }
+
+  /** Unified tool action dispatcher — called from section renderers */
+  async _toolAction(action, toolId) {
+    const esc = encodeURIComponent(toolId);
+    switch (action) {
+      case 'login': {
+        const res = await fetch(`/api/tools/${esc}/oauth/login`, { method: 'POST' });
+        const data = await res.json();
+        if (data.auth_url) {
+          window.open(data.auth_url, '_blank', 'width=600,height=700');
+          setTimeout(() => this.openToolDetail(toolId), 5000);
+        } else {
+          alert(data.message || 'OAuth login failed');
+        }
+        break;
+      }
+      case 'logout': {
+        if (!confirm('Disconnect OAuth for this tool?')) return;
+        await fetch(`/api/tools/${esc}/oauth/logout`, { method: 'POST' });
+        this.openToolDetail(toolId);
+        break;
+      }
+      case 'credentials': {
+        const clientId = document.getElementById('tool-oauth-client-id')?.value || '';
+        const clientSecret = document.getElementById('tool-oauth-client-secret')?.value || '';
+        if (!clientId || !clientSecret) { alert('Both Client ID and Client Secret required'); return; }
+        const res = await fetch(`/api/tools/${esc}/oauth/credentials`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }),
+        });
+        const data = await res.json();
+        if (data.status === 'ok') this.openToolDetail(toolId);
+        else alert(data.message || 'Failed');
+        break;
+      }
+      case 'save_env': {
+        const inputs = document.querySelectorAll('[data-env-name]');
+        const vars = {};
+        inputs.forEach(el => { vars[el.dataset.envName] = el.value; });
+        const res = await fetch(`/api/tools/${esc}/env`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vars),
+        });
+        const data = await res.json();
+        if (data.status === 'ok') this.openToolDetail(toolId);
+        else alert(data.message || 'Failed');
+        break;
+      }
+    }
+  }
+
+  // --- Template management ---
+
+  async _templateOpen(toolId, filename) {
+    const esc = encodeURIComponent;
+    const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`);
+    if (!res.ok) { alert('Failed to load template'); return; }
+    const data = await res.json();
+    const body = document.getElementById('tool-list-body');
+    const escH = (t) => this._escapeHtml(t);
+    body.innerHTML = `
+      <button class="btn-back" onclick="window.app.openToolDetail('${escH(toolId)}')">&larr; Back</button>
+      <div style="padding:4px;">
+        <h3 style="font-size:8px;margin:4px 0;">${escH(filename)}</h3>
+        <textarea id="template-editor" style="width:100%;min-height:200px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;font-family:monospace;font-size:7px;padding:4px;resize:vertical;">${escH(data.content || '')}</textarea>
+        <div style="margin-top:4px;display:flex;gap:4px;">
+          <button class="pixel-btn" onclick="window.app._templateSave('${escH(toolId)}','${escH(filename)}')">Save</button>
+          <button class="pixel-btn small" onclick="window.app.openToolDetail('${escH(toolId)}')">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  async _templateSave(toolId, filename) {
+    const content = document.getElementById('template-editor')?.value || '';
+    if (!content.trim()) { alert('Template cannot be empty'); return; }
+    const esc = encodeURIComponent;
+    const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (data.status === 'ok') this.openToolDetail(toolId);
+    else alert(data.message || 'Save failed');
+  }
+
+  async _templateDelete(toolId, filename) {
+    if (!confirm(`Delete template "${filename}"?`)) return;
+    const esc = encodeURIComponent;
+    const res = await fetch(`/api/tools/${esc(toolId)}/templates/${esc(filename)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.status === 'ok') this.openToolDetail(toolId);
+    else alert(data.message || 'Delete failed');
+  }
+
+  _templateNew(toolId, templatesDir) {
+    const filename = prompt('Template filename (e.g. my_template.md):');
+    if (!filename) return;
+    // Open editor with empty content
+    const body = document.getElementById('tool-list-body');
+    const esc = (t) => this._escapeHtml(t);
+    const defaultContent = `---\nname: ${filename.replace(/\.\w+$/, '')}\ndescription: \nvariables: []\n---\n\nSubject: \n\n`;
+    body.innerHTML = `
+      <button class="btn-back" onclick="window.app.openToolDetail('${esc(toolId)}')">&larr; Back</button>
+      <div style="padding:4px;">
+        <h3 style="font-size:8px;margin:4px 0;">New: ${esc(filename)}</h3>
+        <textarea id="template-editor" style="width:100%;min-height:200px;background:#1a1a2e;color:#e0e0e0;border:1px solid #444;font-family:monospace;font-size:7px;padding:4px;resize:vertical;">${esc(defaultContent)}</textarea>
+        <div style="margin-top:4px;display:flex;gap:4px;">
+          <button class="pixel-btn" onclick="window.app._templateSave('${esc(toolId)}','${esc(filename)}')">Create</button>
+          <button class="pixel-btn small" onclick="window.app.openToolDetail('${esc(toolId)}')">Cancel</button>
+        </div>
+      </div>`;
   }
 
   _escapeHtml(text) {
@@ -4765,6 +4872,52 @@ window._abortAgentTask = async function(employeeId, taskId) {
     }
   } catch (err) {
     console.error('Cancel failed:', err);
+  }
+};
+
+// Global file viewer for CEO report workspace files
+window._ceoViewFile = async function(url, filename) {
+  try {
+    const resp = await fetch(url);
+    const contentType = resp.headers.get('content-type') || '';
+
+    let overlay = document.getElementById('ceo-file-viewer');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'ceo-file-viewer';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10001;display:flex;align-items:center;justify-content:center;';
+      document.body.appendChild(overlay);
+    }
+
+    let bodyHtml;
+    if (contentType.startsWith('image/')) {
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      bodyHtml = `<img src="${objUrl}" style="max-width:100%;max-height:60vh;" />`;
+    } else {
+      const text = await resp.text();
+      const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      bodyHtml = `<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow-y:auto;margin:0;font-size:6.5px;line-height:1.4;">${escaped}</pre>`;
+    }
+
+    overlay.innerHTML = `
+      <div style="background:var(--bg-panel,#1a1a2e);border:2px solid var(--accent,#4fc3f7);border-radius:4px;padding:12px;max-width:700px;width:90%;font-family:var(--font-mono,monospace);color:var(--text,#e0e0e0);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-size:8px;font-weight:bold;color:var(--accent,#4fc3f7);">📄 ${filename.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
+          <div>
+            <a href="${url}" download="${filename}" style="font-size:6px;color:#4fc3f7;margin-right:8px;text-decoration:underline;">⬇ Download</a>
+            <button class="pixel-btn small" id="ceo-file-viewer-close">Close</button>
+          </div>
+        </div>
+        ${bodyHtml}
+      </div>
+    `;
+    overlay.style.display = 'flex';
+    document.getElementById('ceo-file-viewer-close').onclick = () => {
+      overlay.style.display = 'none';
+    };
+  } catch (err) {
+    console.error('Failed to view file:', err);
   }
 };
 

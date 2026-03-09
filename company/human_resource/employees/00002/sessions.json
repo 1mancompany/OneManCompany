@@ -1,0 +1,44 @@
+{
+  "test_mcp_daemon": {
+    "session_id": "bea1f806-146f-4b84-8b35-6d66ca170f8d",
+    "work_dir": "",
+    "created": "2026-03-09T11:52:35.961685+00:00",
+    "used": false
+  },
+  "test_mcp_daemon2": {
+    "session_id": "75f30581-9538-41ab-903d-e258c5b72f3c",
+    "work_dir": "",
+    "created": "2026-03-09T11:52:56.495596+00:00",
+    "used": false
+  },
+  "test_mcp_daemon3": {
+    "session_id": "f6c5d64d-eb8f-450d-9783-a3f4a6a1be7c",
+    "work_dir": "",
+    "created": "2026-03-09T11:53:25.011709+00:00",
+    "used": true
+  },
+  "test_mcp_tools": {
+    "session_id": "3045deec-a7ec-4686-8cda-158e06a10ad2",
+    "work_dir": "",
+    "created": "2026-03-09T11:53:54.392152+00:00",
+    "used": true
+  },
+  "20260309_165214_224ce1": {
+    "session_id": "8f33fadf-8acf-4c80-b0b6-7ad37b830e19",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_165214_224ce1",
+    "created": "2026-03-09T16:52:56.836072+00:00",
+    "used": true
+  },
+  "20260309_165810_ee5e8c": {
+    "session_id": "9cd2e535-7fbc-4d50-b8fe-be1941fd0a1d",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_165810_ee5e8c",
+    "created": "2026-03-09T16:58:28.796195+00:00",
+    "used": true
+  },
+  "20260309_170052_b555e7": {
+    "session_id": "b6d387e6-3af8-4c5b-b5d8-074358842efe",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_170052_b555e7",
+    "created": "2026-03-09T17:01:51.062687+00:00",
+    "used": true
+  }
+}

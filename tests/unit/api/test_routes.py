@@ -2201,7 +2201,7 @@ class TestOneOnOneChatAgentLoop:
 
         mock_task = MagicMock()
         mock_task.id = "t1"
-        mock_task.status = "completed"
+        mock_task.status = "complete"
         mock_task.result = "Agent response here"
         mock_task.logs = []
 
@@ -2237,7 +2237,7 @@ class TestOneOnOneChatAgentLoop:
 
         mock_task = MagicMock()
         mock_task.id = "t1"
-        mock_task.status = "completed"
+        mock_task.status = "complete"
         mock_task.result = ""
         mock_task.logs = [
             {"type": "start", "content": "Started"},
@@ -2295,7 +2295,7 @@ class TestOneOnOneChatAgentLoop:
             nonlocal sleep_count
             sleep_count += 1
             if sleep_count >= 3:
-                mock_task.status = "completed"
+                mock_task.status = "complete"
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
@@ -2516,7 +2516,7 @@ class TestCancelAgentTask:
     async def test_cancel_task_already_completed(self):
         state = _make_state()
         mock_task = MagicMock()
-        mock_task.status = "completed"
+        mock_task.status = "complete"
         mock_board = MagicMock()
         mock_board.get_task.return_value = mock_task
         mock_loop = MagicMock()
@@ -5198,7 +5198,7 @@ class TestCancelTaskWithSubtasks:
 
         main_task = MagicMock()
         main_task.id = "t1"
-        main_task.status = "in_progress"
+        main_task.status = "processing"
         main_task.completed_at = None
         main_task.result = ""
         main_task.sub_task_ids = ["s1"]
@@ -5217,9 +5217,13 @@ class TestCancelTaskWithSubtasks:
         mock_loop._log = MagicMock()
         mock_loop._publish_task_update = MagicMock()
 
+        mock_manager = MagicMock()
+        mock_manager._running_tasks = {}
+
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
@@ -5288,8 +5292,7 @@ class TestUpdateApiKeyWithAgentRebuild:
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.agents.common_tools.COMMON_TOOLS", []), \
-             patch("onemancompany.core.config.load_employee_custom_tools", return_value=[]), \
+             patch("onemancompany.core.tool_registry.tool_registry.get_tools_for", return_value=[]), \
              patch("langgraph.prebuilt.create_react_agent", return_value=MagicMock()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -5475,7 +5478,7 @@ class TestOneOnOneChatAgentLoopHistory:
 
         mock_task = MagicMock()
         mock_task.id = "t1"
-        mock_task.status = "completed"
+        mock_task.status = "complete"
         mock_task.result = "Got your history"
         mock_task.logs = []
 
@@ -5523,7 +5526,7 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
 
         mock_task = MagicMock()
         mock_task.id = "t1"
-        mock_task.status = "completed"
+        mock_task.status = "complete"
         mock_task.result = ""
         mock_task.logs = [
             {"type": "tool_call", "content": "Called search tool"},

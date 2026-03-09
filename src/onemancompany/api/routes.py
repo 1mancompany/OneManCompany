@@ -70,11 +70,9 @@ def _rebuild_employee_agent(employee_id: str) -> bool:
         return False
     from onemancompany.agents.base import make_llm
     from langgraph.prebuilt import create_react_agent
-    from onemancompany.agents.common_tools import COMMON_TOOLS
-    from onemancompany.core.config import load_employee_custom_tools
+    from onemancompany.core.tool_registry import tool_registry
     new_llm = make_llm(employee_id)
-    custom_tools = load_employee_custom_tools(employee_id)
-    loop.agent._agent = create_react_agent(model=new_llm, tools=list(COMMON_TOOLS) + custom_tools)
+    loop.agent._agent = create_react_agent(model=new_llm, tools=tool_registry.get_tools_for(employee_id))
     return True
 
 
@@ -327,6 +325,75 @@ async def ceo_qa(body: dict) -> dict:
     return {"answer": answer}
 
 
+@router.post("/api/ceo/respond")
+async def ceo_respond(body: dict) -> dict:
+    """CEO responds to an employee report — approve or request revision.
+
+    If the employee is blocking on report_to_ceo(action_required=True),
+    the response unblocks the tool call directly (no new task needed).
+    Otherwise, pushes a follow-up task to the employee's board.
+    """
+    from onemancompany.agents.common_tools import resolve_ceo_pending
+    from onemancompany.core.vessel import employee_manager
+
+    employee_id = body.get("employee_id", "")
+    project_id = body.get("project_id", "")
+    subject = body.get("subject", "")
+    message = body.get("message", "").strip()
+    action = body.get("action", "approve")
+
+    if not employee_id:
+        return {"error": "Missing employee_id"}
+
+    handle = employee_manager.get_handle(employee_id)
+    if not handle:
+        return {"error": f"Employee {employee_id} not found"}
+
+    # Try to unblock a waiting report_to_ceo call first
+    resolved = resolve_ceo_pending(employee_id, project_id, {
+        "action": action, "message": message,
+    })
+
+    if not resolved:
+        # No blocking call — push a follow-up task instead
+        project_dir = ""
+        if project_id:
+            from onemancompany.core.project_archive import load_project
+            proj = load_project(project_id)
+            if proj:
+                project_dir = proj.get("project_dir", "")
+
+        if action == "revise" and message:
+            task_desc = (
+                f"CEO Review 反馈 — 需要修改\n\n"
+                f"原汇报主题: {subject}\n\n"
+                f"CEO指示:\n{message}\n\n"
+                f"请根据CEO的指示进行修改，完成后再次调用 report_to_ceo() 汇报结果。"
+            )
+        else:
+            task_desc = (
+                f"CEO已批准 — 请继续执行\n\n"
+                f"原汇报主题: {subject}\n\n"
+                f"CEO已审阅通过，无修改意见。请继续执行后续步骤。\n"
+                f"如果有待发送的邮件、待执行的操作等，请立即执行。"
+            )
+        handle.push_task(task_desc, project_id=project_id, project_dir=project_dir)
+
+    await event_bus.publish(CompanyEvent(
+        type="ceo_response",
+        payload={
+            "employee_id": employee_id,
+            "project_id": project_id,
+            "action": action,
+            "message": message,
+            "subject": subject,
+        },
+        agent="CEO",
+    ))
+
+    return {"status": "ok", "action": action, "resolved_pending": resolved}
+
+
 @router.post("/api/ceo/task")
 async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent via persistent loop."""
@@ -350,6 +417,10 @@ async def ceo_submit_task(body: dict) -> dict:
     company_state.ceo_tasks.append(task)
     company_state.activity_log.append({"type": "ceo_task", "task": task})
 
+    # Classify task type — EA can override later via set_acceptance_criteria
+    from onemancompany.core.task_lifecycle import classify_task_type
+    task_type = classify_task_type(task).value
+
     iter_id = ""
     if project_id:
         # Continue an existing named project with a new iteration
@@ -364,13 +435,14 @@ async def ceo_submit_task(body: dict) -> dict:
         pid = project_id
     else:
         # No project association — legacy one-shot project
-        pid = create_project(task, "pending", [e.id for e in company_state.employees.values()])
+        pid = create_project(task, "pending", [e.id for e in company_state.employees.values()], task_type=task_type)
         pdir = get_project_dir(pid)
 
     task_entry = TaskEntry(
         project_id=pid,
         iteration_id=iter_id,
         task=task,
+        task_type=task_type,
         routed_to="pending",
         project_dir=pdir,
     )
@@ -504,7 +576,7 @@ async def oneonone_chat(body: dict) -> dict:
         for _ in range(120):  # up to 60 seconds
             await asyncio.sleep(0.5)
             t = loop.board.get_task(agent_task.id)
-            if t and t.status in ("completed", "failed"):
+            if t and t.status in ("complete", "failed", "finished"):
                 break
         # Extract the result from logs
         t = loop.board.get_task(agent_task.id)
@@ -1176,10 +1248,10 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     if not task:
         return {"status": "error", "message": "Task not found"}
 
-    if task.status not in ("pending", "in_progress"):
+    if task.status not in ("pending", "processing", "holding"):
         return {"status": "error", "message": f"Task already {task.status}"}
 
-    was_in_progress = task.status == "in_progress"
+    was_in_progress = task.status == "processing"
 
     task.status = "cancelled"
     task.completed_at = datetime.now().isoformat()
@@ -1190,7 +1262,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     # Also cancel pending sub-tasks
     for sid in task.sub_task_ids:
         sub = loop.board.get_task(sid)
-        if sub and sub.status in ("pending", "in_progress"):
+        if sub and sub.status in ("pending", "processing", "holding"):
             sub.status = "cancelled"
             sub.completed_at = datetime.now().isoformat()
             sub.result = "Parent task cancelled by CEO"
@@ -1508,24 +1580,19 @@ async def update_api_settings(body: dict) -> dict:
     from onemancompany.core.config import settings, update_env_var
 
     provider = body.get("provider", "")
-    if provider not in ("openrouter", "anthropic"):
-        return {"error": "Invalid provider. Must be 'openrouter' or 'anthropic'."}
+    if provider != "openrouter":
+        return {"error": "Only 'openrouter' provider is supported. "
+                "Anthropic auth is managed via OAuth flow, not API key."}
 
-    if provider == "openrouter":
-        api_key = body.get("api_key", "")
-        if api_key:
-            update_env_var("OPENROUTER_API_KEY", api_key)
-        base_url = body.get("base_url", "")
-        if base_url:
-            update_env_var("OPENROUTER_BASE_URL", base_url)
-        default_model = body.get("default_model", "")
-        if default_model:
-            update_env_var("DEFAULT_LLM_MODEL", default_model)
-    elif provider == "anthropic":
-        api_key = body.get("api_key", "")
-        if api_key:
-            update_env_var("ANTHROPIC_API_KEY", api_key)
-            update_env_var("ANTHROPIC_AUTH_METHOD", "api_key")
+    api_key = body.get("api_key", "")
+    if api_key:
+        update_env_var("OPENROUTER_API_KEY", api_key)
+    base_url = body.get("base_url", "")
+    if base_url:
+        update_env_var("OPENROUTER_BASE_URL", base_url)
+    default_model = body.get("default_model", "")
+    if default_model:
+        update_env_var("DEFAULT_LLM_MODEL", default_model)
 
     # Return refreshed status
     from onemancompany.core.config import settings as refreshed
@@ -2569,6 +2636,125 @@ async def get_project_file(project_id: str, file_path: str):
         return Response(content=content, media_type=media)
 
 
+# ===== Employee Workspace =====
+
+@router.get("/api/employee/{employee_id}/workspace")
+async def list_employee_workspace(employee_id: str, subdir: str = "") -> dict:
+    """List files in an employee's workspace directory."""
+    from onemancompany.core.config import get_workspace_dir
+
+    ws = get_workspace_dir(employee_id)
+    target = (ws / subdir).resolve() if subdir else ws.resolve()
+    if not str(target).startswith(str(ws.resolve())):
+        return {"error": "Forbidden", "files": []}
+    if not target.is_dir():
+        return {"files": []}
+
+    files = []
+    for item in sorted(target.iterdir()):
+        rel = str(item.relative_to(ws))
+        entry = {"name": item.name, "path": rel, "is_dir": item.is_dir()}
+        if item.is_file():
+            entry["size"] = item.stat().st_size
+        files.append(entry)
+    return {"employee_id": employee_id, "files": files}
+
+
+@router.get("/api/employee/{employee_id}/workspace/files/{file_path:path}")
+async def get_employee_workspace_file(employee_id: str, file_path: str):
+    """Read a file from an employee's workspace."""
+    from pathlib import Path
+
+    from fastapi.responses import Response
+
+    from onemancompany.core.config import get_workspace_dir
+
+    ws = get_workspace_dir(employee_id)
+    target = (ws / file_path).resolve()
+    if not str(target).startswith(str(ws.resolve())):
+        return Response(content="Forbidden", status_code=403)
+    if not target.is_file():
+        return Response(content="Not found", status_code=404)
+
+    suffix = target.suffix.lower()
+    text_types = {".txt", ".md", ".py", ".js", ".html", ".css", ".yaml", ".yml",
+                  ".json", ".csv", ".tsv", ".xml", ".sh", ".toml", ".cfg", ".ini",
+                  ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
+                  ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
+    if suffix in text_types:
+        content = target.read_text(encoding="utf-8", errors="replace")
+        return Response(content=content, media_type="text/plain; charset=utf-8")
+    else:
+        content = target.read_bytes()
+        media = "application/octet-stream"
+        if suffix == ".png": media = "image/png"
+        elif suffix in (".jpg", ".jpeg"): media = "image/jpeg"
+        elif suffix == ".gif": media = "image/gif"
+        return Response(content=content, media_type=media)
+
+
+@router.get("/api/employee/{employee_id}/workspace/download")
+async def download_employee_workspace(employee_id: str):
+    """Download the employee's workspace as a zip file."""
+    import io
+    import zipfile
+
+    from fastapi.responses import StreamingResponse
+
+    from onemancompany.core.config import get_workspace_dir
+
+    ws = get_workspace_dir(employee_id)
+    if not ws.is_dir():
+        from fastapi.responses import Response
+        return Response(content="Workspace not found", status_code=404)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fpath in ws.rglob("*"):
+            if fpath.is_file():
+                zf.write(fpath, fpath.relative_to(ws))
+    buf.seek(0)
+
+    emp = company_state.employees.get(employee_id)
+    name = emp.nickname if emp else employee_id
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}_workspace.zip"'},
+    )
+
+
+@router.get("/api/projects/{project_id}/download")
+async def download_project_workspace(project_id: str):
+    """Download a project workspace as a zip file."""
+    import io
+    import zipfile
+
+    from fastapi.responses import StreamingResponse
+
+    from pathlib import Path
+
+    from onemancompany.core.project_archive import get_project_dir
+
+    pdir = Path(get_project_dir(project_id))
+    if not pdir.is_dir():
+        from fastapi.responses import Response
+        return Response(content="Project workspace not found", status_code=404)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fpath in pdir.rglob("*"):
+            if fpath.is_file():
+                zf.write(fpath, fpath.relative_to(pdir))
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{project_id}_workspace.zip"'},
+    )
+
+
 # ===== Ex-Employees =====
 
 @router.get("/api/ex-employees")
@@ -3084,7 +3270,19 @@ async def get_tool_icon(tool_id: str):
 
 @router.get("/api/tools/{tool_id}/definition")
 async def get_tool_definition(tool_id: str):
-    """Return tool.yaml contents + file list for the tool detail view."""
+    """Return tool definition with dynamic sections for the tool detail view.
+
+    Sections are built from tool.yaml declarations:
+    - oauth: OAuth login/credentials config
+    - env_vars: Environment variable configuration
+    - access: Allowed users display
+    - files: Source file listing
+    - definition: Raw tool.yaml content
+    """
+    import os
+
+    import yaml as _yaml
+
     from onemancompany.core.config import TOOLS_DIR
 
     tool = company_state.tools.get(tool_id)
@@ -3092,15 +3290,428 @@ async def get_tool_definition(tool_id: str):
         raise HTTPException(status_code=404, detail="Tool not found")
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
     raw = tool_yaml_path.read_text() if tool_yaml_path.exists() else ""
+    tool_data = {}
+    try:
+        tool_data = _yaml.safe_load(raw) or {}
+    except Exception as exc:
+        logger.warning("Failed to parse tool.yaml for {}: {}", tool_id, exc)
+
+    # Build sections dynamically from tool.yaml content
+    sections: list[dict] = []
+
+    # 1. OAuth section — auto-detected from oauth: key
+    oauth_cfg = tool_data.get("oauth")
+    if oauth_cfg:
+        service_name = oauth_cfg.get("service_name", "")
+        client_id_env = oauth_cfg.get("client_id_env", "")
+        client_secret_env = oauth_cfg.get("client_secret_env", "")
+        has_credentials = bool(os.environ.get(client_id_env)) and bool(os.environ.get(client_secret_env))
+
+        is_authorized = False
+        if has_credentials:
+            try:
+                from onemancompany.core.oauth import get_oauth_token, OAuthServiceConfig
+                config = OAuthServiceConfig(
+                    service_name=service_name,
+                    authorize_url=oauth_cfg.get("authorize_url", ""),
+                    token_url=oauth_cfg.get("token_url", ""),
+                    scopes=oauth_cfg.get("scopes", ""),
+                    client_id_env=client_id_env,
+                    client_secret_env=client_secret_env,
+                )
+                is_authorized = get_oauth_token(config) is not None
+            except Exception as exc:
+                logger.debug("OAuth token check failed for {}: {}", service_name, exc)
+
+        # Provide masked preview of current credentials
+        raw_id = os.environ.get(client_id_env, "")
+        client_id_preview = (raw_id[:8] + "..." + raw_id[-4:]) if len(raw_id) > 12 else ("***" if raw_id else "")
+
+        # credentials_help — how to obtain API keys
+        creds_help = oauth_cfg.get("credentials_help")
+        help_data = {}
+        if creds_help:
+            help_data["credentials_help_text"] = creds_help.get("text", "")
+            help_data["credentials_help_url"] = creds_help.get("url", "")
+        # Always include redirect_uri so frontend can display it
+        redirect_port = oauth_cfg.get("redirect_port", 8585)
+        help_data["redirect_uri"] = f"http://localhost:{redirect_port}/callback"
+
+        sections.append({
+            "type": "oauth",
+            "title": f"OAuth — {service_name.title()}",
+            "service_name": service_name,
+            "has_credentials": has_credentials,
+            "is_authorized": is_authorized,
+            "client_id_env": client_id_env,
+            "client_secret_env": client_secret_env,
+            "client_id_preview": client_id_preview,
+            **help_data,
+        })
+
+    # 2. env_vars section — auto-detected from env_vars: key
+    env_vars_cfg = tool_data.get("env_vars")
+    if env_vars_cfg:
+        vars_list = []
+        for v in env_vars_cfg:
+            name = v.get("name", "")
+            raw_val = os.environ.get(name, "")
+            if v.get("secret", False):
+                display_val = ("***" + raw_val[-4:]) if len(raw_val) > 4 else ("***" if raw_val else "")
+            else:
+                display_val = raw_val
+            vars_list.append({
+                "name": name,
+                "label": v.get("label", name),
+                "placeholder": v.get("placeholder", ""),
+                "secret": v.get("secret", False),
+                "value": display_val,
+                "is_set": bool(raw_val),
+            })
+        # credentials_help for env_vars section
+        env_help = env_vars_cfg[0].get("credentials_help") if env_vars_cfg else None
+        # Also check top-level env_vars_help in tool_data
+        env_help = env_help or tool_data.get("credentials_help")
+        env_help_data = {}
+        if env_help and isinstance(env_help, dict):
+            env_help_data["credentials_help_text"] = env_help.get("text", "")
+            env_help_data["credentials_help_url"] = env_help.get("url", "")
+
+        sections.append({
+            "type": "env_vars",
+            "title": "Configuration",
+            "vars": vars_list,
+            **env_help_data,
+        })
+
+    # 3. Access control section
+    allowed = tool_data.get("allowed_users")
+    if allowed is not None:
+        users_info = []
+        for uid in (allowed or []):
+            emp = company_state.employees.get(uid)
+            users_info.append({"id": uid, "name": emp.name if emp else uid})
+        sections.append({
+            "type": "access",
+            "title": "Access Control",
+            "allowed_users": users_info,
+            "open_access": len(allowed or []) == 0 and "allowed_users" not in tool_data,
+        })
+    else:
+        sections.append({
+            "type": "access",
+            "title": "Access Control",
+            "allowed_users": [],
+            "open_access": True,
+        })
+
+    # 4. Templates section — auto-detected from templates: key
+    templates_cfg = tool_data.get("templates")
+    if templates_cfg:
+        templates_dir_name = templates_cfg.get("dir", "templates")
+        templates_dir = TOOLS_DIR / tool.folder_name / templates_dir_name
+        template_files = []
+        if templates_dir.is_dir():
+            for tf in sorted(templates_dir.iterdir()):
+                if tf.is_file() and not tf.name.startswith("."):
+                    # Parse frontmatter for name/description
+                    content = tf.read_text(encoding="utf-8")
+                    tmpl_meta = {"filename": tf.name, "name": tf.stem, "description": ""}
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+                        if len(parts) >= 3:
+                            try:
+                                fm = _yaml.safe_load(parts[1]) or {}
+                                tmpl_meta["name"] = fm.get("name", tf.stem)
+                                tmpl_meta["description"] = fm.get("description", "")
+                            except Exception as exc:
+                                logger.debug("Failed to parse template frontmatter {}: {}", tf.name, exc)
+                    template_files.append(tmpl_meta)
+        sections.append({
+            "type": "templates",
+            "title": "Email Templates",
+            "templates_dir": templates_dir_name,
+            "templates": template_files,
+        })
+
+    # 5. Files section
+    if tool.files:
+        sections.append({
+            "type": "files",
+            "title": "Source Files",
+            "files": tool.files,
+        })
+
+    # 5. Definition section (raw YAML)
+    sections.append({
+        "type": "definition",
+        "title": "Definition (tool.yaml)",
+        "content": raw,
+    })
+
     return {
         "id": tool_id,
         "name": tool.name,
         "description": tool.description,
         "folder": tool.folder_name,
         "files": tool.files,
-        "yaml_content": raw,
         "has_icon": tool.has_icon,
+        "sections": sections,
     }
+
+
+@router.post("/api/tools/{tool_id}/oauth/login")
+async def tool_oauth_login(tool_id: str):
+    """Trigger OAuth login flow for a tool. Returns the auth URL."""
+    import os
+
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    if not tool_yaml_path.exists():
+        raise HTTPException(status_code=404, detail="Tool config not found")
+
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    oauth_cfg = tool_data.get("oauth")
+    if not oauth_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not use OAuth")
+
+    service_name = oauth_cfg.get("service_name", "")
+    client_id_env = oauth_cfg.get("client_id_env", "")
+    client_secret_env = oauth_cfg.get("client_secret_env", "")
+
+    if not os.environ.get(client_id_env) or not os.environ.get(client_secret_env):
+        return {
+            "status": "error",
+            "message": f"Missing credentials. Set env vars: {client_id_env}, {client_secret_env}",
+        }
+
+    from onemancompany.core.oauth import OAuthServiceConfig, _trigger_oauth_popup
+    config = OAuthServiceConfig(
+        service_name=service_name,
+        authorize_url=oauth_cfg.get("authorize_url", ""),
+        token_url=oauth_cfg.get("token_url", ""),
+        scopes=oauth_cfg.get("scopes", ""),
+        client_id_env=client_id_env,
+        client_secret_env=client_secret_env,
+    )
+    auth_url = _trigger_oauth_popup(config)
+    if not auth_url:
+        return {"status": "error", "message": "Failed to start OAuth flow"}
+
+    return {"status": "ok", "auth_url": auth_url}
+
+
+@router.post("/api/tools/{tool_id}/oauth/logout")
+async def tool_oauth_logout(tool_id: str):
+    """Revoke OAuth tokens for a tool."""
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    oauth_cfg = tool_data.get("oauth")
+    if not oauth_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not use OAuth")
+
+    service_name = oauth_cfg.get("service_name", "")
+    from onemancompany.core.oauth import _token_cache_path
+    cache_path = _token_cache_path(service_name)
+    if cache_path.exists():
+        cache_path.unlink()
+
+    return {"status": "ok", "message": f"OAuth tokens for {service_name} revoked"}
+
+
+@router.post("/api/tools/{tool_id}/oauth/credentials")
+async def tool_oauth_set_credentials(tool_id: str, body: dict):
+    """Set OAuth client credentials (client_id, client_secret) for a tool."""
+    import os
+
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    oauth_cfg = tool_data.get("oauth")
+    if not oauth_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not use OAuth")
+
+    client_id = body.get("client_id", "")
+    client_secret = body.get("client_secret", "")
+    if not client_id or not client_secret:
+        return {"status": "error", "message": "Both client_id and client_secret required"}
+
+    client_id_env = oauth_cfg.get("client_id_env", "")
+    client_secret_env = oauth_cfg.get("client_secret_env", "")
+
+    # Set in current process environment
+    os.environ[client_id_env] = client_id
+    os.environ[client_secret_env] = client_secret
+
+    # Persist to .env file
+    from pathlib import Path as _Path
+    env_path = _Path(__file__).parent.parent.parent.parent / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+
+    # Update or append
+    updated = set()
+    for i, line in enumerate(lines):
+        if line.startswith(f"{client_id_env}="):
+            lines[i] = f"{client_id_env}={client_id}"
+            updated.add(client_id_env)
+        elif line.startswith(f"{client_secret_env}="):
+            lines[i] = f"{client_secret_env}={client_secret}"
+            updated.add(client_secret_env)
+    if client_id_env not in updated:
+        lines.append(f"{client_id_env}={client_id}")
+    if client_secret_env not in updated:
+        lines.append(f"{client_secret_env}={client_secret}")
+    env_path.write_text("\n".join(lines) + "\n")
+
+    return {"status": "ok", "message": "Credentials saved"}
+
+
+@router.post("/api/tools/{tool_id}/env")
+async def tool_save_env_vars(tool_id: str, body: dict):
+    """Save environment variables for a tool. Body is {VAR_NAME: value, ...}."""
+    import os
+    from pathlib import Path as _Path
+
+    tool = company_state.tools.get(tool_id)
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    if not body:
+        return {"status": "error", "message": "No variables provided"}
+
+    # Filter out empty values (don't overwrite existing with blank)
+    to_save = {k: v for k, v in body.items() if v}
+    if not to_save:
+        return {"status": "ok", "message": "Nothing to update"}
+
+    # Set in current process
+    for name, value in to_save.items():
+        os.environ[name] = value
+
+    # Persist to .env
+    env_path = _Path(__file__).parent.parent.parent.parent / ".env"
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+
+    updated = set()
+    for i, line in enumerate(lines):
+        for name, value in to_save.items():
+            if line.startswith(f"{name}="):
+                lines[i] = f"{name}={value}"
+                updated.add(name)
+    for name, value in to_save.items():
+        if name not in updated:
+            lines.append(f"{name}={value}")
+    env_path.write_text("\n".join(lines) + "\n")
+
+    return {"status": "ok", "message": f"{len(to_save)} variable(s) saved"}
+
+
+@router.get("/api/tools/{tool_id}/templates/{filename}")
+async def tool_get_template(tool_id: str, filename: str):
+    """Read a template file from a tool's templates directory."""
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    templates_cfg = tool_data.get("templates")
+    if not templates_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not have templates")
+
+    templates_dir = TOOLS_DIR / tool.folder_name / templates_cfg.get("dir", "templates")
+    file_path = templates_dir / filename
+    if not file_path.is_file() or not file_path.resolve().is_relative_to(templates_dir.resolve()):
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    return {"filename": filename, "content": file_path.read_text(encoding="utf-8")}
+
+
+@router.put("/api/tools/{tool_id}/templates/{filename}")
+async def tool_save_template(tool_id: str, filename: str, body: dict):
+    """Save (create or update) a template file."""
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    content = body.get("content", "")
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty content")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    templates_cfg = tool_data.get("templates")
+    if not templates_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not have templates")
+
+    templates_dir = TOOLS_DIR / tool.folder_name / templates_cfg.get("dir", "templates")
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    file_path = templates_dir / filename
+    if not file_path.resolve().is_relative_to(templates_dir.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path.write_text(content, encoding="utf-8")
+    return {"status": "ok", "filename": filename}
+
+
+@router.delete("/api/tools/{tool_id}/templates/{filename}")
+async def tool_delete_template(tool_id: str, filename: str):
+    """Delete a template file."""
+    import yaml as _yaml
+
+    from onemancompany.core.config import TOOLS_DIR
+
+    tool = company_state.tools.get(tool_id)
+    if not tool or not tool.folder_name:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    templates_cfg = tool_data.get("templates")
+    if not templates_cfg:
+        raise HTTPException(status_code=400, detail="Tool does not have templates")
+
+    templates_dir = TOOLS_DIR / tool.folder_name / templates_cfg.get("dir", "templates")
+    file_path = templates_dir / filename
+    if not file_path.is_file() or not file_path.resolve().is_relative_to(templates_dir.resolve()):
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    file_path.unlink()
+    return {"status": "ok", "filename": filename}
 
 
 # ===== Sales Protocol (External Client API) =====
@@ -3416,21 +4027,16 @@ _mcp_tool_registry: dict[str, callable] = {}
 
 
 def _ensure_tool_registry() -> dict[str, callable]:
-    """Build tool registry on first use."""
+    """Build tool registry on first use from the unified ToolRegistry."""
     if _mcp_tool_registry:
         return _mcp_tool_registry
 
-    from onemancompany.agents.common_tools import (
-        BASE_TOOLS, GATED_TOOLS, COMMON_TOOLS,
-        dispatch_team_tasks, manage_tool_access,
-    )
-    # Register all known tools by function name
-    for fn in COMMON_TOOLS:
-        name = getattr(fn, "name", None) or fn.__name__
-        _mcp_tool_registry[name] = fn
-    # Ensure dispatch_team_tasks and manage_tool_access are included
-    _mcp_tool_registry["dispatch_team_tasks"] = dispatch_team_tasks
-    _mcp_tool_registry["manage_tool_access"] = manage_tool_access
+    from onemancompany.core.tool_registry import tool_registry
+
+    for name in tool_registry.all_tool_names():
+        tool = tool_registry.get_tool(name)
+        if tool is not None:
+            _mcp_tool_registry[name] = tool
     return _mcp_tool_registry
 
 
@@ -3469,7 +4075,7 @@ async def internal_tool_call(body: dict) -> dict:
     task_token = None
     try:
         if employee_id and task_id:
-            vessel = employee_manager.get_vessel(employee_id)
+            vessel = employee_manager.get_handle(employee_id)
             if vessel:
                 vessel_token = _current_vessel.set(vessel)
                 task_token = _current_task_id.set(task_id)
@@ -3500,3 +4106,28 @@ async def internal_tool_call(body: dict) -> dict:
             _current_vessel.reset(vessel_token)
         if task_token is not None:
             _current_task_id.reset(task_token)
+
+
+# ---------------------------------------------------------------------------
+# Automation: webhooks + cron management
+# ---------------------------------------------------------------------------
+
+@router.post("/api/webhook/{employee_id}/{hook_name}")
+async def webhook_trigger(employee_id: str, hook_name: str, body: dict = {}) -> dict:
+    """Receive an external webhook call and dispatch a task to the employee."""
+    from onemancompany.core.automation import handle_webhook
+    result = await handle_webhook(employee_id, hook_name, body)
+    if result.get("status") == "error":
+        raise HTTPException(404, result["message"])
+    return result
+
+
+@router.get("/api/automations/{employee_id}")
+async def get_automations(employee_id: str) -> dict:
+    """List all automations (crons + webhooks) for an employee."""
+    from onemancompany.core.automation import list_crons, list_webhooks
+    return {
+        "employee_id": employee_id,
+        "crons": list_crons(employee_id),
+        "webhooks": list_webhooks(employee_id),
+    }

@@ -610,6 +610,7 @@ class TestEmployeeAgent:
         from onemancompany.core import state as state_mod
         from onemancompany.agents import base as base_mod, common_tools as ct_mod
         from onemancompany.core import config as config_mod
+        from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
         emp = _make_emp(emp_id, **emp_kwargs)
@@ -619,7 +620,12 @@ class TestEmployeeAgent:
         monkeypatch.setattr(ct_mod, "company_state", cs)
 
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
-        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        # Mock tool_registry to return empty tools
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[])
+        mock_registry.all_tool_names = MagicMock(return_value=[])
+        mock_registry.get_meta = MagicMock(return_value=None)
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
         monkeypatch.setattr(config_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
 
@@ -645,12 +651,16 @@ class TestEmployeeAgent:
         """When employee not in state, role defaults to 'Employee'."""
         from onemancompany.core import state as state_mod
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import config as config_mod
+        from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
-        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[])
+        mock_registry.all_tool_names = MagicMock(return_value=[])
+        mock_registry.get_meta = MagicMock(return_value=None)
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(
             "onemancompany.agents.base.create_react_agent",
@@ -664,12 +674,16 @@ class TestEmployeeAgent:
     def test_build_prompt_no_employee(self, monkeypatch):
         from onemancompany.core import state as state_mod
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import config as config_mod
+        from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
-        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[])
+        mock_registry.all_tool_names = MagicMock(return_value=[])
+        mock_registry.get_meta = MagicMock(return_value=None)
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(
             "onemancompany.agents.base.create_react_agent",
@@ -707,6 +721,18 @@ class TestEmployeeAgent:
     def test_gated_tools_included_when_permitted(self, monkeypatch):
         self._setup(monkeypatch, emp_id="00010", tool_permissions=["read_file"])
 
+        from onemancompany.core import tool_registry as tr_mod
+        from onemancompany.core.tool_registry import ToolMeta
+
+        # Override the mock registry from _setup to return read_file as authorized
+        mock_tool = MagicMock()
+        mock_tool.name = "read_file"
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[mock_tool])
+        mock_registry.all_tool_names = MagicMock(return_value=["read_file"])
+        mock_registry.get_meta = MagicMock(return_value=ToolMeta(name="read_file", category="gated"))
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
+
         from onemancompany.agents.base import EmployeeAgent
         agent = EmployeeAgent("00010")
 
@@ -722,7 +748,7 @@ class TestEmployeeAgent:
 
         # Mock agent loop context
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
         )
 
@@ -750,7 +776,7 @@ class TestEmployeeAgent:
         cs, emp, mock_agent = self._setup(monkeypatch)
 
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
         )
 
@@ -773,6 +799,7 @@ class TestEmployeeAgent:
         from onemancompany.agents import base as base_mod
         from onemancompany.core import config as config_mod
         from onemancompany.core import state as state_mod
+        from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
         emp = _make_emp(
@@ -793,7 +820,11 @@ class TestEmployeeAgent:
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path / "emp")
         monkeypatch.setattr(config_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
-        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[])
+        mock_registry.all_tool_names = MagicMock(return_value=[])
+        mock_registry.get_meta = MagicMock(return_value=None)
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(
             "onemancompany.agents.base.create_react_agent",
@@ -965,7 +996,7 @@ class TestBuildFullPrompt:
         mock_loop = MagicMock()
         mock_loop.get_history_context.return_value = "\n## History\nPrevious tasks..."
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: mock_loop),
         )
 
@@ -987,7 +1018,7 @@ class TestBuildFullPrompt:
         runner._build_prompt = lambda: "simple prompt"
 
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
         )
 
@@ -1016,7 +1047,7 @@ class TestRunStreamed:
         monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=mock_publish))
 
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
         )
 
@@ -1077,7 +1108,7 @@ class TestRunStreamed:
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
         monkeypatch.setattr(
-            "onemancompany.core.agent_loop._current_loop",
+            "onemancompany.core.agent_loop._current_vessel",
             MagicMock(get=lambda x=None: None),
         )
 
@@ -1235,17 +1266,25 @@ class TestUnauthorizedToolsSectionEmpty:
     def test_returns_empty_when_no_unauthorized_tools(self, monkeypatch):
         from onemancompany.agents.base import EmployeeAgent
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import state as state_mod, config as config_mod
-        import onemancompany.agents.common_tools as ct_mod
+        from onemancompany.core import state as state_mod
+        from onemancompany.core import tool_registry as tr_mod
+        from onemancompany.core.tool_registry import ToolMeta
 
         cs = _make_cs()
-        emp = _make_emp("00010", tool_permissions=list(ct_mod.GATED_TOOLS.keys()))
+        emp = _make_emp("00010", tool_permissions=["some_tool"])
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
-        monkeypatch.setattr(ct_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
-        monkeypatch.setattr(config_mod, "load_employee_custom_tools", lambda eid: [])
+
+        # Mock tool_registry: all tools are returned (none unauthorized)
+        mock_tool = MagicMock()
+        mock_tool.name = "some_tool"
+        mock_registry = MagicMock()
+        mock_registry.get_tools_for = MagicMock(return_value=[mock_tool])
+        mock_registry.all_tool_names = MagicMock(return_value=["some_tool"])
+        mock_registry.get_meta = MagicMock(return_value=ToolMeta(name="some_tool", category="base"))
+        monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(
             "onemancompany.agents.base.create_react_agent",

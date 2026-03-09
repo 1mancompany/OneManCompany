@@ -91,7 +91,7 @@
           </div>
           <div class="ceo-project-selector">
             <select id="project-select">
-              <option value="">&#128203; New Task (no project)</option>
+              <option value="">&#128203; Simple Task</option>
               <option value="__new__">&#10133; Create New Project...</option>
               <option value="__qa__">&#128172; Q&amp;A Mode (no project)</option>
             </select>
@@ -127,18 +127,6 @@
         <!-- future settings sections go here -->
       </div>
 
-      <!-- Unified Review Queue -->
-      <div id="review-queue-section" class="hidden">
-        <div class="review-queue-header">
-          <h3 class="pixel-title small" id="review-queue-title">&#128203; Pending Review</h3>
-          <span id="review-queue-counter" class="review-counter"></span>
-        </div>
-        <div id="review-queue-content"></div>
-        <div class="btn-row" style="margin-top:6px;">
-          <button id="review-approve-btn" class="pixel-btn">&#9989; Approve</button>
-          <button id="review-reject-btn" class="pixel-btn secondary">&#10005; Reject</button>
-        </div>
-      </div>
 
       <div class="collapsible-header" data-target="activity-body">
         <span class="collapse-arrow">&#9660;</span>
@@ -476,7 +464,7 @@
         <h3 class="pixel-title">&#128295; TOOL LIST</h3>
         <button class="modal-close" onclick="document.getElementById('tool-list-modal').classList.add('hidden')">&times;</button>
       </div>
-      <div class="modal-body" style="flex-direction:column;padding:8px;">
+      <div class="modal-body" style="flex-direction:column;padding:8px;overflow-y:auto;">
         <div id="tool-list-body"></div>
       </div>
     </div>
@@ -508,6 +496,11 @@
       <div class="modal-body resolution-modal-body">
         <div id="resolution-task-info" class="resolution-task-info"></div>
         <div id="resolution-edits" class="resolution-edits"></div>
+      </div>
+      <div style="padding:0 12px 8px;">
+        <div style="font-size:7px;color:var(--accent,#4fc3f7);margin-bottom:3px;">CEO整改意见（选填）</div>
+        <textarea id="resolution-ceo-feedback" placeholder="写下整改意见后连同决策一起发送给员工..."
+          style="width:100%;min-height:36px;max-height:100px;background:var(--bg-input,#0d0d1a);border:1px solid #444;border-radius:3px;color:var(--text,#e0e0e0);font-family:var(--font-mono,monospace);font-size:7px;padding:4px;resize:vertical;box-sizing:border-box;"></textarea>
       </div>
       <div class="modal-footer">
         <button id="resolution-submit-btn" class="pixel-btn">&#9989; Submit All Decisions</button>

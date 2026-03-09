@@ -28,7 +28,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
-from onemancompany.agents.common_tools import COMMON_TOOLS
 from onemancompany.agents.recruitment import (
     _last_search_results,
     _pending_project_ctx,
@@ -109,7 +108,14 @@ Department map: Engineer/DevOps/QA → "Engineering", Designer → "Design", Ana
 Be concise and professional.
 """
 
-HIRING_TOOLS = [search_candidates, list_open_positions] + COMMON_TOOLS
+def _register_hr_tools() -> None:
+    from onemancompany.core.tool_registry import ToolMeta, tool_registry
+
+    for t in [search_candidates, list_open_positions]:
+        tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["HR"]))
+
+
+_register_hr_tools()
 
 
 class HRAgent(BaseAgentRunner):
@@ -117,9 +123,11 @@ class HRAgent(BaseAgentRunner):
     employee_id = HR_ID
 
     def __init__(self) -> None:
+        from onemancompany.core.tool_registry import tool_registry
+
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=HIRING_TOOLS,
+            tools=tool_registry.get_tools_for(self.employee_id),
         )
 
     def _customize_prompt(self, pb) -> None:
@@ -141,8 +149,8 @@ class HRAgent(BaseAgentRunner):
         # and clear it from the current task to prevent premature cleanup.
         new_batches = set(pending_candidates.keys()) - old_batches
         if new_batches:
-            from onemancompany.core.agent_loop import _current_loop, _current_task_id
-            loop = _current_loop.get()
+            from onemancompany.core.agent_loop import _current_vessel, _current_task_id
+            loop = _current_vessel.get()
             task_id = _current_task_id.get()
             if loop and task_id:
                 task_obj = loop.board.get_task(task_id)
@@ -387,23 +395,6 @@ class HRAgent(BaseAgentRunner):
                 )
 
 
-# Re-export onboarding functions for backward compat
-from onemancompany.agents.onboarding import (  # noqa: E402, F811
-    execute_hire,
-    copy_talent_assets,
-    generate_nickname,
-)
-
-# Re-export recruitment functions for backward compat
-from onemancompany.agents.recruitment import (  # noqa: E402, F811
-    _talent_to_candidate,
-    start_boss_online,
-    stop_boss_online,
-    _call_boss_online,
-)
-
-# Re-export termination for backward compat
-from onemancompany.agents.termination import execute_fire as execute_fire  # noqa: E402, F811
 
 
 # Singleton removed — agent instances are now created and registered

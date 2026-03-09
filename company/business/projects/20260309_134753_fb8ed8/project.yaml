@@ -1,0 +1,30 @@
+acceptance_criteria: []
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-09T13:47:53.091322'
+current_owner: pending
+dispatches: []
+ea_review_result: null
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00006'
+- '00007'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_134753_fb8ed8
+project_id: 20260309_134753_fb8ed8
+responsible_officer: ''
+routed_to: pending
+status: in_progress
+task: 给我自己发一个邮件，提示我下午2点有个会议
+timeline: []

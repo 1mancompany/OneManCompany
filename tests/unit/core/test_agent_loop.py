@@ -62,13 +62,13 @@ class TestAgentTask:
         task = AgentTask(
             id="xyz",
             description="Build feature",
-            status="in_progress",
+            status="processing",
             parent_id="parent1",
             project_id="proj1",
             project_dir="/tmp/proj",
             created_at="2024-01-01T00:00:00",
         )
-        assert task.status == "in_progress"
+        assert task.status == "processing"
         assert task.parent_id == "parent1"
         assert task.project_id == "proj1"
         assert task.project_dir == "/tmp/proj"
@@ -88,7 +88,7 @@ class TestAgentTask:
         task = AgentTask(
             id="t1",
             description="Build widget",
-            status="completed",
+            status="complete",
             parent_id="p1",
             project_id="proj1",
             original_project_id="orig1",
@@ -105,7 +105,7 @@ class TestAgentTask:
         d = task.to_dict()
         assert d["id"] == "t1"
         assert d["description"] == "Build widget"
-        assert d["status"] == "completed"
+        assert d["status"] == "complete"
         assert d["parent_id"] == "p1"
         assert d["project_id"] == "proj1"
         assert d["original_project_id"] == "orig1"
@@ -133,10 +133,10 @@ class TestAgentTask:
     def test_status_transitions(self):
         task = AgentTask(id="t1", description="test")
         assert task.status == "pending"
-        task.status = "in_progress"
-        assert task.status == "in_progress"
-        task.status = "completed"
-        assert task.status == "completed"
+        task.status = "processing"
+        assert task.status == "processing"
+        task.status = "complete"
+        assert task.status == "complete"
 
     def test_status_failed(self):
         task = AgentTask(id="t1", description="test")
@@ -191,7 +191,7 @@ class TestAgentTaskBoard:
     def test_get_next_pending_skips_non_pending(self):
         board = AgentTaskBoard()
         t1 = board.push("First")
-        t1.status = "completed"
+        t1.status = "complete"
         t2 = board.push("Second")
         result = board.get_next_pending()
         assert result is t2
@@ -199,7 +199,7 @@ class TestAgentTaskBoard:
     def test_get_next_pending_skips_subtasks(self):
         board = AgentTaskBoard()
         parent = board.push("Parent")
-        parent.status = "in_progress"
+        parent.status = "processing"
         child = board.push("Child", parent_id=parent.id)
         result = board.get_next_pending()
         assert result is None  # child is a subtask, not top-level
@@ -214,7 +214,7 @@ class TestAgentTaskBoard:
         c1 = board.push("Child 1", parent_id=parent.id)
         c2 = board.push("Child 2", parent_id=parent.id)
         c3 = board.push("Child 3", parent_id=parent.id)
-        c2.status = "completed"
+        c2.status = "complete"
         pending = board.get_pending_subtasks(parent.id)
         assert len(pending) == 2
         assert c1 in pending
@@ -230,13 +230,13 @@ class TestAgentTaskBoard:
         t1 = board.push("Task 1", project_id="proj1")
         t2 = board.push("Task 2", project_id="proj1")
         t3 = board.push("Task 3", project_id="proj2")
-        t2.status = "completed"  # already completed, should not be cancelled
+        t2.status = "complete"  # already completed, should not be cancelled
         cancelled = board.cancel_by_project("proj1")
         assert len(cancelled) == 1
         assert t1 in cancelled
         assert t1.status == "cancelled"
         assert t1.result == "Cancelled by CEO"
-        assert t2.status == "completed"  # not changed
+        assert t2.status == "complete"  # not changed
         assert t3.status == "pending"  # different project
 
     def test_cancel_by_project_cancels_subtasks(self):
@@ -393,7 +393,7 @@ class TestClaudeSessionLauncher:
         launcher = ClaudeSessionLauncher("emp01")
         ctx = TaskContext(project_id="proj1", work_dir="/tmp/work")
         with patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "Claude output"
+            mock_run.return_value = {"output": "Claude output", "model": "test", "input_tokens": 10, "output_tokens": 5}
             on_log = MagicMock()
             result = await launcher.execute("Do task", ctx, on_log=on_log)
             mock_run.assert_called_once_with("emp01", "proj1", prompt="Do task", work_dir="/tmp/work", task_id="")
@@ -405,7 +405,7 @@ class TestClaudeSessionLauncher:
         launcher = ClaudeSessionLauncher("emp01")
         ctx = TaskContext()  # empty project_id
         with patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "output"
+            mock_run.return_value = {"output": "output", "model": "test", "input_tokens": 0, "output_tokens": 0}
             result = await launcher.execute("Do task", ctx)
             mock_run.assert_called_once_with("emp01", "default", prompt="Do task", work_dir="", task_id="")
             assert result.output == "output"
@@ -415,7 +415,7 @@ class TestClaudeSessionLauncher:
         launcher = ClaudeSessionLauncher("emp01")
         ctx = TaskContext(project_id="p1")
         with patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = None
+            mock_run.return_value = {"output": None, "model": "", "input_tokens": 0, "output_tokens": 0}
             result = await launcher.execute("Do task", ctx)
             assert result.output == ""
 
@@ -424,7 +424,7 @@ class TestClaudeSessionLauncher:
         launcher = ClaudeSessionLauncher("emp01")
         ctx = TaskContext(project_id="p1")
         with patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = "output"
+            mock_run.return_value = {"output": "output", "model": "test", "input_tokens": 0, "output_tokens": 0}
             result = await launcher.execute("Do task", ctx, on_log=None)
             assert result.output == "output"
 
@@ -606,10 +606,10 @@ class TestEmployeeManagerRegistration:
         handle = mgr.register("emp01", launcher)
         assert isinstance(handle, EmployeeHandle)
         assert handle.employee_id == "emp01"
-        assert mgr.launchers["emp01"] is launcher
+        assert mgr.executors["emp01"] is launcher
         assert "emp01" in mgr.boards
         assert "emp01" in mgr.task_histories
-        assert mgr._handles["emp01"] is handle
+        assert mgr.vessels["emp01"] is handle
 
     def test_register_preserves_existing_board(self):
         mgr = EmployeeManager()
@@ -633,8 +633,8 @@ class TestEmployeeManagerRegistration:
         mgr.register("emp01", launcher)
         mgr.register_hooks("emp01", {"pre_task": lambda t, c: t})
         mgr.unregister("emp01")
-        assert "emp01" not in mgr.launchers
-        assert "emp01" not in mgr._handles
+        assert "emp01" not in mgr.executors
+        assert "emp01" not in mgr.vessels
         assert "emp01" not in mgr._hooks
 
     def test_unregister_nonexistent(self):
@@ -753,7 +753,7 @@ class TestEmployeeManagerExecuteTask:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", task)
 
-        assert task.status == "completed"
+        assert task.status == "complete"
         assert task.result == "Task done!"
         assert task.completed_at != ""
         launcher.execute.assert_called_once()
@@ -801,7 +801,7 @@ class TestEmployeeManagerExecuteTask:
         mgr = EmployeeManager()
         # Register but then remove the launcher to simulate missing launcher
         mgr.boards["emp01"] = AgentTaskBoard()
-        mgr._handles["emp01"] = EmployeeHandle(mgr, "emp01")
+        mgr.vessels["emp01"] = EmployeeHandle(mgr, "emp01")
         mgr.task_histories["emp01"] = []
 
         task = AgentTask(id="t1", description="Build widget")
@@ -1148,7 +1148,7 @@ class TestEmployeeManagerExecuteSubtask:
 
         await mgr._execute_subtask("emp01", sub, depth=1)
 
-        assert sub.status == "completed"
+        assert sub.status == "complete"
         assert sub.result == "Sub done"
         assert sub.completed_at != ""
 
@@ -1232,7 +1232,7 @@ class TestEmployeeManagerCompletionCheck:
         mgr.boards["emp01"] = AgentTaskBoard()
 
         task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="completed", result="Done", parent_id="t1")
+        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
         mgr.boards["emp01"].tasks.extend([task, sub])
 
         mock_result = MagicMock()
@@ -1249,7 +1249,7 @@ class TestEmployeeManagerCompletionCheck:
         mgr.boards["emp01"] = AgentTaskBoard()
 
         task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="completed", result="Partial", parent_id="t1")
+        sub = AgentTask(id="s1", description="Sub", status="complete", result="Partial", parent_id="t1")
         mgr.boards["emp01"].tasks.extend([task, sub])
 
         mock_result = MagicMock()
@@ -1268,7 +1268,7 @@ class TestEmployeeManagerCompletionCheck:
         mgr.boards["emp01"] = AgentTaskBoard()
 
         task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="completed", result="Done", parent_id="t1")
+        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
         mgr.boards["emp01"].tasks.extend([task, sub])
 
         with patch("onemancompany.agents.base.make_llm", side_effect=RuntimeError("LLM error")):
@@ -1419,9 +1419,9 @@ class TestBackwardCompatAPI:
             mock_reg.assert_called_once_with("emp01", runner)
 
     def test_agent_loops_alias(self):
-        # agent_loops should be the same dict as employee_manager._handles
+        # agent_loops should be the same dict as employee_manager.vessels
         from onemancompany.core.agent_loop import employee_manager
-        assert agent_loops is employee_manager._handles
+        assert agent_loops is employee_manager.vessels
 
 
 # ---------------------------------------------------------------------------
@@ -1493,7 +1493,7 @@ class TestEmployeeManagerHookFailures:
             await mgr._execute_task("emp01", task)
 
         # Task should still complete despite pre-hook failure
-        assert task.status == "completed"
+        assert task.status == "complete"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -1524,7 +1524,7 @@ class TestEmployeeManagerHookFailures:
             await mgr._execute_task("emp01", task)
 
         # Task should still be completed despite post-hook failure
-        assert task.status == "completed"
+        assert task.status == "complete"
 
 
 # ---------------------------------------------------------------------------
@@ -1704,7 +1704,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
             with patch.object(mgr, "_post_task_cleanup", new_callable=AsyncMock):
                 await mgr._execute_task("emp01", task)
 
-        assert task.status == "completed"
+        assert task.status == "complete"
         # TaskEntry should have been appended
         assert len(mock_state.active_tasks) == 1
 
@@ -1773,7 +1773,7 @@ class TestEmployeeManagerSubtaskTokenTracking:
         with patch("onemancompany.core.model_costs.get_model_cost", return_value={"input": 10.0, "output": 30.0}):
             await mgr._execute_subtask("emp01", sub, depth=1)
 
-        assert sub.status == "completed"
+        assert sub.status == "complete"
         assert sub.input_tokens == 100
         assert sub.output_tokens == 50
         assert sub.total_tokens == 150
@@ -1793,7 +1793,7 @@ class TestEmployeeManagerSubtaskTokenTracking:
 
         mgr = EmployeeManager()
         mgr.boards["emp01"] = AgentTaskBoard()
-        mgr._handles["emp01"] = EmployeeHandle(mgr, "emp01")
+        mgr.vessels["emp01"] = EmployeeHandle(mgr, "emp01")
 
         sub = AgentTask(id="s1", description="Sub task")
         mgr.boards["emp01"].tasks.append(sub)
@@ -2512,7 +2512,7 @@ class TestEmployeeManagerSubtaskLoop:
             with patch.object(mgr, "_completion_check", new_callable=AsyncMock, return_value=True):
                 await mgr._execute_task("emp01", task)
 
-        assert task.status == "completed"
+        assert task.status == "complete"
         assert call_count == 2  # main + subtask
 
     @pytest.mark.asyncio
@@ -2706,7 +2706,7 @@ class TestExecuteTaskOnLogCallback:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", task)
 
-        assert task.status == "completed"
+        assert task.status == "complete"
         # Verify the on_log callback populated the task logs
         log_types = [lg["type"] for lg in task.logs]
         assert "progress" in log_types
@@ -2848,7 +2848,7 @@ class TestExecuteSubtaskOnLogCallback:
 
         await mgr._execute_subtask("emp01", sub, depth=1)
 
-        assert sub.status == "completed"
+        assert sub.status == "complete"
         log_types = [lg["type"] for lg in sub.logs]
         assert "subtask_progress" in log_types
 
@@ -2867,7 +2867,7 @@ class TestCompletionCheckExceptionModuleLevel:
         mgr.boards["emp01"] = AgentTaskBoard()
 
         task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="completed", result="Done", parent_id="t1")
+        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
         mgr.boards["emp01"].tasks.extend([task, sub])
 
         # Patch make_llm at the importing module level (agent_loop), not agents.base

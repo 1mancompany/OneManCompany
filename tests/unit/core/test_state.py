@@ -23,7 +23,7 @@ from onemancompany.core.state import (
 class TestTaskEntry:
     def test_defaults(self):
         te = TaskEntry(project_id="proj1", task="Build app", routed_to="COO")
-        assert te.status == "running"
+        assert te.status == "pending"
         assert te.current_owner == "coo"
         assert te.created_at  # auto-set
 
@@ -932,15 +932,17 @@ class TestReloadAllFromDisk:
         _setup_reload_mocks(monkeypatch, config_mod)
 
         mock_handle = MagicMock()
-        mock_agent_loops = {"00010": mock_handle}
+        mock_vessels = {"00010": mock_handle}
+        mock_manager = MagicMock()
+        mock_manager.vessels = mock_vessels
         with patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_handle), \
-             patch("onemancompany.core.agent_loop.agent_loops", mock_agent_loops):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             summary, _ = _run_reload(state_mod, monkeypatch)
 
         assert "00010" not in state_mod.company_state.employees
         assert "00010" in summary.get("employees_removed", [])
-        # agent_loops should have been popped
-        assert "00010" not in mock_agent_loops
+        # vessels should have been popped
+        assert "00010" not in mock_vessels
 
     def test_reload_removes_employee_agent_loop_exception(self, tmp_path, monkeypatch):
         """Lines 581-582: except Exception: pass when agent_loop import/call fails."""

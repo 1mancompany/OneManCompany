@@ -1,4 +1,4 @@
-api_provider: anthropic
+api_provider: openrouter
 current_quarter_tasks: 0
 department: Operations
 desk_position:

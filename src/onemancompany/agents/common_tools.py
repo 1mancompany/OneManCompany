@@ -15,13 +15,34 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN
+from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+
+# ---------------------------------------------------------------------------
+# CEO approval wait mechanism — report_to_ceo blocks until CEO responds
+# ---------------------------------------------------------------------------
+# Key: "employee_id:project_id" → {"event": asyncio.Event, "response": dict}
+_ceo_pending: dict[str, dict] = {}
+
+
+def _ceo_wait_key(employee_id: str, project_id: str) -> str:
+    return f"{employee_id}:{project_id or '_'}"
+
+
+def resolve_ceo_pending(employee_id: str, project_id: str, response: dict) -> bool:
+    """Called from /api/ceo/respond to unblock a waiting report_to_ceo call."""
+    key = _ceo_wait_key(employee_id, project_id)
+    entry = _ceo_pending.get(key)
+    if not entry:
+        return False
+    entry["response"] = response
+    entry["event"].set()
+    return True
 from onemancompany.tools.sandbox import SANDBOX_TOOLS
 
-# Context vars for sub-task support — set by PersistentAgentLoop during execution
-from onemancompany.core.agent_loop import _current_loop, _current_task_id
+# Context vars for sub-task support — set by Vessel during execution
+from onemancompany.core.agent_loop import _current_vessel, _current_task_id
 
 
 async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> None:
@@ -38,29 +59,33 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 
 
 @tool
-def read_file(file_path: str, employee_id: str = "") -> dict:
+def read(file_path: str, employee_id: str = "") -> dict:
     """Read the contents of a file.
 
-    Access scope depends on your permissions:
-    - company/ files: available to all employees with company_file_access
-    - src/ files: requires backend_code_maintenance permission (use "src/..." path)
+    Accessible paths:
+    - Your workspace: "workspace/..." (your private workspace directory)
+    - Company files: "company/..." or relative paths like "human_resource/..."
+    - Source code: "src/..." (requires backend_code_maintenance permission)
+    - Project files: full project workspace path
 
     Args:
-        file_path: File path, e.g. "human_resource/employees/00002/profile.yaml" or "src/onemancompany/api/routes.py"
-        employee_id: Your employee ID (for permission check)
-
-    Returns:
-        A dict containing the file contents, or an error message.
+        file_path: File path to read.
+        employee_id: Your employee ID.
     """
     from onemancompany.core.file_editor import _resolve_path
 
-    permissions = []
-    if employee_id:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            permissions = emp.permissions
+    # Handle "workspace/..." shortcut → resolve to employee's workspace dir
+    if file_path.startswith("workspace/") and employee_id:
+        from pathlib import Path
+        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    else:
+        permissions = []
+        if employee_id:
+            emp = company_state.employees.get(employee_id)
+            if emp:
+                permissions = emp.permissions
+        resolved = _resolve_path(file_path, permissions=permissions)
 
-    resolved = _resolve_path(file_path, permissions=permissions)
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
     if not resolved.exists():
@@ -74,30 +99,40 @@ def read_file(file_path: str, employee_id: str = "") -> dict:
         return {"status": "error", "message": f"Read failed: {e}"}
 
 
+
+
 @tool
-def list_directory(dir_path: str = "", employee_id: str = "") -> dict:
+def ls(dir_path: str = "", employee_id: str = "") -> dict:
     """List files and subdirectories.
 
-    Access scope depends on your permissions:
-    - company/ directories: available to all employees
-    - src/ directories: requires backend_code_maintenance permission (use "src/..." path)
+    Accessible paths:
+    - Your workspace: "workspace" or "workspace/subdir"
+    - Company directories: "business/projects", "human_resource/employees", etc.
+    - Source code: "src/onemancompany/core" (requires permission)
+    - Project workspace: full project workspace path
 
     Args:
-        dir_path: Directory path, e.g. "business/projects" or "src/onemancompany/core". Empty = company root.
-        employee_id: Your employee ID (for permission check)
-
-    Returns:
-        A dict containing the list of entries.
+        dir_path: Directory path. Empty = company root.
+        employee_id: Your employee ID.
     """
+    from pathlib import Path
     from onemancompany.core.file_editor import _resolve_path
 
-    permissions = []
-    if employee_id:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            permissions = emp.permissions
+    # Handle "workspace" or "workspace/..." shortcut
+    if employee_id and (dir_path == "workspace" or dir_path.startswith("workspace/")):
+        suffix = dir_path[len("workspace"):].lstrip("/")
+        resolved = (get_workspace_dir(employee_id) / suffix).resolve() if suffix else get_workspace_dir(employee_id).resolve()
+    # Handle absolute project workspace paths
+    elif dir_path and Path(dir_path).is_absolute() and str(Path(dir_path).resolve()).startswith(str(PROJECTS_DIR.resolve())):
+        resolved = Path(dir_path).resolve()
+    else:
+        permissions = []
+        if employee_id:
+            emp = company_state.employees.get(employee_id)
+            if emp:
+                permissions = emp.permissions
+        resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
-    resolved = _resolve_path(dir_path or ".", permissions=permissions)
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {dir_path}"}
     if not resolved.exists() or not resolved.is_dir():
@@ -106,7 +141,7 @@ def list_directory(dir_path: str = "", employee_id: str = "") -> dict:
         entries = []
         for item in sorted(resolved.iterdir()):
             if item.name.startswith("."):
-                continue  # skip hidden files
+                continue
             entries.append({
                 "name": item.name,
                 "type": "dir" if item.is_dir() else "file",
@@ -116,33 +151,56 @@ def list_directory(dir_path: str = "", employee_id: str = "") -> dict:
         return {"status": "error", "message": f"Failed to read directory: {e}"}
 
 
+
+
 @tool
-async def propose_file_edit(
+async def write(
     file_path: str,
-    new_content: str,
-    reason: str,
-    proposed_by: str = "",
+    content: str,
     employee_id: str = "",
+    project_dir: str = "",
 ) -> dict:
-    """Propose a file edit request (requires CEO approval before execution).
+    """Write content to a file. Creates the file if it doesn't exist.
 
-    Can edit files under the company directory. Employees with backend_code_maintenance
-    permission can also propose edits to files under src/ (use "src/..." path).
+    Free zones (no approval needed):
+    - Your workspace: "workspace/notes.md", "workspace/plan.md", etc.
+    - Project workspace: files inside the current project_dir
 
-    After submission, the CEO will see a diff comparison on the frontend.
-    The edit is executed automatically once approved.
-    The original file is backed up (timestamped) before execution for easy rollback.
+    Other locations (company/, src/) require CEO approval.
 
     Args:
-        file_path: File path relative to the company/ root, or "src/..." for backend code
-        new_content: The complete new file content after editing
-        reason: Explanation for the edit
-        employee_id: Your employee ID (for permission check)
-
-    Returns:
-        Edit request status (pending_approval means submitted and awaiting approval).
+        file_path: File path to write.
+        content: The text content to write.
+        employee_id: Your employee ID.
+        project_dir: Current project workspace path (auto-filled from task context).
     """
-    from onemancompany.core.file_editor import propose_edit
+    from pathlib import Path
+    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
+
+    # Resolve path
+    if file_path.startswith("workspace/") and employee_id:
+        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    elif Path(file_path).is_absolute():
+        resolved = Path(file_path).resolve()
+    else:
+        permissions = []
+        if employee_id:
+            emp = company_state.employees.get(employee_id)
+            if emp:
+                permissions = emp.permissions
+        resolved = _resolve_path(file_path, permissions=permissions)
+
+    if resolved is None:
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+
+    # Check if in free zone → direct write
+    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(content, encoding="utf-8")
+        return {"status": "ok", "path": str(resolved)}
+
+    # Not in free zone → propose edit (CEO approval)
+    from onemancompany.core.file_editor import propose_edit, pending_file_edits
 
     permissions = []
     if employee_id:
@@ -150,25 +208,19 @@ async def propose_file_edit(
         if emp:
             permissions = emp.permissions
 
-    # Determine who is proposing (from the call context, default to unknown)
-    # The agent name will be injected by the caller
-    result = propose_edit(file_path, new_content, reason, proposed_by=proposed_by or "agent", permissions=permissions)
+    result = propose_edit(file_path, content, "write via agent", proposed_by=employee_id or "agent", permissions=permissions)
     if result["status"] == "error":
         return result
 
-    from onemancompany.core.file_editor import pending_file_edits
     edit = pending_file_edits.get(result["edit_id"])
     if not edit:
         return result
 
-    # If running inside a task (project_id context is set), collect for
-    # batch resolution review instead of publishing an immediate event.
     from onemancompany.core.resolutions import current_project_id, collect_edit
     pid = current_project_id.get("")
     if pid:
         collect_edit(pid, edit)
     else:
-        # No task context — fall back to immediate event (old behavior)
         await _publish("file_edit_proposed", {
             "edit_id": edit["edit_id"],
             "rel_path": edit["rel_path"],
@@ -181,76 +233,150 @@ async def propose_file_edit(
     return result
 
 
-@tool
-def save_to_project(project_dir: str, filename: str, content: str) -> dict:
-    """Save a file to the current project workspace directory.
-
-    Use this to persist any output, code, report, or intermediate result for the project.
-    The project_dir is provided in the task description as [Project workspace: ...].
-
-    Args:
-        project_dir: The project workspace path (from the task context).
-        filename: File name or relative sub-path (e.g. "report.md", "code/main.py").
-        content: The text content to save.
-
-    Returns:
-        A dict with status and the saved file path.
-    """
-    from pathlib import Path
-    from onemancompany.core.config import PROJECTS_DIR
-
-    project_path = Path(project_dir)
-    if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
-        return {"status": "error", "message": "Invalid project directory"}
-
-    # Write directly to the workspace path (don't derive project_id from path)
-    file_path = project_path / filename
-    resolved = file_path.resolve()
-    if not str(resolved).startswith(str(project_path.resolve())):
-        return {"status": "error", "message": f"Path escapes project directory: {filename}"}
-
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(content, encoding="utf-8")
-
-    return {"status": "ok", "path": str(file_path), "relative": filename}
 
 
 @tool
-def list_project_workspace(project_dir: str) -> dict:
-    """List all files in the current project workspace.
+async def edit(
+    file_path: str,
+    new_content: str,
+    reason: str = "",
+    employee_id: str = "",
+    project_dir: str = "",
+) -> dict:
+    """Edit (overwrite) an existing file.
+
+    Free zones (no approval needed):
+    - Your workspace: "workspace/..."
+    - Project workspace: files inside the current project_dir
+
+    Other locations (company/, src/) require CEO approval.
 
     Args:
-        project_dir: The project workspace path (from the task context).
-
-    Returns:
-        A dict with the list of files in the project workspace.
+        file_path: File path to edit.
+        new_content: The complete new file content.
+        reason: Explanation for the edit.
+        employee_id: Your employee ID.
+        project_dir: Current project workspace path (auto-filled from task context).
     """
     from pathlib import Path
-    from onemancompany.core.config import PROJECTS_DIR
+    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
 
-    project_path = Path(project_dir)
-    if not str(project_path.resolve()).startswith(str(PROJECTS_DIR.resolve())):
-        return {"status": "error", "message": "Invalid project directory"}
+    # Resolve path
+    if file_path.startswith("workspace/") and employee_id:
+        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    elif Path(file_path).is_absolute():
+        resolved = Path(file_path).resolve()
+    else:
+        permissions = []
+        if employee_id:
+            emp = company_state.employees.get(employee_id)
+            if emp:
+                permissions = emp.permissions
+        resolved = _resolve_path(file_path, permissions=permissions)
 
-    if not project_path.exists():
-        return {"status": "ok", "project_dir": project_dir, "files": []}
+    if resolved is None:
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
 
-    files = []
-    for p in sorted(project_path.rglob("*")):
-        if p.is_file():
-            files.append(str(p.relative_to(project_path)))
-    return {"status": "ok", "project_dir": project_dir, "files": files}
+    # Check if in free zone → direct write
+    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(new_content, encoding="utf-8")
+        return {"status": "ok", "path": str(resolved)}
+
+    # Not in free zone → propose edit (CEO approval)
+    from onemancompany.core.file_editor import propose_edit, pending_file_edits
+
+    permissions = []
+    if employee_id:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            permissions = emp.permissions
+
+    result = propose_edit(file_path, new_content, reason or "edit via agent", proposed_by=employee_id or "agent", permissions=permissions)
+    if result["status"] == "error":
+        return result
+
+    edit_entry = pending_file_edits.get(result["edit_id"])
+    if not edit_entry:
+        return result
+
+    from onemancompany.core.resolutions import current_project_id, collect_edit
+    pid = current_project_id.get("")
+    if pid:
+        collect_edit(pid, edit_entry)
+    else:
+        await _publish("file_edit_proposed", {
+            "edit_id": edit_entry["edit_id"],
+            "rel_path": edit_entry["rel_path"],
+            "reason": edit_entry["reason"],
+            "proposed_by": edit_entry["proposed_by"],
+            "old_content": edit_entry["old_content"],
+            "new_content": edit_entry["new_content"],
+        })
+
+    return result
+
+
+@tool
+async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -> dict:
+    """Execute a shell command and return stdout/stderr.
+
+    Use for running scripts, checking system state, or executing build commands.
+    Commands run in the project root directory.
+
+    Args:
+        command: The shell command to execute.
+        employee_id: Your employee ID.
+        timeout_seconds: Max execution time in seconds (default 30, max 120).
+    """
+    import subprocess
+    from onemancompany.core.config import PROJECT_ROOT
+
+    timeout_seconds = min(timeout_seconds, 120)
+
+    try:
+        proc = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                cwd=str(PROJECT_ROOT),
+            ),
+        )
+        return {
+            "status": "ok",
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[:5000] if proc.stdout else "",
+            "stderr": proc.stderr[:2000] if proc.stderr else "",
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": f"Command timed out after {timeout_seconds}s"}
+    except Exception as e:
+        return {"status": "error", "message": f"Execution failed: {e}"}
 
 
 @tool
 def list_colleagues() -> list[dict]:
-    """List information about all colleagues, useful for deciding who to invite to a meeting.
+    """List information about all colleagues including their roles, skills, tools, and current status.
 
     Returns:
-        A list of dicts with id, name, nickname, role, department, level, skills.
+        A list of dicts with id, name, nickname, role, department, level, skills,
+        tools (authorized tool names), status, and current_task_summary.
     """
-    return [
-        {
+    results = []
+    for emp in company_state.employees.values():
+        # Gather authorized tool names for this colleague
+        tool_names: list[str] = list(emp.tool_permissions) if emp.tool_permissions else []
+        # Also include equipment room tools they have access to
+        for t in company_state.tools.values():
+            if not t.allowed_users or emp.id in t.allowed_users:
+                if t.name not in tool_names:
+                    tool_names.append(t.name)
+
+        results.append({
             "id": emp.id,
             "name": emp.name,
             "nickname": emp.nickname,
@@ -258,9 +384,11 @@ def list_colleagues() -> list[dict]:
             "department": emp.department,
             "level": emp.level,
             "skills": emp.skills,
-        }
-        for emp in company_state.employees.values()
-    ]
+            "tools": tool_names,
+            "status": emp.status,
+            "current_task": emp.current_task_summary or None,
+        })
+    return results
 
 
 def _build_employee_context(emp) -> str:
@@ -628,7 +756,7 @@ def create_subtask(description: str) -> dict:
     Returns:
         A dict with the queued sub-task ID, or an error if no agent loop context.
     """
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     parent_id = _current_task_id.get()
     if not loop:
         return {"error": "No agent loop context — sub-tasks require an active task execution."}
@@ -647,10 +775,10 @@ def set_acceptance_criteria(criteria: list[str], responsible_officer_id: str) ->
         criteria: List of specific, measurable acceptance criteria
         responsible_officer_id: Employee ID of the xxO who will judge acceptance ('00003' for COO, '00005' for CSO)
     """
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_acceptance_criteria as _set_criteria
 
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     task_id = _current_task_id.get()
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
@@ -664,11 +792,20 @@ def set_acceptance_criteria(criteria: list[str], responsible_officer_id: str) ->
         return {"status": "error", "message": "No project context — acceptance criteria require a project."}
 
     _set_criteria(project_id, criteria, responsible_officer_id)
+
+    # Setting acceptance criteria promotes task_type to "project"
+    from onemancompany.core.project_archive import load_project, _save_project
+    proj = load_project(project_id)
+    if proj and proj.get("task_type") != "project":
+        proj["task_type"] = "project"
+        _save_project(project_id, proj)
+
     return {
         "status": "ok",
         "project_id": project_id,
         "criteria_count": len(criteria),
         "responsible_officer": responsible_officer_id,
+        "task_type": "project",
     }
 
 
@@ -684,10 +821,10 @@ def accept_project(accepted: bool, notes: str = "") -> dict:
         accepted: True if ALL acceptance criteria are met
         notes: Explanation of the acceptance decision
     """
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_acceptance_result, load_project
 
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     task_id = _current_task_id.get()
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
@@ -713,25 +850,28 @@ def accept_project(accepted: bool, notes: str = "") -> dict:
 
 
 @tool
-def ea_review_project(approved: bool, review_notes: str) -> dict:
+def ea_review_project(approved: bool, review_notes: str, needs_retrospective: bool = False) -> dict:
     """EA final quality review on behalf of CEO.
 
     Called by the EA after the responsible officer has already accepted the project.
     This is the CEO's quality gate — EA must verify the deliverables actually meet
     ALL requirements before the project is truly considered complete.
 
-    If approved, the project proceeds to retrospective and completion.
+    If approved, the project proceeds to completion.
     If rejected, a rectification task is pushed back to the responsible officer.
 
     Args:
         approved: True if EA confirms all deliverables meet requirements
         review_notes: Detailed review notes — what was checked, evidence of verification,
                       and (if rejected) specific issues that need to be fixed
+        needs_retrospective: True only for substantial project-level work that warrants
+                            a team retrospective (复盘). Simple operational tasks
+                            (sending emails, quick queries, etc.) should be False.
     """
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_ea_review_result, load_project
 
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     task_id = _current_task_id.get()
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
@@ -744,7 +884,8 @@ def ea_review_project(approved: bool, review_notes: str) -> dict:
     if not project_id:
         return {"status": "error", "message": "No project context."}
 
-    set_ea_review_result(project_id, approved, review_notes)
+    set_ea_review_result(project_id, approved, review_notes,
+                         needs_retrospective=needs_retrospective)
 
     status = "approved" if approved else "rejected"
     return {
@@ -762,10 +903,10 @@ def set_project_budget(budget_usd: float) -> dict:
     Args:
         budget_usd: Estimated budget in USD for LLM costs.
     """
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_project_budget as _set_budget
 
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     task_id = _current_task_id.get()
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
@@ -798,7 +939,7 @@ def save_project_plan(
     """dispatch前保存结构化项目计划到workspace/plan.md，并设置验收标准。
 
     产出 Claude Code Plan Mode 质量的文档：有背景、有市场调研、有技术方案、有具体任务分配、有验收标准。
-    这是团队执行的 Single Source of Truth，所有员工通过 read_file("plan.md") 获取完整上下文。
+    这是团队执行的 Single Source of Truth，所有员工通过 read("plan.md") 获取完整上下文。
 
     Args:
         plan_title: 项目计划标题
@@ -825,10 +966,10 @@ def save_project_plan(
     """
     from datetime import datetime
 
-    from onemancompany.core.agent_loop import _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_acceptance_criteria as _set_criteria, save_project_file
 
-    loop = _current_loop.get()
+    loop = _current_vessel.get()
     task_id = _current_task_id.get()
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
@@ -1018,7 +1159,8 @@ def save_project_plan(
 
 
 @tool
-async def report_to_ceo(subject: str, report: str, action_required: bool = False) -> dict:
+async def report_to_ceo(subject: str, report: str, action_required: bool = False,
+                        employee_id: str = "", project_id: str = "") -> dict:
     """Report findings to CEO, especially when company-level action is needed.
 
     Use when:
@@ -1032,12 +1174,75 @@ async def report_to_ceo(subject: str, report: str, action_required: bool = False
         report: Detailed findings and recommendations
         action_required: True if CEO must take action before work can continue
     """
-    await _publish("ceo_report", {
+    # Try to resolve employee_id and project_id from context if not provided
+    if not employee_id:
+        try:
+            from onemancompany.core.vessel import _current_vessel
+            vessel = _current_vessel.get()
+            if vessel:
+                employee_id = getattr(vessel, "employee_id", "")
+        except Exception as exc:
+            logger.debug("Could not resolve employee_id from vessel context: {}", exc)
+    if not project_id:
+        try:
+            from onemancompany.core.vessel import _current_task_id, employee_manager
+            task_id = _current_task_id.get()
+            if task_id and employee_id:
+                handle = employee_manager.get_handle(employee_id)
+                if handle:
+                    for t in handle._task_board:
+                        if t.id == task_id and t.project_id:
+                            project_id = t.project_id
+                            break
+        except Exception as exc:
+            logger.debug("Could not resolve project_id from vessel context: {}", exc)
+
+    payload = {
         "subject": subject,
         "report": report,
         "action_required": action_required,
         "timestamp": datetime.now().isoformat(),
-    }, agent="SYSTEM")
+    }
+    if employee_id:
+        payload["employee_id"] = employee_id
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            payload["employee_name"] = emp.name
+    if project_id:
+        payload["project_id"] = project_id
+
+    await _publish("ceo_report", payload, agent="SYSTEM")
+
+    if action_required and employee_id:
+        # Block until CEO responds — create an asyncio.Event and wait
+        key = _ceo_wait_key(employee_id, project_id)
+        entry = {"event": asyncio.Event(), "response": {}}
+        _ceo_pending[key] = entry
+        try:
+            await asyncio.wait_for(entry["event"].wait(), timeout=600)
+            ceo_response = entry.get("response", {})
+            action = ceo_response.get("action", "approve")
+            message = ceo_response.get("message", "")
+            if action == "revise" and message:
+                return {
+                    "status": "revision_requested",
+                    "subject": subject,
+                    "ceo_message": message,
+                }
+            return {
+                "status": "approved",
+                "subject": subject,
+                "ceo_message": message or "CEO approved, proceed.",
+            }
+        except (asyncio.TimeoutError, TimeoutError):
+            return {
+                "status": "timeout",
+                "subject": subject,
+                "message": "CEO did not respond within 10 minutes. Proceed with best judgment.",
+            }
+        finally:
+            _ceo_pending.pop(key, None)
+
     return {
         "status": "reported",
         "subject": subject,
@@ -1062,7 +1267,7 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
     Returns:
         Confirmation that the task was pushed, or an error.
     """
-    from onemancompany.core.agent_loop import get_agent_loop, _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import get_agent_loop, _current_vessel, _current_task_id
 
     loop = get_agent_loop(employee_id)
     if not loop:
@@ -1075,7 +1280,7 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
             import uuid as _uuid
             project_id = ""
             project_dir = ""
-            caller_loop = _current_loop.get()
+            caller_loop = _current_vessel.get()
             caller_task_id = _current_task_id.get()
             if caller_loop and caller_task_id:
                 caller_task = caller_loop.board.get_task(caller_task_id)
@@ -1111,7 +1316,7 @@ def dispatch_task(employee_id: str, task_description: str) -> dict:
     # Inherit project context — support multi-dispatch by checking original_project_id
     project_id = ""
     project_dir = ""
-    caller_loop = _current_loop.get()
+    caller_loop = _current_vessel.get()
     caller_task_id = _current_task_id.get()
     if caller_loop and caller_task_id:
         caller_task = caller_loop.board.get_task(caller_task_id)
@@ -1149,7 +1354,7 @@ def dispatch_team_tasks(tasks: list[dict]) -> dict:
         tasks: [{employee_id, description, phase}] — phase=1先执行, phase=2等phase=1完成
     """
     import uuid as _uuid
-    from onemancompany.core.agent_loop import get_agent_loop, _current_loop, _current_task_id
+    from onemancompany.core.agent_loop import get_agent_loop, _current_vessel, _current_task_id
     from onemancompany.core.project_archive import record_team_dispatches, activate_dispatch
 
     # Validate all employee_ids
@@ -1161,7 +1366,7 @@ def dispatch_team_tasks(tasks: list[dict]) -> dict:
     # Get project context from caller
     project_id = ""
     project_dir = ""
-    caller_loop = _current_loop.get()
+    caller_loop = _current_vessel.get()
     caller_task_id = _current_task_id.get()
     if caller_loop and caller_task_id:
         caller_task = caller_loop.board.get_task(caller_task_id)
@@ -1305,9 +1510,12 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if tool_name in (emp.tool_permissions or []):
         return {"status": "already_granted", "message": f"You already have access to '{tool_name}'."}
 
-    # Check tool exists
-    if tool_name not in GATED_TOOLS:
-        return {"status": "error", "message": f"Unknown tool '{tool_name}'. Available tools: {', '.join(GATED_TOOLS.keys())}"}
+    # Check tool exists in registry
+    from onemancompany.core.tool_registry import tool_registry
+    meta = tool_registry.get_meta(tool_name)
+    if not meta or meta.category != "gated":
+        gated_names = [n for n in tool_registry.all_tool_names() if (tool_registry.get_meta(n) or object()).category == "gated"]
+        return {"status": "error", "message": f"Unknown gated tool '{tool_name}'. Available: {', '.join(gated_names)}"}
 
     # Dispatch to COO
     from onemancompany.core.agent_loop import get_agent_loop
@@ -1370,56 +1578,121 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
 
 
 # ---------------------------------------------------------------------------
-# Tool categorization
+# Automation tools
 # ---------------------------------------------------------------------------
 
-# Base tools — always available to every employee, no permission check needed
-BASE_TOOLS = [
-    list_colleagues,
-    save_to_project,
-    list_project_workspace,
-    pull_meeting,
-    create_subtask,
-    dispatch_task,
-    report_to_ceo,
-    request_tool_access,
-]
+@tool
+def set_cron(cron_name: str, interval: str, task_description: str, employee_id: str = "") -> dict:
+    """Schedule a recurring task (cron job).
 
-# Gated tools — regular employees need these in their tool_permissions list
-GATED_TOOLS: dict = {
-    "read_file": read_file,
-    "list_directory": list_directory,
-    "propose_file_edit": propose_file_edit,
-    "use_tool": use_tool,
-    "set_acceptance_criteria": set_acceptance_criteria,
-    "accept_project": accept_project,
-    "ea_review_project": ea_review_project,
-    "set_project_budget": set_project_budget,
-    "save_project_plan": save_project_plan,
-}
+    The task will be dispatched to you at regular intervals automatically.
 
-# Add sandbox tools to gated pool
-for _st in SANDBOX_TOOLS:
-    GATED_TOOLS[_st.name] = _st
+    Args:
+        cron_name: Unique name for this cron job (e.g. 'daily_report', 'check_inbox').
+        interval: How often to run. Examples: '30s', '5m', '1h', '6h', '1d'.
+        task_description: What task to perform each time.
+        employee_id: Your employee ID.
+    """
+    from onemancompany.core.automation import start_cron
+    return start_cron(employee_id, cron_name, interval, task_description)
 
-# Full set for founding agents (backward compat — includes all non-sandbox tools + manage_tool_access)
-COMMON_TOOLS = [
-    read_file,
-    list_directory,
-    propose_file_edit,
-    save_to_project,
-    list_project_workspace,
-    list_colleagues,
-    pull_meeting,
-    use_tool,
-    create_subtask,
-    dispatch_task,
-    dispatch_team_tasks,
-    report_to_ceo,
-    set_acceptance_criteria,
-    accept_project,
-    ea_review_project,
-    set_project_budget,
-    save_project_plan,
-    manage_tool_access,
-]
+
+@tool
+def stop_cron_job(cron_name: str, employee_id: str = "") -> dict:
+    """Stop a running cron job.
+
+    Args:
+        cron_name: Name of the cron job to stop.
+        employee_id: Your employee ID.
+    """
+    from onemancompany.core.automation import stop_cron
+    return stop_cron(employee_id, cron_name)
+
+
+@tool
+def setup_webhook(hook_name: str, task_template: str = "", employee_id: str = "") -> dict:
+    """Register a webhook endpoint that triggers tasks when called.
+
+    Creates an endpoint at: POST /api/webhook/{employee_id}/{hook_name}
+    External services can POST JSON to this URL to trigger a task for you.
+
+    Args:
+        hook_name: Unique webhook name (URL-safe, e.g. 'github_push', 'email_notify').
+        task_template: Task description template. Use {payload} for the webhook body.
+        employee_id: Your employee ID.
+    """
+    from onemancompany.core.automation import register_webhook
+    return register_webhook(employee_id, hook_name, task_template)
+
+
+@tool
+def remove_webhook(hook_name: str, employee_id: str = "") -> dict:
+    """Remove a registered webhook.
+
+    Args:
+        hook_name: Name of the webhook to remove.
+        employee_id: Your employee ID.
+    """
+    from onemancompany.core.automation import unregister_webhook
+    return unregister_webhook(employee_id, hook_name)
+
+
+@tool
+def list_automations(employee_id: str = "") -> dict:
+    """List all your cron jobs and webhooks.
+
+    Args:
+        employee_id: Your employee ID.
+    """
+    from onemancompany.core.automation import list_crons, list_webhooks
+    return {
+        "crons": list_crons(employee_id),
+        "webhooks": list_webhooks(employee_id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool registration — register all internal tools into the unified registry
+# ---------------------------------------------------------------------------
+
+def _register_all_internal_tools() -> None:
+    """Register all internal tools into the global ToolRegistry.
+
+    Called once at import time. Categories:
+      base  — available to all employees
+      gated — requires tool_permissions grant
+    """
+    from onemancompany.core.tool_registry import ToolMeta, tool_registry
+
+    _base = [
+        list_colleagues, read, ls, write, edit, pull_meeting,
+        create_subtask, dispatch_task, dispatch_team_tasks,
+        report_to_ceo, request_tool_access,
+    ]
+    for t in _base:
+        tool_registry.register(t, ToolMeta(name=t.name, category="base"))
+
+    _gated = {
+        "bash": bash,
+        "use_tool": use_tool,
+        "set_acceptance_criteria": set_acceptance_criteria,
+        "accept_project": accept_project,
+        "ea_review_project": ea_review_project,
+        "set_project_budget": set_project_budget,
+        "save_project_plan": save_project_plan,
+        "manage_tool_access": manage_tool_access,
+        "set_cron": set_cron,
+        "stop_cron_job": stop_cron_job,
+        "setup_webhook": setup_webhook,
+        "remove_webhook": remove_webhook,
+        "list_automations": list_automations,
+    }
+    for name, t in _gated.items():
+        tool_registry.register(t, ToolMeta(name=name, category="gated"))
+
+    # Sandbox tools
+    for t in SANDBOX_TOOLS:
+        tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
+
+
+_register_all_internal_tools()

@@ -30,7 +30,8 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
 
     Priority:
     1. manifest.json heartbeat.method (explicit config)
-    2. Fallback: auto-detect from api_provider
+    2. Self-hosted employees → claude_cli
+    3. Fallback: auto-detect from api_provider
     """
     manifest = load_manifest(emp_id)
     if manifest:
@@ -39,6 +40,10 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
             method = hb.get("method")
             if method:
                 return method
+
+    # Self-hosted employees use Claude CLI — check via `claude --version`
+    if cfg.hosting == "self":
+        return "claude_cli"
 
     # Fallback: auto-detect based on api_provider
     if cfg.api_provider == "anthropic":
@@ -133,6 +138,20 @@ def _check_self_hosted_pid(emp_id: str) -> bool:
         return False
 
 
+async def _check_claude_cli() -> bool:
+    """Check if Claude CLI is available and authenticated via `claude --version`."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        return proc.returncode == 0 and bool(stdout.strip())
+    except (asyncio.TimeoutError, FileNotFoundError, OSError):
+        return False
+
+
 async def _check_script(emp_id: str) -> bool:
     """Run {employee_dir}/heartbeat.sh and return True if exit 0."""
     script = EMPLOYEES_DIR / emp_id / "heartbeat.sh"
@@ -173,6 +192,7 @@ async def run_heartbeat_cycle() -> list[str]:
     # 2. Route employees to heartbeat methods
     openrouter_employees: list[str] = []
     anthropic_checks: dict[str, str] = {}  # emp_id -> api_key
+    claude_cli_employees: list[str] = []
     pid_employees: list[str] = []
     script_employees: list[str] = []
 
@@ -194,10 +214,11 @@ async def run_heartbeat_cycle() -> list[str]:
                     changed.append(emp_id)
             continue
 
-        if emp.level >= FOUNDING_LEVEL:
-            continue
-
         method = _get_heartbeat_method(emp_id, cfg)
+
+        # Founding employees skip heartbeat unless self-hosted (need CLI check)
+        if emp.level >= FOUNDING_LEVEL and method != "claude_cli":
+            continue
 
         if method == "always_online":
             if not emp.api_online:
@@ -205,6 +226,8 @@ async def run_heartbeat_cycle() -> list[str]:
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
+        elif method == "claude_cli":
+            claude_cli_employees.append(emp_id)
         elif method == "pid":
             pid_employees.append(emp_id)
         elif method == "script":
@@ -231,12 +254,18 @@ async def run_heartbeat_cycle() -> list[str]:
         online = await _check_anthropic_key(api_key)
         _update_online(emp_id, online, changed)
 
-    # 5. PID check for self-hosted workers
+    # 5. Claude CLI: one check covers all self-hosted employees
+    if claude_cli_employees:
+        cli_online = await _check_claude_cli()
+        for emp_id in claude_cli_employees:
+            _update_online(emp_id, cli_online, changed)
+
+    # 7. PID check
     for emp_id in pid_employees:
         online = _check_self_hosted_pid(emp_id)
         _update_online(emp_id, online, changed)
 
-    # 6. Script check
+    # 8. Script check
     for emp_id in script_employees:
         online = await _check_script(emp_id)
         _update_online(emp_id, online, changed)

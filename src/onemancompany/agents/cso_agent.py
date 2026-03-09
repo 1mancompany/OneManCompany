@@ -11,7 +11,6 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, make_llm
-from onemancompany.agents.common_tools import COMMON_TOOLS
 from onemancompany.core.config import COO_ID, CSO_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 from onemancompany.core.state import company_state
 
@@ -203,19 +202,26 @@ def settle_task(task_id: str) -> dict:
     }
 
 
+def _register_cso_tools() -> None:
+    from onemancompany.core.tool_registry import ToolMeta, tool_registry
+
+    for t in [list_sales_tasks, review_contract, complete_delivery, settle_task]:
+        tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["CSO"]))
+
+
+_register_cso_tools()
+
+
 class CSOAgent(BaseAgentRunner):
     role = "CSO"
     employee_id = CSO_ID
 
     def __init__(self) -> None:
+        from onemancompany.core.tool_registry import tool_registry
+
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=[
-                list_sales_tasks,
-                review_contract,
-                complete_delivery,
-                settle_task,
-            ] + COMMON_TOOLS,
+            tools=tool_registry.get_tools_for(self.employee_id),
         )
 
     def _customize_prompt(self, pb) -> None:

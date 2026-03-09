@@ -10,3 +10,13 @@ id: roblox_cloud
 name: Roblox Open Cloud
 sprite: desk_equipment
 type: langchain_module
+oauth:
+  service_name: roblox
+  authorize_url: https://apis.roblox.com/oauth/v1/authorize
+  token_url: https://apis.roblox.com/oauth/v1/token
+  scopes: openid universe-places:write
+  client_id_env: ROBLOX_OAUTH_CLIENT_ID
+  client_secret_env: ROBLOX_OAUTH_CLIENT_SECRET
+  credentials_help:
+    text: "Go to Roblox Creator Hub, create an OAuth application. Set redirect URI to http://localhost:8585/callback"
+    url: https://create.roblox.com/credentials

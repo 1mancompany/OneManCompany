@@ -92,7 +92,7 @@ class TestReadFile:
             lambda p, permissions=None: test_file if p == "test.txt" else None,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "test.txt", "employee_id": "001"})
+        result = ct_mod.read.invoke({"file_path": "test.txt", "employee_id": "001"})
         assert result["status"] == "ok"
         assert result["content"] == "hello world"
 
@@ -109,7 +109,7 @@ class TestReadFile:
             lambda p, permissions=None: None,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "secret.txt"})
+        result = ct_mod.read.invoke({"file_path": "secret.txt"})
         assert result["status"] == "error"
         assert "denied" in result["message"].lower() or "invalid" in result["message"].lower()
 
@@ -127,7 +127,7 @@ class TestReadFile:
             lambda p, permissions=None: nonexistent,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "nope.txt"})
+        result = ct_mod.read.invoke({"file_path": "nope.txt"})
         assert result["status"] == "error"
 
 
@@ -155,7 +155,7 @@ class TestListDirectory:
             lambda p, permissions=None: test_dir,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "testdir"})
+        result = ct_mod.ls.invoke({"dir_path": "testdir"})
         assert result["status"] == "ok"
         names = {e["name"] for e in result["entries"]}
         assert "file1.txt" in names
@@ -179,7 +179,7 @@ class TestListDirectory:
             lambda p, permissions=None: test_dir,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "testdir"})
+        result = ct_mod.ls.invoke({"dir_path": "testdir"})
         names = {e["name"] for e in result["entries"]}
         assert ".hidden" not in names
         assert "visible.txt" in names
@@ -197,138 +197,10 @@ class TestListDirectory:
             lambda p, permissions=None: None,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "secret/"})
+        result = ct_mod.ls.invoke({"dir_path": "secret/"})
         assert result["status"] == "error"
 
 
-# ---------------------------------------------------------------------------
-# save_to_project
-# ---------------------------------------------------------------------------
-
-class TestSaveToProject:
-    def test_saves_file(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        proj_dir = projects_dir / "myproj"
-        proj_dir.mkdir()
-
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.save_to_project.invoke({
-            "project_dir": str(proj_dir),
-            "filename": "output.md",
-            "content": "# Report\nDone.",
-        })
-
-        assert result["status"] == "ok"
-        assert (proj_dir / "output.md").exists()
-        assert (proj_dir / "output.md").read_text() == "# Report\nDone."
-
-    def test_creates_subdirectories(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        proj_dir = projects_dir / "myproj"
-        proj_dir.mkdir()
-
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.save_to_project.invoke({
-            "project_dir": str(proj_dir),
-            "filename": "code/main.py",
-            "content": "print('hi')",
-        })
-
-        assert result["status"] == "ok"
-        assert (proj_dir / "code" / "main.py").exists()
-
-    def test_rejects_path_outside_projects(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.save_to_project.invoke({
-            "project_dir": "/tmp/evil",
-            "filename": "test.txt",
-            "content": "bad",
-        })
-        assert result["status"] == "error"
-
-    def test_rejects_path_traversal(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        proj_dir = projects_dir / "myproj"
-        proj_dir.mkdir()
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.save_to_project.invoke({
-            "project_dir": str(proj_dir),
-            "filename": "../../etc/passwd",
-            "content": "bad",
-        })
-        assert result["status"] == "error"
-
-
-# ---------------------------------------------------------------------------
-# list_project_workspace
-# ---------------------------------------------------------------------------
-
-class TestListProjectWorkspace:
-    def test_lists_files(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        proj_dir = projects_dir / "myproj"
-        proj_dir.mkdir()
-        (proj_dir / "readme.md").write_text("hello")
-        (proj_dir / "code").mkdir()
-        (proj_dir / "code" / "main.py").write_text("print()")
-
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.list_project_workspace.invoke({"project_dir": str(proj_dir)})
-        assert result["status"] == "ok"
-        assert "readme.md" in result["files"]
-        # Should contain code/main.py as relative path
-        assert any("main.py" in f for f in result["files"])
-
-    def test_nonexistent_project_returns_empty(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.list_project_workspace.invoke({
-            "project_dir": str(projects_dir / "nonexistent"),
-        })
-        assert result["status"] == "ok"
-        assert result["files"] == []
-
-    def test_rejects_path_outside_projects(self, tmp_path, monkeypatch):
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import config as config_mod
-
-        projects_dir = tmp_path / "projects"
-        projects_dir.mkdir()
-        monkeypatch.setattr(config_mod, "PROJECTS_DIR", projects_dir)
-
-        result = ct_mod.list_project_workspace.invoke({"project_dir": "/tmp/evil"})
-        assert result["status"] == "error"
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +313,7 @@ class TestDispatchTask:
             "onemancompany.core.agent_loop.get_agent_loop",
             lambda eid: mock_loop,
         )
-        monkeypatch.setattr(ct_mod, "_current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr(ct_mod, "_current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr(ct_mod, "_current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.dispatch_task.invoke({
@@ -512,6 +384,14 @@ class TestRequestToolAccess:
         monkeypatch.setattr(
             "onemancompany.core.agent_loop.get_agent_loop",
             lambda eid: mock_coo_loop,
+        )
+
+        # Mock tool_registry so "read_file" is recognized as a gated tool
+        mock_meta = MagicMock(category="gated")
+        mock_registry = MagicMock()
+        mock_registry.get_meta.return_value = mock_meta
+        monkeypatch.setattr(
+            "onemancompany.core.tool_registry.tool_registry", mock_registry,
         )
 
         result = ct_mod.request_tool_access.invoke({
@@ -679,7 +559,7 @@ class TestCreateSubtask:
         mock_sub.id = "sub1"
         mock_loop.board.push.return_value = mock_sub
 
-        monkeypatch.setattr(ct_mod, "_current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr(ct_mod, "_current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr(ct_mod, "_current_task_id", MagicMock(get=lambda: "parent1"))
 
         result = ct_mod.create_subtask.invoke({"description": "Do sub-work"})
@@ -689,7 +569,7 @@ class TestCreateSubtask:
     def test_no_agent_loop_context(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
 
-        monkeypatch.setattr(ct_mod, "_current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr(ct_mod, "_current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr(ct_mod, "_current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.create_subtask.invoke({"description": "Do work"})
@@ -823,31 +703,40 @@ class TestPullMeeting:
 # ---------------------------------------------------------------------------
 
 class TestToolCategorization:
-    def test_base_tools_list(self):
-        from onemancompany.agents.common_tools import BASE_TOOLS
+    def test_base_tools_registered(self):
+        from onemancompany.core.tool_registry import tool_registry
 
-        # Should have core tools
-        names = {t.name for t in BASE_TOOLS}
-        assert "list_colleagues" in names
-        assert "save_to_project" in names
-        assert "pull_meeting" in names
-        assert "dispatch_task" in names
+        # Known base tools should be registered with category "base"
+        for name in ("list_colleagues", "read", "ls", "pull_meeting", "dispatch_task"):
+            meta = tool_registry.get_meta(name)
+            assert meta is not None, f"{name} not registered"
+            assert meta.category == "base", f"{name} should be base, got {meta.category}"
 
-    def test_gated_tools_dict(self):
-        from onemancompany.agents.common_tools import GATED_TOOLS
+    def test_gated_tools_registered(self):
+        from onemancompany.core.tool_registry import tool_registry
 
-        assert "read_file" in GATED_TOOLS
-        assert "list_directory" in GATED_TOOLS
-        assert "use_tool" in GATED_TOOLS
+        for name in ("use_tool", "set_acceptance_criteria", "manage_tool_access"):
+            meta = tool_registry.get_meta(name)
+            assert meta is not None, f"{name} not registered"
+            assert meta.category == "gated", f"{name} should be gated, got {meta.category}"
 
-    def test_common_tools_includes_all(self):
-        from onemancompany.agents.common_tools import COMMON_TOOLS
+    def test_get_tools_for_returns_tools(self, monkeypatch):
+        from onemancompany.core import state as state_mod
+        from onemancompany.core.tool_registry import tool_registry
 
-        names = {t.name for t in COMMON_TOOLS}
-        assert "list_colleagues" in names
-        assert "read_file" in names
-        assert "dispatch_task" in names
-        assert "manage_tool_access" in names
+        cs = _make_cs()
+        emp = _make_emp("00010", tool_permissions=["use_tool"])
+        cs.employees["00010"] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+
+        tools = tool_registry.get_tools_for("00010")
+        assert len(tools) > 0
+        tool_names = {t.name for t in tools}
+        # Base tools always included
+        assert "list_colleagues" in tool_names
+        assert "read" in tool_names
+        # Gated tool included because of permissions
+        assert "use_tool" in tool_names
 
 
 # ---------------------------------------------------------------------------
@@ -906,7 +795,7 @@ class TestReadFileAdditional:
             lambda p, permissions=None: test_dir,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "adir"})
+        result = ct_mod.read.invoke({"file_path": "adir"})
         assert result["status"] == "error"
         assert "Not a file" in result["message"]
 
@@ -932,7 +821,7 @@ class TestReadFileAdditional:
             lambda p, permissions=None: mock_path,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "bad.bin"})
+        result = ct_mod.read.invoke({"file_path": "bad.bin"})
         assert result["status"] == "error"
         assert "Read failed" in result["message"]
 
@@ -953,7 +842,7 @@ class TestReadFileAdditional:
             lambda p, permissions=None: test_file,
         )
 
-        result = ct_mod.read_file.invoke({"file_path": "open.txt"})
+        result = ct_mod.read.invoke({"file_path": "open.txt"})
         assert result["status"] == "ok"
         assert result["content"] == "content"
 
@@ -980,7 +869,7 @@ class TestListDirectoryAdditional:
             lambda p, permissions=None: test_file,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "afile.txt"})
+        result = ct_mod.ls.invoke({"dir_path": "afile.txt"})
         assert result["status"] == "error"
         assert "not found" in result["message"].lower()
 
@@ -1003,7 +892,7 @@ class TestListDirectoryAdditional:
             lambda p, permissions=None: mock_dir,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "locked"})
+        result = ct_mod.ls.invoke({"dir_path": "locked"})
         assert result["status"] == "error"
         assert "Failed to read" in result["message"]
 
@@ -1027,7 +916,7 @@ class TestListDirectoryAdditional:
             lambda p, permissions=None: test_dir,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "src", "employee_id": "001"})
+        result = ct_mod.ls.invoke({"dir_path": "src", "employee_id": "001"})
         assert result["status"] == "ok"
 
     def test_empty_dir_path_defaults(self, tmp_path, monkeypatch):
@@ -1044,7 +933,7 @@ class TestListDirectoryAdditional:
             lambda p, permissions=None: tmp_path,
         )
 
-        result = ct_mod.list_directory.invoke({})
+        result = ct_mod.ls.invoke({})
         assert result["status"] == "ok"
         assert result["path"] == "."
 
@@ -1067,143 +956,12 @@ class TestListDirectoryAdditional:
             lambda p, permissions=None: test_dir,
         )
 
-        result = ct_mod.list_directory.invoke({"dir_path": "mixed"})
+        result = ct_mod.ls.invoke({"dir_path": "mixed"})
         entries_by_name = {e["name"]: e for e in result["entries"]}
         assert entries_by_name["file.txt"]["type"] == "file"
         assert entries_by_name["subdir"]["type"] == "dir"
 
 
-# ---------------------------------------------------------------------------
-# Additional coverage: propose_file_edit
-# ---------------------------------------------------------------------------
-
-class TestProposeFileEdit:
-    @pytest.mark.asyncio
-    async def test_propose_edit_success_with_project_context(self, monkeypatch):
-        """propose_file_edit succeeds and edit is collected for batch resolution."""
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import state as state_mod
-
-        cs = _make_cs()
-        emp = _make_emp("001", permissions=["company_file_access"])
-        cs.employees["001"] = emp
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(ct_mod, "company_state", cs)
-
-        edit_result = {"status": "pending_approval", "edit_id": "e123"}
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.propose_edit",
-            lambda *a, **kw: edit_result,
-        )
-
-        fake_edit = {"edit_id": "e123", "rel_path": "test.txt", "reason": "fix", "proposed_by": "agent", "old_content": "a", "new_content": "b"}
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.pending_file_edits",
-            {"e123": fake_edit},
-        )
-
-        # Simulate project context
-        mock_pid = MagicMock()
-        mock_pid.get.return_value = "proj-1"
-        monkeypatch.setattr("onemancompany.core.resolutions.current_project_id", mock_pid)
-        mock_collect = MagicMock()
-        monkeypatch.setattr("onemancompany.core.resolutions.collect_edit", mock_collect)
-
-        result = await ct_mod.propose_file_edit.ainvoke({
-            "file_path": "test.txt",
-            "new_content": "new stuff",
-            "reason": "fix bug",
-            "employee_id": "001",
-        })
-        assert result["status"] == "pending_approval"
-        mock_collect.assert_called_once_with("proj-1", fake_edit)
-
-    @pytest.mark.asyncio
-    async def test_propose_edit_no_project_context_publishes_event(self, monkeypatch):
-        """Without project context, publishes event directly."""
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import state as state_mod
-
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(ct_mod, "company_state", cs)
-
-        edit_result = {"status": "pending_approval", "edit_id": "e456"}
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.propose_edit",
-            lambda *a, **kw: edit_result,
-        )
-
-        fake_edit = {"edit_id": "e456", "rel_path": "f.txt", "reason": "r", "proposed_by": "agent", "old_content": "", "new_content": "x"}
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.pending_file_edits",
-            {"e456": fake_edit},
-        )
-
-        mock_pid = MagicMock()
-        mock_pid.get.return_value = ""
-        monkeypatch.setattr("onemancompany.core.resolutions.current_project_id", mock_pid)
-
-        mock_publish = AsyncMock()
-        monkeypatch.setattr(ct_mod, "_publish", mock_publish)
-
-        result = await ct_mod.propose_file_edit.ainvoke({
-            "file_path": "f.txt",
-            "new_content": "x",
-            "reason": "r",
-        })
-        assert result["status"] == "pending_approval"
-        mock_publish.assert_awaited_once()
-        assert mock_publish.call_args[0][0] == "file_edit_proposed"
-
-    @pytest.mark.asyncio
-    async def test_propose_edit_error(self, monkeypatch):
-        """propose_edit returns error status."""
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import state as state_mod
-
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(ct_mod, "company_state", cs)
-
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.propose_edit",
-            lambda *a, **kw: {"status": "error", "message": "Access denied"},
-        )
-
-        result = await ct_mod.propose_file_edit.ainvoke({
-            "file_path": "secret.txt",
-            "new_content": "x",
-            "reason": "r",
-        })
-        assert result["status"] == "error"
-
-    @pytest.mark.asyncio
-    async def test_propose_edit_pending_but_edit_not_found(self, monkeypatch):
-        """Edit pending_approval but edit_id not in pending_file_edits returns result as-is."""
-        from onemancompany.agents import common_tools as ct_mod
-        from onemancompany.core import state as state_mod
-
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(ct_mod, "company_state", cs)
-
-        edit_result = {"status": "pending_approval", "edit_id": "missing"}
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.propose_edit",
-            lambda *a, **kw: edit_result,
-        )
-        monkeypatch.setattr(
-            "onemancompany.core.file_editor.pending_file_edits",
-            {},
-        )
-
-        result = await ct_mod.propose_file_edit.ainvoke({
-            "file_path": "f.txt",
-            "new_content": "x",
-            "reason": "r",
-        })
-        assert result["status"] == "pending_approval"
 
 
 # ---------------------------------------------------------------------------
@@ -1370,6 +1128,14 @@ class TestRequestToolAccessAdditional:
             lambda eid: None,
         )
 
+        # Mock tool_registry so "read_file" is recognized as a gated tool
+        mock_meta = MagicMock(category="gated")
+        mock_registry = MagicMock()
+        mock_registry.get_meta.return_value = mock_meta
+        monkeypatch.setattr(
+            "onemancompany.core.tool_registry.tool_registry", mock_registry,
+        )
+
         result = ct_mod.request_tool_access.invoke({
             "tool_name": "read_file",
             "reason": "Need it",
@@ -1387,7 +1153,7 @@ class TestSetAcceptanceCriteria:
     def test_no_context(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
 
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.set_acceptance_criteria.invoke({
@@ -1401,7 +1167,7 @@ class TestSetAcceptanceCriteria:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = None
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.set_acceptance_criteria.invoke({
@@ -1419,7 +1185,7 @@ class TestSetAcceptanceCriteria:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.set_acceptance_criteria.invoke({
@@ -1438,7 +1204,7 @@ class TestSetAcceptanceCriteria:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1461,7 +1227,7 @@ class TestAcceptProject:
     def test_no_context(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
 
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.accept_project.invoke({"accepted": True})
@@ -1472,7 +1238,7 @@ class TestAcceptProject:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = None
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.accept_project.invoke({"accepted": True})
@@ -1486,7 +1252,7 @@ class TestAcceptProject:
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.accept_project.invoke({"accepted": True})
@@ -1501,7 +1267,7 @@ class TestAcceptProject:
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
         mock_loop.agent.employee_id = "00003"
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1520,7 +1286,7 @@ class TestAcceptProject:
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
         mock_loop.agent.employee_id = "00003"
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1538,7 +1304,7 @@ class TestEaReviewProject:
     def test_no_context(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
 
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.ea_review_project.invoke({"approved": True, "review_notes": "ok"})
@@ -1549,7 +1315,7 @@ class TestEaReviewProject:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = None
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.ea_review_project.invoke({"approved": True, "review_notes": "ok"})
@@ -1563,7 +1329,7 @@ class TestEaReviewProject:
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.ea_review_project.invoke({"approved": True, "review_notes": "ok"})
@@ -1577,7 +1343,7 @@ class TestEaReviewProject:
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1594,7 +1360,7 @@ class TestEaReviewProject:
         mock_task.original_project_id = "proj-2"
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1612,7 +1378,7 @@ class TestSetProjectBudget:
     def test_no_context(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
 
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: None))
 
         result = ct_mod.set_project_budget.invoke({"budget_usd": 10.0})
@@ -1623,7 +1389,7 @@ class TestSetProjectBudget:
 
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = None
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.set_project_budget.invoke({"budget_usd": 10.0})
@@ -1637,7 +1403,7 @@ class TestSetProjectBudget:
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         result = ct_mod.set_project_budget.invoke({"budget_usd": 10.0})
@@ -1651,7 +1417,7 @@ class TestSetProjectBudget:
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
         mock_loop.board.get_task.return_value = mock_task
-        monkeypatch.setattr("onemancompany.core.agent_loop._current_loop", MagicMock(get=lambda: mock_loop))
+        monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
         mock_set = MagicMock()
@@ -1679,7 +1445,7 @@ class TestDispatchTaskAdditional:
             "onemancompany.core.agent_loop.get_agent_loop",
             lambda eid: None,
         )
-        monkeypatch.setattr(ct_mod, "_current_loop", MagicMock(get=lambda: None))
+        monkeypatch.setattr(ct_mod, "_current_vessel", MagicMock(get=lambda: None))
         monkeypatch.setattr(ct_mod, "_current_task_id", MagicMock(get=lambda: None))
 
         # Mock _remote_task_queues
@@ -1719,7 +1485,7 @@ class TestDispatchTaskAdditional:
         mock_caller_loop.board.get_task.return_value = mock_caller_task
 
         # dispatch_task re-imports from agent_loop, so patch at that level
-        monkeypatch.setattr(al_mod, "_current_loop", MagicMock(get=lambda: mock_caller_loop))
+        monkeypatch.setattr(al_mod, "_current_vessel", MagicMock(get=lambda: mock_caller_loop))
         monkeypatch.setattr(al_mod, "_current_task_id", MagicMock(get=lambda: "caller-task"))
 
         mock_record = MagicMock()
@@ -1756,7 +1522,7 @@ class TestDispatchTaskAdditional:
         mock_caller_loop = MagicMock()
         mock_caller_loop.board.get_task.return_value = mock_caller_task
 
-        monkeypatch.setattr(al_mod, "_current_loop", MagicMock(get=lambda: mock_caller_loop))
+        monkeypatch.setattr(al_mod, "_current_vessel", MagicMock(get=lambda: mock_caller_loop))
         monkeypatch.setattr(al_mod, "_current_task_id", MagicMock(get=lambda: "caller-task"))
 
         remote_queues = {}

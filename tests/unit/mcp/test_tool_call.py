@@ -73,7 +73,7 @@ class TestInternalToolCall:
 
         mock_vessel = MagicMock()
         mock_em = MagicMock()
-        mock_em.get_vessel.return_value = mock_vessel
+        mock_em.get_handle.return_value = mock_vessel
 
         app = _make_app()
         with patch("onemancompany.core.vessel.employee_manager", mock_em):

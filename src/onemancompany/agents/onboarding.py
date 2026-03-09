@@ -779,6 +779,20 @@ async def execute_hire(
                 encoding="utf-8",
             )
 
+    # Create initial SOUL.md in workspace
+    workspace_dir = emp_dir / "workspace"
+    workspace_dir.mkdir(exist_ok=True)
+    soul_path = workspace_dir / "SOUL.md"
+    if not soul_path.exists():
+        soul_path.write_text(
+            f"# {name} ({nickname}) — Personal Knowledge\n\n"
+            f"**Role**: {role}\n"
+            f"**Department**: {department}\n\n"
+            f"## Lessons Learned\n\n"
+            f"(Will be updated automatically after each task.)\n",
+            encoding="utf-8",
+        )
+
     # Generate initial work principles
     initial_principles = (
         f"# {name} ({nickname}) Work Principles\n\n"
