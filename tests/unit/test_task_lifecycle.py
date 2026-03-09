@@ -24,14 +24,11 @@ class TestTaskLifecycle:
         assert "finished" in str(exc_info.value)
 
     def test_full_happy_path(self):
-        """Pending -> Processing -> Complete -> Acceptance -> Review -> Finished."""
+        """Pending -> Processing -> Complete -> Finished."""
         phases = [
             TaskPhase.PENDING,
             TaskPhase.PROCESSING,
             TaskPhase.COMPLETE,
-            TaskPhase.NEEDS_ACCEPTANCE,
-            TaskPhase.ACCEPTED,
-            TaskPhase.REVIEWING,
             TaskPhase.FINISHED,
         ]
         current = phases[0]
@@ -39,21 +36,17 @@ class TestTaskLifecycle:
             current = transition("t1", current, target)
         assert current == TaskPhase.FINISHED
 
-    def test_rectification_path(self):
-        """Rejected -> rectification -> retry."""
+    def test_holding_path(self):
+        """Processing -> Holding -> Processing -> Complete."""
         current = transition("t1", TaskPhase.PENDING, TaskPhase.PROCESSING)
-        current = transition("t1", current, TaskPhase.COMPLETE)
-        current = transition("t1", current, TaskPhase.NEEDS_ACCEPTANCE)
-        current = transition("t1", current, TaskPhase.REJECTED)
-        current = transition("t1", current, TaskPhase.RECTIFICATION)
+        current = transition("t1", current, TaskPhase.HOLDING)
         current = transition("t1", current, TaskPhase.PROCESSING)
-        assert current == TaskPhase.PROCESSING
+        current = transition("t1", current, TaskPhase.COMPLETE)
+        assert current == TaskPhase.COMPLETE
 
-    def test_ea_rejection_path(self):
-        """Accepted then rejected -> rectification -> retry."""
-        current = TaskPhase.ACCEPTED
-        current = transition("t1", current, TaskPhase.REJECTED)
-        current = transition("t1", current, TaskPhase.RECTIFICATION)
+    def test_failed_retry(self):
+        """Failed tasks can be retried."""
+        current = transition("t1", TaskPhase.PROCESSING, TaskPhase.FAILED)
         current = transition("t1", current, TaskPhase.PROCESSING)
         assert current == TaskPhase.PROCESSING
 
@@ -70,7 +63,7 @@ class TestTaskLifecycle:
     def test_get_valid_targets(self):
         targets = get_valid_targets(TaskPhase.COMPLETE)
         assert TaskPhase.FINISHED in targets
-        assert TaskPhase.NEEDS_ACCEPTANCE in targets
+        assert len(targets) == 1
 
     def test_skip_to_finished(self):
         """Simple task can go directly from COMPLETE to FINISHED."""

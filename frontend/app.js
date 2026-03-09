@@ -248,6 +248,16 @@ class AppController {
         }
         return null;
       },
+      'tree_update': (p) => {
+        if (this._treeRenderer && this._currentTreeProjectId === p.project_id) {
+          if (p.event_type === 'node_added') {
+            this._treeRenderer.addNode(p.node_id, p.data);
+          } else {
+            this._treeRenderer.updateNode(p.node_id, p.data);
+          }
+        }
+        return null;
+      },
       'ceo_report': (p) => {
         const icon = p.action_required ? '🚨' : '📊';
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
@@ -384,7 +394,14 @@ class AppController {
   }
 
   // ===== Task Panel =====
-  updateTaskPanel(tasks) {
+  updateTaskPanel() {
+    fetch('/api/task-queue')
+      .then(r => r.json())
+      .then(tasks => this._renderTaskPanel(tasks))
+      .catch(() => {});
+  }
+
+  _renderTaskPanel(tasks) {
     const panel = document.getElementById('task-panel-list');
     if (!tasks || tasks.length === 0) {
       panel.innerHTML = '<div class="task-empty">No active tasks</div>';
@@ -393,91 +410,104 @@ class AppController {
     panel.innerHTML = '';
     for (const t of tasks) {
       const card = document.createElement('div');
+      const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
       card.className = `task-card ${t.status}`;
-      const icon = t.status === 'running' ? '🔄' : '⏳';
-      const label = t.status === 'running' ? 'Running' : 'Queued';
-      const routeColor = t.routed_to === 'HR' ? 'var(--pixel-blue)' : 'var(--pixel-orange)';
-      // Resolve current owner display name
-      const ownerEmp = (this._lastEmployees || []).find(e => e.id === t.current_owner);
-      const ownerLabel = ownerEmp
-        ? `${ownerEmp.nickname || ownerEmp.name}`
-        : (t.current_owner || t.routed_to);
+
+      // Status icon
+      const statusMap = {
+        pending: ['⏳', 'Pending'],
+        processing: ['🔄', 'Processing'],
+        completed: ['✅', 'Completed'],
+        finished: ['🏁', 'Finished'],
+        failed: ['❌', 'Failed'],
+        cancelled: ['🚫', 'Cancelled'],
+        holding: ['⏸️', 'Holding'],
+      };
+      const [icon, label] = statusMap[t.status] || ['⏳', t.status];
+
+      // Owner — resolve from tree root node for better display
+      let ownerLabel = '';
+      if (!isTerminal) {
+        // For active tasks, show current owner
+        const ownerEmp = (this._lastEmployees || []).find(e => e.id === t.current_owner);
+        ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
+        // Don't show "pending" as owner
+        if (t.current_owner === 'pending' || !ownerLabel) {
+          ownerLabel = t.routed_to || '';
+        }
+      } else if (t.tree) {
+        // For completed tasks, show executor from tree root
+        const rootNode = t.tree.active_nodes?.[0];
+        if (rootNode) {
+          const rootEmp = (this._lastEmployees || []).find(e => e.id === rootNode.employee_id);
+          ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
+        }
+      }
+
+      // Task description (the original CEO instruction)
+      const taskText = this._escHtml(t.task.substring(0, 80)) + (t.task.length > 80 ? '...' : '');
+
+      // Result from tree root node for completed tasks
+      let resultHtml = '';
+      if (isTerminal && t.tree) {
+        // Get result from tree root node
+        const rootNode = t.tree.root_result;
+        if (rootNode) {
+          // Show first meaningful line of the result
+          const firstLine = rootNode.split('\n').find(l => l.trim()) || '';
+          const summary = firstLine.substring(0, 120);
+          resultHtml = `<div class="task-card-result">${this._escHtml(summary)}${firstLine.length > 120 ? '...' : ''}</div>`;
+        }
+      }
+
+      // Tree progress — only for active multi-node trees
+      let treeHtml = '';
+      if (!isTerminal && t.tree) {
+        const tr = t.tree;
+        const childCount = tr.total - 1;
+        if (childCount > 0) {
+          const done = tr.terminal;
+          const pct = Math.round((done / childCount) * 100);
+          treeHtml = `<div class="task-card-tree">
+            <div class="task-tree-progress"><div class="task-tree-bar" style="width:${pct}%"></div></div>
+            <span class="task-tree-label">${done}/${childCount} subtasks</span>
+          </div>`;
+        }
+        // Show active worker nodes
+        if (tr.active_nodes && tr.active_nodes.length > 0) {
+          const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
+            const nEmp = (this._lastEmployees || []).find(e => e.id === n.employee_id);
+            const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
+            const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
+            return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
+          }).join('');
+          const extra = tr.active_nodes.length > 3 ? `<div style="color:var(--text-dim);font-size:5px;">+${tr.active_nodes.length - 3} more</div>` : '';
+          treeHtml += `<div class="task-tree-nodes">${nodesHtml}${extra}</div>`;
+        }
+      }
+
+      // Completed time
+      let timeHtml = '';
+      if (isTerminal && t.completed_at) {
+        const completedTime = t.completed_at.substring(11, 19);
+        timeHtml = `<span class="task-card-time">${completedTime}</span>`;
+      }
+
       card.innerHTML = `
-        <div class="task-card-status">${icon} ${label}</div>
-        <div class="task-card-text">${t.task.substring(0, 60)}${t.task.length > 60 ? '...' : ''}</div>
-        <div class="task-card-route" style="color:${routeColor};">${t.routed_to} · <span class="task-card-owner">Current: ${ownerLabel}</span></div>
+        <div class="task-card-header">
+          <span class="task-card-status">${icon} ${label}</span>
+          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}</span>
+        </div>
+        <div class="task-card-text">${taskText}</div>
+        ${resultHtml}
+        ${treeHtml}
       `;
       if (t.project_id && !t.project_id.startsWith('_auto_')) {
         card.style.cursor = 'pointer';
-        card.addEventListener('click', () => this.openTaskLog(t.project_id));
+        card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
       }
       panel.appendChild(card);
     }
-  }
-
-  openTaskLog(projectId) {
-    const modal = document.getElementById('project-modal');
-    const listEl = document.getElementById('project-list');
-    const detailEl = document.getElementById('project-detail');
-    const contentEl = document.getElementById('project-detail-content');
-
-    // Open project modal directly in detail view (skip the list)
-    modal.classList.remove('hidden');
-    listEl.classList.add('hidden');
-    detailEl.classList.remove('hidden');
-    contentEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading task log...</div>';
-
-    fetch(`/api/projects/${encodeURIComponent(projectId)}`)
-      .then(r => r.json())
-      .then(doc => {
-        if (doc.error) {
-          contentEl.innerHTML = `<div style="color:var(--pixel-red);">${doc.error}</div>`;
-          return;
-        }
-        let html = `<h4 style="color:var(--pixel-yellow);font-size:8px;margin:6px 0;">${doc.task || ''}</h4>`;
-        html += `<div style="font-size:6px;color:var(--text-dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;">`;
-        html += `<span>Status: <span style="color:var(--pixel-green);">${doc.status}</span> | Routed to: ${doc.routed_to} | Started: ${(doc.created_at || '').substring(11, 19)}</span>`;
-        if (doc.completed_at) html += `<span>| Completed: ${doc.completed_at.substring(11, 19)}</span>`;
-        if (doc.status !== 'completed') {
-          html += `<button class="pixel-btn small" style="background:var(--pixel-red);color:#fff;box-shadow:2px 2px 0 #991122;font-size:5px;padding:2px 6px;margin-left:auto;" onclick="window._abortTask('${doc.project_id}')">ABORT</button>`;
-        }
-        html += `</div>`;
-
-        // Timeline (live task log)
-        const timeline = doc.timeline || [];
-        if (timeline.length > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 4px;">Task Log (${timeline.length} entries):</div>`;
-          for (const entry of timeline) {
-            const time = (entry.time || '').substring(11, 19);
-            const ownerColor = entry.employee_id === 'hr' ? 'var(--pixel-blue)' :
-                               entry.employee_id === 'coo' ? 'var(--pixel-orange)' : 'var(--pixel-green)';
-            html += `<div style="font-size:6px;line-height:1.8;border-left:2px solid var(--border);padding-left:6px;margin:2px 0;">`;
-            html += `<span style="color:var(--text-dim);">[${time}]</span> `;
-            html += `<span style="color:${ownerColor};">${entry.employee_id}</span> `;
-            html += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
-            if (entry.detail) {
-              html += `<div style="color:var(--pixel-white);margin-top:1px;">${entry.detail.substring(0, 300)}${entry.detail.length > 300 ? '...' : ''}</div>`;
-            }
-            html += `</div>`;
-          }
-        } else {
-          html += `<div style="font-size:6px;color:var(--text-dim);">No log entries yet — task is still initializing...</div>`;
-        }
-
-        // Workspace files
-        const files = doc.files || [];
-        if (files.length > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Workspace Files (${files.length}):</div>`;
-          for (const f of files) {
-            html += `<div style="font-size:6px;color:var(--pixel-white);padding:1px 0;">📄 ${f}</div>`;
-          }
-        }
-
-        contentEl.innerHTML = html;
-      })
-      .catch(err => {
-        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${err.message}</div>`;
-      });
   }
 
   // ===== Roster =====
@@ -4469,6 +4499,22 @@ class AppController {
       .catch(() => {});
   }
 
+  _openTaskInBoard(projectId) {
+    // Open project modal and load iteration detail directly (with task tree tab)
+    const modal = document.getElementById('project-modal');
+    const listEl = document.getElementById('project-list');
+    const detailEl = document.getElementById('project-detail');
+    const contentEl = document.getElementById('project-detail-content');
+    modal.classList.remove('hidden');
+    listEl.classList.add('hidden');
+    detailEl.classList.remove('hidden');
+    // Render directly into contentEl — no split wrapper needed
+    contentEl.innerHTML = `<div id="project-iter-detail" style="width:100%;height:100%;overflow-y:auto;">
+      <div style="color:var(--text-dim);font-size:6px;">Loading...</div>
+    </div>`;
+    this._loadIterationDetail(projectId, projectId);
+  }
+
   _openProjectDetail(projectId) {
     fetch(`/api/projects/named/${encodeURIComponent(projectId)}`)
       .then(r => r.json())
@@ -4539,17 +4585,29 @@ class AppController {
     if (!panel) return;
     panel.innerHTML = '<div style="color:var(--text-dim);font-size:6px;">Loading...</div>';
 
-    fetch(`/api/projects/${encodeURIComponent(iterationId)}`)
-      .then(r => r.json())
-      .then(doc => {
+    // Fetch project doc + task tree in parallel
+    Promise.all([
+      fetch(`/api/projects/${encodeURIComponent(iterationId)}`).then(r => r.json()),
+      fetch(`/api/projects/${encodeURIComponent(iterationId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([doc, treeData]) => {
         if (doc.error) {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
           return;
         }
 
-        // Tab bar — "详情" fixed + dynamic plugin tabs
+        // Extract task result from tree root node
+        let taskResult = '';
+        if (treeData && treeData.root_id && treeData.nodes) {
+          const rootNode = treeData.nodes.find(n => n.id === treeData.root_id);
+          if (rootNode && rootNode.result) {
+            taskResult = rootNode.result;
+          }
+        }
+
+        // Tab bar — "详情" + "任务树" fixed + dynamic plugin tabs
         const plugins = window.pluginLoader.getPlugins();
         let tabBarHtml = `<div class="project-tabs"><button class="project-tab active" data-tab="detail">详情</button>`;
+        tabBarHtml += `<button class="project-tab" data-tab="task-tree">\uD83C\uDF33 任务树</button>`;
         for (const p of plugins) {
           tabBarHtml += `<button class="project-tab" data-tab="plugin-${p.id}">${p.icon ? p.icon + ' ' : ''}${p.name}</button>`;
         }
@@ -4588,6 +4646,18 @@ class AppController {
           detailHtml += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
         }
 
+        // Follow-up button (always available)
+        detailHtml += `<div class="task-followup-section">
+          <button class="pixel-btn" id="followup-btn" style="font-size:6px;padding:4px 10px;">+ 追加任务</button>
+          <div id="followup-input-area" class="hidden" style="margin-top:6px;">
+            <textarea id="followup-instructions" class="followup-textarea" placeholder="输入追加指示..." rows="3"></textarea>
+            <div style="margin-top:4px;display:flex;gap:4px;">
+              <button class="pixel-btn" id="followup-submit" style="font-size:6px;padding:3px 8px;">发送</button>
+              <button class="pixel-btn secondary" id="followup-cancel" style="font-size:6px;padding:3px 8px;">取消</button>
+            </div>
+          </div>
+        </div>`;
+
         const files = doc.files || [];
         const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
@@ -4601,7 +4671,10 @@ class AppController {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
         }
 
-        if (doc.output) {
+        if (taskResult) {
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">任务汇报</div>`;
+          detailHtml += `<div class="task-result-report md-rendered">${this._renderMarkdown(taskResult)}</div>`;
+        } else if (doc.output) {
           detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
           detailHtml += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output).substring(0, 500)}</div>`;
         }
@@ -4653,8 +4726,18 @@ class AppController {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
         }
 
-        // Build full panel HTML with tabs — detail + dynamic plugin containers
+        // Build full panel HTML with tabs — detail + task tree + dynamic plugin containers
         let fullHtml = tabBarHtml + `<div class="project-tab-content" data-tab="detail">${detailHtml}</div>`;
+        fullHtml += `<div class="project-tab-content" data-tab="task-tree" style="display:none;">
+          <div class="project-tree-layout">
+            <div id="board-tree-container" class="project-tree-canvas">
+              <svg id="board-tree-svg"></svg>
+            </div>
+            <div id="board-tree-detail" class="project-tree-drawer hidden">
+              <div id="tree-detail-content"></div>
+            </div>
+          </div>
+        </div>`;
         for (const p of plugins) {
           fullHtml += `<div class="project-tab-content" data-tab="plugin-${p.id}" style="display:none;"><div style="color:var(--text-dim);font-size:6px;">Loading...</div></div>`;
         }
@@ -4669,7 +4752,14 @@ class AppController {
             panel.querySelectorAll('.project-tab-content').forEach(c => {
               c.style.display = c.dataset.tab === tabName ? '' : 'none';
             });
-            if (tabName.startsWith('plugin-')) {
+            if (tabName === 'task-tree') {
+              // Lazy-load task tree
+              if (!this._treeRenderer) {
+                this._treeRenderer = new TaskTreeRenderer('board-tree-container', 'board-tree-detail');
+              }
+              this._treeRenderer.load(projectId);
+              this._currentTreeProjectId = projectId;
+            } else if (tabName.startsWith('plugin-')) {
               const pluginId = tabName.replace('plugin-', '');
               this._viewingBoardProjectId = projectId;
               const container = panel.querySelector(`.project-tab-content[data-tab="${tabName}"]`);
@@ -4694,6 +4784,27 @@ class AppController {
         if (continueBtn) {
           continueBtn.addEventListener('click', () => {
             this._continueIteration(projectId, iterationId);
+          });
+        }
+
+        // Bind follow-up button
+        const followupBtn = document.getElementById('followup-btn');
+        const followupArea = document.getElementById('followup-input-area');
+        if (followupBtn && followupArea) {
+          followupBtn.addEventListener('click', () => {
+            followupBtn.classList.add('hidden');
+            followupArea.classList.remove('hidden');
+            document.getElementById('followup-instructions')?.focus();
+          });
+          document.getElementById('followup-cancel')?.addEventListener('click', () => {
+            followupArea.classList.add('hidden');
+            followupBtn.classList.remove('hidden');
+          });
+          document.getElementById('followup-submit')?.addEventListener('click', () => {
+            const textarea = document.getElementById('followup-instructions');
+            const text = textarea?.value?.trim();
+            if (!text) return;
+            this._submitFollowup(iterationId, text);
           });
         }
       })
@@ -4725,6 +4836,32 @@ class AppController {
       .catch(err => {
         this.logEntry('CEO', `继续失败: ${err.message}`, 'error');
         if (btn) { btn.disabled = false; btn.textContent = '▶ 继续当前轮次'; }
+      });
+  }
+
+  _submitFollowup(projectId, instructions) {
+    const submitBtn = document.getElementById('followup-submit');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ 提交中...'; }
+
+    fetch(`/api/task/${encodeURIComponent(projectId)}/followup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instructions }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('CEO', `追加任务失败: ${data.error}`, 'error');
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '发送'; }
+        } else {
+          this.logEntry('CEO', `已追加指示，任务已推送给EA`, 'ceo');
+          const modal = document.getElementById('project-modal');
+          if (modal) modal.classList.add('hidden');
+        }
+      })
+      .catch(err => {
+        this.logEntry('CEO', `追加任务失败: ${err.message}`, 'error');
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '发送'; }
       });
   }
 

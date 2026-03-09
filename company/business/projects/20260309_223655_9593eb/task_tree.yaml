@@ -1,0 +1,66 @@
+project_id: 20260309_223655_9593eb
+root_id: da486363fe37
+nodes:
+- id: da486363fe37
+  parent_id: ''
+  children_ids: []
+  employee_id: '00004'
+  description: 什么是肉鸽游戏？
+  acceptance_criteria: []
+  status: completed
+  result: '向CEO汇报：关于“肉鸽游戏”的分析报告
+
+
+    **一、 什么是“肉鸽游戏”？**
+
+    “肉鸽”是英文单词 **Roguelike** 的中文谐音，指的是一种具有特定核心机制的游戏品类。它起源于1980年的经典游戏《Rogue》，其最核心的特征通常包括以下几点：
+
+    1. **随机生成的环境 (Procedural Generation)**：每次开始新游戏，地图、关卡、怪物分布、掉落物品、技能选项等都是随机生成的。这保证了游戏具有极高的重玩价值（Replayability），玩家每次游玩都有全新的体验。
+
+    2. **永久死亡 (Permadeath)**：玩家一旦在游戏中死亡，就会失去当前的关卡进度、局内装备和等级，必须从零开始新的一局（俗称“开一把”）。
+
+    3. **不可逆的选择**：游戏进程通常是单向的，无法通过“读档”来挽回失误，要求玩家在资源分配和路线选择上具备策略性。
+
+
+    **二、 现代演变：Roguelite（轻度肉鸽）**
+
+    为了降低硬核设定的挫败感，现代游戏市场更流行 **Roguelite**（轻度肉鸽）。它保留了“随机关卡”和“单局死亡重置”的爽快感，但加入了**局外成长系统**。
+
+    例如：玩家在局内收集的特殊代币，可以在死亡结算后用于永久升级角色的基础血量、解锁新武器或新天赋。这让玩家即使失败也能感受到自身在变强（代表作：《哈迪斯 Hades》、《重生细胞
+    Dead Cells》、《吸血鬼幸存者》、《杀戮尖塔》）。
+
+
+    **三、 结合公司战略（Roblox平台）的启发**
+
+    结合我们公司“深耕Roblox平台、注重可玩性与趣味性”的战略方向，肉鸽玩法非常契合我们的开发目标：
+
+    - **极高的用户粘性与留存**：肉鸽玩法的“随机性+局外成长”非常容易产生“再来一把”的心流体验，完美契合Roblox年轻玩家群体的碎片化时间与高频互动习惯。
+
+    - **敏捷开发的优势**：利用Roblox优秀的模块化能力，我们可以通过有限的美术资产和关卡房间，通过算法组合出无限的游玩体验。这极大降低了内容消耗殆尽的风险，符合我们“敏捷开发体系”的优势。
+
+    - **商业化潜力**：局外的永久成长系统（Roguelite）非常适合融入健康的商业化设计（例如：通行证解锁特殊初始武器、抽取新的英雄角色等）。
+
+
+    ---
+
+    **[Self-Verification Note]**
+
+    - **Content Check**: Accurately defined "Roguelike/Roguelite", explained core
+    mechanics (procedural generation, permadeath), and connected the concept to the
+    company''s Roblox strategy.
+
+    - **Tooling/Output Check**: As specific file-writing tools (`write` / `sandbox_execute_code`)
+    are not currently exposed in the active tool declarations, I have delivered the
+    comprehensive report directly in this response to ensure immediate and accurate
+    fulfillment of your request without unnecessary loops. Proofread completed. Ready
+    for review.'
+  acceptance_result: null
+  project_id: 20260309_223655_9593eb
+  created_at: '2026-03-09T22:36:55.486393'
+  completed_at: '2026-03-09T22:37:32.529893'
+  cost_usd: 0.0
+  input_tokens: 0
+  output_tokens: 0
+  timeout_seconds: 3600
+task_id_map:
+  9c024932c49a: da486363fe37

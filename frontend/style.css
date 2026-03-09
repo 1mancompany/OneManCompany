@@ -1439,8 +1439,9 @@ body {
 
 /* ===== Project Wall Modal ===== */
 .project-modal-content {
-  max-width: 800px;
-  max-height: 80vh;
+  max-width: 1100px;
+  width: 90vw;
+  max-height: 85vh;
   border-color: var(--pixel-green);
   box-shadow: 0 0 40px rgba(0, 255, 136, 0.15);
 }
@@ -1481,8 +1482,9 @@ body {
 }
 
 .project-detail {
-  max-height: 60vh;
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .project-detail-split {
@@ -2069,7 +2071,7 @@ body {
 .task-card {
   padding: 6px 8px;
   border-left: 3px solid var(--border);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   background: var(--bg-dark);
   font-size: 6px;
   transition: background 0.15s;
@@ -2079,41 +2081,167 @@ body {
   border-left-width: 4px;
 }
 
-.task-card.running {
+.task-card.processing {
   border-left-color: var(--pixel-green);
   background: rgba(0, 255, 136, 0.05);
 }
-
-.task-card.queued {
+.task-card.pending {
   border-left-color: var(--pixel-yellow);
   background: rgba(255, 221, 0, 0.03);
+}
+.task-card.completed, .task-card.finished {
+  border-left-color: var(--pixel-yellow);
+  background: rgba(255, 221, 0, 0.03);
+}
+.task-card.cancelled {
+  border-left-color: var(--text-dim);
+  background: rgba(136, 136, 136, 0.03);
+}
+.task-card.failed {
+  border-left-color: #ff4444;
+  background: rgba(255, 68, 68, 0.05);
+}
+.task-card.holding {
+  border-left-color: var(--pixel-orange);
+  background: rgba(255, 170, 0, 0.03);
+}
+
+.task-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2px;
 }
 
 .task-card-status {
   font-size: 5px;
-  margin-bottom: 2px;
+  color: var(--text-dim);
 }
-
-.task-card.running .task-card-status {
-  color: var(--pixel-green);
-}
-
-.task-card.queued .task-card-status {
-  color: var(--pixel-yellow);
-}
+.task-card.processing .task-card-status { color: var(--pixel-green); }
+.task-card.pending .task-card-status { color: var(--pixel-yellow); }
+.task-card.completed .task-card-status { color: var(--pixel-yellow); }
+.task-card.failed .task-card-status { color: #ff4444; }
+.task-card.cancelled .task-card-status { color: var(--text-dim); }
 
 .task-card-text {
   color: var(--pixel-white);
   line-height: 1.6;
+  margin-bottom: 3px;
 }
 
-.task-card-route {
-  font-size: 5px;
-  margin-top: 2px;
-}
-
-.task-card-owner {
+.task-card-meta {
   color: var(--pixel-cyan);
+  font-size: 5px;
+}
+.task-card-time {
+  color: var(--text-dim);
+}
+
+.task-card-result {
+  font-size: 5px;
+  color: var(--pixel-green);
+  background: rgba(0, 255, 136, 0.05);
+  padding: 2px 4px;
+  border-radius: 2px;
+  margin-bottom: 2px;
+  line-height: 1.5;
+}
+.task-card.failed .task-card-result,
+.task-card.cancelled .task-card-result {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.05);
+}
+
+/* Follow-up input in detail view */
+.task-followup-section {
+  margin: 8px 0;
+}
+.followup-textarea {
+  width: 100%;
+  font-size: 6px;
+  font-family: 'Press Start 2P', monospace;
+  background: var(--bg-dark);
+  color: var(--pixel-white);
+  border: 1px solid var(--border);
+  padding: 6px;
+  resize: vertical;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.followup-textarea:focus {
+  border-color: var(--pixel-cyan);
+  outline: none;
+}
+
+/* Task result report in detail view */
+.task-result-report {
+  font-size: 6px;
+  color: var(--pixel-white);
+  background: var(--bg-dark);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pixel-green);
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.8;
+}
+.task-result-report.md-rendered br + br { display: none; }
+.task-result-report .md-h1 { font-size: 8px; color: var(--pixel-yellow); margin: 6px 0 3px; }
+.task-result-report .md-h2 { font-size: 7px; color: var(--pixel-cyan); margin: 5px 0 2px; }
+.task-result-report .md-h3 { font-size: 6.5px; color: var(--pixel-green); margin: 4px 0 2px; }
+.task-result-report .md-li { padding-left: 8px; position: relative; }
+.task-result-report .md-li::before { content: "·"; position: absolute; left: 2px; color: var(--text-dim); }
+.task-result-report .md-oli::before { content: ""; }
+.task-result-report strong { color: var(--pixel-yellow); }
+.task-result-report em { color: var(--pixel-cyan); }
+
+/* Tree progress in task card */
+.task-card-tree {
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.task-tree-progress {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+.task-tree-bar {
+  height: 100%;
+  background: var(--pixel-green);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.task-tree-label {
+  font-size: 5px;
+  color: var(--text-dim);
+}
+
+.task-tree-nodes {
+  margin-top: 3px;
+}
+
+.task-tree-node {
+  padding: 2px 4px;
+  margin-bottom: 1px;
+  border-left: 2px solid var(--text-dim);
+  font-size: 5px;
+  display: flex;
+  gap: 4px;
+}
+.task-tree-node-name {
+  color: var(--pixel-cyan);
+  white-space: nowrap;
+}
+.task-tree-node-desc {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ===== Projects Panel ===== */
@@ -3574,3 +3702,135 @@ body {
 }
 
 /* Kanban + Timeline styles are now loaded dynamically from plugins */
+
+/* Task Tree — rendered as a tab in the board view */
+.project-tab-content[data-tab="task-tree"] {
+    height: 60vh;
+    padding: 0 !important;
+}
+
+.project-tree-layout {
+    display: flex;
+    height: 100%;
+    gap: 0;
+}
+
+.project-tree-canvas {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    background: var(--bg-darker, #0a0a0a);
+}
+
+.project-tree-canvas svg {
+    width: 100%;
+    height: 100%;
+}
+
+.tree-link {
+    fill: none;
+    stroke: var(--pixel-green-dim, #1a3a2a);
+    stroke-width: 2;
+}
+
+.tree-node-card {
+    fill: #1a1a2e;
+    stroke: #333;
+    stroke-width: 1;
+    transition: stroke 0.2s;
+}
+
+.tree-node-card.selected {
+    stroke: var(--pixel-green, #00ff88);
+    stroke-width: 2;
+}
+
+.tree-node:hover .tree-node-card {
+    stroke: var(--pixel-green, #00ff88);
+    stroke-opacity: 0.7;
+}
+
+.tree-node-name {
+    fill: #fff;
+    font-family: var(--font-pixel, monospace);
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.tree-node-desc {
+    fill: #aaa;
+    font-family: var(--font-pixel, monospace);
+    font-size: 10px;
+}
+
+.tree-node-status {
+    font-family: var(--font-pixel, monospace);
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+/* Detail Drawer — only visible when a node is clicked */
+.project-tree-drawer {
+    width: 280px;
+    flex-shrink: 0;
+    overflow-y: auto;
+    padding: 16px;
+    background: #111;
+    border-left: 1px solid var(--pixel-green-dim, #1a3a2a);
+}
+
+.project-tree-drawer.hidden {
+    display: none;
+}
+
+.tree-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #333;
+}
+
+.tree-detail-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #222;
+    border: 2px solid var(--pixel-green);
+}
+
+.detail-section {
+    margin-bottom: 16px;
+}
+
+.detail-section h4 {
+    color: var(--pixel-green);
+    font-size: 11px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.detail-prompt,
+.detail-result {
+    background: #0a0a0a;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #ccc;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    color: #666;
+}
+
+.status-pass { color: #00ff88; }
+.status-fail { color: #ff4444; }

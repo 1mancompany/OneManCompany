@@ -6,24 +6,22 @@ acceptance_criteria:
 acceptance_result: null
 completed_at: null
 cost:
-  actual_cost_usd: 0.0
-  breakdown: []
+  actual_cost_usd: 0.011364
+  breakdown:
+  - cost_usd: 0.011364
+    employee_id: '00003'
+    input_tokens: 11331
+    model: claude-opus-4-6
+    output_tokens: 11
+    total_tokens: 11342
   budget_estimate_usd: 0.2
   token_usage:
-    input: 0
-    output: 0
-    total: 0
+    input: 11331
+    output: 11
+    total: 11342
 created_at: '2026-03-05T14:14:12.467285'
-current_owner: '00001'
-dispatches:
-- completed_at: null
-  depends_on: []
-  description: Continuation coordinator
-  dispatch_id: 7044fad9
-  dispatched_at: '2026-03-06T11:58:39.105632'
-  employee_id: '00003'
-  phase: 1
-  status: in_progress
+current_owner: '00003'
+dispatches: []
 ea_review_result: null
 iteration_id: iter_001
 output: null
@@ -180,3 +178,23 @@ timeline:
   detail: CEO requested continuation of current iteration
   employee_id: '00001'
   time: '2026-03-06T11:58:39.114941'
+- action: continue
+  detail: CEO requested continuation of current iteration
+  employee_id: '00001'
+  time: '2026-03-09T22:42:58.004972'
+- action: continue
+  detail: CEO requested continuation of current iteration
+  employee_id: '00001'
+  time: '2026-03-09T22:52:00.458688'
+- action: COO task completed
+  detail: Let me first understand the current state of the project.
+  employee_id: '00003'
+  time: '2026-03-09T22:52:13.224620'
+- action: continue
+  detail: CEO requested continuation of current iteration
+  employee_id: '00001'
+  time: '2026-03-09T22:52:19.981209'
+- action: COO task completed
+  detail: '[claude-daemon error] Daemon process is not running'
+  employee_id: '00003'
+  time: '2026-03-09T22:52:20.378700'

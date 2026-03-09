@@ -226,7 +226,7 @@ custom_tools:           # 同目录下 .py 模块名（不含后缀）
 
 ### 1. Company-Hosted（`hosting: "company"`）
 
-**公司托管** — 最常见的模式。平台内部运行 LangChain agent。
+**公司托管** — 最常见的模式。平台通过 `SubprocessExecutor` 运行 `launch.sh` 脚本。
 
 ```yaml
 # profile.yaml
@@ -237,10 +237,12 @@ llm_model: google/gemini-3.1-pro-preview-customtools
 ```
 
 **工作方式**：
-- 平台使用 `LangChainLauncher` 在内部创建 `create_react_agent`
-- 每次任务通过 `EmployeeManager.push_task()` 触发一次 agent 调用
-- LLM API key 由公司统一管理（`api_key` 字段或环境变量）
-- 员工工具由 `tools/manifest.yaml` 声明，运行时注入 agent
+- 平台使用 `SubprocessExecutor` 以**前台进程**运行 `launch.sh`
+- 每次任务 = 一次 `launch.sh` 调用，任务描述通过 `OMC_TASK_DESCRIPTION` 环境变量传入
+- 脚本将结果 JSON 输出到 stdout，日志输出到 stderr
+- 超时和取消由平台管理（SIGTERM → 30s → SIGKILL）
+- 如无自定义 `launch.sh`，平台使用 `LangChainLauncher` 作为回退
+- 公司工具通过 MCP stdio 协议提供（可选）
 
 **认证配置**：
 - `auth_method: api_key` — manifest 中使用 `{"type": "secret", "key": "api_key"}` 字段
@@ -306,15 +308,16 @@ hosting: remote           # 可省略，remote: true 时自动推断
 | | Company | Self-Hosted | Remote |
 |---|---|---|---|
 | **hosting 值** | `company`（默认） | `self` | `remote` |
-| **进程管理** | 平台内部 | 平台按需启动 CLI | 外部自行管理 |
-| **Launcher** | `LangChainLauncher` | `ClaudeSessionLauncher` | 无（HTTP 任务队列） |
-| **LLM 调用** | 平台通过 API key | CLI 自带凭证/OAuth | Worker 自行调用 |
+| **进程管理** | `SubprocessExecutor` 前台进程 | 平台按需启动 CLI | 外部自行管理 |
+| **Launcher** | `SubprocessExecutor`（有 launch.sh）/ `LangChainLauncher`（回退） | `ClaudeSessionLauncher` | 无（HTTP 任务队列） |
+| **LLM 调用** | launch.sh 内自行调用 LLM API | CLI 自带凭证/OAuth | Worker 自行调用 |
 | **认证方式** | api_key / none | oauth / cli | — |
 | **skills/tools 复制** | 是 | 是 | 否 |
 | **工位分配** | 是 | 是 | 否（远程标记） |
 | **connection.json** | 否 | 是 | 是 |
-| **launch.sh** | 否 | 可选 | 否 |
-| **会话管理** | agent 内存 | sessions.json | worker 自行管理 |
+| **launch.sh** | 推荐（前台模式） | 可选（后台模式） | 否 |
+| **会话管理** | 无状态（每次任务一个进程） | sessions.json | worker 自行管理 |
+| **超时/取消** | 平台管理（SIGTERM→SIGKILL） | 平台管理 | worker 自行管理 |
 
 ---
 
@@ -343,6 +346,163 @@ hosting: remote           # 可省略，remote: true 时自动推断
 
 ---
 
+## Writing launch.sh（启动脚本编写指南）
+
+`launch.sh` 是 company-hosted 员工的核心执行入口。平台通过 `SubprocessExecutor` 以**前台进程**
+运行此脚本，与 self-hosted 的后台 worker 模式不同。
+
+> 模板文件：`company/assets/tools/launch_template.sh`
+
+### 两种 launch.sh 模式
+
+| | Company-Hosted（前台） | Self-Hosted（后台） |
+|---|---|---|
+| **运行方式** | `SubprocessExecutor` 直接调用 | 入职时复制到员工目录，手动启动 |
+| **生命周期** | 每个任务一个进程，任务完成后退出 | 长驻后台，轮询任务队列 |
+| **任务来源** | `OMC_TASK_DESCRIPTION` 环境变量 | HTTP 轮询 `/api/remote/tasks/` |
+| **结果输出** | stdout JSON | HTTP POST `/api/remote/results` |
+| **超时/取消** | 平台管理（SIGTERM → 30s → SIGKILL） | 自行管理 |
+| **PID 管理** | 不需要 | `worker.pid` 文件 |
+
+**本节仅描述 Company-Hosted 前台模式。** Self-Hosted 后台模式见各 talent 的 `launch.sh` 实现。
+
+### 调用约定
+
+```
+SubprocessExecutor 调用方式:
+    bash launch.sh <employee_dir>
+
+参数:
+    $1 = employee_dir  (如 company/human_resource/employees/00010/)
+
+环境变量（自动注入）:
+    OMC_EMPLOYEE_ID      — 员工 ID
+    OMC_TASK_ID          — 任务 ID
+    OMC_PROJECT_ID       — 项目 ID
+    OMC_PROJECT_DIR      — 项目工作目录（cwd）
+    OMC_TASK_DESCRIPTION — 完整任务描述
+    OMC_SERVER_URL       — 后端 URL (http://localhost:8000)
+    OMC_MAX_ITERATIONS   — 最大 agent 迭代次数（默认 20）
+
+输出:
+    stdout → JSON（唯一一行）
+    stderr → 日志（仅供调试）
+    exit 0 → 成功    exit 非零 → 失败
+```
+
+### stdout JSON 格式
+
+```json
+{
+  "output": "任务结果文本",
+  "model": "google/gemini-3.1-pro-preview",
+  "input_tokens": 1234,
+  "output_tokens": 567
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `output` | string | 是 | 任务执行结果（纯文本） |
+| `model` | string | 否 | 使用的 LLM 模型标识符 |
+| `input_tokens` | int | 否 | 输入 token 数量 |
+| `output_tokens` | int | 否 | 输出 token 数量 |
+
+如果 stdout 不是合法 JSON，`SubprocessExecutor` 会将原始文本作为 `output` 返回。
+
+### 超时与取消
+
+- 默认超时 3600s（1 小时），可由父任务通过 `dispatch_child(timeout_seconds=...)` 调整
+- 超时或手动取消时，平台向进程发送 **SIGTERM**
+- 30 秒内未退出则强制 **SIGKILL**
+- 脚本应使用 `trap cleanup EXIT` 响应 SIGTERM，清理子进程
+
+```bash
+cleanup() {
+    # 清理 MCP server 等子进程
+    if [ -n "${MCP_PID:-}" ] && kill -0 "$MCP_PID" 2>/dev/null; then
+        kill "$MCP_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+```
+
+### 使用 MCP 工具
+
+Company-hosted 员工可通过 MCP stdio 协议访问公司工具（`dispatch_child`、`accept_child`、
+`reject_child`、`list_colleagues` 等）。
+
+```bash
+# 启动 MCP server 为 coprocess
+PROJECT_ROOT="$(cd "$EMPLOYEE_DIR/../../../.." && pwd)"
+PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+
+coproc MCP_PROC {
+    exec "$PYTHON" -m onemancompany.tools.mcp.server 2>/dev/null
+}
+MCP_PID=$MCP_PROC_PID
+
+# MCP_PROC[0] = stdout fd (读)
+# MCP_PROC[1] = stdin fd (写)
+# 通过 JSON-RPC 2.0 协议与 MCP server 交互
+```
+
+MCP server 会根据员工权限（`tool_permissions`）过滤可用工具。
+
+### 完整示例
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+EMPLOYEE_DIR="${1:?Usage: launch.sh <employee_dir>}"
+EMPLOYEE_DIR="$(cd "$EMPLOYEE_DIR" && pwd)"
+PROJECT_ROOT="$(cd "$EMPLOYEE_DIR/../../../.." && pwd)"
+PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+
+cleanup() { :; }
+trap cleanup EXIT
+
+>&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID}"
+
+# 调用 LLM（以 OpenRouter 为例）
+RESULT=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+    -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"model\": \"google/gemini-3.1-pro-preview\",
+      \"messages\": [{\"role\": \"user\", \"content\": $(echo "$OMC_TASK_DESCRIPTION" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}]
+    }")
+
+# 解析响应
+OUTPUT=$(echo "$RESULT" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r["choices"][0]["message"]["content"])')
+MODEL=$(echo "$RESULT" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("model",""))' 2>/dev/null || echo "")
+IN_TOKENS=$(echo "$RESULT" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("usage",{}).get("prompt_tokens",0))' 2>/dev/null || echo "0")
+OUT_TOKENS=$(echo "$RESULT" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("usage",{}).get("completion_tokens",0))' 2>/dev/null || echo "0")
+
+# 输出 JSON（仅此一行到 stdout）
+python3 -c "
+import json, sys
+print(json.dumps({
+    'output': sys.argv[1],
+    'model': sys.argv[2],
+    'input_tokens': int(sys.argv[3]),
+    'output_tokens': int(sys.argv[4]),
+}))
+" "$OUTPUT" "$MODEL" "$IN_TOKENS" "$OUT_TOKENS"
+```
+
+### 最佳实践
+
+1. **所有日志写 stderr** — stdout 仅用于最终 JSON 输出，`>&2 echo "..."` 记录日志
+2. **响应 SIGTERM** — 使用 `trap cleanup EXIT` 清理子进程和临时文件
+3. **不要后台化** — 脚本必须前台运行到完成，不要使用 `nohup` 或 `&`
+4. **使用 python3 做 JSON** — 避免 shell 字符串拼接导致的 JSON 格式错误
+5. **set -euo pipefail** — 任何命令失败立即退出，避免静默错误
+6. **环境变量即上下文** — 不要硬编码任务信息，从 `OMC_*` 环境变量读取
+
+---
+
 ## Creating a New Talent
 
 ### 最小可用包（Company-Hosted）
@@ -350,6 +510,7 @@ hosting: remote           # 可省略，remote: true 时自动推断
 ```
 talents/my_talent/
 ├── profile.yaml      # 必须
+├── launch.sh         # 推荐 — 前台任务执行脚本（参考 company/assets/tools/launch_template.sh）
 └── skills/
     └── my_skill.md   # 至少一个技能
 ```
@@ -395,9 +556,11 @@ talents/my_self_hosted/
 2. 编写 `profile.yaml`（必填字段：`id`, `name`, `role`, `skills`）
 3. 编写 `system_prompt_template`——聚焦能力定位和行为指引，不重复 identity 信息
 4. 在 `skills/` 下编写技能 `.md` 文件（具体框架和方法论放这里）
-5. 如需自定义工具，创建 `tools/manifest.yaml` + `.py` 文件
-6. 如需自定义设置 UI，创建 `manifest.json`
-7. 如为 self-hosted，创建 `launch.sh`（接收 `$1 = employee_dir`）
+5. 编写 `launch.sh`——参考 `company/assets/tools/launch_template.sh` 模板
+   - Company-hosted：前台模式，从 `OMC_*` 环境变量获取任务，JSON 输出到 stdout
+   - Self-hosted：后台模式，nohup 启动 worker，写 PID 文件
+6. 如需自定义工具，创建 `tools/manifest.yaml` + `.py` 文件
+7. 如需自定义设置 UI，创建 `manifest.json`
 8. 如有 Claude CLI 项目指令，放入 `CLAUDE.md`
 
 ---

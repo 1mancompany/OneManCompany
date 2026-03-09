@@ -88,7 +88,7 @@ class TestEAAgentBuildPrompt:
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
         assert "Executive Assistant" in prompt
-        assert "dispatch_task" in prompt
+        assert "dispatch_child" in prompt
 
     def test_contains_routing_table(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
@@ -131,6 +131,21 @@ class TestEAAgentBuildPrompt:
         prompt = agent._build_prompt()
         assert "Company Culture" in prompt
         assert "Move fast" in prompt
+
+
+class TestEAPromptContents:
+    def test_ea_prompt_contains_tree_tools(self):
+        """EA system prompt references tree tools, not old dispatch tools."""
+        from onemancompany.agents.ea_agent import EA_SYSTEM_PROMPT
+        assert "dispatch_child" in EA_SYSTEM_PROMPT
+        assert "accept_child" in EA_SYSTEM_PROMPT
+        assert "reject_child" in EA_SYSTEM_PROMPT
+        assert "report_to_ceo" in EA_SYSTEM_PROMPT
+        # Old tools should NOT be present
+        assert "dispatch_task" not in EA_SYSTEM_PROMPT
+        assert "set_acceptance_criteria" not in EA_SYSTEM_PROMPT
+        assert "set_project_budget" not in EA_SYSTEM_PROMPT
+        assert "ea_review_project" not in EA_SYSTEM_PROMPT
 
 
 class TestEAAgentRun:

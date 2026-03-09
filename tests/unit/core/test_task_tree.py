@@ -1,9 +1,6 @@
 """Tests for task tree data model and persistence."""
 from __future__ import annotations
 
-import yaml
-from pathlib import Path
-
 from onemancompany.core.task_tree import TaskNode, TaskTree
 
 
@@ -119,6 +116,29 @@ class TestTaskTree:
         assert loaded_child.status == "completed"
         assert loaded_child.result == "Done"
         assert loaded_child.acceptance_criteria == ["Must work"]
+
+    def test_task_node_default_timeout(self):
+        node = TaskNode()
+        assert node.timeout_seconds == 3600
+
+    def test_task_node_custom_timeout(self):
+        node = TaskNode(timeout_seconds=600)
+        assert node.timeout_seconds == 600
+
+    def test_timeout_in_to_dict(self):
+        node = TaskNode(timeout_seconds=1800)
+        d = node.to_dict()
+        assert d["timeout_seconds"] == 1800
+
+    def test_timeout_in_from_dict(self):
+        node = TaskNode.from_dict({"timeout_seconds": 900})
+        assert node.timeout_seconds == 900
+
+    def test_add_child_with_timeout(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        child = tree.add_child(root.id, "00010", "Work", ["done"], timeout_seconds=1200)
+        assert child.timeout_seconds == 1200
 
     def test_save_creates_parent_dirs(self, tmp_path):
         tree = TaskTree(project_id="proj1")

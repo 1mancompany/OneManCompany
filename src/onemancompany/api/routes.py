@@ -475,7 +475,18 @@ async def ceo_submit_task(body: dict) -> dict:
             f"任务: {task}{attach_info}\n\n"
             f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
         )
-        loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
+        ea_agent_task = loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
+
+        # Initialize task tree with EA as root
+        try:
+            from onemancompany.core.task_tree import TaskTree
+            from onemancompany.core.vessel import _save_project_tree
+            tree = TaskTree(project_id=ctx_id)
+            root = tree.create_root(employee_id=EA_ID, description=task)
+            tree.task_id_map[ea_agent_task.id] = root.id
+            _save_project_tree(pdir, tree)
+        except Exception as e:
+            logger.error("Failed to initialize task tree: {}", e)
     else:
         logger.error("EA agent not registered in EmployeeManager — cannot dispatch task")
         raise HTTPException(status_code=503, detail="EA agent not available")
@@ -486,6 +497,89 @@ async def ceo_submit_task(body: dict) -> dict:
         "iteration_id": iter_id,
         "project_dir": pdir,
     }
+
+
+@router.post("/api/task/{project_id}/followup")
+async def task_followup(project_id: str, body: dict) -> dict:
+    """CEO adds follow-up instructions to an existing task, dispatched to EA with context."""
+    from datetime import datetime as _dt
+
+    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.project_archive import get_project_dir, append_action
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.vessel import _save_project_tree
+
+    instructions = body.get("instructions", "").strip()
+    if not instructions:
+        return {"error": "Empty instructions"}
+
+    # Load project from filesystem (persistent, not in-memory)
+    from pathlib import Path
+    from onemancompany.core.project_archive import _resolve_and_load
+
+    pdir = str(get_project_dir(project_id))
+    if not pdir:
+        raise HTTPException(status_code=404, detail="Project directory not found")
+
+    _ver, doc, _key = _resolve_and_load(project_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    original_task = doc.get("task", "")
+
+    # Load task tree for context
+    tree_path = Path(pdir) / "task_tree.yaml"
+    previous_result = ""
+    if tree_path.exists():
+        tree = TaskTree.load(tree_path, project_id=project_id)
+        root = tree.get_node(tree.root_id)
+        if root and root.result:
+            previous_result = root.result
+
+    # Build follow-up task for EA
+    context_parts = [
+        f"CEO对已完成的任务追加了新指示:\n",
+        f"原始任务: {original_task}\n",
+    ]
+    if previous_result:
+        # Truncate very long results
+        prev = previous_result[:2000]
+        if len(previous_result) > 2000:
+            prev += "...(truncated)"
+        context_parts.append(f"上次任务结果:\n{prev}\n")
+    context_parts.append(f"CEO追加指示: {instructions}\n")
+    context_parts.append(
+        f"\n请根据CEO的追加指示和之前的任务上下文继续执行。"
+        f"如需分派子任务，使用 dispatch_child()。\n\n"
+        f"[Project ID: {project_id}] [Project workspace: {pdir}]"
+    )
+    followup_task = "\n".join(context_parts)
+
+    # Reset task tree — create new root for this follow-up
+    tree = TaskTree(project_id=project_id)
+    ea_loop = get_agent_loop(EA_ID)
+    if not ea_loop:
+        raise HTTPException(status_code=503, detail="EA agent not available")
+
+    ea_agent_task = ea_loop.push_task(followup_task, project_id=project_id, project_dir=pdir)
+    root = tree.create_root(employee_id=EA_ID, description=instructions)
+    tree.task_id_map[ea_agent_task.id] = root.id
+    _save_project_tree(pdir, tree)
+
+    # Update project.yaml status back to in_progress
+    doc["status"] = "in_progress"
+    doc["completed_at"] = None
+    from onemancompany.core.project_archive import _save_resolved
+    _save_resolved(_ver, _key, doc)
+
+    # Log the follow-up
+    append_action(project_id, "ceo", "追加指示", instructions[:200])
+
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    return {"status": "ok", "project_id": project_id}
 
 
 @router.post("/api/oneonone/chat")
@@ -1219,11 +1313,13 @@ async def abort_task(project_id: str) -> dict:
 
     total_cancelled = employee_manager.abort_project(project_id)
 
-    # Remove from company-level active_tasks (match both project_id and iteration_id)
-    company_state.active_tasks = [
-        t for t in company_state.active_tasks
-        if t.project_id != project_id and (not t.iteration_id or t.iteration_id != project_id)
-    ]
+    # Mark as cancelled in active_tasks (keep for history)
+    from datetime import datetime as _dt
+    for t in company_state.active_tasks:
+        if t.project_id == project_id or (t.iteration_id and t.iteration_id == project_id):
+            t.status = "cancelled"
+            t.result = "Aborted by CEO"
+            t.completed_at = _dt.now().isoformat()
 
     # Broadcast state
     await event_bus.publish(
@@ -2370,7 +2466,6 @@ async def continue_iteration(body: dict) -> dict:
         _resolve_and_load,
         _save_resolved,
         append_action,
-        record_dispatch,
     )
 
     project_id = body.get("project_id", "")
@@ -2416,31 +2511,36 @@ async def continue_iteration(body: dict) -> dict:
     doc["dispatches"] = []
     _save_resolved(version, key, doc)
 
-    # Register officer gate dispatch
-    record_dispatch(iteration_id, officer_id, "Continuation coordinator")
+    # Note: task tree handles dispatch tracking now
 
-    # Build continuation task description
+    # Build continuation task description — route to EA like initial task flow
     ctx_id = f"{project_id}/{iteration_id}" if project_id and not iteration_id.startswith(project_id) else iteration_id
     continuation_task = (
-        f"项目续做通知（CEO要求继续当前轮次）\n\n"
+        f"CEO要求继续推进当前轮次（不创建新迭代）\n\n"
         f"原始任务: {task}\n\n"
         f"验收标准:\n{criteria_text}\n\n"
         f"上轮反馈:\n{feedback_text}\n\n"
-        f"⚠️ CEO要求在当前轮次继续推进，不创建新迭代。\n"
-        f"请根据以上信息:\n"
-        f"1. 分析未完成或需改进的部分\n"
-        f"2. 将任务 dispatch_task() 给相关员工执行\n"
-        f"3. 你的任务到此结束——dispatch之后即可完成。\n"
-        f"   验收会在员工完成后由系统自动发起，无需你手动调用 accept_project。\n\n"
+        f"请根据以上信息分析未完成或需改进的部分，然后分派给合适的负责人执行。\n\n"
         f"[Project ID: {ctx_id}] [Project workspace: {project_dir}]"
     )
 
-    # Push task to officer
-    loop = get_agent_loop(officer_id)
+    # Route to EA (same as initial task flow) to ensure full task tree activation
+    loop = get_agent_loop(EA_ID)
     if not loop:
-        return {"error": f"No agent loop for officer {officer_id}"}
+        return {"error": f"No agent loop for EA {EA_ID}"}
 
-    loop.push_task(continuation_task, project_id=ctx_id, project_dir=project_dir)
+    ea_agent_task = loop.push_task(continuation_task, project_id=ctx_id, project_dir=project_dir)
+
+    # Initialize a new task tree so the full dispatch chain is tracked
+    try:
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import _save_project_tree
+        tree = TaskTree(project_id=ctx_id)
+        root = tree.create_root(employee_id=EA_ID, description=f"[续做] {task[:80]}")
+        tree.task_id_map[ea_agent_task.id] = root.id
+        _save_project_tree(project_dir, tree)
+    except Exception as e:
+        logger.error("Failed to initialize continuation task tree: {}", e)
 
     # Log the action
     append_action(iteration_id, CEO_ID, "continue", f"CEO requested continuation of current iteration")
@@ -2450,7 +2550,7 @@ async def continue_iteration(body: dict) -> dict:
         project_id=project_id or iteration_id,
         iteration_id=iteration_id,
         task=f"[续做] {task[:80]}",
-        routed_to=officer_id,
+        routed_to="EA",
         project_dir=project_dir,
     )
     company_state.active_tasks.append(task_entry)
@@ -2460,7 +2560,7 @@ async def continue_iteration(body: dict) -> dict:
 
     return {
         "status": "continued",
-        "routed_to": officer_id,
+        "routed_to": EA_ID,
         "iteration_id": iteration_id,
     }
 
@@ -2498,6 +2598,144 @@ async def get_project_board(project_id: str) -> dict:
         "columns": kanban_data.get("columns", {}),
         "timeline": timeline_data.get("timeline", []),
         "phases": kanban_data.get("phases", []),
+    }
+
+
+# ===== Task Queue Endpoint =====
+
+
+def _tree_summary(project_id: str) -> dict | None:
+    """Return a compact summary of a project's task tree."""
+    from pathlib import Path
+
+    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.task_tree import TaskTree
+
+    project_dir = get_project_dir(project_id)
+    if not project_dir:
+        return None
+    path = Path(project_dir) / "task_tree.yaml"
+    if not path.exists():
+        return None
+    tree = TaskTree.load(path, project_id=project_id)
+    nodes = list(tree._nodes.values())
+    if not nodes:
+        return None
+
+    total = len(nodes)
+    by_status: dict[str, int] = {}
+    for n in nodes:
+        by_status[n.status] = by_status.get(n.status, 0) + 1
+
+    terminal = sum(by_status.get(s, 0) for s in ("accepted", "failed", "cancelled"))
+    processing = by_status.get("processing", 0)
+    completed = by_status.get("completed", 0)
+
+    # Collect actively working nodes (non-terminal)
+    active_nodes = []
+    has_children = total > 1
+    for n in nodes:
+        # For multi-node trees, skip root (it's the coordinator)
+        if has_children and n.id == tree.root_id:
+            continue
+        if n.status in ("processing", "completed", "pending"):
+            active_nodes.append({
+                "id": n.id,
+                "employee_id": n.employee_id,
+                "description": n.description[:80],
+                "status": n.status,
+            })
+
+    # Root node result for completed tasks
+    root_node = tree.get_node(tree.root_id)
+    root_result = root_node.result if root_node else ""
+
+    return {
+        "root_id": tree.root_id,
+        "total": total,
+        "by_status": by_status,
+        "terminal": terminal,
+        "processing": processing,
+        "completed": completed,
+        "active_nodes": active_nodes,
+        "root_result": root_result,
+    }
+
+
+@router.get("/api/task-queue")
+async def get_task_queue() -> list[dict]:
+    """Return tasks from persistent project files, enriched with tree summaries.
+
+    Source of truth is the filesystem (project.yaml), not in-memory state.
+    This survives restarts without any snapshot/restore logic.
+    """
+    from onemancompany.core.project_archive import list_projects
+
+    result = []
+    for p in list_projects():
+        # Skip v2 named projects (shown in PROJECTS panel)
+        if p.get("is_named"):
+            continue
+        entry = {
+            "project_id": p["project_id"],
+            "task": p.get("task", ""),
+            "task_type": p.get("task_type", "simple"),
+            "routed_to": p.get("routed_to", ""),
+            "current_owner": p.get("current_owner", ""),
+            "status": _normalize_project_status(p.get("status", "")),
+            "created_at": p.get("created_at", ""),
+            "completed_at": p.get("completed_at", ""),
+            "result": "",
+            "tree": _tree_summary(p["project_id"]),
+        }
+        # Get result from tree root if available
+        if entry["tree"] and entry["tree"].get("root_result"):
+            entry["result"] = entry["tree"]["root_result"][:200]
+        result.append(entry)
+    return result
+
+
+def _normalize_project_status(status: str) -> str:
+    """Map project.yaml status values to task queue display status."""
+    mapping = {
+        "in_progress": "processing",
+        "pending": "pending",
+        "completed": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+    }
+    return mapping.get(status, status)
+
+
+# ===== Task Tree Endpoint =====
+
+
+def _load_project_tree_for_api(project_id: str):
+    """Load TaskTree for a project, trying known project directories."""
+    from pathlib import Path
+
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.project_archive import get_project_dir
+
+    project_dir = get_project_dir(project_id)
+    if not project_dir:
+        return None
+    path = Path(project_dir) / "task_tree.yaml"
+    if not path.exists():
+        return None
+    return TaskTree.load(path, project_id=project_id)
+
+
+@router.get("/api/projects/{project_id}/tree")
+async def get_project_tree(project_id: str) -> dict:
+    """Get the task tree for a project."""
+    tree = _load_project_tree_for_api(project_id)
+    if tree is None:
+        raise HTTPException(status_code=404, detail="Task tree not found")
+    return {
+        "project_id": tree.project_id,
+        "root_id": tree.root_id,
+        "nodes": [n.to_dict() for n in tree._nodes.values()],
     }
 
 
@@ -2880,7 +3118,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     """Push a follow-up task to COO after a hired employee is fully ready.
 
     Marks the hiring dispatch as complete and gives COO the project context
-    so it can dispatch_task() to the new employee.
+    so it can dispatch_child() to the new employee.
 
     Args:
         employee_id: The newly hired employee's ID.
@@ -2891,10 +3129,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     project_dir = ctx.get("project_dir", "")
     request_id = ctx.get("request_id", "")
 
-    if project_id and request_id:
-        hiring_dispatch_id = f"hiring_{request_id}"
-        from onemancompany.core.project_archive import record_dispatch_completion
-        record_dispatch_completion(project_id, hiring_dispatch_id)
+    # Note: hiring dispatch tracking now handled by task tree
 
     from onemancompany.core.agent_loop import get_agent_loop
     coo_loop = get_agent_loop(COO_ID)
@@ -2905,7 +3140,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
         followup = (
             f"新员工就绪通知\n\n"
             f"员工 {emp_name} (#{employee_id}) 已入职并准备就绪（{role}）。\n"
-            f"请将项目相关任务 dispatch_task() 给该员工执行。\n\n"
+            f"请将项目相关任务 dispatch_child() 给该员工执行。\n\n"
             f"原始招聘原因: {ctx.get('reason', '')}\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
@@ -2978,10 +3213,8 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         })
         logger.info(f"[hiring] Queued COO context: role='{req['role']}' dept='{req.get('department', '')}' req={request_id}")
     else:
-        # Rejected — clean up the hiring dispatch
-        if project_id:
-            from onemancompany.core.project_archive import record_dispatch_completion
-            record_dispatch_completion(project_id, hiring_dispatch_id)
+        # Rejected — no dispatch cleanup needed (task tree handles tracking)
+        pass
 
     return {
         "status": "approved" if approved else "rejected",
@@ -3083,11 +3316,13 @@ async def hire_candidate(body: HireRequest) -> dict:
     if pid:
         append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
         complete_project(pid, f"Hired {candidate['name']}")
-        # Remove from active tasks (match both project_id and iteration_id)
-        company_state.active_tasks = [
-            t for t in company_state.active_tasks
-            if t.project_id != pid and (not t.iteration_id or t.iteration_id != pid)
-        ]
+        # Mark as completed in active_tasks (keep for history)
+        from datetime import datetime as _dt2
+        for t in company_state.active_tasks:
+            if t.project_id == pid or (t.iteration_id and t.iteration_id == pid):
+                t.status = "completed"
+                t.result = f"Hired {candidate['name']}"
+                t.completed_at = _dt2.now().isoformat()
         # No retrospective — hiring is not a project iteration.
         # Retrospective only triggers after project acceptance + rectification.
 
@@ -4047,7 +4282,7 @@ async def internal_tool_call(body: dict) -> dict:
     Body: {employee_id, task_id, tool_name, args: {...}}
 
     Sets up context vars (_current_vessel, _current_task_id) so that
-    stateful tools (dispatch_task, set_acceptance_criteria, etc.) work
+    stateful tools (dispatch_child, accept_child, etc.) work
     exactly as they do when called from LangChain agents.
     """
     import asyncio

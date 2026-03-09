@@ -53,15 +53,15 @@ def _make_tree_with_root(project_id: str = "proj1", employee_id: str = "00002") 
 class TestDispatchChild:
     def test_happy_path(self):
         """Creates child node, pushes task to employee, saves tree."""
-        from onemancompany.agents.tree_tools import dispatch_child, _task_to_node
+        from onemancompany.agents.tree_tools import dispatch_child
 
         tree = _make_tree_with_root()
         root_id = tree.root_id
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-123")
 
-        # Set up node mapping for current task
-        _task_to_node["task-123"] = root_id
+        # Set up node mapping via tree's task_id_map
+        tree.task_id_map["task-123"] = root_id
 
         mock_handle = MagicMock()
         mock_agent_task = MagicMock()
@@ -100,8 +100,8 @@ class TestDispatchChild:
             call_args = mock_handle.push_task.call_args
             assert "build feature X" in call_args[0][0]
 
-            # Verify _task_to_node mapping was set for child
-            assert _task_to_node["child-task-id"] == result["node_id"]
+            # Verify task_id_map mapping was set for child
+            assert tree.task_id_map["child-task-id"] == result["node_id"]
 
             # Verify child node was added to tree
             child_node = tree.get_node(result["node_id"])
@@ -110,16 +110,16 @@ class TestDispatchChild:
             assert child_node.acceptance_criteria == ["tests pass", "docs updated"]
         finally:
             _reset_context(tok_v, tok_t)
-            _task_to_node.pop("task-123", None)
-            _task_to_node.pop("child-task-id", None)
 
     def test_unknown_employee_returns_error(self):
         """Returns error when employee_id not in company_state."""
-        from onemancompany.agents.tree_tools import dispatch_child, _task_to_node
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-456"] = tree.root_id
 
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-456")
-        _task_to_node["task-456"] = "some-node"
 
         mock_cs = MagicMock()
         mock_cs.employees = {}  # No employees
@@ -136,7 +136,45 @@ class TestDispatchChild:
             assert "99999" in result["message"]
         finally:
             _reset_context(tok_v, tok_t)
-            _task_to_node.pop("task-456", None)
+
+    def test_dispatch_child_with_timeout(self):
+        """dispatch_child passes timeout_seconds to child node."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-t1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-t1")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "child-t1"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "build X",
+                    "acceptance_criteria": ["works"],
+                    "timeout_seconds": 1800,
+                })
+
+            assert result["status"] == "dispatched"
+            child_node = tree.get_node(result["node_id"])
+            assert child_node.timeout_seconds == 1800
+        finally:
+            _reset_context(tok_v, tok_t)
 
     def test_no_context_returns_error(self):
         """Returns error when no vessel/task context is set."""
@@ -167,7 +205,7 @@ class TestDispatchChild:
 class TestAcceptChild:
     def test_marks_node_accepted(self):
         """Accept sets status=accepted and stores acceptance_result."""
-        from onemancompany.agents.tree_tools import accept_child, _task_to_node
+        from onemancompany.agents.tree_tools import accept_child
 
         tree = _make_tree_with_root()
         child = tree.add_child(
@@ -176,10 +214,10 @@ class TestAcceptChild:
             description="subtask",
             acceptance_criteria=["criterion"],
         )
+        tree.task_id_map["task-789"] = tree.root_id
 
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-789")
-        _task_to_node["task-789"] = tree.root_id
 
         try:
             with (
@@ -202,7 +240,6 @@ class TestAcceptChild:
             mock_save.assert_called_once()
         finally:
             _reset_context(tok_v, tok_t)
-            _task_to_node.pop("task-789", None)
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +249,7 @@ class TestAcceptChild:
 class TestRejectChild:
     def test_reject_with_retry(self):
         """Reject with retry=True resets to pending and pushes correction task."""
-        from onemancompany.agents.tree_tools import reject_child, _task_to_node
+        from onemancompany.agents.tree_tools import reject_child
 
         tree = _make_tree_with_root()
         child = tree.add_child(
@@ -223,10 +260,10 @@ class TestRejectChild:
         )
         child.status = "completed"
         child.result = "some result"
+        tree.task_id_map["task-abc"] = tree.root_id
 
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-abc")
-        _task_to_node["task-abc"] = tree.root_id
 
         mock_handle = MagicMock()
         mock_correction_task = MagicMock()
@@ -261,18 +298,17 @@ class TestRejectChild:
             correction_desc = mock_handle.push_task.call_args[0][0]
             assert "tests failing" in correction_desc
 
-            # Mapping should be set
-            assert _task_to_node["correction-task-id"] == child.id
+            # Mapping should be set in tree's task_id_map
+            assert tree.task_id_map["correction-task-id"] == child.id
 
-            mock_save.assert_called_once()
+            # Save called twice: once for status reset, once for task_id_map update
+            assert mock_save.call_count == 2
         finally:
             _reset_context(tok_v, tok_t)
-            _task_to_node.pop("task-abc", None)
-            _task_to_node.pop("correction-task-id", None)
 
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
-        from onemancompany.agents.tree_tools import reject_child, _task_to_node
+        from onemancompany.agents.tree_tools import reject_child
 
         tree = _make_tree_with_root()
         child = tree.add_child(
@@ -282,10 +318,10 @@ class TestRejectChild:
             acceptance_criteria=["criterion"],
         )
         child.status = "completed"
+        tree.task_id_map["task-def"] = tree.root_id
 
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-def")
-        _task_to_node["task-def"] = tree.root_id
 
         try:
             with (
@@ -308,4 +344,3 @@ class TestRejectChild:
             mock_save.assert_called_once()
         finally:
             _reset_context(tok_v, tok_t)
-            _task_to_node.pop("task-def", None)

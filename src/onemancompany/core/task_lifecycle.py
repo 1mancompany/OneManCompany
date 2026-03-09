@@ -4,19 +4,13 @@ Two orthogonal dimensions:
   - TaskType: project vs simple — determines whether retrospective runs
   - TaskPhase: the project/task lifecycle state machine
 
-State flow for SIMPLE tasks:
-  pending → processing → complete → finished
+State flow (both SIMPLE and PROJECT):
+  pending → processing → (holding →)* complete → finished
 
-State flow for PROJECT tasks:
-  pending → processing → (holding →)* complete → reviewing → finished
-                                         ↓
-                                     acceptance / ea_review / rectification
-                                     (sub-states within 'complete')
-
-Dispatch dependency model:
-  - Parallel: independent tasks, no depends_on
-  - Sequential: task B depends_on task A — B stays 'pending' until A is 'complete'
-  - Failure propagation: if A fails, all tasks depending on A are marked 'blocked'
+Task tree model:
+  - Parent dispatches children via dispatch_child()
+  - Children complete → parent woken to review via accept_child() / reject_child()
+  - All children accepted → parent auto-completes
 """
 
 from __future__ import annotations
@@ -51,15 +45,8 @@ class TaskPhase(str, Enum):
       PENDING     — created, not yet being worked on
       PROCESSING  — actively being worked on by an employee
       HOLDING     — blocked, waiting for a dependency to complete
-      COMPLETE    — all execution done (for SIMPLE: ready to finish)
+      COMPLETE    — all execution done, ready to finish
       FINISHED    — fully done, archived
-
-    Project-only sub-states (between COMPLETE and FINISHED):
-      NEEDS_ACCEPTANCE  — waiting for responsible officer to accept
-      ACCEPTED          — officer accepted, waiting for EA review
-      REJECTED          — officer/EA rejected, needs rectification
-      RECTIFICATION     — being fixed after rejection
-      REVIEWING         — acceptance passed, in retrospective
     """
     # --- Core states ---
     PENDING = "pending"
@@ -68,14 +55,7 @@ class TaskPhase(str, Enum):
     COMPLETE = "complete"
     FINISHED = "finished"
 
-    # --- Project sub-states (between COMPLETE and FINISHED) ---
-    NEEDS_ACCEPTANCE = "needs_acceptance"
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-    RECTIFICATION = "rectification"
-    REVIEWING = "reviewing"
-
-    # --- Error state ---
+    # --- Error states ---
     FAILED = "failed"
     BLOCKED = "blocked"      # dependency failed, cannot proceed
     CANCELLED = "cancelled"
@@ -87,16 +67,7 @@ VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     TaskPhase.PENDING: [TaskPhase.PROCESSING, TaskPhase.CANCELLED, TaskPhase.HOLDING],
     TaskPhase.PROCESSING: [TaskPhase.COMPLETE, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
     TaskPhase.HOLDING: [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
-    TaskPhase.COMPLETE: [TaskPhase.FINISHED, TaskPhase.NEEDS_ACCEPTANCE],
-
-    # Project acceptance flow
-    TaskPhase.NEEDS_ACCEPTANCE: [TaskPhase.ACCEPTED, TaskPhase.REJECTED],
-    TaskPhase.ACCEPTED: [TaskPhase.REVIEWING, TaskPhase.REJECTED, TaskPhase.FINISHED],
-    TaskPhase.REJECTED: [TaskPhase.RECTIFICATION],
-    TaskPhase.RECTIFICATION: [TaskPhase.PROCESSING],
-
-    # Retrospective
-    TaskPhase.REVIEWING: [TaskPhase.FINISHED],
+    TaskPhase.COMPLETE: [TaskPhase.FINISHED],
 
     # Terminal states
     TaskPhase.FINISHED: [],
@@ -109,8 +80,7 @@ VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
 # States visible to employees as "this task is active"
 ACTIVE_STATES = {
     TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOLDING,
-    TaskPhase.COMPLETE, TaskPhase.NEEDS_ACCEPTANCE, TaskPhase.ACCEPTED,
-    TaskPhase.REJECTED, TaskPhase.RECTIFICATION, TaskPhase.REVIEWING,
+    TaskPhase.COMPLETE,
 }
 
 # Terminal states
@@ -207,24 +177,16 @@ Every task in the system follows this state machine:
 |-------|---------|
 | pending | 已创建，等待处理 |
 | processing | 正在被某员工执行 |
-| holding | 等待依赖任务完成 |
-| complete | 所有子任务完成（简单任务直接结束，项目任务进入验收） |
-| needs_acceptance | 等待负责人验收 |
-| accepted | 验收通过，等待EA审核 |
-| rejected | 验收/EA审核未通过，需要整改 |
-| rectification | 整改中 |
-| reviewing | 验收通过，复盘中 |
-| finished | 全部完成（含复盘），已归档 |
+| holding | 等待子任务完成 |
+| complete | 执行完成 |
+| finished | 全部完成，已归档 |
 | failed | 执行失败 |
 | blocked | 依赖任务失败，无法继续 |
 | cancelled | 已取消 |
 
-Task types:
-- **simple**: 单一操作任务（发邮件、查信息等），EA可自行完成或直接分发给最合适的员工，不触发复盘
-- **project**: 项目级任务（开发、设计等），完整验收+可选复盘
-
-Dependency rules:
-- 并行任务：无 depends_on，可同时执行
-- 序列任务：有 depends_on，必须等依赖完成才开始
-- 依赖失败：依赖任务 failed → 本任务 blocked，需负责人处理
+Task tree model:
+- 父任务通过 dispatch_child() 分发子任务给员工
+- 子任务完成后，系统自动唤醒父任务进行审核
+- 父任务通过 accept_child() / reject_child() 审核每个子任务
+- 全部子任务通过 → 父任务自动完成并向上汇报
 """

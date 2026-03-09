@@ -811,7 +811,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
 
         coo_task = (
             "EA已批准以下行动计划。请按source字段分配执行：\n"
-            "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+            "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
             "- source=COO的行动：由你自己执行\n\n"
             "行动计划:\n" + "\n".join(action_lines)
         )
@@ -1342,7 +1342,7 @@ async def _ea_auto_approve_actions(
             action_lines = [f"- [{a.get('source', 'COO')}] {a['description']}" for a in remaining]
             coo_task = (
                 "EA已批准以下行动计划。请按source字段分配执行：\n"
-                "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+                "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
                 "- source=COO的行动：由你自己执行\n\n"
                 "行动计划:\n" + "\n".join(action_lines)
             )
@@ -1832,7 +1832,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
 
     coo_task = (
         "CEO已批准以下行动计划。请按source字段分配执行：\n"
-        "- source=HR的行动：使用dispatch_task()分派给HR（employee_id='00002'）\n"
+        "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
         "- source=COO的行动：由你自己执行\n\n"
         "行动计划:\n" + "\n".join(action_lines)
     )

@@ -40,5 +40,17 @@
     "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_170052_b555e7",
     "created": "2026-03-09T17:01:51.062687+00:00",
     "used": true
+  },
+  "20260309_220550_3b5fbc": {
+    "session_id": "2ae6e41f-f898-4b7e-89c7-138a2cad8832",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_220550_3b5fbc",
+    "created": "2026-03-09T22:06:24.793644+00:00",
+    "used": true
+  },
+  "20260309_221934_61ca08": {
+    "session_id": "3c8d3911-4037-46b8-9c61-efe3d684f7f1",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_221934_61ca08",
+    "created": "2026-03-09T22:20:03.604191+00:00",
+    "used": false
   }
 }

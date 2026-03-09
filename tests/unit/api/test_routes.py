@@ -180,7 +180,9 @@ class TestCeoSubmitTask:
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "agent-task-001"
+        mock_loop.push_task = MagicMock(return_value=mock_agent_task)
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
@@ -195,6 +197,38 @@ class TestCeoSubmitTask:
         data = resp.json()
         assert data["routed_to"] == "EA"
         assert data["status"] == "processing"
+
+    async def test_routes_to_ea_initializes_task_tree(self):
+        """CEO task submission creates a TaskTree with EA as root."""
+        state = _make_state()
+        bus = EventBus()
+        mock_loop = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "agent-task-002"
+        mock_loop.push_task = MagicMock(return_value=mock_agent_task)
+
+        mock_save_tree = MagicMock()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.core.project_archive.create_project", return_value="proj_123"), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
+             patch("onemancompany.core.vessel._save_project_tree", mock_save_tree):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post("/api/ceo/task", json={"task": "Build a website"})
+
+        assert resp.status_code == 200
+        # Verify tree was saved
+        mock_save_tree.assert_called_once()
+        saved_dir, saved_tree = mock_save_tree.call_args[0]
+        assert saved_dir == "/tmp/proj"
+        assert saved_tree.root_id != ""
+        root = saved_tree.get_node(saved_tree.root_id)
+        assert root is not None
+        assert root.description == "Build a website"
+        assert saved_tree.task_id_map["agent-task-002"] == root.id
 
 
 # ---------------------------------------------------------------------------
@@ -2476,7 +2510,9 @@ class TestAbortTask:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        assert len(state.active_tasks) == 0
+        assert len(state.active_tasks) == 1
+        assert state.active_tasks[0].status == "cancelled"
+        assert state.active_tasks[0].result == "Aborted by CEO"
 
 
 # ---------------------------------------------------------------------------
@@ -6199,3 +6235,47 @@ class TestWebSocketEndpoint:
             await routes_mod.websocket_endpoint(mock_ws)
 
         mock_ws_mgr.disconnect.assert_called_once_with(mock_ws)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/projects/{project_id}/tree
+# ---------------------------------------------------------------------------
+
+
+class TestProjectTreeEndpoint:
+    @pytest.mark.asyncio
+    async def test_get_project_tree(self):
+        """GET /api/projects/{id}/tree returns full tree structure."""
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root task")
+        child = tree.add_child(root.id, "00010", "Child task", ["criterion"])
+        child.status = "completed"
+        child.result = "Done"
+
+        with patch("onemancompany.api.routes._load_project_tree_for_api", return_value=tree):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/api/projects/proj1/tree")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["project_id"] == "proj1"
+        assert data["root_id"] == root.id
+        assert len(data["nodes"]) == 2
+        root_node = next(n for n in data["nodes"] if n["id"] == root.id)
+        assert root_node["employee_id"] == "00001"
+        child_node = next(n for n in data["nodes"] if n["id"] == child.id)
+        assert child_node["status"] == "completed"
+        assert child_node["result"] == "Done"
+
+    @pytest.mark.asyncio
+    async def test_get_project_tree_not_found(self):
+        """Returns 404 when no tree exists."""
+        with patch("onemancompany.api.routes._load_project_tree_for_api", return_value=None):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.get("/api/projects/proj1/tree")
+
+        assert resp.status_code == 404
