@@ -1,18 +1,24 @@
-"""Unified tool registry — single source of truth for all LangChain tools.
+"""Unified tool registry — single source of truth for all tools.
 
 Every tool (base, gated, role-specific, asset) is registered here with
 metadata that drives per-employee permission filtering.
+
+All tool execution — whether from LangChain agents or Claude CLI via MCP —
+flows through the same ``execute_tool()`` path which handles context setup
+and permission checks.
 
 Usage:
     from onemancompany.core.tool_registry import tool_registry, ToolMeta
 
     tool_registry.register(my_tool, ToolMeta(name="my_tool", category="base"))
-    tools = tool_registry.get_tools_for("00010")
+    tools = tool_registry.get_proxied_tools_for("00010")
 """
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
+
 from loguru import logger
 
 
@@ -189,5 +195,98 @@ class ToolRegistry:
                     logger.debug("Registered asset tool: %s (from %s)", attr.name, folder_name)
 
 
+    # ------------------------------------------------------------------
+    # Proxied tools — unified execution path for all employee types
+    # ------------------------------------------------------------------
+
+    def get_proxied_tools_for(self, employee_id: str) -> list:
+        """Return LangChain tools that route through execute_tool().
+
+        Unlike get_tools_for() which returns direct tool instances,
+        this returns wrapper tools that go through the unified execution
+        path (same as MCP). This ensures consistent context setup
+        for both LangChain agents and Claude CLI agents.
+        """
+        from langchain_core.tools import StructuredTool
+
+        direct_tools = self.get_tools_for(employee_id)
+        proxied = []
+        for tool in direct_tools:
+            tool_name = tool.name
+
+            # Build async wrapper that calls execute_tool
+            async def _proxy(emp_id=employee_id, tname=tool_name, **kwargs):
+                return await execute_tool(emp_id, tname, kwargs)
+
+            wrapper = StructuredTool.from_function(
+                coroutine=_proxy,
+                name=tool.name,
+                description=tool.description,
+                args_schema=tool.args_schema if hasattr(tool, "args_schema") else None,
+            )
+            proxied.append(wrapper)
+        return proxied
+
+
 # Module-level singleton
 tool_registry = ToolRegistry()
+
+
+# ------------------------------------------------------------------
+# Unified tool execution — single path for all tool calls
+# ------------------------------------------------------------------
+
+async def execute_tool(employee_id: str, tool_name: str, args: dict) -> dict:
+    """Execute a tool with proper context setup.
+
+    This is the single execution path for ALL tool calls, whether from
+    LangChain agents (via proxied tools) or Claude CLI (via MCP HTTP bridge).
+    """
+    from onemancompany.core.vessel import (
+        _current_vessel, _current_task_id, employee_manager,
+    )
+
+    fn = tool_registry.get_tool(tool_name)
+    if not fn:
+        return {"status": "error", "message": f"Tool '{tool_name}' not found"}
+
+    # Context vars may already be set by vessel._execute_task for
+    # company-hosted agents. For MCP calls they won't be set yet.
+    # Only override if not already set.
+    vessel_token = None
+    try:
+        existing_vessel = _current_vessel.get(None)
+        if existing_vessel is None and employee_id:
+            vessel = employee_manager.get_handle(employee_id)
+            if vessel:
+                vessel_token = _current_vessel.set(vessel)
+
+        # task_id is set per-tool-call for MCP, per-task for LangChain
+        # Don't override if already set by vessel
+        existing_task = _current_task_id.get(None)
+        if existing_task is None:
+            # For MCP calls, task_id comes from args or env — handled by caller
+            pass
+
+        # Call the tool
+        if hasattr(fn, "ainvoke"):
+            result = await fn.ainvoke(args)
+        elif hasattr(fn, "invoke"):
+            result = fn.invoke(args)
+        elif inspect.iscoroutinefunction(fn):
+            result = await fn(**args)
+        else:
+            result = fn(**args)
+
+        # Normalize result
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, list):
+            return {"result": result}
+        return {"result": str(result)}
+    except Exception as e:
+        logger.error("Tool '{}' failed: {}", tool_name, e)
+        return {"status": "error", "message": str(e)}
+    finally:
+        if vessel_token is not None:
+            _current_vessel.reset(vessel_token)

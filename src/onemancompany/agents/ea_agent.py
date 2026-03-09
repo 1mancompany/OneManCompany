@@ -63,6 +63,10 @@ For each child:
 - Do NOT skip acceptance_criteria when dispatching children.
 - Do NOT accept results without actually reading them.
 - Do NOT call report_to_ceo() until all children are accepted and work is complete.
+- Do NOT write dispatch_child() as text/code blocks in your response — you MUST actually invoke the tool.
+  Wrong: writing ```python dispatch_child(...)``` in your message.
+  Right: actually calling the dispatch_child tool so the system executes it.
+- Do NOT report plans to CEO before executing them — dispatch first, report after results come back.
 """
 
 
@@ -75,7 +79,7 @@ class EAAgent(BaseAgentRunner):
 
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=tool_registry.get_tools_for(self.employee_id),
+            tools=tool_registry.get_proxied_tools_for(self.employee_id),
         )
 
     def _customize_prompt(self, pb) -> None:

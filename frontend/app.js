@@ -262,6 +262,10 @@ class AppController {
         const icon = p.action_required ? '🚨' : '📊';
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
+      'ask_ceo': (p) => {
+        this._showAskCeoDialog(p);
+        return { text: `❓ ${p.employee_name || p.employee_id} 请求CEO反馈: ${p.question}`, cls: 'ceo', agent: 'SYSTEM' };
+      },
       'code_update_available': (p) => {
         this._showCodeUpdateBanner(p.count, p.changed_files);
         return null;
@@ -1552,6 +1556,56 @@ class AppController {
     if (bytes < 1024) return bytes + 'B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
     return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
+  }
+
+  _showAskCeoDialog(data) {
+    const empName = data.employee_name || data.employee_id;
+    const overlay = document.createElement('div');
+    overlay.className = 'ask-ceo-overlay';
+    overlay.innerHTML = `
+      <div class="ask-ceo-dialog">
+        <div class="ask-ceo-header">${empName} 请求CEO反馈</div>
+        <div class="ask-ceo-question">${this._escHtml(data.question)}</div>
+        ${data.context ? `<div class="ask-ceo-context">${this._renderMarkdown(data.context)}</div>` : ''}
+        <textarea class="ask-ceo-input" placeholder="输入回复..." rows="3"></textarea>
+        <div class="ask-ceo-actions">
+          <button class="pixel-btn ask-ceo-submit">回复</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const input = overlay.querySelector('.ask-ceo-input');
+    const submitBtn = overlay.querySelector('.ask-ceo-submit');
+    input.focus();
+
+    const submit = () => {
+      const message = input.value.trim();
+      if (!message) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳';
+      fetch('/api/ceo/respond', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          employee_id: data.employee_id,
+          project_id: data.project_id || '',
+          action: 'approve',
+          message: message,
+        }),
+      })
+      .then(() => overlay.remove())
+      .catch(err => {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '回复';
+        console.error('ask_ceo respond failed:', err);
+      });
+    };
+
+    submitBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+    });
   }
 
   _showCodeUpdateBanner(count, files) {

@@ -72,7 +72,7 @@ def _rebuild_employee_agent(employee_id: str) -> bool:
     from langgraph.prebuilt import create_react_agent
     from onemancompany.core.tool_registry import tool_registry
     new_llm = make_llm(employee_id)
-    loop.agent._agent = create_react_agent(model=new_llm, tools=tool_registry.get_tools_for(employee_id))
+    loop.agent._agent = create_react_agent(model=new_llm, tools=tool_registry.get_proxied_tools_for(employee_id))
     return True
 
 
@@ -4256,40 +4256,20 @@ class _RoutesSnapshot:
 # Internal MCP Tool-Call API
 # =====================================================================
 
-# Registry of tool functions callable via MCP.
-# Populated lazily on first request to avoid circular imports.
-_mcp_tool_registry: dict[str, callable] = {}
-
-
-def _ensure_tool_registry() -> dict[str, callable]:
-    """Build tool registry on first use from the unified ToolRegistry."""
-    if _mcp_tool_registry:
-        return _mcp_tool_registry
-
-    from onemancompany.core.tool_registry import tool_registry
-
-    for name in tool_registry.all_tool_names():
-        tool = tool_registry.get_tool(name)
-        if tool is not None:
-            _mcp_tool_registry[name] = tool
-    return _mcp_tool_registry
-
 
 @router.post("/api/internal/tool-call")
 async def internal_tool_call(body: dict) -> dict:
-    """Generic tool-call endpoint for MCP server.
+    """Generic tool-call endpoint for MCP server (Claude CLI).
 
     Body: {employee_id, task_id, tool_name, args: {...}}
 
-    Sets up context vars (_current_vessel, _current_task_id) so that
-    stateful tools (dispatch_child, accept_child, etc.) work
-    exactly as they do when called from LangChain agents.
+    Delegates to the unified execute_tool() which handles context setup.
+    For MCP calls, task_id must be set explicitly since context vars
+    aren't pre-set by vessel.
     """
-    import asyncio
-    import inspect
-
+    from onemancompany.core.tool_registry import execute_tool
     from onemancompany.core.vessel import (
-        _current_vessel, _current_task_id, employee_manager,
+        _current_task_id,
     )
 
     employee_id = body.get("employee_id", "")
@@ -4300,45 +4280,19 @@ async def internal_tool_call(body: dict) -> dict:
     if not tool_name:
         raise HTTPException(400, "Missing tool_name")
 
-    registry = _ensure_tool_registry()
-    fn = registry.get(tool_name)
-    if not fn:
-        raise HTTPException(404, f"Tool '{tool_name}' not found")
-
-    # Set up context vars so stateful tools can find the calling vessel + task
-    vessel_token = None
+    # For MCP calls, set task_id context var (vessel doesn't set it)
     task_token = None
     try:
-        if employee_id and task_id:
-            vessel = employee_manager.get_handle(employee_id)
-            if vessel:
-                vessel_token = _current_vessel.set(vessel)
-                task_token = _current_task_id.set(task_id)
-
-        # Call the tool — all tools are LangChain StructuredTool instances
-        if hasattr(fn, "ainvoke"):
-            result = await fn.ainvoke(args)
-        elif hasattr(fn, "invoke"):
-            result = fn.invoke(args)
-        elif inspect.iscoroutinefunction(fn):
-            result = await fn(**args)
-        else:
-            result = fn(**args)
-
-        # Normalize result to dict
-        if isinstance(result, dict):
-            return result
-        if isinstance(result, list):
-            return {"result": result}
-        return {"result": str(result)}
+        if task_id:
+            task_token = _current_task_id.set(task_id)
+        result = await execute_tool(employee_id, tool_name, args)
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"MCP tool-call '{tool_name}' failed: {e}")
         return {"status": "error", "message": str(e)}
     finally:
-        if vessel_token is not None:
-            _current_vessel.reset(vessel_token)
         if task_token is not None:
             _current_task_id.reset(task_token)
 
