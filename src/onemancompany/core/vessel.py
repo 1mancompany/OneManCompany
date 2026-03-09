@@ -199,6 +199,7 @@ class TaskContext:
     project_id: str = ""
     work_dir: str = ""
     employee_id: str = ""
+    task_id: str = ""
 
 
 class Launcher(ABC):
@@ -270,6 +271,7 @@ class ClaudeSessionExecutor(Launcher):
             context.project_id or "default",
             prompt=task_description,
             work_dir=context.work_dir,
+            task_id=context.task_id,
         )
         if on_log:
             on_log("result", (output or "")[:500])
@@ -822,6 +824,7 @@ class EmployeeManager:
                 project_id=task.project_id,
                 work_dir=project_dir,
                 employee_id=employee_id,
+                task_id=task.id,
             )
 
             # Pre-task hook
@@ -986,6 +989,7 @@ class EmployeeManager:
                 project_id=sub.project_id,
                 work_dir=sub.project_dir,
                 employee_id=employee_id,
+                task_id=sub.id,
             )
 
             last_err: Exception | None = None

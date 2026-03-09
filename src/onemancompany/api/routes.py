@@ -3404,3 +3404,99 @@ class _RoutesSnapshot:
         restored_remote_map = data.get("remote_task_project_map", {})
         if restored_remote_map:
             _remote_task_project_map.update(restored_remote_map)
+
+
+# =====================================================================
+# Internal MCP Tool-Call API
+# =====================================================================
+
+# Registry of tool functions callable via MCP.
+# Populated lazily on first request to avoid circular imports.
+_mcp_tool_registry: dict[str, callable] = {}
+
+
+def _ensure_tool_registry() -> dict[str, callable]:
+    """Build tool registry on first use."""
+    if _mcp_tool_registry:
+        return _mcp_tool_registry
+
+    from onemancompany.agents.common_tools import (
+        BASE_TOOLS, GATED_TOOLS, COMMON_TOOLS,
+        dispatch_team_tasks, manage_tool_access,
+    )
+    # Register all known tools by function name
+    for fn in COMMON_TOOLS:
+        name = getattr(fn, "name", None) or fn.__name__
+        _mcp_tool_registry[name] = fn
+    # Ensure dispatch_team_tasks and manage_tool_access are included
+    _mcp_tool_registry["dispatch_team_tasks"] = dispatch_team_tasks
+    _mcp_tool_registry["manage_tool_access"] = manage_tool_access
+    return _mcp_tool_registry
+
+
+@router.post("/api/internal/tool-call")
+async def internal_tool_call(body: dict) -> dict:
+    """Generic tool-call endpoint for MCP server.
+
+    Body: {employee_id, task_id, tool_name, args: {...}}
+
+    Sets up context vars (_current_vessel, _current_task_id) so that
+    stateful tools (dispatch_task, set_acceptance_criteria, etc.) work
+    exactly as they do when called from LangChain agents.
+    """
+    import asyncio
+    import inspect
+
+    from onemancompany.core.vessel import (
+        _current_vessel, _current_task_id, employee_manager,
+    )
+
+    employee_id = body.get("employee_id", "")
+    task_id = body.get("task_id", "")
+    tool_name = body.get("tool_name", "")
+    args = body.get("args", {})
+
+    if not tool_name:
+        raise HTTPException(400, "Missing tool_name")
+
+    registry = _ensure_tool_registry()
+    fn = registry.get(tool_name)
+    if not fn:
+        raise HTTPException(404, f"Tool '{tool_name}' not found")
+
+    # Set up context vars so stateful tools can find the calling vessel + task
+    vessel_token = None
+    task_token = None
+    try:
+        if employee_id and task_id:
+            vessel = employee_manager.get_vessel(employee_id)
+            if vessel:
+                vessel_token = _current_vessel.set(vessel)
+                task_token = _current_task_id.set(task_id)
+
+        # Call the tool — all tools are LangChain StructuredTool instances
+        if hasattr(fn, "ainvoke"):
+            result = await fn.ainvoke(args)
+        elif hasattr(fn, "invoke"):
+            result = fn.invoke(args)
+        elif inspect.iscoroutinefunction(fn):
+            result = await fn(**args)
+        else:
+            result = fn(**args)
+
+        # Normalize result to dict
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, list):
+            return {"result": result}
+        return {"result": str(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"MCP tool-call '{tool_name}' failed: {e}")
+        return {"status": "error", "message": str(e)}
+    finally:
+        if vessel_token is not None:
+            _current_vessel.reset(vessel_token)
+        if task_token is not None:
+            _current_task_id.reset(task_token)

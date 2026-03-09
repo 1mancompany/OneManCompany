@@ -174,6 +174,7 @@ async def run_claude_session(
     work_dir: str = "",
     max_turns: int = 50,
     timeout: int = 600,
+    task_id: str = "",
 ) -> str:
     """Execute a Claude CLI call and return stdout.
 
@@ -186,11 +187,26 @@ async def run_claude_session(
         session_id, is_new = get_or_create_session(employee_id, project_id, work_dir=work_dir)
         cwd = work_dir or str(EMPLOYEES_DIR / employee_id)
 
+        # Generate MCP config so Claude CLI can use company tools
+        mcp_config_path = None
+        try:
+            from onemancompany.mcp.config_builder import write_mcp_config
+            mcp_config_path = write_mcp_config(
+                employee_id,
+                task_id=task_id,
+                project_id=project_id,
+                project_dir=work_dir,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to generate MCP config: {e}")
+
         base = [
             "claude", "--print",
             "--dangerously-skip-permissions",
             "--max-turns", str(max_turns),
         ]
+        if mcp_config_path:
+            base += ["--mcp-config", str(mcp_config_path)]
         if is_new:
             cmd = base + ["--session-id", session_id, prompt]
         else:
