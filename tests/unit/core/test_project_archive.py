@@ -363,63 +363,13 @@ class TestGetProjectDir:
 # Acceptance criteria / dispatch / cost recording
 # ---------------------------------------------------------------------------
 
-class TestAcceptanceAndDispatch:
+class TestAcceptanceAndCriteria:
     def test_set_acceptance_criteria(self, tmp_path):
         pid = pa.create_project("AC Test", "COO")
         pa.set_acceptance_criteria(pid, ["Test passes", "No bugs"], "00005")
         doc = pa.load_project(pid)
         assert doc["acceptance_criteria"] == ["Test passes", "No bugs"]
         assert doc["responsible_officer"] == "00005"
-
-    def test_record_dispatch(self, tmp_path):
-        pid = pa.create_project("Dispatch", "COO")
-        pa.record_dispatch(pid, "00005", "Implement feature")
-        doc = pa.load_project(pid)
-        assert len(doc["dispatches"]) == 1
-        assert doc["dispatches"][0]["employee_id"] == "00005"
-        assert doc["dispatches"][0]["status"] == "in_progress"
-
-    def test_record_dispatch_completion(self, tmp_path):
-        pid = pa.create_project("DispComp", "COO")
-        pa.record_dispatch(pid, "00005", "Task")
-        pa.record_dispatch_completion(pid, "00005")
-        doc = pa.load_project(pid)
-        assert doc["dispatches"][0]["status"] == "completed"
-        assert doc["dispatches"][0].get("completed_at") is not None
-
-    def test_all_dispatches_complete_true(self, tmp_path):
-        pid = pa.create_project("AllComp", "COO")
-        pa.record_dispatch(pid, "00005", "Task")
-        pa.record_dispatch_completion(pid, "00005")
-        assert pa.all_dispatches_complete(pid) is True
-
-    def test_all_dispatches_complete_false(self, tmp_path):
-        pid = pa.create_project("NotComp", "COO")
-        pa.record_dispatch(pid, "00005", "Task")
-        assert pa.all_dispatches_complete(pid) is False
-
-    def test_all_dispatches_complete_no_dispatches(self, tmp_path):
-        pid = pa.create_project("NoDisp", "COO")
-        assert pa.all_dispatches_complete(pid) is True
-
-    def test_all_dispatches_complete_missing_project(self, tmp_path):
-        assert pa.all_dispatches_complete("fake_20240101_120000_aaa111") is True
-
-
-class TestAcceptanceAndReview:
-    def test_set_acceptance_result(self, tmp_path):
-        pid = pa.create_project("Accept", "COO")
-        pa.set_acceptance_result(pid, True, "00005", "Looks good")
-        doc = pa.load_project(pid)
-        assert doc["acceptance_result"]["accepted"] is True
-        assert doc["acceptance_result"]["officer_id"] == "00005"
-
-    def test_set_ea_review_result(self, tmp_path):
-        pid = pa.create_project("EA Review", "COO")
-        pa.set_ea_review_result(pid, False, "Needs rework")
-        doc = pa.load_project(pid)
-        assert doc["ea_review_result"]["approved"] is False
-        assert doc["ea_review_result"]["notes"] == "Needs rework"
 
     def test_set_project_budget(self, tmp_path):
         pid = pa.create_project("Budget", "COO")
@@ -724,27 +674,11 @@ class TestGetCostSummaryV2:
 
 class TestNoopOnMissing:
     def test_set_acceptance_criteria_missing(self, tmp_path):
-        """Line 588: noop when project not found."""
+        """Noop when project not found."""
         pa.set_acceptance_criteria("nonexistent_20240101_120000_aaa111", ["c1"], "00005")
 
-    def test_record_dispatch_missing(self, tmp_path):
-        """Line 598: noop when project not found."""
-        pa.record_dispatch("nonexistent_20240101_120000_aaa111", "00005", "task")
-
-    def test_record_dispatch_completion_missing(self, tmp_path):
-        """Line 614: noop when project not found."""
-        pa.record_dispatch_completion("nonexistent_20240101_120000_aaa111", "00005")
-
-    def test_set_acceptance_result_missing(self, tmp_path):
-        """Line 638: noop when project not found."""
-        pa.set_acceptance_result("nonexistent_20240101_120000_aaa111", True, "00005")
-
-    def test_set_ea_review_missing(self, tmp_path):
-        """Line 652: noop when project not found."""
-        pa.set_ea_review_result("nonexistent_20240101_120000_aaa111", True)
-
     def test_set_project_budget_missing(self, tmp_path):
-        """Line 665: noop when project not found."""
+        """Noop when project not found."""
         pa.set_project_budget("nonexistent_20240101_120000_aaa111", 1.0)
 
 

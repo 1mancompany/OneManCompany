@@ -33,6 +33,7 @@ from onemancompany.core.agent_loop import (
     MAX_RETRIES,
     RETRY_DELAYS,
 )
+from onemancompany.core.task_lifecycle import TaskPhase
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +49,6 @@ class TestAgentTask:
         assert task.parent_id == ""
         assert task.project_id == ""
         assert task.project_dir == ""
-        assert task.sub_task_ids == []
         assert task.logs == []
         assert task.result == ""
         assert task.created_at != ""  # auto-set by __post_init__
@@ -91,8 +91,6 @@ class TestAgentTask:
             status="complete",
             parent_id="p1",
             project_id="proj1",
-            original_project_id="orig1",
-            sub_task_ids=["s1", "s2"],
             result="Done!",
             created_at="2024-01-01T00:00:00",
             completed_at="2024-01-01T01:00:00",
@@ -108,8 +106,6 @@ class TestAgentTask:
         assert d["status"] == "complete"
         assert d["parent_id"] == "p1"
         assert d["project_id"] == "proj1"
-        assert d["original_project_id"] == "orig1"
-        assert d["sub_task_ids"] == ["s1", "s2"]
         assert d["result"] == "Done!"
         assert d["created_at"] == "2024-01-01T00:00:00"
         assert d["completed_at"] == "2024-01-01T01:00:00"
@@ -173,7 +169,6 @@ class TestAgentTaskBoard:
         parent = board.push("Parent task")
         child = board.push("Child task", parent_id=parent.id)
         assert child.parent_id == parent.id
-        assert child.id in parent.sub_task_ids
 
     def test_push_subtask_with_missing_parent(self):
         board = AgentTaskBoard()
@@ -208,23 +203,6 @@ class TestAgentTaskBoard:
         board = AgentTaskBoard()
         assert board.get_next_pending() is None
 
-    def test_get_pending_subtasks(self):
-        board = AgentTaskBoard()
-        parent = board.push("Parent")
-        c1 = board.push("Child 1", parent_id=parent.id)
-        c2 = board.push("Child 2", parent_id=parent.id)
-        c3 = board.push("Child 3", parent_id=parent.id)
-        c2.status = "complete"
-        pending = board.get_pending_subtasks(parent.id)
-        assert len(pending) == 2
-        assert c1 in pending
-        assert c3 in pending
-
-    def test_get_pending_subtasks_none(self):
-        board = AgentTaskBoard()
-        parent = board.push("Parent")
-        assert board.get_pending_subtasks(parent.id) == []
-
     def test_cancel_by_project(self):
         board = AgentTaskBoard()
         t1 = board.push("Task 1", project_id="proj1")
@@ -247,7 +225,7 @@ class TestAgentTaskBoard:
         assert len(cancelled) == 2
         assert parent.status == "cancelled"
         assert child.status == "cancelled"
-        assert child.result == "Parent task cancelled"
+        assert child.result == "Cancelled by CEO"
 
     def test_cancel_by_project_no_match(self):
         board = AgentTaskBoard()
@@ -1124,227 +1102,6 @@ class TestEmployeeManagerHelpers:
         mgr._publish_task_update("emp01", task)
 
 
-# ---------------------------------------------------------------------------
-# EmployeeManager — _execute_subtask
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerExecuteSubtask:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_execute_subtask_success(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(return_value=LaunchResult(output="Sub done"))
-        mgr.register("emp01", launcher)
-
-        parent = AgentTask(id="p1", description="Parent")
-        sub = AgentTask(id="s1", description="Sub task", parent_id="p1")
-        mgr.boards["emp01"].tasks.extend([parent, sub])
-        parent.sub_task_ids.append("s1")
-
-        await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "complete"
-        assert sub.result == "Sub done"
-        assert sub.completed_at != ""
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_execute_subtask_max_depth(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("emp01", launcher)
-
-        sub = AgentTask(id="s1", description="Deep sub task")
-        mgr.boards["emp01"].tasks.append(sub)
-
-        await mgr._execute_subtask("emp01", sub, depth=3)  # > MAX_SUBTASK_DEPTH
-
-        assert sub.status == "failed"
-        assert "Max sub-task depth" in sub.result
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_execute_subtask_cancelled(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("emp01", launcher)
-
-        sub = AgentTask(id="s1", description="Cancelled sub", status="cancelled")
-        mgr.boards["emp01"].tasks.append(sub)
-
-        await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "cancelled"
-        launcher.execute.assert_not_called()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_execute_subtask_failure(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=RuntimeError("boom"))
-        mgr.register("emp01", launcher)
-
-        sub = AgentTask(id="s1", description="Bad sub")
-        mgr.boards["emp01"].tasks.append(sub)
-
-        with patch("onemancompany.core.vessel.asyncio.sleep", new_callable=AsyncMock):
-            await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "failed"
-        assert "Error" in sub.result
-
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — _completion_check
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerCompletionCheck:
-    @pytest.mark.asyncio
-    async def test_completion_check_no_subtasks(self):
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-        task = AgentTask(id="t1", description="Main task")
-        mgr.boards["emp01"].tasks.append(task)
-        result = await mgr._completion_check("emp01", task)
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_completion_check_complete(self):
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-
-        task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
-        mgr.boards["emp01"].tasks.extend([task, sub])
-
-        mock_result = MagicMock()
-        mock_result.content = "COMPLETE"
-
-        with patch("onemancompany.agents.base.make_llm") as mock_make:
-            with patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result):
-                result = await mgr._completion_check("emp01", task)
-                assert result is True
-
-    @pytest.mark.asyncio
-    async def test_completion_check_incomplete_adds_subtasks(self):
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-
-        task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="complete", result="Partial", parent_id="t1")
-        mgr.boards["emp01"].tasks.extend([task, sub])
-
-        mock_result = MagicMock()
-        mock_result.content = 'INCOMPLETE\n[{"description": "Additional work needed"}]'
-
-        with patch("onemancompany.agents.base.make_llm") as mock_make:
-            with patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result):
-                result = await mgr._completion_check("emp01", task)
-                assert result is False
-                # New subtask should be added
-                assert len(mgr.boards["emp01"].tasks) == 3
-
-    @pytest.mark.asyncio
-    async def test_completion_check_error_returns_true(self):
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-
-        task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
-        mgr.boards["emp01"].tasks.extend([task, sub])
-
-        with patch("onemancompany.agents.base.make_llm", side_effect=RuntimeError("LLM error")):
-            result = await mgr._completion_check("emp01", task)
-            assert result is True  # error -> treat as complete
-
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — Acceptance/review/rectification task pushing
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerAcceptanceTasks:
-    def test_push_acceptance_task(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("officer01", launcher)
-
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                mgr._push_acceptance_task(
-                    "officer01", "proj1", "/tmp/proj",
-                    ["Criteria 1", "Criteria 2"],
-                    {"task": "Build app", "timeline": []},
-                )
-
-        board = mgr.boards["officer01"]
-        assert len(board.tasks) == 1
-        assert "验收" in board.tasks[0].description
-        assert "Criteria 1" in board.tasks[0].description
-
-    def test_push_acceptance_task_no_handle(self, capsys):
-        mgr = EmployeeManager()
-        mgr._push_acceptance_task(
-            "nonexistent", "proj1", "/tmp",
-            ["Criteria"], {"task": "task", "timeline": []},
-        )
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.out
-
-    def test_push_ea_review_task(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("ea01", launcher)
-
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                mgr._push_ea_review_task(
-                    "ea01", "proj1", "/tmp/proj",
-                    ["Criteria 1"],
-                    {"notes": "Looks good", "officer_id": "officer01"},
-                    {"task": "Build app", "timeline": []},
-                )
-
-        board = mgr.boards["ea01"]
-        assert len(board.tasks) == 1
-        assert "CEO" in board.tasks[0].description or "EA" in board.tasks[0].description
-
-    def test_push_rectification_task(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("officer01", launcher)
-
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                mgr._push_rectification_task(
-                    "officer01", "proj1", "/tmp/proj",
-                    ["Criteria 1"],
-                    "Quality too low",
-                    {"task": "Build app"},
-                )
-
-        board = mgr.boards["officer01"]
-        assert len(board.tasks) == 1
-        assert "整改" in board.tasks[0].description
-        assert "Quality too low" in board.tasks[0].description
-
 
 # ---------------------------------------------------------------------------
 # Backward-compatible API functions
@@ -1701,8 +1458,11 @@ class TestEmployeeManagerExecuteTaskWithProject:
         mgr.boards["emp01"].tasks.append(task)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            with patch.object(mgr, "_post_task_cleanup", new_callable=AsyncMock):
-                await mgr._execute_task("emp01", task)
+            with patch("onemancompany.core.project_archive.record_project_cost"):
+                with patch("onemancompany.core.project_archive.append_action"):
+                    with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
+                        with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
+                            await mgr._execute_task("emp01", task)
 
         assert task.status == "complete"
         # TaskEntry should have been appended
@@ -1732,76 +1492,17 @@ class TestEmployeeManagerExecuteTaskWithProject:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             with patch.object(mgr, "_get_project_history_context", return_value="[Project Context]") as mock_ctx:
                 with patch.object(mgr, "_get_project_workflow_context", return_value="[Workflow]") as mock_wf:
-                    with patch.object(mgr, "_post_task_cleanup", new_callable=AsyncMock):
-                        await mgr._execute_task("emp01", task)
+                    with patch("onemancompany.core.project_archive.record_project_cost"):
+                        with patch("onemancompany.core.project_archive.append_action"):
+                            with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
+                                with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
+                                    await mgr._execute_task("emp01", task)
 
         call_args = launcher.execute.call_args
         task_desc = call_args[0][0]
         assert "[Project Context]" in task_desc
         assert "[Workflow]" in task_desc
 
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — _execute_subtask with token tracking
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerSubtaskTokenTracking:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_subtask_token_accumulation(self, mock_bus, mock_state):
-        """Sub-task tokens should accumulate on the parent task."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(return_value=LaunchResult(
-            output="Sub done",
-            model_used="gpt-4",
-            input_tokens=100,
-            output_tokens=50,
-            total_tokens=150,
-        ))
-        mgr.register("emp01", launcher)
-
-        parent = AgentTask(id="p1", description="Parent", model_used="gpt-4")
-        sub = AgentTask(id="s1", description="Sub task", parent_id="p1")
-        mgr.boards["emp01"].tasks.extend([parent, sub])
-        parent.sub_task_ids.append("s1")
-
-        with patch("onemancompany.core.model_costs.get_model_cost", return_value={"input": 10.0, "output": 30.0}):
-            await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "complete"
-        assert sub.input_tokens == 100
-        assert sub.output_tokens == 50
-        assert sub.total_tokens == 150
-        # Parent should accumulate child tokens
-        assert parent.input_tokens == 100
-        assert parent.output_tokens == 50
-        assert parent.total_tokens == 150
-        assert parent.estimated_cost_usd > 0
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_subtask_no_launcher(self, mock_bus, mock_state):
-        """Sub-task with missing launcher should fail."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-        mgr.vessels["emp01"] = EmployeeHandle(mgr, "emp01")
-
-        sub = AgentTask(id="s1", description="Sub task")
-        mgr.boards["emp01"].tasks.append(sub)
-
-        await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "failed"
-        assert "No executor" in sub.result
 
 
 # ---------------------------------------------------------------------------
@@ -2066,201 +1767,6 @@ class TestEmployeeManagerWorkflowContext:
             assert "Self-Verification" in result
 
 
-# ---------------------------------------------------------------------------
-# EmployeeManager — _post_task_cleanup
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerPostTaskCleanup:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_no_project_id_returns_early(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="")
-        # Should return early without error
-        await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="")
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_no_criteria_all_complete(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={"acceptance_criteria": []}):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_full:
-                                await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                mock_full.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_no_criteria_not_all_complete(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={"acceptance_criteria": []}):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=False):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock) as mock_min:
-                                await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                mock_min.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_with_criteria_not_accepted(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("officer01", launcher)
-
-        task = AgentTask(id="t1", description="test", project_id="proj1", project_dir="/tmp/proj", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={
-                "task_type": "project", "acceptance_criteria": ["Must work"], "acceptance_result": None, "responsible_officer": "officer01"
-            }):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_push_acceptance_task") as mock_accept:
-                                with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock):
-                                    await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                    mock_accept.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_accepted_no_ea_review(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("ea01", launcher)
-
-        task = AgentTask(id="t1", description="test", project_id="proj1", project_dir="/tmp/proj", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={
-                "task_type": "project",
-                "acceptance_criteria": ["Must work"],
-                "acceptance_result": {"accepted": True, "notes": "OK"},
-                "ea_review_result": None,
-                "responsible_officer": "officer01",
-            }):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_push_ea_review_task") as mock_ea:
-                                with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock):
-                                    with patch("onemancompany.core.config.EA_ID", "ea01"):
-                                        await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                        mock_ea.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_ea_approved(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={
-                "acceptance_criteria": ["Must work"],
-                "acceptance_result": {"accepted": True},
-                "ea_review_result": {"approved": True},
-            }):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_full:
-                                await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                mock_full.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_ea_rejected(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("officer01", launcher)
-
-        task = AgentTask(id="t1", description="test", project_id="proj1", project_dir="/tmp/proj", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={
-                "task_type": "project",
-                "acceptance_criteria": ["Must work"],
-                "acceptance_result": {"accepted": True},
-                "ea_review_result": {"approved": False, "notes": "Quality too low"},
-                "responsible_officer": "officer01",
-            }):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch.object(mgr, "_push_rectification_task") as mock_rect:
-                                with patch("onemancompany.core.project_archive._save_project"):
-                                    with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock):
-                                        with patch("onemancompany.core.config.COO_ID", "officer01"):
-                                            await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                            mock_rect.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_cleanup_records_cost(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(
-            id="t1", description="test", project_id="proj1",
-            result="Done", total_tokens=100, model_used="gpt-4",
-            input_tokens=60, output_tokens=40, estimated_cost_usd=0.01,
-        )
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={"acceptance_criteria": []}):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                            with patch("onemancompany.core.project_archive.record_project_cost") as mock_cost:
-                                with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock):
-                                    await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                    mock_cost.assert_called_once_with("proj1", "emp01", "gpt-4", 60, 40, 0.01)
-
 
 # ---------------------------------------------------------------------------
 # EmployeeManager — _full_cleanup
@@ -2373,184 +1879,6 @@ class TestEmployeeManagerFullCleanup:
                                 await mgr._full_cleanup("emp01", task, False, "_auto_12345")
                                 mock_complete.assert_not_called()
 
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — _minimal_cleanup
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerMinimalCleanup:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_minimal_cleanup(self, mock_bus):
-        mock_bus.publish = AsyncMock()
-
-        mgr = EmployeeManager()
-
-        with patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock) as mock_sandbox:
-            await mgr._minimal_cleanup("proj1")
-            mock_sandbox.assert_called_once()
-            mock_bus.publish.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — push acceptance/ea/rectification with no handle
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerPushTasksNoHandle:
-    def test_push_ea_review_task_no_handle(self, capsys):
-        mgr = EmployeeManager()
-        mgr._push_ea_review_task(
-            "nonexistent", "proj1", "/tmp",
-            ["Criteria"], {"notes": "ok", "officer_id": "off1"},
-            {"task": "task", "timeline": []},
-        )
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.out
-
-    def test_push_rectification_task_no_handle(self, capsys):
-        mgr = EmployeeManager()
-        mgr._push_rectification_task(
-            "nonexistent", "proj1", "/tmp",
-            ["Criteria"], "Bad quality", {"task": "task"},
-        )
-        captured = capsys.readouterr()
-        assert "WARNING" in captured.out
-
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — push_acceptance_task with timeline entries
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerAcceptanceWithTimeline:
-    def test_push_acceptance_task_with_timeline(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("officer01", launcher)
-
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                mgr._push_acceptance_task(
-                    "officer01", "proj1", "/tmp/proj",
-                    ["Criteria 1"],
-                    {
-                        "task": "Build app",
-                        "timeline": [
-                            {"employee_id": "emp01", "action": "started", "detail": "Begin work"},
-                            {"employee_id": "emp02", "action": "completed", "detail": "Done"},
-                        ]
-                    },
-                )
-
-        board = mgr.boards["officer01"]
-        assert len(board.tasks) == 1
-        assert "emp01" in board.tasks[0].description
-        assert "started" in board.tasks[0].description
-
-    def test_push_ea_review_with_timeline(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("ea01", launcher)
-
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                mgr._push_ea_review_task(
-                    "ea01", "proj1", "/tmp/proj",
-                    ["Criteria 1"],
-                    {"notes": "LGTM", "officer_id": "off01"},
-                    {
-                        "task": "Build app",
-                        "timeline": [
-                            {"employee_id": "emp01", "action": "completed", "detail": "All done"},
-                        ]
-                    },
-                )
-
-        board = mgr.boards["ea01"]
-        assert len(board.tasks) == 1
-        assert "emp01" in board.tasks[0].description
-
-
-# ---------------------------------------------------------------------------
-# EmployeeManager — _execute_task with subtask loop
-# ---------------------------------------------------------------------------
-
-class TestEmployeeManagerSubtaskLoop:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_processes_subtasks(self, mock_append, mock_load, mock_bus, mock_state):
-        """When launcher adds subtasks, the subtask loop should process them."""
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-
-        call_count = 0
-        async def fake_execute(desc, ctx, on_log=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Main task: push a subtask
-                board = mgr.boards["emp01"]
-                main_task = board.tasks[0]
-                board.push("Sub work", parent_id=main_task.id)
-                return LaunchResult(output="Main done, need subtask")
-            else:
-                return LaunchResult(output="Sub done")
-
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            with patch.object(mgr, "_completion_check", new_callable=AsyncMock, return_value=True):
-                await mgr._execute_task("emp01", task)
-
-        assert task.status == "complete"
-        assert call_count == 2  # main + subtask
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_cancelled_during_subtask_loop(self, mock_append, mock_load, mock_bus, mock_state):
-        """If task is cancelled during subtask loop, it stops processing."""
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-
-        async def fake_execute(desc, ctx, on_log=None):
-            # Main task: push a subtask then cancel the main task
-            board = mgr.boards["emp01"]
-            main_task = board.tasks[0]
-            board.push("Sub work", parent_id=main_task.id)
-            main_task.status = "cancelled"
-            return LaunchResult(output="Partial")
-
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        assert task.status == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -2714,168 +2042,6 @@ class TestExecuteTaskOnLogCallback:
         assert "progress" in log_types
 
 
-# ---------------------------------------------------------------------------
-# Coverage gap: lines 626, 630 — task cancelled during subtask inner loop
-# ---------------------------------------------------------------------------
-
-class TestSubtaskLoopCancelledBreaks:
-    """Lines 626 and 630: task.status == 'cancelled' breaks during subtask processing."""
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_cancel_during_subtask_inner_loop(self, mock_append, mock_load, mock_bus, mock_state):
-        """Line 626: task cancelled inside the 'for sub in pending_subs' loop."""
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-
-        call_count = 0
-
-        async def fake_execute(desc, ctx, on_log=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Main task: push two subtasks
-                board = mgr.boards["emp01"]
-                main_task = board.tasks[0]
-                board.push("Sub 1", parent_id=main_task.id)
-                board.push("Sub 2", parent_id=main_task.id)
-                return LaunchResult(output="Main done")
-            else:
-                # First subtask execution: cancel the parent
-                board = mgr.boards["emp01"]
-                main_task = board.tasks[0]
-                main_task.status = "cancelled"
-                return LaunchResult(output="Sub 1 done")
-
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        assert task.status == "cancelled"
-        # Only 2 calls: main + first subtask; second subtask skipped
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_cancel_after_subtasks_before_completion_check(self, mock_append, mock_load, mock_bus, mock_state):
-        """Line 630: task cancelled after all subtasks run, before _completion_check."""
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-
-        call_count = 0
-
-        async def fake_execute(desc, ctx, on_log=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # Main task: push one subtask
-                board = mgr.boards["emp01"]
-                main_task = board.tasks[0]
-                board.push("Sub 1", parent_id=main_task.id)
-                return LaunchResult(output="Main done")
-            else:
-                # Subtask execution: cancel parent after subtask completes
-                board = mgr.boards["emp01"]
-                main_task = board.tasks[0]
-                main_task.status = "cancelled"
-                return LaunchResult(output="Sub done")
-
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        assert task.status == "cancelled"
-        # _completion_check should NOT have been called
-        assert call_count == 2
-
-
-# ---------------------------------------------------------------------------
-# Coverage gap: line 708 — _on_log callback inside _execute_subtask
-# ---------------------------------------------------------------------------
-
-class TestExecuteSubtaskOnLogCallback:
-    """Line 708: The _on_log closure inside _execute_subtask must be called by the launcher."""
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_subtask_on_log_callback(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-
-        async def fake_execute(desc, ctx, on_log=None):
-            # Launcher calls on_log — triggers line 708
-            if on_log:
-                on_log("subtask_progress", "Subtask working...")
-            return LaunchResult(output="Sub done")
-
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        parent = AgentTask(id="p1", description="Parent")
-        sub = AgentTask(id="s1", description="Sub task", parent_id="p1")
-        mgr.boards["emp01"].tasks.extend([parent, sub])
-        parent.sub_task_ids.append("s1")
-
-        await mgr._execute_subtask("emp01", sub, depth=1)
-
-        assert sub.status == "complete"
-        log_types = [lg["type"] for lg in sub.logs]
-        assert "subtask_progress" in log_types
-
-
-# ---------------------------------------------------------------------------
-# Coverage gap: lines 815-817 — _completion_check exception handling
-# (Patch at the IMPORTING module level, not onemancompany.agents.base)
-# ---------------------------------------------------------------------------
-
-class TestCompletionCheckExceptionModuleLevel:
-    """Lines 815-817: _completion_check exception caught and returns True."""
-
-    @pytest.mark.asyncio
-    async def test_completion_check_exception_module_level_patch(self):
-        mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-
-        task = AgentTask(id="t1", description="Main task", sub_task_ids=["s1"])
-        sub = AgentTask(id="s1", description="Sub", status="complete", result="Done", parent_id="t1")
-        mgr.boards["emp01"].tasks.extend([task, sub])
-
-        # Patch make_llm at the importing module level (agent_loop), not agents.base
-        with patch.object(agent_loop_mod, "make_llm", side_effect=RuntimeError("LLM down")):
-            result = await mgr._completion_check("emp01", task)
-            assert result is True
 
 
 # ---------------------------------------------------------------------------
@@ -3010,86 +2176,6 @@ class TestProjectContextDetailLoopNone:
 # Coverage gap: line 1101 — event_bus.publish for resolution_ready event
 # ---------------------------------------------------------------------------
 
-class TestPostTaskCleanupResolutionReady:
-    """Line 1101: event_bus.publish for resolution_ready when create_resolution returns a value."""
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_resolution_ready_event_published(self, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1", result="Done", total_tokens=0)
-
-        mock_resolution = {"id": "res1", "summary": "Resolution summary"}
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={"acceptance_criteria": []}):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion"):
-                    with patch("onemancompany.core.project_archive.all_dispatches_complete", return_value=True):
-                        with patch("onemancompany.core.resolutions.create_resolution", return_value=mock_resolution):
-                            with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock):
-                                await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-
-        # Verify resolution_ready event was published
-        resolution_calls = [
-            c for c in mock_bus.publish.call_args_list
-            if c[0][0].type == "resolution_ready"
-        ]
-        assert len(resolution_calls) == 1
-        assert resolution_calls[0][0][0].payload == mock_resolution
-
-
-# ---------------------------------------------------------------------------
-# Coverage gap: lines 1164-1165 — fallthrough: has criteria + rejected acceptance
-# ---------------------------------------------------------------------------
-
-class TestPostTaskCleanupFallthrough:
-    """Lines 1164-1165: record_dispatch_completion + _minimal_cleanup for the fallthrough case.
-
-    This happens when:
-    - acceptance_criteria is truthy
-    - acceptance_result is truthy but accepted is False (not truthy)
-    - So CASE A (not acceptance_result) is skipped
-    - CASE B (acceptance_result.get('accepted')) is skipped
-    - CASE C (not acceptance_criteria) is skipped
-    - Falls through to lines 1164-1165
-    """
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_fallthrough_criteria_with_rejected_acceptance(self, mock_bus, mock_state):
-        """CASE B2: rejected acceptance → push rectification, reset acceptance_result, minimal cleanup."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1", result="Done", total_tokens=0)
-
-        with patch("onemancompany.core.project_archive.append_action"):
-            with patch("onemancompany.core.project_archive.load_project", return_value={
-                "task_type": "project",
-                "acceptance_criteria": ["Must work"],
-                "acceptance_result": {"accepted": False, "officer_id": "00003", "notes": "Not good enough"},
-                "ea_review_result": None,
-            }):
-                with patch("onemancompany.core.project_archive.record_dispatch_completion") as mock_record:
-                    with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
-                        with patch.object(mgr, "_push_rectification_task") as mock_rect:
-                            with patch("onemancompany.core.project_archive._save_project"):
-                                with patch.object(mgr, "_minimal_cleanup", new_callable=AsyncMock) as mock_min:
-                                    await mgr._post_task_cleanup("emp01", task, agent_error=False, project_id="proj1")
-                                    # CASE B2 does NOT call record_dispatch_completion
-                                    mock_record.assert_not_called()
-                                    # Pushes rectification task to the officer
-                                    mock_rect.assert_called_once()
-                                    mock_min.assert_called_once_with("proj1")
-
 
 # ---------------------------------------------------------------------------
 # Coverage gap: line 1191 — routine_resolution in _full_cleanup
@@ -3126,3 +2212,264 @@ class TestFullCleanupRoutineResolution:
         ]
         assert len(resolution_calls) >= 1
         assert resolution_calls[0][0][0].payload == mock_resolution
+
+
+# ---------------------------------------------------------------------------
+# Task tree child-completion callback
+# ---------------------------------------------------------------------------
+
+class TestTaskTreeCallback:
+    """Tests for task tree child-completion callback in EmployeeManager."""
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_child_complete_wakes_parent_when_all_siblings_done(self, mock_bus, mock_state):
+        """When last sibling completes, parent employee gets a review task."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        parent_launcher = MagicMock(spec=Launcher)
+        mgr.register("00003", parent_launcher)
+
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        parent_node = tree.add_child(root.id, "00003", "Manage feature", ["Feature works"])
+        child1 = tree.add_child(parent_node.id, "00010", "Backend", ["API done"])
+        child2 = tree.add_child(parent_node.id, "00011", "Frontend", ["UI done"])
+        child1.status = "accepted"  # Already done
+        child2.status = "completed"  # Just completed
+        child2.result = "Frontend built"
+
+        # Map task ID to node ID
+        tree.task_id_map["t1"] = child2.id
+
+        task = AgentTask(id="t1", description="Frontend", project_id="proj1", project_dir="/tmp/proj", result="Frontend built")
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
+             patch("onemancompany.core.vessel._save_project_tree"):
+            await mgr._on_child_complete("00011", task, project_id="proj1")
+
+        # Parent (00003) should have received a review task
+        assert mgr.boards["00003"].get_next_pending() is not None
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_child_complete_waits_when_siblings_pending(self, mock_bus, mock_state):
+        """When siblings still running, no wake-up."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        parent_node = tree.add_child(root.id, "00003", "Manage", [])
+        child1 = tree.add_child(parent_node.id, "00010", "Backend", [])
+        child2 = tree.add_child(parent_node.id, "00011", "Frontend", [])
+        child1.status = "completed"
+        child2.status = "processing"  # Still running
+
+        tree.task_id_map["t1"] = child1.id
+
+        task = AgentTask(id="t1", description="Backend", project_id="proj1", project_dir="/tmp/proj", result="Done")
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
+             patch("onemancompany.core.vessel._save_project_tree"):
+            await mgr._on_child_complete("00010", task, project_id="proj1")
+
+        # Parent should NOT be woken
+        assert "00003" not in mgr.boards or mgr.boards["00003"].get_next_pending() is None
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_child_complete_updates_node(self, mock_bus, mock_state):
+        """Child completion updates node status and result in tree."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        child = tree.add_child(root.id, "00010", "Do work", ["Work done"])
+        child.status = "processing"
+
+        tree.task_id_map["t1"] = child.id
+
+        task = AgentTask(
+            id="t1", description="Do work", project_id="proj1",
+            project_dir="/tmp/proj", result="Work completed successfully",
+            input_tokens=100, output_tokens=50, estimated_cost_usd=0.01,
+        )
+
+        saved_trees = []
+        def capture_save(project_dir, t):
+            saved_trees.append(t)
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
+             patch("onemancompany.core.vessel._save_project_tree", side_effect=capture_save):
+            await mgr._on_child_complete("00010", task, project_id="proj1")
+
+        # Node should be updated
+        assert child.status == "completed"
+        assert child.result == "Work completed successfully"
+        assert child.input_tokens == 100
+        assert child.output_tokens == 50
+        assert child.cost_usd == 0.01
+        assert child.completed_at != ""
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_no_tree_file_is_noop(self, mock_bus, mock_state):
+        """If no task_tree.yaml exists, _on_child_complete is a no-op."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        task = AgentTask(id="t1", description="Work", project_dir="/tmp/no-tree")
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=None):
+            # Should not raise
+            await mgr._on_child_complete("00010", task, project_id="proj1")
+
+
+# ---------------------------------------------------------------------------
+# Root node completion → _full_cleanup
+# ---------------------------------------------------------------------------
+
+class TestRootNodeCompletion:
+    """Tests for root node completion triggering _full_cleanup."""
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_root_complete_triggers_full_cleanup(self, mock_bus, mock_state):
+        """Root node completion triggers _full_cleanup."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root task")
+        tree.task_id_map["t1"] = root.id
+
+        task = AgentTask(
+            id="t1", description="Root task", project_id="proj1",
+            project_dir="/tmp/proj", result="All done",
+        )
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
+             patch("onemancompany.core.vessel._save_project_tree"), \
+             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+            await mgr._on_child_complete("00001", task, project_id="proj1")
+
+        # _full_cleanup should have been called
+        mock_cleanup.assert_called_once()
+        call_args = mock_cleanup.call_args
+        assert call_args[1].get("project_id") == "proj1" or call_args[0][3] == "proj1"
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_child_complete_does_not_trigger_full_cleanup(self, mock_bus, mock_state):
+        """Non-root node completion does NOT trigger _full_cleanup."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root task")
+        child = tree.add_child(root.id, "00010", "Child task", ["Done"])
+        tree.task_id_map["t2"] = child.id
+
+        task = AgentTask(
+            id="t2", description="Child task", project_id="proj1",
+            project_dir="/tmp/proj", result="Child done",
+        )
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
+             patch("onemancompany.core.vessel._save_project_tree"), \
+             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+            await mgr._on_child_complete("00010", task, project_id="proj1")
+
+        # _full_cleanup should NOT have been called (child, not root)
+        mock_cleanup.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TaskTimeout — TimeoutError handling in _execute_task
+# ---------------------------------------------------------------------------
+
+class TestTaskTimeout:
+    """Tests for task timeout via TimeoutError handling."""
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_timeout_marks_task_failed(self, mock_bus, mock_state):
+        """When executor raises TimeoutError, task is marked FAILED."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {"00010": MagicMock(current_task_summary="")}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        mock_executor = AsyncMock(spec=Launcher)
+        mock_executor.execute.side_effect = TimeoutError("Timeout after 60s")
+        mock_executor.is_ready.return_value = True
+        mgr.register("00010", mock_executor)
+
+        task = AgentTask(id="t1", description="slow work", project_dir="/tmp/proj")
+        mgr.boards["00010"].tasks.append(task)
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=None), \
+             patch("onemancompany.core.vessel._save_project_tree"):
+            await mgr._execute_task("00010", task)
+
+        assert task.status == TaskPhase.FAILED
+        assert "Timeout" in task.result
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_timeout_publishes_agent_done(self, mock_bus, mock_state):
+        """TimeoutError publishes agent_done event."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {"00010": MagicMock(current_task_summary="")}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        mock_executor = AsyncMock(spec=Launcher)
+        mock_executor.execute.side_effect = TimeoutError("Timeout after 60s")
+        mock_executor.is_ready.return_value = True
+        mgr.register("00010", mock_executor)
+
+        task = AgentTask(id="t1", description="slow work", project_dir="/tmp/proj")
+        mgr.boards["00010"].tasks.append(task)
+
+        with patch("onemancompany.core.vessel._load_project_tree", return_value=None), \
+             patch("onemancompany.core.vessel._save_project_tree"):
+            await mgr._execute_task("00010", task)
+
+        # Check agent_done was published
+        calls = mock_bus.publish.call_args_list
+        agent_done_calls = [c for c in calls if c[0][0].type == "agent_done"]
+        assert len(agent_done_calls) >= 1
+        assert "Timeout" in agent_done_calls[0][0][0].payload["summary"]

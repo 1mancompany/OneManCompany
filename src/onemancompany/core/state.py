@@ -66,7 +66,9 @@ class TaskEntry:
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
     status: str = "pending"  # follows TaskPhase values
+    result: str = ""       # task output / report on completion
     created_at: str = ""
+    completed_at: str = ""
 
     def __post_init__(self) -> None:
         if not self.created_at:
@@ -84,7 +86,9 @@ class TaskEntry:
             "project_dir": self.project_dir,
             "current_owner": self.current_owner,
             "status": self.status,
+            "result": self.result,
             "created_at": self.created_at,
+            "completed_at": self.completed_at,
         }
 
 
@@ -335,7 +339,7 @@ def _seed_employees() -> None:
             if num_val >= company_state._next_employee_number:
                 company_state._next_employee_number = num_val + 1
         except ValueError:
-            pass
+            pass  # Non-numeric employee IDs (e.g. slugs) — skip counter update
         # Legacy detection: if profile.yaml has no probation field, default to passed
         import yaml as _yaml
         _profile_path = EMPLOYEES_DIR / emp_num / "profile.yaml"
@@ -557,7 +561,7 @@ def reload_all_from_disk() -> dict:
                 if num_val >= company_state._next_employee_number:
                     company_state._next_employee_number = num_val + 1
             except ValueError:
-                pass
+                pass  # Non-numeric employee IDs (e.g. slugs) — skip counter update
             company_state.employees[emp_num] = Employee(
                 id=emp_num,
                 name=cfg.name,

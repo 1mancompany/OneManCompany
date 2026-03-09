@@ -39,6 +39,7 @@ class TaskNode:
     cost_usd: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    timeout_seconds: int = 3600
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -67,6 +68,7 @@ class TaskNode:
             "cost_usd": self.cost_usd,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "timeout_seconds": self.timeout_seconds,
         }
 
     @classmethod
@@ -81,6 +83,7 @@ class TaskTree:
         self.project_id = project_id
         self.root_id: str = ""
         self._nodes: dict[str, TaskNode] = {}
+        self.task_id_map: dict[str, str] = {}  # AgentTask ID → TaskNode ID (snapshot-safe)
 
     def create_root(self, employee_id: str, description: str) -> TaskNode:
         node = TaskNode(
@@ -98,6 +101,7 @@ class TaskTree:
         employee_id: str,
         description: str,
         acceptance_criteria: list[str],
+        timeout_seconds: int = 3600,
     ) -> TaskNode:
         parent = self._nodes[parent_id]
         child = TaskNode(
@@ -106,6 +110,7 @@ class TaskTree:
             description=description,
             acceptance_criteria=acceptance_criteria,
             project_id=self.project_id,
+            timeout_seconds=timeout_seconds,
         )
         parent.children_ids.append(child.id)
         self._nodes[child.id] = child
@@ -148,6 +153,7 @@ class TaskTree:
             "project_id": self.project_id,
             "root_id": self.root_id,
             "nodes": [n.to_dict() for n in self._nodes.values()],
+            "task_id_map": dict(self.task_id_map),
         }
         path.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
@@ -162,4 +168,5 @@ class TaskTree:
         for nd in data.get("nodes", []):
             node = TaskNode.from_dict(nd)
             tree._nodes[node.id] = node
+        tree.task_id_map = data.get("task_id_map", {})
         return tree

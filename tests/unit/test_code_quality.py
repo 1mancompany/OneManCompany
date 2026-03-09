@@ -66,8 +66,8 @@ ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     ("main", "CancelledError", 430, 450),
     ("websocket", "CancelledError", 45, 60),
     # int() on non-numeric employee IDs — intentional skip
-    ("state", "ValueError", 320, 340),
-    ("state", "ValueError", 540, 560),
+    ("state", "ValueError", 335, 345),
+    ("state", "ValueError", 557, 567),
     # OAuth token refresh/revocation — best-effort, failure is non-fatal
     ("oauth", "Exception", 310, 330),
     ("oauth", "Exception", 405, 425),

@@ -14,12 +14,6 @@ from loguru import logger
 from onemancompany.core.task_tree import TaskTree
 
 # ---------------------------------------------------------------------------
-# Task-to-node mapping — maps AgentTask.id → TaskNode.id
-# ---------------------------------------------------------------------------
-_task_to_node: dict[str, str] = {}
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -38,9 +32,9 @@ def _save_tree(project_dir: str, tree: TaskTree) -> None:
     tree.save(path)
 
 
-def _get_current_node_id(task_id: str) -> str | None:
-    """Look up the TaskNode ID for a given AgentTask ID."""
-    return _task_to_node.get(task_id)
+def _get_current_node_id(tree: TaskTree, task_id: str) -> str | None:
+    """Look up the TaskNode ID for a given AgentTask ID via tree's task_id_map."""
+    return tree.task_id_map.get(task_id)
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +42,7 @@ def _get_current_node_id(task_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 @tool
-def dispatch_child(employee_id: str, description: str, acceptance_criteria: list[str]) -> dict:
+def dispatch_child(employee_id: str, description: str, acceptance_criteria: list[str], timeout_seconds: int = 3600) -> dict:
     """Dispatch a child task to an employee with acceptance criteria.
 
     Creates a child node in the task tree and pushes a task to the target employee.
@@ -58,6 +52,7 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
         employee_id: Target employee ID
         description: What the employee should do
         acceptance_criteria: List of measurable criteria the result must meet
+        timeout_seconds: Max seconds allowed for the child task (default 3600)
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
 
@@ -81,7 +76,7 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
 
     # Load tree, find current node
     tree = _load_tree(project_dir)
-    current_node_id = _get_current_node_id(task_id)
+    current_node_id = _get_current_node_id(tree, task_id)
     if not current_node_id or not tree.get_node(current_node_id):
         return {"status": "error", "message": "Current task not found in task tree."}
 
@@ -91,8 +86,8 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
         employee_id=employee_id,
         description=description,
         acceptance_criteria=acceptance_criteria,
+        timeout_seconds=timeout_seconds,
     )
-    _save_tree(project_dir, tree)
 
     # Push task to target employee
     from onemancompany.core.vessel import employee_manager
@@ -101,7 +96,8 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
         return {"status": "error", "message": f"No handle for employee {employee_id}."}
 
     agent_task = handle.push_task(description, project_id=task.project_id, project_dir=project_dir)
-    _task_to_node[agent_task.id] = child.id
+    tree.task_id_map[agent_task.id] = child.id
+    _save_tree(project_dir, tree)
 
     return {
         "status": "dispatched",
@@ -188,7 +184,8 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
                 project_id=task.project_id,
                 project_dir=task.project_dir,
             )
-            _task_to_node[agent_task.id] = node.id
+            tree.task_id_map[agent_task.id] = node.id
+            _save_tree(task.project_dir, tree)
 
         return {"status": "rejected_retry", "node_id": node_id, "reason": reason}
     else:

@@ -70,5 +70,29 @@
     "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_170052_b555e7",
     "created": "2026-03-09T17:03:32.849700+00:00",
     "used": true
+  },
+  "20260309_220550_3b5fbc": {
+    "session_id": "326ff148-3669-4fe7-a146-d63060dba93b",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_220550_3b5fbc",
+    "created": "2026-03-09T22:08:18.593481+00:00",
+    "used": true
+  },
+  "20260309_221934_61ca08": {
+    "session_id": "d79b3de5-0158-43e2-b6ca-0488f0619494",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260309_221934_61ca08",
+    "created": "2026-03-09T22:21:41.431914+00:00",
+    "used": false
+  },
+  "rouge-like-game/iter_001": {
+    "session_id": "6f281075-cf68-4fd3-ac68-3f799021c1ac",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/第一个款roblox游戏/iterations/iter_001",
+    "created": "2026-03-09T22:42:58.240416+00:00",
+    "used": true
+  },
+  "第一个款roblox游戏/iter_001": {
+    "session_id": "beca74f2-abe5-4d40-8776-587e5776bbd9",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/第一个款roblox游戏/iterations/iter_001",
+    "created": "2026-03-09T22:52:00.533814+00:00",
+    "used": false
   }
 }

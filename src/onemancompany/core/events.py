@@ -56,6 +56,7 @@ EventType = Literal[
     "open_popup",
     "request_credentials",
     "credentials_submitted",
+    "tree_update",
 ]
 
 

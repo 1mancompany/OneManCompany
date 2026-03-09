@@ -8,11 +8,10 @@
       ],
       "env": {
         "OMC_EMPLOYEE_ID": "00003",
-        "OMC_TASK_ID": "8c8de703c85f",
-        "OMC_PROJECT_ID": "default",
-        "OMC_PROJECT_DIR": "",
-        "OMC_SERVER_URL": "http://localhost:8000",
-        "OMC_TOOLS": "accept_project,bash,create_subtask,dispatch_task,dispatch_team_tasks,ea_review_project,edit,list_automations,list_colleagues,ls,manage_tool_access,pull_meeting,read,remove_webhook,report_to_ceo,request_tool_access,sandbox_execute_code,sandbox_read_file,sandbox_run_command,sandbox_write_file,save_project_plan,set_acceptance_criteria,set_cron,set_project_budget,setup_webhook,stop_cron_job,use_tool,write"
+        "OMC_TASK_ID": "e396f5bc2a2b",
+        "OMC_PROJECT_ID": "\u7b2c\u4e00\u4e2a\u6b3eroblox\u6e38\u620f/iter_001",
+        "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/\u7b2c\u4e00\u4e2a\u6b3eroblox\u6e38\u620f/iterations/iter_001",
+        "OMC_SERVER_URL": "http://localhost:8000"
       }
     },
     "gmail": {

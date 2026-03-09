@@ -109,6 +109,7 @@ def main():
     from onemancompany.agents import coo_agent as _  # noqa: F401
     from onemancompany.agents import cso_agent as _  # noqa: F401
     from onemancompany.agents import hr_agent as _  # noqa: F401
+    from onemancompany.agents import tree_tools as _  # noqa: F401
     from onemancompany.core.tool_registry import tool_registry
 
     # Load asset tools (gmail, roblox, etc.)

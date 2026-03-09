@@ -43,6 +43,7 @@ markers = [
     "e2e: End-to-end tests (need running server, <120s)",
 ]
 asyncio_mode = "auto"
+timeout = 30
 
 [dependency-groups]
 dev = [

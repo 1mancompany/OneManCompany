@@ -672,7 +672,7 @@ class EmployeeAgent(BaseAgentRunner):
                           "- ls: ALWAYS call this first to see existing project files.\n"
                           "- read / ls: Read existing files to understand context before working.\n"
                           "- write: Save ALL deliverables to the project workspace.\n"
-                          "- dispatch_task: Delegate sub-work to colleagues if needed.\n"
+                          "- dispatch_child: Delegate sub-work to colleagues if needed.\n"
                           "- pull_meeting: ONLY for multi-person communication/discussion (2+ colleagues). "
                           "Never call a meeting with yourself alone — if you need to think, just think internally.\n"
                           "- use_tool: Access company equipment/tools registered by COO.\n"
