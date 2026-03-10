@@ -52,14 +52,12 @@
   },
   "prompts": {
     "skills": [
-      "skills/*.md"
+      "skills/*/SKILL.md"
     ]
   },
   "tools": {
     "builtin": [],
-    "custom": [
-      "gmail"
-    ]
+    "custom": []
   },
   "platform_capabilities": [
     "websocket"
