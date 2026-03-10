@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-10 | `161a913` | Update: iter_001, manifest, project, README, task_tree |
 | 2026-03-10 | `db72525` | Update: appendix, base, config, correction-template, launch |
 | 2026-03-10 | `1a175b0` | Update: 2026-03-10-modular-runtime-design, appendix, base, common_tools, config |
 | 2026-03-09 | `694e525` | Update: , 人员缺口分析报告, api_key, app, base |
