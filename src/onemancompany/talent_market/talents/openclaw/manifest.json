@@ -1,0 +1,34 @@
+{
+  "id": "openclaw",
+  "name": "OpenClaw Gateway Agent",
+  "version": "1.0.0",
+  "role": "Engineer",
+  "hosting": "self",
+  "settings": {
+    "sections": [
+      {
+        "id": "connection",
+        "title": "Connection",
+        "fields": [
+          {"key": "openclaw_bin", "type": "text", "label": "openclaw binary path", "default": "openclaw"}
+        ]
+      },
+      {
+        "id": "session",
+        "title": "Session",
+        "fields": [
+          {"key": "session_status", "type": "readonly", "label": "Status", "value_from": "api:sessions"}
+        ]
+      }
+    ]
+  },
+  "prompts": {
+    "skills": ["skills/*/SKILL.md"]
+  },
+  "tools": {
+    "builtin": [],
+    "custom": []
+  },
+  "platform_capabilities": ["websocket"],
+  "heartbeat": {"method": "pid"}
+}
