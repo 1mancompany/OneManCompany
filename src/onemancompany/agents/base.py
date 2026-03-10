@@ -287,6 +287,15 @@ def get_employee_tools_prompt(employee_id: str) -> str:
             parts.append("Files:")
             for fname, content in tool_info["files"].items():
                 parts.append(f"  - {fname}:\n```\n{content}\n```")
+
+    parts.append("\n### Tool Usage Rules — Internal vs External")
+    parts.append(
+        "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
+        "NEVER use Gmail/email for internal task routing or employee coordination.\n"
+        "- **CEO communication**: Use report_to_ceo() for reports, ask_ceo() for questions.\n"
+        "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
+        "(clients, vendors, partners, third parties)."
+    )
     return "\n".join(parts)
 
 
