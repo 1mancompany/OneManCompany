@@ -332,3 +332,51 @@ class TestTaskPersistenceIntegration:
         assert task.status == TaskPhase.CANCELLED
         mock_persist.assert_called_once_with("00010", task)
         mock_archive.assert_called_once_with("00010", task)
+
+
+# ---------------------------------------------------------------------------
+# restore_persisted_tasks
+# ---------------------------------------------------------------------------
+
+class TestRestorePersistedTasks:
+    """Verify EmployeeManager.restore_persisted_tasks loads from disk."""
+
+    @patch("onemancompany.core.vessel.load_all_active_tasks")
+    def test_restore_pushes_to_boards(self, mock_load):
+        em = EmployeeManager()
+        mock_launcher = MagicMock(spec=Launcher)
+        em.register("00010", mock_launcher)
+
+        task = AgentTask(id="restored1", description="Restored task")
+        mock_load.return_value = {"00010": [task]}
+
+        count = em.restore_persisted_tasks()
+        assert count == 1
+        assert len(em.boards["00010"].tasks) == 1
+        assert em.boards["00010"].tasks[0].id == "restored1"
+
+    @patch("onemancompany.core.vessel.load_all_active_tasks")
+    def test_skips_unregistered_employees(self, mock_load):
+        em = EmployeeManager()
+        # Don't register "00099"
+        task = AgentTask(id="orphan", description="Orphan")
+        mock_load.return_value = {"00099": [task]}
+
+        count = em.restore_persisted_tasks()
+        assert count == 0
+
+    @patch("onemancompany.core.vessel.load_all_active_tasks")
+    def test_restores_multiple_employees(self, mock_load):
+        em = EmployeeManager()
+        em.register("00010", MagicMock(spec=Launcher))
+        em.register("00020", MagicMock(spec=Launcher))
+
+        mock_load.return_value = {
+            "00010": [AgentTask(id="a1", description="Task A")],
+            "00020": [AgentTask(id="b1", description="Task B"), AgentTask(id="b2", description="Task C")],
+        }
+
+        count = em.restore_persisted_tasks()
+        assert count == 3
+        assert len(em.boards["00010"].tasks) == 1
+        assert len(em.boards["00020"].tasks) == 2

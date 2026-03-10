@@ -441,11 +441,11 @@ async def lifespan(app: FastAPI):
 
     await start_all_loops()
 
-    # Restore task queue from a previous graceful restart
+    # Restore persisted tasks from per-employee task files
     from onemancompany.core.vessel import employee_manager as _em
-    restored_count = _em.restore_task_queue()
+    restored_count = _em.restore_persisted_tasks()
     if restored_count:
-        print(f"[startup] Restored {restored_count} pending task(s) from previous session")
+        print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
 
     # Start background WebSocket event broadcaster
