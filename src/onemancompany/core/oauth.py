@@ -37,7 +37,8 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 # Avoid importing heavy deps at module level
-_TOKEN_DIR = Path(__file__).parent.parent.parent.parent / "company" / "assets" / ".oauth_cache"
+from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR
+_TOKEN_DIR = _ASSETS_DIR / ".oauth_cache"
 
 # Track active authorization flows to avoid duplicate popups
 _active_flows: dict[str, float] = {}  # service_name -> deadline

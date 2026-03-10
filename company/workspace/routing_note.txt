@@ -1,8 +1,0 @@
-Task: Analyze missing roles for our Roblox game company.
-Routed to: HR (Sam, 00002)
-Budget: $0.05
-Responsible Officer: COO (Alex, 00003)
-Acceptance Criteria: 
-1. List current team structure.
-2. Analyze missing key roles based on Roblox game company direction.
-3. Output a formal gap analysis report with hiring priorities.

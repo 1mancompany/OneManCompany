@@ -18,6 +18,7 @@ from onemancompany.core.config import (
     COMPANY_DIR,
     COO_ID,
     CSO_ID,
+    DATA_ROOT,
     EA_ID,
     HR_ID,
     MAX_SUMMARY_LEN,
@@ -25,7 +26,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
-from onemancompany.core.state import TaskEntry, company_state
+from onemancompany.core.state import company_state
 
 router = APIRouter()
 
@@ -115,8 +116,16 @@ async def admin_apply_code_update() -> dict:
 @router.post("/api/admin/clear-tasks")
 async def admin_clear_tasks() -> dict:
     """Clear all stale active tasks and reset employee statuses to idle."""
-    cleared = len(company_state.active_tasks)
-    company_state.active_tasks.clear()
+    from onemancompany.core.state import get_active_tasks
+    cleared = len(get_active_tasks())
+    # Archive all persisted tasks
+    from onemancompany.core.task_persistence import load_active_tasks, archive_task
+    from onemancompany.core.config import EMPLOYEES_DIR
+    for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
+        if not emp_dir.is_dir():
+            continue
+        for t in load_active_tasks(emp_dir.name):
+            archive_task(emp_dir.name, t)
     for emp in company_state.employees.values():
         emp.status = STATUS_IDLE
     await event_bus.publish(
@@ -438,16 +447,6 @@ async def ceo_submit_task(body: dict) -> dict:
         pid = create_project(task, "pending", [e.id for e in company_state.employees.values()], task_type=task_type)
         pdir = get_project_dir(pid)
 
-    task_entry = TaskEntry(
-        project_id=pid,
-        iteration_id=iter_id,
-        task=task,
-        task_type=task_type,
-        routed_to="pending",
-        project_dir=pdir,
-    )
-    company_state.active_tasks.append(task_entry)
-
     await event_bus.publish(
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
     )
@@ -467,7 +466,6 @@ async def ceo_submit_task(body: dict) -> dict:
         lines = [f"- 附件: {a.get('filename', 'file')} (保存在 {a.get('path', '')})" for a in attachments]
         attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
 
-    task_entry.routed_to = "EA"
     loop = get_agent_loop(EA_ID)
     if loop:
         ea_task = (
@@ -555,15 +553,33 @@ async def task_followup(project_id: str, body: dict) -> dict:
     )
     followup_task = "\n".join(context_parts)
 
-    # Reset task tree — create new root for this follow-up
-    tree = TaskTree(project_id=project_id)
+    # Append to existing tree (or create new if none exists)
+    tree_path = Path(pdir) / "task_tree.yaml"
+    if tree_path.exists():
+        tree = TaskTree.load(tree_path, project_id=project_id)
+    else:
+        tree = TaskTree(project_id=project_id)
+
     ea_loop = get_agent_loop(EA_ID)
     if not ea_loop:
         raise HTTPException(status_code=503, detail="EA agent not available")
 
     ea_agent_task = ea_loop.push_task(followup_task, project_id=project_id, project_dir=pdir)
-    root = tree.create_root(employee_id=EA_ID, description=instructions)
-    tree.task_id_map[ea_agent_task.id] = root.id
+
+    if tree.root_id:
+        # Append as new child under existing root
+        child = tree.add_child(
+            parent_id=tree.root_id,
+            employee_id=EA_ID,
+            description=instructions,
+            acceptance_criteria=[],
+        )
+        tree.task_id_map[ea_agent_task.id] = child.id
+    else:
+        # No root yet — create one
+        root = tree.create_root(employee_id=EA_ID, description=instructions)
+        tree.task_id_map[ea_agent_task.id] = root.id
+
     _save_project_tree(pdir, tree)
 
     # Update project.yaml status back to in_progress
@@ -677,13 +693,13 @@ async def oneonone_chat(body: dict) -> dict:
         if t:
             # Prefer the result field (set on task completion)
             if t.result:
-                return {"response": t.result}
+                return {"response": str(t.result)}
             # Fallback: find the last llm_output in logs
             if t.logs:
                 for log_entry in reversed(t.logs):
                     if log_entry.get("type") in ("llm_output", "result"):
-                        return {"response": log_entry["content"]}
-                return {"response": t.logs[-1].get("content", "（处理完成）")}
+                        return {"response": str(log_entry["content"])}
+                return {"response": str(t.logs[-1].get("content", "（处理完成）"))}
         return {"response": "（任务已提交，正在处理中）"}
 
     # --- Fallback: plain LLM for normal employees without agent loop ---
@@ -722,7 +738,14 @@ async def oneonone_chat(body: dict) -> dict:
     llm = make_llm(employee_id)
     result = await tracked_ainvoke(llm, messages, category="oneonone", employee_id=employee_id)
 
-    return {"response": result.content}
+    content = result.content
+    # Normalize content — some models return list of content blocks
+    if isinstance(content, list):
+        content = "\n".join(
+            c.get("text", str(c)) if isinstance(c, dict) else str(c)
+            for c in content
+        )
+    return {"response": content or ""}
 
 
 @router.post("/api/oneonone/end")
@@ -1211,6 +1234,11 @@ async def get_employee_detail(employee_id: str) -> dict:
     if manifest:
         result["manifest"] = manifest
 
+    # Include custom settings (target_email, polling_interval, etc.)
+    from onemancompany.core.config import load_custom_settings
+    custom = load_custom_settings(employee_id)
+    result.update(custom)
+
     if cfg and cfg.hosting == "self":
         from onemancompany.core.claude_session import list_sessions
         result["sessions"] = list_sessions(employee_id)
@@ -1302,6 +1330,40 @@ async def get_employee_logs(employee_id: str) -> dict:
     return {"logs": []}
 
 
+async def _sync_tree_cancel(cancelled_tasks: list) -> None:
+    """Update task tree nodes for cancelled tasks."""
+    from onemancompany.core.vessel import _load_project_tree, _node_id_for_task
+
+    # Group by project_dir for efficiency
+    trees: dict[str, object] = {}
+    for task in cancelled_tasks:
+        if not task.project_dir:
+            continue
+        if task.project_dir not in trees:
+            trees[task.project_dir] = _load_project_tree(task.project_dir)
+        tree = trees[task.project_dir]
+        if not tree:
+            continue
+        node_id = _node_id_for_task(tree, task.id)
+        if node_id:
+            node = tree.get_node(node_id)
+            if node and node.status not in ("accepted", "failed", "cancelled"):
+                node.status = "cancelled"
+                node.result = task.result or "Cancelled by CEO"
+                from onemancompany.core.events import CompanyEvent as _CE
+                await event_bus.publish(_CE(
+                    type="tree_update",
+                    payload={"project_id": tree.project_id, "event_type": "node_updated",
+                             "node_id": node_id, "data": {"status": "cancelled"}},
+                    agent="SYSTEM",
+                ))
+    # Save modified trees
+    from pathlib import Path
+    for pdir, tree in trees.items():
+        if tree:
+            tree.save(Path(pdir) / "task_tree.yaml")
+
+
 @router.post("/api/task/{project_id}/abort")
 async def abort_task(project_id: str) -> dict:
     """Abort all agent tasks related to a project.
@@ -1311,22 +1373,17 @@ async def abort_task(project_id: str) -> dict:
     """
     from onemancompany.core.agent_loop import employee_manager
 
-    total_cancelled = employee_manager.abort_project(project_id)
+    cancelled_tasks = employee_manager.abort_project(project_id)
 
-    # Mark as cancelled in active_tasks (keep for history)
-    from datetime import datetime as _dt
-    for t in company_state.active_tasks:
-        if t.project_id == project_id or (t.iteration_id and t.iteration_id == project_id):
-            t.status = "cancelled"
-            t.result = "Aborted by CEO"
-            t.completed_at = _dt.now().isoformat()
+    # Update tree nodes
+    await _sync_tree_cancel(cancelled_tasks)
 
     # Broadcast state
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
-    return {"status": "ok", "cancelled": total_cancelled}
+    return {"status": "ok", "cancelled": len(cancelled_tasks)}
 
 
 @router.post("/api/employee/{employee_id}/task/{task_id}/cancel")
@@ -1349,13 +1406,14 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
 
     was_in_progress = task.status == "processing"
 
+    # Collect all tasks to cancel (target + sub-tasks)
+    all_cancelled = [task]
     task.status = "cancelled"
     task.completed_at = datetime.now().isoformat()
     task.result = "Cancelled by CEO"
     employee_manager._log(employee_id, task, "cancelled", "CEO cancelled this task")
     employee_manager._publish_task_update(employee_id, task)
 
-    # Also cancel pending sub-tasks
     for sid in task.sub_task_ids:
         sub = loop.board.get_task(sid)
         if sub and sub.status in ("pending", "processing", "holding"):
@@ -1364,6 +1422,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
             sub.result = "Parent task cancelled by CEO"
             employee_manager._log(employee_id, sub, "cancelled", "Parent task cancelled by CEO")
             employee_manager._publish_task_update(employee_id, sub)
+            all_cancelled.append(sub)
 
     # Cancel the running asyncio.Task if this was in_progress
     if was_in_progress and employee_id in employee_manager._running_tasks:
@@ -1371,12 +1430,30 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
         if not running.done():
             running.cancel()
 
+    # Update tree nodes for cancelled tasks
+    await _sync_tree_cancel(all_cancelled)
+
     # Broadcast state
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
     return {"status": "ok"}
+
+
+@router.put("/api/employee/{employee_id}/settings")
+async def update_employee_custom_settings(employee_id: str, body: dict) -> dict:
+    """Save custom manifest settings (target_email, polling_interval, etc.) to settings.json."""
+    from onemancompany.core.config import save_custom_settings
+
+    _require_employee(employee_id)
+    # Filter out keys handled by dedicated endpoints
+    reserved = {"hosting", "llm_model", "temperature", "api_key", "api_provider"}
+    updates = {k: v for k, v in body.items() if k not in reserved}
+    if not updates:
+        return {"status": "ok", "message": "No custom settings to save"}
+    result = save_custom_settings(employee_id, updates)
+    return {"status": "ok", "settings": result}
 
 
 @router.put("/api/employee/{employee_id}/model")
@@ -2545,15 +2622,6 @@ async def continue_iteration(body: dict) -> dict:
     # Log the action
     append_action(iteration_id, CEO_ID, "continue", f"CEO requested continuation of current iteration")
 
-    # Update active tasks
-    task_entry = TaskEntry(
-        project_id=project_id or iteration_id,
-        iteration_id=iteration_id,
-        task=f"[续做] {task[:80]}",
-        routed_to="EA",
-        project_dir=project_dir,
-    )
-    company_state.active_tasks.append(task_entry)
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
@@ -2676,21 +2744,27 @@ async def get_task_queue() -> list[dict]:
         # Skip v2 named projects (shown in PROJECTS panel)
         if p.get("is_named"):
             continue
+        tree = _tree_summary(p["project_id"])
+        # Use tree-aggregated status when available (more accurate than project.yaml)
+        file_status = _normalize_project_status(p.get("status", ""))
+        tree_status = _aggregate_tree_status(tree)
+        status = tree_status if tree_status else file_status
+
         entry = {
             "project_id": p["project_id"],
             "task": p.get("task", ""),
             "task_type": p.get("task_type", "simple"),
             "routed_to": p.get("routed_to", ""),
             "current_owner": p.get("current_owner", ""),
-            "status": _normalize_project_status(p.get("status", "")),
+            "status": status,
             "created_at": p.get("created_at", ""),
             "completed_at": p.get("completed_at", ""),
             "result": "",
-            "tree": _tree_summary(p["project_id"]),
+            "tree": tree,
         }
         # Get result from tree root if available
-        if entry["tree"] and entry["tree"].get("root_result"):
-            entry["result"] = entry["tree"]["root_result"][:200]
+        if tree and tree.get("root_result"):
+            entry["result"] = tree["root_result"][:200]
         result.append(entry)
     return result
 
@@ -2705,6 +2779,36 @@ def _normalize_project_status(status: str) -> str:
         "cancelled": "cancelled",
     }
     return mapping.get(status, status)
+
+
+# Priority order for aggregating status across tree nodes.
+# Lower index = higher priority (shown first).
+_STATUS_PRIORITY = [
+    "processing",   # actively running
+    "holding",      # blocked/waiting
+    "pending",      # queued
+    "failed",       # error
+    "cancelled",    # aborted
+    "completed",    # done, not yet accepted
+    "accepted",     # fully done
+]
+
+
+def _aggregate_tree_status(tree_summary: dict | None) -> str | None:
+    """Derive project status from tree node statuses.
+
+    Returns the highest-priority status found across all nodes,
+    or None if no tree / no nodes.
+    """
+    if not tree_summary:
+        return None
+    by_status = tree_summary.get("by_status", {})
+    if not by_status:
+        return None
+    for status in _STATUS_PRIORITY:
+        if by_status.get(status, 0) > 0:
+            return status
+    return None
 
 
 # ===== Task Tree Endpoint =====
@@ -3366,17 +3470,19 @@ async def hire_candidate(body: HireRequest) -> dict:
     if pid:
         append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
         complete_project(pid, f"Hired {candidate['name']}")
-        # Mark as completed in active_tasks (keep for history)
-        from datetime import datetime as _dt2
-        for t in company_state.active_tasks:
-            if t.project_id == pid or (t.iteration_id and t.iteration_id == pid):
-                t.status = "completed"
-                t.result = f"Hired {candidate['name']}"
-                t.completed_at = _dt2.now().isoformat()
         # No retrospective — hiring is not a project iteration.
         # Retrospective only triggers after project acceptance + rectification.
 
     pending_candidates.pop(body.batch_id, None)
+
+    # Resume HR's HOLDING task so EA knows the hire is done
+    from onemancompany.core.agent_loop import get_agent_loop
+    hr_loop = get_agent_loop(HR_ID)
+    if hr_loop:
+        for t in hr_loop.board.tasks:
+            if t.status == "holding" and t.result and f"batch_id={body.batch_id}" in t.result:
+                await hr_loop.resume_held_task(HR_ID, t.id, f"Hired {candidate['name']} (ID: {emp.id})")
+                break
 
     # Explicit state broadcast to ensure frontend updates
     await event_bus.publish(
@@ -3852,7 +3958,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
 
     # Persist to .env file
     from pathlib import Path as _Path
-    env_path = _Path(__file__).parent.parent.parent.parent / ".env"
+    env_path = DATA_ROOT / ".env"
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()
@@ -3898,7 +4004,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
         os.environ[name] = value
 
     # Persist to .env
-    env_path = _Path(__file__).parent.parent.parent.parent / ".env"
+    env_path = DATA_ROOT / ".env"
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()

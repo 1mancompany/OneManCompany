@@ -1,24 +1,84 @@
 {
   "id": "human_bridge",
-  "title": "Human Bridge",
-  "sections": [
-    {
-      "title": "Communication Settings",
-      "fields": [
-        {
-          "key": "target_email",
-          "type": "text",
-          "label": "Human Email Address",
-          "placeholder": "human@example.com"
-        },
-        {
-          "key": "polling_interval",
-          "type": "text",
-          "label": "Reply Polling Interval",
-          "default": "1m",
-          "placeholder": "1m"
-        }
-      ]
-    }
+  "name": "Human Bridge",
+  "version": "1.0.0",
+  "role": "Assistant",
+  "hosting": "company",
+  "settings": {
+    "sections": [
+      {
+        "id": "communication",
+        "title": "Communication Settings",
+        "fields": [
+          {
+            "key": "target_email",
+            "type": "text",
+            "label": "Human Email Address",
+            "placeholder": "human@example.com"
+          },
+          {
+            "key": "polling_interval",
+            "type": "text",
+            "label": "Reply Polling Interval",
+            "default": "1m",
+            "placeholder": "1m"
+          }
+        ]
+      },
+      {
+        "id": "hosting",
+        "title": "Hosting Mode",
+        "fields": [
+          {
+            "key": "hosting",
+            "type": "select",
+            "label": "Hosting",
+            "options": [
+              {
+                "value": "company",
+                "label": "Company (LangChain)"
+              },
+              {
+                "value": "self",
+                "label": "Self-hosted (Claude Code)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "llm",
+        "title": "LLM Configuration",
+        "fields": [
+          {
+            "key": "llm_model",
+            "type": "select",
+            "label": "Model",
+            "options_from": "api:models"
+          },
+          {
+            "key": "temperature",
+            "type": "number",
+            "label": "Temperature",
+            "default": 0.3,
+            "min": 0,
+            "max": 2,
+            "step": 0.1
+          }
+        ]
+      }
+    ]
+  },
+  "prompts": {
+    "skills": [
+      "skills/*/SKILL.md"
+    ]
+  },
+  "tools": {
+    "builtin": [],
+    "custom": []
+  },
+  "platform_capabilities": [
+    "websocket"
   ]
 }

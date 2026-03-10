@@ -13,8 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-# Load .env before any other imports that might read env vars
-load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
+# Load .env from data root (.onemancompany/) first, fall back to source root
+_data_root = Path.cwd() / ".onemancompany"
+_source_root = Path(__file__).parent.parent.parent
+
+load_dotenv(_data_root / ".env", override=False)
+# Also load from source root for backward compatibility during migration
+load_dotenv(_source_root / ".env", override=False)
 
 from onemancompany.api.routes import router
 from onemancompany.api.websocket import ws_manager
@@ -341,11 +346,55 @@ async def _start_code_watcher() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Data directory bootstrap
+# ---------------------------------------------------------------------------
+
+def _bootstrap_data_dir() -> None:
+    """Ensure .onemancompany/ exists with required directory structure.
+
+    On first run, copies the template company/ directory from the source tree
+    into cwd/.onemancompany/company/.  Also copies .env and config.yaml if
+    they exist in the source root but not yet in the data root.
+    """
+    import shutil
+    from onemancompany.core.config import DATA_ROOT, SOURCE_ROOT
+
+    if DATA_ROOT.exists():
+        return  # already initialised
+
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # Seed company data from source tree template
+    src_company = SOURCE_ROOT / "company"
+    dst_company = DATA_ROOT / "company"
+    if src_company.exists() and not dst_company.exists():
+        shutil.copytree(str(src_company), str(dst_company), symlinks=True)
+        print(f"[bootstrap] Seeded {dst_company} from {src_company}")
+
+    # Copy .env if only in source root
+    src_env = SOURCE_ROOT / ".env"
+    dst_env = DATA_ROOT / ".env"
+    if src_env.exists() and not dst_env.exists():
+        shutil.copy2(str(src_env), str(dst_env))
+        print(f"[bootstrap] Copied .env to {dst_env}")
+
+    # Copy config.yaml if only in source root
+    src_cfg = SOURCE_ROOT / "config.yaml"
+    dst_cfg = DATA_ROOT / "config.yaml"
+    if src_cfg.exists() and not dst_cfg.exists():
+        shutil.copy2(str(src_cfg), str(dst_cfg))
+        print(f"[bootstrap] Copied config.yaml to {dst_cfg}")
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Bootstrap data directory on first run
+    _bootstrap_data_dir()
+
     # Eagerly load assets (tools, meeting rooms) into company_state
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()

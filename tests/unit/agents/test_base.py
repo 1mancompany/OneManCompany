@@ -1351,13 +1351,15 @@ class TestDynamicContextWithActiveTasks:
         cs = _make_cs()
         emp = _make_emp("00010")
         cs.employees["00010"] = emp
-        # Add active tasks
-        cs.active_tasks = [
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(base_mod, "company_state", cs)
+
+        # Mock get_active_tasks (disk-based) to return test tasks
+        mock_tasks = [
             TaskEntry(project_id="proj1", task="Build the login page feature", routed_to="COO"),
             TaskEntry(project_id="proj2", task="Design the dashboard UI", routed_to="HR"),
         ]
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(base_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: mock_tasks)
 
         runner = BaseAgentRunner()
         runner.employee_id = "00010"

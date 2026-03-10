@@ -288,7 +288,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
         "NEVER use Gmail/email for internal task routing or employee coordination.\n"
-        "- **CEO communication**: Use report_to_ceo() for reports, ask_ceo() for questions.\n"
+        "- **CEO communication**: Use report_to_ceo(subject, report, action_required) for all CEO communication.\n"
         "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
         "(clients, vendors, partners, third parties)."
     )
@@ -538,9 +538,11 @@ class BaseAgentRunner:
             parts.append("- Team:\n" + "\n".join(team_lines))
 
         # Active projects (brief)
-        if company_state.active_tasks:
+        from onemancompany.core.state import get_active_tasks
+        active_tasks = get_active_tasks()
+        if active_tasks:
             active = []
-            for t in company_state.active_tasks[:5]:
+            for t in active_tasks[:5]:
                 active.append(f"  - [{t.routed_to}] {t.task[:60]}")
             parts.append("- Active tasks:\n" + "\n".join(active))
 

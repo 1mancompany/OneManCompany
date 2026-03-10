@@ -39,7 +39,7 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.state import TaskEntry, company_state
+from onemancompany.core.state import company_state
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
@@ -680,12 +680,12 @@ class EmployeeManager:
             logger.info("Restarted {} reply poller(s) for HOLDING tasks", count)
         return count
 
-    def abort_project(self, project_id: str) -> int:
+    def abort_project(self, project_id: str) -> list:
         """Cancel board tasks AND cancel the running asyncio.Task for a project.
 
-        Returns the number of tasks cancelled.
+        Returns list of cancelled AgentTask objects.
         """
-        total_cancelled = 0
+        all_cancelled: list = []
         for emp_id, board in self.boards.items():
             cancelled = board.cancel_by_project(project_id)
             for t in cancelled:
@@ -695,7 +695,7 @@ class EmployeeManager:
                     self._publish_task_update(emp_id, t)
                 persist_task(emp_id, t)
                 archive_task(emp_id, t)
-            total_cancelled += len(cancelled)
+            all_cancelled.extend(cancelled)
 
             # Cancel the running asyncio.Task if it's working on this project
             if cancelled and emp_id in self._running_tasks:
@@ -704,7 +704,7 @@ class EmployeeManager:
                     running.cancel()
                     logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
 
-        return total_cancelled
+        return all_cancelled
 
     async def _run_task(self, employee_id: str, task: AgentTask) -> None:
         """Execute a task, then schedule the next one."""
@@ -751,22 +751,9 @@ class EmployeeManager:
         loop_token = _current_vessel.set(vessel)
         task_token = _current_task_id.set(task.id)
 
-        # 3. Create company-level TaskEntry if not already tracked
+        # 3. Task is already persisted via task_persistence — no in-memory tracking needed
         project_id = task.project_id
         project_dir = task.project_dir
-        already_tracked = any(t.project_id == project_id for t in company_state.active_tasks)
-        if project_id and not already_tracked:
-            company_state.active_tasks.append(
-                TaskEntry(
-                    project_id=project_id,
-                    task=task.description,
-                    routed_to=role,
-                    project_dir=project_dir,
-                )
-            )
-            await event_bus.publish(
-                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-            )
 
         ctx_token = current_project_id.set(project_id) if project_id else None
 
@@ -1588,14 +1575,6 @@ class EmployeeManager:
                 label = f"{label} (with errors)"
             complete_project(project_id, label)
 
-        # Mark task as completed in active_tasks (keep for history)
-        for t in company_state.active_tasks:
-            if t.project_id == project_id:
-                t.status = "completed"
-                t.result = label
-                t.completed_at = datetime.now().isoformat()
-                break
-
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()
         if flush_result:
@@ -1742,18 +1721,6 @@ class EmployeeManager:
         async def _run() -> None:
             from onemancompany.core.resolutions import create_resolution, current_project_id
 
-            # Register in active_tasks
-            company_state.active_tasks.append(
-                TaskEntry(
-                    project_id=project_id,
-                    task=task_description or task_name,
-                    routed_to=task_name,
-                )
-            )
-            await event_bus.publish(
-                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-            )
-
             ctx_token = current_project_id.set(project_id)
             try:
                 await coro
@@ -1779,14 +1746,6 @@ class EmployeeManager:
             # Sandbox cleanup
             from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
             await _cleanup_sandbox()
-
-            # Mark as completed in active_tasks (keep for history)
-            for t in company_state.active_tasks:
-                if t.project_id == project_id:
-                    t.status = "completed"
-                    t.result = task_description or task_name
-                    t.completed_at = datetime.now().isoformat()
-                    break
 
             # Broadcast updated state
             await event_bus.publish(

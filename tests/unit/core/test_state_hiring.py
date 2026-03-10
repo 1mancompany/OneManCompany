@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from onemancompany.core.state import CompanyState, Employee, make_title, LEVEL_NAMES
@@ -133,7 +135,8 @@ class TestCompanyStateNextEmployeeNumber:
 class TestCompanyStateToJson:
     def test_empty_state(self):
         cs = CompanyState()
-        j = cs.to_json()
+        with patch("onemancompany.core.state.get_active_tasks", return_value=[]):
+            j = cs.to_json()
         assert j["employees"] == []
         assert j["ex_employees"] == []
         assert j["tools"] == []

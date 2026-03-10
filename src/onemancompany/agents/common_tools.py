@@ -783,115 +783,30 @@ def set_project_budget(budget_usd: float) -> dict:
 @tool
 async def report_to_ceo(subject: str, report: str, action_required: bool = False,
                         employee_id: str = "", project_id: str = "") -> dict:
-    """Report findings to CEO, especially when company-level action is needed.
+    """Report to CEO or ask CEO a question. Always use this tool for CEO communication.
 
     Use when:
+    - Need CEO approval on a plan, hire, budget, or decision
     - Missing API credentials or tools that only CEO can configure
     - Task requires capabilities the company doesn't have yet
-    - Need CEO decision on requirement changes
+    - Need CEO clarification on requirements
     - Diagnosis of why a project task failed
 
-    Args:
-        subject: Brief title (e.g. "Roblox发布需要API凭证配置")
-        report: Detailed findings and recommendations
-        action_required: True if CEO must take action before work can continue
-    """
-    # Try to resolve employee_id and project_id from context if not provided
-    if not employee_id:
-        try:
-            from onemancompany.core.vessel import _current_vessel
-            vessel = _current_vessel.get()
-            if vessel:
-                employee_id = getattr(vessel, "employee_id", "")
-        except Exception as exc:
-            logger.debug("Could not resolve employee_id from vessel context: {}", exc)
-    if not project_id:
-        try:
-            from onemancompany.core.vessel import _current_task_id, employee_manager
-            task_id = _current_task_id.get()
-            if task_id and employee_id:
-                handle = employee_manager.get_handle(employee_id)
-                if handle:
-                    for t in handle._task_board:
-                        if t.id == task_id and t.project_id:
-                            project_id = t.project_id
-                            break
-        except Exception as exc:
-            logger.debug("Could not resolve project_id from vessel context: {}", exc)
-
-    payload = {
-        "subject": subject,
-        "report": report,
-        "action_required": action_required,
-        "timestamp": datetime.now().isoformat(),
-    }
-    if employee_id:
-        payload["employee_id"] = employee_id
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            payload["employee_name"] = emp.name
-    if project_id:
-        payload["project_id"] = project_id
-
-    await _publish("ceo_report", payload, agent="SYSTEM")
-
-    if action_required and employee_id:
-        # Block until CEO responds — create an asyncio.Event and wait
-        key = _ceo_wait_key(employee_id, project_id)
-        entry = {"event": asyncio.Event(), "response": {}}
-        _ceo_pending[key] = entry
-        try:
-            await asyncio.wait_for(entry["event"].wait(), timeout=600)
-            ceo_response = entry.get("response", {})
-            action = ceo_response.get("action", "approve")
-            message = ceo_response.get("message", "")
-            if action == "revise" and message:
-                return {
-                    "status": "revision_requested",
-                    "subject": subject,
-                    "ceo_message": message,
-                }
-            return {
-                "status": "approved",
-                "subject": subject,
-                "ceo_message": message or "CEO approved, proceed.",
-            }
-        except (asyncio.TimeoutError, TimeoutError):
-            return {
-                "status": "timeout",
-                "subject": subject,
-                "message": "CEO did not respond within 10 minutes. Proceed with best judgment.",
-            }
-        finally:
-            _ceo_pending.pop(key, None)
-
-    return {
-        "status": "reported",
-        "subject": subject,
-        "action_required": action_required,
-    }
-
-
-@tool
-async def ask_ceo(question: str, context: str = "",
-                  employee_id: str = "", project_id: str = "") -> dict:
-    """Ask CEO a question and wait for their response.
-
-    Use when you need CEO's input, approval, or decision before proceeding.
-    Examples: plan approval, clarification on requirements, budget decisions.
-    This tool will BLOCK until CEO responds (up to 10 minutes).
+    If action_required=True, this tool BLOCKS until CEO responds (up to 10 min).
+    CEO can approve or request revisions.
 
     Args:
-        question: The specific question or request for CEO.
-        context: Background context to help CEO understand the situation.
+        subject: Brief title (e.g. "招聘方案审批", "需要API凭证配置")
+        report: Detailed findings, question, or proposal for CEO
+        action_required: True if CEO must respond before work can continue
     """
     if not employee_id:
         try:
             vessel = _current_vessel.get()
             if vessel:
                 employee_id = getattr(vessel, "employee_id", "")
-        except LookupError:
-            pass  # context var not set — expected when called outside agent loop
+        except (LookupError, Exception):
+            pass
     if not project_id:
         try:
             task_id = _current_task_id.get()
@@ -903,8 +818,8 @@ async def ask_ceo(question: str, context: str = "",
                         if t.id == task_id and t.project_id:
                             project_id = t.project_id
                             break
-        except LookupError:
-            pass  # context var not set — expected when called outside agent loop
+        except (LookupError, Exception):
+            pass
 
     emp_name = ""
     if employee_id:
@@ -912,37 +827,51 @@ async def ask_ceo(question: str, context: str = "",
         if emp:
             emp_name = emp.name
 
+    payload = {
+        "employee_id": employee_id,
+        "employee_name": emp_name,
+        "project_id": project_id,
+        "subject": subject,
+        "report": report,
+        "action_required": action_required,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    if not action_required:
+        # Fire-and-forget notification — no blocking
+        await _publish("ceo_report", payload, agent="SYSTEM")
+        return {"status": "reported", "subject": subject}
+
+    # Blocking mode — wait for CEO response
     key = _ceo_wait_key(employee_id, project_id)
     entry = {
         "event": asyncio.Event(),
         "response": {},
-        "meta": {
-            "type": "ask_ceo",
-            "employee_id": employee_id,
-            "employee_name": emp_name,
-            "project_id": project_id,
-            "question": question,
-            "context": context,
-            "timestamp": datetime.now().isoformat(),
-        },
+        "meta": payload,
     }
     _ceo_pending[key] = entry
-
-    # Notify frontend to show dialog
-    await _publish("ask_ceo", entry["meta"], agent="SYSTEM")
+    await _publish("ceo_report", payload, agent="SYSTEM")
 
     try:
         await asyncio.wait_for(entry["event"].wait(), timeout=600)
         ceo_response = entry.get("response", {})
+        action = ceo_response.get("action", "approve")
+        message = ceo_response.get("message", "")
+        if action == "revise" and message:
+            return {
+                "status": "revision_requested",
+                "subject": subject,
+                "ceo_message": message,
+            }
         return {
-            "status": "answered",
-            "question": question,
-            "ceo_response": ceo_response.get("message", ""),
+            "status": "approved",
+            "subject": subject,
+            "ceo_message": message or "CEO approved, proceed.",
         }
     except (asyncio.TimeoutError, TimeoutError):
         return {
             "status": "timeout",
-            "question": question,
+            "subject": subject,
             "message": "CEO did not respond within 10 minutes. Proceed with best judgment.",
         }
     finally:
@@ -1193,7 +1122,7 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
-        report_to_ceo, ask_ceo, request_tool_access, load_skill,
+        report_to_ceo, request_tool_access, load_skill,
         resume_held_task,
     ]
     for t in _base:
