@@ -1385,10 +1385,13 @@ class EmployeeManager:
 
         _save_project_tree(task.project_dir, tree)
 
-        # Root node completed — trigger full project cleanup
+        # Root node completed — request CEO confirmation before cleanup
         if not node.parent_id:
-            logger.info("Root node {} completed — triggering project cleanup", node_id)
-            await self._full_cleanup(employee_id, task, agent_error=False, project_id=project_id or task.project_id)
+            logger.info("Root node {} completed — requesting CEO confirmation", node_id)
+            effective_project_id = project_id or task.project_id
+            await self._request_ceo_confirmation(
+                employee_id, task, tree, node, effective_project_id
+            )
             return
 
         parent_node = tree.get_node(node.parent_id)
@@ -1402,16 +1405,38 @@ class EmployeeManager:
             return
 
         # Build review prompt for parent employee
-        lines = ["你之前分发的子任务已全部完成，请审核结果：", ""]
-        for i, child in enumerate(children, 1):
-            criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
-            lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
-            lines.append(f"  验收标准: {criteria_str}")
-            lines.append(f"  执行结果: \"{child.result}\"")
-            lines.append(f"  状态: {child.status}")
+        # Separate children needing review from already-accepted
+        needs_review = []
+        already_accepted = []
+        for child in children:
+            if child.status == "accepted":
+                already_accepted.append(child)
+            else:
+                needs_review.append(child)
+
+        lines = []
+        if already_accepted and needs_review:
+            lines.append("以下子任务已通过验收，无需重复审核：")
+            for child in already_accepted:
+                lines.append(f"  \u2713 ({child.employee_id}): {child.description[:80]}")
             lines.append("")
 
-        lines.append("请对每个子任务调用 accept_child() 或 reject_child()。")
+        if needs_review:
+            lines.append("以下子任务需要审核：")
+            lines.append("")
+            for i, child in enumerate(needs_review, 1):
+                criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
+                lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
+                lines.append(f"  验收标准: {criteria_str}")
+                lines.append(f"  执行结果: \"{child.result}\"")
+                lines.append(f"  状态: {child.status}")
+                if child.acceptance_result and not child.acceptance_result.get("passed"):
+                    lines.append(f"  \u26a0 此任务曾被拒绝: {child.acceptance_result.get('notes', '')}")
+                lines.append("")
+        else:
+            lines.append("所有子任务已通过验收。")
+
+        lines.append("请对未验收的子任务调用 accept_child(node_id, notes) 或 reject_child(node_id, reason)。")
         lines.append("如需追加任务，调用 dispatch_child()。")
         lines.append("全部处理完毕后，你的任务将自动完成并向上汇报。")
 
@@ -1428,6 +1453,86 @@ class EmployeeManager:
         # Schedule parent if not already running
         if parent_node.employee_id not in self._running_tasks:
             self._schedule_next(parent_node.employee_id)
+
+    async def _request_ceo_confirmation(
+        self,
+        employee_id: str,
+        task: AgentTask,
+        tree,
+        root_node,
+        project_id: str,
+    ) -> None:
+        """Send project completion report to CEO and wait for confirmation.
+
+        CEO approve -> _full_cleanup(run_retrospective=True)
+        CEO revise  -> push revision task to root employee
+        """
+        from onemancompany.agents.common_tools import _ceo_pending, _ceo_wait_key
+
+        # Build completion summary from all children
+        children = tree.get_children(root_node.id)
+        lines = [f"项目完成汇报 — {task.description[:100]}", ""]
+        for i, child in enumerate(children, 1):
+            status_icon = "✓" if child.status == "accepted" else "●"
+            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description[:80]}")
+            lines.append(f"  结果: {(child.result or '无')[:200]}")
+            lines.append("")
+        summary = "\n".join(lines)
+
+        # Publish CEO report event
+        payload = {
+            "subject": f"项目完成确认: {task.description[:60]}",
+            "report": summary,
+            "action_required": True,
+            "employee_id": employee_id,
+            "project_id": project_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            payload["employee_name"] = emp.name
+        await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
+
+        # Block until CEO responds
+        key = _ceo_wait_key(employee_id, project_id)
+        entry = {"event": asyncio.Event(), "response": {}, "meta": payload}
+        _ceo_pending[key] = entry
+        try:
+            await asyncio.wait_for(entry["event"].wait(), timeout=600)
+            ceo_response = entry.get("response", {})
+            action = ceo_response.get("action", "approve")
+            message = ceo_response.get("message", "")
+        except asyncio.CancelledError:
+            raise
+        except (asyncio.TimeoutError, TimeoutError):
+            action = "approve"
+            message = "CEO未在10分钟内响应，自动确认"
+            logger.warning("CEO confirmation timed out for project {}, auto-approving", project_id)
+        finally:
+            _ceo_pending.pop(key, None)
+
+        if action == "revise" and message:
+            # CEO wants revision — push task back to root employee
+            revision_desc = (
+                f"CEO要求修改:\n{message}\n\n"
+                f"原任务: {task.description[:200]}"
+            )
+            board = self.boards.setdefault(employee_id, AgentTaskBoard())
+            board.push(
+                description=revision_desc,
+                project_id=project_id,
+                project_dir=task.project_dir,
+            )
+            self._schedule_next(employee_id)
+            logger.info("CEO requested revision for project {} — pushed to {}", project_id, employee_id)
+        else:
+            # CEO approved — run full cleanup with retrospective for project tasks
+            is_project = task.task_type == "project"
+            await self._full_cleanup(
+                employee_id, task, agent_error=False,
+                project_id=project_id,
+                run_retrospective=is_project,
+            )
 
     async def _full_cleanup(
         self, employee_id: str, task: AgentTask, agent_error: bool,

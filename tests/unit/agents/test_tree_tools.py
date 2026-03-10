@@ -306,6 +306,52 @@ class TestRejectChild:
         finally:
             _reset_context(tok_v, tok_t)
 
+    def test_reject_retry_no_handle_returns_error(self):
+        """Reject with retry=True returns error when employee handle is missing."""
+        from onemancompany.agents.tree_tools import reject_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(
+            parent_id=tree.root_id,
+            employee_id="00100",
+            description="subtask",
+            acceptance_criteria=["criterion A"],
+        )
+        child.status = "completed"
+        child.result = "some result"
+        tree.task_id_map["task-nohandle"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-nohandle")
+
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = None  # No handle available
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree") as mock_save,
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = reject_child.invoke({
+                    "node_id": child.id,
+                    "reason": "bad work",
+                    "retry": True,
+                })
+
+            # Should return error, NOT "rejected_retry"
+            assert result["status"] == "error"
+            assert "00100" in result["message"]
+
+            # Node status should NOT have been changed to pending
+            assert child.status == "completed"
+            assert child.result == "some result"
+
+            # Tree should NOT have been saved (no state mutation)
+            mock_save.assert_not_called()
+        finally:
+            _reset_context(tok_v, tok_t)
+
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
         from onemancompany.agents.tree_tools import reject_child

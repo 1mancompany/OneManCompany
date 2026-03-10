@@ -7,7 +7,7 @@ import traceback
 import uuid as _uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from loguru import logger
 
@@ -2726,17 +2726,67 @@ def _load_project_tree_for_api(project_id: str):
     return TaskTree.load(path, project_id=project_id)
 
 
+def _has_avatar(employee_id: str) -> bool:
+    """Check if an employee has an uploaded avatar."""
+    from onemancompany.core.config import EMPLOYEES_DIR
+    return (EMPLOYEES_DIR / employee_id / "avatar.png").exists()
+
+
 @router.get("/api/projects/{project_id}/tree")
 async def get_project_tree(project_id: str) -> dict:
     """Get the task tree for a project."""
     tree = _load_project_tree_for_api(project_id)
     if tree is None:
         raise HTTPException(status_code=404, detail="Task tree not found")
+
+    # Build employee info lookup
+    employee_info: dict[str, dict] = {}
+    for node in tree._nodes.values():
+        eid = node.employee_id
+        if eid and eid not in employee_info:
+            emp = company_state.employees.get(eid)
+            if emp:
+                employee_info[eid] = {
+                    "name": getattr(emp, "name", ""),
+                    "nickname": getattr(emp, "nickname", ""),
+                    "role": getattr(emp, "role", ""),
+                    "avatar_url": f"/api/employees/{eid}/avatar" if _has_avatar(eid) else "",
+                }
+
+    nodes = []
+    for n in tree._nodes.values():
+        d = n.to_dict()
+        d["employee_info"] = employee_info.get(n.employee_id, {})
+        nodes.append(d)
+
     return {
         "project_id": tree.project_id,
         "root_id": tree.root_id,
-        "nodes": [n.to_dict() for n in tree._nodes.values()],
+        "nodes": nodes,
     }
+
+
+@router.post("/api/employees/{employee_id}/avatar")
+async def upload_avatar(employee_id: str, request: Request) -> dict:
+    """Upload an avatar image for an employee."""
+    from onemancompany.core.config import EMPLOYEES_DIR
+    body = await request.body()
+    if not body or len(body) > 512 * 1024:
+        raise HTTPException(status_code=400, detail="Invalid or oversized image (max 512KB)")
+    avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
+    avatar_path.parent.mkdir(parents=True, exist_ok=True)
+    avatar_path.write_bytes(body)
+    return {"status": "ok", "url": f"/api/employees/{employee_id}/avatar"}
+
+
+@router.get("/api/employees/{employee_id}/avatar")
+async def get_avatar(employee_id: str):
+    """Serve an employee's avatar image."""
+    from onemancompany.core.config import EMPLOYEES_DIR
+    avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
+    if not avatar_path.exists():
+        raise HTTPException(status_code=404, detail="No avatar")
+    return FileResponse(avatar_path, media_type="image/png")
 
 
 # ===== Plugin System Endpoints =====

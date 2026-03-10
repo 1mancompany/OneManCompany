@@ -14,6 +14,7 @@ Environment variables (set by config_builder at launch time):
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 
@@ -64,15 +65,32 @@ def _call_tool(tool_name: str, args: dict) -> str:
 # Dynamic tool registration from ToolRegistry
 # ---------------------------------------------------------------------------
 
-def _register_mcp_tool(mcp: FastMCP, tool) -> None:
-    """Register a single LangChain StructuredTool as an MCP tool."""
-    schema = tool.args_schema.schema() if tool.args_schema else {}
-    properties = schema.get("properties", {})
-    tool_name = tool.name
+_TYPE_MAP = {
+    "integer": int, "number": float, "boolean": bool,
+    "array": list, "object": dict, "string": str,
+}
 
+_TYPE_DEFAULTS = {
+    int: 0, float: 0.0, bool: False,
+    list: list, dict: dict, str: "",
+}
+
+
+def _register_mcp_tool(mcp: FastMCP, tool) -> None:
+    """Register a single LangChain StructuredTool as an MCP tool.
+
+    FastMCP inspects function signatures (not just __annotations__) to
+    determine parameter names, types, and required/optional status.
+    We build a proper signature with named keyword-only params so that
+    FastMCP generates the correct JSON schema for Claude CLI.
+    """
+    schema = tool.args_schema.model_json_schema() if tool.args_schema else {}
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    tool_name = tool.name
     param_names = list(properties.keys())
 
-    def make_handler(name: str, params: list[str], props: dict):
+    def make_handler(name: str, params: list[str]):
         async def handler(**kwargs) -> str:
             args = {k: v for k, v in kwargs.items() if k in params}
             return _call_tool(name, args)
@@ -80,21 +98,30 @@ def _register_mcp_tool(mcp: FastMCP, tool) -> None:
         handler.__name__ = name
         handler.__doc__ = tool.description
 
-        # Build type annotations from JSON schema for FastMCP
+        # Build proper signature so FastMCP sees named params + defaults
+        sig_params = []
         annotations = {}
         for p in params:
-            prop = props.get(p, {})
-            ptype = prop.get("type", "string")
-            type_map = {
-                "integer": int, "number": float, "boolean": bool,
-                "array": list, "object": dict, "string": str,
-            }
-            annotations[p] = type_map.get(ptype, str)
+            prop = properties.get(p, {})
+            py_type = _TYPE_MAP.get(prop.get("type", "string"), str)
+            annotations[p] = py_type
+
+            if p in required:
+                sig_params.append(
+                    inspect.Parameter(p, inspect.Parameter.KEYWORD_ONLY, annotation=py_type)
+                )
+            else:
+                default = prop.get("default", _TYPE_DEFAULTS.get(py_type, ""))
+                sig_params.append(
+                    inspect.Parameter(p, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=py_type)
+                )
+
         annotations["return"] = str
         handler.__annotations__ = annotations
+        handler.__signature__ = inspect.Signature(sig_params, return_annotation=str)
         return handler
 
-    fn = make_handler(tool_name, param_names, properties)
+    fn = make_handler(tool_name, param_names)
     mcp.tool()(fn)
 
 

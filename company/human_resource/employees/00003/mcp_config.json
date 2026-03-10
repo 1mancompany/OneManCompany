@@ -8,9 +8,9 @@
       ],
       "env": {
         "OMC_EMPLOYEE_ID": "00003",
-        "OMC_TASK_ID": "38959434e192",
-        "OMC_PROJECT_ID": "iter_001",
-        "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_001",
+        "OMC_TASK_ID": "",
+        "OMC_PROJECT_ID": "1-1",
+        "OMC_PROJECT_DIR": "",
         "OMC_SERVER_URL": "http://localhost:8000"
       }
     },

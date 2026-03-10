@@ -116,7 +116,10 @@ class TaskTreeRenderer {
             .attr('x', -this.nodeWidth / 2 + 14)
             .attr('y', -this.nodeHeight / 2 + 20)
             .attr('class', 'tree-node-name')
-            .text(d => d.data.employee_id);
+            .text(d => {
+                const info = d.data.employee_info || {};
+                return info.nickname || info.name || d.data.employee_id;
+            });
 
         nodeGroups.append('text')
             .attr('x', -this.nodeWidth / 2 + 14)
@@ -166,11 +169,18 @@ class TaskTreeRenderer {
                </div>`
             : '';
 
+        const info = node.employee_info || {};
+        const displayName = info.nickname || info.name || node.employee_id;
+        const avatarHtml = info.avatar_url
+            ? `<img src="${this._escapeHtml(info.avatar_url)}" class="tree-detail-avatar" />`
+            : `<div class="tree-detail-avatar">${this._escapeHtml((node.employee_id || '').slice(-2))}</div>`;
+
         return `
             <div class="tree-detail-header">
-                <div class="tree-detail-avatar" data-employee-id="${this._escapeHtml(node.employee_id)}"></div>
+                ${avatarHtml}
                 <div>
-                    <h3>${this._escapeHtml(node.employee_id)}</h3>
+                    <h3>${this._escapeHtml(displayName)}</h3>
+                    <div class="tree-detail-role">${this._escapeHtml(info.role || '')} · ${this._escapeHtml(node.employee_id)}</div>
                     <span class="tree-detail-status" style="color:${TaskTreeRenderer.STATUS_COLORS[node.status] || '#666'}">${this._escapeHtml(node.status)}</span>
                 </div>
             </div>
