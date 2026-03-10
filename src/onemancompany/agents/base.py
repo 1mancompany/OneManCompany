@@ -173,14 +173,59 @@ def get_employee_talent_persona(employee_id: str) -> str:
     return f"\n{content}" if content else ""
 
 
-def get_employee_skills_prompt(employee_id: str) -> str:
-    """Build a skills prompt section from employees/{id}/skills/*.md files."""
+def _parse_skill_frontmatter(raw: str) -> tuple[dict, str]:
+    """Parse YAML frontmatter from SKILL.md content.
+
+    Returns (metadata_dict, body_without_frontmatter).
+    """
+    if not raw.startswith("---"):
+        return {}, raw
+    end = raw.find("---", 3)
+    if end == -1:
+        return {}, raw
+    import yaml
+    try:
+        meta = yaml.safe_load(raw[3:end]) or {}
+    except Exception:
+        meta = {}
+    body = raw[end + 3:].lstrip("\n")
+    return meta, body
+
+
+def get_employee_skills_index(employee_id: str) -> dict[str, dict]:
+    """Build a skill name→{name, description} index for an employee.
+
+    Returns dict like {"ontology": {"name": "ontology", "description": "..."}}.
+    """
     skills = load_employee_skills(employee_id)
-    if not skills:
+    index: dict[str, dict] = {}
+    for folder_name, raw_content in skills.items():
+        meta, _ = _parse_skill_frontmatter(raw_content)
+        index[folder_name] = {
+            "name": meta.get("name", folder_name),
+            "description": meta.get("description", ""),
+        }
+    return index
+
+
+def get_employee_skills_prompt(employee_id: str) -> str:
+    """Build a skill catalog for the system prompt (name + description only).
+
+    Full skill content is loaded on-demand via the load_skill tool.
+    """
+    index = get_employee_skills_index(employee_id)
+    if not index:
         return ""
-    parts = ["\n\n## Your Skills & Knowledge:"]
-    for name, content in skills.items():
-        parts.append(f"\n### {name}\n{content}")
+    parts = [
+        "\n\n## Available Skills",
+        "You have the following skills installed. Use the `load_skill` tool to load a skill's "
+        "full instructions before applying it. **Always load a skill before using it.**\n",
+    ]
+    for folder_name, info in index.items():
+        line = f"- **{info['name']}**"
+        if info["description"]:
+            line += f": {info['description']}"
+        parts.append(line)
     return "\n".join(parts)
 
 

@@ -338,14 +338,16 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
 
 
 def load_employee_skills(employee_id: str) -> dict[str, str]:
-    """Load all skill files from employees/{id}/skills/ as {name: content} dict."""
+    """Load skills from employees/{id}/skills/<name>/SKILL.md as {name: content} dict."""
     skills_dir = EMPLOYEES_DIR / employee_id / "skills"
     if not skills_dir.exists():
         return {}
     result: dict[str, str] = {}
-    for skill_file in sorted(skills_dir.iterdir()):
-        if skill_file.suffix == ".md" and skill_file.is_file():
-            result[skill_file.stem] = skill_file.read_text(encoding="utf-8")
+    for entry in sorted(skills_dir.iterdir()):
+        if entry.is_dir():
+            skill_md = entry / "SKILL.md"
+            if skill_md.is_file():
+                result[entry.name] = skill_md.read_text(encoding="utf-8")
     return result
 
 

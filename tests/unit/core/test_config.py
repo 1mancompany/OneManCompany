@@ -132,16 +132,19 @@ class TestLoadEmployeeSkills:
         result = config_mod.load_employee_skills("00010")
         assert result == {}
 
-    def test_loads_md_files_only(self, tmp_path, monkeypatch):
+    def test_loads_folder_skills_only(self, tmp_path, monkeypatch):
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
         skills_dir = tmp_path / "00010" / "skills"
         skills_dir.mkdir(parents=True)
-        (skills_dir / "python.md").write_text("# Python\nExpert level")
-        (skills_dir / "notes.txt").write_text("should be ignored")
-        # Create a subdirectory that should be ignored
-        (skills_dir / "subdir").mkdir()
+        # Folder-based skill with SKILL.md
+        (skills_dir / "python").mkdir()
+        (skills_dir / "python" / "SKILL.md").write_text("# Python\nExpert level")
+        # Plain .md file — should be ignored
+        (skills_dir / "stale.md").write_text("should be ignored")
+        # Subdirectory without SKILL.md — should be ignored
+        (skills_dir / "empty_dir").mkdir()
 
         result = config_mod.load_employee_skills("00010")
         assert len(result) == 1
