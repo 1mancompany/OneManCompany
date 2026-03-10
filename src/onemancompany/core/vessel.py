@@ -95,6 +95,12 @@ def archive_task(employee_id: str, task: "AgentTask") -> None:
     _archive(employee_id, task)
 
 
+def load_all_active_tasks() -> dict[str, list["AgentTask"]]:
+    """Lazy-import wrapper to avoid circular import with task_persistence."""
+    from onemancompany.core.task_persistence import load_all_active_tasks as _load
+    return _load()
+
+
 @dataclass
 class AgentTask:
     id: str
@@ -463,8 +469,6 @@ class EmployeeManager:
     Tasks are dispatched on-demand — no idle polling loops.
     """
 
-    TASK_QUEUE_PATH = Path(__file__).parent.parent.parent.parent / "company" / ".task_queue.json"
-
     def __init__(self) -> None:
         self.boards: dict[str, AgentTaskBoard] = {}
         self.executors: dict[str, Launcher] = {}
@@ -612,102 +616,27 @@ class EmployeeManager:
             return len(self._running_tasks) == 0 and not has_system
         return all(k == exclude for k in self._running_tasks) and not has_system
 
-    def save_task_queue(self) -> int:
-        """Persist all pending/in_progress tasks to disk for restart recovery.
-
-        Returns the number of tasks saved.
-        """
-        tasks_to_save: list[dict] = []
-        for emp_id, board in self.boards.items():
-            for task in board.tasks:
-                if task.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
-                    tasks_to_save.append({
-                        "employee_id": emp_id,
-                        "description": task.description,
-                        "project_id": task.project_id,
-                        "project_dir": task.project_dir,
-                        "created_at": task.created_at,
-                    })
-
-        # Also save active_tasks from company_state for frontend continuity
-        active_tasks_data = [
-            {
-                "project_id": t.project_id, "task": t.task,
-                "employee_id": t.current_owner, "status": t.status,
-                "result": t.result, "created_at": t.created_at,
-                "completed_at": t.completed_at, "routed_to": t.routed_to,
-            }
-            for t in company_state.active_tasks
-        ]
-
-        data = {
-            "saved_at": datetime.now().isoformat(),
-            "tasks": tasks_to_save,
-            "active_tasks": active_tasks_data,
-        }
-        try:
-            self.TASK_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            self.TASK_QUEUE_PATH.write_text(json.dumps(data, default=str), encoding="utf-8")
-            logger.info("Saved {} task(s) to task queue", len(tasks_to_save))
-        except Exception as e:
-            logger.error("Failed to save task queue: {}", e)
-        return len(tasks_to_save)
-
-    def restore_task_queue(self) -> int:
-        """Restore tasks from disk after restart. All tasks become pending.
+    def restore_persisted_tasks(self) -> int:
+        """Restore tasks from per-employee task files on disk.
 
         Returns the number of tasks restored.
         """
-        if not self.TASK_QUEUE_PATH.exists():
-            return 0
-        try:
-            raw = json.loads(self.TASK_QUEUE_PATH.read_text(encoding="utf-8"))
-            tasks = raw.get("tasks", [])
-            active_tasks_data = raw.get("active_tasks", [])
-
-            restored = 0
-            for t in tasks:
-                emp_id = t["employee_id"]
-                # Skip employees without registered executors — they can't run tasks
-                if emp_id not in self.executors:
-                    logger.warning("Skipping restored task for unregistered employee {}", emp_id)
-                    continue
-                board = self.boards.get(emp_id)
-                if not board:
-                    board = AgentTaskBoard()
-                    self.boards[emp_id] = board
-                task = board.push(
-                    t["description"],
-                    project_id=t.get("project_id", ""),
-                    project_dir=t.get("project_dir", ""),
-                )
+        all_tasks = load_all_active_tasks()
+        restored = 0
+        for emp_id, tasks in all_tasks.items():
+            if emp_id not in self.executors:
+                logger.warning("Skipping restored tasks for unregistered employee {}", emp_id)
+                continue
+            board = self.boards.get(emp_id)
+            if not board:
+                board = AgentTaskBoard()
+                self.boards[emp_id] = board
+            for task in tasks:
+                board.tasks.append(task)
                 restored += 1
-
-            # Restore active_tasks to company_state so frontend sees them
-            for at in active_tasks_data:
-                already = any(t.project_id == at["project_id"] for t in company_state.active_tasks)
-                if not already:
-                    company_state.active_tasks.append(
-                        TaskEntry(
-                            project_id=at["project_id"],
-                            task=at.get("task", ""),
-                            current_owner=at.get("employee_id", at.get("current_owner", "")),
-                            status=at.get("status", "pending"),
-                            result=at.get("result", ""),
-                            created_at=at.get("created_at", ""),
-                            completed_at=at.get("completed_at", ""),
-                            routed_to=at.get("routed_to", ""),
-                        )
-                    )
-
-            # Clean up the file after restore
-            self.TASK_QUEUE_PATH.unlink(missing_ok=True)
-            if restored:
-                logger.info("Restored {} task(s) from task queue", restored)
-            return restored
-        except Exception as e:
-            logger.error("Failed to restore task queue: {}", e)
-            return 0
+        if restored:
+            logger.info("Restored {} task(s) from disk", restored)
+        return restored
 
     def abort_project(self, project_id: str) -> int:
         """Cancel board tasks AND cancel the running asyncio.Task for a project.
@@ -1476,7 +1405,6 @@ class EmployeeManager:
         import sys
         from onemancompany.main import _save_ephemeral_state, _pending_code_changes
 
-        self.save_task_queue()
         _save_ephemeral_state()
         _pending_code_changes.clear()
 
