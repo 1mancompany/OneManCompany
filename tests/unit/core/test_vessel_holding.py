@@ -175,3 +175,78 @@ class TestResumeHeldTask:
         mgr = EmployeeManager()
         result = await mgr.resume_held_task("99999", "t1", "reply")
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# TestHoldingRestoration
+# ---------------------------------------------------------------------------
+
+class TestHoldingRestoration:
+    """Test that HOLDING tasks survive restart with cron re-setup."""
+
+    def test_restart_holding_pollers_starts_crons(self):
+        """_restart_holding_pollers should call _setup_reply_poller for HOLDING tasks."""
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="held1", description="Waiting")
+        task.status = TaskPhase.HOLDING
+        task.result = "__HOLDING:thread_id=abc123"
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+            count = mgr._restart_holding_pollers()
+        assert count == 1
+        mock_setup.assert_called_once_with("00010", "held1", "abc123", "1m")
+
+    def test_restart_holding_pollers_skips_non_holding(self):
+        """Should not start pollers for non-HOLDING tasks."""
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="t1", description="Normal")
+        task.status = TaskPhase.PENDING
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+            count = mgr._restart_holding_pollers()
+        assert count == 0
+        mock_setup.assert_not_called()
+
+    def test_restart_holding_pollers_uses_custom_interval(self):
+        """Should use interval from metadata if present."""
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="held2", description="Waiting")
+        task.status = TaskPhase.HOLDING
+        task.result = "__HOLDING:thread_id=xyz,interval=5m"
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+            count = mgr._restart_holding_pollers()
+        assert count == 1
+        mock_setup.assert_called_once_with("00010", "held2", "xyz", "5m")
+
+    def test_restart_skips_holding_without_thread_id(self):
+        """HOLDING tasks without thread_id should not get a poller."""
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="held3", description="Waiting")
+        task.status = TaskPhase.HOLDING
+        task.result = "__HOLDING:"
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+            count = mgr._restart_holding_pollers()
+        assert count == 0
+        mock_setup.assert_not_called()
