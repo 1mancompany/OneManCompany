@@ -1149,6 +1149,36 @@ def load_skill(skill_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Resume held task — transition HOLDING → COMPLETE from agent context
+# ---------------------------------------------------------------------------
+
+@tool
+def resume_held_task(task_id: str, result: str, employee_id: str = "") -> dict:
+    """Resume a task that is in HOLDING state with the provided result.
+
+    Use this when you have received a reply (e.g., from a human via email)
+    for a task that is currently waiting (HOLDING).
+
+    Args:
+        task_id: The ID of the held task to resume.
+        result: The result content to set on the task (e.g., email reply body).
+        employee_id: Your employee ID.
+    """
+    if not employee_id:
+        return {"status": "error", "message": "employee_id required"}
+
+    from onemancompany.core.agent_loop import get_agent_loop
+    loop = get_agent_loop(employee_id)
+    if not loop:
+        return {"status": "error", "message": f"No agent loop for {employee_id}"}
+
+    import asyncio
+    coro = loop.resume_held_task(employee_id, task_id, result)
+    asyncio.ensure_future(coro)
+    return {"status": "ok", "message": f"Resume scheduled for task {task_id}"}
+
+
+# ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
 
@@ -1164,6 +1194,7 @@ def _register_all_internal_tools() -> None:
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
         report_to_ceo, ask_ceo, request_tool_access, load_skill,
+        resume_held_task,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
