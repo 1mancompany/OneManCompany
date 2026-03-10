@@ -250,3 +250,96 @@ class TestHoldingRestoration:
             count = mgr._restart_holding_pollers()
         assert count == 0
         mock_setup.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TestHoldingIntegration
+# ---------------------------------------------------------------------------
+
+class TestHoldingIntegration:
+    """Full flow: result → HOLDING → resume → COMPLETE."""
+
+    @pytest.mark.asyncio
+    async def test_full_holding_flow(self):
+        """Test: __HOLDING: result → HOLDING status → resume → COMPLETE."""
+        from onemancompany.core.vessel import (
+            _parse_holding_metadata,
+            AgentTask,
+            AgentTaskBoard,
+            EmployeeManager,
+        )
+        from onemancompany.core.task_lifecycle import TaskPhase
+
+        # 1. Parse holding metadata
+        result = "__HOLDING:thread_id=gmail_thread_123,interval=2m"
+        meta = _parse_holding_metadata(result)
+        assert meta == {"thread_id": "gmail_thread_123", "interval": "2m"}
+
+        # 2. Simulate task entering HOLDING
+        task = AgentTask(id="flow1", description="Send task to human")
+        task.result = result
+        task.status = TaskPhase.HOLDING
+
+        # 3. Setup manager with the holding task
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        # 4. Verify poller setup (patch at source — local import in _setup_reply_poller)
+        with patch("onemancompany.core.automation.start_cron") as mock_start:
+            mock_start.return_value = {"status": "ok"}
+            mgr._setup_reply_poller("00010", "flow1", "gmail_thread_123", "2m")
+            mock_start.assert_called_once_with(
+                "00010", "reply_flow1", "2m",
+                "[reply_poll] Check Gmail thread gmail_thread_123 for task flow1",
+            )
+
+        # 5. Resume the held task
+        with patch("onemancompany.core.vessel.persist_task"):
+            with patch("onemancompany.core.vessel.archive_task"):
+                with patch("onemancompany.core.vessel.stop_cron") as mock_stop:
+                    ok = await mgr.resume_held_task("00010", "flow1", "Human replied: All tests pass!")
+                    mock_stop.assert_called_once_with("00010", "reply_flow1")
+
+        # 6. Verify final state
+        assert ok is True
+        assert task.status == TaskPhase.COMPLETE
+        assert task.result == "Human replied: All tests pass!"
+        assert task.completed_at != ""
+
+    @pytest.mark.asyncio
+    async def test_holding_restoration_flow(self):
+        """Test: HOLDING task survives restart and poller restarts."""
+        from onemancompany.core.vessel import (
+            _parse_holding_metadata,
+            AgentTask,
+            AgentTaskBoard,
+            EmployeeManager,
+        )
+        from onemancompany.core.task_lifecycle import TaskPhase
+
+        # Simulate a restored HOLDING task
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="restored1", description="Waiting for human")
+        task.status = TaskPhase.HOLDING
+        task.result = "__HOLDING:thread_id=thread_xyz,interval=3m"
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+
+        # _restart_holding_pollers should set up cron
+        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+            count = mgr._restart_holding_pollers()
+
+        assert count == 1
+        mock_setup.assert_called_once_with("00010", "restored1", "thread_xyz", "3m")
+
+        # Then resume
+        with patch("onemancompany.core.vessel.persist_task"):
+            with patch("onemancompany.core.vessel.archive_task"):
+                with patch("onemancompany.core.vessel.stop_cron"):
+                    ok = await mgr.resume_held_task("00010", "restored1", "Reply from human after restart")
+
+        assert ok is True
+        assert task.status == TaskPhase.COMPLETE
