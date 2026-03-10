@@ -250,3 +250,56 @@ class TestLoadAllActiveTasks:
     def test_empty_when_no_employees(self, tmp_path):
         result = tp.load_all_active_tasks()
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Full lifecycle integration tests
+# ---------------------------------------------------------------------------
+
+class TestFullLifecycle:
+    """Integration: push task → persist → simulate restart → restore → verify."""
+
+    def test_push_persist_restore(self, tmp_path):
+        """Simulate: push task, persist, clear memory, load from disk."""
+        # 1. Create and persist a task
+        task = AgentTask(id="lifecycle1", description="Build feature X")
+        task.status = TaskPhase.PENDING
+        tp.persist_task("00010", task)
+
+        # 2. Simulate status change: PROCESSING
+        task.status = TaskPhase.PROCESSING
+        tp.persist_task("00010", task)
+
+        # Verify file has PROCESSING
+        data = yaml.safe_load((tmp_path / "00010" / "tasks" / "lifecycle1.yaml").read_text())
+        assert data["status"] == "processing"
+
+        # 3. Simulate crash: load from disk
+        loaded = tp.load_active_tasks("00010")
+        assert len(loaded) == 1
+        # PROCESSING should be reset to PENDING
+        assert loaded[0].status == TaskPhase.PENDING
+        assert loaded[0].description == "Build feature X"
+
+    def test_complete_and_archive(self, tmp_path):
+        """Simulate: task completes → archived → not in active load."""
+        task = AgentTask(id="lifecycle2", description="Send report")
+        task.status = TaskPhase.PENDING
+        tp.persist_task("00010", task)
+
+        # Complete the task
+        task.status = TaskPhase.COMPLETE
+        tp.persist_task("00010", task)
+
+        # Finish and archive
+        task.status = TaskPhase.FINISHED
+        tp.persist_task("00010", task)
+        tp.archive_task("00010", task)
+
+        # Active tasks should be empty
+        active = tp.load_active_tasks("00010")
+        assert len(active) == 0
+
+        # Archive should have the task
+        archive = tmp_path / "00010" / "tasks" / "archive" / "lifecycle2.yaml"
+        assert archive.exists()
