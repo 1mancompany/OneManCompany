@@ -258,19 +258,33 @@ class TestGetEmployeeToolsPrompt:
         result = base_mod.get_employee_tools_prompt("00010")
         assert result == ""
 
+    def _register_asset_tool(self, monkeypatch, cs, name, description,
+                             allowed_users=None):
+        """Helper to register an asset tool in both tool_registry and company_state."""
+        from onemancompany.core import tool_registry as tr_mod
+        from onemancompany.core.tool_registry import ToolMeta
+        tool_registry = tr_mod.tool_registry
+        from langchain_core.tools import tool as lc_tool
+
+        @lc_tool
+        def _dummy(**kwargs) -> str:
+            """Dummy."""
+            return ""
+        _dummy.name = name
+        _dummy.description = description
+
+        meta = ToolMeta(name=name, category="asset", allowed_users=allowed_users, source="asset")
+        tool_registry.register(_dummy, meta)
+
     def test_includes_open_access_tools(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
-        cs.tools = {
-            "t1": OfficeTool(
-                id="t1", name="MyTool", description="A tool",
-                added_by="COO", allowed_users=[], folder_name="", files=[],
-            ),
-        }
+        cs.employees["00010"] = _make_emp("00010")
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
+        self._register_asset_tool(monkeypatch, cs, "MyTool", "A tool", allowed_users=None)
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "MyTool" in result
@@ -281,31 +295,25 @@ class TestGetEmployeeToolsPrompt:
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
-        cs.tools = {
-            "t1": OfficeTool(
-                id="t1", name="SecretTool", description="Restricted",
-                added_by="COO", allowed_users=["00099"], folder_name="", files=[],
-            ),
-        }
+        cs.employees["00010"] = _make_emp("00010")
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
+        self._register_asset_tool(monkeypatch, cs, "SecretTool", "Restricted",
+                                  allowed_users=["00099"])
 
         result = base_mod.get_employee_tools_prompt("00010")
-        assert result == ""
+        assert "SecretTool" not in result
 
     def test_includes_restricted_tools_for_authorized(self, monkeypatch):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
-        cs.tools = {
-            "t1": OfficeTool(
-                id="t1", name="SpecialTool", description="Only for 00010",
-                added_by="COO", allowed_users=["00010"], folder_name="", files=[],
-            ),
-        }
+        cs.employees["00010"] = _make_emp("00010")
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
+        self._register_asset_tool(monkeypatch, cs, "SpecialTool", "Only for 00010",
+                                  allowed_users=["00010"])
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "SpecialTool" in result
@@ -1136,25 +1144,45 @@ class TestRunStreamed:
 # ---------------------------------------------------------------------------
 
 class TestGetEmployeeToolsPromptWithFiles:
+    def _setup_asset_tool(self, monkeypatch, cs, name, description,
+                          folder_name, files=None, allowed_users=None):
+        from onemancompany.core import tool_registry as tr_mod
+        from onemancompany.core.tool_registry import ToolMeta
+        tool_registry = tr_mod.tool_registry
+        from onemancompany.core.state import OfficeTool
+        from langchain_core.tools import tool as lc_tool
+
+        @lc_tool
+        def _dummy(**kwargs) -> str:
+            """Dummy."""
+            return ""
+        _dummy.name = name
+        _dummy.description = description
+
+        meta = ToolMeta(name=name, category="asset", allowed_users=allowed_users, source="asset")
+        tool_registry.register(_dummy, meta)
+
+        cs.tools[name] = OfficeTool(
+            id=name, name=name, description=description,
+            added_by="COO", allowed_users=allowed_users,
+            folder_name=folder_name, files=files or [],
+        )
+
     def test_includes_file_contents(self, monkeypatch, tmp_path):
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod, config as config_mod
 
         cs = _make_cs()
+        cs.employees["00010"] = _make_emp("00010")
         tool_folder = tmp_path / "tools" / "my_tool"
         tool_folder.mkdir(parents=True)
         (tool_folder / "readme.md").write_text("Tool readme content")
 
-        cs.tools = {
-            "t1": OfficeTool(
-                id="t1", name="MyTool", description="A tool with files",
-                added_by="COO", allowed_users=[], folder_name="my_tool",
-                files=["readme.md"],
-            ),
-        }
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+        self._setup_asset_tool(monkeypatch, cs, "MyTool", "A tool with files",
+                               folder_name="my_tool", files=["readme.md"])
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "Tool readme content" in result
@@ -1164,20 +1192,16 @@ class TestGetEmployeeToolsPromptWithFiles:
         from onemancompany.core import state as state_mod, config as config_mod
 
         cs = _make_cs()
+        cs.employees["00010"] = _make_emp("00010")
         tool_folder = tmp_path / "tools" / "my_tool"
         tool_folder.mkdir(parents=True)
         (tool_folder / "data.bin").write_bytes(b"\x80\x81\x82\x83")
 
-        cs.tools = {
-            "t1": OfficeTool(
-                id="t1", name="BinTool", description="Tool with binary",
-                added_by="COO", allowed_users=[], folder_name="my_tool",
-                files=["data.bin"],
-            ),
-        }
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(config_mod, "TOOLS_DIR", tmp_path / "tools")
+        self._setup_asset_tool(monkeypatch, cs, "BinTool", "Tool with binary",
+                               folder_name="my_tool", files=["data.bin"])
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "[binary" in result

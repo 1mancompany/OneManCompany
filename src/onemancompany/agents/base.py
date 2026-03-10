@@ -251,42 +251,38 @@ def get_employee_skills_prompt(employee_id: str) -> str:
 def get_employee_tools_prompt(employee_id: str) -> str:
     """Build a prompt section listing all tools this employee is authorized to use.
 
-    Open-access tools (empty allowed_users) are available to everyone.
-    Restricted tools are only shown if employee_id is in allowed_users.
+    Single source of truth: reads from tool_registry, which already handles
+    permission filtering (base/gated/role/asset categories).
+    Asset tools with file contents are enriched from company_state.tools metadata.
     """
     from onemancompany.core.config import TOOLS_DIR
+    from onemancompany.core.tool_registry import tool_registry
 
-    authorized: list[dict] = []
-    for t in company_state.tools.values():
-        if t.allowed_users and employee_id not in t.allowed_users:
-            continue  # restricted and employee not authorized
-        entry: dict = {"name": t.name, "description": t.description, "folder": t.folder_name}
-        # Include file contents from tool folder
-        if t.folder_name and t.files:
-            file_contents: dict[str, str] = {}
-            tool_folder = TOOLS_DIR / t.folder_name
-            for fname in t.files:
-                fpath = tool_folder / fname
-                if fpath.is_file():
-                    try:
-                        file_contents[fname] = fpath.read_text(encoding="utf-8")
-                    except (UnicodeDecodeError, ValueError):
-                        file_contents[fname] = f"[binary, {fpath.stat().st_size} bytes]"
-            if file_contents:
-                entry["files"] = file_contents
-        authorized.append(entry)
-
-    if not authorized:
+    tools = tool_registry.get_tools_for(employee_id)
+    if not tools:
         return ""
 
-    parts = ["\n\n## Your Authorized Tools & Equipment:"]
-    for tool_info in authorized:
-        parts.append(f"\n### {tool_info['name']}")
-        parts.append(f"{tool_info['description']}")
-        if tool_info.get("files"):
-            parts.append("Files:")
-            for fname, content in tool_info["files"].items():
-                parts.append(f"  - {fname}:\n```\n{content}\n```")
+    parts = ["\n\n## Your Authorized Tools:"]
+    for t in tools:
+        meta = tool_registry.get_meta(t.name)
+        description = t.description or ""
+
+        parts.append(f"\n### {t.name}")
+        parts.append(description)
+
+        # For asset tools, include file contents from the tool folder
+        if meta and meta.source == "asset":
+            office_tool = company_state.tools.get(meta.name)
+            if office_tool and office_tool.folder_name and office_tool.files:
+                tool_folder = TOOLS_DIR / office_tool.folder_name
+                for fname in office_tool.files:
+                    fpath = tool_folder / fname
+                    if fpath.is_file():
+                        try:
+                            content = fpath.read_text(encoding="utf-8")
+                        except (UnicodeDecodeError, ValueError):
+                            content = f"[binary, {fpath.stat().st_size} bytes]"
+                        parts.append(f"  - {fname}:\n```\n{content}\n```")
 
     parts.append("\n### Tool Usage Rules — Internal vs External")
     parts.append(

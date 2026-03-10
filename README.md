@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-10 | `20fc244` | Update: base, iter_001, task_persistence, task_tree, test_base |
 | 2026-03-10 | `6a46b93` | Update: base |
 | 2026-03-10 | `161a913` | Update: iter_001, manifest, project, README, task_tree |
 | 2026-03-10 | `db72525` | Update: appendix, base, config, correction-template, launch |
