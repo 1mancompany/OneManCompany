@@ -139,6 +139,7 @@ def load_active_tasks(employee_id: str) -> list[AgentTask]:
                 logger.warning("Skipping incomplete task file: {}", yaml_file)
                 continue
             task = _dict_to_task(data)
+            # HOLDING tasks stay HOLDING — their reply pollers will be restarted by vessel
             # Crash recovery: reset PROCESSING → PENDING
             if task.status == TaskPhase.PROCESSING:
                 task.status = TaskPhase.PENDING

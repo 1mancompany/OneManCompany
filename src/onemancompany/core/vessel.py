@@ -662,7 +662,23 @@ class EmployeeManager:
                 restored += 1
         if restored:
             logger.info("Restored {} task(s) from disk", restored)
+        self._restart_holding_pollers()
         return restored
+
+    def _restart_holding_pollers(self) -> int:
+        """Restart reply poller crons for all HOLDING tasks."""
+        count = 0
+        for emp_id, board in self.boards.items():
+            for task in board.tasks:
+                if task.status == TaskPhase.HOLDING:
+                    meta = _parse_holding_metadata(task.result or "")
+                    if meta and meta.get("thread_id"):
+                        interval = meta.get("interval", "1m")
+                        self._setup_reply_poller(emp_id, task.id, meta["thread_id"], interval)
+                        count += 1
+        if count:
+            logger.info("Restarted {} reply poller(s) for HOLDING tasks", count)
+        return count
 
     def abort_project(self, project_id: str) -> int:
         """Cancel board tasks AND cancel the running asyncio.Task for a project.
