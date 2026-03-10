@@ -11,6 +11,7 @@ added_by: CEO
 sprite: desk_equipment
 allowed_users:
 - "00004"  # EA — external communication only
+- "00008"  # Human Bridge — playtester needs email for external coordination
 type: langchain_module
 oauth:
   service_name: gmail

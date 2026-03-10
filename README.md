@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-10 | `e939889` | Update: 2026-03-10-talent-market-platform-design, app, appendix, base, check_gmail |
 | 2026-03-10 | `9160c5b` | Update: 2026-03-10-tui-onboard-design, main, onboard, pyproject |
 | 2026-03-10 | `67b671d` | Update: , 任务流转追踪与异常监控机制, 1420633d, 1df8f2de, 2026-03-10-task-tree-redesign |
 | 2026-03-10 | `0c735c3` | Update: 2026-03-10-tui-employee-detail, 20260310_135153_e38236, 20260310_142135_2ddf5d, 20260310_142943_5ff51d, app |

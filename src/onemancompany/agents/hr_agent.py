@@ -27,7 +27,7 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
-from onemancompany.agents.base import BaseAgentRunner, make_llm
+from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.agents.recruitment import (
     _last_search_results,
     _pending_project_ctx,
@@ -184,7 +184,7 @@ class HRAgent(BaseAgentRunner):
         )
 
         self._extract_and_record_usage(result)
-        final_message = result["messages"][-1].content
+        final_message = extract_final_content(result)
         await self._apply_results(final_message)
         # Check promotions after every review
         await self._check_promotions()

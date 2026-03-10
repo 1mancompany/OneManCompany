@@ -101,7 +101,7 @@ def get_active_tasks() -> list[TaskEntry]:
     from onemancompany.core.task_persistence import load_all_active_tasks
 
     result: list[TaskEntry] = []
-    all_tasks = load_all_active_tasks()
+    all_tasks = load_all_active_tasks(crash_recovery=False)
     for employee_id, tasks in all_tasks.items():
         for t in tasks:
             result.append(TaskEntry(

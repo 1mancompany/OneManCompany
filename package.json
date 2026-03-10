@@ -1,0 +1,17 @@
+{
+  "name": "onemancompany",
+  "version": "0.1.0",
+  "description": "One Man Company — AI-powered pixel art office simulator with LangChain agents",
+  "bin": {
+    "onemancompany": "./start.sh"
+  },
+  "scripts": {
+    "start": "./start.sh",
+    "init": "./start.sh init"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicepkg/onemancompany"
+  },
+  "license": "MIT"
+}

@@ -1328,9 +1328,10 @@ class AppController {
     // Load model dropdown / API key section based on provider
     this._loadModelOrApiKeySection(emp.id);
 
-    // Fetch and render agent task board + logs
+    // Fetch and render agent task board + logs + crons
     this._fetchTaskBoard(emp.id);
     this._fetchExecutionLogs(emp.id);
+    this._fetchCronList(emp.id);
 
     // Start auto-refresh for task board while modal is open
     this._startTaskBoardPolling(emp.id);
@@ -1499,6 +1500,7 @@ class AppController {
       if (this.viewingEmployeeId === empId) {
         this._fetchTaskBoard(empId);
         this._fetchExecutionLogs(empId);
+        this._fetchCronList(empId);
       }
     }, 3000);
   }
@@ -1507,6 +1509,77 @@ class AppController {
     if (this._taskBoardPollTimer) {
       clearInterval(this._taskBoardPollTimer);
       this._taskBoardPollTimer = null;
+    }
+  }
+
+  // ===== Cron Management =====
+
+  async _fetchCronList(empId) {
+    try {
+      const resp = await fetch(`/api/automations/${empId}`);
+      const data = await resp.json();
+      const crons = data.crons || [];
+      const section = document.getElementById('emp-detail-cron-section');
+      const container = document.getElementById('emp-detail-crons');
+      if (!section || !container) return;
+
+      if (crons.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = '';
+      container.innerHTML = '';
+      for (const cron of crons) {
+        const item = document.createElement('div');
+        item.className = 'emp-cron-item';
+
+        const statusDot = cron.running
+          ? '<span class="cron-status-dot running"></span>'
+          : '<span class="cron-status-dot stopped"></span>';
+
+        const info = document.createElement('div');
+        info.className = 'emp-cron-info';
+        info.innerHTML = `
+          ${statusDot}
+          <span class="cron-name">${this._escapeHtml(cron.name)}</span>
+          <span class="cron-interval">${this._escapeHtml(cron.interval)}</span>
+        `;
+
+        const desc = document.createElement('div');
+        desc.className = 'emp-cron-desc';
+        desc.textContent = cron.task_description || '';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'emp-cron-cancel-btn';
+        cancelBtn.textContent = 'STOP';
+        cancelBtn.onclick = () => this._cancelCron(empId, cron.name);
+
+        item.appendChild(info);
+        item.appendChild(desc);
+        item.appendChild(cancelBtn);
+        container.appendChild(item);
+      }
+    } catch (err) {
+      console.error('Failed to fetch cron list:', err);
+    }
+  }
+
+  async _cancelCron(empId, cronName) {
+    if (!confirm(`Stop scheduled job "${cronName}"?`)) return;
+    try {
+      const resp = await fetch(`/api/automations/${empId}/cron/${encodeURIComponent(cronName)}/stop`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this._fetchCronList(empId);
+      } else {
+        alert(data.detail || data.message || 'Failed to stop cron');
+      }
+    } catch (err) {
+      console.error('Failed to cancel cron:', err);
+      alert('Failed to stop cron job');
     }
   }
 

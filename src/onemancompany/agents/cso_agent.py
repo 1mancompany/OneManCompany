@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
-from onemancompany.agents.base import BaseAgentRunner, make_llm
+from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, CSO_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 from onemancompany.core.state import company_state
 
@@ -238,7 +238,7 @@ class CSOAgent(BaseAgentRunner):
         )
 
         self._extract_and_record_usage(result)
-        final = result["messages"][-1].content
+        final = extract_final_content(result)
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": "CSO", "summary": final[:MAX_SUMMARY_LEN]})
         return final

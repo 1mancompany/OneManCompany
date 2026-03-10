@@ -95,10 +95,10 @@ def archive_task(employee_id: str, task: "AgentTask") -> None:
     _archive(employee_id, task)
 
 
-def load_all_active_tasks() -> dict[str, list["AgentTask"]]:
+def load_all_active_tasks(*, crash_recovery: bool = True) -> dict[str, list["AgentTask"]]:
     """Lazy-import wrapper to avoid circular import with task_persistence."""
     from onemancompany.core.task_persistence import load_all_active_tasks as _load
-    return _load()
+    return _load(crash_recovery=crash_recovery)
 
 
 def stop_cron(employee_id: str, cron_name: str) -> dict:
