@@ -107,3 +107,71 @@ class TestSetupReplyPoller:
         with patch("onemancompany.core.vessel.logger") as mock_logger:
             mgr._setup_reply_poller("00100", "task-003", "thread-fail")
             mock_logger.error.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# TestResumeHeldTask
+# ---------------------------------------------------------------------------
+
+class TestResumeHeldTask:
+    """Test resume_held_task transitions HOLDING → COMPLETE."""
+
+    @pytest.fixture
+    def manager_with_holding_task(self):
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="held1", description="Waiting for human reply")
+        task.status = TaskPhase.HOLDING
+        task.result = "__HOLDING:thread_id=abc"
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+        return mgr, task
+
+    @pytest.mark.asyncio
+    async def test_resume_sets_complete(self, manager_with_holding_task):
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr, task = manager_with_holding_task
+        with patch("onemancompany.core.vessel.persist_task"):
+            with patch("onemancompany.core.vessel.archive_task"):
+                with patch("onemancompany.core.vessel.stop_cron"):
+                    result = await mgr.resume_held_task("00010", "held1", "Human said: looks good!")
+        assert result is True
+        assert task.status == TaskPhase.COMPLETE
+        assert task.result == "Human said: looks good!"
+
+    @pytest.mark.asyncio
+    async def test_resume_nonexistent_task(self, manager_with_holding_task):
+        mgr, _ = manager_with_holding_task
+        result = await mgr.resume_held_task("00010", "nonexistent", "reply")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_resume_non_holding_task(self):
+        from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
+        from onemancompany.core.task_lifecycle import TaskPhase
+        mgr = EmployeeManager()
+        board = AgentTaskBoard()
+        task = AgentTask(id="t1", description="Normal task")
+        task.status = TaskPhase.PROCESSING
+        board.tasks.append(task)
+        mgr.boards["00010"] = board
+        result = await mgr.resume_held_task("00010", "t1", "reply")
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_resume_stops_poller_cron(self, manager_with_holding_task):
+        mgr, task = manager_with_holding_task
+        with patch("onemancompany.core.vessel.persist_task"):
+            with patch("onemancompany.core.vessel.archive_task"):
+                with patch("onemancompany.core.vessel.stop_cron") as mock_stop:
+                    await mgr.resume_held_task("00010", "held1", "reply")
+                    mock_stop.assert_called_once_with("00010", "reply_held1")
+
+    @pytest.mark.asyncio
+    async def test_resume_unknown_employee(self):
+        from onemancompany.core.vessel import EmployeeManager
+        mgr = EmployeeManager()
+        result = await mgr.resume_held_task("99999", "t1", "reply")
+        assert result is False

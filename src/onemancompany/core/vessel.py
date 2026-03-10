@@ -101,6 +101,12 @@ def load_all_active_tasks() -> dict[str, list["AgentTask"]]:
     return _load()
 
 
+def stop_cron(employee_id: str, cron_name: str) -> dict:
+    """Lazy-import wrapper."""
+    from onemancompany.core.automation import stop_cron as _stop
+    return _stop(employee_id, cron_name)
+
+
 def _parse_holding_metadata(result: str | None) -> dict | None:
     """Parse __HOLDING:key=value,... prefix from agent result.
 
@@ -990,6 +996,58 @@ class EmployeeManager:
         result = _start_cron(employee_id, cron_name, interval, task_desc)
         if result.get("status") != "ok":
             logger.error("Failed to start reply poller for {}: {}", task_id, result)
+
+    async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
+        """Resume a HOLDING task with the provided result.
+
+        Transitions HOLDING → COMPLETE, stops the reply poller cron,
+        persists the task, archives it, and triggers task tree callbacks.
+
+        Returns True if task was found and resumed, False otherwise.
+        """
+        board = self.boards.get(employee_id)
+        if not board:
+            return False
+
+        task: AgentTask | None = None
+        for t in board.tasks:
+            if t.id == task_id:
+                task = t
+                break
+        if not task or task.status != TaskPhase.HOLDING:
+            return False
+
+        # Stop reply poller cron
+        stop_cron(employee_id, f"reply_{task_id}")
+
+        # Transition to COMPLETE
+        task.result = result
+        task.status = TaskPhase.COMPLETE
+        task.completed_at = datetime.now().isoformat()
+        persist_task(employee_id, task)
+
+        self._log(employee_id, task, "resumed", f"HOLDING → COMPLETE with result: {result[:200]}")
+        self._publish_task_update(employee_id, task)
+
+        # Record to history + progress log
+        self._append_history(employee_id, task)
+        summary = (task.result or "")[:200]
+        _append_progress(employee_id, f"Completed (resumed): {task.description[:100]} → {summary}")
+
+        # Task tree callback
+        if task.project_dir:
+            try:
+                await self._on_child_complete(employee_id, task, project_id=task.project_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error("Task tree callback failed for {}: {}", employee_id, e)
+
+        # Archive
+        if task.status in TERMINAL_STATES:
+            archive_task(employee_id, task)
+
+        return True
 
     # ------------------------------------------------------------------
     # Task history management
