@@ -8,9 +8,9 @@ description: >
   and webhook/cron-based task automation.
 role: Engineer
 remote: false
-hosting: self
-auth_method: none
-api_provider: openclaw
+hosting: company
+auth_method: api_key
+api_provider: openrouter
 llm_model: ''
 temperature: 0.7
 hiring_fee: 0.00

@@ -3,7 +3,7 @@
   "name": "OpenClaw Gateway Agent",
   "version": "1.0.0",
   "role": "Engineer",
-  "hosting": "company",
+  "hosting": "self",
   "settings": {
     "sections": [
       {

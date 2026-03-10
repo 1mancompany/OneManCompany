@@ -1,0 +1,43 @@
+acceptance_criteria: []
+acceptance_result: null
+completed_at: '2026-03-10T15:16:16.156518'
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-10T15:15:53.992689'
+current_owner: '00004'
+dispatches: []
+ea_review_result: null
+output: 'CEO下发了新任务，请分析并分派给合适的负责人:
+
+
+  任务: Hire an onsite openclaw agent
+
+
+  [Project ID: 20260310_151553_fb89cc] [Project workspace: /Users/nickhe/Programming/OneManCompany/company/business/projects/20260310_151553_fb89cc]'
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00006'
+- '00007'
+- '00015'
+project_dir: /Users/nickhe/Programming/OneManCompany/company/business/projects/20260310_151553_fb89cc
+project_id: 20260310_151553_fb89cc
+responsible_officer: ''
+routed_to: pending
+status: completed
+task: Hire an onsite openclaw agent
+task_type: simple
+timeline:
+- action: EA task completed
+  detail: 'Error: Error code: 402 - {''error'': {''message'': ''Insufficient credits.
+    Add more using https://openrouter.ai/settings/credits'', ''code'': 402}}'
+  employee_id: '00004'
+  time: '2026-03-10T15:16:16.312463'

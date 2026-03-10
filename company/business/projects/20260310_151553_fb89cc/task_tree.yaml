@@ -1,0 +1,22 @@
+project_id: 20260310_151553_fb89cc
+root_id: f4157fc162a0
+nodes:
+- id: f4157fc162a0
+  parent_id: ''
+  children_ids: []
+  employee_id: '00004'
+  description: Hire an onsite openclaw agent
+  acceptance_criteria: []
+  status: completed
+  result: 'Error: Error code: 402 - {''error'': {''message'': ''Insufficient credits.
+    Add more using https://openrouter.ai/settings/credits'', ''code'': 402}}'
+  acceptance_result: null
+  project_id: 20260310_151553_fb89cc
+  created_at: '2026-03-10T15:15:53.997556'
+  completed_at: '2026-03-10T15:16:16.151727'
+  cost_usd: 0.0
+  input_tokens: 0
+  output_tokens: 0
+  timeout_seconds: 3600
+task_id_map:
+  d4bda27e8ba9: f4157fc162a0
