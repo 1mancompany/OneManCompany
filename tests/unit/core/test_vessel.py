@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,6 +28,7 @@ from onemancompany.core.vessel import (
     register_agent,
     register_self_hosted,
 )
+from onemancompany.core.task_lifecycle import TaskPhase
 from onemancompany.core.vessel_config import VesselConfig, LimitsConfig
 
 
@@ -220,3 +221,114 @@ class TestVesselRef:
         mock_state.employees = {}
         ref = _VesselRef("99999")
         assert ref.role == "Employee"
+
+
+# ---------------------------------------------------------------------------
+# Task persistence integration
+# ---------------------------------------------------------------------------
+
+class TestTaskPersistenceIntegration:
+    """Verify EmployeeManager calls persist_task/archive_task at status changes."""
+
+    def _make_manager(self):
+        em = EmployeeManager()
+        mock_launcher = MagicMock(spec=Launcher)
+        em.register("00010", mock_launcher)
+        return em
+
+    @patch("onemancompany.core.vessel.persist_task")
+    def test_push_task_persists(self, mock_persist):
+        em = self._make_manager()
+        task = em.push_task("00010", "test task")
+        mock_persist.assert_called_once_with("00010", task)
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.archive_task")
+    async def test_execute_task_persists_processing_and_complete(self, mock_archive):
+        em = self._make_manager()
+        mock_launcher = em.executors["00010"]
+        mock_launcher.execute = AsyncMock(return_value=LaunchResult(output="done"))
+
+        task = AgentTask(id="t1", description="test")
+        em.boards["00010"].tasks.append(task)
+
+        # Capture status at each persist_task call since task is mutable
+        captured_statuses = []
+        def _capture_persist(emp_id, t):
+            captured_statuses.append(t.status)
+
+        with patch("onemancompany.core.vessel.persist_task", side_effect=_capture_persist):
+            with patch("onemancompany.core.vessel.company_state") as mock_cs:
+                mock_cs.employees = {}
+                mock_cs.active_tasks = []
+                await em._execute_task("00010", task)
+
+        # persist_task should be called for PROCESSING and COMPLETE
+        assert TaskPhase.PROCESSING in captured_statuses
+        assert TaskPhase.COMPLETE in captured_statuses
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.archive_task")
+    @patch("onemancompany.core.vessel.persist_task")
+    async def test_execute_task_does_not_archive_on_complete(self, mock_persist, mock_archive):
+        em = self._make_manager()
+        mock_launcher = em.executors["00010"]
+        mock_launcher.execute = AsyncMock(return_value=LaunchResult(output="done"))
+
+        task = AgentTask(id="t2", description="test archive")
+        em.boards["00010"].tasks.append(task)
+
+        with patch("onemancompany.core.vessel.company_state") as mock_cs:
+            mock_cs.employees = {}
+            mock_cs.active_tasks = []
+            await em._execute_task("00010", task)
+
+        # COMPLETE is not in TERMINAL_STATES, so archive should NOT be called
+        # (COMPLETE transitions to FINISHED via acceptance flow)
+        assert task.status == TaskPhase.COMPLETE
+        mock_archive.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.archive_task")
+    async def test_execute_task_persists_and_archives_on_failure(self, mock_archive):
+        em = self._make_manager()
+        mock_launcher = em.executors["00010"]
+        mock_launcher.execute = AsyncMock(side_effect=RuntimeError("boom"))
+
+        task = AgentTask(id="t3", description="test fail")
+        em.boards["00010"].tasks.append(task)
+
+        # Capture status at each persist_task call since task is mutable
+        captured_statuses = []
+        def _capture_persist(emp_id, t):
+            captured_statuses.append(t.status)
+
+        with patch("onemancompany.core.vessel.persist_task", side_effect=_capture_persist):
+            with patch("onemancompany.core.vessel.company_state") as mock_cs:
+                mock_cs.employees = {}
+                mock_cs.active_tasks = []
+                await em._execute_task("00010", task)
+
+        assert task.status == TaskPhase.FAILED
+        # persist_task called for PROCESSING and FAILED
+        assert TaskPhase.PROCESSING in captured_statuses
+        assert TaskPhase.FAILED in captured_statuses
+        # archive_task called for FAILED (terminal state)
+        mock_archive.assert_called_once_with("00010", task)
+
+    @patch("onemancompany.core.vessel.archive_task")
+    @patch("onemancompany.core.vessel.persist_task")
+    def test_abort_project_persists_and_archives(self, mock_persist, mock_archive):
+        em = self._make_manager()
+        board = em.boards["00010"]
+        task = board.push("project task", project_id="proj_1")
+
+        # Reset mocks after push (which also calls persist_task)
+        mock_persist.reset_mock()
+        mock_archive.reset_mock()
+
+        em.abort_project("proj_1")
+
+        assert task.status == TaskPhase.CANCELLED
+        mock_persist.assert_called_once_with("00010", task)
+        mock_archive.assert_called_once_with("00010", task)

@@ -80,8 +80,19 @@ def _node_id_for_task(tree, task_id: str) -> str | None:
 # Data models
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import TERMINAL_STATES, TaskPhase
 
+
+def persist_task(employee_id: str, task: "AgentTask") -> None:
+    """Lazy-import wrapper to avoid circular import with task_persistence."""
+    from onemancompany.core.task_persistence import persist_task as _persist
+    _persist(employee_id, task)
+
+
+def archive_task(employee_id: str, task: "AgentTask") -> None:
+    """Lazy-import wrapper to avoid circular import with task_persistence."""
+    from onemancompany.core.task_persistence import archive_task as _archive
+    _archive(employee_id, task)
 
 
 @dataclass
@@ -524,6 +535,7 @@ class EmployeeManager:
             board = AgentTaskBoard()
             self.boards[employee_id] = board
         task = board.push(description, project_id=project_id, project_dir=project_dir)
+        persist_task(employee_id, task)
         self._publish_task_update(employee_id, task)
         self._schedule_next(employee_id)
         return task
@@ -710,6 +722,8 @@ class EmployeeManager:
                 if vessel:
                     self._log(emp_id, t, "cancelled", "Task aborted by CEO")
                     self._publish_task_update(emp_id, t)
+                persist_task(emp_id, t)
+                archive_task(emp_id, t)
             total_cancelled += len(cancelled)
 
             # Cancel the running asyncio.Task if it's working on this project
@@ -753,6 +767,7 @@ class EmployeeManager:
 
         # 1. Mark in_progress
         task.status = TaskPhase.PROCESSING
+        persist_task(employee_id, task)
         self._set_employee_status(employee_id, STATUS_WORKING)
         self._log(employee_id, task, "start", f"Starting task: {task.description}")
         self._publish_task_update(employee_id, task)
@@ -897,6 +912,7 @@ class EmployeeManager:
             task.result = task.result or "Cancelled by CEO"
             if not task.completed_at:
                 task.completed_at = datetime.now().isoformat()
+            persist_task(employee_id, task)
             self._log(employee_id, task, "cancelled", "Task cancelled (asyncio abort)")
         except TimeoutError as te:
             agent_error = True
@@ -904,6 +920,7 @@ class EmployeeManager:
             task.result = str(te)
             if not task.completed_at:
                 task.completed_at = datetime.now().isoformat()
+            persist_task(employee_id, task)
             self._log(employee_id, task, "timeout", f"Task timed out: {te!s}")
             await event_bus.publish(
                 CompanyEvent(
@@ -916,6 +933,7 @@ class EmployeeManager:
             agent_error = True
             task.status = TaskPhase.FAILED
             task.result = f"Error: {e!s}"
+            persist_task(employee_id, task)
             self._log(employee_id, task, "error", f"Task failed after {max_retries} attempts: {e!s}")
             traceback.print_exc()
             await event_bus.publish(
@@ -934,6 +952,7 @@ class EmployeeManager:
         # 8. Mark completed
         if task.status not in (TaskPhase.FAILED, TaskPhase.CANCELLED):
             task.status = TaskPhase.COMPLETE
+            persist_task(employee_id, task)
         if not task.completed_at:
             task.completed_at = datetime.now().isoformat()
         self._log(employee_id, task, "end", f"Task {task.status}")
@@ -988,6 +1007,10 @@ class EmployeeManager:
                 await event_bus.publish(
                     CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
                 )
+
+        # 11. Archive task at terminal state
+        if task.status in TERMINAL_STATES:
+            archive_task(employee_id, task)
 
     # ------------------------------------------------------------------
     # Task history management
