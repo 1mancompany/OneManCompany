@@ -23,6 +23,7 @@ dependencies = [
     "opensandbox>=0.1",
     "opensandbox-code-interpreter>=0.1",
     "loguru>=0.7",
+    "rich>=13.0",
 ]
 
 [build-system]
@@ -34,6 +35,7 @@ packages = ["src/onemancompany"]
 
 [project.scripts]
 onemancompany = "onemancompany.main:run"
+onemancompany-init = "onemancompany.onboard:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

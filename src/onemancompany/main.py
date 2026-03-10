@@ -350,40 +350,23 @@ async def _start_code_watcher() -> None:
 # ---------------------------------------------------------------------------
 
 def _bootstrap_data_dir() -> None:
-    """Ensure .onemancompany/ exists with required directory structure.
+    """Check that .onemancompany/ exists; abort with hint if not.
 
-    On first run, copies the template company/ directory from the source tree
-    into cwd/.onemancompany/company/.  Also copies .env and config.yaml if
-    they exist in the source root but not yet in the data root.
+    Users should run ``onemancompany-init`` to set up the workspace
+    interactively before starting the server.
     """
-    import shutil
-    from onemancompany.core.config import DATA_ROOT, SOURCE_ROOT
+    from onemancompany.core.config import DATA_ROOT
 
     if DATA_ROOT.exists():
         return  # already initialised
 
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-
-    # Seed company data from source tree template
-    src_company = SOURCE_ROOT / "company"
-    dst_company = DATA_ROOT / "company"
-    if src_company.exists() and not dst_company.exists():
-        shutil.copytree(str(src_company), str(dst_company), symlinks=True)
-        print(f"[bootstrap] Seeded {dst_company} from {src_company}")
-
-    # Copy .env if only in source root
-    src_env = SOURCE_ROOT / ".env"
-    dst_env = DATA_ROOT / ".env"
-    if src_env.exists() and not dst_env.exists():
-        shutil.copy2(str(src_env), str(dst_env))
-        print(f"[bootstrap] Copied .env to {dst_env}")
-
-    # Copy config.yaml if only in source root
-    src_cfg = SOURCE_ROOT / "config.yaml"
-    dst_cfg = DATA_ROOT / "config.yaml"
-    if src_cfg.exists() and not dst_cfg.exists():
-        shutil.copy2(str(src_cfg), str(dst_cfg))
-        print(f"[bootstrap] Copied config.yaml to {dst_cfg}")
+    print(
+        "\n  \033[1;33m⚠  .onemancompany/ not found.\033[0m\n\n"
+        "  Run the setup wizard first:\n\n"
+        "    \033[1;36monemancompany-init\033[0m\n\n"
+        "  Or:  python -m onemancompany.onboard\n"
+    )
+    raise SystemExit(1)
 
 
 # ---------------------------------------------------------------------------
