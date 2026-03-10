@@ -2576,6 +2576,13 @@ body {
 }
 #api-settings-content {
   padding: 4px;
+  text-align: left;
+}
+.api-provider-card,
+.api-card-body,
+.api-field-label,
+.api-key-input {
+  text-align: left;
 }
 
 /* ===== Company Culture ===== */
@@ -3757,15 +3764,64 @@ body {
     height: 100%;
 }
 
+/* Base link style */
 .tree-link {
     fill: none;
-    stroke: var(--pixel-green-dim, #1a3a2a);
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+/* Status-specific link colors */
+.tree-link-processing {
+    stroke: #4a9eff;
+    stroke-width: 2.5;
+    stroke-dasharray: 8 4;
+    animation: tree-flow 0.8s linear infinite;
+}
+
+.tree-link-holding {
+    stroke: #ff8800;
+    stroke-width: 2;
+    stroke-dasharray: 6 6;
+    animation: tree-flow 1.5s linear infinite;
+}
+
+.tree-link-pending {
+    stroke: #444;
+    stroke-dasharray: 3 5;
+}
+
+.tree-link-completed {
+    stroke: #ffaa00;
     stroke-width: 2;
 }
 
+.tree-link-accepted {
+    stroke: #00ff88;
+    stroke-width: 2;
+}
+
+.tree-link-failed {
+    stroke: #ff4444;
+    stroke-dasharray: 4 4;
+}
+
+.tree-link-cancelled {
+    stroke: #555;
+    stroke-dasharray: 2 4;
+    opacity: 0.5;
+}
+
+/* Flowing animation for active connections */
+@keyframes tree-flow {
+    to {
+        stroke-dashoffset: -12;
+    }
+}
+
 .tree-node-card {
-    fill: #1a1a2e;
-    stroke: #333;
+    fill: #12121e;
+    stroke: #2a2a3e;
     stroke-width: 1;
     transition: stroke 0.2s;
 }
@@ -3776,8 +3832,20 @@ body {
 }
 
 .tree-node:hover .tree-node-card {
-    stroke: var(--pixel-green, #00ff88);
-    stroke-opacity: 0.7;
+    stroke: var(--pixel-cyan, #00ddff);
+    stroke-opacity: 0.8;
+}
+
+.tree-avatar-fallback {
+    fill: #1e1e3a;
+    stroke: #444;
+    stroke-width: 1;
+}
+
+.tree-avatar-text {
+    fill: #888;
+    font-family: var(--font-pixel, monospace);
+    font-size: 10px;
 }
 
 .tree-node-name {
@@ -3787,15 +3855,22 @@ body {
     font-weight: bold;
 }
 
+.tree-node-role {
+    fill: #666;
+    font-family: var(--font-pixel, monospace);
+    font-size: 9px;
+}
+
 .tree-node-desc {
-    fill: #aaa;
+    fill: #999;
     font-family: var(--font-pixel, monospace);
     font-size: 10px;
 }
 
-.tree-node-status {
+.tree-node-pill-text {
     font-family: var(--font-pixel, monospace);
-    font-size: 10px;
+    font-size: 8px;
+    font-weight: bold;
     text-transform: uppercase;
 }
 

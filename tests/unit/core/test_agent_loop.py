@@ -1442,7 +1442,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_creates_task_entry(self, mock_append, mock_load, mock_bus, mock_state):
-        """When a task has project_id, a TaskEntry is appended to active_tasks."""
+        """When a task has project_id, execution completes the task."""
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
         emp.role = "Engineer"
@@ -1465,8 +1465,6 @@ class TestEmployeeManagerExecuteTaskWithProject:
                             await mgr._execute_task("emp01", task)
 
         assert task.status == "complete"
-        # TaskEntry should have been appended
-        assert len(mock_state.active_tasks) == 1
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")

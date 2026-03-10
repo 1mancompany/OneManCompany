@@ -66,13 +66,13 @@ ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     ("main", "CancelledError", 430, 450),
     ("websocket", "CancelledError", 45, 60),
     # int() on non-numeric employee IDs — intentional skip
-    ("state", "ValueError", 335, 345),
-    ("state", "ValueError", 557, 567),
+    ("state", "ValueError", 363, 370),
+    ("state", "ValueError", 585, 592),
     # OAuth token refresh/revocation — best-effort, failure is non-fatal
     ("oauth", "Exception", 310, 330),
     ("oauth", "Exception", 405, 425),
-    # ContextVar lookups in ask_ceo — not set when called outside agent loop
-    ("common_tools", "LookupError", 889, 910),
+    # ContextVar lookups in ask_ceo — not set when called outside agent loop (Tuple except)
+    ("common_tools", None, 805, 825),
 ]
 
 

@@ -8,11 +8,20 @@ from loguru import logger
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-COMPANY_DIR = PROJECT_ROOT / "company"
+# Source root — for package-relative resources (frontend, talent_market, etc.)
+SOURCE_ROOT = Path(__file__).parent.parent.parent.parent
+
+# Data root — all runtime/company data lives under cwd/.onemancompany/
+# This allows the package to be installed anywhere while data stays portable.
+DATA_ROOT = Path.cwd() / ".onemancompany"
+
+# Legacy alias — code that needs the repo root for src/ or frontend/
+PROJECT_ROOT = SOURCE_ROOT
+
+COMPANY_DIR = DATA_ROOT / "company"
 
 # ---------------------------------------------------------------------------
-# Directory paths (all company data lives under company/)
+# Directory paths (all company data lives under .onemancompany/company/)
 # ---------------------------------------------------------------------------
 HR_DIR = COMPANY_DIR / "human_resource"
 EMPLOYEES_DIR = HR_DIR / "employees"
@@ -33,7 +42,7 @@ SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
-# Talent market
+# Talent market — package resource, stays source-relative
 TALENT_MARKET_DIR = Path(__file__).parent.parent / "talent_market"
 TALENTS_DIR = TALENT_MARKET_DIR / "talents"
 
@@ -233,7 +242,11 @@ class EmployeeConfig(BaseModel):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=str(DATA_ROOT / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # OpenRouter API
     openrouter_api_key: str = ""
@@ -247,6 +260,9 @@ class Settings(BaseSettings):
     # Default model
     default_llm_model: str = "moonshotai/kimi-k2.5"
 
+    # FastSkills MCP
+    skillsmp_api_key: str = ""
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
@@ -258,7 +274,7 @@ settings = Settings()
 
 def update_env_var(key: str, value: str) -> None:
     """Update or add a variable in the .env file, then reload settings."""
-    env_path = PROJECT_ROOT / ".env"
+    env_path = DATA_ROOT / ".env"
     lines: list[str] = []
     found = False
     if env_path.exists():
@@ -284,7 +300,7 @@ def reload_settings() -> None:
 # ---------------------------------------------------------------------------
 # Application config (config.yaml at project root)
 # ---------------------------------------------------------------------------
-APP_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
+APP_CONFIG_PATH = DATA_ROOT / "config.yaml"
 
 # Cached in-memory copy — read once at import, refreshed by reload_app_config()
 _app_config: dict = {}
@@ -758,6 +774,25 @@ def invalidate_manifest_cache(employee_id: str | None = None) -> None:
         MANIFEST_CACHE.clear()
     else:
         MANIFEST_CACHE.pop(employee_id, None)
+
+
+def load_custom_settings(employee_id: str) -> dict:
+    """Load custom settings (target_email, polling_interval, etc.) from settings.json."""
+    path = EMPLOYEES_DIR / employee_id / "settings.json"
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_custom_settings(employee_id: str, updates: dict) -> dict:
+    """Merge updates into settings.json and return the full settings dict."""
+    path = EMPLOYEES_DIR / employee_id / "settings.json"
+    current = {}
+    if path.exists():
+        current = json.loads(path.read_text(encoding="utf-8"))
+    current.update(updates)
+    path.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+    return current
 
 
 # ---------------------------------------------------------------------------

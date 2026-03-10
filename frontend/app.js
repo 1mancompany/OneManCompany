@@ -260,10 +260,14 @@ class AppController {
       },
       'ceo_report': (p) => {
         const icon = p.action_required ? '🚨' : '📊';
+        if (p.action_required) {
+          this._showCeoReportDialog(p);
+        }
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'ask_ceo': (p) => {
-        this._showAskCeoDialog(p);
+        // Legacy — redirects to unified ceo_report dialog
+        this._showCeoReportDialog({...p, subject: p.question, report: p.context || p.question, action_required: true});
         return { text: `❓ ${p.employee_name || p.employee_id} 请求CEO反馈: ${p.question}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'code_update_available': (p) => {
@@ -1583,54 +1587,52 @@ class AppController {
     return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
   }
 
-  _showAskCeoDialog(data) {
+  _showCeoReportDialog(data) {
     const empName = data.employee_name || data.employee_id;
     const overlay = document.createElement('div');
     overlay.className = 'ask-ceo-overlay';
     overlay.innerHTML = `
       <div class="ask-ceo-dialog">
-        <div class="ask-ceo-header">${empName} 请求CEO反馈</div>
-        <div class="ask-ceo-question">${this._escHtml(data.question)}</div>
-        ${data.context ? `<div class="ask-ceo-context">${this._renderMarkdown(data.context)}</div>` : ''}
-        <textarea class="ask-ceo-input" placeholder="输入回复..." rows="3"></textarea>
+        <div class="ask-ceo-header">🚨 ${empName} 请求CEO审批: ${this._escHtml(data.subject)}</div>
+        <div class="ask-ceo-context">${this._renderMarkdown(data.report)}</div>
+        <textarea class="ask-ceo-input" placeholder="批示/修改意见..." rows="3"></textarea>
         <div class="ask-ceo-actions">
-          <button class="pixel-btn ask-ceo-submit">回复</button>
+          <button class="pixel-btn ask-ceo-approve">✓ 批准</button>
+          <button class="pixel-btn ask-ceo-revise">✗ 修改</button>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
 
     const input = overlay.querySelector('.ask-ceo-input');
-    const submitBtn = overlay.querySelector('.ask-ceo-submit');
+    const approveBtn = overlay.querySelector('.ask-ceo-approve');
+    const reviseBtn = overlay.querySelector('.ask-ceo-revise');
     input.focus();
 
-    const submit = () => {
+    const respond = (action) => {
       const message = input.value.trim();
-      if (!message) return;
-      submitBtn.disabled = true;
-      submitBtn.textContent = '⏳';
+      approveBtn.disabled = true;
+      reviseBtn.disabled = true;
       fetch('/api/ceo/respond', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           employee_id: data.employee_id,
           project_id: data.project_id || '',
-          action: 'approve',
-          message: message,
+          action: action,
+          message: message || (action === 'approve' ? 'Approved' : 'Please revise'),
         }),
       })
       .then(() => overlay.remove())
       .catch(err => {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '回复';
-        console.error('ask_ceo respond failed:', err);
+        approveBtn.disabled = false;
+        reviseBtn.disabled = false;
+        console.error('ceo_report respond failed:', err);
       });
     };
 
-    submitBtn.addEventListener('click', submit);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-    });
+    approveBtn.addEventListener('click', () => respond('approve'));
+    reviseBtn.addEventListener('click', () => respond('revise'));
   }
 
   _showCodeUpdateBanner(count, files) {
@@ -1889,6 +1891,19 @@ class AppController {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api_key: payload.api_key, model: payload.llm_model }),
+        });
+      }
+      // Save custom settings (target_email, polling_interval, etc.) via generic endpoint
+      const reserved = new Set(['hosting', 'llm_model', 'temperature', 'api_key', 'api_provider']);
+      const customPayload = {};
+      for (const [k, v] of Object.entries(payload)) {
+        if (!reserved.has(k)) customPayload[k] = v;
+      }
+      if (Object.keys(customPayload).length > 0) {
+        await fetch(`/api/employee/${empId}/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(customPayload),
         });
       }
       this.logEntry('CEO', `Settings saved for employee #${empId}`, 'ceo');
@@ -4722,7 +4737,10 @@ class AppController {
         }
 
         if (doc.status !== 'completed') {
-          detailHtml += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
+          detailHtml += `<div style="margin:8px 0;display:flex;gap:6px;">`;
+          detailHtml += `<button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button>`;
+          detailHtml += `<button class="pixel-btn" id="stop-iter-btn" style="font-size:6px;padding:4px 10px;background:var(--pixel-red);color:#000;">■ 停止所有任务</button>`;
+          detailHtml += `</div>`;
         }
 
         // Follow-up button (always available)
@@ -4863,6 +4881,23 @@ class AppController {
         if (continueBtn) {
           continueBtn.addEventListener('click', () => {
             this._continueIteration(projectId, iterationId);
+          });
+        }
+
+        // Bind stop button
+        const stopBtn = document.getElementById('stop-iter-btn');
+        if (stopBtn) {
+          stopBtn.addEventListener('click', () => {
+            if (!confirm('确定停止该轮次所有执行中的任务？')) return;
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ 停止中...';
+            fetch(`/api/task/${encodeURIComponent(iterationId)}/abort`, { method: 'POST' })
+              .then(r => r.json())
+              .then(data => {
+                stopBtn.textContent = `■ 已停止 (${data.cancelled || 0})`;
+                this._loadIterationDetail(projectId, iterationId);
+              })
+              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ 停止所有任务'; });
           });
         }
 

@@ -212,6 +212,57 @@ def list_open_positions() -> list[dict]:
     return random.sample(positions, k=random.randint(2, 4))
 
 
+@tool
+async def submit_shortlist(jd: str, candidate_ids: list[str]) -> str:
+    """Submit a shortlist of candidates to CEO for selection and interview.
+
+    After calling search_candidates(), pick the top 5 candidates and submit
+    their IDs here.  This sends the shortlist to the CEO's frontend for
+    visual selection — do NOT hire directly.
+
+    Args:
+        jd: The job description used for the search.
+        candidate_ids: List of candidate IDs (from search results) to include
+            in the shortlist.  Maximum 5.
+
+    Returns:
+        Confirmation message with batch_id.
+    """
+    import uuid as _uuid
+
+    from onemancompany.core.events import CompanyEvent, event_bus
+
+    candidates = []
+    for cid in candidate_ids[:5]:
+        full = _last_search_results.get(cid)
+        if full:
+            candidates.append(full)
+        else:
+            logger.warning("submit_shortlist: candidate %s not found in search results", cid)
+
+    if not candidates:
+        return "ERROR: No valid candidates found. Call search_candidates() first."
+
+    batch_id = str(_uuid.uuid4())[:8]
+    pending_candidates[batch_id] = candidates
+
+    await event_bus.publish(CompanyEvent(
+        type="candidates_ready",
+        payload={
+            "batch_id": batch_id,
+            "jd": jd,
+            "candidates": candidates,
+        },
+        agent="HR",
+    ))
+    logger.info("Shortlist submitted: batch=%s, %d candidates", batch_id, len(candidates))
+    return (
+        f"Shortlist submitted (batch_id={batch_id}). "
+        f"{len(candidates)} candidates sent to CEO for selection. "
+        "Wait for CEO to choose — do NOT hire directly."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Snapshot provider — hiring pipeline state
 # ---------------------------------------------------------------------------

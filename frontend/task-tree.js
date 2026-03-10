@@ -11,10 +11,10 @@ class TaskTreeRenderer {
         this.treeData = null;
         this.selectedNodeId = null;
 
-        this.nodeWidth = 180;
-        this.nodeHeight = 80;
-        this.levelSep = 120;
-        this.sibSep = 40;
+        this.nodeWidth = 220;
+        this.nodeHeight = 90;
+        this.levelSep = 100;
+        this.sibSep = 30;
     }
 
     static STATUS_COLORS = {
@@ -24,6 +24,16 @@ class TaskTreeRenderer {
         accepted: '#00ff88',
         failed: '#ff4444',
         cancelled: '#888',
+    };
+
+    static STATUS_LABELS = {
+        pending: 'PENDING',
+        processing: 'RUNNING',
+        completed: 'DONE',
+        accepted: 'ACCEPTED',
+        failed: 'FAILED',
+        cancelled: 'CANCELLED',
+        holding: 'HOLDING',
     };
 
     async load(projectId) {
@@ -78,11 +88,15 @@ class TaskTreeRenderer {
             .nodeSize([this.nodeWidth + this.sibSep, this.nodeHeight + this.levelSep]);
         treeLayout(root);
 
+        // Connection lines — colored and animated by child status
         this.g.selectAll('.tree-link')
             .data(root.links())
             .enter()
             .append('path')
-            .attr('class', 'tree-link')
+            .attr('class', d => {
+                const status = d.target.data.status;
+                return `tree-link tree-link-${status}`;
+            })
             .attr('d', d3.linkVertical()
                 .x(d => d.x)
                 .y(d => d.y));
@@ -96,14 +110,16 @@ class TaskTreeRenderer {
             .style('cursor', 'pointer')
             .on('click', (event, d) => this.selectNode(d.data));
 
+        // Card background
         nodeGroups.append('rect')
             .attr('x', -this.nodeWidth / 2)
             .attr('y', -this.nodeHeight / 2)
             .attr('width', this.nodeWidth)
             .attr('height', this.nodeHeight)
-            .attr('rx', 6)
+            .attr('rx', 8)
             .attr('class', 'tree-node-card');
 
+        // Status color bar (left edge)
         nodeGroups.append('rect')
             .attr('x', -this.nodeWidth / 2)
             .attr('y', -this.nodeHeight / 2)
@@ -112,9 +128,38 @@ class TaskTreeRenderer {
             .attr('rx', 2)
             .attr('fill', d => TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666');
 
+        // Avatar circle with initials fallback
+        nodeGroups.each(function(d) {
+            const g = d3.select(this);
+            const info = d.data.employee_info || {};
+            const cx = -(220 / 2) + 24;
+            const cy = -8;
+
+            if (info.avatar_url) {
+                const clipId = `clip-${d.data.id}`;
+                g.append('clipPath').attr('id', clipId)
+                    .append('circle').attr('cx', cx).attr('cy', cy).attr('r', 14);
+                g.append('image')
+                    .attr('href', info.avatar_url)
+                    .attr('x', cx - 14).attr('y', cy - 14)
+                    .attr('width', 28).attr('height', 28)
+                    .attr('clip-path', `url(#${clipId})`);
+            } else {
+                g.append('circle')
+                    .attr('cx', cx).attr('cy', cy).attr('r', 14)
+                    .attr('class', 'tree-avatar-fallback');
+                g.append('text')
+                    .attr('x', cx).attr('y', cy + 4)
+                    .attr('text-anchor', 'middle')
+                    .attr('class', 'tree-avatar-text')
+                    .text((info.nickname || info.name || d.data.employee_id || '').slice(0, 2));
+            }
+        });
+
+        // Name + role
         nodeGroups.append('text')
-            .attr('x', -this.nodeWidth / 2 + 14)
-            .attr('y', -this.nodeHeight / 2 + 20)
+            .attr('x', -this.nodeWidth / 2 + 46)
+            .attr('y', -this.nodeHeight / 2 + 22)
             .attr('class', 'tree-node-name')
             .text(d => {
                 const info = d.data.employee_info || {};
@@ -122,20 +167,50 @@ class TaskTreeRenderer {
             });
 
         nodeGroups.append('text')
+            .attr('x', -this.nodeWidth / 2 + 46)
+            .attr('y', -this.nodeHeight / 2 + 36)
+            .attr('class', 'tree-node-role')
+            .text(d => {
+                const info = d.data.employee_info || {};
+                return info.role || '';
+            });
+
+        // Description
+        nodeGroups.append('text')
             .attr('x', -this.nodeWidth / 2 + 14)
-            .attr('y', -this.nodeHeight / 2 + 40)
+            .attr('y', -this.nodeHeight / 2 + 56)
             .attr('class', 'tree-node-desc')
             .text(d => {
                 const desc = d.data.description || '';
-                return desc.substring(0, 25) + (desc.length > 25 ? '...' : '');
+                return desc.substring(0, 30) + (desc.length > 30 ? '...' : '');
             });
 
-        nodeGroups.append('text')
-            .attr('x', -this.nodeWidth / 2 + 14)
-            .attr('y', -this.nodeHeight / 2 + 58)
-            .attr('class', 'tree-node-status')
+        // Status pill (rounded rect + text)
+        const pills = nodeGroups.append('g')
+            .attr('transform', d => `translate(${this.nodeWidth / 2 - 60}, ${this.nodeHeight / 2 - 18})`);
+
+        pills.append('rect')
+            .attr('width', 52)
+            .attr('height', 14)
+            .attr('rx', 7)
             .attr('fill', d => TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666')
-            .text(d => d.data.status);
+            .attr('opacity', 0.2);
+
+        pills.append('text')
+            .attr('x', 26)
+            .attr('y', 10)
+            .attr('text-anchor', 'middle')
+            .attr('class', 'tree-node-pill-text')
+            .attr('fill', d => TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666')
+            .text(d => TaskTreeRenderer.STATUS_LABELS[d.data.status] || d.data.status);
+
+        // Animate nodes in
+        nodeGroups
+            .attr('opacity', 0)
+            .transition()
+            .duration(300)
+            .delay((d, i) => i * 50)
+            .attr('opacity', 1);
     }
 
     selectNode(nodeData) {

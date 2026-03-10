@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
 from typing import Protocol
 
 from loguru import logger
@@ -72,7 +71,8 @@ def snapshot_provider(name: str):
 # Save / Restore
 # ---------------------------------------------------------------------------
 
-SNAPSHOT_PATH = Path(__file__).parent.parent.parent.parent / "company" / ".state_snapshot.json"
+from onemancompany.core.config import COMPANY_DIR as _COMPANY_DIR
+SNAPSHOT_PATH = _COMPANY_DIR / ".state_snapshot.json"
 SNAPSHOT_MAX_AGE_SECONDS = 300  # 5 minutes — graceful restarts may take time
 
 

@@ -206,6 +206,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# OneManCompany runtime data directory
+.onemancompany/
+
 # OAuth token caches (contains secrets)
 .roblox_tokens.json
 .oauth_cache/
@@ -213,8 +216,23 @@ __marimo__/
 # In-place file edit backups
 .backups/
 
-# Task persistence (runtime data, per-employee)
+# Runtime data (per-employee)
 company/human_resource/employees/*/tasks/
-company/business/projects/.DS_Store
-company/business/projects/愤怒的小鸟/.DS_Store
-company/business/projects/.DS_Store
+company/human_resource/employees/*/mcp_config.json
+company/human_resource/employees/*/sessions.json
+company/human_resource/employees/*/progress.log
+company/human_resource/ex-employees/*/tasks/
+company/human_resource/ex-employees/*/mcp_config.json
+company/human_resource/ex-employees/*/sessions.json
+company/human_resource/ex-employees/*/progress.log
+
+# Runtime-generated business data
+company/business/projects/
+company/business/reports/
+company/business/resolutions/
+
+# macOS
+.DS_Store
+
+# Session state
+sessions.json
