@@ -10,5 +10,12 @@
     "work_dir": "",
     "created": "2026-03-06T12:04:22.340206+00:00",
     "used": true
+  },
+  "iter_001": {
+    "session_id": "063ee1a7-fea1-4a93-a13d-979651bc4362",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_001",
+    "created": "2026-03-10T13:16:17.179841+00:00",
+    "used": true,
+    "running_pid": 45252
   }
 }
