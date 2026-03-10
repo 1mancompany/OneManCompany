@@ -101,6 +101,26 @@ def load_all_active_tasks() -> dict[str, list["AgentTask"]]:
     return _load()
 
 
+def _parse_holding_metadata(result: str | None) -> dict | None:
+    """Parse __HOLDING:key=value,... prefix from agent result.
+
+    Returns dict of metadata if HOLDING prefix found, None otherwise.
+    Only parses the first line.
+    """
+    if not result or not result.startswith("__HOLDING:"):
+        return None
+    first_line = result.split("\n", 1)[0]
+    payload = first_line[len("__HOLDING:"):]
+    if not payload.strip():
+        return {}
+    meta = {}
+    for pair in payload.split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            meta[k.strip()] = v.strip()
+    return meta
+
+
 @dataclass
 class AgentTask:
     id: str
@@ -878,68 +898,98 @@ class EmployeeManager:
             if ctx_token is not None:
                 current_project_id.reset(ctx_token)
 
-        # 8. Mark completed
+        # 8. Mark completed (or HOLDING)
         if task.status not in (TaskPhase.FAILED, TaskPhase.CANCELLED):
-            task.status = TaskPhase.COMPLETE
-            persist_task(employee_id, task)
-        if not task.completed_at:
-            task.completed_at = datetime.now().isoformat()
-        self._log(employee_id, task, "end", f"Task {task.status}")
-        self._publish_task_update(employee_id, task)
+            holding_meta = _parse_holding_metadata(task.result or "")
+            if holding_meta is not None:
+                task.status = TaskPhase.HOLDING
+                persist_task(employee_id, task)
+                # Start reply poller cron
+                thread_id = holding_meta.get("thread_id", "")
+                if thread_id:
+                    interval = holding_meta.get("interval", "1m")
+                    self._setup_reply_poller(employee_id, task.id, thread_id, interval)
+                self._log(employee_id, task, "holding", f"Task entered HOLDING: {holding_meta}")
+            else:
+                task.status = TaskPhase.COMPLETE
+                persist_task(employee_id, task)
 
-        # 9. Record to history + progress log
-        if task.status == TaskPhase.COMPLETE:
-            self._append_history(employee_id, task)
-            summary = (task.result or "")[:200]
-            _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
+        if task.status != TaskPhase.HOLDING:
+            # Normal completion path
+            if not task.completed_at:
+                task.completed_at = datetime.now().isoformat()
+            self._log(employee_id, task, "end", f"Task {task.status}")
+            self._publish_task_update(employee_id, task)
 
-        # Post-task hook
-        post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
-        if post_task_hook:
-            try:
-                post_task_hook(task, task.result or "")
-            except Exception:
-                logger.warning("Post-task hook failed for %s", employee_id)
+            # 9. Record to history + progress log
+            if task.status == TaskPhase.COMPLETE:
+                self._append_history(employee_id, task)
+                summary = (task.result or "")[:200]
+                _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
 
-        if emp:
-            emp.current_task_summary = ""
+            # Post-task hook
+            post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
+            if post_task_hook:
+                try:
+                    post_task_hook(task, task.result or "")
+                except Exception:
+                    logger.warning("Post-task hook failed for %s", employee_id)
 
-        # Task tree: update node status and wake parent if all siblings done
-        if task.project_dir:
-            try:
-                await self._on_child_complete(employee_id, task, project_id=task.project_id)
-            except Exception as e:
-                logger.error("Task tree callback failed for {}: {}", employee_id, e)
+            if emp:
+                emp.current_task_summary = ""
 
-        # 10. Post-task cleanup
-        effective_project_id = task.project_id
-        if effective_project_id:
-            # Record cost to project
-            if task.total_tokens > 0:
-                from onemancompany.core.project_archive import record_project_cost
-                record_project_cost(
-                    effective_project_id, employee_id,
-                    task.model_used, task.input_tokens, task.output_tokens,
-                    task.estimated_cost_usd,
-                )
-            # Record action
-            if not effective_project_id.startswith("_auto_") and task.result:
-                from onemancompany.core.project_archive import append_action
-                role = self._get_role(employee_id)
-                summary = task.result[:MAX_SUMMARY_LEN]
-                append_action(effective_project_id, employee_id, f"{role} task completed", summary)
-            # Resolution
-            from onemancompany.core.resolutions import create_resolution
-            resolution = create_resolution(effective_project_id, task.description)
-            if resolution:
-                resolution["employee_id"] = employee_id
-                await event_bus.publish(
-                    CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
-                )
+            # Task tree: update node status and wake parent if all siblings done
+            if task.project_dir:
+                try:
+                    await self._on_child_complete(employee_id, task, project_id=task.project_id)
+                except Exception as e:
+                    logger.error("Task tree callback failed for {}: {}", employee_id, e)
 
-        # 11. Archive task at terminal state
-        if task.status in TERMINAL_STATES:
-            archive_task(employee_id, task)
+            # 10. Post-task cleanup
+            effective_project_id = task.project_id
+            if effective_project_id:
+                # Record cost to project
+                if task.total_tokens > 0:
+                    from onemancompany.core.project_archive import record_project_cost
+                    record_project_cost(
+                        effective_project_id, employee_id,
+                        task.model_used, task.input_tokens, task.output_tokens,
+                        task.estimated_cost_usd,
+                    )
+                # Record action
+                if not effective_project_id.startswith("_auto_") and task.result:
+                    from onemancompany.core.project_archive import append_action
+                    role = self._get_role(employee_id)
+                    summary = task.result[:MAX_SUMMARY_LEN]
+                    append_action(effective_project_id, employee_id, f"{role} task completed", summary)
+                # Resolution
+                from onemancompany.core.resolutions import create_resolution
+                resolution = create_resolution(effective_project_id, task.description)
+                if resolution:
+                    resolution["employee_id"] = employee_id
+                    await event_bus.publish(
+                        CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
+                    )
+
+            # 11. Archive task at terminal state
+            if task.status in TERMINAL_STATES:
+                archive_task(employee_id, task)
+        else:
+            # HOLDING — just publish the status update
+            self._publish_task_update(employee_id, task)
+
+    # ------------------------------------------------------------------
+    # HOLDING helpers
+    # ------------------------------------------------------------------
+
+    def _setup_reply_poller(self, employee_id: str, task_id: str, thread_id: str, interval: str = "1m") -> None:
+        """Start a cron job to poll for email replies on a HOLDING task."""
+        from onemancompany.core.automation import start_cron as _start_cron
+        cron_name = f"reply_{task_id}"
+        task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task_id}"
+        result = _start_cron(employee_id, cron_name, interval, task_desc)
+        if result.get("status") != "ok":
+            logger.error("Failed to start reply poller for {}: {}", task_id, result)
 
     # ------------------------------------------------------------------
     # Task history management
