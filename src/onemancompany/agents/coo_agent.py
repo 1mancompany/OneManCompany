@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
-from onemancompany.agents.base import BaseAgentRunner, make_llm
+from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
@@ -932,7 +932,7 @@ class COOAgent(BaseAgentRunner):
         )
 
         self._extract_and_record_usage(result)
-        final = result["messages"][-1].content
+        final = extract_final_content(result)
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": "COO", "summary": final[:MAX_SUMMARY_LEN]})
         return final

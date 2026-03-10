@@ -4476,3 +4476,14 @@ async def get_automations(employee_id: str) -> dict:
         "crons": list_crons(employee_id),
         "webhooks": list_webhooks(employee_id),
     }
+
+
+@router.post("/api/automations/{employee_id}/cron/{cron_name}/stop")
+async def stop_cron_endpoint(employee_id: str, cron_name: str) -> dict:
+    """Stop and remove a cron job for an employee."""
+    from onemancompany.core.automation import stop_cron
+    try:
+        stop_cron(employee_id, cron_name)
+        return {"status": "ok", "message": f"Cron '{cron_name}' stopped"}
+    except Exception as e:
+        raise HTTPException(400, str(e))

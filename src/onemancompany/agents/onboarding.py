@@ -25,7 +25,6 @@ from onemancompany.core.config import (
     DEFAULT_DEPARTMENT,
     HR_ID,
     ROLE_DEPARTMENT_MAP,
-    TALENTS_DIR,
     TOOLS_DIR,
     EmployeeConfig,
     ensure_employee_dir,
@@ -171,16 +170,15 @@ def _validate_tool_module(py_path) -> bool:
         return False
 
 
-def install_talent_functions(talent_id: str, emp_dir, employee_id: str) -> list[str]:
+def install_talent_functions(talent_dir: Path, emp_dir, employee_id: str) -> list[str]:
     """Install talent-brought functions into the central tool registry.
 
-    Reads ``talents/{talent_id}/functions/manifest.yaml``, validates each
+    Reads ``talent_dir/functions/manifest.yaml``, validates each
     declared .py module, copies it to ``company/assets/tools/{name}/``,
     generates ``tool.yaml``, and registers the employee as a user.
 
     Returns a list of successfully installed function names.
     """
-    talent_dir = TALENTS_DIR / talent_id
     fn_dir = talent_dir / "functions"
     fn_manifest_path = fn_dir / "manifest.yaml"
     if not fn_manifest_path.exists():
@@ -232,8 +230,8 @@ def install_talent_functions(talent_id: str, emp_dir, employee_id: str) -> list[
                 "name": name,
                 "description": description,
                 "type": "langchain_module",
-                "added_by": f"talent:{talent_id}",
-                "source_talent": talent_id,
+                "added_by": f"talent:{talent_dir.name}",
+                "source_talent": talent_dir.name,
             }
             if scope == "personal":
                 tool_meta["allowed_users"] = [employee_id]
@@ -253,7 +251,7 @@ def install_talent_functions(talent_id: str, emp_dir, employee_id: str) -> list[
 # Agent config installation (agent/manifest.yaml)
 # ---------------------------------------------------------------------------
 
-def install_talent_agent_config(talent_id: str, emp_dir, employee_id: str) -> dict | None:
+def install_talent_agent_config(talent_dir: Path, emp_dir, employee_id: str) -> dict | None:
     """Install talent agent config (agent/ directory) into the employee folder.
 
     Copies the entire agent/ directory from the talent package to the employee
@@ -261,9 +259,6 @@ def install_talent_agent_config(talent_id: str, emp_dir, employee_id: str) -> di
 
     Returns the parsed manifest dict on success, or None if no agent config exists.
     """
-    from pathlib import Path
-
-    talent_dir = TALENTS_DIR / talent_id
     agent_dir = talent_dir / "agent"
     manifest_path = agent_dir / "manifest.yaml"
     if not manifest_path.exists():
@@ -331,7 +326,7 @@ def install_talent_agent_config(talent_id: str, emp_dir, employee_id: str) -> di
                 except Exception as exc:
                     logger.warning("Failed to validate hooks module %s: %s", hooks_py, exc)
 
-    logger.info("Installed agent config for employee %s from talent %s", employee_id, talent_id)
+    logger.info("Installed agent config for employee %s from talent %s", employee_id, talent_dir.name)
     return manifest
 
 
@@ -443,7 +438,7 @@ def _register_employee_hooks(employee_id: str, emp_dir) -> None:
 # Vessel config installation
 # ---------------------------------------------------------------------------
 
-def install_talent_vessel_config(talent_id: str, emp_dir, employee_id: str) -> None:
+def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) -> None:
     """Install vessel config (vessel.yaml) into the employee folder.
 
     Search order:
@@ -453,13 +448,11 @@ def install_talent_vessel_config(talent_id: str, emp_dir, employee_id: str) -> N
 
     Also copies vessel/ subdirectories (prompt_sections/, runner .py, hooks .py).
     """
-    from pathlib import Path
     from onemancompany.core.vessel_config import (
         _convert_legacy_manifest, _load_default_vessel_config,
         save_vessel_config,
     )
 
-    talent_dir = TALENTS_DIR / talent_id
     emp_path = Path(emp_dir)
     vessel_dir = emp_path / "vessel"
 
@@ -519,8 +512,35 @@ def install_talent_vessel_config(talent_id: str, emp_dir, employee_id: str) -> N
 # Talent asset copying
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Talent directory resolution
+# ---------------------------------------------------------------------------
+
+# Legacy fallback: local talent_market package (will be removed once all
+# hiring flows fetch talent data via Talent Market API/MCP)
+_LEGACY_TALENTS_DIR = Path(__file__).resolve().parent.parent / "talent_market" / "talents"
+
+
+def resolve_talent_dir(talent_id: str) -> Path | None:
+    """Resolve a talent_id to a filesystem path.
+
+    Currently falls back to the local talent_market/talents/ directory.
+    In the future, this will clone from the Talent Market registry.
+    """
+    if not talent_id:
+        return None
+    candidate = _LEGACY_TALENTS_DIR / talent_id
+    if candidate.exists():
+        return candidate
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Default skills injected for every new employee
-_DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "talent_market" / "default_skills"
+# ---------------------------------------------------------------------------
+
+# These are package-level resources, not tied to any specific talent
+_DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
 _DEFAULT_SKILL_NAMES = ["ontology", "proactive-agent", "self-improving-agent"]
 
 
@@ -533,14 +553,13 @@ def _inject_default_skills(skills_dir: Path) -> None:
             shutil.copytree(str(src), str(dst))
 
 
-def copy_talent_assets(talent_id: str, emp_dir) -> None:
+def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
     """Copy skills/ and tools/ from a talent package into an employee folder.
 
     For custom LangChain tools (listed in manifest.yaml ``custom_tools``),
     registers the new employee in each tool's ``allowed_users`` whitelist
     instead of copying .py files.
     """
-    talent_dir = TALENTS_DIR / talent_id
     if not talent_dir.exists():
         return
 
@@ -621,14 +640,14 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
                 dst_script.chmod(dst_script.stat().st_mode | 0o755)
 
     # Install agent config (agent/manifest.yaml + prompts, hooks, runner)
-    install_talent_agent_config(talent_id, emp_dir, emp_dir.name)
+    install_talent_agent_config(talent_dir, emp_dir, emp_dir.name)
 
     # Install vessel config (vessel/vessel.yaml — uses default if talent has none)
-    install_talent_vessel_config(talent_id, emp_dir, emp_dir.name)
+    install_talent_vessel_config(talent_dir, emp_dir, emp_dir.name)
 
     # Install talent-brought functions into central registry
     employee_id = emp_dir.name
-    installed = install_talent_functions(talent_id, emp_dir, employee_id)
+    installed = install_talent_functions(talent_dir, emp_dir, employee_id)
     if installed:
         # Append to employee's tools/manifest.yaml custom_tools
         emp_tools = emp_dir / "tools"
@@ -659,6 +678,7 @@ async def execute_hire(
     skills: list[str],
     *,
     talent_id: str = "",
+    talent_dir: Path | None = None,
     llm_model: str = "",
     temperature: float = 0.7,
     image_model: str = "",
@@ -676,12 +696,18 @@ async def execute_hire(
     and registers the agent loop.
 
     Args:
+        talent_dir: Path to the talent directory (cloned from Talent Market).
+            If None, no talent assets are copied.
         department: Explicit department override (from COO request).
             If empty, auto-determined from ROLE_DEPARTMENT_MAP.
 
     Returns the newly created Employee.
     """
     from onemancompany.core.model_costs import compute_salary
+
+    # Resolve talent_dir from talent_id if not explicitly provided
+    if talent_dir is None and talent_id:
+        talent_dir = resolve_talent_dir(talent_id)
 
     # Use explicit department if provided (from COO), otherwise auto-assign
     if not department:
@@ -770,12 +796,12 @@ async def execute_hire(
         )
 
     # Copy talent skills + tools
-    if talent_id and not remote:
-        copy_talent_assets(talent_id, emp_dir)
+    if talent_dir and talent_dir.exists() and not remote:
+        copy_talent_assets(talent_dir, emp_dir)
 
     # Copy launch.sh for self-hosted employees
-    if hosting == "self" and talent_id:
-        talent_launch = TALENTS_DIR / talent_id / "launch.sh"
+    if talent_dir and hosting == "self":
+        talent_launch = talent_dir / "launch.sh"
         if talent_launch.exists():
             dst_launch = emp_dir / "launch.sh"
             if not dst_launch.exists():
@@ -783,8 +809,8 @@ async def execute_hire(
                 dst_launch.chmod(dst_launch.stat().st_mode | 0o111)  # ensure executable
 
     # Copy heartbeat.sh for employees with custom heartbeat scripts
-    if talent_id:
-        talent_hb = TALENTS_DIR / talent_id / "heartbeat.sh"
+    if talent_dir:
+        talent_hb = talent_dir / "heartbeat.sh"
         if talent_hb.exists():
             dst_hb = emp_dir / "heartbeat.sh"
             if not dst_hb.exists():
@@ -842,7 +868,7 @@ async def execute_hire(
 
     # Generate standalone run.py for company-hosted employees
     if hosting == "company":
-        from onemancompany.talent_market.standalone_runner import generate_run_py
+        from onemancompany.core.standalone_runner import generate_run_py
         generate_run_py(emp_dir, name, emp_num)
 
     # Recompute layout

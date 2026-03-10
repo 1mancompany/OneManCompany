@@ -3184,6 +3184,89 @@ body {
   font-size: 5.5px;
 }
 
+/* Cron management list */
+.emp-cron-item {
+  padding: 4px 5px;
+  border-left: 3px solid var(--pixel-cyan);
+  margin-bottom: 3px;
+  background: rgba(0,255,255,0.03);
+  position: relative;
+}
+
+.emp-cron-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 6px;
+}
+
+.cron-status-dot {
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cron-status-dot.running {
+  background: var(--pixel-green);
+  box-shadow: 0 0 3px var(--pixel-green);
+  animation: cron-pulse-dot 1.5s infinite;
+}
+
+.cron-status-dot.stopped {
+  background: var(--pixel-gray);
+}
+
+@keyframes cron-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.cron-name {
+  color: var(--pixel-white);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 5px;
+  word-break: break-all;
+}
+
+.cron-interval {
+  color: var(--pixel-yellow);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 5px;
+  flex-shrink: 0;
+}
+
+.emp-cron-desc {
+  color: var(--pixel-gray);
+  font-size: 5px;
+  margin-top: 1px;
+  word-break: break-word;
+  max-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.emp-cron-cancel-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background: none;
+  border: 1px solid var(--pixel-red);
+  color: var(--pixel-red);
+  font-family: 'Press Start 2P', monospace;
+  font-size: 4px;
+  padding: 1px 4px;
+  cursor: pointer;
+  border-radius: 1px;
+  transition: background 0.1s;
+}
+
+.emp-cron-cancel-btn:hover {
+  background: var(--pixel-red);
+  color: #000;
+}
+
 @keyframes task-pulse {
   0%, 100% { background: var(--bg-dark); }
   50% { background: rgba(0, 255, 136, 0.05); }
