@@ -8,9 +8,9 @@
       ],
       "env": {
         "OMC_EMPLOYEE_ID": "00003",
-        "OMC_TASK_ID": "e396f5bc2a2b",
-        "OMC_PROJECT_ID": "\u7b2c\u4e00\u4e2a\u6b3eroblox\u6e38\u620f/iter_001",
-        "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/\u7b2c\u4e00\u4e2a\u6b3eroblox\u6e38\u620f/iterations/iter_001",
+        "OMC_TASK_ID": "38959434e192",
+        "OMC_PROJECT_ID": "iter_001",
+        "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_001",
         "OMC_SERVER_URL": "http://localhost:8000"
       }
     },

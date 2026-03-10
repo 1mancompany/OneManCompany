@@ -7,8 +7,8 @@
         "onemancompany.tools.mcp.server"
       ],
       "env": {
-        "OMC_EMPLOYEE_ID": "00007",
-        "OMC_TASK_ID": "439777f7da6e",
+        "OMC_EMPLOYEE_ID": "00006",
+        "OMC_TASK_ID": "065fc6301fa6",
         "OMC_PROJECT_ID": "iter_001",
         "OMC_PROJECT_DIR": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_001",
         "OMC_SERVER_URL": "http://localhost:8000"

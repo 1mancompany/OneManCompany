@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-10 | `86fe2b2` | Update: 2026-03-10-human-playtester, 2026-03-10-human-playtester-design, 20260310_131316_42c1be, 20260310_135153_e38236, appendix |
 | 2026-03-10 | `11da4e3` | Update: , 2026-03-10-task-persistence, 2026-03-10-task-persistence-design |
 | 2026-03-10 | `a799b98` | Update: test_task_persistence |
 | 2026-03-10 | `d6fd4fb` | Update: main, test_vessel, vessel |

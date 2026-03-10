@@ -353,6 +353,9 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.state import company_state as _cs
     compute_asset_layout(_cs, _cs.office_layout)
 
+    # Register internal tools (base + gated) into tool_registry
+    import onemancompany.agents.common_tools  # noqa: F401 — triggers _register_all_internal_tools()
+
     # Register asset tools (gmail, roblox, etc.) from company/assets/tools/
     from onemancompany.core.tool_registry import tool_registry
     tool_registry.load_asset_tools()
