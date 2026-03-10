@@ -1,3 +1,9 @@
+---
+name: work-principles
+autoload: true
+description: 个人工作原则与行为准则，CEO 指导形成。
+---
+
 # Work Principles — Chief Sales Officer (CSO)
 
 1. **Standardize Task Protocols**: All external client tasks must follow the standard submission protocol with clear requirements, budget, and deliverables.

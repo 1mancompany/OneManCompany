@@ -747,14 +747,18 @@ class TestCOOAgent:
         prompt = agent._build_prompt()
         assert "Stay humble" in prompt
 
-    def test_build_prompt_with_work_principles(self, monkeypatch):
+    def test_build_prompt_with_skills(self, monkeypatch):
         from onemancompany.core import config as config_mod
+        from onemancompany.agents import base as base_mod
 
         cs = _make_cs()
         emp = _make_emp(config_mod.COO_ID)
-        emp.work_principles = "Always be decisive"
         cs.employees[config_mod.COO_ID] = emp
 
+        monkeypatch.setattr(
+            base_mod, "get_employee_skills_prompt",
+            lambda eid: "\n\n## Active Skills\n### Work Principles\nAlways be decisive",
+        )
         agent = self._make_agent(monkeypatch, cs=cs)
         prompt = agent._build_prompt()
         assert "Always be decisive" in prompt

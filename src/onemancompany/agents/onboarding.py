@@ -11,6 +11,7 @@ import importlib.util
 import json as _json
 import re
 import shutil
+from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -29,7 +30,6 @@ from onemancompany.core.config import (
     EmployeeConfig,
     ensure_employee_dir,
     save_employee_profile,
-    save_work_principles,
     settings,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -519,6 +519,20 @@ def install_talent_vessel_config(talent_id: str, emp_dir, employee_id: str) -> N
 # Talent asset copying
 # ---------------------------------------------------------------------------
 
+# Default skills injected for every new employee
+_DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "talent_market" / "default_skills"
+_DEFAULT_SKILL_NAMES = ["ontology", "proactive-agent", "self-improving-agent"]
+
+
+def _inject_default_skills(skills_dir: Path) -> None:
+    """Copy default skills into the employee's skills folder."""
+    for name in _DEFAULT_SKILL_NAMES:
+        src = _DEFAULT_SKILLS_DIR / name
+        dst = skills_dir / name
+        if src.exists() and not dst.exists():
+            shutil.copytree(str(src), str(dst))
+
+
 def copy_talent_assets(talent_id: str, emp_dir) -> None:
     """Copy skills/ and tools/ from a talent package into an employee folder.
 
@@ -534,11 +548,19 @@ def copy_talent_assets(talent_id: str, emp_dir) -> None:
     if talent_skills.exists():
         emp_skills = emp_dir / "skills"
         emp_skills.mkdir(exist_ok=True)
-        for src_file in talent_skills.iterdir():
-            if src_file.suffix == ".md" and src_file.is_file():
-                dst_file = emp_skills / src_file.name
+        for entry in talent_skills.iterdir():
+            if entry.is_dir() and (entry / "SKILL.md").exists():
+                # Folder-based skill: copy entire folder
+                dst_dir = emp_skills / entry.name
+                if not dst_dir.exists():
+                    shutil.copytree(str(entry), str(dst_dir))
+            elif entry.is_file() and entry.suffix == ".md":
+                # Legacy plain .md: convert to folder/SKILL.md
+                dst_dir = emp_skills / entry.stem
+                dst_dir.mkdir(exist_ok=True)
+                dst_file = dst_dir / "SKILL.md"
                 if not dst_file.exists():
-                    shutil.copy2(str(src_file), str(dst_file))
+                    shutil.copy2(str(entry), str(dst_file))
 
     talent_tools = talent_dir / "tools"
     if talent_tools.exists():
@@ -769,15 +791,20 @@ async def execute_hire(
                 shutil.copy2(str(talent_hb), str(dst_hb))
                 dst_hb.chmod(dst_hb.stat().st_mode | 0o111)
 
-    # Create skill stubs
+    # Create skill stubs (folder-based)
     for skill_name in skills:
-        skill_file = skills_dir / f"{skill_name}.md"
+        skill_dir = skills_dir / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        skill_file = skill_dir / "SKILL.md"
         if not skill_file.exists():
             skill_file.write_text(
-                f"# {skill_name}\n\n{name} ({nickname})'s {skill_name} skill.\n\n"
-                f"(Auto-created by HR during hiring.)\n",
+                f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
+                f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n",
                 encoding="utf-8",
             )
+
+    # Inject default skills (ontology, proactive-agent, self-improving-agent)
+    _inject_default_skills(skills_dir)
 
     # Create initial SOUL.md in workspace
     workspace_dir = emp_dir / "workspace"
@@ -793,20 +820,30 @@ async def execute_hire(
             encoding="utf-8",
         )
 
-    # Generate initial work principles
-    initial_principles = (
-        f"# {name} ({nickname}) Work Principles\n\n"
-        f"**Department**: {department}\n"
-        f"**Title**: {make_title(1, role)}\n"
-        f"**Level**: Lv.1\n\n"
-        f"## Core Principles\n"
-        f"1. Complete assigned work diligently and maintain professional standards\n"
-        f"2. Actively collaborate with the team and communicate progress promptly\n"
-        f"3. Continuously learn and improve professional skills\n"
-        f"4. Follow company rules and guidelines\n"
-    )
-    save_work_principles(emp_num, initial_principles)
-    emp.work_principles = initial_principles
+    # Generate work principles as a skill (autoloaded)
+    wp_dir = skills_dir / "work-principles"
+    wp_dir.mkdir(parents=True, exist_ok=True)
+    wp_file = wp_dir / "SKILL.md"
+    if not wp_file.exists():
+        wp_file.write_text(
+            f"---\nname: work-principles\nautoload: true\n"
+            f"description: 个人工作原则与行为准则。\n---\n\n"
+            f"# {name} ({nickname}) Work Principles\n\n"
+            f"**Department**: {department}\n"
+            f"**Title**: {make_title(1, role)}\n"
+            f"**Level**: Lv.1\n\n"
+            f"## Core Principles\n"
+            f"1. Complete assigned work diligently and maintain professional standards\n"
+            f"2. Actively collaborate with the team and communicate progress promptly\n"
+            f"3. Continuously learn and improve professional skills\n"
+            f"4. Follow company rules and guidelines\n",
+            encoding="utf-8",
+        )
+
+    # Generate standalone run.py for company-hosted employees
+    if hosting == "company":
+        from onemancompany.talent_market.standalone_runner import generate_run_py
+        generate_run_py(emp_dir, name, emp_num)
 
     # Recompute layout
     compute_layout(company_state)
