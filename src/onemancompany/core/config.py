@@ -416,11 +416,15 @@ def load_work_principles(employee_id: str) -> str:
 
 
 def save_work_principles(employee_id: str, content: str) -> None:
-    """Persist work principles to employees/{id}/work_principles.md."""
-    emp_dir = EMPLOYEES_DIR / employee_id
-    emp_dir.mkdir(parents=True, exist_ok=True)
-    path = emp_dir / "work_principles.md"
-    path.write_text(content, encoding="utf-8")
+    """Persist work principles as an autoloaded skill."""
+    skill_dir = EMPLOYEES_DIR / employee_id / "skills" / "work-principles"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_content = (
+        "---\nname: Work Principles\n"
+        "description: Core work principles from CEO guidance\n"
+        "autoload: true\n---\n\n" + content
+    )
+    (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
 
 
 def get_workspace_dir(employee_id: str) -> Path:

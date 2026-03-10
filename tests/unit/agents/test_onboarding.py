@@ -200,11 +200,11 @@ class TestCopyTalentAssets:
     def test_copies_skills_and_tools(self, tmp_path, monkeypatch):
         from onemancompany.agents import onboarding
 
-        # Setup talent directory
+        # Setup talent directory with folder-based skill
         talent_dir = tmp_path / "talents" / "coding"
-        (talent_dir / "skills").mkdir(parents=True)
+        (talent_dir / "skills" / "python").mkdir(parents=True)
         (talent_dir / "tools").mkdir(parents=True)
-        (talent_dir / "skills" / "python.md").write_text("# Python skill")
+        (talent_dir / "skills" / "python" / "SKILL.md").write_text("# Python skill")
         (talent_dir / "tools" / "manifest.yaml").write_text("builtin_tools: []\ncustom_tools: []")
 
         monkeypatch.setattr(onboarding, "TALENTS_DIR", tmp_path / "talents")
@@ -215,27 +215,27 @@ class TestCopyTalentAssets:
 
         onboarding.copy_talent_assets("coding", emp_dir)
 
-        assert (emp_dir / "skills" / "python.md").exists()
-        assert (emp_dir / "skills" / "python.md").read_text() == "# Python skill"
+        assert (emp_dir / "skills" / "python" / "SKILL.md").exists()
+        assert (emp_dir / "skills" / "python" / "SKILL.md").read_text() == "# Python skill"
         assert (emp_dir / "tools" / "manifest.yaml").exists()
 
-    def test_skips_existing_files(self, tmp_path, monkeypatch):
+    def test_skips_existing_skills(self, tmp_path, monkeypatch):
         from onemancompany.agents import onboarding
 
         talent_dir = tmp_path / "talents" / "coding"
-        (talent_dir / "skills").mkdir(parents=True)
-        (talent_dir / "skills" / "python.md").write_text("NEW content")
+        (talent_dir / "skills" / "python").mkdir(parents=True)
+        (talent_dir / "skills" / "python" / "SKILL.md").write_text("NEW content")
 
         monkeypatch.setattr(onboarding, "TALENTS_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
-        (emp_dir / "skills").mkdir(parents=True)
-        (emp_dir / "skills" / "python.md").write_text("EXISTING content")
+        (emp_dir / "skills" / "python").mkdir(parents=True)
+        (emp_dir / "skills" / "python" / "SKILL.md").write_text("EXISTING content")
 
         onboarding.copy_talent_assets("coding", emp_dir)
 
         # Should NOT overwrite existing
-        assert (emp_dir / "skills" / "python.md").read_text() == "EXISTING content"
+        assert (emp_dir / "skills" / "python" / "SKILL.md").read_text() == "EXISTING content"
 
     def test_nonexistent_talent_no_error(self, tmp_path, monkeypatch):
         from onemancompany.agents import onboarding
@@ -247,12 +247,12 @@ class TestCopyTalentAssets:
         # Should not raise
         onboarding.copy_talent_assets("nonexistent", emp_dir)
 
-    def test_only_copies_md_files_for_skills(self, tmp_path, monkeypatch):
+    def test_only_copies_skill_folders(self, tmp_path, monkeypatch):
         from onemancompany.agents import onboarding
 
         talent_dir = tmp_path / "talents" / "coding"
-        (talent_dir / "skills").mkdir(parents=True)
-        (talent_dir / "skills" / "python.md").write_text("# Python")
+        (talent_dir / "skills" / "python").mkdir(parents=True)
+        (talent_dir / "skills" / "python" / "SKILL.md").write_text("# Python")
         (talent_dir / "skills" / "notes.txt").write_text("not a skill")
 
         monkeypatch.setattr(onboarding, "TALENTS_DIR", tmp_path / "talents")
@@ -262,7 +262,7 @@ class TestCopyTalentAssets:
 
         onboarding.copy_talent_assets("coding", emp_dir)
 
-        assert (emp_dir / "skills" / "python.md").exists()
+        assert (emp_dir / "skills" / "python" / "SKILL.md").exists()
         assert not (emp_dir / "skills" / "notes.txt").exists()
 
 
@@ -365,16 +365,17 @@ class TestExecuteHire:
         assert emp_dir.exists()
         assert (emp_dir / "skills").is_dir()
 
-        # Verify work_principles.md created
-        wp_path = emp_dir / "work_principles.md"
+        # Verify work-principles skill created (autoloaded)
+        wp_path = emp_dir / "skills" / "work-principles" / "SKILL.md"
         assert wp_path.exists()
         content = wp_path.read_text()
         assert "Test Developer" in content
         assert "追风" in content
+        assert "autoload: true" in content
 
-        # Verify skill stubs created
-        assert (emp_dir / "skills" / "python.md").exists()
-        assert (emp_dir / "skills" / "typescript.md").exists()
+        # Verify skill stubs created (folder-based)
+        assert (emp_dir / "skills" / "python" / "SKILL.md").exists()
+        assert (emp_dir / "skills" / "typescript" / "SKILL.md").exists()
 
         # Verify event published
         assert len(published_events) == 1
@@ -1479,10 +1480,10 @@ class TestExecuteHireAdditional:
     async def test_hire_copies_talent_assets_when_not_remote(self, tmp_path, monkeypatch):
         cs, onboarding = self._setup_hire(tmp_path, monkeypatch)
 
-        # Create a talent directory with skills
+        # Create a talent directory with folder-based skills
         talent_dir = tmp_path / "talents" / "my_talent"
-        (talent_dir / "skills").mkdir(parents=True)
-        (talent_dir / "skills" / "coding.md").write_text("# Coding skill")
+        (talent_dir / "skills" / "coding").mkdir(parents=True)
+        (talent_dir / "skills" / "coding" / "SKILL.md").write_text("# Coding skill")
 
         emp = await onboarding.execute_hire(
             name="Dev", nickname="测试", role="Engineer", skills=[],
@@ -1490,15 +1491,15 @@ class TestExecuteHireAdditional:
         )
 
         emp_dir = tmp_path / "employees" / emp.id
-        assert (emp_dir / "skills" / "coding.md").exists()
+        assert (emp_dir / "skills" / "coding" / "SKILL.md").exists()
 
     @pytest.mark.asyncio
     async def test_hire_does_not_copy_assets_when_remote(self, tmp_path, monkeypatch):
         cs, onboarding = self._setup_hire(tmp_path, monkeypatch)
 
         talent_dir = tmp_path / "talents" / "my_talent"
-        (talent_dir / "skills").mkdir(parents=True)
-        (talent_dir / "skills" / "coding.md").write_text("# Coding skill")
+        (talent_dir / "skills" / "coding").mkdir(parents=True)
+        (talent_dir / "skills" / "coding" / "SKILL.md").write_text("# Coding skill")
 
         emp = await onboarding.execute_hire(
             name="Remote Dev", nickname="测试", role="Engineer", skills=[],
@@ -1507,7 +1508,7 @@ class TestExecuteHireAdditional:
 
         emp_dir = tmp_path / "employees" / emp.id
         # Skills should NOT be copied for remote employees
-        assert not (emp_dir / "skills" / "coding.md").exists()
+        assert not (emp_dir / "skills" / "coding" / "SKILL.md").exists()
 
     @pytest.mark.asyncio
     async def test_hire_self_hosted_copies_launch_sh(self, tmp_path, monkeypatch):

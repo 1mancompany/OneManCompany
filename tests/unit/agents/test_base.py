@@ -380,20 +380,6 @@ class TestBaseAgentRunner:
         assert "Be concise" in result
         assert "Focus on quality" in result
 
-    def test_get_work_principles_prompt_section_empty(self, monkeypatch):
-        emp = _make_emp("00010")
-        runner, _ = self._make_runner(monkeypatch, emp=emp)
-
-        result = runner._get_work_principles_prompt_section()
-        assert result == ""
-
-    def test_get_work_principles_prompt_section(self, monkeypatch):
-        emp = _make_emp("00010", work_principles="Always test first")
-        runner, _ = self._make_runner(monkeypatch, emp=emp)
-
-        result = runner._get_work_principles_prompt_section()
-        assert "Work Principles" in result
-        assert "Always test first" in result
 
     def test_get_company_culture_prompt_section_empty(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))

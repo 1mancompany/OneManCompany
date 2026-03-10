@@ -92,16 +92,18 @@ class TestSaveEmployeeProfile:
 # ---------------------------------------------------------------------------
 
 class TestSaveWorkPrinciples:
-    def test_saves_markdown_file(self, tmp_path, monkeypatch):
+    def test_saves_as_skill(self, tmp_path, monkeypatch):
         import onemancompany.core.config as cfg
 
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
 
         cfg.save_work_principles("00099", "# Principles\n\n1. Work hard\n")
 
-        path = tmp_path / "00099" / "work_principles.md"
+        path = tmp_path / "00099" / "skills" / "work-principles" / "SKILL.md"
         assert path.exists()
-        assert "Work hard" in path.read_text()
+        content = path.read_text()
+        assert "autoload: true" in content
+        assert "Work hard" in content
 
 
 # ---------------------------------------------------------------------------

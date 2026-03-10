@@ -225,15 +225,17 @@ class TestWorkPrinciples:
         result = config_mod.load_work_principles("00010")
         assert "Be good" in result
 
-    def test_save_creates_dir_and_file(self, tmp_path, monkeypatch):
+    def test_save_creates_skill_file(self, tmp_path, monkeypatch):
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
         config_mod.save_work_principles("00010", "# Test Principles")
 
-        path = tmp_path / "00010" / "work_principles.md"
+        path = tmp_path / "00010" / "skills" / "work-principles" / "SKILL.md"
         assert path.exists()
-        assert path.read_text() == "# Test Principles"
+        content = path.read_text()
+        assert "autoload: true" in content
+        assert "# Test Principles" in content
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,9 @@
+---
+name: work-principles
+autoload: true
+description: 个人工作原则与行为准则，CEO 指导形成。
+---
+
 # Sam HR（知心姐）工作准则
 
 **部门**: 人力资源部  

@@ -488,7 +488,6 @@ class TestHRAgentBuildPrompt:
         agent._get_skills_prompt_section = lambda: ""
         agent._get_tools_prompt_section = lambda: ""
         agent._get_company_culture_prompt_section = lambda: ""
-        agent._get_work_principles_prompt_section = lambda: ""
         agent._get_guidance_prompt_section = lambda: ""
         agent._get_dynamic_context_section = lambda: ""
         agent._get_efficiency_guidelines_section = lambda: ""

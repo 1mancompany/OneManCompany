@@ -209,23 +209,42 @@ def get_employee_skills_index(employee_id: str) -> dict[str, dict]:
 
 
 def get_employee_skills_prompt(employee_id: str) -> str:
-    """Build a skill catalog for the system prompt (name + description only).
+    """Build skill prompt: autoload skills inline, others as catalog index.
 
-    Full skill content is loaded on-demand via the load_skill tool.
+    Skills with ``autoload: true`` in frontmatter are injected fully.
+    Others are listed as name+description for on-demand ``load_skill`` tool.
     """
-    index = get_employee_skills_index(employee_id)
-    if not index:
+    skills = load_employee_skills(employee_id)
+    if not skills:
         return ""
-    parts = [
-        "\n\n## Available Skills",
-        "You have the following skills installed. Use the `load_skill` tool to load a skill's "
-        "full instructions before applying it. **Always load a skill before using it.**\n",
-    ]
-    for folder_name, info in index.items():
-        line = f"- **{info['name']}**"
-        if info["description"]:
-            line += f": {info['description']}"
-        parts.append(line)
+
+    autoloaded: list[str] = []
+    catalog: list[str] = []
+
+    for folder_name, raw_content in skills.items():
+        meta, body = _parse_skill_frontmatter(raw_content)
+        display_name = meta.get("name", folder_name)
+        description = meta.get("description", "")
+
+        if meta.get("autoload"):
+            autoloaded.append(f"### {display_name}\n{body}")
+        else:
+            line = f"- **{display_name}**"
+            if description:
+                line += f": {description}"
+            catalog.append(line)
+
+    parts: list[str] = []
+    if autoloaded:
+        parts.append("\n\n## Active Skills")
+        parts.extend(autoloaded)
+    if catalog:
+        parts.append("\n\n## Available Skills")
+        parts.append(
+            "Use the `load_skill` tool to load a skill's full instructions "
+            "before applying it.\n"
+        )
+        parts.extend(catalog)
     return "\n".join(parts)
 
 
@@ -476,14 +495,6 @@ class BaseAgentRunner:
             f"\n\n## CEO Guidance (follow these directives in all your work):\n{notes}\n"
         )
 
-    def _get_work_principles_prompt_section(self) -> str:
-        """Build a prompt section from this employee's work principles."""
-        emp = company_state.employees.get(self.employee_id)
-        if not emp or not emp.work_principles:
-            return ""
-        return (
-            f"\n\n## Your Work Principles (follow strictly):\n{emp.work_principles}\n"
-        )
 
     def _get_company_culture_prompt_section(self) -> str:
         """Build a prompt section from company culture items."""
@@ -582,7 +593,6 @@ class BaseAgentRunner:
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
         pb.add("culture", self._get_company_culture_prompt_section(), priority=45)
-        pb.add("principles", self._get_work_principles_prompt_section(), priority=50)
         pb.add("guidance", self._get_guidance_prompt_section(), priority=55)
         pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
