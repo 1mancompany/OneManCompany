@@ -822,6 +822,25 @@ class AppController {
     document.getElementById('meeting-inquiry-end-btn').addEventListener('click', () => this._endInquirySession());
 
     // Employee detail modal bindings
+    document.getElementById('emp-avatar-upload-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file || !this.viewingEmployeeId) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const resp = await fetch(`/api/employees/${this.viewingEmployeeId}/avatar`, {
+          method: 'POST',
+          body: new Uint8Array(reader.result),
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
+        if (resp.ok) {
+          const avatarImg = document.getElementById('emp-detail-avatar');
+          avatarImg.src = `/api/employees/${this.viewingEmployeeId}/avatar?t=${Date.now()}`;
+          avatarImg.style.display = '';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
     document.getElementById('employee-close-btn').addEventListener('click', () => this.closeEmployeeDetail());
     document.getElementById('employee-modal').addEventListener('click', (e) => {
       if (e.target.id === 'employee-modal') this.closeEmployeeDetail();
@@ -1189,6 +1208,12 @@ class AppController {
     const modal = document.getElementById('employee-modal');
 
     this.viewingEmployeeId = emp.id;
+
+    // Avatar
+    const avatarImg = document.getElementById('emp-detail-avatar');
+    avatarImg.src = `/api/employees/${emp.id}/avatar?t=${Date.now()}`;
+    avatarImg.onerror = function() { this.style.display = 'none'; };
+    avatarImg.onload = function() { this.style.display = ''; };
 
     // Populate data
     const roleIcon = emp.role === 'HR' ? '💼' : emp.role === 'COO' ? '⚙️' : '🤖';
@@ -4811,8 +4836,8 @@ class AppController {
               if (!this._treeRenderer) {
                 this._treeRenderer = new TaskTreeRenderer('board-tree-container', 'board-tree-detail');
               }
-              this._treeRenderer.load(projectId);
-              this._currentTreeProjectId = projectId;
+              this._treeRenderer.load(iterationId);
+              this._currentTreeProjectId = iterationId;
             } else if (tabName.startsWith('plugin-')) {
               const pluginId = tabName.replace('plugin-', '');
               this._viewingBoardProjectId = projectId;

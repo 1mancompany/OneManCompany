@@ -1,0 +1,4782 @@
+<roblox version="4">
+  <Item class="Chat" referent="15">
+    <Properties>
+      <string name="Name">Chat</string>
+    </Properties>
+  </Item>
+  <Item class="Lighting" referent="16">
+    <Properties>
+      <string name="Name">Lighting</string>
+      <float name="Brightness">2</float>
+      <token name="Technology">3</token>
+    </Properties>
+  </Item>
+  <Item class="Players" referent="17">
+    <Properties>
+      <string name="Name">Players</string>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedFirst" referent="18">
+    <Properties>
+      <string name="Name">ReplicatedFirst</string>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="19">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+  <Item class="Folder" referent="20">
+    <Properties>
+      <string name="Name">Shared</string>
+    </Properties>
+  <Item class="ModuleScript" referent="6">
+    <Properties>
+      <string name="Name">EnemyDatabase</string>
+      <string name="Source"><![CDATA[--[[
+	EnemyDatabase.luau — Enemy definitions for Soul Rift
+	ReplicatedStorage/Shared/EnemyDatabase
+	MVP: Ghost Ruins floor enemies + Boss 1
+]]
+
+local EnemyDatabase = {}
+
+EnemyDatabase.Enemies = {
+	-- Floor 1: Ghost Ruins
+	wandering_ghost = {
+		name = "Wandering Ghost",
+		health = 30,
+		attack = 8,
+		defense = 2,
+		moveSpeed = 10,
+		attackRange = 5,
+		detectionRange = 30,
+		behavior = "chase_explode", -- slowly chases, explodes near player
+		attackCooldown = 2.0,
+		xpReward = 10,
+		soulShards = 5,
+		difficulty = 1,
+	},
+	bone_archer = {
+		name = "Bone Archer",
+		health = 20,
+		attack = 12,
+		defense = 1,
+		moveSpeed = 8,
+		attackRange = 40,
+		detectionRange = 45,
+		behavior = "ranged_kite", -- keeps distance, shoots projectiles
+		attackCooldown = 1.5,
+		projectileSpeed = 50,
+		xpReward = 12,
+		soulShards = 6,
+		difficulty = 1,
+	},
+	shadow_knight = {
+		name = "Shadow Knight",
+		health = 60,
+		attack = 15,
+		defense = 8,
+		moveSpeed = 16,
+		attackRange = 8,
+		detectionRange = 35,
+		behavior = "charge_spin", -- charges at player, spin attack
+		attackCooldown = 2.5,
+		chargeSpeed = 40,
+		xpReward = 20,
+		soulShards = 10,
+		difficulty = 2,
+	},
+	rune_guardian = {
+		name = "Rune Guardian",
+		health = 80,
+		attack = 10,
+		defense = 15,
+		moveSpeed = 6,
+		attackRange = 10,
+		detectionRange = 25,
+		behavior = "shield_reflect", -- has shield, reflects projectiles
+		attackCooldown = 3.0,
+		shieldHealth = 30,
+		xpReward = 25,
+		soulShards = 15,
+		difficulty = 3,
+	},
+}
+
+EnemyDatabase.Bosses = {
+	lazarus = {
+		name = "Undead Lord Lazarus",
+		health = 500,
+		attack = 20,
+		defense = 10,
+		moveSpeed = 14,
+		phases = {
+			{
+				name = "Sword & Bones",
+				hpThreshold = 1.0, -- starts at 100%
+				behavior = "boss_melee_summon",
+				attackCooldown = 1.5,
+				summonCooldown = 8.0,
+				summonId = "wandering_ghost",
+				summonCount = 3,
+			},
+			{
+				name = "Soul Form",
+				hpThreshold = 0.6, -- triggers at 60% HP
+				behavior = "boss_ranged_tracking",
+				attackCooldown = 1.0,
+				projectileSpeed = 30,
+				trackingStrength = 0.5,
+			},
+			{
+				name = "Dual Form",
+				hpThreshold = 0.3, -- triggers at 30% HP
+				behavior = "boss_dual_mode",
+				attackCooldown = 0.8,
+				summonCooldown = 6.0,
+				summonId = "shadow_knight",
+				summonCount = 2,
+			},
+		},
+		xpReward = 200,
+		soulShards = 100,
+		lootTable = {
+			{ itemPool = "ghost_ruins_epic", chance = 0.5 },
+			{ itemPool = "ghost_ruins_rare", chance = 1.0 },
+		},
+	},
+}
+
+-- Spawn tables: how many enemies per combat room by difficulty
+EnemyDatabase.SpawnTables = {
+	ghost_ruins = {
+		easy   = { minCount = 3, maxCount = 5, pool = { "wandering_ghost", "bone_archer" } },
+		medium = { minCount = 4, maxCount = 6, pool = { "wandering_ghost", "bone_archer", "shadow_knight" } },
+		hard   = { minCount = 5, maxCount = 7, pool = { "bone_archer", "shadow_knight", "rune_guardian" } },
+	},
+}
+
+return EnemyDatabase
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="7">
+    <Properties>
+      <string name="Name">GameConfig</string>
+      <string name="Source"><![CDATA[--[[
+	GameConfig.luau — Central configuration for Soul Rift
+	ReplicatedStorage/Shared/GameConfig
+]]
+
+local GameConfig = {}
+
+-- General
+GameConfig.MAX_PLAYERS_PER_RUN = 4
+GameConfig.MAX_HUB_PLAYERS = 50
+
+-- Dungeon structure (MVP: 1 floor)
+GameConfig.FLOORS = {
+	{
+		name = "Ghost Ruins",
+		theme = "ghost_ruins",
+		minRooms = 8,
+		maxRooms = 10,
+		enemyLevelBase = 1,
+		bossId = "lazarus",
+	},
+}
+
+-- Room types
+GameConfig.ROOM_TYPES = {
+	COMBAT    = "combat",
+	ELITE     = "elite",
+	TREASURE  = "treasure",
+	SHOP      = "shop",
+	REST      = "rest",
+	BOSS      = "boss",
+	CHALLENGE = "challenge",
+	SECRET    = "secret",
+}
+
+-- Room generation weights (MVP)
+GameConfig.ROOM_WEIGHTS = {
+	combat   = 50,
+	treasure = 15,
+	shop     = 10,
+	elite    = 15,
+	rest     = 10,
+}
+
+-- Combat
+GameConfig.BASE_ATTACK_COOLDOWN = 0.5
+GameConfig.DODGE_COOLDOWN = 1.5
+GameConfig.DODGE_DISTANCE = 20
+GameConfig.DODGE_IFRAME_DURATION = 0.3
+GameConfig.KNOCKBACK_FORCE = 30
+GameConfig.CRIT_MULTIPLIER = 2.0
+GameConfig.DEFAULT_CRIT_RATE = 0.05
+
+-- Player defaults
+GameConfig.PLAYER_BASE_STATS = {
+	maxHealth = 100,
+	attack = 10,
+	defense = 5,
+	moveSpeed = 24,
+	critRate = 0.05,
+}
+
+-- Loot rarity weights
+GameConfig.RARITY_WEIGHTS = {
+	common   = 50,
+	uncommon = 30,
+	rare     = 15,
+	epic     = 5,
+}
+
+-- Talent card rarity weights
+GameConfig.TALENT_RARITY_WEIGHTS = {
+	common    = 50,
+	rare      = 30,
+	epic      = 15,
+	legendary = 5,
+}
+
+-- Currency
+GameConfig.SOUL_SHARD_BASE_DROP = 10
+GameConfig.BOSS_SOUL_SHARD_MULTIPLIER = 5
+
+-- Difficulty (MVP: normal only)
+GameConfig.DIFFICULTY = {
+	normal = { enemyMult = 1.0, rewardMult = 1.0 },
+}
+
+-- Timing
+GameConfig.ROOM_TRANSITION_TIME = 2.0
+GameConfig.TALENT_PICK_TIMEOUT = 30
+GameConfig.RUN_TARGET_DURATION = 900
+
+-- Room layout sizes (studs)
+GameConfig.ROOM_SIZE = { x = 60, z = 60 }
+GameConfig.CORRIDOR_LENGTH = 20
+GameConfig.CORRIDOR_WIDTH = 10
+GameConfig.WALL_HEIGHT = 16
+GameConfig.WALL_THICKNESS = 2
+
+return GameConfig
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="8">
+    <Properties>
+      <string name="Name">ItemDatabase</string>
+      <string name="Source"><![CDATA[--[[
+	ItemDatabase.luau — Item/equipment definitions for Soul Rift
+	ReplicatedStorage/Shared/ItemDatabase
+	MVP: Weapon + Armor slots, 3 rarities (common/rare/epic)
+]]
+
+local ItemDatabase = {}
+
+-- Stat modifiers that can roll on equipment
+ItemDatabase.STAT_POOL = {
+	{ stat = "attack",    min = 1,  max = 5,  weight = 20 },
+	{ stat = "maxHealth", min = 5,  max = 20, weight = 20 },
+	{ stat = "critRate",  min = 0.01, max = 0.05, weight = 15 },
+	{ stat = "defense",   min = 1,  max = 4,  weight = 15 },
+	{ stat = "moveSpeed", min = 1,  max = 3,  weight = 10 },
+	{ stat = "lifeSteal", min = 0.01, max = 0.03, weight = 10 },
+	{ stat = "cooldownReduction", min = 0.02, max = 0.08, weight = 10 },
+}
+
+-- Affix count by rarity
+ItemDatabase.RARITY_AFFIXES = {
+	common = 0,
+	uncommon = 1,
+	rare = 2,
+	epic = 3,
+}
+
+-- Stat multiplier by rarity
+ItemDatabase.RARITY_STAT_MULT = {
+	common = 1.0,
+	uncommon = 1.2,
+	rare = 1.5,
+	epic = 2.0,
+}
+
+-- Base weapons (MVP)
+ItemDatabase.Weapons = {
+	-- Blade Dancer weapons
+	{
+		id = "rusty_sword",
+		name = "Rusty Sword",
+		slot = "weapon",
+		classRestriction = "blade_dancer",
+		baseAttack = 5,
+		rarity = "common",
+	},
+	{
+		id = "steel_katana",
+		name = "Steel Katana",
+		slot = "weapon",
+		classRestriction = "blade_dancer",
+		baseAttack = 10,
+		rarity = "rare",
+	},
+	{
+		id = "phantom_blade",
+		name = "Phantom Blade",
+		slot = "weapon",
+		classRestriction = "blade_dancer",
+		baseAttack = 18,
+		rarity = "epic",
+		specialEffect = "phantom_slash", -- attacks have 20% chance to hit twice
+	},
+	-- Soul Caster weapons
+	{
+		id = "cracked_orb",
+		name = "Cracked Soul Orb",
+		slot = "weapon",
+		classRestriction = "soul_caster",
+		baseAttack = 4,
+		rarity = "common",
+	},
+	{
+		id = "crystal_focus",
+		name = "Crystal Focus",
+		slot = "weapon",
+		classRestriction = "soul_caster",
+		baseAttack = 9,
+		rarity = "rare",
+	},
+	{
+		id = "void_scepter",
+		name = "Void Scepter",
+		slot = "weapon",
+		classRestriction = "soul_caster",
+		baseAttack = 16,
+		rarity = "epic",
+		specialEffect = "soul_pierce", -- projectiles pierce 1 additional enemy
+	},
+}
+
+-- Base armor (MVP, shared between classes)
+ItemDatabase.Armors = {
+	{
+		id = "cloth_tunic",
+		name = "Cloth Tunic",
+		slot = "armor",
+		baseDefense = 3,
+		baseHealth = 10,
+		rarity = "common",
+	},
+	{
+		id = "chain_mail",
+		name = "Chain Mail",
+		slot = "armor",
+		baseDefense = 7,
+		baseHealth = 20,
+		rarity = "rare",
+	},
+	{
+		id = "spectral_plate",
+		name = "Spectral Plate",
+		slot = "armor",
+		baseDefense = 12,
+		baseHealth = 35,
+		rarity = "epic",
+		specialEffect = "ghost_phase", -- 10% chance to phase through attacks
+	},
+}
+
+-- Shop items (in-run currency)
+ItemDatabase.ShopItems = {
+	{
+		id = "health_potion",
+		name = "Health Potion",
+		type = "consumable",
+		effect = "heal",
+		value = 30, -- heals 30 HP
+		cost = 20,
+	},
+	{
+		id = "damage_scroll",
+		name = "Damage Scroll",
+		type = "consumable",
+		effect = "buff_attack",
+		value = 0.2, -- +20% attack for room
+		duration = 60,
+		cost = 30,
+	},
+	{
+		id = "reroll_token",
+		name = "Talent Reroll",
+		type = "consumable",
+		effect = "reroll_talents",
+		cost = 25,
+	},
+}
+
+return ItemDatabase
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="9">
+    <Properties>
+      <string name="Name">SkillDatabase</string>
+      <string name="Source"><![CDATA[--[[
+	SkillDatabase.luau — Skill definitions for Soul Rift
+	ReplicatedStorage/Shared/SkillDatabase
+	MVP: 2 classes (Blade Dancer, Soul Caster)
+]]
+
+local SkillDatabase = {}
+
+SkillDatabase.Classes = {
+	blade_dancer = {
+		name = "Blade Dancer",
+		displayName = "剑士",
+		description = "Fast melee combos, dodge counters, and sword waves",
+		baseStats = {
+			maxHealth = 100,
+			attack = 12,
+			defense = 6,
+			moveSpeed = 26,
+			critRate = 0.08,
+		},
+		passive = {
+			name = "Rising Combo",
+			description = "Higher combo count increases attack speed and damage",
+			comboAttackSpeedBonus = 0.02, -- per combo hit
+			comboDamageBonus = 0.01,      -- per combo hit
+			maxComboStacks = 30,
+			comboResetTime = 3.0,
+		},
+		skills = {
+			{
+				id = "bd_slash_combo",
+				name = "Swift Slash",
+				description = "3-hit sword combo dealing increasing damage",
+				type = "melee",
+				cooldown = 0,
+				damageMultiplier = { 0.8, 1.0, 1.5 }, -- per hit
+				range = 8,
+				comboWindow = 0.8,
+			},
+			{
+				id = "bd_sword_wave",
+				name = "Sword Wave",
+				description = "Send a crescent blade projectile forward",
+				type = "projectile",
+				cooldown = 4.0,
+				damageMultiplier = 2.0,
+				range = 50,
+				projectileSpeed = 60,
+				width = 6,
+			},
+			{
+				id = "bd_counter_dash",
+				name = "Counter Dash",
+				description = "Dash forward; if hit during dash, counter with a powerful slash",
+				type = "dash_counter",
+				cooldown = 6.0,
+				dashDistance = 25,
+				dashDuration = 0.3,
+				counterDamageMultiplier = 3.0,
+				counterWindow = 0.3,
+			},
+		},
+		ultimate = {
+			id = "bd_blade_storm",
+			name = "Blade Storm",
+			description = "Unleash a whirlwind of slashes in a wide area",
+			energyCost = 100,
+			damageMultiplier = 0.5, -- per tick
+			tickRate = 0.15,
+			duration = 2.0,
+			radius = 15,
+		},
+	},
+
+	soul_caster = {
+		name = "Soul Caster",
+		displayName = "咒术师",
+		description = "Ranged soul projectiles, area spells, and shields",
+		baseStats = {
+			maxHealth = 80,
+			attack = 14,
+			defense = 4,
+			moveSpeed = 22,
+			critRate = 0.05,
+		},
+		passive = {
+			name = "Soul Shield",
+			description = "Gain a soul shield after casting a spell",
+			shieldPercent = 0.05, -- 5% of max health
+			shieldDuration = 5.0,
+			internalCooldown = 2.0,
+		},
+		skills = {
+			{
+				id = "sc_soul_bolt",
+				name = "Soul Bolt",
+				description = "Fire a homing soul projectile",
+				type = "projectile",
+				cooldown = 0.8,
+				damageMultiplier = 1.2,
+				range = 55,
+				projectileSpeed = 45,
+				homingStrength = 0.3,
+			},
+			{
+				id = "sc_soul_explosion",
+				name = "Soul Explosion",
+				description = "Create an explosion at target location",
+				type = "area",
+				cooldown = 5.0,
+				damageMultiplier = 2.5,
+				radius = 12,
+				range = 40,
+				castTime = 0.5,
+			},
+			{
+				id = "sc_barrier",
+				name = "Arcane Barrier",
+				description = "Deploy a shield that absorbs damage for all nearby allies",
+				type = "shield",
+				cooldown = 8.0,
+				shieldAmount = 40, -- flat HP
+				duration = 5.0,
+				radius = 15,
+			},
+		},
+		ultimate = {
+			id = "sc_soul_rain",
+			name = "Soul Rain",
+			description = "Rain soul projectiles over a large area",
+			energyCost = 100,
+			damageMultiplier = 1.0, -- per projectile
+			projectileCount = 20,
+			duration = 3.0,
+			radius = 25,
+		},
+	},
+}
+
+-- Energy generation
+SkillDatabase.ENERGY_PER_HIT = 5
+SkillDatabase.ENERGY_PER_KILL = 15
+SkillDatabase.ENERGY_MAX = 100
+
+return SkillDatabase
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="10">
+    <Properties>
+      <string name="Name">TalentCardDatabase</string>
+      <string name="Source"><![CDATA[--[[
+	TalentCardDatabase.luau — Talent card (in-run buff) definitions
+	ReplicatedStorage/Shared/TalentCardDatabase
+	MVP: 20 universal + 5 per class = 30 total
+]]
+
+local TalentCardDatabase = {}
+
+-- Universal talents (available to all classes)
+TalentCardDatabase.Universal = {
+	-- Common (10)
+	{ id = "t_life_steal",     name = "Life Steal",      rarity = "common", description = "Attacks restore 1% max HP",        effect = { type = "stat", stat = "lifeSteal", value = 0.01 } },
+	{ id = "t_swift_feet",     name = "Swift Feet",      rarity = "common", description = "Move speed +10%",                  effect = { type = "stat", stat = "moveSpeed", value = 0.10, mode = "percent" } },
+	{ id = "t_iron_skin",      name = "Iron Skin",       rarity = "common", description = "Defense +15%",                     effect = { type = "stat", stat = "defense", value = 0.15, mode = "percent" } },
+	{ id = "t_sharp_edge",     name = "Sharp Edge",      rarity = "common", description = "Attack +10%",                      effect = { type = "stat", stat = "attack", value = 0.10, mode = "percent" } },
+	{ id = "t_vitality",       name = "Vitality",        rarity = "common", description = "Max HP +15%",                      effect = { type = "stat", stat = "maxHealth", value = 0.15, mode = "percent" } },
+	{ id = "t_quick_hands",    name = "Quick Hands",     rarity = "common", description = "Attack speed +8%",                 effect = { type = "stat", stat = "attackSpeed", value = 0.08, mode = "percent" } },
+	{ id = "t_lucky_strike",   name = "Lucky Strike",    rarity = "common", description = "Crit rate +3%",                    effect = { type = "stat", stat = "critRate", value = 0.03 } },
+	{ id = "t_scavenger",      name = "Scavenger",       rarity = "common", description = "Soul shard drops +20%",            effect = { type = "stat", stat = "soulShardBonus", value = 0.20 } },
+	{ id = "t_thick_armor",    name = "Thick Armor",     rarity = "common", description = "Reduce damage taken by 5%",        effect = { type = "stat", stat = "damageReduction", value = 0.05 } },
+	{ id = "t_energy_flow",    name = "Energy Flow",     rarity = "common", description = "Ultimate energy gain +15%",        effect = { type = "stat", stat = "energyGainBonus", value = 0.15 } },
+
+	-- Rare (6)
+	{ id = "t_chain_lightning", name = "Chain Lightning",  rarity = "rare", description = "Kills deal 50% damage to nearby enemies", effect = { type = "on_kill", action = "chain_damage", radius = 15, damagePct = 0.50 } },
+	{ id = "t_berserker",       name = "Berserker",        rarity = "rare", description = "Below 30% HP: +40% attack",                effect = { type = "conditional", condition = "low_hp", threshold = 0.3, stat = "attack", value = 0.40, mode = "percent" } },
+	{ id = "t_dodge_master",    name = "Dodge Master",     rarity = "rare", description = "Dodge cooldown -30%",                      effect = { type = "stat", stat = "dodgeCooldown", value = -0.30, mode = "percent" } },
+	{ id = "t_gold_rush",       name = "Gold Rush",        rarity = "rare", description = "Enemies drop +50% more gold",              effect = { type = "stat", stat = "goldBonus", value = 0.50 } },
+	{ id = "t_second_wind",     name = "Second Wind",      rarity = "rare", description = "Heal 20% HP when entering a new room",     effect = { type = "on_event", event = "room_enter", action = "heal", value = 0.20 } },
+	{ id = "t_crit_damage",     name = "Brutal Crits",     rarity = "rare", description = "Critical damage +50%",                     effect = { type = "stat", stat = "critDamage", value = 0.50 } },
+
+	-- Epic (3)
+	{ id = "t_time_warp",      name = "Time Warp",       rarity = "epic", description = "Dodge slows nearby enemies 50% for 2s",   effect = { type = "on_dodge", action = "slow_area", radius = 15, slowPct = 0.50, duration = 2.0 } },
+	{ id = "t_soul_harvest",   name = "Soul Harvest",    rarity = "epic", description = "Kills grant a stacking +2% attack (max 30%)", effect = { type = "on_kill", action = "stack_buff", stat = "attack", value = 0.02, maxStacks = 15, duration = 10.0 } },
+	{ id = "t_mirror_shield",  name = "Mirror Shield",   rarity = "epic", description = "Reflect 30% damage taken back to attacker",   effect = { type = "on_hit_taken", action = "reflect", reflectPct = 0.30 } },
+
+	-- Legendary (1)
+	{ id = "t_undying_soul",   name = "Undying Soul",    rarity = "legendary", description = "Revive on death with +100% attack for 60s (once per run)", effect = { type = "on_death", action = "revive", attackBonus = 1.00, duration = 60.0, uses = 1 } },
+}
+
+-- Blade Dancer exclusive talents (5)
+TalentCardDatabase.BladeDancer = {
+	{ id = "t_bd_wind_blade",   name = "Wind Blade",      rarity = "common",    description = "Sword Wave range +50%",                   effect = { type = "skill_mod", skillId = "bd_sword_wave", stat = "range", value = 0.50, mode = "percent" } },
+	{ id = "t_bd_quick_slash",  name = "Quick Slash",     rarity = "common",    description = "Combo attack speed +15%",                 effect = { type = "skill_mod", skillId = "bd_slash_combo", stat = "speed", value = 0.15, mode = "percent" } },
+	{ id = "t_bd_shadow_clone", name = "Shadow Clone",    rarity = "rare",      description = "Combo finisher summons a clone that attacks once", effect = { type = "on_combo_end", action = "summon_clone", damageMultiplier = 0.5 } },
+	{ id = "t_bd_blade_field",  name = "Blade Field",     rarity = "epic",      description = "Ultimate becomes a persistent blade field",        effect = { type = "skill_mod", skillId = "bd_blade_storm", stat = "mode", value = "persistent_field" } },
+	{ id = "t_bd_sword_intent", name = "Sword Intent",    rarity = "legendary", description = "Combo never resets; +5% attack per 10 combo",      effect = { type = "passive_mod", passive = "rising_combo", comboResetTime = 9999, bonusPer10 = 0.05 } },
+}
+
+-- Soul Caster exclusive talents (5)
+TalentCardDatabase.SoulCaster = {
+	{ id = "t_sc_piercing",     name = "Piercing Bolt",   rarity = "common",    description = "Soul Bolt pierces 1 additional enemy",          effect = { type = "skill_mod", skillId = "sc_soul_bolt", stat = "pierce", value = 1 } },
+	{ id = "t_sc_bigger_boom",  name = "Bigger Boom",     rarity = "common",    description = "Soul Explosion radius +40%",                    effect = { type = "skill_mod", skillId = "sc_soul_explosion", stat = "radius", value = 0.40, mode = "percent" } },
+	{ id = "t_sc_mana_surge",   name = "Mana Surge",      rarity = "rare",      description = "After casting 3 spells, next spell costs no cooldown", effect = { type = "on_cast_count", threshold = 3, action = "reset_cooldown" } },
+	{ id = "t_sc_soul_link",    name = "Soul Link",       rarity = "epic",      description = "Barrier also heals allies inside for 5 HP/s",         effect = { type = "skill_mod", skillId = "sc_barrier", stat = "healPerSec", value = 5 } },
+	{ id = "t_sc_soul_rain_ex", name = "Soul Tempest",    rarity = "legendary", description = "Ultimate projectiles home on enemies and explode",    effect = { type = "skill_mod", skillId = "sc_soul_rain", stat = "mode", value = "homing_explode" } },
+}
+
+-- Helper: get talent pool for a given class
+function TalentCardDatabase.getPoolForClass(classId: string): { any }
+	local pool = {}
+	for _, card in TalentCardDatabase.Universal do
+		table.insert(pool, card)
+	end
+	if classId == "blade_dancer" then
+		for _, card in TalentCardDatabase.BladeDancer do
+			table.insert(pool, card)
+		end
+	elseif classId == "soul_caster" then
+		for _, card in TalentCardDatabase.SoulCaster do
+			table.insert(pool, card)
+		end
+	end
+	return pool
+end
+
+return TalentCardDatabase
+]]></string>
+    </Properties>
+  </Item>
+  </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="21">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+  <Item class="ModuleScript" referent="0">
+    <Properties>
+      <string name="Name">CombatSystem</string>
+      <string name="Source"><![CDATA[--[[
+	CombatSystem.luau — Server-authoritative combat calculations
+	ServerScriptService/CombatSystem
+
+	Handles: damage calculation, skill execution, dodge, knockback,
+	talent card effects, and death/revive logic.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local SkillDatabase = require(ReplicatedStorage.Shared.SkillDatabase)
+
+local CombatSystem = {}
+
+-- Active player combat states: { [Player]: CombatState }
+CombatSystem._playerStates = {}
+
+-- Active enemy states: { [Model]: EnemyState }
+CombatSystem._enemyStates = {}
+
+--------------------------------------------------
+-- Player combat state
+--------------------------------------------------
+
+export type CombatState = {
+	classId: string,
+	stats: { [string]: number },
+	currentHealth: number,
+	energy: number,
+	comboCount: number,
+	comboTimer: number,
+	talents: { any },
+	skillCooldowns: { [string]: number },
+	dodgeCooldown: number,
+	isInvincible: boolean,
+	isDead: boolean,
+	buffs: { any },
+	shield: number,
+}
+
+function CombatSystem.initPlayerState(player: Player, classId: string): CombatState
+	local classDef = SkillDatabase.Classes[classId]
+	if not classDef then
+		warn("[CombatSystem] Unknown class:", classId)
+		return nil
+	end
+
+	local stats = {}
+	for k, v in classDef.baseStats do
+		stats[k] = v
+	end
+
+	local state: CombatState = {
+		classId = classId,
+		stats = stats,
+		currentHealth = stats.maxHealth,
+		energy = 0,
+		comboCount = 0,
+		comboTimer = 0,
+		talents = {},
+		skillCooldowns = {},
+		dodgeCooldown = 0,
+		isInvincible = false,
+		isDead = false,
+		buffs = {},
+		shield = 0,
+	}
+
+	CombatSystem._playerStates[player] = state
+	return state
+end
+
+function CombatSystem.getPlayerState(player: Player): CombatState?
+	return CombatSystem._playerStates[player]
+end
+
+function CombatSystem.removePlayerState(player: Player)
+	CombatSystem._playerStates[player] = nil
+end
+
+--------------------------------------------------
+-- Damage calculation
+--------------------------------------------------
+
+function CombatSystem.calculateDamage(
+	attackerStats: { [string]: number },
+	defenderStats: { [string]: number },
+	damageMultiplier: number,
+	attackerTalents: { any }?
+): (number, boolean) -- returns (damage, isCrit)
+	local baseDamage = attackerStats.attack * damageMultiplier
+	local defense = defenderStats.defense or 0
+
+	-- Defense reduction formula: damage * (100 / (100 + defense))
+	local reduction = 100 / (100 + defense)
+	local damage = baseDamage * reduction
+
+	-- Crit check
+	local critRate = attackerStats.critRate or GameConfig.DEFAULT_CRIT_RATE
+	local critMult = GameConfig.CRIT_MULTIPLIER
+	local isCrit = false
+
+	-- Check for crit damage talent bonus
+	if attackerTalents then
+		for _, talent in attackerTalents do
+			if talent.effect and talent.effect.stat == "critDamage" then
+				critMult += talent.effect.value
+			end
+		end
+	end
+
+	if math.random() < critRate then
+		damage *= critMult
+		isCrit = true
+	end
+
+	-- Damage reduction from talents/buffs
+	local damageReduction = defenderStats.damageReduction or 0
+	damage *= (1 - damageReduction)
+
+	return math.floor(math.max(1, damage)), isCrit
+end
+
+--------------------------------------------------
+-- Apply damage to enemy
+--------------------------------------------------
+
+function CombatSystem.damageEnemy(
+	player: Player,
+	enemyModel: Model,
+	damageMultiplier: number
+): (number, boolean)?
+	local playerState = CombatSystem._playerStates[player]
+	local enemyState = CombatSystem._enemyStates[enemyModel]
+	if not playerState or not enemyState or enemyState.isDead then
+		return nil
+	end
+
+	local damage, isCrit = CombatSystem.calculateDamage(
+		playerState.stats,
+		enemyState.stats,
+		damageMultiplier,
+		playerState.talents
+	)
+
+	enemyState.currentHealth -= damage
+
+	-- Life steal
+	local lifeSteal = playerState.stats.lifeSteal or 0
+	if lifeSteal > 0 then
+		local healAmount = math.floor(playerState.stats.maxHealth * lifeSteal)
+		CombatSystem.healPlayer(player, healAmount)
+	end
+
+	-- Energy gain
+	local energyGain = SkillDatabase.ENERGY_PER_HIT
+	local energyBonus = playerState.stats.energyGainBonus or 0
+	energyGain = math.floor(energyGain * (1 + energyBonus))
+	playerState.energy = math.min(SkillDatabase.ENERGY_MAX, playerState.energy + energyGain)
+
+	-- Combo tracking (Blade Dancer passive)
+	if playerState.classId == "blade_dancer" then
+		playerState.comboCount += 1
+		playerState.comboTimer = SkillDatabase.Classes.blade_dancer.passive.comboResetTime
+
+		-- Apply combo bonuses
+		local passive = SkillDatabase.Classes.blade_dancer.passive
+		local stacks = math.min(playerState.comboCount, passive.maxComboStacks)
+		playerState.stats.attackSpeed = 1.0 + stacks * passive.comboAttackSpeedBonus
+	end
+
+	-- Check death
+	if enemyState.currentHealth <= 0 then
+		enemyState.isDead = true
+		CombatSystem._onEnemyKilled(player, enemyModel, enemyState)
+	end
+
+	-- Fire client event for VFX
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "DamageDealt", {
+			target = enemyModel,
+			damage = damage,
+			isCrit = isCrit,
+			targetHealth = enemyState.currentHealth,
+			targetMaxHealth = enemyState.stats.maxHealth,
+		})
+	end
+
+	return damage, isCrit
+end
+
+--------------------------------------------------
+-- Apply damage to player
+--------------------------------------------------
+
+function CombatSystem.damagePlayer(player: Player, rawDamage: number, source: Model?): number?
+	local state = CombatSystem._playerStates[player]
+	if not state or state.isDead or state.isInvincible then
+		return nil
+	end
+
+	-- Shield absorb first
+	if state.shield > 0 then
+		if state.shield >= rawDamage then
+			state.shield -= rawDamage
+			return 0
+		else
+			rawDamage -= state.shield
+			state.shield = 0
+		end
+	end
+
+	-- Apply defense
+	local reduction = 100 / (100 + state.stats.defense)
+	local damage = math.floor(rawDamage * reduction)
+	local damageReduction = state.stats.damageReduction or 0
+	damage = math.floor(damage * (1 - damageReduction))
+	damage = math.max(1, damage)
+
+	state.currentHealth -= damage
+
+	-- Reflect damage talent
+	for _, talent in state.talents do
+		if talent.effect and talent.effect.action == "reflect" and source then
+			local reflectDmg = math.floor(damage * talent.effect.reflectPct)
+			local enemyState = CombatSystem._enemyStates[source]
+			if enemyState and not enemyState.isDead then
+				enemyState.currentHealth -= reflectDmg
+				if enemyState.currentHealth <= 0 then
+					enemyState.isDead = true
+					CombatSystem._onEnemyKilled(player, source, enemyState)
+				end
+			end
+		end
+	end
+
+	-- Death check
+	if state.currentHealth <= 0 then
+		CombatSystem._onPlayerDeath(player, state)
+	end
+
+	-- Berserker talent check
+	for _, talent in state.talents do
+		if talent.effect and talent.effect.condition == "low_hp" then
+			local hpPct = state.currentHealth / state.stats.maxHealth
+			if hpPct <= talent.effect.threshold then
+				-- Apply temporary attack bonus (tracked via buffs)
+				CombatSystem._applyBuff(state, "berserker", {
+					stat = "attack",
+					value = talent.effect.value,
+					mode = "percent",
+				})
+			end
+		end
+	end
+
+	-- Fire client event
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "DamageTaken", {
+			damage = damage,
+			currentHealth = state.currentHealth,
+			maxHealth = state.stats.maxHealth,
+		})
+	end
+
+	return damage
+end
+
+--------------------------------------------------
+-- Healing
+--------------------------------------------------
+
+function CombatSystem.healPlayer(player: Player, amount: number)
+	local state = CombatSystem._playerStates[player]
+	if not state or state.isDead then return end
+
+	state.currentHealth = math.min(state.stats.maxHealth, state.currentHealth + amount)
+end
+
+--------------------------------------------------
+-- Dodge
+--------------------------------------------------
+
+function CombatSystem.tryDodge(player: Player): boolean
+	local state = CombatSystem._playerStates[player]
+	if not state or state.isDead then return false end
+	if state.dodgeCooldown > 0 then return false end
+
+	state.isInvincible = true
+	state.dodgeCooldown = GameConfig.DODGE_COOLDOWN
+
+	-- Check dodge cooldown reduction from talents
+	for _, talent in state.talents do
+		if talent.effect and talent.effect.stat == "dodgeCooldown" then
+			state.dodgeCooldown *= (1 + talent.effect.value) -- value is negative
+		end
+	end
+
+	-- Schedule end of i-frames
+	task.delay(GameConfig.DODGE_IFRAME_DURATION, function()
+		if CombatSystem._playerStates[player] then
+			state.isInvincible = false
+		end
+	end)
+
+	-- Time warp talent (slow nearby enemies on dodge)
+	for _, talent in state.talents do
+		if talent.effect and talent.effect.action == "slow_area" then
+			CombatSystem._applyAreaSlow(player, talent.effect)
+		end
+	end
+
+	return true
+end
+
+--------------------------------------------------
+-- Skill execution
+--------------------------------------------------
+
+function CombatSystem.useSkill(player: Player, skillId: string): boolean
+	local state = CombatSystem._playerStates[player]
+	if not state or state.isDead then return false end
+
+	local classDef = SkillDatabase.Classes[state.classId]
+	if not classDef then return false end
+
+	-- Find skill definition
+	local skillDef = nil
+	for _, skill in classDef.skills do
+		if skill.id == skillId then
+			skillDef = skill
+			break
+		end
+	end
+	if not skillDef then return false end
+
+	-- Check cooldown
+	local currentCD = state.skillCooldowns[skillId] or 0
+	if currentCD > 0 then return false end
+
+	-- Set cooldown
+	state.skillCooldowns[skillId] = skillDef.cooldown
+
+	-- Soul Caster passive: grant shield after casting
+	if state.classId == "soul_caster" then
+		local passive = classDef.passive
+		local shieldAmount = math.floor(state.stats.maxHealth * passive.shieldPercent)
+		state.shield = math.max(state.shield, shieldAmount)
+	end
+
+	return true
+end
+
+-- Use ultimate skill
+function CombatSystem.useUltimate(player: Player): boolean
+	local state = CombatSystem._playerStates[player]
+	if not state or state.isDead then return false end
+	if state.energy < SkillDatabase.ENERGY_MAX then return false end
+
+	state.energy = 0
+	return true
+end
+
+--------------------------------------------------
+-- Talent card management
+--------------------------------------------------
+
+function CombatSystem.addTalent(player: Player, talentData: any)
+	local state = CombatSystem._playerStates[player]
+	if not state then return end
+
+	table.insert(state.talents, talentData)
+
+	-- Apply stat-type talents immediately
+	if talentData.effect and talentData.effect.type == "stat" then
+		local effect = talentData.effect
+		if effect.mode == "percent" then
+			state.stats[effect.stat] = (state.stats[effect.stat] or 0) * (1 + effect.value)
+		else
+			state.stats[effect.stat] = (state.stats[effect.stat] or 0) + effect.value
+		end
+		-- Recalculate max health effect
+		if effect.stat == "maxHealth" then
+			state.currentHealth = math.min(state.currentHealth, state.stats.maxHealth)
+		end
+	end
+end
+
+--------------------------------------------------
+-- Enemy state management
+--------------------------------------------------
+
+function CombatSystem.initEnemyState(enemyModel: Model, enemyData: any)
+	CombatSystem._enemyStates[enemyModel] = {
+		id = enemyData.id or "unknown",
+		stats = {
+			maxHealth = enemyData.health,
+			attack = enemyData.attack,
+			defense = enemyData.defense,
+			moveSpeed = enemyData.moveSpeed,
+		},
+		currentHealth = enemyData.health,
+		isDead = false,
+		behavior = enemyData.behavior,
+		xpReward = enemyData.xpReward,
+		soulShards = enemyData.soulShards,
+	}
+end
+
+function CombatSystem.getEnemyState(enemyModel: Model)
+	return CombatSystem._enemyStates[enemyModel]
+end
+
+function CombatSystem.removeEnemyState(enemyModel: Model)
+	CombatSystem._enemyStates[enemyModel] = nil
+end
+
+--------------------------------------------------
+-- Update loop (call from GameManager heartbeat)
+--------------------------------------------------
+
+function CombatSystem.update(dt: number)
+	for player, state in CombatSystem._playerStates do
+		if not state.isDead then
+			-- Cooldown ticks
+			for skillId, cd in state.skillCooldowns do
+				if cd > 0 then
+					state.skillCooldowns[skillId] = math.max(0, cd - dt)
+				end
+			end
+
+			-- Dodge cooldown
+			if state.dodgeCooldown > 0 then
+				state.dodgeCooldown = math.max(0, state.dodgeCooldown - dt)
+			end
+
+			-- Combo timer (Blade Dancer)
+			if state.classId == "blade_dancer" and state.comboCount > 0 then
+				state.comboTimer -= dt
+				if state.comboTimer <= 0 then
+					state.comboCount = 0
+					state.stats.attackSpeed = 1.0
+				end
+			end
+
+			-- Buff durations
+			for i = #state.buffs, 1, -1 do
+				local buff = state.buffs[i]
+				if buff.duration then
+					buff.duration -= dt
+					if buff.duration <= 0 then
+						CombatSystem._removeBuff(state, i)
+					end
+				end
+			end
+		end
+	end
+end
+
+--------------------------------------------------
+-- Internal helpers
+--------------------------------------------------
+
+function CombatSystem._onEnemyKilled(player: Player, enemyModel: Model, enemyState: any)
+	local playerState = CombatSystem._playerStates[player]
+	if not playerState then return end
+
+	-- Energy on kill
+	local energyGain = SkillDatabase.ENERGY_PER_KILL
+	local energyBonus = playerState.stats.energyGainBonus or 0
+	energyGain = math.floor(energyGain * (1 + energyBonus))
+	playerState.energy = math.min(SkillDatabase.ENERGY_MAX, playerState.energy + energyGain)
+
+	-- On-kill talent effects
+	for _, talent in playerState.talents do
+		if talent.effect and talent.effect.type == "on_kill" then
+			if talent.effect.action == "chain_damage" then
+				CombatSystem._chainDamage(player, enemyModel, talent.effect)
+			elseif talent.effect.action == "stack_buff" then
+				CombatSystem._applyStackBuff(playerState, talent.effect)
+			end
+		end
+	end
+
+	-- Fire kill event
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "EnemyKilled", {
+			target = enemyModel,
+			xp = enemyState.xpReward,
+			soulShards = enemyState.soulShards,
+		})
+	end
+end
+
+function CombatSystem._onPlayerDeath(player: Player, state: CombatState)
+	-- Check revive talent
+	for i, talent in state.talents do
+		if talent.effect and talent.effect.action == "revive" and (talent.effect.uses or 0) > 0 then
+			state.currentHealth = math.floor(state.stats.maxHealth * 0.3)
+			talent.effect.uses -= 1
+			CombatSystem._applyBuff(state, "revive_boost", {
+				stat = "attack",
+				value = talent.effect.attackBonus,
+				mode = "percent",
+				duration = talent.effect.duration,
+			})
+			return
+		end
+	end
+
+	state.isDead = true
+	state.currentHealth = 0
+end
+
+function CombatSystem._applyBuff(state: CombatState, name: string, buffData: any)
+	-- Remove existing buff of same name
+	for i = #state.buffs, 1, -1 do
+		if state.buffs[i].name == name then
+			CombatSystem._removeBuff(state, i)
+		end
+	end
+
+	local buff = {
+		name = name,
+		stat = buffData.stat,
+		value = buffData.value,
+		mode = buffData.mode,
+		duration = buffData.duration,
+	}
+	table.insert(state.buffs, buff)
+
+	-- Apply stat change
+	if buffData.mode == "percent" then
+		state.stats[buffData.stat] = (state.stats[buffData.stat] or 0) * (1 + buffData.value)
+	else
+		state.stats[buffData.stat] = (state.stats[buffData.stat] or 0) + buffData.value
+	end
+end
+
+function CombatSystem._removeBuff(state: CombatState, index: number)
+	local buff = state.buffs[index]
+	if buff then
+		-- Reverse stat change
+		if buff.mode == "percent" then
+			state.stats[buff.stat] = state.stats[buff.stat] / (1 + buff.value)
+		else
+			state.stats[buff.stat] = state.stats[buff.stat] - buff.value
+		end
+		table.remove(state.buffs, index)
+	end
+end
+
+function CombatSystem._chainDamage(player: Player, source: Model, effect: any)
+	local sourcePos = source:GetPivot().Position
+	for enemy, enemyState in CombatSystem._enemyStates do
+		if enemy ~= source and not enemyState.isDead then
+			local dist = (enemy:GetPivot().Position - sourcePos).Magnitude
+			if dist <= effect.radius then
+				local damage = math.floor(enemyState.stats.maxHealth * effect.damagePct)
+				enemyState.currentHealth -= damage
+				if enemyState.currentHealth <= 0 then
+					enemyState.isDead = true
+					CombatSystem._onEnemyKilled(player, enemy, enemyState)
+				end
+			end
+		end
+	end
+end
+
+function CombatSystem._applyStackBuff(state: CombatState, effect: any)
+	local existing = nil
+	for _, buff in state.buffs do
+		if buff.name == "soul_harvest_stack" then
+			existing = buff
+			break
+		end
+	end
+
+	if existing then
+		if existing.stacks < (effect.maxStacks or 15) then
+			existing.stacks += 1
+			state.stats[effect.stat] = (state.stats[effect.stat] or 0) * (1 + effect.value) / (1 + effect.value * (existing.stacks - 1) / existing.stacks)
+		end
+		existing.duration = effect.duration
+	else
+		local buff = {
+			name = "soul_harvest_stack",
+			stat = effect.stat,
+			value = effect.value,
+			stacks = 1,
+			mode = "percent",
+			duration = effect.duration,
+		}
+		table.insert(state.buffs, buff)
+		state.stats[effect.stat] = (state.stats[effect.stat] or 0) * (1 + effect.value)
+	end
+end
+
+function CombatSystem._applyAreaSlow(player: Player, effect: any)
+	local character = player.Character
+	if not character then return end
+	local pos = character:GetPivot().Position
+
+	for enemy, enemyState in CombatSystem._enemyStates do
+		if not enemyState.isDead then
+			local dist = (enemy:GetPivot().Position - pos).Magnitude
+			if dist <= effect.radius then
+				local origSpeed = enemyState.stats.moveSpeed
+				enemyState.stats.moveSpeed *= (1 - effect.slowPct)
+				task.delay(effect.duration, function()
+					if CombatSystem._enemyStates[enemy] then
+						enemyState.stats.moveSpeed = origSpeed
+					end
+				end)
+			end
+		end
+	end
+end
+
+return CombatSystem
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="1">
+    <Properties>
+      <string name="Name">DungeonGenerator</string>
+      <string name="Source"><![CDATA[--[[
+	DungeonGenerator.luau — Procedural dungeon generation (room + corridor)
+	ServerScriptService/DungeonGenerator
+
+	Generates a sequence of rooms connected by corridors.
+	Uses the GDD rules:
+	- First room is always combat (warmup)
+	- Last room before boss is always rest
+	- At least 1 shop and 1 treasure per floor
+	- Branch choices every 2-3 rooms (2 options)
+	- 10% chance of secret room per floor
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local EnemyDatabase = require(ReplicatedStorage.Shared.EnemyDatabase)
+
+local DungeonGenerator = {}
+
+--------------------------------------------------
+-- Room sequence generation
+--------------------------------------------------
+
+local function weightedRandom(weights: { [string]: number }): string
+	local total = 0
+	for _, w in weights do
+		total += w
+	end
+	local roll = math.random() * total
+	local cumulative = 0
+	for key, w in weights do
+		cumulative += w
+		if roll <= cumulative then
+			return key
+		end
+	end
+	-- fallback
+	for key in weights do
+		return key
+	end
+	return "combat"
+end
+
+-- Generate the room sequence for a floor
+function DungeonGenerator.generateFloorSequence(floorIndex: number, seed: number?): { any }
+	if seed then
+		math.randomseed(seed)
+	end
+
+	local floorDef = GameConfig.FLOORS[floorIndex]
+	if not floorDef then
+		warn("[DungeonGenerator] Invalid floor index:", floorIndex)
+		return {}
+	end
+
+	local roomCount = math.random(floorDef.minRooms, floorDef.maxRooms)
+	local rooms = {}
+
+	-- Track guarantees
+	local hasShop = false
+	local hasTreasure = false
+	local hasElite = false
+
+	-- Room 1: always combat (warmup)
+	table.insert(rooms, {
+		index = 1,
+		type = GameConfig.ROOM_TYPES.COMBAT,
+		difficulty = "easy",
+		theme = floorDef.theme,
+	})
+
+	-- Middle rooms (2 to roomCount-1)
+	for i = 2, roomCount - 1 do
+		local roomType
+
+		-- Force guarantees in last 3 slots if not placed yet
+		local remaining = roomCount - 1 - i
+		if not hasShop and remaining <= 2 then
+			roomType = GameConfig.ROOM_TYPES.SHOP
+		elseif not hasTreasure and remaining <= 1 then
+			roomType = GameConfig.ROOM_TYPES.TREASURE
+		elseif not hasElite and remaining <= 0 then
+			roomType = GameConfig.ROOM_TYPES.ELITE
+		else
+			roomType = weightedRandom(GameConfig.ROOM_WEIGHTS)
+		end
+
+		-- Track
+		if roomType == GameConfig.ROOM_TYPES.SHOP then hasShop = true end
+		if roomType == GameConfig.ROOM_TYPES.TREASURE then hasTreasure = true end
+		if roomType == GameConfig.ROOM_TYPES.ELITE then hasElite = true end
+
+		-- Determine difficulty for combat rooms
+		local difficulty = "easy"
+		local progress = i / roomCount
+		if progress > 0.7 then
+			difficulty = "hard"
+		elseif progress > 0.4 then
+			difficulty = "medium"
+		end
+
+		table.insert(rooms, {
+			index = i,
+			type = roomType,
+			difficulty = difficulty,
+			theme = floorDef.theme,
+		})
+	end
+
+	-- Second-to-last room: rest (pre-boss preparation)
+	table.insert(rooms, {
+		index = roomCount,
+		type = GameConfig.ROOM_TYPES.REST,
+		difficulty = "none",
+		theme = floorDef.theme,
+	})
+
+	-- Boss room
+	table.insert(rooms, {
+		index = roomCount + 1,
+		type = GameConfig.ROOM_TYPES.BOSS,
+		difficulty = "boss",
+		theme = floorDef.theme,
+		bossId = floorDef.bossId,
+	})
+
+	-- Secret room chance (10%)
+	if math.random() < 0.1 then
+		-- Attach secret to a random combat/treasure room
+		for _, room in rooms do
+			if room.type == GameConfig.ROOM_TYPES.COMBAT or room.type == GameConfig.ROOM_TYPES.TREASURE then
+				room.hasSecret = true
+				break
+			end
+		end
+	end
+
+	-- Add branch points every 2-3 rooms
+	local nextBranch = math.random(2, 3)
+	for i, room in rooms do
+		if i == nextBranch and room.type ~= GameConfig.ROOM_TYPES.BOSS and room.type ~= GameConfig.ROOM_TYPES.REST then
+			room.isBranch = true
+			-- Generate alternative room type
+			room.branchAlternative = weightedRandom(GameConfig.ROOM_WEIGHTS)
+			nextBranch = i + math.random(2, 3)
+		end
+	end
+
+	return rooms
+end
+
+--------------------------------------------------
+-- Physical room building (3D geometry)
+--------------------------------------------------
+
+-- Create a single room as a Model with floor, walls, and optional props
+function DungeonGenerator.buildRoom(roomData: any, position: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "Room_" .. roomData.index .. "_" .. roomData.type
+
+	local roomSize = GameConfig.ROOM_SIZE
+	local wallH = GameConfig.WALL_HEIGHT
+	local wallT = GameConfig.WALL_THICKNESS
+
+	-- Floor
+	local floor = Instance.new("Part")
+	floor.Name = "Floor"
+	floor.Anchored = true
+	floor.Size = Vector3.new(roomSize.x, 1, roomSize.z)
+	floor.Position = position
+	floor.Material = Enum.Material.SmoothPlastic
+	floor.BrickColor = DungeonGenerator._getFloorColor(roomData.type)
+	floor.Parent = model
+
+	-- Walls (4 sides)
+	local wallDefs = {
+		{ offset = Vector3.new(0, wallH / 2, roomSize.z / 2),  size = Vector3.new(roomSize.x, wallH, wallT) },  -- North
+		{ offset = Vector3.new(0, wallH / 2, -roomSize.z / 2), size = Vector3.new(roomSize.x, wallH, wallT) },  -- South
+		{ offset = Vector3.new(roomSize.x / 2, wallH / 2, 0),  size = Vector3.new(wallT, wallH, roomSize.z) },  -- East
+		{ offset = Vector3.new(-roomSize.x / 2, wallH / 2, 0), size = Vector3.new(wallT, wallH, roomSize.z) },  -- West
+	}
+
+	for i, def in wallDefs do
+		local wall = Instance.new("Part")
+		wall.Name = "Wall_" .. i
+		wall.Anchored = true
+		wall.Size = def.size
+		wall.Position = position + def.offset
+		wall.Material = Enum.Material.Cobblestone
+		wall.BrickColor = BrickColor.new("Dark stone grey")
+		wall.Parent = model
+	end
+
+	-- Door openings (cut holes in north and south walls for corridors)
+	-- Done by making the door section transparent/removing collision
+	local doorWidth = GameConfig.CORRIDOR_WIDTH
+	for _, wallPart in model:GetChildren() do
+		if wallPart.Name == "Wall_1" or wallPart.Name == "Wall_2" then
+			-- Add a door part (transparent gap)
+			local door = Instance.new("Part")
+			door.Name = "Door"
+			door.Anchored = true
+			door.Size = Vector3.new(doorWidth, wallH * 0.8, wallT + 0.1)
+			door.Position = wallPart.Position - Vector3.new(0, wallH * 0.1, 0)
+			door.Transparency = 1
+			door.CanCollide = false
+			door.Parent = model
+		end
+	end
+
+	-- Room type decorations (basic colored indicators for MVP)
+	DungeonGenerator._addRoomIndicator(model, roomData, position)
+
+	model.Parent = workspace
+	return model
+end
+
+-- Build corridor connecting two rooms
+function DungeonGenerator.buildCorridor(fromPos: Vector3, toPos: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "Corridor"
+
+	local midPoint = (fromPos + toPos) / 2
+	local direction = (toPos - fromPos).Unit
+	local length = (toPos - fromPos).Magnitude
+	local corridorW = GameConfig.CORRIDOR_WIDTH
+	local wallH = GameConfig.WALL_HEIGHT
+
+	-- Floor
+	local floor = Instance.new("Part")
+	floor.Name = "CorridorFloor"
+	floor.Anchored = true
+	floor.Size = Vector3.new(corridorW, 1, length)
+	floor.CFrame = CFrame.lookAt(midPoint, toPos) * CFrame.new(0, 0, 0)
+	floor.Material = Enum.Material.SmoothPlastic
+	floor.BrickColor = BrickColor.new("Medium stone grey")
+	floor.Parent = model
+
+	-- Side walls
+	for _, side in { -1, 1 } do
+		local wall = Instance.new("Part")
+		wall.Name = "CorridorWall"
+		wall.Anchored = true
+		wall.Size = Vector3.new(GameConfig.WALL_THICKNESS, wallH, length)
+		wall.CFrame = floor.CFrame * CFrame.new(side * (corridorW / 2 + 1), wallH / 2, 0)
+		wall.Material = Enum.Material.Cobblestone
+		wall.BrickColor = BrickColor.new("Dark stone grey")
+		wall.Parent = model
+	end
+
+	model.Parent = workspace
+	return model
+end
+
+-- Build entire dungeon floor from room sequence
+function DungeonGenerator.buildFloor(roomSequence: { any }): { Model }
+	local models = {}
+	local spacing = GameConfig.ROOM_SIZE.z + GameConfig.CORRIDOR_LENGTH
+	local startPos = Vector3.new(0, 0, 0)
+
+	for i, roomData in roomSequence do
+		local pos = startPos + Vector3.new(0, 0, -(i - 1) * spacing)
+		local roomModel = DungeonGenerator.buildRoom(roomData, pos)
+		roomModel:SetAttribute("RoomIndex", roomData.index)
+		roomModel:SetAttribute("RoomType", roomData.type)
+		table.insert(models, roomModel)
+
+		-- Build corridor to next room (except after last room)
+		if i < #roomSequence then
+			local nextPos = startPos + Vector3.new(0, 0, -i * spacing)
+			local corridorFrom = pos + Vector3.new(0, 0, -GameConfig.ROOM_SIZE.z / 2)
+			local corridorTo = nextPos + Vector3.new(0, 0, GameConfig.ROOM_SIZE.z / 2)
+			local corridor = DungeonGenerator.buildCorridor(corridorFrom, corridorTo)
+			table.insert(models, corridor)
+		end
+	end
+
+	return models
+end
+
+-- Clean up all dungeon geometry
+function DungeonGenerator.clearDungeon()
+	for _, child in workspace:GetChildren() do
+		if child:IsA("Model") and (child.Name:find("Room_") or child.Name == "Corridor") then
+			child:Destroy()
+		end
+	end
+end
+
+--------------------------------------------------
+-- Enemy spawning for a room
+--------------------------------------------------
+
+function DungeonGenerator.getEnemySpawns(roomData: any): { any }
+	if roomData.type ~= GameConfig.ROOM_TYPES.COMBAT and roomData.type ~= GameConfig.ROOM_TYPES.ELITE then
+		return {}
+	end
+
+	local spawnTable = EnemyDatabase.SpawnTables[roomData.theme]
+	if not spawnTable then return {} end
+
+	local tier = spawnTable[roomData.difficulty] or spawnTable.easy
+	local count = math.random(tier.minCount, tier.maxCount)
+
+	-- Elite rooms get +2 enemies and harder pool
+	if roomData.type == GameConfig.ROOM_TYPES.ELITE then
+		count += 2
+		tier = spawnTable.hard or tier
+	end
+
+	local spawns = {}
+	for _ = 1, count do
+		local enemyId = tier.pool[math.random(#tier.pool)]
+		table.insert(spawns, enemyId)
+	end
+
+	return spawns
+end
+
+--------------------------------------------------
+-- Internal helpers
+--------------------------------------------------
+
+function DungeonGenerator._getFloorColor(roomType: string): BrickColor
+	local colors = {
+		combat    = BrickColor.new("Medium stone grey"),
+		elite     = BrickColor.new("Dark red"),
+		treasure  = BrickColor.new("Gold"),
+		shop      = BrickColor.new("Bright green"),
+		rest      = BrickColor.new("Pastel Blue"),
+		boss      = BrickColor.new("Really red"),
+		challenge = BrickColor.new("Bright orange"),
+		secret    = BrickColor.new("Magenta"),
+	}
+	return colors[roomType] or BrickColor.new("Medium stone grey")
+end
+
+function DungeonGenerator._addRoomIndicator(model: Model, roomData: any, position: Vector3)
+	local indicator = Instance.new("Part")
+	indicator.Name = "RoomIndicator"
+	indicator.Anchored = true
+	indicator.Size = Vector3.new(4, 0.5, 4)
+	indicator.Position = position + Vector3.new(0, 0.8, 0)
+	indicator.Shape = Enum.PartType.Cylinder
+	indicator.Material = Enum.Material.Neon
+	indicator.BrickColor = DungeonGenerator._getFloorColor(roomData.type)
+	indicator.Parent = model
+
+	-- Billboard label
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 200, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, 10, 0)
+	billboard.Adornee = indicator
+	billboard.Parent = indicator
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = roomData.type:upper()
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Parent = billboard
+end
+
+return DungeonGenerator
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="2">
+    <Properties>
+      <string name="Name">EnemyAI</string>
+      <string name="Source"><![CDATA[--[[
+	EnemyAI.luau — Enemy AI behavior framework
+	ServerScriptService/EnemyAI
+
+	Behavior types:
+	- chase_explode: Slowly chase player, explode on contact (Wandering Ghost)
+	- ranged_kite: Keep distance, fire projectiles (Bone Archer)
+	- charge_spin: Charge at player, spin attack (Shadow Knight)
+	- shield_reflect: Shield up, reflect projectiles (Rune Guardian)
+	- boss_melee_summon: Melee + summon minions (Lazarus P1)
+	- boss_ranged_tracking: Tracking projectiles (Lazarus P2)
+	- boss_dual_mode: Alternates melee/ranged (Lazarus P3)
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+local EnemyDatabase = require(ReplicatedStorage.Shared.EnemyDatabase)
+
+local EnemyAI = {}
+
+-- Active AI instances: { [Model]: AIState }
+EnemyAI._instances = {}
+
+export type AIState = {
+	enemyId: string,
+	model: Model,
+	behavior: string,
+	target: Player?,
+	attackTimer: number,
+	specialTimer: number,
+	state: string, -- "idle" | "chase" | "attack" | "retreat" | "charge" | "shield"
+	data: any, -- behavior-specific data
+}
+
+--------------------------------------------------
+-- Spawn & register enemy
+--------------------------------------------------
+
+function EnemyAI.spawnEnemy(enemyId: string, position: Vector3, parentModel: Model?): Model?
+	local enemyDef = EnemyDatabase.Enemies[enemyId]
+	if not enemyDef then
+		warn("[EnemyAI] Unknown enemy:", enemyId)
+		return nil
+	end
+
+	-- Create enemy model
+	local model = Instance.new("Model")
+	model.Name = enemyId
+
+	-- Body (simple humanoid representation)
+	local body = Instance.new("Part")
+	body.Name = "HumanoidRootPart"
+	body.Anchored = false
+	body.Size = Vector3.new(4, 5, 4)
+	body.Position = position + Vector3.new(0, 3, 0)
+	body.Material = Enum.Material.SmoothPlastic
+	body.BrickColor = EnemyAI._getEnemyColor(enemyId)
+	body.Parent = model
+
+	-- Make it the primary part
+	model.PrimaryPart = body
+
+	-- Humanoid for health display and pathfinding compatibility
+	local humanoid = Instance.new("Humanoid")
+	humanoid.MaxHealth = enemyDef.health
+	humanoid.Health = enemyDef.health
+	humanoid.WalkSpeed = enemyDef.moveSpeed
+	humanoid.Parent = model
+
+	-- Health bar
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "HealthBar"
+	billboard.Size = UDim2.new(0, 100, 0, 15)
+	billboard.StudsOffset = Vector3.new(0, 4, 0)
+	billboard.Adornee = body
+	billboard.Parent = model
+
+	local bg = Instance.new("Frame")
+	bg.Name = "Background"
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+	bg.BorderSizePixel = 0
+	bg.Parent = billboard
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.new(1, 0, 1, 0)
+	fill.BackgroundColor3 = Color3.new(0.8, 0.1, 0.1)
+	fill.BorderSizePixel = 0
+	fill.Parent = bg
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "EnemyName"
+	nameLabel.Size = UDim2.new(1, 0, 0, 20)
+	nameLabel.Position = UDim2.new(0, 0, -1.5, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = enemyDef.name
+	nameLabel.TextColor3 = Color3.new(1, 0.3, 0.3)
+	nameLabel.TextScaled = true
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.Parent = billboard
+
+	model.Parent = parentModel or workspace
+
+	-- Register AI state
+	EnemyAI._instances[model] = {
+		enemyId = enemyId,
+		model = model,
+		behavior = enemyDef.behavior,
+		target = nil,
+		attackTimer = enemyDef.attackCooldown,
+		specialTimer = 0,
+		state = "idle",
+		data = {
+			attackCooldown = enemyDef.attackCooldown,
+			attackRange = enemyDef.attackRange,
+			detectionRange = enemyDef.detectionRange,
+			moveSpeed = enemyDef.moveSpeed,
+			attack = enemyDef.attack,
+			-- Behavior-specific
+			chargeSpeed = enemyDef.chargeSpeed,
+			projectileSpeed = enemyDef.projectileSpeed,
+			shieldHealth = enemyDef.shieldHealth,
+		},
+	}
+
+	return model
+end
+
+function EnemyAI.removeEnemy(model: Model)
+	EnemyAI._instances[model] = nil
+	if model.Parent then
+		model:Destroy()
+	end
+end
+
+function EnemyAI.clearAll()
+	for model in EnemyAI._instances do
+		if model.Parent then
+			model:Destroy()
+		end
+	end
+	table.clear(EnemyAI._instances)
+end
+
+--------------------------------------------------
+-- AI update (called every frame from GameManager)
+--------------------------------------------------
+
+function EnemyAI.update(dt: number)
+	local players = Players:GetPlayers()
+	if #players == 0 then return end
+
+	for model, ai in EnemyAI._instances do
+		if not model.Parent or not model.PrimaryPart then
+			EnemyAI._instances[model] = nil
+			continue
+		end
+
+		-- Find nearest player target
+		ai.target = EnemyAI._findNearestPlayer(model, players)
+		if not ai.target then continue end
+
+		local targetChar = ai.target.Character
+		if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
+			continue
+		end
+
+		local myPos = model:GetPivot().Position
+		local targetPos = targetChar.HumanoidRootPart.Position
+		local dist = (targetPos - myPos).Magnitude
+
+		-- Tick attack timer
+		ai.attackTimer = math.max(0, ai.attackTimer - dt)
+		ai.specialTimer = math.max(0, ai.specialTimer - dt)
+
+		-- Dispatch to behavior
+		local handler = EnemyAI._behaviors[ai.behavior]
+		if handler then
+			handler(ai, model, targetPos, dist, dt)
+		else
+			-- Default: chase and attack
+			EnemyAI._behaviors.chase_explode(ai, model, targetPos, dist, dt)
+		end
+	end
+end
+
+--------------------------------------------------
+-- Behavior implementations
+--------------------------------------------------
+
+EnemyAI._behaviors = {}
+
+-- Wandering Ghost: slowly chase, explode on contact
+EnemyAI._behaviors.chase_explode = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	if dist <= ai.data.attackRange then
+		-- Explode attack
+		if ai.attackTimer <= 0 then
+			ai.state = "attack"
+			ai.attackTimer = ai.data.attackCooldown
+			EnemyAI._dealDamageToNearby(ai, model, ai.data.attackRange, ai.data.attack)
+		end
+	elseif dist <= ai.data.detectionRange then
+		-- Chase
+		ai.state = "chase"
+		humanoid:MoveTo(targetPos)
+	else
+		ai.state = "idle"
+	end
+end
+
+-- Bone Archer: keep distance, fire projectiles
+EnemyAI._behaviors.ranged_kite = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	local preferredDist = ai.data.attackRange * 0.7
+
+	if dist < preferredDist * 0.5 then
+		-- Too close, retreat
+		ai.state = "retreat"
+		local awayDir = (model:GetPivot().Position - targetPos).Unit
+		humanoid:MoveTo(model:GetPivot().Position + awayDir * 15)
+	elseif dist <= ai.data.attackRange and ai.attackTimer <= 0 then
+		-- Fire projectile
+		ai.state = "attack"
+		ai.attackTimer = ai.data.attackCooldown
+		EnemyAI._fireProjectile(ai, model, targetPos)
+	elseif dist > ai.data.attackRange and dist <= ai.data.detectionRange then
+		-- Approach to range
+		ai.state = "chase"
+		humanoid:MoveTo(targetPos)
+	else
+		ai.state = "idle"
+	end
+end
+
+-- Shadow Knight: charge at player, spin attack
+EnemyAI._behaviors.charge_spin = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	if ai.state == "charge" then
+		-- Currently charging
+		ai.data._chargeTimer = (ai.data._chargeTimer or 0) - dt
+		if ai.data._chargeTimer <= 0 then
+			-- Spin attack at destination
+			EnemyAI._dealDamageToNearby(ai, model, ai.data.attackRange * 1.5, ai.data.attack * 1.5)
+			ai.state = "idle"
+			ai.attackTimer = ai.data.attackCooldown
+		end
+		return
+	end
+
+	if dist <= ai.data.detectionRange and ai.attackTimer <= 0 then
+		-- Start charge
+		ai.state = "charge"
+		ai.data._chargeTimer = 0.5
+		humanoid.WalkSpeed = ai.data.chargeSpeed or 40
+		humanoid:MoveTo(targetPos)
+	elseif dist <= ai.data.detectionRange then
+		-- Slowly approach
+		ai.state = "chase"
+		humanoid.WalkSpeed = ai.data.moveSpeed
+		humanoid:MoveTo(targetPos)
+	else
+		ai.state = "idle"
+	end
+end
+
+-- Rune Guardian: shield up, reflect projectiles
+EnemyAI._behaviors.shield_reflect = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	ai.data._shieldUp = ai.data._shieldUp == nil and true or ai.data._shieldUp
+
+	if dist <= ai.data.attackRange then
+		if ai.attackTimer <= 0 then
+			-- Drop shield briefly to attack
+			ai.data._shieldUp = false
+			ai.state = "attack"
+			ai.attackTimer = ai.data.attackCooldown
+			EnemyAI._dealDamageToNearby(ai, model, ai.data.attackRange, ai.data.attack)
+
+			-- Raise shield again after delay
+			task.delay(1.0, function()
+				if EnemyAI._instances[model] then
+					ai.data._shieldUp = true
+				end
+			end)
+		end
+	elseif dist <= ai.data.detectionRange then
+		ai.state = "shield"
+		humanoid:MoveTo(targetPos)
+	else
+		ai.state = "idle"
+	end
+end
+
+--------------------------------------------------
+-- Boss behaviors
+--------------------------------------------------
+
+EnemyAI._behaviors.boss_melee_summon = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	-- Summon minions on timer
+	ai.data._summonTimer = (ai.data._summonTimer or 8.0) - dt
+	if ai.data._summonTimer <= 0 then
+		ai.data._summonTimer = 8.0
+		local pos = model:GetPivot().Position
+		for _ = 1, 3 do
+			local offset = Vector3.new(math.random(-15, 15), 0, math.random(-15, 15))
+			EnemyAI.spawnEnemy("wandering_ghost", pos + offset)
+		end
+	end
+
+	-- Melee chase & attack
+	if dist <= 10 and ai.attackTimer <= 0 then
+		ai.attackTimer = 1.5
+		EnemyAI._dealDamageToNearby(ai, model, 10, ai.data.attack * 1.2)
+	elseif dist <= 60 then
+		humanoid:MoveTo(targetPos)
+	end
+end
+
+EnemyAI._behaviors.boss_ranged_tracking = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+
+	-- Keep medium distance
+	if dist < 20 then
+		local away = (model:GetPivot().Position - targetPos).Unit
+		humanoid:MoveTo(model:GetPivot().Position + away * 10)
+	elseif dist > 40 then
+		humanoid:MoveTo(targetPos)
+	end
+
+	-- Fire tracking projectiles
+	if ai.attackTimer <= 0 then
+		ai.attackTimer = 1.0
+		EnemyAI._fireProjectile(ai, model, targetPos)
+	end
+end
+
+EnemyAI._behaviors.boss_dual_mode = function(ai: AIState, model: Model, targetPos: Vector3, dist: number, dt: number)
+	-- Alternate between melee and ranged every 5 seconds
+	ai.data._modeTimer = (ai.data._modeTimer or 5.0) - dt
+	if ai.data._modeTimer <= 0 then
+		ai.data._modeTimer = 5.0
+		ai.data._isRanged = not ai.data._isRanged
+	end
+
+	if ai.data._isRanged then
+		EnemyAI._behaviors.boss_ranged_tracking(ai, model, targetPos, dist, dt)
+	else
+		EnemyAI._behaviors.boss_melee_summon(ai, model, targetPos, dist, dt)
+	end
+end
+
+--------------------------------------------------
+-- Combat helpers
+--------------------------------------------------
+
+function EnemyAI._dealDamageToNearby(ai: AIState, model: Model, radius: number, damage: number)
+	local pos = model:GetPivot().Position
+	for _, player in Players:GetPlayers() do
+		local char = player.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local dist = (char.HumanoidRootPart.Position - pos).Magnitude
+			if dist <= radius then
+				-- Fire damage event to CombatSystem (via RemoteEvent)
+				local event = ReplicatedStorage:FindFirstChild("EnemyAttackEvent")
+				if event then
+					event:FireServer(player, damage, model)
+				end
+				-- Direct call fallback (for server-side integration)
+				local CombatSystem = require(script.Parent.CombatSystem)
+				CombatSystem.damagePlayer(player, damage, model)
+			end
+		end
+	end
+end
+
+function EnemyAI._fireProjectile(ai: AIState, model: Model, targetPos: Vector3)
+	local startPos = model:GetPivot().Position + Vector3.new(0, 2, 0)
+	local direction = (targetPos - startPos).Unit
+	local speed = ai.data.projectileSpeed or 40
+
+	-- Create projectile part
+	local proj = Instance.new("Part")
+	proj.Name = "EnemyProjectile"
+	proj.Anchored = true
+	proj.CanCollide = false
+	proj.Size = Vector3.new(1.5, 1.5, 1.5)
+	proj.Shape = Enum.PartType.Ball
+	proj.Position = startPos
+	proj.Material = Enum.Material.Neon
+	proj.BrickColor = BrickColor.new("Bright red")
+	proj.Parent = workspace
+
+	-- Move projectile
+	local damage = ai.data.attack
+	task.spawn(function()
+		local elapsed = 0
+		local maxTime = 3.0
+		while elapsed < maxTime and proj.Parent do
+			local dt = task.wait()
+			elapsed += dt
+			proj.Position += direction * speed * dt
+
+			-- Check hit against players
+			for _, player in Players:GetPlayers() do
+				local char = player.Character
+				if char and char:FindFirstChild("HumanoidRootPart") then
+					local dist = (char.HumanoidRootPart.Position - proj.Position).Magnitude
+					if dist <= 4 then
+						local CombatSystem = require(script.Parent.CombatSystem)
+						CombatSystem.damagePlayer(player, damage, nil)
+						proj:Destroy()
+						return
+					end
+				end
+			end
+		end
+		if proj.Parent then
+			proj:Destroy()
+		end
+	end)
+end
+
+function EnemyAI._findNearestPlayer(model: Model, players: { Player }): Player?
+	local myPos = model:GetPivot().Position
+	local nearest = nil
+	local nearestDist = math.huge
+
+	for _, player in players do
+		local char = player.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local dist = (char.HumanoidRootPart.Position - myPos).Magnitude
+			if dist < nearestDist then
+				nearest = player
+				nearestDist = dist
+			end
+		end
+	end
+
+	return nearest
+end
+
+function EnemyAI._getEnemyColor(enemyId: string): BrickColor
+	local colors = {
+		wandering_ghost = BrickColor.new("Pastel light blue"),
+		bone_archer     = BrickColor.new("Institutional white"),
+		shadow_knight   = BrickColor.new("Black"),
+		rune_guardian   = BrickColor.new("Deep blue"),
+	}
+	return colors[enemyId] or BrickColor.new("Medium stone grey")
+end
+
+return EnemyAI
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="Script" referent="3">
+    <Properties>
+      <string name="Name">GameManager</string>
+      <string name="Source"><![CDATA[--[[
+	GameManager.luau — Main game orchestration
+	ServerScriptService/GameManager
+
+	Controls the full game loop:
+	1. Player joins → load data → hub
+	2. Player starts run → generate dungeon → spawn in room 1
+	3. Room loop: spawn enemies → combat → clear → talent pick → next room
+	4. Boss fight → run complete → results → return to hub
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local SkillDatabase = require(ReplicatedStorage.Shared.SkillDatabase)
+local EnemyDatabase = require(ReplicatedStorage.Shared.EnemyDatabase)
+
+local DungeonGenerator = require(script.Parent.DungeonGenerator)
+local CombatSystem = require(script.Parent.CombatSystem)
+local EnemyAI = require(script.Parent.EnemyAI)
+local LootSystem = require(script.Parent.LootSystem)
+local PlayerDataManager = require(script.Parent.PlayerDataManager)
+
+local GameManager = {}
+
+-- Run state per active run
+GameManager._activeRuns = {} :: { [Player]: RunState }
+
+export type RunState = {
+	floorIndex: number,
+	roomSequence: { any },
+	currentRoomIndex: number,
+	currentRoomModel: Model?,
+	dungeonModels: { Model },
+	enemiesAlive: { Model },
+	totalKills: number,
+	startTime: number,
+	soulShardsEarned: number,
+	xpEarned: number,
+	isInCombat: boolean,
+	seed: number,
+}
+
+--------------------------------------------------
+-- Initialization
+--------------------------------------------------
+
+function GameManager.init()
+	-- Create RemoteEvents
+	GameManager._createRemoteEvents()
+
+	-- Setup player data auto-save
+	PlayerDataManager.setupAutoSave(120)
+
+	-- Player join / leave
+	Players.PlayerAdded:Connect(function(player)
+		GameManager._onPlayerJoined(player)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		GameManager._onPlayerLeaving(player)
+	end)
+
+	-- Handle already-connected players
+	for _, player in Players:GetPlayers() do
+		task.spawn(function()
+			GameManager._onPlayerJoined(player)
+		end)
+	end
+
+	-- Server heartbeat
+	RunService.Heartbeat:Connect(function(dt)
+		GameManager._update(dt)
+	end)
+
+	print("[GameManager] Soul Rift initialized")
+end
+
+--------------------------------------------------
+-- Remote events setup
+--------------------------------------------------
+
+function GameManager._createRemoteEvents()
+	local events = {
+		"CombatEvent",      -- Server → Client: combat VFX
+		"SkillEvent",       -- Client → Server: use skill
+		"DodgeEvent",       -- Client → Server: dodge
+		"UltimateEvent",    -- Client → Server: use ultimate
+		"TalentSelectEvent",-- Client → Server: pick talent card
+		"StartRunEvent",    -- Client → Server: start dungeon run
+		"ReturnToHubEvent", -- Client → Server: return to hub
+		"EnemyAttackEvent", -- Server internal: enemy damage
+	}
+
+	for _, name in events do
+		if not ReplicatedStorage:FindFirstChild(name) then
+			local event = Instance.new("RemoteEvent")
+			event.Name = name
+			event.Parent = ReplicatedStorage
+		end
+	end
+
+	-- Connect handlers
+	ReplicatedStorage.SkillEvent.OnServerEvent:Connect(function(player, skillIndex, target)
+		GameManager._onSkillUsed(player, skillIndex, target)
+	end)
+
+	ReplicatedStorage.DodgeEvent.OnServerEvent:Connect(function(player)
+		CombatSystem.tryDodge(player)
+	end)
+
+	ReplicatedStorage.UltimateEvent.OnServerEvent:Connect(function(player)
+		GameManager._onUltimateUsed(player)
+	end)
+
+	ReplicatedStorage.TalentSelectEvent.OnServerEvent:Connect(function(player, talentId)
+		GameManager._onTalentSelected(player, talentId)
+	end)
+
+	ReplicatedStorage.StartRunEvent.OnServerEvent:Connect(function(player)
+		GameManager.startRun(player)
+	end)
+
+	ReplicatedStorage.ReturnToHubEvent.OnServerEvent:Connect(function(player)
+		GameManager.endRun(player, false)
+	end)
+end
+
+--------------------------------------------------
+-- Player join/leave
+--------------------------------------------------
+
+function GameManager._onPlayerJoined(player: Player)
+	-- Load persistent data
+	local data = PlayerDataManager.loadPlayer(player)
+	print("[GameManager] Player joined:", player.Name, "Level:", data.level)
+
+	-- Spawn in hub
+	player.CharacterAdded:Connect(function(character)
+		-- Setup character for combat
+		task.wait(0.5) -- wait for character to load
+		local rootPart = character:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			rootPart.Position = Vector3.new(0, 10, 100) -- Hub spawn point
+		end
+	end)
+end
+
+function GameManager._onPlayerLeaving(player: Player)
+	-- End any active run
+	if GameManager._activeRuns[player] then
+		GameManager._cleanupRun(player)
+	end
+	CombatSystem.removePlayerState(player)
+end
+
+--------------------------------------------------
+-- Run lifecycle
+--------------------------------------------------
+
+function GameManager.startRun(player: Player)
+	if GameManager._activeRuns[player] then
+		warn("[GameManager] Player already in a run:", player.Name)
+		return
+	end
+
+	local data = PlayerDataManager.getData(player)
+	if not data then return end
+
+	local classId = data.selectedClass
+	local seed = math.random(1, 999999)
+
+	-- Initialize combat state
+	CombatSystem.initPlayerState(player, classId)
+
+	-- Apply equipped items to stats
+	local state = CombatSystem.getPlayerState(player)
+	if state and data.equippedWeapon then
+		for stat, value in data.equippedWeapon.stats or {} do
+			state.stats[stat] = (state.stats[stat] or 0) + value
+		end
+	end
+	if state and data.equippedArmor then
+		for stat, value in data.equippedArmor.stats or {} do
+			state.stats[stat] = (state.stats[stat] or 0) + value
+		end
+	end
+
+	-- Generate dungeon
+	local floorIndex = 1
+	local roomSequence = DungeonGenerator.generateFloorSequence(floorIndex, seed)
+
+	-- Build dungeon geometry
+	local dungeonModels = DungeonGenerator.buildFloor(roomSequence)
+
+	-- Create run state
+	local runState: RunState = {
+		floorIndex = floorIndex,
+		roomSequence = roomSequence,
+		currentRoomIndex = 0,
+		currentRoomModel = nil,
+		dungeonModels = dungeonModels,
+		enemiesAlive = {},
+		totalKills = 0,
+		startTime = tick(),
+		soulShardsEarned = 0,
+		xpEarned = 0,
+		isInCombat = false,
+		seed = seed,
+	}
+
+	GameManager._activeRuns[player] = runState
+
+	-- Start first room
+	GameManager._enterRoom(player, 1)
+
+	print("[GameManager] Run started:", player.Name, "Class:", classId, "Seed:", seed)
+end
+
+function GameManager.endRun(player: Player, cleared: boolean)
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	local duration = tick() - runState.startTime
+
+	-- Save progress
+	local data = PlayerDataManager.getData(player)
+	if data then
+		PlayerDataManager.addXP(player, runState.xpEarned)
+		PlayerDataManager.addSoulShards(player, runState.soulShardsEarned)
+		PlayerDataManager.addKills(player, runState.totalKills)
+		PlayerDataManager.recordRunComplete(player, cleared, runState.floorIndex, duration)
+		PlayerDataManager.savePlayer(player)
+	end
+
+	-- Send results to client
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "RunComplete", {
+			cleared = cleared,
+			roomsCleared = runState.currentRoomIndex,
+			enemiesKilled = runState.totalKills,
+			xpEarned = runState.xpEarned,
+			soulShards = runState.soulShardsEarned,
+			duration = duration,
+		})
+	end
+
+	-- Cleanup
+	GameManager._cleanupRun(player)
+
+	-- Teleport back to hub
+	local character = player.Character
+	if character and character:FindFirstChild("HumanoidRootPart") then
+		character.HumanoidRootPart.Position = Vector3.new(0, 10, 100)
+	end
+
+	print("[GameManager] Run ended:", player.Name, "Cleared:", cleared, "Duration:", math.floor(duration))
+end
+
+--------------------------------------------------
+-- Room progression
+--------------------------------------------------
+
+function GameManager._enterRoom(player: Player, roomIndex: number)
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	if roomIndex > #runState.roomSequence then
+		-- All rooms cleared — run complete!
+		GameManager.endRun(player, true)
+		return
+	end
+
+	runState.currentRoomIndex = roomIndex
+	local roomData = runState.roomSequence[roomIndex]
+
+	-- Notify client of room transition
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "RoomTransition", {
+			roomType = roomData.type,
+			roomIndex = roomIndex,
+		})
+	end
+
+	-- Teleport player to room
+	local roomSpacing = GameConfig.ROOM_SIZE.z + GameConfig.CORRIDOR_LENGTH
+	local roomPos = Vector3.new(0, 5, -(roomIndex - 1) * roomSpacing)
+
+	task.delay(GameConfig.ROOM_TRANSITION_TIME, function()
+		local character = player.Character
+		if character and character:FindFirstChild("HumanoidRootPart") then
+			character.HumanoidRootPart.CFrame = CFrame.new(roomPos)
+		end
+
+		-- Handle room by type
+		GameManager._processRoom(player, roomData)
+	end)
+end
+
+function GameManager._processRoom(player: Player, roomData: any)
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	local roomType = roomData.type
+
+	if roomType == GameConfig.ROOM_TYPES.COMBAT or roomType == GameConfig.ROOM_TYPES.ELITE then
+		-- Spawn enemies
+		local enemyIds = DungeonGenerator.getEnemySpawns(roomData)
+		runState.isInCombat = true
+		runState.enemiesAlive = {}
+
+		local roomCenter = Vector3.new(0, 0, -(roomData.index - 1) * (GameConfig.ROOM_SIZE.z + GameConfig.CORRIDOR_LENGTH))
+		local roomHalfSize = GameConfig.ROOM_SIZE.x / 2 - 5
+
+		for _, enemyId in enemyIds do
+			local spawnPos = roomCenter + Vector3.new(
+				math.random(-roomHalfSize, roomHalfSize),
+				0,
+				math.random(-roomHalfSize, roomHalfSize)
+			)
+			local enemyModel = EnemyAI.spawnEnemy(enemyId, spawnPos)
+			if enemyModel then
+				CombatSystem.initEnemyState(enemyModel, EnemyDatabase.Enemies[enemyId])
+				table.insert(runState.enemiesAlive, enemyModel)
+			end
+		end
+
+	elseif roomType == GameConfig.ROOM_TYPES.BOSS then
+		-- Spawn boss
+		runState.isInCombat = true
+		runState.enemiesAlive = {}
+
+		local bossId = roomData.bossId
+		local bossDef = EnemyDatabase.Bosses[bossId]
+		if bossDef then
+			local roomCenter = Vector3.new(0, 0, -(roomData.index - 1) * (GameConfig.ROOM_SIZE.z + GameConfig.CORRIDOR_LENGTH))
+			local bossModel = EnemyAI.spawnEnemy("shadow_knight", roomCenter) -- placeholder model
+			if bossModel then
+				bossModel.Name = bossId
+				-- Init boss with boss stats
+				CombatSystem.initEnemyState(bossModel, {
+					id = bossId,
+					health = bossDef.health,
+					attack = bossDef.attack,
+					defense = bossDef.defense,
+					moveSpeed = bossDef.moveSpeed,
+					behavior = bossDef.phases[1].behavior,
+					xpReward = bossDef.xpReward,
+					soulShards = bossDef.soulShards,
+				})
+				table.insert(runState.enemiesAlive, bossModel)
+			end
+		end
+
+	elseif roomType == GameConfig.ROOM_TYPES.TREASURE then
+		local data = PlayerDataManager.getData(player)
+		if data then
+			local loot = LootSystem.generateTreasureRoomLoot(data.selectedClass, runState.floorIndex)
+			runState.soulShardsEarned += loot.soulShards
+			if loot.equipment then
+				PlayerDataManager.addToInventory(player, loot.equipment)
+			end
+		end
+		-- Auto-advance after brief delay
+		task.delay(3, function()
+			GameManager._onRoomCleared(player)
+		end)
+
+	elseif roomType == GameConfig.ROOM_TYPES.SHOP then
+		local data = PlayerDataManager.getData(player)
+		if data then
+			local inventory = LootSystem.generateShopInventory(data.selectedClass, runState.floorIndex)
+			local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+			if combatEvent then
+				combatEvent:FireClient(player, "ShopOpen", { inventory = inventory })
+			end
+		end
+		-- Player exits shop manually or auto-advance after timeout
+		task.delay(30, function()
+			if GameManager._activeRuns[player] and runState.currentRoomIndex == runState.roomSequence[runState.currentRoomIndex] then
+				GameManager._onRoomCleared(player)
+			end
+		end)
+
+	elseif roomType == GameConfig.ROOM_TYPES.REST then
+		-- Heal player
+		local state = CombatSystem.getPlayerState(player)
+		if state then
+			local healAmount = math.floor(state.stats.maxHealth * 0.3)
+			CombatSystem.healPlayer(player, healAmount)
+		end
+		-- Check second_wind talent
+		if state then
+			for _, talent in state.talents do
+				if talent.effect and talent.effect.event == "room_enter" and talent.effect.action == "heal" then
+					local extraHeal = math.floor(state.stats.maxHealth * talent.effect.value)
+					CombatSystem.healPlayer(player, extraHeal)
+				end
+			end
+		end
+		task.delay(5, function()
+			GameManager._onRoomCleared(player)
+		end)
+	end
+end
+
+--------------------------------------------------
+-- Room cleared logic
+--------------------------------------------------
+
+function GameManager._onRoomCleared(player: Player)
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	runState.isInCombat = false
+
+	-- Notify client
+	local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+	if combatEvent then
+		combatEvent:FireClient(player, "RoomCleared")
+	end
+
+	-- Offer talent cards after combat rooms
+	local roomData = runState.roomSequence[runState.currentRoomIndex]
+	if roomData and (roomData.type == GameConfig.ROOM_TYPES.COMBAT or roomData.type == GameConfig.ROOM_TYPES.ELITE) then
+		local state = CombatSystem.getPlayerState(player)
+		local data = PlayerDataManager.getData(player)
+		if state and data then
+			local ownedIds = {}
+			for _, t in state.talents do
+				table.insert(ownedIds, t.id)
+			end
+			local cards = LootSystem.rollTalentCards(data.selectedClass, ownedIds)
+			if #cards > 0 and combatEvent then
+				combatEvent:FireClient(player, "TalentCards", { cards = cards })
+				-- Wait for talent selection before advancing
+				return
+			end
+		end
+	end
+
+	-- Advance to next room
+	GameManager._enterRoom(player, runState.currentRoomIndex + 1)
+end
+
+--------------------------------------------------
+-- Input handlers
+--------------------------------------------------
+
+function GameManager._onSkillUsed(player: Player, skillIndex: number, target: Model?)
+	local state = CombatSystem.getPlayerState(player)
+	if not state or state.isDead then return end
+
+	local classDef = SkillDatabase.Classes[state.classId]
+	if not classDef or not classDef.skills[skillIndex] then return end
+
+	local skill = classDef.skills[skillIndex]
+	if not CombatSystem.useSkill(player, skill.id) then return end
+
+	-- Apply damage to target or nearest enemy
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	if target and CombatSystem.getEnemyState(target) then
+		CombatSystem.damageEnemy(player, target, skill.damageMultiplier or 1.0)
+	else
+		-- Find nearest enemy in range
+		local character = player.Character
+		if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+		local pos = character.HumanoidRootPart.Position
+
+		local range = skill.range or 10
+		for _, enemy in runState.enemiesAlive do
+			if enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+				local dist = (enemy.HumanoidRootPart.Position - pos).Magnitude
+				if dist <= range then
+					local dmgMult = skill.damageMultiplier
+					if type(dmgMult) == "table" then
+						-- Combo: use appropriate hit multiplier
+						local comboHit = (state.comboCount % #dmgMult) + 1
+						dmgMult = dmgMult[comboHit]
+					end
+					CombatSystem.damageEnemy(player, enemy, dmgMult or 1.0)
+					break
+				end
+			end
+		end
+	end
+
+	-- Check if all enemies dead
+	GameManager._checkRoomComplete(player)
+end
+
+function GameManager._onUltimateUsed(player: Player)
+	if not CombatSystem.useUltimate(player) then return end
+
+	local state = CombatSystem.getPlayerState(player)
+	if not state then return end
+
+	local classDef = SkillDatabase.Classes[state.classId]
+	if not classDef then return end
+
+	local ult = classDef.ultimate
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	-- Area damage to all enemies in radius
+	local character = player.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+	local pos = character.HumanoidRootPart.Position
+
+	for _, enemy in runState.enemiesAlive do
+		if enemy.Parent and enemy:FindFirstChild("HumanoidRootPart") then
+			local dist = (enemy.HumanoidRootPart.Position - pos).Magnitude
+			if dist <= (ult.radius or 15) then
+				CombatSystem.damageEnemy(player, enemy, ult.damageMultiplier or 2.0)
+			end
+		end
+	end
+
+	GameManager._checkRoomComplete(player)
+end
+
+function GameManager._onTalentSelected(player: Player, talentId: string)
+	local state = CombatSystem.getPlayerState(player)
+	if not state then return end
+
+	-- Find talent in database
+	local data = PlayerDataManager.getData(player)
+	if not data then return end
+
+	local pool = require(ReplicatedStorage.Shared.TalentCardDatabase).getPoolForClass(data.selectedClass)
+	for _, card in pool do
+		if card.id == talentId then
+			CombatSystem.addTalent(player, card)
+			break
+		end
+	end
+
+	-- Continue to next room
+	local runState = GameManager._activeRuns[player]
+	if runState then
+		GameManager._enterRoom(player, runState.currentRoomIndex + 1)
+	end
+end
+
+--------------------------------------------------
+-- Combat checks
+--------------------------------------------------
+
+function GameManager._checkRoomComplete(player: Player)
+	local runState = GameManager._activeRuns[player]
+	if not runState or not runState.isInCombat then return end
+
+	-- Remove dead enemies
+	for i = #runState.enemiesAlive, 1, -1 do
+		local enemy = runState.enemiesAlive[i]
+		local enemyState = CombatSystem.getEnemyState(enemy)
+		if not enemyState or enemyState.isDead then
+			-- Generate drops
+			local data = PlayerDataManager.getData(player)
+			if data and enemyState then
+				local drops = LootSystem.generateEnemyDrops(enemyState.id, data.selectedClass)
+				runState.soulShardsEarned += drops.soulShards
+				runState.xpEarned += drops.xp
+				if drops.equipment then
+					PlayerDataManager.addToInventory(player, drops.equipment)
+				end
+			end
+
+			runState.totalKills += 1
+			CombatSystem.removeEnemyState(enemy)
+			EnemyAI.removeEnemy(enemy)
+			table.remove(runState.enemiesAlive, i)
+		end
+	end
+
+	-- Check if room is clear
+	if #runState.enemiesAlive == 0 then
+		GameManager._onRoomCleared(player)
+	end
+end
+
+--------------------------------------------------
+-- Update loop
+--------------------------------------------------
+
+function GameManager._update(dt: number)
+	-- Update combat system (cooldowns, buffs)
+	CombatSystem.update(dt)
+
+	-- Update enemy AI
+	EnemyAI.update(dt)
+
+	-- Check for dead players
+	for player, runState in GameManager._activeRuns do
+		local state = CombatSystem.getPlayerState(player)
+		if state and state.isDead then
+			local combatEvent = ReplicatedStorage:FindFirstChild("CombatEvent")
+			if combatEvent then
+				combatEvent:FireClient(player, "PlayerDied")
+			end
+			task.delay(3, function()
+				GameManager.endRun(player, false)
+			end)
+		end
+	end
+end
+
+--------------------------------------------------
+-- Cleanup
+--------------------------------------------------
+
+function GameManager._cleanupRun(player: Player)
+	local runState = GameManager._activeRuns[player]
+	if not runState then return end
+
+	-- Destroy dungeon
+	for _, model in runState.dungeonModels do
+		if model.Parent then
+			model:Destroy()
+		end
+	end
+
+	-- Clean up enemies
+	for _, enemy in runState.enemiesAlive do
+		CombatSystem.removeEnemyState(enemy)
+		EnemyAI.removeEnemy(enemy)
+	end
+
+	CombatSystem.removePlayerState(player)
+	GameManager._activeRuns[player] = nil
+end
+
+-- Boot
+GameManager.init()
+
+return GameManager
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="4">
+    <Properties>
+      <string name="Name">LootSystem</string>
+      <string name="Source"><![CDATA[--[[
+	LootSystem.luau — Loot generation and item management
+	ServerScriptService/LootSystem
+
+	Handles: random item generation, rarity rolling, affix rolling,
+	talent card selection, shop inventory, and treasure room loot.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local ItemDatabase = require(ReplicatedStorage.Shared.ItemDatabase)
+local TalentCardDatabase = require(ReplicatedStorage.Shared.TalentCardDatabase)
+
+local LootSystem = {}
+
+--------------------------------------------------
+-- Rarity rolling
+--------------------------------------------------
+
+local function rollRarity(weights: { [string]: number }): string
+	local total = 0
+	for _, w in weights do
+		total += w
+	end
+	local roll = math.random() * total
+	local cumulative = 0
+	for rarity, w in weights do
+		cumulative += w
+		if roll <= cumulative then
+			return rarity
+		end
+	end
+	return "common"
+end
+
+--------------------------------------------------
+-- Equipment generation
+--------------------------------------------------
+
+function LootSystem.generateEquipment(slot: string, classId: string?, forcedRarity: string?): any
+	local rarity = forcedRarity or rollRarity(GameConfig.RARITY_WEIGHTS)
+
+	-- Pick a base item from the appropriate pool
+	local pool
+	if slot == "weapon" then
+		pool = {}
+		for _, item in ItemDatabase.Weapons do
+			if not classId or not item.classRestriction or item.classRestriction == classId then
+				table.insert(pool, item)
+			end
+		end
+	elseif slot == "armor" then
+		pool = ItemDatabase.Armors
+	else
+		return nil
+	end
+
+	if #pool == 0 then return nil end
+
+	local baseItem = pool[math.random(#pool)]
+	local generated = {
+		id = baseItem.id .. "_" .. math.random(100000, 999999),
+		baseId = baseItem.id,
+		name = baseItem.name,
+		slot = baseItem.slot,
+		rarity = rarity,
+		classRestriction = baseItem.classRestriction,
+		stats = {},
+		affixes = {},
+		specialEffect = baseItem.specialEffect,
+	}
+
+	-- Apply base stats with rarity multiplier
+	local mult = ItemDatabase.RARITY_STAT_MULT[rarity] or 1.0
+	if baseItem.baseAttack then
+		generated.stats.attack = math.floor(baseItem.baseAttack * mult)
+	end
+	if baseItem.baseDefense then
+		generated.stats.defense = math.floor(baseItem.baseDefense * mult)
+	end
+	if baseItem.baseHealth then
+		generated.stats.maxHealth = math.floor(baseItem.baseHealth * mult)
+	end
+
+	-- Roll affixes
+	local affixCount = ItemDatabase.RARITY_AFFIXES[rarity] or 0
+	local usedStats = {}
+	for _ = 1, affixCount do
+		local affix = LootSystem._rollAffix(usedStats)
+		if affix then
+			table.insert(generated.affixes, affix)
+			usedStats[affix.stat] = true
+		end
+	end
+
+	return generated
+end
+
+function LootSystem._rollAffix(usedStats: { [string]: boolean }): any?
+	-- Filter available stats
+	local available = {}
+	local totalWeight = 0
+	for _, entry in ItemDatabase.STAT_POOL do
+		if not usedStats[entry.stat] then
+			table.insert(available, entry)
+			totalWeight += entry.weight
+		end
+	end
+	if #available == 0 then return nil end
+
+	-- Weighted pick
+	local roll = math.random() * totalWeight
+	local cumulative = 0
+	for _, entry in available do
+		cumulative += entry.weight
+		if roll <= cumulative then
+			local value = entry.min + math.random() * (entry.max - entry.min)
+			-- Round based on type
+			if value < 1 then
+				value = math.floor(value * 100) / 100
+			else
+				value = math.floor(value)
+			end
+			return {
+				stat = entry.stat,
+				value = value,
+			}
+		end
+	end
+	return nil
+end
+
+--------------------------------------------------
+-- Talent card selection
+--------------------------------------------------
+
+-- Get 3 random talent cards for player to choose from
+function LootSystem.rollTalentCards(classId: string, ownedTalentIds: { string }): { any }
+	local pool = TalentCardDatabase.getPoolForClass(classId)
+
+	-- Filter out already-owned talents
+	local ownedSet = {}
+	for _, id in ownedTalentIds do
+		ownedSet[id] = true
+	end
+
+	local available = {}
+	for _, card in pool do
+		if not ownedSet[card.id] then
+			table.insert(available, card)
+		end
+	end
+
+	if #available == 0 then return {} end
+
+	-- Weighted selection by rarity
+	local selected = {}
+	for _ = 1, math.min(3, #available) do
+		local rarity = rollRarity(GameConfig.TALENT_RARITY_WEIGHTS)
+
+		-- Find cards of this rarity
+		local rarityPool = {}
+		for _, card in available do
+			if card.rarity == rarity then
+				table.insert(rarityPool, card)
+			end
+		end
+
+		-- Fallback to any available card if no match
+		if #rarityPool == 0 then
+			rarityPool = available
+		end
+
+		-- Pick random from rarity pool
+		local pick = rarityPool[math.random(#rarityPool)]
+
+		-- Remove from available to avoid duplicates
+		table.insert(selected, pick)
+		for i, card in available do
+			if card.id == pick.id then
+				table.remove(available, i)
+				break
+			end
+		end
+	end
+
+	return selected
+end
+
+--------------------------------------------------
+-- Enemy loot drops
+--------------------------------------------------
+
+function LootSystem.generateEnemyDrops(enemyId: string, classId: string, difficultyMult: number?): any
+	local mult = difficultyMult or 1.0
+	local drops = {
+		soulShards = 0,
+		xp = 0,
+		equipment = nil,
+	}
+
+	local EnemyDatabase = require(ReplicatedStorage.Shared.EnemyDatabase)
+	local enemyDef = EnemyDatabase.Enemies[enemyId]
+	if not enemyDef then return drops end
+
+	drops.soulShards = math.floor(enemyDef.soulShards * mult)
+	drops.xp = enemyDef.xpReward
+
+	-- Equipment drop chance (10% for normal, 25% for elite)
+	local dropChance = 0.10
+	if math.random() < dropChance then
+		local slot = math.random() < 0.5 and "weapon" or "armor"
+		drops.equipment = LootSystem.generateEquipment(slot, classId)
+	end
+
+	return drops
+end
+
+-- Boss loot
+function LootSystem.generateBossDrops(bossId: string, classId: string): any
+	local EnemyDatabase = require(ReplicatedStorage.Shared.EnemyDatabase)
+	local bossDef = EnemyDatabase.Bosses[bossId]
+	if not bossDef then return { soulShards = 0, xp = 0, equipment = {} } end
+
+	local drops = {
+		soulShards = bossDef.soulShards,
+		xp = bossDef.xpReward,
+		equipment = {},
+	}
+
+	-- Guaranteed equipment drops from loot table
+	for _, entry in bossDef.lootTable do
+		if math.random() < entry.chance then
+			local rarity = entry.itemPool:find("epic") and "epic" or "rare"
+			local slot = math.random() < 0.5 and "weapon" or "armor"
+			local item = LootSystem.generateEquipment(slot, classId, rarity)
+			if item then
+				table.insert(drops.equipment, item)
+			end
+		end
+	end
+
+	return drops
+end
+
+--------------------------------------------------
+-- Treasure room loot
+--------------------------------------------------
+
+function LootSystem.generateTreasureRoomLoot(classId: string, floorIndex: number): any
+	return {
+		soulShards = math.floor(GameConfig.SOUL_SHARD_BASE_DROP * 3 * floorIndex),
+		equipment = LootSystem.generateEquipment(
+			math.random() < 0.5 and "weapon" or "armor",
+			classId,
+			"rare" -- treasure rooms guarantee at least rare
+		),
+	}
+end
+
+--------------------------------------------------
+-- Shop inventory
+--------------------------------------------------
+
+function LootSystem.generateShopInventory(classId: string, floorIndex: number): { any }
+	local inventory = {}
+
+	-- Always include consumables
+	for _, item in ItemDatabase.ShopItems do
+		table.insert(inventory, {
+			shopItem = item,
+			cost = math.floor(item.cost * (1 + (floorIndex - 1) * 0.2)),
+		})
+	end
+
+	-- Add 2 random equipment pieces
+	for _ = 1, 2 do
+		local slot = math.random() < 0.5 and "weapon" or "armor"
+		local equip = LootSystem.generateEquipment(slot, classId)
+		if equip then
+			local baseCost = ({ common = 30, uncommon = 50, rare = 80, epic = 150 })[equip.rarity] or 30
+			table.insert(inventory, {
+				shopItem = equip,
+				cost = math.floor(baseCost * (1 + (floorIndex - 1) * 0.3)),
+				isEquipment = true,
+			})
+		end
+	end
+
+	return inventory
+end
+
+return LootSystem
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="5">
+    <Properties>
+      <string name="Name">PlayerDataManager</string>
+      <string name="Source"><![CDATA[--[[
+	PlayerDataManager.luau — Player data persistence
+	ServerScriptService/PlayerDataManager
+
+	Stores: permanent progression, equipment inventory, unlocks.
+	Uses Roblox DataStoreService for persistence.
+]]
+
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+local PlayerDataManager = {}
+
+-- In-memory cache
+PlayerDataManager._cache = {} :: { [number]: PlayerData }
+
+local DATA_STORE_NAME = "SoulRift_PlayerData_v1"
+local dataStore = DataStoreService:GetDataStore(DATA_STORE_NAME)
+
+export type PlayerData = {
+	-- Profile
+	level: number,
+	xp: number,
+	xpToNextLevel: number,
+	soulShards: number,
+	totalRuns: number,
+	totalClears: number,
+
+	-- Unlocks
+	unlockedClasses: { string },
+	selectedClass: string,
+
+	-- Equipment inventory
+	inventory: { any },
+	equippedWeapon: any?,
+	equippedArmor: any?,
+
+	-- Stats
+	totalKills: number,
+	highestFloor: number,
+	fastestClear: number?, -- seconds
+
+	-- Settings
+	autoAttack: boolean,
+}
+
+local DEFAULT_DATA: PlayerData = {
+	level = 1,
+	xp = 0,
+	xpToNextLevel = 100,
+	soulShards = 0,
+	totalRuns = 0,
+	totalClears = 0,
+	unlockedClasses = { "blade_dancer", "soul_caster" },
+	selectedClass = "blade_dancer",
+	inventory = {},
+	equippedWeapon = nil,
+	equippedArmor = nil,
+	totalKills = 0,
+	highestFloor = 0,
+	fastestClear = nil,
+	autoAttack = true,
+}
+
+--------------------------------------------------
+-- Load / Save
+--------------------------------------------------
+
+function PlayerDataManager.loadPlayer(player: Player): PlayerData
+	local userId = player.UserId
+	local success, data = pcall(function()
+		return dataStore:GetAsync("player_" .. userId)
+	end)
+
+	if success and data then
+		-- Merge with defaults for any missing fields
+		for key, default in DEFAULT_DATA do
+			if data[key] == nil then
+				data[key] = default
+			end
+		end
+		PlayerDataManager._cache[userId] = data
+	else
+		-- New player or load failure — use defaults
+		local newData = {}
+		for k, v in DEFAULT_DATA do
+			if type(v) == "table" then
+				newData[k] = table.clone(v)
+			else
+				newData[k] = v
+			end
+		end
+		PlayerDataManager._cache[userId] = newData
+	end
+
+	return PlayerDataManager._cache[userId]
+end
+
+function PlayerDataManager.savePlayer(player: Player): boolean
+	local userId = player.UserId
+	local data = PlayerDataManager._cache[userId]
+	if not data then return false end
+
+	local success, err = pcall(function()
+		dataStore:SetAsync("player_" .. userId, data)
+	end)
+
+	if not success then
+		warn("[PlayerDataManager] Save failed for", userId, ":", err)
+	end
+	return success
+end
+
+function PlayerDataManager.getData(player: Player): PlayerData?
+	return PlayerDataManager._cache[player.UserId]
+end
+
+function PlayerDataManager.removePlayer(player: Player)
+	PlayerDataManager.savePlayer(player)
+	PlayerDataManager._cache[player.UserId] = nil
+end
+
+--------------------------------------------------
+-- Progression
+--------------------------------------------------
+
+function PlayerDataManager.addXP(player: Player, amount: number): boolean
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return false end
+
+	data.xp += amount
+	local leveled = false
+
+	while data.xp >= data.xpToNextLevel do
+		data.xp -= data.xpToNextLevel
+		data.level += 1
+		data.xpToNextLevel = math.floor(100 * (1.15 ^ (data.level - 1)))
+		leveled = true
+	end
+
+	return leveled
+end
+
+function PlayerDataManager.addSoulShards(player: Player, amount: number)
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return end
+	data.soulShards += amount
+end
+
+function PlayerDataManager.spendSoulShards(player: Player, amount: number): boolean
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data or data.soulShards < amount then return false end
+	data.soulShards -= amount
+	return true
+end
+
+--------------------------------------------------
+-- Inventory
+--------------------------------------------------
+
+function PlayerDataManager.addToInventory(player: Player, item: any): boolean
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return false end
+
+	table.insert(data.inventory, item)
+	return true
+end
+
+function PlayerDataManager.equipItem(player: Player, itemId: string): boolean
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return false end
+
+	for _, item in data.inventory do
+		if item.id == itemId then
+			if item.slot == "weapon" then
+				data.equippedWeapon = item
+			elseif item.slot == "armor" then
+				data.equippedArmor = item
+			end
+			return true
+		end
+	end
+	return false
+end
+
+--------------------------------------------------
+-- Run completion
+--------------------------------------------------
+
+function PlayerDataManager.recordRunComplete(player: Player, cleared: boolean, floorReached: number, duration: number)
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return end
+
+	data.totalRuns += 1
+	if cleared then
+		data.totalClears += 1
+	end
+	if floorReached > data.highestFloor then
+		data.highestFloor = floorReached
+	end
+	if cleared and (not data.fastestClear or duration < data.fastestClear) then
+		data.fastestClear = duration
+	end
+end
+
+function PlayerDataManager.addKills(player: Player, count: number)
+	local data = PlayerDataManager._cache[player.UserId]
+	if not data then return end
+	data.totalKills += count
+end
+
+--------------------------------------------------
+-- Auto-save setup
+--------------------------------------------------
+
+function PlayerDataManager.setupAutoSave(interval: number?)
+	local saveInterval = interval or 120 -- 2 minutes
+
+	task.spawn(function()
+		while true do
+			task.wait(saveInterval)
+			for _, player in Players:GetPlayers() do
+				PlayerDataManager.savePlayer(player)
+			end
+		end
+	end)
+
+	-- Save on player leaving
+	Players.PlayerRemoving:Connect(function(player)
+		PlayerDataManager.removePlayer(player)
+	end)
+end
+
+return PlayerDataManager
+]]></string>
+    </Properties>
+  </Item>
+  </Item>
+  <Item class="ServerStorage" referent="22">
+    <Properties>
+      <string name="Name">ServerStorage</string>
+    </Properties>
+  </Item>
+  <Item class="SoundService" referent="23">
+    <Properties>
+      <string name="Name">SoundService</string>
+    </Properties>
+  </Item>
+  <Item class="StarterGui" referent="24">
+    <Properties>
+      <string name="Name">StarterGui</string>
+    </Properties>
+  </Item>
+  <Item class="StarterPack" referent="25">
+    <Properties>
+      <string name="Name">StarterPack</string>
+    </Properties>
+  </Item>
+  <Item class="StarterPlayer" referent="26">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="27">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+  <Item class="LocalScript" referent="11">
+    <Properties>
+      <string name="Name">ClientMain</string>
+      <string name="Source"><![CDATA[--[[
+	ClientMain.luau — Client bootstrap script
+	StarterPlayerScripts/ClientMain (LocalScript)
+
+	Initializes all client modules in correct order and shows
+	the welcome/start screen with controls.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+
+-- Require client modules (they are ModuleScripts in StarterPlayerScripts)
+local UIManager = require(script.Parent.UIManager)
+local CombatClient = require(script.Parent.CombatClient)
+local InputController = require(script.Parent.InputController)
+
+-- Initialize in order: UI first (creates HUD), then combat VFX, then input
+UIManager.init()
+CombatClient.init()
+
+-- InputController needs CombatHUD to exist for mobile binds, give a small delay
+task.defer(function()
+	InputController.init()
+end)
+
+--------------------------------------------------
+-- Welcome / Start Run Screen
+--------------------------------------------------
+
+local function showWelcomeScreen()
+	local gui = player:WaitForChild("PlayerGui")
+
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "WelcomeScreen"
+	screen.ResetOnSpawn = false
+	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screen.DisplayOrder = 10
+	screen.Parent = gui
+
+	-- Full background
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.new(0.05, 0.02, 0.1)
+	bg.BackgroundTransparency = 0.3
+	bg.BorderSizePixel = 0
+	bg.Parent = screen
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(0, 500, 0, 80)
+	title.Position = UDim2.new(0.5, -250, 0.08, 0)
+	title.BackgroundTransparency = 1
+	title.Text = "SOUL RIFT"
+	title.TextColor3 = Color3.new(1, 0.85, 0)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 56
+	title.Parent = screen
+
+	local subtitle = Instance.new("TextLabel")
+	subtitle.Size = UDim2.new(0, 500, 0, 30)
+	subtitle.Position = UDim2.new(0.5, -250, 0.08, 80)
+	subtitle.BackgroundTransparency = 1
+	subtitle.Text = "Roguelike Action RPG"
+	subtitle.TextColor3 = Color3.new(0.7, 0.7, 0.8)
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextSize = 18
+	subtitle.Parent = screen
+
+	-- Controls panel
+	local controlsPanel = Instance.new("Frame")
+	controlsPanel.Size = UDim2.new(0, 420, 0, 320)
+	controlsPanel.Position = UDim2.new(0.5, -210, 0.25, 0)
+	controlsPanel.BackgroundColor3 = Color3.new(0.08, 0.08, 0.12)
+	controlsPanel.BackgroundTransparency = 0.2
+	controlsPanel.BorderSizePixel = 0
+	controlsPanel.Parent = screen
+
+	local panelCorner = Instance.new("UICorner")
+	panelCorner.CornerRadius = UDim.new(0, 16)
+	panelCorner.Parent = controlsPanel
+
+	local panelStroke = Instance.new("UIStroke")
+	panelStroke.Color = Color3.new(0.3, 0.25, 0.5)
+	panelStroke.Thickness = 2
+	panelStroke.Parent = controlsPanel
+
+	local controlsTitle = Instance.new("TextLabel")
+	controlsTitle.Size = UDim2.new(1, 0, 0, 35)
+	controlsTitle.Position = UDim2.new(0, 0, 0, 10)
+	controlsTitle.BackgroundTransparency = 1
+	controlsTitle.Text = "CONTROLS"
+	controlsTitle.TextColor3 = Color3.new(1, 0.85, 0)
+	controlsTitle.Font = Enum.Font.GothamBold
+	controlsTitle.TextSize = 20
+	controlsTitle.Parent = controlsPanel
+
+	local controls = {
+		{ key = "W A S D", action = "Move" },
+		{ key = "Mouse", action = "Look around" },
+		{ key = "Q", action = "Skill 1 — Swift Slash" },
+		{ key = "E", action = "Skill 2 — Sword Wave" },
+		{ key = "R", action = "Skill 3 — Counter Dash" },
+		{ key = "F", action = "Ultimate (when energy full)" },
+		{ key = "Space", action = "Dodge (i-frames)" },
+		{ key = "T", action = "Toggle auto-attack" },
+	}
+
+	for i, ctrl in ipairs(controls) do
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -40, 0, 28)
+		row.Position = UDim2.new(0, 20, 0, 45 + (i - 1) * 32)
+		row.BackgroundTransparency = 1
+		row.Parent = controlsPanel
+
+		local keyLabel = Instance.new("TextLabel")
+		keyLabel.Size = UDim2.new(0, 100, 1, 0)
+		keyLabel.BackgroundColor3 = Color3.new(0.15, 0.15, 0.2)
+		keyLabel.BackgroundTransparency = 0.3
+		keyLabel.Text = ctrl.key
+		keyLabel.TextColor3 = Color3.new(1, 1, 1)
+		keyLabel.Font = Enum.Font.Code
+		keyLabel.TextSize = 14
+		keyLabel.Parent = row
+
+		local keyCorner = Instance.new("UICorner")
+		keyCorner.CornerRadius = UDim.new(0, 4)
+		keyCorner.Parent = keyLabel
+
+		local actionLabel = Instance.new("TextLabel")
+		actionLabel.Size = UDim2.new(1, -115, 1, 0)
+		actionLabel.Position = UDim2.new(0, 115, 0, 0)
+		actionLabel.BackgroundTransparency = 1
+		actionLabel.Text = ctrl.action
+		actionLabel.TextColor3 = Color3.new(0.8, 0.8, 0.85)
+		actionLabel.Font = Enum.Font.Gotham
+		actionLabel.TextSize = 14
+		actionLabel.TextXAlignment = Enum.TextXAlignment.Left
+		actionLabel.Parent = row
+	end
+
+	-- Start Run Button
+	local startBtn = Instance.new("TextButton")
+	startBtn.Name = "StartRunButton"
+	startBtn.Size = UDim2.new(0, 280, 0, 60)
+	startBtn.Position = UDim2.new(0.5, -140, 0.82, 0)
+	startBtn.BackgroundColor3 = Color3.new(0.2, 0.6, 0.9)
+	startBtn.Text = "START DUNGEON RUN"
+	startBtn.TextColor3 = Color3.new(1, 1, 1)
+	startBtn.Font = Enum.Font.GothamBold
+	startBtn.TextSize = 22
+	startBtn.BorderSizePixel = 0
+	startBtn.Parent = screen
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 12)
+	btnCorner.Parent = startBtn
+
+	local btnStroke = Instance.new("UIStroke")
+	btnStroke.Color = Color3.new(0.4, 0.7, 1)
+	btnStroke.Thickness = 2
+	btnStroke.Parent = startBtn
+
+	-- Pulse animation on button
+	task.spawn(function()
+		while startBtn.Parent do
+			TweenService:Create(startBtn, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				BackgroundColor3 = Color3.new(0.3, 0.7, 1),
+			}):Play()
+			task.wait(0.8)
+			if not startBtn.Parent then break end
+			TweenService:Create(startBtn, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				BackgroundColor3 = Color3.new(0.2, 0.6, 0.9),
+			}):Play()
+			task.wait(0.8)
+		end
+	end)
+
+	-- Start run on click
+	local startRunEvent = ReplicatedStorage:WaitForChild("StartRunEvent", 10)
+
+	startBtn.Activated:Connect(function()
+		if startRunEvent then
+			startRunEvent:FireServer()
+		end
+		-- Fade out welcome screen
+		TweenService:Create(bg, TweenInfo.new(0.5), {
+			BackgroundTransparency = 1,
+		}):Play()
+		for _, child in screen:GetDescendants() do
+			if child:IsA("TextLabel") or child:IsA("TextButton") then
+				TweenService:Create(child, TweenInfo.new(0.5), {
+					TextTransparency = 1,
+				}):Play()
+			end
+			if child:IsA("Frame") then
+				TweenService:Create(child, TweenInfo.new(0.5), {
+					BackgroundTransparency = 1,
+				}):Play()
+			end
+			if child:IsA("UIStroke") then
+				TweenService:Create(child, TweenInfo.new(0.5), {
+					Transparency = 1,
+				}):Play()
+			end
+		end
+		task.delay(0.6, function()
+			screen:Destroy()
+		end)
+	end)
+end
+
+--------------------------------------------------
+-- Controls hint (persistent small overlay during gameplay)
+--------------------------------------------------
+
+local function showControlsHint()
+	local gui = player:WaitForChild("PlayerGui")
+
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "ControlsHint"
+	screen.ResetOnSpawn = false
+	screen.DisplayOrder = 5
+	screen.Parent = gui
+
+	local hint = Instance.new("TextLabel")
+	hint.Size = UDim2.new(0, 350, 0, 25)
+	hint.Position = UDim2.new(0.5, -175, 1, -25)
+	hint.BackgroundTransparency = 1
+	hint.Text = "Q/E/R: Skills | F: Ultimate | Space: Dodge | T: Auto-attack"
+	hint.TextColor3 = Color3.new(0.6, 0.6, 0.65)
+	hint.Font = Enum.Font.Gotham
+	hint.TextSize = 11
+	hint.Parent = screen
+
+	-- Fade out after 30 seconds
+	task.delay(30, function()
+		if hint.Parent then
+			TweenService:Create(hint, TweenInfo.new(2), {
+				TextTransparency = 1,
+			}):Play()
+		end
+	end)
+end
+
+--------------------------------------------------
+-- Boot
+--------------------------------------------------
+
+-- Wait for character to load
+player.CharacterAdded:Wait()
+task.wait(1)
+
+showWelcomeScreen()
+showControlsHint()
+
+print("[ClientMain] Soul Rift client initialized")
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="12">
+    <Properties>
+      <string name="Name">CombatClient</string>
+      <string name="Source"><![CDATA[--[[
+	CombatClient.luau — Client-side combat visual effects
+	StarterPlayerScripts/CombatClient
+
+	Handles: damage numbers, hit effects, screen shake,
+	skill VFX, health bar updates.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local CombatClient = {}
+
+--------------------------------------------------
+-- Initialization
+--------------------------------------------------
+
+function CombatClient.init()
+	local combatEvent = ReplicatedStorage:WaitForChild("CombatEvent", 10)
+	if combatEvent then
+		combatEvent.OnClientEvent:Connect(function(eventType, data)
+			CombatClient._handleEvent(eventType, data)
+		end)
+	end
+end
+
+--------------------------------------------------
+-- Event dispatcher
+--------------------------------------------------
+
+function CombatClient._handleEvent(eventType: string, data: any)
+	if eventType == "DamageDealt" then
+		CombatClient._showDamageNumber(data.target, data.damage, data.isCrit, false)
+		CombatClient._updateEnemyHealthBar(data.target, data.targetHealth, data.targetMaxHealth)
+		CombatClient._hitEffect(data.target)
+
+	elseif eventType == "DamageTaken" then
+		CombatClient._showDamageNumber(player.Character, data.damage, false, true)
+		CombatClient._screenShake(0.3, 3)
+		CombatClient._updatePlayerHUD(data.currentHealth, data.maxHealth)
+
+	elseif eventType == "EnemyKilled" then
+		CombatClient._deathEffect(data.target)
+		CombatClient._showReward(data.xp, data.soulShards)
+
+	elseif eventType == "Healed" then
+		CombatClient._showHealNumber(data.amount)
+
+	elseif eventType == "TalentCards" then
+		CombatClient._showTalentPicker(data.cards)
+
+	elseif eventType == "RoomCleared" then
+		CombatClient._showRoomCleared()
+	end
+end
+
+--------------------------------------------------
+-- Damage numbers (floating text)
+--------------------------------------------------
+
+function CombatClient._showDamageNumber(target: Instance?, damage: number, isCrit: boolean, isPlayerDamage: boolean)
+	if not target then return end
+
+	local rootPart = nil
+	if target:IsA("Model") then
+		rootPart = target:FindFirstChild("HumanoidRootPart")
+	end
+	if not rootPart then return end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.new(0, 100, 0, 40)
+	billboard.StudsOffset = Vector3.new(
+		math.random(-3, 3),
+		math.random(2, 5),
+		math.random(-3, 3)
+	)
+	billboard.Adornee = rootPart
+	billboard.AlwaysOnTop = true
+	billboard.Parent = rootPart
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+
+	if isPlayerDamage then
+		label.Text = "-" .. tostring(damage)
+		label.TextColor3 = Color3.new(1, 0.2, 0.2)
+	elseif isCrit then
+		label.Text = tostring(damage) .. "!"
+		label.TextColor3 = Color3.new(1, 0.85, 0)
+		label.TextSize = 28
+	else
+		label.Text = tostring(damage)
+		label.TextColor3 = Color3.new(1, 1, 1)
+	end
+
+	label.Parent = billboard
+
+	-- Float up and fade
+	local tween = TweenService:Create(billboard, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		StudsOffset = billboard.StudsOffset + Vector3.new(0, 4, 0),
+	})
+	local fadeTween = TweenService:Create(label, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		TextTransparency = 1,
+	})
+
+	tween:Play()
+	task.delay(0.3, function()
+		fadeTween:Play()
+	end)
+
+	task.delay(1.2, function()
+		billboard:Destroy()
+	end)
+end
+
+--------------------------------------------------
+-- Hit and death effects
+--------------------------------------------------
+
+function CombatClient._hitEffect(target: Instance?)
+	if not target or not target:IsA("Model") then return end
+	local rootPart = target:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+
+	-- Flash white briefly
+	local originalColor = rootPart.Color
+	rootPart.Color = Color3.new(1, 1, 1)
+	task.delay(0.1, function()
+		if rootPart.Parent then
+			rootPart.Color = originalColor
+		end
+	end)
+
+	-- Hit particle
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = rootPart
+
+	local particles = Instance.new("ParticleEmitter")
+	particles.Color = ColorSequence.new(Color3.new(1, 0.5, 0))
+	particles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) })
+	particles.Lifetime = NumberRange.new(0.2, 0.4)
+	particles.Speed = NumberRange.new(10, 20)
+	particles.Rate = 0
+	particles.SpreadAngle = Vector2.new(180, 180)
+	particles.Parent = attachment
+
+	particles:Emit(8)
+	task.delay(0.5, function()
+		attachment:Destroy()
+	end)
+end
+
+function CombatClient._deathEffect(target: Instance?)
+	if not target or not target:IsA("Model") then return end
+
+	-- Fade out all parts
+	for _, part in target:GetDescendants() do
+		if part:IsA("BasePart") then
+			local tween = TweenService:Create(part, TweenInfo.new(0.5), {
+				Transparency = 1,
+			})
+			tween:Play()
+		end
+	end
+
+	-- Soul particles rising
+	local rootPart = target:FindFirstChild("HumanoidRootPart")
+	if rootPart then
+		local attachment = Instance.new("Attachment")
+		attachment.Parent = rootPart
+
+		local particles = Instance.new("ParticleEmitter")
+		particles.Color = ColorSequence.new(Color3.new(0.5, 0.8, 1))
+		particles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+		particles.Lifetime = NumberRange.new(0.5, 1.0)
+		particles.Speed = NumberRange.new(5, 15)
+		particles.Rate = 0
+		particles.SpreadAngle = Vector2.new(30, 30)
+		particles.EmissionDirection = Enum.NormalId.Top
+		particles.Parent = attachment
+
+		particles:Emit(15)
+		task.delay(1.5, function()
+			attachment:Destroy()
+		end)
+	end
+end
+
+--------------------------------------------------
+-- Screen effects
+--------------------------------------------------
+
+function CombatClient._screenShake(duration: number, intensity: number)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+
+	local startTime = tick()
+	local originalCFrame = camera.CFrame
+
+	local conn
+	conn = game:GetService("RunService").RenderStepped:Connect(function()
+		local elapsed = tick() - startTime
+		if elapsed >= duration then
+			conn:Disconnect()
+			return
+		end
+
+		local factor = 1 - (elapsed / duration)
+		local offset = Vector3.new(
+			(math.random() - 0.5) * intensity * factor,
+			(math.random() - 0.5) * intensity * factor,
+			0
+		)
+		camera.CFrame = camera.CFrame * CFrame.new(offset)
+	end)
+end
+
+--------------------------------------------------
+-- HUD updates
+--------------------------------------------------
+
+function CombatClient._updatePlayerHUD(currentHealth: number, maxHealth: number)
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local hud = gui:FindFirstChild("CombatHUD")
+	if not hud then return end
+
+	local healthBar = hud:FindFirstChild("HealthBarFill", true)
+	if healthBar then
+		local pct = math.clamp(currentHealth / maxHealth, 0, 1)
+		TweenService:Create(healthBar, TweenInfo.new(0.3), {
+			Size = UDim2.new(pct, 0, 1, 0),
+		}):Play()
+
+		-- Color change based on health
+		if pct <= 0.25 then
+			healthBar.BackgroundColor3 = Color3.new(0.8, 0.1, 0.1)
+		elseif pct <= 0.5 then
+			healthBar.BackgroundColor3 = Color3.new(0.9, 0.6, 0.1)
+		else
+			healthBar.BackgroundColor3 = Color3.new(0.2, 0.8, 0.2)
+		end
+	end
+
+	local healthText = hud:FindFirstChild("HealthText", true)
+	if healthText then
+		healthText.Text = tostring(math.floor(currentHealth)) .. " / " .. tostring(math.floor(maxHealth))
+	end
+end
+
+function CombatClient._updateEnemyHealthBar(enemyModel: Instance?, currentHealth: number, maxHealth: number)
+	if not enemyModel or not enemyModel:IsA("Model") then return end
+
+	local healthBar = enemyModel:FindFirstChild("HealthBar", true)
+	if not healthBar then return end
+
+	local fill = healthBar:FindFirstChild("Fill", true)
+	if fill then
+		local pct = math.clamp(currentHealth / maxHealth, 0, 1)
+		fill.Size = UDim2.new(pct, 0, 1, 0)
+	end
+end
+
+--------------------------------------------------
+-- UI popups
+--------------------------------------------------
+
+function CombatClient._showReward(xp: number, soulShards: number)
+	-- Simple floating text at screen center
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local screen = gui:FindFirstChild("CombatHUD") or gui:FindFirstChildOfClass("ScreenGui")
+	if not screen then return end
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0, 300, 0, 40)
+	label.Position = UDim2.new(0.5, -150, 0.4, 0)
+	label.BackgroundTransparency = 1
+	label.Text = string.format("+%d XP  +%d Soul Shards", xp, soulShards)
+	label.TextColor3 = Color3.new(1, 0.85, 0)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Parent = screen
+
+	TweenService:Create(label, TweenInfo.new(2.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0.5, -150, 0.3, 0),
+		TextTransparency = 1,
+	}):Play()
+
+	task.delay(2.5, function()
+		label:Destroy()
+	end)
+end
+
+function CombatClient._showHealNumber(amount: number)
+	local character = player.Character
+	if not character then return end
+
+	CombatClient._showDamageNumber(character, amount, false, false)
+end
+
+function CombatClient._showRoomCleared()
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local screen = gui:FindFirstChild("CombatHUD") or gui:FindFirstChildOfClass("ScreenGui")
+	if not screen then return end
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0, 400, 0, 60)
+	label.Position = UDim2.new(0.5, -200, 0.35, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "ROOM CLEARED"
+	label.TextColor3 = Color3.new(0.2, 1, 0.4)
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.TextStrokeTransparency = 0.5
+	label.Parent = screen
+
+	TweenService:Create(label, TweenInfo.new(1.5), {
+		TextTransparency = 1,
+		TextStrokeTransparency = 1,
+	}):Play()
+
+	task.delay(2.0, function()
+		label:Destroy()
+	end)
+end
+
+function CombatClient._showTalentPicker(cards: { any })
+	-- Talent card selection is handled by UIManager
+	-- This just forwards the data
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local uiManager = gui:FindFirstChild("UIManagerScript")
+	if uiManager then
+		uiManager:SetAttribute("TalentCards", game:GetService("HttpService"):JSONEncode(cards))
+	end
+end
+
+return CombatClient
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="13">
+    <Properties>
+      <string name="Name">InputController</string>
+      <string name="Source"><![CDATA[--[[
+	InputController.luau — Player input handling (PC + Mobile)
+	StarterPlayerScripts/InputController
+
+	Handles: movement, skill buttons, dodge, auto-attack toggle.
+	Sends actions to server via RemoteEvents.
+]]
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
+
+local player = Players.LocalPlayer
+local InputController = {}
+
+-- Remote events (created by GameManager)
+local skillEvent: RemoteEvent = nil
+local dodgeEvent: RemoteEvent = nil
+local ultimateEvent: RemoteEvent = nil
+
+-- State
+local autoAttack = true
+local autoAttackTimer = 0
+local AUTO_ATTACK_INTERVAL = 0.5
+
+--------------------------------------------------
+-- Initialization
+--------------------------------------------------
+
+function InputController.init()
+	-- Wait for remote events
+	skillEvent = ReplicatedStorage:WaitForChild("SkillEvent", 10)
+	dodgeEvent = ReplicatedStorage:WaitForChild("DodgeEvent", 10)
+	ultimateEvent = ReplicatedStorage:WaitForChild("UltimateEvent", 10)
+
+	-- PC keyboard bindings
+	InputController._bindKeyboard()
+
+	-- Mobile touch buttons (created by UIManager)
+	InputController._bindMobile()
+
+	-- Auto-attack loop
+	RunService.Heartbeat:Connect(function(dt)
+		InputController._updateAutoAttack(dt)
+	end)
+end
+
+--------------------------------------------------
+-- Keyboard bindings (PC)
+--------------------------------------------------
+
+function InputController._bindKeyboard()
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+
+		if input.KeyCode == Enum.KeyCode.Q then
+			InputController.useSkill(1)
+		elseif input.KeyCode == Enum.KeyCode.E then
+			InputController.useSkill(2)
+		elseif input.KeyCode == Enum.KeyCode.R then
+			InputController.useSkill(3)
+		elseif input.KeyCode == Enum.KeyCode.F then
+			InputController.useUltimate()
+		elseif input.KeyCode == Enum.KeyCode.Space then
+			InputController.dodge()
+		elseif input.KeyCode == Enum.KeyCode.T then
+			autoAttack = not autoAttack
+		end
+	end)
+end
+
+--------------------------------------------------
+-- Mobile bindings
+--------------------------------------------------
+
+function InputController._bindMobile()
+	-- Touch buttons are handled by UIManager
+	-- This connects to the button events
+	local gui = player:WaitForChild("PlayerGui", 10)
+	if not gui then return end
+
+	local combatUI = gui:WaitForChild("CombatHUD", 10)
+	if not combatUI then return end
+
+	local function connectButton(name: string, callback: () -> ())
+		local btn = combatUI:FindFirstChild(name, true)
+		if btn and btn:IsA("GuiButton") then
+			btn.Activated:Connect(callback)
+		end
+	end
+
+	connectButton("Skill1Button", function() InputController.useSkill(1) end)
+	connectButton("Skill2Button", function() InputController.useSkill(2) end)
+	connectButton("Skill3Button", function() InputController.useSkill(3) end)
+	connectButton("UltimateButton", function() InputController.useUltimate() end)
+	connectButton("DodgeButton", function() InputController.dodge() end)
+end
+
+--------------------------------------------------
+-- Actions
+--------------------------------------------------
+
+function InputController.useSkill(index: number)
+	if skillEvent then
+		skillEvent:FireServer(index)
+	end
+end
+
+function InputController.useUltimate()
+	if ultimateEvent then
+		ultimateEvent:FireServer()
+	end
+end
+
+function InputController.dodge()
+	if dodgeEvent then
+		dodgeEvent:FireServer()
+	end
+
+	-- Client-side dodge movement (responsive feel, server validates)
+	local character = player.Character
+	if not character then return end
+	local rootPart = character:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+
+	local moveDir = character.Humanoid.MoveDirection
+	if moveDir.Magnitude < 0.1 then
+		moveDir = rootPart.CFrame.LookVector
+	end
+
+	-- Quick dash effect
+	local dodgeDist = 20
+	local bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.MaxForce = Vector3.new(50000, 0, 50000)
+	bodyVelocity.Velocity = moveDir.Unit * dodgeDist / 0.3
+	bodyVelocity.Parent = rootPart
+
+	task.delay(0.3, function()
+		if bodyVelocity.Parent then
+			bodyVelocity:Destroy()
+		end
+	end)
+end
+
+--------------------------------------------------
+-- Auto-attack
+--------------------------------------------------
+
+function InputController._updateAutoAttack(dt: number)
+	if not autoAttack then return end
+
+	autoAttackTimer -= dt
+	if autoAttackTimer > 0 then return end
+	autoAttackTimer = AUTO_ATTACK_INTERVAL
+
+	-- Find nearest enemy in range
+	local character = player.Character
+	if not character or not character:FindFirstChild("HumanoidRootPart") then
+		return
+	end
+
+	local pos = character.HumanoidRootPart.Position
+	local attackRange = 10 -- default melee range
+
+	local nearestEnemy = nil
+	local nearestDist = attackRange
+
+	for _, obj in workspace:GetChildren() do
+		if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj ~= character then
+			local hrp = obj:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				local dist = (hrp.Position - pos).Magnitude
+				if dist < nearestDist then
+					nearestEnemy = obj
+					nearestDist = dist
+				end
+			end
+		end
+	end
+
+	if nearestEnemy and skillEvent then
+		-- Auto-attack uses skill slot 1 (basic attack)
+		skillEvent:FireServer(1, nearestEnemy)
+	end
+end
+
+--------------------------------------------------
+-- Target aiming (mouse/touch)
+--------------------------------------------------
+
+function InputController.getAimPosition(): Vector3?
+	local mouse = player:GetMouse()
+	if mouse then
+		return mouse.Hit.Position
+	end
+	return nil
+end
+
+return InputController
+]]></string>
+    </Properties>
+  </Item>
+  <Item class="ModuleScript" referent="14">
+    <Properties>
+      <string name="Name">UIManager</string>
+      <string name="Source"><![CDATA[--[[
+	UIManager.luau — UI creation and management
+	StarterPlayerScripts/UIManager
+
+	Creates: Combat HUD, talent card picker, room transition screen,
+	death screen, results screen.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local UIManager = {}
+
+--------------------------------------------------
+-- Initialization
+--------------------------------------------------
+
+function UIManager.init()
+	UIManager._createCombatHUD()
+
+	-- Listen for talent card events
+	local combatEvent = ReplicatedStorage:WaitForChild("CombatEvent", 10)
+	if combatEvent then
+		combatEvent.OnClientEvent:Connect(function(eventType, data)
+			if eventType == "TalentCards" then
+				UIManager.showTalentPicker(data.cards)
+			elseif eventType == "RunComplete" then
+				UIManager.showResultsScreen(data)
+			elseif eventType == "PlayerDied" then
+				UIManager.showDeathScreen()
+			elseif eventType == "RoomTransition" then
+				UIManager.showRoomTransition(data.roomType, data.roomIndex)
+			end
+		end)
+	end
+end
+
+--------------------------------------------------
+-- Combat HUD
+--------------------------------------------------
+
+function UIManager._createCombatHUD()
+	local gui = player:WaitForChild("PlayerGui")
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "CombatHUD"
+	screenGui.ResetOnSpawn = false
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.Parent = gui
+
+	-- Health bar
+	UIManager._createHealthBar(screenGui)
+
+	-- Energy bar
+	UIManager._createEnergyBar(screenGui)
+
+	-- Skill buttons
+	UIManager._createSkillButtons(screenGui)
+
+	-- Room info
+	UIManager._createRoomInfo(screenGui)
+
+	-- Minimap placeholder
+	UIManager._createMinimap(screenGui)
+end
+
+function UIManager._createHealthBar(parent: ScreenGui)
+	local container = Instance.new("Frame")
+	container.Name = "HealthBarContainer"
+	container.Size = UDim2.new(0, 250, 0, 25)
+	container.Position = UDim2.new(0, 20, 0, 20)
+	container.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+	container.BorderSizePixel = 0
+	container.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = container
+
+	local fill = Instance.new("Frame")
+	fill.Name = "HealthBarFill"
+	fill.Size = UDim2.new(1, 0, 1, 0)
+	fill.BackgroundColor3 = Color3.new(0.2, 0.8, 0.2)
+	fill.BorderSizePixel = 0
+	fill.Parent = container
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 6)
+	fillCorner.Parent = fill
+
+	local text = Instance.new("TextLabel")
+	text.Name = "HealthText"
+	text.Size = UDim2.new(1, 0, 1, 0)
+	text.BackgroundTransparency = 1
+	text.Text = "100 / 100"
+	text.TextColor3 = Color3.new(1, 1, 1)
+	text.Font = Enum.Font.GothamBold
+	text.TextSize = 14
+	text.Parent = container
+end
+
+function UIManager._createEnergyBar(parent: ScreenGui)
+	local container = Instance.new("Frame")
+	container.Name = "EnergyBarContainer"
+	container.Size = UDim2.new(0, 250, 0, 12)
+	container.Position = UDim2.new(0, 20, 0, 50)
+	container.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+	container.BorderSizePixel = 0
+	container.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 4)
+	corner.Parent = container
+
+	local fill = Instance.new("Frame")
+	fill.Name = "EnergyBarFill"
+	fill.Size = UDim2.new(0, 0, 1, 0)
+	fill.BackgroundColor3 = Color3.new(0.3, 0.5, 1)
+	fill.BorderSizePixel = 0
+	fill.Parent = container
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 4)
+	fillCorner.Parent = fill
+end
+
+function UIManager._createSkillButtons(parent: ScreenGui)
+	local container = Instance.new("Frame")
+	container.Name = "SkillBar"
+	container.Size = UDim2.new(0, 350, 0, 70)
+	container.Position = UDim2.new(0.5, -175, 1, -90)
+	container.BackgroundTransparency = 1
+	container.Parent = parent
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.Padding = UDim.new(0, 8)
+	layout.Parent = container
+
+	local buttonDefs = {
+		{ name = "Skill1Button", label = "Q", color = Color3.new(0.3, 0.6, 0.9) },
+		{ name = "Skill2Button", label = "E", color = Color3.new(0.9, 0.4, 0.3) },
+		{ name = "Skill3Button", label = "R", color = Color3.new(0.4, 0.8, 0.4) },
+		{ name = "DodgeButton",  label = "⚡", color = Color3.new(0.9, 0.85, 0.3) },
+		{ name = "UltimateButton", label = "F", color = Color3.new(0.8, 0.3, 0.9) },
+	}
+
+	for _, def in buttonDefs do
+		local btn = Instance.new("TextButton")
+		btn.Name = def.name
+		btn.Size = UDim2.new(0, 60, 0, 60)
+		btn.BackgroundColor3 = def.color
+		btn.Text = def.label
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.Font = Enum.Font.GothamBold
+		btn.TextSize = 22
+		btn.BorderSizePixel = 0
+		btn.Parent = container
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 10)
+		corner.Parent = btn
+
+		-- Cooldown overlay
+		local cdOverlay = Instance.new("Frame")
+		cdOverlay.Name = "CooldownOverlay"
+		cdOverlay.Size = UDim2.new(1, 0, 0, 0)
+		cdOverlay.Position = UDim2.new(0, 0, 1, 0)
+		cdOverlay.AnchorPoint = Vector2.new(0, 1)
+		cdOverlay.BackgroundColor3 = Color3.new(0, 0, 0)
+		cdOverlay.BackgroundTransparency = 0.5
+		cdOverlay.BorderSizePixel = 0
+		cdOverlay.Parent = btn
+
+		local cdCorner = Instance.new("UICorner")
+		cdCorner.CornerRadius = UDim.new(0, 10)
+		cdCorner.Parent = cdOverlay
+	end
+end
+
+function UIManager._createRoomInfo(parent: ScreenGui)
+	local label = Instance.new("TextLabel")
+	label.Name = "RoomInfo"
+	label.Size = UDim2.new(0, 200, 0, 30)
+	label.Position = UDim2.new(1, -220, 0, 20)
+	label.BackgroundTransparency = 1
+	label.Text = "Room 1 / 10"
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 18
+	label.TextXAlignment = Enum.TextXAlignment.Right
+	label.Parent = parent
+end
+
+function UIManager._createMinimap(parent: ScreenGui)
+	local frame = Instance.new("Frame")
+	frame.Name = "Minimap"
+	frame.Size = UDim2.new(0, 120, 0, 120)
+	frame.Position = UDim2.new(1, -140, 0, 55)
+	frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+	frame.BackgroundTransparency = 0.3
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = frame
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "MINIMAP"
+	label.TextColor3 = Color3.new(0.5, 0.5, 0.5)
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 12
+	label.Parent = frame
+end
+
+--------------------------------------------------
+-- Talent Card Picker
+--------------------------------------------------
+
+function UIManager.showTalentPicker(cards: { any })
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "TalentPicker"
+	screen.Parent = gui
+
+	-- Darken background
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.new(0, 0, 0)
+	bg.BackgroundTransparency = 0.5
+	bg.Parent = screen
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(0, 400, 0, 50)
+	title.Position = UDim2.new(0.5, -200, 0.15, 0)
+	title.BackgroundTransparency = 1
+	title.Text = "Choose a Talent Card"
+	title.TextColor3 = Color3.new(1, 0.85, 0)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 28
+	title.Parent = screen
+
+	-- Card container
+	local cardContainer = Instance.new("Frame")
+	cardContainer.Size = UDim2.new(0, 600, 0, 300)
+	cardContainer.Position = UDim2.new(0.5, -300, 0.3, 0)
+	cardContainer.BackgroundTransparency = 1
+	cardContainer.Parent = screen
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.Padding = UDim.new(0, 20)
+	layout.Parent = cardContainer
+
+	local rarityColors = {
+		common = Color3.new(0.7, 0.7, 0.7),
+		rare = Color3.new(0.3, 0.5, 1),
+		epic = Color3.new(0.6, 0.2, 0.8),
+		legendary = Color3.new(1, 0.75, 0),
+	}
+
+	local talentEvent = ReplicatedStorage:FindFirstChild("TalentSelectEvent")
+
+	for i, card in cards do
+		local cardFrame = Instance.new("TextButton")
+		cardFrame.Name = "Card_" .. i
+		cardFrame.Size = UDim2.new(0, 170, 0, 280)
+		cardFrame.BackgroundColor3 = Color3.new(0.12, 0.12, 0.15)
+		cardFrame.BorderSizePixel = 0
+		cardFrame.Text = ""
+		cardFrame.Parent = cardContainer
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 12)
+		corner.Parent = cardFrame
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = rarityColors[card.rarity] or Color3.new(0.5, 0.5, 0.5)
+		stroke.Thickness = 3
+		stroke.Parent = cardFrame
+
+		-- Rarity label
+		local rarityLabel = Instance.new("TextLabel")
+		rarityLabel.Size = UDim2.new(1, -20, 0, 25)
+		rarityLabel.Position = UDim2.new(0, 10, 0, 10)
+		rarityLabel.BackgroundTransparency = 1
+		rarityLabel.Text = card.rarity:upper()
+		rarityLabel.TextColor3 = rarityColors[card.rarity] or Color3.new(1, 1, 1)
+		rarityLabel.Font = Enum.Font.GothamBold
+		rarityLabel.TextSize = 12
+		rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
+		rarityLabel.Parent = cardFrame
+
+		-- Card name
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(1, -20, 0, 40)
+		nameLabel.Position = UDim2.new(0, 10, 0, 45)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = card.name
+		nameLabel.TextColor3 = Color3.new(1, 1, 1)
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.TextSize = 18
+		nameLabel.TextWrapped = true
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.Parent = cardFrame
+
+		-- Description
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Size = UDim2.new(1, -20, 0, 120)
+		descLabel.Position = UDim2.new(0, 10, 0, 100)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Text = card.description
+		descLabel.TextColor3 = Color3.new(0.8, 0.8, 0.8)
+		descLabel.Font = Enum.Font.Gotham
+		descLabel.TextSize = 14
+		descLabel.TextWrapped = true
+		descLabel.TextXAlignment = Enum.TextXAlignment.Left
+		descLabel.TextYAlignment = Enum.TextYAlignment.Top
+		descLabel.Parent = cardFrame
+
+		-- Select button area
+		cardFrame.Activated:Connect(function()
+			if talentEvent then
+				talentEvent:FireServer(card.id)
+			end
+			screen:Destroy()
+		end)
+
+		-- Hover effect
+		cardFrame.MouseEnter:Connect(function()
+			TweenService:Create(cardFrame, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, 180, 0, 290),
+			}):Play()
+		end)
+		cardFrame.MouseLeave:Connect(function()
+			TweenService:Create(cardFrame, TweenInfo.new(0.2), {
+				Size = UDim2.new(0, 170, 0, 280),
+			}):Play()
+		end)
+	end
+
+	-- Auto-close after timeout
+	task.delay(30, function()
+		if screen.Parent then
+			-- Auto-select first card
+			if talentEvent and #cards > 0 then
+				talentEvent:FireServer(cards[1].id)
+			end
+			screen:Destroy()
+		end
+	end)
+end
+
+--------------------------------------------------
+-- Room transition
+--------------------------------------------------
+
+function UIManager.showRoomTransition(roomType: string, roomIndex: number)
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local combatHUD = gui:FindFirstChild("CombatHUD")
+	if combatHUD then
+		local roomInfo = combatHUD:FindFirstChild("RoomInfo")
+		if roomInfo then
+			roomInfo.Text = string.format("Room %d — %s", roomIndex, roomType:upper())
+		end
+	end
+
+	-- Brief flash overlay
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "TransitionOverlay"
+	screen.Parent = gui
+
+	local overlay = Instance.new("Frame")
+	overlay.Size = UDim2.new(1, 0, 1, 0)
+	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundTransparency = 0
+	overlay.Parent = screen
+
+	TweenService:Create(overlay, TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 1,
+	}):Play()
+
+	task.delay(1.5, function()
+		screen:Destroy()
+	end)
+end
+
+--------------------------------------------------
+-- Death and results screens
+--------------------------------------------------
+
+function UIManager.showDeathScreen()
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "DeathScreen"
+	screen.Parent = gui
+
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.new(0.3, 0, 0)
+	bg.BackgroundTransparency = 0.4
+	bg.Parent = screen
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0, 400, 0, 80)
+	label.Position = UDim2.new(0.5, -200, 0.35, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "YOU DIED"
+	label.TextColor3 = Color3.new(0.8, 0.1, 0.1)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 48
+	label.Parent = screen
+
+	task.delay(3, function()
+		if screen.Parent then
+			screen:Destroy()
+		end
+	end)
+end
+
+function UIManager.showResultsScreen(data: any)
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "ResultsScreen"
+	screen.Parent = gui
+
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.new(1, 0, 1, 0)
+	bg.BackgroundColor3 = Color3.new(0, 0, 0)
+	bg.BackgroundTransparency = 0.3
+	bg.Parent = screen
+
+	local panel = Instance.new("Frame")
+	panel.Size = UDim2.new(0, 400, 0, 350)
+	panel.Position = UDim2.new(0.5, -200, 0.2, 0)
+	panel.BackgroundColor3 = Color3.new(0.12, 0.12, 0.15)
+	panel.BorderSizePixel = 0
+	panel.Parent = screen
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 16)
+	corner.Parent = panel
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0, 50)
+	title.BackgroundTransparency = 1
+	title.Text = data.cleared and "RUN COMPLETE!" or "RUN OVER"
+	title.TextColor3 = data.cleared and Color3.new(0.2, 1, 0.4) or Color3.new(1, 0.3, 0.3)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 28
+	title.Parent = panel
+
+	local stats = {
+		{ "Rooms Cleared", tostring(data.roomsCleared or 0) },
+		{ "Enemies Defeated", tostring(data.enemiesKilled or 0) },
+		{ "XP Earned", tostring(data.xpEarned or 0) },
+		{ "Soul Shards", tostring(data.soulShards or 0) },
+		{ "Time", string.format("%d:%02d", math.floor((data.duration or 0) / 60), math.floor((data.duration or 0) % 60)) },
+	}
+
+	for i, stat in stats do
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -40, 0, 35)
+		row.Position = UDim2.new(0, 20, 0, 60 + (i - 1) * 40)
+		row.BackgroundTransparency = 1
+		row.Parent = panel
+
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = stat[1]
+		nameLabel.TextColor3 = Color3.new(0.7, 0.7, 0.7)
+		nameLabel.Font = Enum.Font.Gotham
+		nameLabel.TextSize = 16
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.Parent = row
+
+		local valueLabel = Instance.new("TextLabel")
+		valueLabel.Size = UDim2.new(0.4, 0, 1, 0)
+		valueLabel.Position = UDim2.new(0.6, 0, 0, 0)
+		valueLabel.BackgroundTransparency = 1
+		valueLabel.Text = stat[2]
+		valueLabel.TextColor3 = Color3.new(1, 0.85, 0)
+		valueLabel.Font = Enum.Font.GothamBold
+		valueLabel.TextSize = 18
+		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+		valueLabel.Parent = row
+	end
+
+	-- Return to hub button
+	local returnBtn = Instance.new("TextButton")
+	returnBtn.Size = UDim2.new(0, 200, 0, 45)
+	returnBtn.Position = UDim2.new(0.5, -100, 1, -60)
+	returnBtn.BackgroundColor3 = Color3.new(0.3, 0.6, 0.9)
+	returnBtn.Text = "Return to Hub"
+	returnBtn.TextColor3 = Color3.new(1, 1, 1)
+	returnBtn.Font = Enum.Font.GothamBold
+	returnBtn.TextSize = 18
+	returnBtn.BorderSizePixel = 0
+	returnBtn.Parent = panel
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 8)
+	btnCorner.Parent = returnBtn
+
+	returnBtn.Activated:Connect(function()
+		local returnEvent = ReplicatedStorage:FindFirstChild("ReturnToHubEvent")
+		if returnEvent then
+			returnEvent:FireServer()
+		end
+		screen:Destroy()
+	end)
+end
+
+--------------------------------------------------
+-- Energy bar update
+--------------------------------------------------
+
+function UIManager.updateEnergyBar(current: number, max: number)
+	local gui = player:FindFirstChild("PlayerGui")
+	if not gui then return end
+
+	local hud = gui:FindFirstChild("CombatHUD")
+	if not hud then return end
+
+	local fill = hud:FindFirstChild("EnergyBarFill", true)
+	if fill then
+		local pct = math.clamp(current / max, 0, 1)
+		TweenService:Create(fill, TweenInfo.new(0.2), {
+			Size = UDim2.new(pct, 0, 1, 0),
+		}):Play()
+
+		-- Glow when full
+		if pct >= 1 then
+			fill.BackgroundColor3 = Color3.new(0.5, 0.7, 1)
+		else
+			fill.BackgroundColor3 = Color3.new(0.3, 0.5, 1)
+		end
+	end
+end
+
+return UIManager
+]]></string>
+    </Properties>
+  </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="28">
+    <Properties>
+      <string name="Name">Workspace</string>
+    </Properties>
+    <Item class="SpawnLocation" referent="29">
+      <Properties>
+        <bool name="Anchored">true</bool>
+        <string name="Name">SpawnLocation</string>
+        <Vector3 name="size">
+          <X>8</X>
+          <Y>1</Y>
+          <Z>8</Z>
+        </Vector3>
+      </Properties>
+    </Item>
+    <Item class="Part" referent="30">
+      <Properties>
+        <bool name="Anchored">true</bool>
+        <string name="Name">Baseplate</string>
+        <Vector3 name="size">
+          <X>512</X>
+          <Y>20</Y>
+          <Z>512</Z>
+        </Vector3>
+        <CoordinateFrame name="CFrame">
+          <X>0</X><Y>-10</Y><Z>0</Z>
+          <R00>1</R00><R01>0</R01><R02>0</R02>
+          <R10>0</R10><R11>1</R11><R12>0</R12>
+          <R20>0</R20><R21>0</R21><R22>1</R22>
+        </CoordinateFrame>
+      </Properties>
+    </Item>
+  </Item>
+</roblox>

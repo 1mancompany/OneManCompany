@@ -166,26 +166,29 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
     node.acceptance_result = {"passed": False, "notes": reason}
 
     if retry:
+        from onemancompany.core.vessel import employee_manager
+        handle = employee_manager.get_handle(node.employee_id)
+        if not handle:
+            logger.error("reject_child: no handle for employee {}, cannot push correction task", node.employee_id)
+            return {"status": "error", "message": f"No handle for employee {node.employee_id}, cannot push correction task."}
+
         # Reset to pending, push correction task
         node.status = "pending"
         node.result = ""
         _save_tree(task.project_dir, tree)
 
-        from onemancompany.core.vessel import employee_manager
-        handle = employee_manager.get_handle(node.employee_id)
-        if handle:
-            correction_desc = (
-                f"修正任务: {node.description}\n\n"
-                f"拒绝原因: {reason}\n\n"
-                f"验收标准:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
-            )
-            agent_task = handle.push_task(
-                correction_desc,
-                project_id=task.project_id,
-                project_dir=task.project_dir,
-            )
-            tree.task_id_map[agent_task.id] = node.id
-            _save_tree(task.project_dir, tree)
+        correction_desc = (
+            f"修正任务: {node.description}\n\n"
+            f"拒绝原因: {reason}\n\n"
+            f"验收标准:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
+        )
+        agent_task = handle.push_task(
+            correction_desc,
+            project_id=task.project_id,
+            project_dir=task.project_dir,
+        )
+        tree.task_id_map[agent_task.id] = node.id
+        _save_tree(task.project_dir, tree)
 
         return {"status": "rejected_retry", "node_id": node_id, "reason": reason}
     else:

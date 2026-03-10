@@ -1181,6 +1181,36 @@ body {
   min-height: 0;
 }
 
+.employee-avatar-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.employee-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--pixel-green);
+  object-fit: cover;
+  background: var(--bg-dark);
+}
+
+.avatar-upload-btn {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--pixel-green);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  padding: 3px 6px;
+  background: var(--bg-panel);
+}
+
+.avatar-upload-btn:hover {
+  background: var(--bg-panel-alt);
+}
+
 .emp-detail-status-card {
   margin-bottom: 8px;
   padding-bottom: 6px;
@@ -3793,11 +3823,23 @@ body {
 }
 
 .tree-detail-avatar {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    background: #222;
-    border: 2px solid var(--pixel-green);
+    background: var(--bg-dark);
+    border: 1px solid var(--pixel-green);
+    object-fit: cover;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.tree-detail-role {
+    font-size: 7px;
+    color: var(--text-dim);
 }
 
 .detail-section {

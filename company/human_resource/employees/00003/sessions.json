@@ -99,7 +99,24 @@
     "session_id": "f4cc2c81-21f8-472e-a2cd-51482149649e",
     "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_001",
     "created": "2026-03-10T13:13:09.729431+00:00",
-    "used": true,
-    "running_pid": 41505
+    "used": true
+  },
+  "rouge-like-game-roblox/iter_002": {
+    "session_id": "3107db0b-44d2-4de4-a24d-69c0882a5a03",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_002",
+    "created": "2026-03-10T14:19:07.498421+00:00",
+    "used": false
+  },
+  "iter_002": {
+    "session_id": "2cccbdf1-fcde-489a-bd2c-2906a34dae8b",
+    "work_dir": "/Users/yuzhengxu/projects/OneManCompany/company/business/projects/rouge-like-game-roblox/iterations/iter_002",
+    "created": "2026-03-10T15:04:25.477853+00:00",
+    "used": true
+  },
+  "1-1": {
+    "session_id": "ead61695-efee-41e6-8c79-655d85713570",
+    "work_dir": "",
+    "created": "2026-03-10T15:14:57.213396+00:00",
+    "used": true
   }
 }

@@ -1,0 +1,31 @@
+acceptance_criteria: []
+acceptance_result: null
+completed_at: null
+cost:
+  actual_cost_usd: 0.0
+  breakdown: []
+  budget_estimate_usd: 0.0
+  token_usage:
+    input: 0
+    output: 0
+    total: 0
+created_at: '2026-03-10T15:19:19.717653'
+current_owner: pending
+dispatches: []
+ea_review_result: null
+output: null
+participants:
+- '00002'
+- '00003'
+- '00004'
+- '00005'
+- '00006'
+- '00007'
+project_dir: /Users/yuzhengxu/projects/OneManCompany/company/business/projects/20260310_151919_2f6da2
+project_id: 20260310_151919_2f6da2
+responsible_officer: ''
+routed_to: pending
+status: in_progress
+task: 招聘一个人类试玩员
+task_type: simple
+timeline: []
