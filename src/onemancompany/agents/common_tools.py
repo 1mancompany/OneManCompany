@@ -1113,6 +1113,42 @@ def list_automations(employee_id: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Skill loading — on-demand skill content retrieval (Claude-style)
+# ---------------------------------------------------------------------------
+
+@tool
+def load_skill(skill_name: str) -> dict:
+    """Load a skill's full instructions by name.
+
+    Call this BEFORE applying any skill. The skill catalog in your system prompt
+    lists available skills with short descriptions. Use this tool to get the
+    complete instructions for a skill you want to use.
+
+    Args:
+        skill_name: The skill name from your Available Skills list.
+
+    Returns:
+        The full skill content, or an error if the skill is not found.
+    """
+    try:
+        vessel = _current_vessel.get()
+    except LookupError:
+        return {"status": "error", "message": "No employee context — cannot resolve skills."}
+
+    employee_id = getattr(vessel, "employee_id", "")
+    if not employee_id:
+        return {"status": "error", "message": "No employee context."}
+
+    from onemancompany.core.config import load_employee_skills
+    skills = load_employee_skills(employee_id)
+    if skill_name not in skills:
+        available = list(skills.keys())
+        return {"status": "error", "message": f"Skill '{skill_name}' not found. Available: {available}"}
+
+    return {"status": "ok", "skill_name": skill_name, "content": skills[skill_name]}
+
+
+# ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
 
@@ -1127,7 +1163,7 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
-        report_to_ceo, ask_ceo, request_tool_access,
+        report_to_ceo, ask_ceo, request_tool_access, load_skill,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))

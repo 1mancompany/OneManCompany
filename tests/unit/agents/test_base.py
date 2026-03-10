@@ -221,17 +221,24 @@ class TestGetEmployeeSkillsPrompt:
         result = base_mod.get_employee_skills_prompt("00010")
         assert result == ""
 
-    def test_builds_skills_section(self, monkeypatch):
+    def test_builds_skills_index(self, monkeypatch):
         from onemancompany.agents import base as base_mod
 
         monkeypatch.setattr(
             base_mod, "load_employee_skills",
-            lambda eid: {"python": "Python expertise", "js": "JavaScript skill"},
+            lambda eid: {
+                "python": "---\nname: python\ndescription: Python expertise\n---\nFull content",
+                "js": "---\nname: js\ndescription: JavaScript skill\n---\nJS content",
+            },
         )
         result = base_mod.get_employee_skills_prompt("00010")
-        assert "Skills & Knowledge" in result
+        assert "Available Skills" in result
+        assert "load_skill" in result
         assert "python" in result
         assert "JavaScript skill" in result
+        # Full content should NOT be in the index prompt
+        assert "Full content" not in result
+        assert "JS content" not in result
 
 
 # ---------------------------------------------------------------------------
