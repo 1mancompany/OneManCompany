@@ -113,10 +113,15 @@ async def start_boss_online() -> None:
     url = tm_config.get("url", "https://talent.onemancompany.app/sse")
     api_key = tm_config.get("api_key", "")
 
+    if not api_key:
+        logger.warning("Talent Market API key not configured — skipping connection. "
+                       "Set it in Settings or .onemancompany/config.yaml")
+        return
+
     stack = AsyncExitStack()
 
     from mcp.client.sse import sse_client
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers = {"Authorization": f"Bearer {api_key}"}
     read, write = await stack.enter_async_context(
         sse_client(url=url, headers=headers)
     )
