@@ -4863,3 +4863,63 @@ async def stop_all_crons_endpoint(employee_id: str) -> dict:
         return stop_all_crons_for_employee(employee_id)
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------------------
+# Tick-based resource endpoints (single-source-of-truth — read from disk)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/employees")
+async def list_employees():
+    """List all active employees — reads from disk."""
+    from onemancompany.core.store import load_all_employees
+    employees = load_all_employees()
+    result = []
+    for emp_id, data in employees.items():
+        runtime = data.pop("runtime", {})
+        data["id"] = emp_id
+        data["employee_number"] = emp_id
+        data["status"] = runtime.get("status", "idle")
+        data["is_listening"] = runtime.get("is_listening", False)
+        data["current_task_summary"] = runtime.get("current_task_summary", "")
+        data["api_online"] = runtime.get("api_online", True)
+        data["needs_setup"] = runtime.get("needs_setup", False)
+        result.append(data)
+    return result
+
+
+@router.get("/api/rooms")
+async def list_rooms():
+    """List rooms with booking status — reads from disk."""
+    from onemancompany.core.store import load_rooms
+    return load_rooms()
+
+
+@router.get("/api/rooms/{room_id}/chat")
+async def get_room_chat(room_id: str):
+    """Room chat history — reads from disk."""
+    from onemancompany.core.store import load_room_chat
+    return load_room_chat(room_id)
+
+
+@router.get("/api/tools")
+async def list_tools():
+    """List tools — reads from disk."""
+    from onemancompany.core.store import load_tools
+    return load_tools()
+
+
+@router.get("/api/employee/{employee_id}/oneonone")
+async def get_oneonone_history(employee_id: str):
+    """1-on-1 chat history — reads from disk."""
+    from onemancompany.core.store import load_oneonone
+    return load_oneonone(employee_id)
+
+
+@router.get("/api/activity-log")
+async def get_activity_log():
+    """Activity log (last 50 entries) — reads from disk."""
+    from onemancompany.core.store import load_activity_log
+    log = load_activity_log()
+    return log[-50:]

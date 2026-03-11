@@ -6336,3 +6336,163 @@ class TestEmployeeProjects:
         from onemancompany.api.routes import _scan_employee_projects
         projects = _scan_employee_projects("00099", str(tmp_path))
         assert projects == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/employees  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListEmployees:
+    async def test_list_employees_returns_from_disk(self):
+        """GET /api/employees reads from store.load_all_employees."""
+        mock_data = {
+            "00100": {
+                "name": "TestBot",
+                "role": "Engineer",
+                "runtime": {"status": "idle", "is_listening": True},
+            },
+        }
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_all_employees", return_value=mock_data):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employees")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "TestBot"
+        assert data[0]["status"] == "idle"
+        assert data[0]["is_listening"] is True
+        assert data[0]["id"] == "00100"
+
+    async def test_list_employees_empty(self):
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_all_employees", return_value={}):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employees")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rooms  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListRooms:
+    async def test_list_rooms(self):
+        mock_rooms = [{"id": "room1", "name": "Alpha", "booked_by": None}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_rooms", return_value=mock_rooms):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/rooms")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "room1"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rooms/{room_id}/chat  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetRoomChat:
+    async def test_get_room_chat(self):
+        mock_chat = [{"sender": "00100", "text": "Hello"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_room_chat", return_value=mock_chat):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/rooms/room1/chat")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["sender"] == "00100"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tools  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListTools:
+    async def test_list_tools(self):
+        mock_tools = [{"slug": "gmail", "name": "Gmail"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_tools", return_value=mock_tools):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/tools")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["slug"] == "gmail"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/employee/{employee_id}/oneonone  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetOneononeHistory:
+    async def test_get_oneonone_history(self):
+        mock_history = [{"role": "ceo", "content": "How are you?"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_oneonone", return_value=mock_history):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employee/00100/oneonone")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["role"] == "ceo"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/activity-log  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetActivityLog:
+    async def test_get_activity_log(self):
+        mock_log = [{"event": "hired", "employee_id": "00100"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_activity_log", return_value=mock_log):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/activity-log")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["event"] == "hired"
+
+    async def test_activity_log_truncated_to_50(self):
+        mock_log = [{"event": f"e{i}"} for i in range(100)]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_activity_log", return_value=mock_log):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/activity-log")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 50
