@@ -14,6 +14,7 @@ import asyncio
 import os
 
 import httpx
+from loguru import logger
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
@@ -23,6 +24,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
 )
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 
 
 def _get_heartbeat_method(emp_id: str, cfg) -> str:
@@ -174,6 +176,10 @@ def _update_online(emp_id: str, online: bool, changed: list[str]) -> None:
     emp = company_state.employees.get(emp_id)
     if emp and emp.api_online != online:
         emp.api_online = online
+        try:
+            asyncio.create_task(_store.save_employee_runtime(emp_id, api_online=online))
+        except RuntimeError:
+            logger.debug("No event loop for runtime persist of {}", emp_id)
         if emp_id not in changed:
             changed.append(emp_id)
 
@@ -187,6 +193,7 @@ async def run_heartbeat_cycle() -> list[str]:
         new_needs_setup = check_needs_setup(emp_id)
         if emp.needs_setup != new_needs_setup:
             emp.needs_setup = new_needs_setup
+            await _store.save_employee_runtime(emp_id, needs_setup=new_needs_setup)
             changed.append(emp_id)
 
     # 2. Route employees to heartbeat methods
@@ -201,6 +208,7 @@ async def run_heartbeat_cycle() -> list[str]:
             # Skip heartbeat for employees needing setup — needs_setup takes priority
             if emp.api_online:
                 emp.api_online = False
+                await _store.save_employee_runtime(emp_id, api_online=False)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
@@ -210,6 +218,7 @@ async def run_heartbeat_cycle() -> list[str]:
             # Founding employees without config — assume always online
             if not emp.api_online:
                 emp.api_online = True
+                await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
@@ -223,6 +232,7 @@ async def run_heartbeat_cycle() -> list[str]:
         if method == "always_online":
             if not emp.api_online:
                 emp.api_online = True
+                await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue

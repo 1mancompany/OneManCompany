@@ -27,6 +27,7 @@ from onemancompany.core.config import (
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 
 router = APIRouter()
 
@@ -165,6 +166,8 @@ async def admin_clear_tasks() -> dict:
             archive_task(emp_dir.name, t)
     for emp in company_state.employees.values():
         emp.status = STATUS_IDLE
+    for eid in company_state.employees:
+        await _store.save_employee_runtime(eid, status=STATUS_IDLE)
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
@@ -722,6 +725,7 @@ async def oneonone_chat(body: dict) -> dict:
     # On first message (empty history), mark employee as in meeting
     if not history:
         emp.is_listening = True
+        await _store.save_employee_runtime(employee_id, is_listening=True)
         await event_bus.publish(
             CompanyEvent(
                 type="guidance_start",
@@ -923,6 +927,7 @@ async def oneonone_end(body: dict) -> dict:
 
     # End the meeting
     emp.is_listening = False
+    await _store.save_employee_runtime(employee_id, is_listening=False)
     await event_bus.publish(
         CompanyEvent(
             type="guidance_end",
@@ -1557,6 +1562,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
         if emp:
             emp.status = STATUS_IDLE
             emp.current_task_summary = ""
+            await _store.save_employee_runtime(employee_id, status=STATUS_IDLE, current_task_summary="")
 
     # Update tree nodes for cancelled tasks
     await _sync_tree_cancel(all_cancelled)
