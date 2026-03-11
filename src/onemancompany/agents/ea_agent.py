@@ -63,13 +63,16 @@ a low-stakes task slightly wrong.
 - **Project**: 多步骤交付任务 — 开发、设计等。Full tree workflow with thorough acceptance review.
   Notify CEO of completion. Only block for CEO approval if the project involves risky decisions.
 
-## Routing Table
+## Routing Table (严格执行 — 只能dispatch给O-level)
 | Domain | Route to | Examples |
 |--------|----------|----------|
-| People/HR | HR (00002) | Hiring, reviews, promotions |
-| Operations | COO (00003) | Project execution, engineering |
-| Sales | CSO (00005) | Clients, contracts, deals |
-| Specific person | Direct employee | "Tell X to do Y" |
+| 人事/招聘/入职/绩效 | HR (00002) | Hiring, reviews, promotions |
+| 项目执行/开发/设计/运营 | COO (00003) | Project execution, engineering |
+| 销售/市场/客户 | CSO (00005) | Clients, contracts, deals |
+
+**绝对禁止直接dispatch给普通员工 (00006+)。**
+即使CEO说"告诉某某做X"，也必须通过对应O-level转达。
+系统会拦截直接dispatch给非O-level的请求。
 
 ## Acceptance Criteria Rules
 - Every CEO requirement → at least one criterion in dispatch_child's acceptance_criteria.
