@@ -462,13 +462,10 @@ npx onemancompany
 git clone https://github.com/CarbonKite/OneManCompany.git
 cd OneManCompany
 
-# 2. Onboard — 交互式配置向导
-bash start.sh init
-
-# 3. 启动服务器
+# 2. Onboard + 启动（首次运行会进入配置向导，完成后自动启动服务器）
 bash start.sh
 
-# 4. 打开浏览器
+# 3. 打开浏览器
 open http://localhost:8000
 ```
 
