@@ -35,6 +35,8 @@ run_init() {
   ensure_venv
   info "Running setup wizard..."
   .venv/bin/onemancompany-init
+  info "Starting OneManCompany..."
+  exec .venv/bin/onemancompany "$@"
 }
 
 run_server() {
