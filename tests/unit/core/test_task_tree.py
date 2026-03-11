@@ -1,7 +1,16 @@
 """Tests for task tree data model and persistence."""
 from __future__ import annotations
 
+from onemancompany.core.task_lifecycle import TaskPhase, VALID_TRANSITIONS
 from onemancompany.core.task_tree import TaskNode, TaskTree
+
+
+class TestDependencyTransitions:
+    def test_pending_to_blocked_allowed(self):
+        assert TaskPhase.BLOCKED in VALID_TRANSITIONS[TaskPhase.PENDING]
+
+    def test_blocked_to_pending_allowed(self):
+        assert TaskPhase.PENDING in VALID_TRANSITIONS[TaskPhase.BLOCKED]
 
 
 class TestTaskNode:
