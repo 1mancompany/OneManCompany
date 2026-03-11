@@ -77,6 +77,64 @@ def _node_id_for_task(tree, task_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Tree locks — one asyncio.Lock per project to serialize tree mutations
+# ---------------------------------------------------------------------------
+
+_tree_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_tree_lock(project_id: str) -> asyncio.Lock:
+    """Return (or create) an asyncio.Lock for the given project."""
+    if project_id not in _tree_locks:
+        _tree_locks[project_id] = asyncio.Lock()
+    return _tree_locks[project_id]
+
+
+# ---------------------------------------------------------------------------
+# Dependency context builder
+# ---------------------------------------------------------------------------
+
+def _build_dependency_context(tree, node) -> str:
+    """Build context string from resolved dependency results."""
+    if not node.depends_on:
+        return ""
+    sections = []
+    max_per_dep = 2000 if len(node.depends_on) <= 3 else 1000
+    for dep_id in node.depends_on:
+        dep = tree.get_node(dep_id)
+        if not dep or not dep.is_terminal:
+            continue
+        result = dep.result or "(no result)"
+        if len(result) > max_per_dep:
+            result = "..." + result[-max_per_dep:]
+        status_label = "completed" if dep.status == "accepted" else dep.status
+        sections.append(f"{dep.employee_id} {status_label} \"{dep.description}\":\n{result}")
+    if not sections:
+        return ""
+    return "=== Dependency Results ===\n" + "\n\n".join(sections) + "\n=== End Dependencies ===\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Dependency resolution trigger (callable from sync tool context)
+# ---------------------------------------------------------------------------
+
+def _trigger_dep_resolution(project_dir: str, tree, node) -> None:
+    """Schedule async dependency resolution after a node becomes terminal."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(
+                employee_manager._resolve_dependencies(tree, node, project_dir)
+            )
+        else:
+            logger.debug("Event loop not running, skipping dep resolution for {}", node.id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.debug("Could not schedule dep resolution: {}", e)
+
+
+# ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
 
@@ -1519,6 +1577,54 @@ class EmployeeManager:
         # Schedule parent if not already running
         if parent_node.employee_id not in self._running_tasks:
             self._schedule_next(parent_node.employee_id)
+
+    # ------------------------------------------------------------------
+    # Dependency resolution — unlock dependents when a node becomes terminal
+    # ------------------------------------------------------------------
+
+    async def _resolve_dependencies(self, tree, completed_node, project_dir: str) -> None:
+        """Check if completing this node unlocks any dependent tasks."""
+        dependents = tree.find_dependents(completed_node.id)
+        if not dependents:
+            return
+
+        for dep_node in dependents:
+            if dep_node.status != "pending":
+                continue  # Already running, blocked, or terminal
+
+            if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
+                dep_node.status = "blocked"
+                _save_project_tree(project_dir, tree)
+                # Notify parent about blocked task
+                parent = tree.get_node(dep_node.parent_id)
+                if parent:
+                    msg = (
+                        f"Task \"{dep_node.description}\" is BLOCKED because dependency "
+                        f"\"{completed_node.description}\" failed. Please handle via "
+                        f"reject_child (retry), unblock_child, or cancel_child."
+                    )
+                    board = self.boards.setdefault(parent.employee_id, AgentTaskBoard())
+                    notify_task = board.push(description=msg, project_dir=project_dir)
+                    persist_task(parent.employee_id, notify_task)
+                    if parent.employee_id not in self._running_tasks:
+                        self._schedule_next(parent.employee_id)
+                continue
+
+            if tree.all_deps_terminal(dep_node.id):
+                # Inject dependency context and push task
+                context = _build_dependency_context(tree, dep_node)
+                full_desc = context + dep_node.description
+                board = self.boards.setdefault(dep_node.employee_id, AgentTaskBoard())
+                agent_task = board.push(
+                    description=full_desc,
+                    project_id=dep_node.project_id,
+                    project_dir=project_dir,
+                )
+                tree.task_id_map[agent_task.id] = dep_node.id
+                _save_project_tree(project_dir, tree)
+                persist_task(dep_node.employee_id, agent_task)
+                if dep_node.employee_id not in self._running_tasks:
+                    self._schedule_next(dep_node.employee_id)
 
     async def _request_ceo_confirmation(
         self,
