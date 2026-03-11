@@ -47,7 +47,7 @@ def dispatch_child(
     description: str,
     acceptance_criteria: list[str],
     timeout_seconds: int = 3600,
-    depends_on: list[str] = [],
+    depends_on: list[str] | None = None,
     fail_strategy: str = "block",
 ) -> dict:
     """Dispatch a child task to an employee with acceptance criteria.
@@ -106,6 +106,9 @@ def dispatch_child(
                     f"请分派给对应负责人: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID})。"
                 ),
             }
+
+    # Normalize depends_on
+    depends_on = depends_on or []
 
     # Validate depends_on IDs exist in tree
     for dep_id in depends_on:
@@ -344,6 +347,10 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
     node.status = "cancelled"
     node.result = reason or "Cancelled by parent"
     _save_tree(task.project_dir, tree)
+
+    # Trigger dependency resolution (cancelled is terminal)
+    from onemancompany.core.vessel import _trigger_dep_resolution
+    _trigger_dep_resolution(task.project_dir, tree, node)
 
     return {"status": "cancelled", "node_id": node_id}
 
