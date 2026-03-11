@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-11 | `b106929` | Update: common_tools, coo_agent, test_common_tools |
 | 2026-03-11 | `6efd710` | Update: ea_agent, test_tree_tools, tree_tools |
 | 2026-03-11 | `d61b8c0` | Update: routes, vessel |
 | 2026-03-11 | `d3e70a7` | Update: test_task_tree |

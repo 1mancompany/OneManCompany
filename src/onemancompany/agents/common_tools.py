@@ -1107,6 +1107,57 @@ def resume_held_task(task_id: str, result: str, employee_id: str = "") -> dict:
     return {"status": "ok", "message": f"Resume scheduled for task {task_id}"}
 
 
+@tool
+def update_project_team(members: list[dict]) -> dict:
+    """Update the team roster for the current project.
+
+    Appends new members to the project's team list. Does not overwrite existing members.
+
+    Args:
+        members: List of dicts with 'employee_id' and 'role' keys.
+
+    Returns:
+        Confirmation with count of added members.
+    """
+    from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+    vessel = _current_vessel.get()
+    task_id = _current_task_id.get()
+    if not vessel or not task_id:
+        return {"status": "error", "message": "No agent context."}
+
+    task = vessel.board.get_task(task_id)
+    if not task or not task.project_dir:
+        return {"status": "error", "message": "No project directory in current task."}
+
+    from pathlib import Path
+    from datetime import datetime
+    import yaml
+
+    project_yaml = Path(task.project_dir) / "project.yaml"
+    if not project_yaml.exists():
+        return {"status": "error", "message": "project.yaml not found."}
+
+    data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+    team = data.get("team", [])
+
+    now = datetime.now().isoformat()
+    for m in members:
+        team.append({
+            "employee_id": m["employee_id"],
+            "role": m.get("role", ""),
+            "joined_at": now,
+        })
+
+    data["team"] = team
+    project_yaml.write_text(
+        yaml.dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    return {"status": "ok", "added": len(members), "total": len(team)}
+
+
 # ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
@@ -1123,7 +1174,7 @@ def _register_all_internal_tools() -> None:
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
         report_to_ceo, request_tool_access, load_skill,
-        resume_held_task,
+        resume_held_task, update_project_team,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
