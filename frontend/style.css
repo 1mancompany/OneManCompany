@@ -2444,6 +2444,26 @@ body {
 .task-card-meta {
   color: var(--pixel-cyan);
   font-size: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-cancel-btn {
+  background: none;
+  border: 1px solid var(--pixel-red);
+  color: var(--pixel-red);
+  font-size: 6px;
+  cursor: pointer;
+  padding: 0 3px;
+  line-height: 1.4;
+  border-radius: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.task-cancel-btn:hover {
+  opacity: 1;
+  background: var(--pixel-red);
+  color: var(--pixel-black);
 }
 .task-card-time {
   color: var(--text-dim);

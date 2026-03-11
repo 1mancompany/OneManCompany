@@ -1,7 +1,0 @@
-# Claude Code on-site worker — uses sandbox tools from the company toolkit.
-builtin_tools:
-  - sandbox_execute_code
-  - sandbox_run_command
-  - sandbox_write_file
-  - sandbox_read_file
-custom_tools: []

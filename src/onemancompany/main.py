@@ -8,6 +8,7 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
+from loguru import logger
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
