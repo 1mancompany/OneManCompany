@@ -3906,6 +3906,7 @@ class AppController {
       const data = await resp.json();
       const or = data.openrouter || {};
       const ant = data.anthropic || {};
+      const tm = data.talent_market || {};
 
       // Fetch models for dropdown (cached)
       let modelOptions = '';
@@ -3958,6 +3959,21 @@ class AppController {
             </div>
           </div>
         </div>
+        <div class="api-provider-card">
+          <div class="api-card-header api-card-toggle" data-target="api-tm-body">
+            <span class="api-status-dot ${tm.api_key_set ? 'online' : 'offline'}"></span>
+            <span class="api-card-title">Talent Market</span>
+            <span class="api-card-arrow">&#9660;</span>
+          </div>
+          <div id="api-tm-body" class="api-card-body collapsed">
+            <label class="api-field-label">API Key</label>
+            <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
+            <div class="api-card-actions">
+              <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>
+              <span id="api-tm-result" class="api-test-result"></span>
+            </div>
+          </div>
+        </div>
       `;
       // Bind toggle for provider cards
       container.querySelectorAll('.api-card-toggle').forEach(hdr => {
@@ -3983,6 +3999,10 @@ class AppController {
       if (key) body.api_key = key;
       if (url) body.base_url = url;
       if (model) body.default_model = model;
+    } else if (provider === 'talent_market') {
+      body.mode = 'remote';
+      const key = document.getElementById('api-tm-key').value.trim();
+      if (key) body.api_key = key;
     } else {
       const key = document.getElementById('api-ant-key').value.trim();
       if (key) body.api_key = key;

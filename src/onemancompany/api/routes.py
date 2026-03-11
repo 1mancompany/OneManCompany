@@ -1833,6 +1833,11 @@ async def get_api_settings() -> dict:
     or_key = settings.openrouter_api_key
     ant_key = settings.anthropic_api_key
 
+    # Talent market config from config.yaml
+    from onemancompany.core.config import load_app_config
+    tm = load_app_config().get("talent_market", {})
+    tm_key = tm.get("api_key", "")
+
     return {
         "openrouter": {
             "api_key_set": bool(or_key),
@@ -1845,6 +1850,10 @@ async def get_api_settings() -> dict:
             "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
             "auth_method": settings.anthropic_auth_method,
         },
+        "talent_market": {
+            "api_key_set": bool(tm_key),
+            "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
+        },
     }
 
 
@@ -1854,8 +1863,38 @@ async def update_api_settings(body: dict) -> dict:
     from onemancompany.core.config import settings, update_env_var
 
     provider = body.get("provider", "")
+
+    if provider == "talent_market":
+        # Save talent market API key to config.yaml
+        import yaml
+        from onemancompany.core.config import APP_CONFIG_PATH, load_app_config, reload_app_config
+        api_key = body.get("api_key", "")
+        if not api_key:
+            return {"error": "API key is required"}
+        config = load_app_config()
+        tm = config.setdefault("talent_market", {})
+        tm["api_key"] = api_key
+        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        reload_app_config()
+
+        # Reconnect Boss Online with new API key
+        try:
+            from onemancompany.agents.recruitment import stop_boss_online, start_boss_online
+            await stop_boss_online()
+            await start_boss_online()
+        except Exception as e:
+            logger.error("Failed to reconnect Talent Market: {}", e)
+
+        return {
+            "status": "updated",
+            "talent_market": {
+                "api_key_set": True,
+                "api_key_preview": "..." + api_key[-4:] if len(api_key) >= 4 else "",
+            },
+        }
+
     if provider != "openrouter":
-        return {"error": "Only 'openrouter' provider is supported. "
+        return {"error": "Only 'openrouter' and 'talent_market' providers are supported. "
                 "Anthropic auth is managed via OAuth flow, not API key."}
 
     api_key = body.get("api_key", "")

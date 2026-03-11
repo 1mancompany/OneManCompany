@@ -184,7 +184,7 @@ class TestBossOnlineLifecycle:
         recruitment._boss_session = None
 
         with patch("contextlib.AsyncExitStack", return_value=mock_stack):
-            with patch.object(recruitment, "stdio_client", return_value=AsyncMock()):
+            with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
                 with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
                     await recruitment.start_boss_online()
 

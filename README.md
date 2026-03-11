@@ -447,19 +447,55 @@ flowchart LR
 
 ## Quick Start
 
+### 一键启动（推荐）
+
 ```bash
-# 1. Install
-uv sync
+npx onemancompany
+```
 
-# 2. Configure
-cp .env.example .env   # fill OPENROUTER_API_KEY
+首次运行会自动进入 onboard 向导，引导你配置 LLM API Key、Talent Market 等。完成后自动启动服务器。
 
-# 3. Run
-uv run onemancompany
+### 手动安装
 
-# 4. Open
+```bash
+# 1. Clone
+git clone https://github.com/CarbonKite/OneManCompany.git
+cd OneManCompany
+
+# 2. Onboard — 交互式配置向导
+bash start.sh init
+
+# 3. 启动服务器
+bash start.sh
+
+# 4. 打开浏览器
 open http://localhost:8000
 ```
+
+### 重启服务器
+
+```bash
+bash start.sh
+```
+
+如果需要指定端口：
+
+```bash
+bash start.sh --port 8080
+```
+
+### 重新配置
+
+如果需要重新运行 onboard 向导（修改 API Key 等）：
+
+```bash
+bash start.sh init
+```
+
+或者直接编辑配置文件：
+- **API Keys**: `.onemancompany/.env`
+- **应用配置**: `.onemancompany/config.yaml`（Talent Market URL 等）
+- **前端设置**: 浏览器内 Settings 面板
 
 ## Key Concepts
 
