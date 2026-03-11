@@ -110,7 +110,7 @@ async def start_boss_online() -> None:
     from onemancompany.core.config import load_app_config
     tm_config = load_app_config().get("talent_market", {})
 
-    url = tm_config.get("url", "https://talent.onemancompany.app/sse")
+    url = tm_config.get("url", "https://api.carbonkites.com/mcp/sse")
     api_key = tm_config.get("api_key", "")
 
     if not api_key:
