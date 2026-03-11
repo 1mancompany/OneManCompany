@@ -52,4 +52,12 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "pytest-timeout>=2.3",
+    "python-semantic-release>=9",
 ]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "main"
+changelog_file = "CHANGELOG.md"
+build_command = ""
+commit_message = "chore(release): {version}"
