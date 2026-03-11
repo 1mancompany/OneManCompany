@@ -82,13 +82,29 @@ async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, ta
             await asyncio.sleep(interval_seconds)
             loop = get_agent_loop(employee_id)
             if loop:
-                loop.push_task(f"[cron:{cron_name}] {task_description}")
-                logger.debug(f"[cron] Dispatched '{cron_name}' to {employee_id}")
+                agent_task = loop.push_task(f"[cron:{cron_name}] {task_description}")
+                # Record dispatched task ID
+                _record_dispatched_task(employee_id, cron_name, agent_task.id)
+                logger.debug(f"[cron] Dispatched '{cron_name}' to {employee_id}, task_id={agent_task.id}")
             else:
                 logger.warning(f"[cron] Employee {employee_id} not found, skipping '{cron_name}'")
     except asyncio.CancelledError:
         logger.info(f"[cron] Stopped '{cron_name}' for {employee_id}")
         raise
+
+
+def _record_dispatched_task(employee_id: str, cron_name: str, task_id: str) -> None:
+    """Record a dispatched task ID in the cron's YAML entry."""
+    data = _load_automations(employee_id)
+    for c in data["crons"]:
+        if c.get("name") == cron_name:
+            task_ids = c.setdefault("dispatched_task_ids", [])
+            task_ids.append(task_id)
+            # Keep last 100 to avoid unbounded growth
+            if len(task_ids) > 100:
+                c["dispatched_task_ids"] = task_ids[-100:]
+            break
+    _save_automations(employee_id, data)
 
 
 def start_cron(employee_id: str, cron_name: str, interval: str, task_description: str) -> dict:
@@ -130,35 +146,134 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
     return {"status": "ok", "cron_name": cron_name, "interval": interval}
 
 
+def _cancel_cron_tasks(employee_id: str, task_ids: list[str]) -> list[str]:
+    """Cancel pending/processing tasks spawned by a cron. Returns cancelled task IDs."""
+    from onemancompany.core.vessel import employee_manager, TaskPhase, persist_task, archive_task
+
+    cancelled = []
+    board = employee_manager.boards.get(employee_id)
+    if not board:
+        return cancelled
+
+    for task_id in task_ids:
+        t = board.get_task(task_id)
+        if t and t.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
+            t.status = TaskPhase.CANCELLED
+            t.completed_at = datetime.now(timezone.utc).isoformat()
+            t.result = "Cancelled: cron stopped"
+            persist_task(employee_id, t)
+            archive_task(employee_id, t)
+            employee_manager._publish_task_update(employee_id, t)
+            cancelled.append(task_id)
+
+    # Cancel the running asyncio.Task if it was executing one of these tasks
+    if cancelled and employee_id in employee_manager._running_tasks:
+        running = employee_manager._running_tasks[employee_id]
+        if not running.done():
+            running.cancel()
+            logger.info("Cancelled running asyncio.Task for {} (cron stop)", employee_id)
+
+    return cancelled
+
+
 def stop_cron(employee_id: str, cron_name: str) -> dict:
-    """Stop a cron job."""
+    """Stop a cron job and cancel its pending/running tasks."""
+    # Collect dispatched task IDs before removing from YAML
+    data = _load_automations(employee_id)
+    task_ids: list[str] = []
+    for c in data["crons"]:
+        if c.get("name") == cron_name:
+            task_ids = c.get("dispatched_task_ids", [])
+            break
+
+    # Cancel associated tasks first
+    cancelled_tasks = _cancel_cron_tasks(employee_id, task_ids)
+
+    # Cancel the cron loop
     key = f"{employee_id}:{cron_name}"
     task = _cron_tasks.pop(key, None)
     if task and not task.done():
         task.cancel()
 
     # Remove from persistence
-    data = _load_automations(employee_id)
     data["crons"] = [c for c in data["crons"] if c.get("name") != cron_name]
     _save_automations(employee_id, data)
 
-    return {"status": "ok", "message": f"Cron '{cron_name}' stopped"}
+    return {
+        "status": "ok",
+        "message": f"Cron '{cron_name}' stopped",
+        "cancelled_tasks": cancelled_tasks,
+    }
 
 
 def list_crons(employee_id: str) -> list[dict]:
-    """List all crons for an employee."""
+    """List all crons for an employee, including in-memory tasks not in YAML."""
     data = _load_automations(employee_id)
     result = []
+    seen_names: set[str] = set()
+
+    # From YAML
     for c in data["crons"]:
         key = f"{employee_id}:{c['name']}"
         task = _cron_tasks.get(key)
         result.append({
             "name": c["name"],
-            "interval": c["interval"],
-            "task_description": c["task_description"],
+            "interval": c.get("interval", "?"),
+            "task_description": c.get("task_description", ""),
             "running": bool(task and not task.done()),
+            "dispatched_task_ids": c.get("dispatched_task_ids", []),
         })
+        seen_names.add(c["name"])
+
+    # In-memory crons not in YAML (orphaned)
+    prefix = f"{employee_id}:"
+    for key, task in _cron_tasks.items():
+        if key.startswith(prefix) and not task.done():
+            cron_name = key[len(prefix):]
+            if cron_name not in seen_names:
+                result.append({
+                    "name": cron_name,
+                    "interval": "?",
+                    "task_description": "(in-memory, not persisted)",
+                    "running": True,
+                })
     return result
+
+
+def stop_all_crons_for_employee(employee_id: str) -> dict:
+    """Stop all cron jobs for an employee, cancelling associated tasks first."""
+    stopped = []
+    all_cancelled_tasks: list[str] = []
+
+    # Collect all dispatched task IDs from YAML
+    data = _load_automations(employee_id)
+    all_task_ids: list[str] = []
+    for c in data.get("crons", []):
+        all_task_ids.extend(c.get("dispatched_task_ids", []))
+
+    # Cancel associated tasks first
+    if all_task_ids:
+        all_cancelled_tasks = _cancel_cron_tasks(employee_id, all_task_ids)
+
+    # Cancel all in-memory cron loops
+    prefix = f"{employee_id}:"
+    keys_to_remove = [k for k in _cron_tasks if k.startswith(prefix)]
+    for key in keys_to_remove:
+        task = _cron_tasks.pop(key)
+        if not task.done():
+            task.cancel()
+            stopped.append(key[len(prefix):])
+
+    # Clear YAML
+    data["crons"] = []
+    _save_automations(employee_id, data)
+
+    return {
+        "status": "ok",
+        "stopped": stopped,
+        "count": len(stopped),
+        "cancelled_tasks": all_cancelled_tasks,
+    }
 
 
 def restore_all_crons() -> int:

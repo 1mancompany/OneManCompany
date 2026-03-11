@@ -3549,6 +3549,28 @@ body {
   color: #000;
 }
 
+.cron-task-count {
+  color: var(--pixel-gray);
+  font-size: 5px;
+  opacity: 0.7;
+}
+
+.emp-cron-stop-all-btn {
+  background: none;
+  border: 1px solid var(--pixel-red);
+  color: var(--pixel-red);
+  font-family: var(--font-pixel);
+  font-size: 5px;
+  padding: 1px 4px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.emp-cron-stop-all-btn:hover {
+  background: var(--pixel-red);
+  color: #000;
+}
+
 @keyframes task-pulse {
   0%, 100% { background: var(--bg-dark); }
   50% { background: rgba(0, 255, 136, 0.05); }
@@ -4412,6 +4434,23 @@ body {
 }
 
 /* Task tree — inactive branch styling */
+.tree-node-ceo {
+    stroke: #ffd700;
+    stroke-width: 1.5;
+    fill: #1a1a10;
+}
+
+.tree-node:hover .tree-node-ceo {
+    stroke: #ffe44d;
+}
+
+.tree-detail-avatar-ceo {
+    background: linear-gradient(135deg, #ffd700, #ff8c00) !important;
+    color: #000 !important;
+    font-size: 8px !important;
+    font-weight: bold;
+}
+
 .tree-node-inactive {
     opacity: 0.4;
     stroke-dasharray: 4 3;

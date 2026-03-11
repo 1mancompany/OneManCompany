@@ -202,7 +202,7 @@ class TestCeoSubmitTask:
         assert data["status"] == "processing"
 
     async def test_routes_to_ea_initializes_task_tree(self):
-        """CEO task submission creates a TaskTree with EA as root."""
+        """CEO task submission creates a TaskTree with CEO root and EA child."""
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
@@ -228,10 +228,16 @@ class TestCeoSubmitTask:
         saved_dir, saved_tree = mock_save_tree.call_args[0]
         assert saved_dir == "/tmp/proj"
         assert saved_tree.root_id != ""
+        # Root is CEO prompt node
         root = saved_tree.get_node(saved_tree.root_id)
         assert root is not None
+        assert root.node_type == "ceo_prompt"
         assert root.description == "Build a website"
-        assert saved_tree.task_id_map["agent-task-002"] == root.id
+        # EA is child of CEO root, mapped via task_id_map
+        ea_node_id = saved_tree.task_id_map["agent-task-002"]
+        ea_node = saved_tree.get_node(ea_node_id)
+        assert ea_node is not None
+        assert ea_node_id != root.id
 
 
 # ---------------------------------------------------------------------------
@@ -2572,15 +2578,19 @@ class TestCancelAgentTask:
 
         mock_task = MagicMock()
         mock_task.status = "pending"
-        mock_task.sub_task_ids = []
+        mock_task.id = "t1"
         mock_board = MagicMock()
         mock_board.get_task.return_value = mock_task
+        mock_board.tasks = [mock_task]
         mock_loop = MagicMock()
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.core.task_persistence.persist_task"), \
+             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
@@ -5262,13 +5272,16 @@ class TestCancelTaskWithSubtasks:
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
+             patch("onemancompany.core.task_persistence.persist_task"), \
+             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
 
         assert resp.json()["status"] == "ok"
-        assert sub_task.status == "cancelled"
+        assert main_task.status == "cancelled"
 
 
 # ---------------------------------------------------------------------------

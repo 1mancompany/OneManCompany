@@ -268,8 +268,11 @@
               <div class="emp-detail-section-content" id="emp-detail-guidance"></div>
             </div>
 
-            <div class="emp-detail-section emp-detail-flex-section" id="emp-detail-cron-section" style="display:none;">
-              <div class="emp-detail-section-title">Scheduled Jobs</div>
+            <div class="emp-detail-section emp-detail-flex-section" id="emp-detail-cron-section">
+              <div class="emp-detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Scheduled Jobs</span>
+                <button class="emp-cron-stop-all-btn" id="emp-cron-stop-all-btn" style="display:none;">Stop All</button>
+              </div>
               <div class="emp-detail-section-content" id="emp-detail-crons">
                 <span class="empty-hint">No scheduled jobs</span>
               </div>

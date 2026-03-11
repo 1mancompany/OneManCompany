@@ -28,6 +28,7 @@ class TaskNode:
     employee_id: str = ""
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
+    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup"
 
     status: str = "pending"  # pending → processing → completed → accepted / failed / cancelled
     result: str = ""
@@ -54,6 +55,10 @@ class TaskNode:
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL
 
+    @property
+    def is_ceo_node(self) -> bool:
+        return self.node_type in ("ceo_prompt", "ceo_followup")
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -62,6 +67,7 @@ class TaskNode:
             "employee_id": self.employee_id,
             "description": self.description,
             "acceptance_criteria": list(self.acceptance_criteria),
+            "node_type": self.node_type,
             "status": self.status,
             "result": self.result,
             "acceptance_result": self.acceptance_result,
@@ -143,6 +149,18 @@ class TaskTree:
             for cid in parent.children_ids
             if cid != node_id and cid in self._nodes
         ]
+
+    def get_ea_node(self):
+        """Get the EA node (first task-type child of the CEO root node)."""
+        root = self._nodes.get(self.root_id)
+        if not root or root.node_type != "ceo_prompt":
+            # Legacy tree — root is EA
+            return root
+        for cid in root.children_ids:
+            child = self._nodes.get(cid)
+            if child and child.node_type == "task":
+                return child
+        return None
 
     def new_branch(self) -> int:
         """Start a new branch: deactivate non-root nodes, increment counter."""

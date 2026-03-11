@@ -1533,13 +1533,26 @@ class AppController {
       const container = document.getElementById('emp-detail-crons');
       if (!section || !container) return;
 
+      section.style.display = '';
       if (crons.length === 0) {
-        section.style.display = 'none';
+        container.innerHTML = '<span class="empty-hint">No scheduled jobs</span>';
+        const stopAllBtn = document.getElementById('emp-cron-stop-all-btn');
+        if (stopAllBtn) stopAllBtn.style.display = 'none';
         return;
       }
-
-      section.style.display = '';
       container.innerHTML = '';
+
+      // Show/hide "Stop All" button
+      const stopAllBtn = document.getElementById('emp-cron-stop-all-btn');
+      if (stopAllBtn) {
+        if (crons.length >= 2) {
+          stopAllBtn.style.display = '';
+          stopAllBtn.onclick = () => this._stopAllCrons(empId);
+        } else {
+          stopAllBtn.style.display = 'none';
+        }
+      }
+
       for (const cron of crons) {
         const item = document.createElement('div');
         item.className = 'emp-cron-item';
@@ -1550,10 +1563,15 @@ class AppController {
 
         const info = document.createElement('div');
         info.className = 'emp-cron-info';
+        const taskCount = (cron.dispatched_task_ids || []).length;
+        const taskCountHtml = taskCount > 0
+          ? `<span class="cron-task-count">${taskCount} tasks</span>`
+          : '';
         info.innerHTML = `
           ${statusDot}
           <span class="cron-name">${this._escapeHtml(cron.name)}</span>
           <span class="cron-interval">${this._escapeHtml(cron.interval)}</span>
+          ${taskCountHtml}
         `;
 
         const desc = document.createElement('div');
@@ -1576,7 +1594,7 @@ class AppController {
   }
 
   async _cancelCron(empId, cronName) {
-    if (!confirm(`Stop scheduled job "${cronName}"?`)) return;
+    if (!confirm(`Stop scheduled job "${cronName}"? Its pending tasks will also be cancelled.`)) return;
     try {
       const resp = await fetch(`/api/automations/${empId}/cron/${encodeURIComponent(cronName)}/stop`, {
         method: 'POST',
@@ -1590,6 +1608,24 @@ class AppController {
     } catch (err) {
       console.error('Failed to cancel cron:', err);
       alert('Failed to stop cron job');
+    }
+  }
+
+  async _stopAllCrons(empId) {
+    if (!confirm('Stop ALL scheduled jobs for this employee?')) return;
+    try {
+      const resp = await fetch(`/api/automations/${empId}/crons/stop-all`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this._fetchCronList(empId);
+      } else {
+        alert(data.detail || data.message || 'Failed to stop all crons');
+      }
+    } catch (err) {
+      console.error('Failed to stop all crons:', err);
+      alert('Failed to stop all cron jobs');
     }
   }
 
