@@ -121,17 +121,16 @@ def _build_dependency_context(tree, node) -> str:
 def _trigger_dep_resolution(project_dir: str, tree, node) -> None:
     """Schedule async dependency resolution after a node becomes terminal."""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(
-                employee_manager._resolve_dependencies(tree, node, project_dir)
-            )
-        else:
-            logger.debug("Event loop not running, skipping dep resolution for {}", node.id)
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            employee_manager._resolve_dependencies(tree, node, project_dir)
+        )
+    except RuntimeError:
+        logger.warning("No running event loop, skipping dep resolution for {}", node.id)
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.debug("Could not schedule dep resolution: {}", e)
+        logger.warning("Could not schedule dep resolution: {}", e)
 
 
 # ---------------------------------------------------------------------------
@@ -1517,6 +1516,12 @@ class EmployeeManager:
 
     async def _on_child_complete(self, employee_id: str, task: AgentTask, project_id: str = "") -> None:
         """Update TaskTree node when a task completes, wake parent if all siblings done."""
+        effective_project_id = project_id or task.project_id
+        async with _get_tree_lock(effective_project_id):
+            await self._on_child_complete_inner(employee_id, task, project_id)
+
+    async def _on_child_complete_inner(self, employee_id: str, task: AgentTask, project_id: str = "") -> None:
+        """Inner implementation of _on_child_complete, called under tree lock."""
         tree = _load_project_tree(task.project_dir)
         if tree is None:
             return
@@ -1628,47 +1633,58 @@ class EmployeeManager:
 
     async def _resolve_dependencies(self, tree, completed_node, project_dir: str) -> None:
         """Check if completing this node unlocks any dependent tasks."""
-        dependents = tree.find_dependents(completed_node.id)
-        if not dependents:
-            return
+        project_id = completed_node.project_id or tree.project_id
+        async with _get_tree_lock(project_id):
+            dependents = tree.find_dependents(completed_node.id)
+            if not dependents:
+                return
 
-        for dep_node in dependents:
-            if dep_node.status != "pending":
-                continue  # Already running, blocked, or terminal
+            dirty = False
+            to_schedule: list[tuple[str, AgentTask]] = []
 
-            if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
-                dep_node.status = "blocked"
-                _save_project_tree(project_dir, tree)
-                # Notify parent about blocked task
-                parent = tree.get_node(dep_node.parent_id)
-                if parent:
-                    msg = (
-                        f"Task \"{dep_node.description}\" is BLOCKED because dependency "
-                        f"\"{completed_node.description}\" failed. Please handle via "
-                        f"reject_child (retry), unblock_child, or cancel_child."
+            for dep_node in dependents:
+                if dep_node.status != "pending":
+                    continue  # Already running, blocked, or terminal
+
+                if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
+                    dep_node.status = "blocked"
+                    dirty = True
+                    # Notify parent about blocked task
+                    parent = tree.get_node(dep_node.parent_id)
+                    if parent:
+                        msg = (
+                            f"Task \"{dep_node.description}\" is BLOCKED because dependency "
+                            f"\"{completed_node.description}\" failed. Please handle via "
+                            f"reject_child (retry), unblock_child, or cancel_child."
+                        )
+                        board = self.boards.setdefault(parent.employee_id, AgentTaskBoard())
+                        notify_task = board.push(description=msg, project_dir=project_dir)
+                        persist_task(parent.employee_id, notify_task)
+                        to_schedule.append((parent.employee_id, notify_task))
+                    continue
+
+                if tree.all_deps_terminal(dep_node.id):
+                    # Inject dependency context and push task
+                    context = _build_dependency_context(tree, dep_node)
+                    full_desc = context + dep_node.description
+                    board = self.boards.setdefault(dep_node.employee_id, AgentTaskBoard())
+                    agent_task = board.push(
+                        description=full_desc,
+                        project_id=dep_node.project_id,
+                        project_dir=project_dir,
                     )
-                    board = self.boards.setdefault(parent.employee_id, AgentTaskBoard())
-                    notify_task = board.push(description=msg, project_dir=project_dir)
-                    persist_task(parent.employee_id, notify_task)
-                    if parent.employee_id not in self._running_tasks:
-                        self._schedule_next(parent.employee_id)
-                continue
+                    tree.task_id_map[agent_task.id] = dep_node.id
+                    dirty = True
+                    persist_task(dep_node.employee_id, agent_task)
+                    to_schedule.append((dep_node.employee_id, agent_task))
 
-            if tree.all_deps_terminal(dep_node.id):
-                # Inject dependency context and push task
-                context = _build_dependency_context(tree, dep_node)
-                full_desc = context + dep_node.description
-                board = self.boards.setdefault(dep_node.employee_id, AgentTaskBoard())
-                agent_task = board.push(
-                    description=full_desc,
-                    project_id=dep_node.project_id,
-                    project_dir=project_dir,
-                )
-                tree.task_id_map[agent_task.id] = dep_node.id
+            if dirty:
                 _save_project_tree(project_dir, tree)
-                persist_task(dep_node.employee_id, agent_task)
-                if dep_node.employee_id not in self._running_tasks:
-                    self._schedule_next(dep_node.employee_id)
+
+            # Schedule outside the mutation loop
+            for emp_id, _ in to_schedule:
+                if emp_id not in self._running_tasks:
+                    self._schedule_next(emp_id)
 
     async def _request_ceo_confirmation(
         self,

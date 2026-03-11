@@ -24,6 +24,7 @@ class TaskTreeRenderer {
         accepted: '#00ff88',
         failed: '#ff4444',
         cancelled: '#888',
+        blocked: '#ff4444',
     };
 
     static STATUS_LABELS = {
@@ -34,6 +35,7 @@ class TaskTreeRenderer {
         failed: 'FAILED',
         cancelled: 'CANCELLED',
         holding: 'HOLDING',
+        blocked: 'BLOCKED',
     };
 
     async load(projectId) {
@@ -69,6 +71,20 @@ class TaskTreeRenderer {
             });
         this.svg.call(this.zoom);
 
+        // Arrow marker for dependency lines
+        let defs = this.svg.select('defs');
+        if (defs.empty()) defs = this.svg.append('defs');
+        defs.selectAll('#dep-arrow').remove();
+        defs.append('marker')
+            .attr('id', 'dep-arrow')
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 10).attr('refY', 5)
+            .attr('markerWidth', 6).attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+            .attr('fill', '#888');
+
         this.g = this.svg.append('g')
             .attr('transform', `translate(${width / 2}, 40)`);
 
@@ -102,6 +118,36 @@ class TaskTreeRenderer {
                 .x(d => d.x)
                 .y(d => d.y))
             .attr('stroke-width', d => d.target.data.branch_active !== false ? 2.5 : 1);
+
+        // --- Dependency arrows (dashed) ---
+        const nodesData = root.descendants();
+        const depLinks = [];
+        nodesData.forEach(n => {
+            (n.data.depends_on || []).forEach(depId => {
+                const depNode = nodesData.find(d => d.data.id === depId);
+                if (depNode) {
+                    depLinks.push({ source: depNode, target: n, status: depNode.data.status });
+                }
+            });
+        });
+
+        this.g.selectAll('.dep-link')
+            .data(depLinks)
+            .enter()
+            .append('line')
+            .attr('class', 'dep-link')
+            .attr('x1', d => d.source.x)
+            .attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x)
+            .attr('y2', d => d.target.y)
+            .attr('stroke', d => {
+                if (d.status === 'accepted') return '#00ff88';
+                if (d.status === 'failed' || d.status === 'cancelled') return '#ff4444';
+                return '#666';
+            })
+            .attr('stroke-width', 1.5)
+            .attr('stroke-dasharray', '6,3')
+            .attr('marker-end', 'url(#dep-arrow)');
 
         const nodeGroups = this.g.selectAll('.tree-node')
             .data(root.descendants())
@@ -221,6 +267,32 @@ class TaskTreeRenderer {
             .attr('class', 'tree-branch-label')
             .text(d => `Branch ${d.data.branch}`);
 
+        // Dependency status labels
+        nodeGroups.filter(d => d.data.dependency_status === 'waiting')
+            .append('text')
+            .attr('class', 'tree-dep-label')
+            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#aaa')
+            .attr('font-size', '9px')
+            .text(d => {
+                const depIds = d.data.depends_on || [];
+                const names = depIds.map(id => {
+                    const dn = nodesData.find(n => n.data.id === id);
+                    return dn ? (dn.data.employee_info?.name || 'Unknown') : '?';
+                });
+                return 'Waiting: ' + names.join(', ');
+            });
+
+        nodeGroups.filter(d => d.data.dependency_status === 'blocked')
+            .append('text')
+            .attr('class', 'tree-dep-label blocked')
+            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#ff4444')
+            .attr('font-size', '9px')
+            .text('Blocked');
+
         // Animate nodes in
         nodeGroups
             .attr('opacity', 0)
@@ -246,6 +318,36 @@ class TaskTreeRenderer {
         const div = document.createElement('div');
         div.appendChild(document.createTextNode(str));
         return div.innerHTML;
+    }
+
+    _renderDependencies(node) {
+        let html = '';
+        if (node.depends_on && node.depends_on.length > 0) {
+            html += '<div class="detail-section"><h4>Dependencies</h4><ul>';
+            node.depends_on.forEach(depId => {
+                const depNode = this.treeData?.nodes?.find(n => n.id === depId);
+                if (depNode) {
+                    const statusColor = TaskTreeRenderer.STATUS_COLORS[depNode.status] || '#666';
+                    const desc = depNode.description ? this._escapeHtml(depNode.description.slice(0, 60)) + '...' : '';
+                    html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
+                }
+            });
+            html += '</ul></div>';
+        }
+
+        const allNodes = this.treeData?.nodes || [];
+        const dependents = allNodes.filter(n => (n.depends_on || []).includes(node.id));
+        if (dependents.length > 0) {
+            html += '<div class="detail-section"><h4>Dependents</h4><ul>';
+            dependents.forEach(dep => {
+                const statusColor = TaskTreeRenderer.STATUS_COLORS[dep.status] || '#666';
+                const desc = dep.description ? this._escapeHtml(dep.description.slice(0, 60)) + '...' : '';
+                html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
+            });
+            html += '</ul></div>';
+        }
+
+        return html;
     }
 
     _renderNodeDetail(node) {
@@ -293,6 +395,8 @@ class TaskTreeRenderer {
             </div>
 
             ${acceptance}
+
+            ${this._renderDependencies(node)}
 
             <div class="detail-section detail-meta">
                 <span>Tokens: ${node.input_tokens || 0} in / ${node.output_tokens || 0} out</span>
