@@ -221,6 +221,20 @@ class TestTaskTreeBranching:
         assert len(active) == 1
         assert active[0].id == c2.id
 
+    def test_has_failed_children_filters_active_branch(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "failed"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        # c1 is failed but inactive — should return False
+        assert tree.has_failed_children(root.id) is False
+        c2.status = "failed"
+        assert tree.has_failed_children(root.id) is True
+
     def test_branch_persists_in_save_load(self, tmp_path):
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root")
