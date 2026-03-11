@@ -12,11 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import sys
-
 from langchain_core.tools import tool
 from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
 
 from loguru import logger
 
@@ -97,35 +94,41 @@ _boss_cleanup: asyncio.Task | None = None
 
 
 async def start_boss_online() -> None:
-    """Start the Boss Online MCP server as a persistent subprocess.
+    """Start the Boss Online MCP connection (remote SSE).
 
     Called once during app lifespan startup.  The session is stored in
     module-level ``_boss_session`` so ``search_candidates`` can reuse it.
+
+    Talent Market is a centralized service — always connects via SSE.
+    URL and API key are read from config.yaml (talent_market section).
     """
     global _boss_session, _boss_cleanup
 
-    from pathlib import Path
-
-    boss_online_path = str(
-        Path(__file__).resolve().parent.parent / "talent_market" / "boss_online.py"
-    )
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=[boss_online_path],
-    )
-
-    # stdio_client is an async context manager that starts the subprocess.
-    # We enter it manually and store the exit stack so we can clean up later.
     from contextlib import AsyncExitStack
+
+    # Read talent market config from app settings (config.yaml)
+    from onemancompany.core.config import load_app_config
+    tm_config = load_app_config().get("talent_market", {})
+
+    url = tm_config.get("url", "https://talent.onemancompany.app/sse")
+    api_key = tm_config.get("api_key", "")
+
     stack = AsyncExitStack()
-    read, write = await stack.enter_async_context(stdio_client(server_params))
+
+    from mcp.client.sse import sse_client
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    read, write = await stack.enter_async_context(
+        sse_client(url=url, headers=headers)
+    )
+    logger.info("Connecting to Talent Market at {}", url)
+
     session = await stack.enter_async_context(ClientSession(read, write))
     await session.initialize()
 
     _boss_session = session
     # Store the stack so stop_boss_online can tear it down
     _boss_session._exit_stack = stack  # type: ignore[attr-defined]
-    logger.info("Boss Online MCP server started (persistent)")
+    logger.info("Talent Market MCP server ready")
 
 
 async def stop_boss_online() -> None:

@@ -11,3 +11,7 @@ tools:
     server_url: "http://localhost:8080" # opensandbox-server endpoint
     default_image: "opensandbox/code-interpreter:v1.0.1"
     timeout_seconds: 120 # max execution time per call
+
+talent_market:
+  url: "https://talent.onemancompany.app/sse" # Centralized Talent Market endpoint
+  api_key: "" # Set your API key in Settings or here

@@ -126,6 +126,11 @@ def _step_optional(console: Console) -> dict[str, str]:
         if key.strip():
             extras["SKILLSMP_API_KEY"] = key.strip()
 
+    if Confirm.ask("  Configure Talent Market API key?", default=False, console=console):
+        key = Prompt.ask("  Talent Market API Key", password=True, console=console)
+        if key.strip():
+            extras["TALENT_MARKET_API_KEY"] = key.strip()
+
     return extras
 
 
@@ -174,12 +179,19 @@ def _step_execute(
     env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
     console.print("  [green]\u2714[/green] .env written")
 
-    # 3. Copy config.yaml if exists in source
+    # 3. Copy config.yaml and inject Talent Market API key if provided
     src_config = SOURCE_ROOT / "config.yaml"
     dst_config = DATA_ROOT / "config.yaml"
     if src_config.exists() and not dst_config.exists():
         shutil.copy2(str(src_config), str(dst_config))
         console.print("  [green]\u2714[/green] config.yaml copied")
+    tm_key = extras.get("TALENT_MARKET_API_KEY", "")
+    if tm_key and dst_config.exists():
+        import yaml
+        cfg = yaml.safe_load(dst_config.read_text(encoding="utf-8")) or {}
+        cfg.setdefault("talent_market", {})["api_key"] = tm_key
+        dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        console.print("  [green]\u2714[/green] Talent Market API key saved")
 
     # 4. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
