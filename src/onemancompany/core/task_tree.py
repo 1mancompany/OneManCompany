@@ -119,6 +119,8 @@ class TaskTree:
         description: str,
         acceptance_criteria: list[str],
         timeout_seconds: int = 3600,
+        depends_on: list[str] | None = None,
+        fail_strategy: str = "block",
     ) -> TaskNode:
         parent = self._nodes[parent_id]
         child = TaskNode(
@@ -128,6 +130,8 @@ class TaskTree:
             acceptance_criteria=acceptance_criteria,
             project_id=self.project_id,
             timeout_seconds=timeout_seconds,
+            depends_on=depends_on or [],
+            fail_strategy=fail_strategy,
         )
         parent.children_ids.append(child.id)
         self._nodes[child.id] = child
@@ -192,6 +196,32 @@ class TaskTree:
 
     def has_failed_children(self, node_id: str) -> bool:
         return any(c.status == "failed" for c in self.get_active_children(node_id))
+
+    def find_dependents(self, node_id: str) -> list[TaskNode]:
+        """Find all nodes that depend on the given node."""
+        return [n for n in self._nodes.values() if node_id in n.depends_on]
+
+    def all_deps_terminal(self, node_id: str) -> bool:
+        """Check if all depends_on nodes are terminal."""
+        node = self._nodes.get(node_id)
+        if not node or not node.depends_on:
+            return True
+        for dep_id in node.depends_on:
+            dep = self._nodes.get(dep_id)
+            if not dep or not dep.is_terminal:
+                return False
+        return True
+
+    def has_failed_deps(self, node_id: str) -> bool:
+        """Check if any depends_on node has failed or been cancelled."""
+        node = self._nodes.get(node_id)
+        if not node:
+            return False
+        for dep_id in node.depends_on:
+            dep = self._nodes.get(dep_id)
+            if dep and dep.status in ("failed", "cancelled"):
+                return True
+        return False
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

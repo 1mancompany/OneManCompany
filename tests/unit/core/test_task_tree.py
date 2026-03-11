@@ -284,3 +284,72 @@ class TestTaskTreeBranching:
         loaded_c2 = loaded.get_node(c2.id)
         assert loaded_c2.branch_active is True
         assert loaded_c2.branch == 1
+
+
+class TestTaskTreeDependencyHelpers:
+    def test_add_child_with_depends_on(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert b.depends_on == [a.id]
+        assert b.fail_strategy == "block"
+
+    def test_add_child_with_fail_strategy(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        assert b.fail_strategy == "continue"
+
+    def test_find_dependents(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        c = tree.add_child(root.id, "e3", "task C", [], depends_on=[a.id])
+        d = tree.add_child(root.id, "e4", "task D", [])
+        dependents = tree.find_dependents(a.id)
+        dep_ids = {n.id for n in dependents}
+        assert dep_ids == {b.id, c.id}
+
+    def test_find_dependents_empty(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        assert tree.find_dependents(a.id) == []
+
+    def test_all_deps_terminal_true(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        a.status = "accepted"
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.all_deps_terminal(b.id) is True
+
+    def test_all_deps_terminal_false(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.all_deps_terminal(b.id) is False
+
+    def test_has_failed_deps(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        a.status = "failed"
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.has_failed_deps(b.id) is True
+
+    def test_save_load_preserves_depends_on(self, tmp_path):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        path = tmp_path / "tree.yaml"
+        tree.save(path)
+        loaded = TaskTree.load(path)
+        lb = loaded.get_node(b.id)
+        assert lb.depends_on == [a.id]
+        assert lb.fail_strategy == "continue"
