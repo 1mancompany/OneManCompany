@@ -567,13 +567,22 @@ async def task_followup(project_id: str, body: dict) -> dict:
     ea_agent_task = ea_loop.push_task(followup_task, project_id=project_id, project_dir=pdir)
 
     if tree.root_id:
-        # Append as new child under existing root
+        # Start new branch — deactivates old nodes
+        tree.new_branch()
+        # Reset root status for new branch
+        root = tree.get_node(tree.root_id)
+        if root:
+            root.status = "pending"
+            root.result = ""
+        # Add follow-up child on new branch
         child = tree.add_child(
             parent_id=tree.root_id,
             employee_id=EA_ID,
             description=instructions,
             acceptance_criteria=[],
         )
+        child.branch = tree.current_branch
+        child.branch_active = True
         tree.task_id_map[ea_agent_task.id] = child.id
     else:
         # No root yet — create one
