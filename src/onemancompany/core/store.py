@@ -213,3 +213,212 @@ async def save_work_principles(emp_id: str, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     mark_dirty("employees")
+
+
+# ---------------------------------------------------------------------------
+# Room helpers
+# ---------------------------------------------------------------------------
+
+def _rooms_dir() -> Path:
+    return DATA_ROOT / "company" / "assets" / "rooms"
+
+
+# ---------------------------------------------------------------------------
+# Project reads/writes
+# ---------------------------------------------------------------------------
+
+def load_project(project_id: str) -> dict:
+    return _read_yaml(PROJECTS_DIR / project_id / "project.yaml")
+
+
+async def save_project_status(project_id: str, status: str, **extra) -> None:
+    path = PROJECTS_DIR / project_id / "project.yaml"
+    async with _get_lock(str(path)):
+        data = _read_yaml(path)
+        data["status"] = status
+        data.update(extra)
+        _write_yaml(path, data)
+    mark_dirty("task_queue")
+
+
+# ---------------------------------------------------------------------------
+# Room reads/writes
+# ---------------------------------------------------------------------------
+
+def load_rooms() -> list[dict]:
+    rdir = _rooms_dir()
+    if not rdir.exists():
+        return []
+    results = []
+    for f in sorted(rdir.iterdir()):
+        if f.suffix in (".yaml", ".yml") and not f.name.endswith("_chat.yaml"):
+            results.append(_read_yaml(f))
+    return results
+
+
+def load_room(room_id: str) -> dict:
+    return _read_yaml(_rooms_dir() / f"{room_id}.yaml")
+
+
+async def save_room(room_id: str, updates: dict) -> None:
+    path = _rooms_dir() / f"{room_id}.yaml"
+    async with _get_lock(str(path)):
+        data = _read_yaml(path)
+        data.update(updates)
+        _write_yaml(path, data)
+    mark_dirty("rooms")
+
+
+def load_room_chat(room_id: str) -> list[dict]:
+    return _read_yaml_list(_rooms_dir() / f"{room_id}_chat.yaml")
+
+
+async def append_room_chat(room_id: str, message: dict) -> None:
+    path = _rooms_dir() / f"{room_id}_chat.yaml"
+    async with _get_lock(str(path)):
+        messages = _read_yaml_list(path)
+        messages.append(message)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(messages, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("rooms")
+
+
+# ---------------------------------------------------------------------------
+# Tool reads/writes
+# ---------------------------------------------------------------------------
+
+def load_tools() -> list[dict]:
+    tools_dir = DATA_ROOT / "company" / "assets" / "tools"
+    if not tools_dir.exists():
+        return []
+    results = []
+    for tdir in sorted(tools_dir.iterdir()):
+        if not tdir.is_dir():
+            continue
+        tyaml = tdir / "tool.yaml"
+        if tyaml.exists():
+            results.append(_read_yaml(tyaml))
+    return results
+
+
+async def save_tool(slug: str, data: dict) -> None:
+    tools_dir = DATA_ROOT / "company" / "assets" / "tools"
+    path = tools_dir / slug / "tool.yaml"
+    async with _get_lock(str(path)):
+        _write_yaml(path, data)
+    mark_dirty("tools")
+
+
+# ---------------------------------------------------------------------------
+# Task tree reads/writes
+# ---------------------------------------------------------------------------
+
+async def save_tree(project_dir: str, tree_data: dict) -> None:
+    path = Path(project_dir) / "task_tree.yaml"
+    async with _get_lock(str(path)):
+        _write_yaml(path, tree_data)
+    mark_dirty("task_queue")
+
+
+# ---------------------------------------------------------------------------
+# Company-level reads/writes
+# ---------------------------------------------------------------------------
+
+def load_activity_log() -> list[dict]:
+    return _read_yaml_list(COMPANY_DIR / "activity_log.yaml")
+
+
+async def append_activity(entry: dict) -> None:
+    path = COMPANY_DIR / "activity_log.yaml"
+    async with _get_lock(str(path)):
+        log = _read_yaml_list(path)
+        log.append(entry)
+        if len(log) > 200:
+            log = log[-200:]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("activity_log")
+
+
+def load_culture() -> list[dict]:
+    return _read_yaml_list(COMPANY_DIR / "company_culture.yaml")
+
+
+async def save_culture(items: list[dict]) -> None:
+    path = COMPANY_DIR / "company_culture.yaml"
+    async with _get_lock(str(path)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(items, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("culture")
+
+
+def load_direction() -> str:
+    data = _read_yaml(COMPANY_DIR / "company_direction.yaml")
+    return data.get("direction", "") if data else ""
+
+
+async def save_direction(text: str) -> None:
+    path = COMPANY_DIR / "company_direction.yaml"
+    async with _get_lock(str(path)):
+        _write_yaml(path, {"direction": text})
+    mark_dirty("direction")
+
+
+def load_sales_tasks() -> list[dict]:
+    return _read_yaml_list(COMPANY_DIR / "sales" / "tasks.yaml")
+
+
+async def save_sales_tasks(tasks: list[dict]) -> None:
+    path = COMPANY_DIR / "sales" / "tasks.yaml"
+    async with _get_lock(str(path)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("sales_tasks")
+
+
+# ---------------------------------------------------------------------------
+# Candidate reads/writes
+# ---------------------------------------------------------------------------
+
+def load_candidates(batch_id: str) -> dict:
+    return _read_yaml(COMPANY_DIR / "candidates" / f"{batch_id}.yaml")
+
+
+async def save_candidates(batch_id: str, data: dict) -> None:
+    path = COMPANY_DIR / "candidates" / f"{batch_id}.yaml"
+    async with _get_lock(str(path)):
+        _write_yaml(path, data)
+    mark_dirty("candidates")
+
+
+# ---------------------------------------------------------------------------
+# 1-on-1 chat history
+# ---------------------------------------------------------------------------
+
+def load_oneonone(emp_id: str) -> list[dict]:
+    return _read_yaml_list(EMPLOYEES_DIR / emp_id / "oneonone_history.yaml")
+
+
+async def append_oneonone(emp_id: str, message: dict) -> None:
+    path = EMPLOYEES_DIR / emp_id / "oneonone_history.yaml"
+    async with _get_lock(str(path)):
+        history = _read_yaml_list(path)
+        history.append(message)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(history, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("employees")
+
+
+# ---------------------------------------------------------------------------
+# Overhead / token tracking
+# ---------------------------------------------------------------------------
+
+def load_overhead() -> dict:
+    return _read_yaml(COMPANY_DIR / "overhead.yaml")
+
+
+async def save_overhead(data: dict) -> None:
+    path = COMPANY_DIR / "overhead.yaml"
+    async with _get_lock(str(path)):
+        _write_yaml(path, data)
+    mark_dirty("overhead")
