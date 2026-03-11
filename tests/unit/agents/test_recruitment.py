@@ -183,10 +183,12 @@ class TestBossOnlineLifecycle:
 
         recruitment._boss_session = None
 
-        with patch("contextlib.AsyncExitStack", return_value=mock_stack):
-            with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
-                with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
-                    await recruitment.start_boss_online()
+        fake_config = {"talent_market": {"url": "http://test/sse", "api_key": "test-key"}}
+        with patch("onemancompany.core.config.load_app_config", return_value=fake_config):
+            with patch("contextlib.AsyncExitStack", return_value=mock_stack):
+                with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
+                    with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
+                        await recruitment.start_boss_online()
 
         assert recruitment._boss_session is mock_session
         mock_session.initialize.assert_awaited_once()

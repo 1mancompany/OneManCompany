@@ -418,9 +418,12 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.ea_agent import EAAgent
     from onemancompany.agents.cso_agent import CSOAgent
 
-    # Start Boss Online MCP server (persistent subprocess)
+    # Start Talent Market MCP connection (skips gracefully if no API key)
     from onemancompany.agents.recruitment import start_boss_online, stop_boss_online
-    await start_boss_online()
+    try:
+        await start_boss_online()
+    except Exception as e:
+        logger.warning("Talent Market connection failed (configure in Settings): {}", e)
 
     # Migrate existing employees from agent/ to vessel/ directory structure
     from onemancompany.core.vessel_config import migrate_agent_to_vessel, load_vessel_config
