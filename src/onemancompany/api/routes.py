@@ -752,7 +752,8 @@ async def oneonone_chat(body: dict) -> dict:
             max_turns=10,
             timeout=120,
         )
-        return {"response": output}
+        text = output["output"] if isinstance(output, dict) else output
+        return {"response": text}
 
     # --- Agent path: founding employees with a registered agent loop ---
     loop = get_agent_loop(employee_id)
