@@ -4410,3 +4410,64 @@ body {
 .ask-ceo-submit:hover {
   background: #00eeff;
 }
+
+/* Task tree — inactive branch styling */
+.tree-node-inactive {
+    opacity: 0.4;
+    stroke-dasharray: 4 3;
+}
+
+.tree-link-inactive {
+    stroke-dasharray: 6 4;
+    opacity: 0.35;
+}
+
+.tree-branch-label {
+    font-size: 8px;
+    fill: var(--text-dim);
+    font-style: italic;
+}
+
+/* Project team section */
+.project-team-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.project-team-member {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 5px;
+}
+
+.project-team-member:hover {
+    border-color: var(--pixel-cyan);
+}
+
+.project-team-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+}
+
+.project-team-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.project-team-name {
+    color: var(--pixel-green);
+    font-size: 6px;
+}
+
+.project-team-role {
+    color: var(--text-dim);
+    font-size: 5px;
+}

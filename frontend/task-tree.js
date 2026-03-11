@@ -88,18 +88,20 @@ class TaskTreeRenderer {
             .nodeSize([this.nodeWidth + this.sibSep, this.nodeHeight + this.levelSep]);
         treeLayout(root);
 
-        // Connection lines — colored and animated by child status
+        // Connection lines — colored by child status, dashed for inactive branch
         this.g.selectAll('.tree-link')
             .data(root.links())
             .enter()
             .append('path')
             .attr('class', d => {
                 const status = d.target.data.status;
-                return `tree-link tree-link-${status}`;
+                const active = d.target.data.branch_active !== false;
+                return `tree-link tree-link-${status}${active ? '' : ' tree-link-inactive'}`;
             })
             .attr('d', d3.linkVertical()
                 .x(d => d.x)
-                .y(d => d.y));
+                .y(d => d.y))
+            .attr('stroke-width', d => d.target.data.branch_active !== false ? 2.5 : 1);
 
         const nodeGroups = this.g.selectAll('.tree-node')
             .data(root.descendants())
@@ -117,7 +119,10 @@ class TaskTreeRenderer {
             .attr('width', this.nodeWidth)
             .attr('height', this.nodeHeight)
             .attr('rx', 8)
-            .attr('class', 'tree-node-card');
+            .attr('class', d => {
+                const active = d.data.branch_active !== false;
+                return `tree-node-card${active ? '' : ' tree-node-inactive'}`;
+            });
 
         // Status color bar (left edge)
         nodeGroups.append('rect')
@@ -203,6 +208,14 @@ class TaskTreeRenderer {
             .attr('class', 'tree-node-pill-text')
             .attr('fill', d => TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666')
             .text(d => TaskTreeRenderer.STATUS_LABELS[d.data.status] || d.data.status);
+
+        // Branch label for inactive nodes
+        nodeGroups.filter(d => d.data.branch_active === false)
+            .append('text')
+            .attr('x', -this.nodeWidth / 2 + 14)
+            .attr('y', -this.nodeHeight / 2 + 72)
+            .attr('class', 'tree-branch-label')
+            .text(d => `Branch ${d.data.branch}`);
 
         // Animate nodes in
         nodeGroups
