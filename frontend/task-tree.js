@@ -121,17 +121,21 @@ class TaskTreeRenderer {
             .attr('rx', 8)
             .attr('class', d => {
                 const active = d.data.branch_active !== false;
-                return `tree-node-card${active ? '' : ' tree-node-inactive'}`;
+                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup';
+                return `tree-node-card${active ? '' : ' tree-node-inactive'}${isCeo ? ' tree-node-ceo' : ''}`;
             });
 
-        // Status color bar (left edge)
+        // Status color bar (left edge) — gold for CEO nodes
         nodeGroups.append('rect')
             .attr('x', -this.nodeWidth / 2)
             .attr('y', -this.nodeHeight / 2)
             .attr('width', 4)
             .attr('height', this.nodeHeight)
             .attr('rx', 2)
-            .attr('fill', d => TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666');
+            .attr('fill', d => {
+                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup';
+                return isCeo ? '#ffd700' : (TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666');
+            });
 
         // Avatar circle with initials fallback
         nodeGroups.each(function(d) {
@@ -258,17 +262,20 @@ class TaskTreeRenderer {
             : '';
 
         const info = node.employee_info || {};
-        const displayName = info.nickname || info.name || node.employee_id;
+        const isCeo = node.node_type === 'ceo_prompt' || node.node_type === 'ceo_followup';
+        const displayName = isCeo ? 'CEO' : (info.nickname || info.name || node.employee_id);
+        const nodeTypeLabel = node.node_type === 'ceo_prompt' ? 'Original Prompt'
+            : node.node_type === 'ceo_followup' ? 'Follow-up' : '';
         const avatarHtml = info.avatar_url
             ? `<img src="${this._escapeHtml(info.avatar_url)}" class="tree-detail-avatar" />`
-            : `<div class="tree-detail-avatar">${this._escapeHtml((node.employee_id || '').slice(-2))}</div>`;
+            : `<div class="tree-detail-avatar${isCeo ? ' tree-detail-avatar-ceo' : ''}">${isCeo ? 'CEO' : this._escapeHtml((node.employee_id || '').slice(-2))}</div>`;
 
         return `
             <div class="tree-detail-header">
                 ${avatarHtml}
                 <div>
                     <h3>${this._escapeHtml(displayName)}</h3>
-                    <div class="tree-detail-role">${this._escapeHtml(info.role || '')} · ${this._escapeHtml(node.employee_id)}</div>
+                    <div class="tree-detail-role">${nodeTypeLabel ? this._escapeHtml(nodeTypeLabel) : (this._escapeHtml(info.role || '') + ' · ' + this._escapeHtml(node.employee_id))}</div>
                     <span class="tree-detail-status" style="color:${TaskTreeRenderer.STATUS_COLORS[node.status] || '#666'}">${this._escapeHtml(node.status)}</span>
                 </div>
             </div>

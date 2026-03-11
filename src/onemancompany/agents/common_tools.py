@@ -48,6 +48,54 @@ def list_ceo_pending() -> list[dict]:
         if not entry["event"].is_set():
             result.append(entry.get("meta", {}))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — persist CEO pending state across graceful restarts
+# ---------------------------------------------------------------------------
+from onemancompany.core.snapshot import snapshot_provider
+
+
+@snapshot_provider("ceo_pending")
+class _CeoPendingSnapshot:
+    @staticmethod
+    def save() -> dict:
+        # Save meta dicts for all unresolved pending entries
+        items = {}
+        for key, entry in _ceo_pending.items():
+            if not entry["event"].is_set():
+                items[key] = entry.get("meta", {})
+        return {"items": items} if items else {}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        items = data.get("items", {})
+        for key, meta in items.items():
+            entry = {
+                "event": asyncio.Event(),
+                "response": {},
+                "meta": meta,
+            }
+            _ceo_pending[key] = entry
+            logger.info("Restored CEO pending entry: {}", key)
+
+        # Re-publish events so frontend sees them again
+        if items:
+            async def _republish():
+                for _key, meta in items.items():
+                    await event_bus.publish(
+                        CompanyEvent(type="ceo_report", payload=meta, agent="SYSTEM")
+                    )
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(_republish())
+                else:
+                    loop.run_until_complete(_republish())
+            except RuntimeError:
+                logger.warning("Could not republish CEO pending events (no event loop)")
+
+
 from onemancompany.tools.sandbox import SANDBOX_TOOLS
 
 # Context vars for sub-task support — set by Vessel during execution
@@ -806,7 +854,7 @@ async def report_to_ceo(subject: str, report: str, action_required: bool = False
             if vessel:
                 employee_id = getattr(vessel, "employee_id", "")
         except (LookupError, Exception):
-            pass
+            logger.debug("Could not resolve employee_id from context var")
     if not project_id:
         try:
             task_id = _current_task_id.get()
@@ -819,7 +867,7 @@ async def report_to_ceo(subject: str, report: str, action_required: bool = False
                             project_id = t.project_id
                             break
         except (LookupError, Exception):
-            pass
+            logger.debug("Could not resolve project_id from context var")
 
     emp_name = ""
     if employee_id:

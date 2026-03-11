@@ -512,13 +512,23 @@ async def ceo_submit_task(body: dict) -> dict:
         )
         ea_agent_task = loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
 
-        # Initialize task tree with EA as root
+        # Initialize task tree: CEO node as root, EA as child
         try:
             from onemancompany.core.task_tree import TaskTree
             from onemancompany.core.vessel import _save_project_tree
             tree = TaskTree(project_id=ctx_id)
-            root = tree.create_root(employee_id=EA_ID, description=task)
-            tree.task_id_map[ea_agent_task.id] = root.id
+            # CEO root node — records original prompt
+            ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
+            ceo_root.node_type = "ceo_prompt"
+            ceo_root.status = "processing"
+            # EA node as child of CEO
+            ea_node = tree.add_child(
+                parent_id=ceo_root.id,
+                employee_id=EA_ID,
+                description=task,
+                acceptance_criteria=[],
+            )
+            tree.task_id_map[ea_agent_task.id] = ea_node.id
             _save_project_tree(pdir, tree)
         except Exception as e:
             logger.error("Failed to initialize task tree: {}", e)
@@ -606,25 +616,57 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if tree.root_id:
         # Start new branch — deactivates old nodes
         tree.new_branch()
-        # Reset root status for new branch
+
+        # Find the EA node (child of CEO root, or legacy root)
+        ea_node = tree.get_ea_node()
+        if ea_node:
+            ea_node.status = "pending"
+            ea_node.result = ""
+            ea_node.branch = tree.current_branch
+            ea_node.branch_active = True
+            tree.task_id_map[ea_agent_task.id] = ea_node.id
+
+            # Add CEO follow-up as child of EA node
+            followup_node = tree.add_child(
+                parent_id=ea_node.id,
+                employee_id=CEO_ID,
+                description=instructions,
+                acceptance_criteria=[],
+            )
+            followup_node.node_type = "ceo_followup"
+            followup_node.status = "accepted"
+            followup_node.branch = tree.current_branch
+            followup_node.branch_active = True
+        else:
+            # Fallback — create EA child under existing root
+            child = tree.add_child(
+                parent_id=tree.root_id,
+                employee_id=EA_ID,
+                description=instructions,
+                acceptance_criteria=[],
+            )
+            child.branch = tree.current_branch
+            child.branch_active = True
+            tree.task_id_map[ea_agent_task.id] = child.id
+
+        # Update CEO root status
         root = tree.get_node(tree.root_id)
-        if root:
-            root.status = "pending"
-            root.result = ""
-        # Add follow-up child on new branch
-        child = tree.add_child(
-            parent_id=tree.root_id,
+        if root and root.node_type == "ceo_prompt":
+            root.status = "processing"
+            root.branch = tree.current_branch
+            root.branch_active = True
+    else:
+        # No root yet — create CEO root + EA child
+        ceo_root = tree.create_root(employee_id=CEO_ID, description=instructions)
+        ceo_root.node_type = "ceo_prompt"
+        ceo_root.status = "processing"
+        ea_child = tree.add_child(
+            parent_id=ceo_root.id,
             employee_id=EA_ID,
             description=instructions,
             acceptance_criteria=[],
         )
-        child.branch = tree.current_branch
-        child.branch_active = True
-        tree.task_id_map[ea_agent_task.id] = child.id
-    else:
-        # No root yet — create one
-        root = tree.create_root(employee_id=EA_ID, description=instructions)
-        tree.task_id_map[ea_agent_task.id] = root.id
+        tree.task_id_map[ea_agent_task.id] = ea_child.id
 
     _save_project_tree(pdir, tree)
 
@@ -1452,29 +1494,42 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
 
     was_in_progress = task.status == "processing"
 
-    # Collect all tasks to cancel (target + sub-tasks)
+    from onemancompany.core.task_persistence import persist_task, archive_task
+
+    # Cancel target task
     all_cancelled = [task]
     task.status = "cancelled"
     task.completed_at = datetime.now().isoformat()
     task.result = "Cancelled by CEO"
+    persist_task(employee_id, task)
+    archive_task(employee_id, task)
     employee_manager._log(employee_id, task, "cancelled", "CEO cancelled this task")
     employee_manager._publish_task_update(employee_id, task)
 
-    for sid in task.sub_task_ids:
-        sub = loop.board.get_task(sid)
-        if sub and sub.status in ("pending", "processing", "holding"):
-            sub.status = "cancelled"
-            sub.completed_at = datetime.now().isoformat()
-            sub.result = "Parent task cancelled by CEO"
-            employee_manager._log(employee_id, sub, "cancelled", "Parent task cancelled by CEO")
-            employee_manager._publish_task_update(employee_id, sub)
-            all_cancelled.append(sub)
+    # Stop any holding watchdog crons associated with this task
+    from onemancompany.core.automation import stop_cron
+    stop_cron(employee_id, f"reply_{task_id}")
+    stop_cron(employee_id, f"holding_{task_id}")
 
     # Cancel the running asyncio.Task if this was in_progress
     if was_in_progress and employee_id in employee_manager._running_tasks:
         running = employee_manager._running_tasks[employee_id]
         if not running.done():
             running.cancel()
+
+    # Reset employee status if no more active tasks
+    board = employee_manager.boards.get(employee_id)
+    has_active = False
+    if board:
+        has_active = any(
+            t.status in ("pending", "processing", "holding")
+            for t in board.tasks
+        )
+    if not has_active:
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            emp.status = STATUS_IDLE
+            emp.current_task_summary = ""
 
     # Update tree nodes for cancelled tasks
     await _sync_tree_cancel(all_cancelled)
@@ -2894,14 +2949,22 @@ async def get_project_tree(project_id: str) -> dict:
     for node in tree._nodes.values():
         eid = node.employee_id
         if eid and eid not in employee_info:
-            emp = company_state.employees.get(eid)
-            if emp:
+            if eid == CEO_ID:
                 employee_info[eid] = {
-                    "name": getattr(emp, "name", ""),
-                    "nickname": getattr(emp, "nickname", ""),
-                    "role": getattr(emp, "role", ""),
-                    "avatar_url": f"/api/employees/{eid}/avatar" if _has_avatar(eid) else "",
+                    "name": "CEO",
+                    "nickname": "CEO",
+                    "role": "Chief Executive Officer",
+                    "avatar_url": "",
                 }
+            else:
+                emp = company_state.employees.get(eid)
+                if emp:
+                    employee_info[eid] = {
+                        "name": getattr(emp, "name", ""),
+                        "nickname": getattr(emp, "nickname", ""),
+                        "role": getattr(emp, "role", ""),
+                        "avatar_url": f"/api/employees/{eid}/avatar" if _has_avatar(eid) else "",
+                    }
 
     nodes = []
     for n in tree._nodes.values():
@@ -4691,5 +4754,15 @@ async def stop_cron_endpoint(employee_id: str, cron_name: str) -> dict:
     try:
         stop_cron(employee_id, cron_name)
         return {"status": "ok", "message": f"Cron '{cron_name}' stopped"}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/api/automations/{employee_id}/crons/stop-all")
+async def stop_all_crons_endpoint(employee_id: str) -> dict:
+    """Stop all cron jobs for an employee."""
+    from onemancompany.core.automation import stop_all_crons_for_employee
+    try:
+        return stop_all_crons_for_employee(employee_id)
     except Exception as e:
         raise HTTPException(400, str(e))

@@ -2,7 +2,7 @@
 
 Covers:
 - _parse_holding_metadata: parsing __HOLDING: prefix from agent result
-- _setup_reply_poller: cron setup for reply polling
+- _setup_holding_watchdog: cron setup for holding watchdog
 - _execute_task integration: HOLDING detection skips post-task cleanup
 """
 
@@ -73,14 +73,16 @@ class TestParseHoldingMetadata:
 # ---------------------------------------------------------------------------
 
 class TestSetupReplyPoller:
-    """Test EmployeeManager._setup_reply_poller method."""
+    """Test EmployeeManager._setup_holding_watchdog method."""
 
     @patch("onemancompany.core.automation.start_cron")
-    def test_calls_start_cron_with_correct_params(self, mock_start_cron):
+    def test_calls_start_cron_with_correct_params_thread(self, mock_start_cron):
         mock_start_cron.return_value = {"status": "ok"}
         from onemancompany.core.vessel import EmployeeManager
+        from onemancompany.core.vessel import AgentTask
         mgr = EmployeeManager.__new__(EmployeeManager)
-        mgr._setup_reply_poller("00100", "task-001", "thread-abc", "5m")
+        task = AgentTask(id="task-001", description="test")
+        mgr._setup_holding_watchdog("00100", task, {"thread_id": "thread-abc", "interval": "5m"})
 
         mock_start_cron.assert_called_once_with(
             "00100",
@@ -90,22 +92,26 @@ class TestSetupReplyPoller:
         )
 
     @patch("onemancompany.core.automation.start_cron")
-    def test_default_interval(self, mock_start_cron):
+    def test_default_interval_thread(self, mock_start_cron):
         mock_start_cron.return_value = {"status": "ok"}
         from onemancompany.core.vessel import EmployeeManager
+        from onemancompany.core.vessel import AgentTask
         mgr = EmployeeManager.__new__(EmployeeManager)
-        mgr._setup_reply_poller("00100", "task-002", "thread-xyz")
+        task = AgentTask(id="task-002", description="test")
+        mgr._setup_holding_watchdog("00100", task, {"thread_id": "thread-xyz"})
 
         call_args = mock_start_cron.call_args
-        assert call_args[0][2] == "1m"  # default interval
+        assert call_args[0][2] == "1m"  # default interval for thread_id holds
 
     @patch("onemancompany.core.automation.start_cron")
     def test_logs_error_on_failure(self, mock_start_cron):
         mock_start_cron.return_value = {"status": "error", "message": "bad interval"}
         from onemancompany.core.vessel import EmployeeManager
+        from onemancompany.core.vessel import AgentTask
         mgr = EmployeeManager.__new__(EmployeeManager)
+        task = AgentTask(id="task-003", description="test")
         with patch("onemancompany.core.vessel.logger") as mock_logger:
-            mgr._setup_reply_poller("00100", "task-003", "thread-fail")
+            mgr._setup_holding_watchdog("00100", task, {"thread_id": "thread-fail"})
             mock_logger.error.assert_called_once()
 
 
@@ -167,7 +173,10 @@ class TestResumeHeldTask:
             with patch("onemancompany.core.vessel.archive_task"):
                 with patch("onemancompany.core.vessel.stop_cron") as mock_stop:
                     await mgr.resume_held_task("00010", "held1", "reply")
-                    mock_stop.assert_called_once_with("00010", "reply_held1")
+                    # Stops both reply_ and holding_ crons
+                    assert mock_stop.call_count == 2
+                    mock_stop.assert_any_call("00010", "reply_held1")
+                    mock_stop.assert_any_call("00010", "holding_held1")
 
     @pytest.mark.asyncio
     async def test_resume_unknown_employee(self):
@@ -185,7 +194,7 @@ class TestHoldingRestoration:
     """Test that HOLDING tasks survive restart with cron re-setup."""
 
     def test_restart_holding_pollers_starts_crons(self):
-        """_restart_holding_pollers should call _setup_reply_poller for HOLDING tasks."""
+        """_restart_holding_pollers should call _setup_holding_watchdog for HOLDING tasks."""
         from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
         from onemancompany.core.task_lifecycle import TaskPhase
         mgr = EmployeeManager()
@@ -196,10 +205,10 @@ class TestHoldingRestoration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+        with patch.object(mgr, "_setup_holding_watchdog") as mock_setup:
             count = mgr._restart_holding_pollers()
         assert count == 1
-        mock_setup.assert_called_once_with("00010", "held1", "abc123", "1m")
+        mock_setup.assert_called_once_with("00010", task, {"thread_id": "abc123"})
 
     def test_restart_holding_pollers_skips_non_holding(self):
         """Should not start pollers for non-HOLDING tasks."""
@@ -212,7 +221,7 @@ class TestHoldingRestoration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+        with patch.object(mgr, "_setup_holding_watchdog") as mock_setup:
             count = mgr._restart_holding_pollers()
         assert count == 0
         mock_setup.assert_not_called()
@@ -229,13 +238,13 @@ class TestHoldingRestoration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+        with patch.object(mgr, "_setup_holding_watchdog") as mock_setup:
             count = mgr._restart_holding_pollers()
         assert count == 1
-        mock_setup.assert_called_once_with("00010", "held2", "xyz", "5m")
+        mock_setup.assert_called_once_with("00010", task, {"thread_id": "xyz", "interval": "5m"})
 
-    def test_restart_skips_holding_without_thread_id(self):
-        """HOLDING tasks without thread_id should not get a poller."""
+    def test_restart_skips_holding_without_metadata(self):
+        """HOLDING tasks without metadata should not get a watchdog."""
         from onemancompany.core.vessel import EmployeeManager, AgentTaskBoard, AgentTask
         from onemancompany.core.task_lifecycle import TaskPhase
         mgr = EmployeeManager()
@@ -246,7 +255,7 @@ class TestHoldingRestoration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+        with patch.object(mgr, "_setup_holding_watchdog") as mock_setup:
             count = mgr._restart_holding_pollers()
         assert count == 0
         mock_setup.assert_not_called()
@@ -286,10 +295,10 @@ class TestHoldingIntegration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        # 4. Verify poller setup (patch at source — local import in _setup_reply_poller)
+        # 4. Verify watchdog setup
         with patch("onemancompany.core.automation.start_cron") as mock_start:
             mock_start.return_value = {"status": "ok"}
-            mgr._setup_reply_poller("00010", "flow1", "gmail_thread_123", "2m")
+            mgr._setup_holding_watchdog("00010", task, meta)
             mock_start.assert_called_once_with(
                 "00010", "reply_flow1", "2m",
                 "[reply_poll] Check Gmail thread gmail_thread_123 for task flow1",
@@ -300,7 +309,7 @@ class TestHoldingIntegration:
             with patch("onemancompany.core.vessel.archive_task"):
                 with patch("onemancompany.core.vessel.stop_cron") as mock_stop:
                     ok = await mgr.resume_held_task("00010", "flow1", "Human replied: All tests pass!")
-                    mock_stop.assert_called_once_with("00010", "reply_flow1")
+                    assert mock_stop.call_count == 2
 
         # 6. Verify final state
         assert ok is True
@@ -328,12 +337,12 @@ class TestHoldingIntegration:
         board.tasks.append(task)
         mgr.boards["00010"] = board
 
-        # _restart_holding_pollers should set up cron
-        with patch.object(mgr, "_setup_reply_poller") as mock_setup:
+        # _restart_holding_pollers should set up watchdog
+        with patch.object(mgr, "_setup_holding_watchdog") as mock_setup:
             count = mgr._restart_holding_pollers()
 
         assert count == 1
-        mock_setup.assert_called_once_with("00010", "restored1", "thread_xyz", "3m")
+        mock_setup.assert_called_once_with("00010", task, {"thread_id": "thread_xyz", "interval": "3m"})
 
         # Then resume
         with patch("onemancompany.core.vessel.persist_task"):

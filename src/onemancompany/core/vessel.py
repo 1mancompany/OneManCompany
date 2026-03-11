@@ -95,6 +95,37 @@ def archive_task(employee_id: str, task: "AgentTask") -> None:
     _archive(employee_id, task)
 
 
+def _history_path(employee_id: str) -> Path:
+    """Return path to employee's task history file."""
+    return EMPLOYEES_DIR / employee_id / "task_history.json"
+
+
+def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
+    """Load task history and summary from disk."""
+    path = _history_path(employee_id)
+    if not path.exists():
+        return [], ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("entries", []), data.get("summary", "")
+    except Exception as e:
+        logger.warning("Failed to load task history for {}: {}", employee_id, e)
+        return [], ""
+
+
+def _save_task_history(employee_id: str, entries: list[dict], summary: str) -> None:
+    """Persist task history and summary to disk."""
+    path = _history_path(employee_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "entries": entries,
+            "summary": summary,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to save task history for {}: {}", employee_id, e)
+
+
 def load_all_active_tasks(*, crash_recovery: bool = True) -> dict[str, list["AgentTask"]]:
     """Lazy-import wrapper to avoid circular import with task_persistence."""
     from onemancompany.core.task_persistence import load_all_active_tasks as _load
@@ -530,7 +561,10 @@ class EmployeeManager:
         if employee_id not in self.boards:
             self.boards[employee_id] = AgentTaskBoard()
         if employee_id not in self.task_histories:
-            self.task_histories[employee_id] = []
+            entries, summary = _load_task_history(employee_id)
+            self.task_histories[employee_id] = entries
+            if summary:
+                self._history_summaries[employee_id] = summary
         vessel = Vessel(self, employee_id)
         self.vessels[employee_id] = vessel
         return vessel
@@ -666,18 +700,17 @@ class EmployeeManager:
         return restored
 
     def _restart_holding_pollers(self) -> int:
-        """Restart reply poller crons for all HOLDING tasks."""
+        """Restart watchdog crons for all HOLDING tasks."""
         count = 0
         for emp_id, board in self.boards.items():
             for task in board.tasks:
                 if task.status == TaskPhase.HOLDING:
                     meta = _parse_holding_metadata(task.result or "")
-                    if meta and meta.get("thread_id"):
-                        interval = meta.get("interval", "1m")
-                        self._setup_reply_poller(emp_id, task.id, meta["thread_id"], interval)
+                    if meta:
+                        self._setup_holding_watchdog(emp_id, task, meta)
                         count += 1
         if count:
-            logger.info("Restarted {} reply poller(s) for HOLDING tasks", count)
+            logger.info("Restarted {} holding watchdog(s)", count)
         return count
 
     def abort_project(self, project_id: str) -> list:
@@ -913,11 +946,8 @@ class EmployeeManager:
             if holding_meta is not None:
                 task.status = TaskPhase.HOLDING
                 persist_task(employee_id, task)
-                # Start reply poller cron
-                thread_id = holding_meta.get("thread_id", "")
-                if thread_id:
-                    interval = holding_meta.get("interval", "1m")
-                    self._setup_reply_poller(employee_id, task.id, thread_id, interval)
+                # Start holding watchdog cron — employee checks status every 5 min
+                self._setup_holding_watchdog(employee_id, task, holding_meta)
                 self._log(employee_id, task, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 task.status = TaskPhase.COMPLETE
@@ -991,14 +1021,41 @@ class EmployeeManager:
     # HOLDING helpers
     # ------------------------------------------------------------------
 
-    def _setup_reply_poller(self, employee_id: str, task_id: str, thread_id: str, interval: str = "1m") -> None:
-        """Start a cron job to poll for email replies on a HOLDING task."""
+    def _setup_holding_watchdog(self, employee_id: str, task: AgentTask, holding_meta: dict) -> None:
+        """Start a watchdog cron for a HOLDING task.
+
+        The cron dispatches a check task to the employee periodically.
+        For thread_id-based holds, it checks Gmail. For all other holds
+        (e.g. batch_id), it asks the employee to verify the condition.
+        """
         from onemancompany.core.automation import start_cron as _start_cron
-        cron_name = f"reply_{task_id}"
-        task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task_id}"
+
+        thread_id = holding_meta.get("thread_id", "")
+        if thread_id:
+            # Specific Gmail reply poller
+            interval = holding_meta.get("interval", "1m")
+            cron_name = f"reply_{task.id}"
+            task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task.id}"
+        else:
+            # Generic holding watchdog — employee checks if condition is resolved
+            interval = holding_meta.get("interval", "5m")
+            meta_summary = ", ".join(f"{k}={v}" for k, v in holding_meta.items() if k != "interval")
+            cron_name = f"holding_{task.id}"
+            holding_since = task.created_at or datetime.now().isoformat()
+            task_desc = (
+                f"[holding_check] 你有一个 HOLDING 任务 (task_id={task.id}) 等待外部条件完成。"
+                f" 元数据: {meta_summary}。开始等待时间: {holding_since}。"
+                f"\n\n请按以下流程处理："
+                f"\n1. 检查该条件是否已满足。如果已完成，调用 resume_held_task(task_id='{task.id}', result='条件已满足: <具体结果>')。"
+                f"\n2. 如果等待已超过 10 分钟但未超过 30 分钟，尝试换一种方式推进（重新发送请求、换联系方式、尝试替代方案等）。"
+                f"\n3. 如果等待已超过 30 分钟，上报给上级（用 dispatch_child 或直接在结果中说明情况），"
+                f"并调用 resume_held_task(task_id='{task.id}', result='超时上报: <等待原因和已尝试的方法>') 结束等待。"
+                f"\n4. 如果尚未超时且条件未满足，无需操作。"
+            )
+
         result = _start_cron(employee_id, cron_name, interval, task_desc)
         if result.get("status") != "ok":
-            logger.error("Failed to start reply poller for {}: {}", task_id, result)
+            logger.error("Failed to start holding watchdog for {}: {}", task.id, result)
 
     async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
         """Resume a HOLDING task with the provided result.
@@ -1020,8 +1077,9 @@ class EmployeeManager:
         if not task or task.status != TaskPhase.HOLDING:
             return False
 
-        # Stop reply poller cron
+        # Stop holding watchdog cron (reply poller or generic watchdog)
         stop_cron(employee_id, f"reply_{task_id}")
+        stop_cron(employee_id, f"holding_{task_id}")
 
         # Transition to COMPLETE
         task.result = result
@@ -1063,6 +1121,8 @@ class EmployeeManager:
             "result": (task.result or "")[:RESULT_SNIPPET_LEN],
             "completed_at": task.completed_at or datetime.now().isoformat(),
         })
+        # Write-through to disk
+        _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._maybe_compress_history(employee_id))
@@ -1097,6 +1157,13 @@ class EmployeeManager:
             self._history_summaries[employee_id] = resp.content.strip()[:800]
         except Exception:
             self._history_summaries[employee_id] = (summary + "\n" + old_text)[:800]
+
+        # Write-through compressed history to disk
+        _save_task_history(
+            employee_id,
+            self.task_histories[employee_id],
+            self._history_summaries.get(employee_id, ""),
+        )
 
     def get_history_context(self, employee_id: str) -> str:
         history = self.task_histories.get(employee_id, [])
@@ -1372,9 +1439,17 @@ class EmployeeManager:
 
         _save_project_tree(task.project_dir, tree)
 
-        # Root node completed — request CEO confirmation before cleanup
-        if not node.parent_id:
-            logger.info("Root node {} completed — requesting CEO confirmation", node_id)
+        # Root node or child of CEO node completed — request CEO confirmation
+        is_root = not node.parent_id
+        parent_node = tree.get_node(node.parent_id) if node.parent_id else None
+        is_child_of_ceo = parent_node and parent_node.is_ceo_node if parent_node else False
+
+        if is_root or is_child_of_ceo:
+            logger.info("EA node {} completed (root or child of CEO) — requesting CEO confirmation", node_id)
+            # Update CEO root node status
+            if is_child_of_ceo:
+                parent_node.status = "completed"
+                _save_project_tree(task.project_dir, tree)
             effective_project_id = project_id or task.project_id
             await self._request_ceo_confirmation(
                 employee_id, task, tree, node, effective_project_id
@@ -1393,9 +1468,12 @@ class EmployeeManager:
 
         # Build review prompt for parent employee
         # Separate children needing review from already-accepted
+        # Skip CEO nodes (informational only, not reviewable)
         needs_review = []
         already_accepted = []
         for child in children:
+            if child.is_ceo_node:
+                continue
             if child.status == "accepted":
                 already_accepted.append(child)
             else:
@@ -1430,11 +1508,12 @@ class EmployeeManager:
         review_prompt = "\n".join(lines)
 
         board = self.boards.setdefault(parent_node.employee_id, AgentTaskBoard())
-        board.push(
+        review_task = board.push(
             description=review_prompt,
             project_id=project_id,
             project_dir=task.project_dir,
         )
+        persist_task(parent_node.employee_id, review_task)
         logger.info("All children done for parent {} — pushed review task to {}", parent_node.id, parent_node.employee_id)
 
         # Schedule parent if not already running
@@ -1456,8 +1535,8 @@ class EmployeeManager:
         """
         from onemancompany.agents.common_tools import _ceo_pending, _ceo_wait_key
 
-        # Build completion summary from all children
-        children = tree.get_children(root_node.id)
+        # Build completion summary from all children (skip CEO info nodes)
+        children = [c for c in tree.get_children(root_node.id) if not c.is_ceo_node]
         lines = [f"项目完成汇报 — {task.description[:100]}", ""]
         for i, child in enumerate(children, 1):
             status_icon = "✓" if child.status == "accepted" else "●"
@@ -1505,11 +1584,12 @@ class EmployeeManager:
                 f"原任务: {task.description[:200]}"
             )
             board = self.boards.setdefault(employee_id, AgentTaskBoard())
-            board.push(
+            revision_task = board.push(
                 description=revision_desc,
                 project_id=project_id,
                 project_dir=task.project_dir,
             )
+            persist_task(employee_id, revision_task)
             self._schedule_next(employee_id)
             logger.info("CEO requested revision for project {} — pushed to {}", project_id, employee_id)
         else:
