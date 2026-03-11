@@ -58,6 +58,43 @@ def _require_employee(employee_id: str):
     return emp
 
 
+def _scan_employee_projects(employee_id: str, projects_dir: str = "") -> list[dict]:
+    """Scan all project.yaml files for projects where employee_id is in team."""
+    from pathlib import Path
+    from onemancompany.core.config import PROJECTS_DIR
+    import yaml
+
+    base = Path(projects_dir) if projects_dir else PROJECTS_DIR
+    results = []
+    if not base.exists():
+        return results
+
+    for pdir in base.iterdir():
+        if not pdir.is_dir():
+            continue
+        pyaml = pdir / "project.yaml"
+        if not pyaml.exists():
+            continue
+        try:
+            data = yaml.safe_load(pyaml.read_text(encoding="utf-8")) or {}
+        except Exception:
+            logger.warning("Failed to parse {}", pyaml)
+            continue
+        team = data.get("team", [])
+        for member in team:
+            if member.get("employee_id") == employee_id:
+                results.append({
+                    "project_id": pdir.name,
+                    "task": data.get("task", ""),
+                    "status": data.get("status", ""),
+                    "role_in_project": member.get("role", ""),
+                    "joined_at": member.get("joined_at", ""),
+                })
+                break
+
+    return results
+
+
 def _rebuild_employee_agent(employee_id: str) -> bool:
     """Rebuild an employee's LLM agent after config changes (model/provider/api-key).
 
@@ -2900,6 +2937,12 @@ async def get_avatar(employee_id: str):
     if not avatar_path.exists():
         raise HTTPException(status_code=404, detail="No avatar")
     return FileResponse(avatar_path, media_type="image/png")
+
+
+@router.get("/api/employees/{employee_id}/projects")
+async def get_employee_projects(employee_id: str) -> list[dict]:
+    """Get list of projects an employee participated in."""
+    return _scan_employee_projects(employee_id)
 
 
 # ===== Plugin System Endpoints =====

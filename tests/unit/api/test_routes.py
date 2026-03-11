@@ -6284,3 +6284,42 @@ class TestProjectTreeEndpoint:
                 resp = await client.get("/api/projects/proj1/tree")
 
         assert resp.status_code == 404
+
+
+class TestEmployeeProjects:
+    def test_scan_employee_projects(self, tmp_path):
+        """_scan_employee_projects returns projects the employee participated in."""
+        import yaml
+
+        proj1_dir = tmp_path / "proj1"
+        proj1_dir.mkdir()
+        (proj1_dir / "project.yaml").write_text(yaml.dump({
+            "task": "Build game",
+            "status": "completed",
+            "team": [
+                {"employee_id": "00006", "role": "Engineer", "joined_at": "2026-03-11T10:00:00"},
+                {"employee_id": "00003", "role": "COO", "joined_at": "2026-03-11T10:00:00"},
+            ],
+        }))
+
+        proj2_dir = tmp_path / "proj2"
+        proj2_dir.mkdir()
+        (proj2_dir / "project.yaml").write_text(yaml.dump({
+            "task": "Design UI",
+            "status": "in_progress",
+            "team": [
+                {"employee_id": "00007", "role": "Designer", "joined_at": "2026-03-11T11:00:00"},
+            ],
+        }))
+
+        from onemancompany.api.routes import _scan_employee_projects
+        projects = _scan_employee_projects("00006", str(tmp_path))
+        assert len(projects) == 1
+        assert projects[0]["task"] == "Build game"
+        assert projects[0]["role_in_project"] == "Engineer"
+        assert projects[0]["project_id"] == "proj1"
+
+    def test_scan_no_projects(self, tmp_path):
+        from onemancompany.api.routes import _scan_employee_projects
+        projects = _scan_employee_projects("00099", str(tmp_path))
+        assert projects == []
