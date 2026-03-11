@@ -3961,12 +3961,20 @@ class AppController {
         </div>
         <div class="api-provider-card">
           <div class="api-card-header api-card-toggle" data-target="api-tm-body">
-            <span class="api-status-dot ${tm.api_key_set ? 'online' : 'offline'}"></span>
+            <span class="api-status-dot ${tm.connected ? 'online' : (tm.mode === 'local' ? 'online' : 'offline')}"></span>
             <span class="api-card-title">Talent Market</span>
+            <span class="api-card-status">${tm.connected ? '☁️ 云端' : (tm.local_talent_count > 0 ? '💾 本地 (' + tm.local_talent_count + ')' : '⚠️ 未连接')}</span>
             <span class="api-card-arrow">&#9660;</span>
           </div>
           <div id="api-tm-body" class="api-card-body collapsed">
-            <label class="api-field-label">API Key</label>
+            <div class="tm-status-info" style="font-size:6.5px;margin-bottom:4px;color:var(--text-dim);">
+              ${tm.connected
+                ? '✅ 已连接云端 Talent Market'
+                : tm.api_key_set
+                  ? '❌ 云端连接失败，使用本地 Talent Market'
+                  : '未配置 API Key，使用本地 Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
+            </div>
+            <label class="api-field-label">API Key (配置后使用云端服务)</label>
             <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
             <div class="api-card-actions">
               <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>

@@ -2798,6 +2798,11 @@ body {
   font-size: 8px;
   color: var(--pixel-white);
 }
+.api-card-status {
+  font-size: 6px;
+  color: var(--text-dim);
+  margin-left: 6px;
+}
 .api-status-dot {
   width: 8px;
   height: 8px;

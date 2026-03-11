@@ -1826,6 +1826,24 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
 # ===== Global API Settings =====
 
 
+def _get_talent_market_connected() -> bool:
+    """Check if the cloud Talent Market MCP session is active."""
+    try:
+        from onemancompany.agents.recruitment import _boss_session
+        return _boss_session is not None
+    except ImportError:
+        return False
+
+
+def _get_local_talent_count() -> int:
+    """Count local talent packages available."""
+    try:
+        from onemancompany.core.config import list_available_talents
+        return len(list_available_talents())
+    except ImportError:
+        return 0
+
+
 @router.get("/api/settings/api")
 async def get_api_settings() -> dict:
     """Return current global API configuration status."""
@@ -1854,6 +1872,9 @@ async def get_api_settings() -> dict:
         "talent_market": {
             "api_key_set": bool(tm_key),
             "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
+            "mode": "cloud" if bool(tm_key) else "local",
+            "connected": _get_talent_market_connected(),
+            "local_talent_count": _get_local_talent_count(),
         },
     }
 
