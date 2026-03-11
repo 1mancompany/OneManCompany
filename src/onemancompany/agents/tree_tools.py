@@ -249,6 +249,96 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
         return {"status": "rejected_failed", "node_id": node_id, "reason": reason}
 
 
+@tool
+def unblock_child(node_id: str, new_description: str = "") -> dict:
+    """Unblock a BLOCKED task, optionally with updated instructions.
+
+    Removes failed/cancelled dependencies from depends_on and re-evaluates.
+    If remaining deps are met, pushes the task to the employee's board.
+
+    Args:
+        node_id: The blocked task node ID.
+        new_description: Updated task description (optional).
+    """
+    from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+    vessel = _current_vessel.get()
+    task_id = _current_task_id.get()
+    if not vessel or not task_id:
+        return {"status": "error", "message": "No agent context."}
+
+    task = vessel.board.get_task(task_id)
+    if not task or not task.project_dir:
+        return {"status": "error", "message": "No project context."}
+
+    tree = _load_tree(task.project_dir)
+    node = tree.get_node(node_id)
+    if not node:
+        return {"status": "error", "message": f"Node {node_id} not found."}
+    if node.status != "blocked":
+        return {"status": "error", "message": f"Node {node_id} is {node.status}, not blocked."}
+
+    # Remove failed/cancelled deps
+    node.depends_on = [
+        d for d in node.depends_on
+        if tree.get_node(d) and tree.get_node(d).status not in ("failed", "cancelled")
+    ]
+    if new_description:
+        node.description = new_description
+    node.status = "pending"
+    _save_tree(task.project_dir, tree)
+
+    # Check if remaining deps are met
+    if tree.all_deps_terminal(node.id):
+        from onemancompany.core.vessel import employee_manager
+        handle = employee_manager.get_handle(node.employee_id)
+        if handle:
+            agent_task = handle.push_task(
+                node.description,
+                project_id=task.project_id,
+                project_dir=task.project_dir,
+            )
+            tree.task_id_map[agent_task.id] = node.id
+            _save_tree(task.project_dir, tree)
+            return {"status": "unblocked_and_dispatched", "node_id": node_id}
+
+    return {"status": "unblocked_waiting", "node_id": node_id,
+            "waiting_on": node.depends_on}
+
+
+@tool
+def cancel_child(node_id: str, reason: str = "") -> dict:
+    """Cancel a task node. Triggers dependency resolution for dependents.
+
+    Args:
+        node_id: The task node ID to cancel.
+        reason: Cancellation reason (optional).
+    """
+    from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+    vessel = _current_vessel.get()
+    task_id = _current_task_id.get()
+    if not vessel or not task_id:
+        return {"status": "error", "message": "No agent context."}
+
+    task = vessel.board.get_task(task_id)
+    if not task or not task.project_dir:
+        return {"status": "error", "message": "No project context."}
+
+    tree = _load_tree(task.project_dir)
+    node = tree.get_node(node_id)
+    if not node:
+        return {"status": "error", "message": f"Node {node_id} not found."}
+    if node.is_terminal:
+        return {"status": "error", "message": f"Node {node_id} already terminal ({node.status})."}
+
+    node.status = "cancelled"
+    node.result = reason or "Cancelled by parent"
+    _save_tree(task.project_dir, tree)
+
+    return {"status": "cancelled", "node_id": node_id}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -258,3 +348,5 @@ from onemancompany.core.tool_registry import tool_registry, ToolMeta
 tool_registry.register(dispatch_child, ToolMeta(name="dispatch_child", category="base"))
 tool_registry.register(accept_child, ToolMeta(name="accept_child", category="base"))
 tool_registry.register(reject_child, ToolMeta(name="reject_child", category="base"))
+tool_registry.register(unblock_child, ToolMeta(name="unblock_child", category="base"))
+tool_registry.register(cancel_child, ToolMeta(name="cancel_child", category="base"))

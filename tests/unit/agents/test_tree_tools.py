@@ -620,6 +620,213 @@ class TestDispatchChildDependency:
             _reset_context(tok_v, tok_t)
 
 
+# ---------------------------------------------------------------------------
+# unblock_child
+# ---------------------------------------------------------------------------
+
+class TestUnblockChild:
+    def test_unblock_resets_to_pending(self):
+        """BLOCKED node should transition to PENDING."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep.status = "failed"
+        child = tree.add_child(tree.root_id, "e2", "blocked task", [],
+                               depends_on=[dep.id], fail_strategy="block")
+        child.status = "blocked"
+        tree.task_id_map["task-ub1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub1")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "unblocked_waiting" or result["status"] == "unblocked_and_dispatched"
+            assert child.status == "pending"
+            # Failed dep should be removed from depends_on
+            assert dep.id not in child.depends_on
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_with_new_description(self):
+        """Unblock should update description if provided."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep.status = "failed"
+        child = tree.add_child(tree.root_id, "e2", "old desc", [],
+                               depends_on=[dep.id])
+        child.status = "blocked"
+        tree.task_id_map["task-ub2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub2")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({
+                    "node_id": child.id,
+                    "new_description": "updated desc",
+                })
+
+            assert child.description == "updated desc"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_pushes_if_all_deps_met(self):
+        """If remaining deps are terminal after unblock, push_task."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep1 = tree.add_child(tree.root_id, "e1", "dep1", [])
+        dep1.status = "failed"
+        dep2 = tree.add_child(tree.root_id, "e3", "dep2", [])
+        dep2.status = "accepted"
+        child = tree.add_child(tree.root_id, "e2", "task", [],
+                               depends_on=[dep1.id, dep2.id])
+        child.status = "blocked"
+        tree.task_id_map["task-ub3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub3")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "unblocked-task"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "unblocked_and_dispatched"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_non_blocked_node_errors(self):
+        """Unblocking a non-BLOCKED node should return error."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task", [])
+        child.status = "pending"
+        tree.task_id_map["task-ub4"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub4")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# cancel_child
+# ---------------------------------------------------------------------------
+
+class TestCancelChild:
+    def test_cancel_sets_cancelled(self):
+        """Cancel sets node status to cancelled."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        child.status = "pending"
+        tree.task_id_map["task-cc1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc1")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({
+                    "node_id": child.id,
+                    "reason": "no longer needed",
+                })
+
+            assert result["status"] == "cancelled"
+            assert child.status == "cancelled"
+            assert child.result == "no longer needed"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_cancel_terminal_node_errors(self):
+        """Cannot cancel a node that's already terminal."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        child.status = "accepted"  # Already terminal
+        tree.task_id_map["task-cc2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc2")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({
+                    "node_id": child.id,
+                    "reason": "test",
+                })
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_cancel_default_reason(self):
+        """Cancel without reason uses default."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        tree.task_id_map["task-cc3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc3")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "cancelled"
+            assert child.result == "Cancelled by parent"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
 class TestRejectChildNoRetry:
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
