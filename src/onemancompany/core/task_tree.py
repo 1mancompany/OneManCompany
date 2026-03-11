@@ -45,6 +45,9 @@ class TaskNode:
     branch: int = 0
     branch_active: bool = True
 
+    depends_on: list[str] = field(default_factory=list)
+    fail_strategy: str = "block"  # "block" | "continue"
+
     def __post_init__(self) -> None:
         if not self.id:
             self.id = uuid.uuid4().hex[:12]
@@ -80,6 +83,8 @@ class TaskNode:
             "timeout_seconds": self.timeout_seconds,
             "branch": self.branch,
             "branch_active": self.branch_active,
+            "depends_on": list(self.depends_on),
+            "fail_strategy": self.fail_strategy,
         }
 
     @classmethod

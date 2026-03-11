@@ -316,6 +316,8 @@ def _trigger_oauth_popup(config: OAuthServiceConfig) -> str:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        "access_type": "offline",
+        "prompt": "consent",
     }
     auth_url = f"{config.authorize_url}?{urlencode(auth_params)}"
 

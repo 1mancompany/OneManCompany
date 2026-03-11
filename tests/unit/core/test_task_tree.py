@@ -172,6 +172,37 @@ class TestTaskNodeBranch:
         assert node.branch_active is True
 
 
+class TestTaskNodeDependency:
+    def test_default_depends_on_empty(self):
+        node = TaskNode()
+        assert node.depends_on == []
+        assert node.fail_strategy == "block"
+
+    def test_depends_on_set(self):
+        node = TaskNode(depends_on=["abc", "def"], fail_strategy="continue")
+        assert node.depends_on == ["abc", "def"]
+        assert node.fail_strategy == "continue"
+
+    def test_to_dict_includes_depends_on(self):
+        node = TaskNode(depends_on=["abc"], fail_strategy="continue")
+        d = node.to_dict()
+        assert d["depends_on"] == ["abc"]
+        assert d["fail_strategy"] == "continue"
+
+    def test_from_dict_loads_depends_on(self):
+        d = {"id": "x", "depends_on": ["a", "b"], "fail_strategy": "continue"}
+        node = TaskNode.from_dict(d)
+        assert node.depends_on == ["a", "b"]
+        assert node.fail_strategy == "continue"
+
+    def test_from_dict_without_depends_on_defaults(self):
+        """Backward compat: old YAML without depends_on loads fine."""
+        d = {"id": "x", "status": "pending"}
+        node = TaskNode.from_dict(d)
+        assert node.depends_on == []
+        assert node.fail_strategy == "block"
+
+
 class TestTaskTreeBranching:
     def test_initial_branch(self):
         tree = TaskTree(project_id="proj1")
