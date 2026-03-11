@@ -505,6 +505,10 @@ async def lifespan(app: FastAPI):
     # Start code change watcher (CEO-controlled hot reload)
     code_watcher_task = asyncio.create_task(_start_code_watcher())
 
+    # Start sync tick (broadcasts dirty state categories every 3s)
+    from onemancompany.core.sync_tick import start_sync_tick
+    sync_tick_task = asyncio.create_task(start_sync_tick())
+
     # Restore persisted automations (crons + webhooks)
     from onemancompany.core.automation import restore_all_crons, restore_all_webhooks
     _crons_restored = restore_all_crons()
@@ -546,8 +550,9 @@ async def lifespan(app: FastAPI):
     broadcaster_task.cancel()
     heartbeat_task.cancel()
     code_watcher_task.cancel()
+    sync_tick_task.cancel()
     try:
-        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, code_watcher_task, return_exceptions=True)
+        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, code_watcher_task, sync_tick_task, return_exceptions=True)
     except asyncio.CancelledError:
         print("[shutdown] Background tasks cancelled")
 
