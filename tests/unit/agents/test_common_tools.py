@@ -1556,3 +1556,99 @@ class TestPullMeetingInitiatorNotInParticipants:
         })
 
         assert result["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# update_project_team
+# ---------------------------------------------------------------------------
+
+class TestUpdateProjectTeam:
+    def test_adds_team_members(self, tmp_path):
+        import yaml
+        from onemancompany.agents.common_tools import update_project_team
+        from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+        project_yaml = tmp_path / "project.yaml"
+        project_yaml.write_text(yaml.dump({"task": "Build app", "status": "in_progress"}))
+
+        task = MagicMock()
+        task.project_dir = str(tmp_path)
+        task.project_id = "test-proj"
+        board = MagicMock()
+        board.get_task.return_value = task
+        vessel = MagicMock()
+        vessel.board = board
+
+        tok_v = _current_vessel.set(vessel)
+        tok_t = _current_task_id.set("task-1")
+
+        try:
+            result = update_project_team.invoke({
+                "members": [
+                    {"employee_id": "00006", "role": "Game Engineer"},
+                    {"employee_id": "00007", "role": "PM"},
+                ],
+            })
+
+            assert result["status"] == "ok"
+            assert result["added"] == 2
+
+            data = yaml.safe_load(project_yaml.read_text())
+            assert len(data["team"]) == 2
+            assert data["team"][0]["employee_id"] == "00006"
+            assert data["team"][0]["role"] == "Game Engineer"
+            assert "joined_at" in data["team"][0]
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)
+
+    def test_appends_not_overwrites(self, tmp_path):
+        import yaml
+        from onemancompany.agents.common_tools import update_project_team
+        from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+        project_yaml = tmp_path / "project.yaml"
+        project_yaml.write_text(yaml.dump({
+            "task": "Build app",
+            "team": [{"employee_id": "00003", "role": "项目负责人", "joined_at": "2026-03-11T10:00:00"}],
+        }))
+
+        task = MagicMock()
+        task.project_dir = str(tmp_path)
+        task.project_id = "test-proj"
+        board = MagicMock()
+        board.get_task.return_value = task
+        vessel = MagicMock()
+        vessel.board = board
+
+        tok_v = _current_vessel.set(vessel)
+        tok_t = _current_task_id.set("task-2")
+
+        try:
+            result = update_project_team.invoke({
+                "members": [{"employee_id": "00006", "role": "Engineer"}],
+            })
+
+            data = yaml.safe_load(project_yaml.read_text())
+            assert len(data["team"]) == 2
+            assert data["team"][0]["employee_id"] == "00003"
+            assert data["team"][1]["employee_id"] == "00006"
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)
+
+    def test_no_context_returns_error(self):
+        from onemancompany.agents.common_tools import update_project_team
+        from onemancompany.core.vessel import _current_vessel, _current_task_id
+
+        tok_v = _current_vessel.set(None)
+        tok_t = _current_task_id.set("")
+
+        try:
+            result = update_project_team.invoke({
+                "members": [{"employee_id": "00006", "role": "Engineer"}],
+            })
+            assert result["status"] == "error"
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)
