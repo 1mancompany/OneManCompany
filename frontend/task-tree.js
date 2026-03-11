@@ -322,8 +322,11 @@ class TaskTreeRenderer {
 
     _renderDependencies(node) {
         let html = '';
+
+        // 前置任务
+        html += '<div class="detail-section"><h4>前置任务</h4>';
         if (node.depends_on && node.depends_on.length > 0) {
-            html += '<div class="detail-section"><h4>Dependencies</h4><ul>';
+            html += '<ul>';
             node.depends_on.forEach(depId => {
                 const depNode = this.treeData?.nodes?.find(n => n.id === depId);
                 if (depNode) {
@@ -332,20 +335,28 @@ class TaskTreeRenderer {
                     html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
                 }
             });
-            html += '</ul></div>';
+            html += '</ul>';
+        } else {
+            html += '<p style="color:#888;margin:4px 0">无</p>';
         }
+        html += '</div>';
 
+        // 后续任务
         const allNodes = this.treeData?.nodes || [];
         const dependents = allNodes.filter(n => (n.depends_on || []).includes(node.id));
+        html += '<div class="detail-section"><h4>后续任务</h4>';
         if (dependents.length > 0) {
-            html += '<div class="detail-section"><h4>Dependents</h4><ul>';
+            html += '<ul>';
             dependents.forEach(dep => {
                 const statusColor = TaskTreeRenderer.STATUS_COLORS[dep.status] || '#666';
                 const desc = dep.description ? this._escapeHtml(dep.description.slice(0, 60)) + '...' : '';
                 html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
             });
-            html += '</ul></div>';
+            html += '</ul>';
+        } else {
+            html += '<p style="color:#888;margin:4px 0">无</p>';
         }
+        html += '</div>';
 
         return html;
     }
