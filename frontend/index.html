@@ -390,7 +390,11 @@
       </div>
       <div class="modal-body candidate-modal-body">
         <div id="candidate-jd" class="candidate-jd"></div>
-        <div id="candidate-cards" class="candidate-cards"></div>
+        <div id="candidate-roles" class="candidate-roles"></div>
+      </div>
+      <div id="candidate-batch-bar" class="candidate-batch-bar hidden">
+        <span id="candidate-batch-count" class="batch-count">0 selected</span>
+        <button id="candidate-batch-hire-btn" class="pixel-btn batch-hire-btn" disabled>RECRUIT PARTY (0)</button>
       </div>
     </div>
   </div>
@@ -424,6 +428,21 @@
       <div class="interview-actions">
         <button id="interview-hire-btn" class="pixel-btn">&#9989; Hire</button>
         <button id="interview-back-btn" class="pixel-btn secondary">&#8592; Back to Candidates</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Onboarding Progress Modal -->
+  <div id="onboarding-progress-modal" class="modal-overlay hidden">
+    <div class="modal-content onboarding-progress-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128640; Onboarding Sequence</h3>
+      </div>
+      <div class="modal-body" style="padding:8px;overflow-y:auto;">
+        <div id="onboarding-progress-list" class="onboarding-list"></div>
+      </div>
+      <div id="onboarding-progress-actions" class="onboarding-actions hidden">
+        <button id="onboarding-done-btn" class="pixel-btn">CLOSE</button>
       </div>
     </div>
   </div>

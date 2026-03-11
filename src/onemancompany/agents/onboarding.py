@@ -688,6 +688,7 @@ async def execute_hire(
     sprite: str = "employee_default",
     remote: bool = False,
     department: str = "",
+    progress_callback=None,  # async callable(step, message)
 ) -> Employee:
     """Execute the full hire flow in code — no LLM involved.
 
@@ -720,6 +721,9 @@ async def execute_hire(
         desk_pos = get_next_desk_for_department(company_state, department)
 
     emp_num = company_state.next_employee_number()
+
+    if progress_callback:
+        await progress_callback("assigning_id", f"Assigned #{emp_num}")
 
     # Default permissions
     default_perms = ["company_file_access", "web_search"]
@@ -780,6 +784,9 @@ async def execute_hire(
         auth_method=auth_method,
     )
     save_employee_profile(emp_num, config)
+
+    if progress_callback:
+        await progress_callback("copying_skills", "Copying skill packages...")
 
     emp_dir = ensure_employee_dir(emp_num)
     skills_dir = emp_dir / "skills"
@@ -875,10 +882,16 @@ async def execute_hire(
     compute_layout(company_state)
     persist_all_desk_positions(company_state)
 
+    if progress_callback:
+        await progress_callback("registering_agent", "Registering agent...")
+
     company_state.activity_log.append(
         {"type": "employee_hired", "name": name, "nickname": nickname, "role": role}
     )
     await event_bus.publish(CompanyEvent(type="employee_hired", payload=emp.to_dict(), agent="HR"))
+
+    if progress_callback:
+        await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")
 
     # Register in EmployeeManager (skip remote — they use remote task queue)
     if not remote:

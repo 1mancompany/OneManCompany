@@ -146,3 +146,96 @@ class TestTaskTree:
         path = tmp_path / "deep" / "nested" / "task_tree.yaml"
         tree.save(path)
         assert path.exists()
+
+
+class TestTaskNodeBranch:
+    def test_default_branch_values(self):
+        node = TaskNode(employee_id="00001", description="test")
+        assert node.branch == 0
+        assert node.branch_active is True
+
+    def test_branch_in_to_dict(self):
+        node = TaskNode(employee_id="00001", description="test", branch=2, branch_active=False)
+        d = node.to_dict()
+        assert d["branch"] == 2
+        assert d["branch_active"] is False
+
+    def test_branch_in_from_dict(self):
+        node = TaskNode.from_dict({"branch": 3, "branch_active": False})
+        assert node.branch == 3
+        assert node.branch_active is False
+
+    def test_from_dict_missing_branch_defaults(self):
+        """Backward compat: old YAML without branch fields."""
+        node = TaskNode.from_dict({"employee_id": "00001"})
+        assert node.branch == 0
+        assert node.branch_active is True
+
+
+class TestTaskTreeBranching:
+    def test_initial_branch(self):
+        tree = TaskTree(project_id="proj1")
+        assert tree.current_branch == 0
+
+    def test_new_branch_increments(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        new_b = tree.new_branch()
+        assert new_b == 1
+        assert tree.current_branch == 1
+
+    def test_new_branch_deactivates_old_nodes(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        assert c1.branch_active is False
+        assert root.branch_active is True
+
+    def test_all_children_terminal_filters_active_branch(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        assert tree.all_children_terminal(root.id) is False
+        c2.status = "accepted"
+        assert tree.all_children_terminal(root.id) is True
+
+    def test_get_active_children(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        active = tree.get_active_children(root.id)
+        assert len(active) == 1
+        assert active[0].id == c2.id
+
+    def test_branch_persists_in_save_load(self, tmp_path):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        loaded = TaskTree.load(path)
+        assert loaded.current_branch == 1
+        loaded_c1 = loaded.get_node(c1.id)
+        assert loaded_c1.branch_active is False
+        loaded_c2 = loaded.get_node(c2.id)
+        assert loaded_c2.branch_active is True
+        assert loaded_c2.branch == 1

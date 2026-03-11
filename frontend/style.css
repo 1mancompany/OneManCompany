@@ -1564,8 +1564,8 @@ body {
 
 /* ===== Candidate Selection Modal (Boss Online) ===== */
 .candidate-modal-content {
-  max-width: 720px;
-  max-height: 80vh;
+  max-width: 780px;
+  max-height: 85vh;
   border-color: var(--pixel-yellow);
   box-shadow: 0 0 40px rgba(255, 215, 0, 0.15);
 }
@@ -1575,8 +1575,9 @@ body {
   gap: 8px;
   flex-direction: row;
   align-items: flex-start;
-  max-height: 65vh;
+  max-height: calc(85vh - 80px);
   overflow: hidden;
+  flex: 1;
 }
 
 .candidate-jd {
@@ -1589,28 +1590,108 @@ body {
   min-width: 100px;
   flex-shrink: 0;
   line-height: 1.8;
-  max-height: 65vh;
+  max-height: calc(85vh - 80px);
   overflow-y: auto;
 }
 
-.candidate-cards {
+/* Role groups container */
+.candidate-roles {
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(85vh - 80px);
+  padding-right: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.role-group {
+  border: 1px solid var(--border);
+  background: rgba(22, 22, 42, 0.6);
+}
+
+.role-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: linear-gradient(90deg, rgba(0, 221, 255, 0.08), transparent);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.role-group-icon {
+  font-size: 12px;
+}
+
+.role-group-title {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+  letter-spacing: 1px;
+}
+
+.role-group-count {
+  font-size: 5px;
+  color: var(--pixel-gray);
+  background: var(--bg-dark);
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+}
+
+.role-group-desc {
+  font-size: 5px;
+  color: var(--text-dim);
+  width: 100%;
+  margin-top: 2px;
+  line-height: 1.6;
+}
+
+.role-group-cards {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: center;
-  align-content: flex-start;
-  flex: 1;
-  max-height: 65vh;
-  overflow-y: auto;
-  padding-right: 4px;
+  padding: 8px;
+  justify-content: flex-start;
 }
 
 /* Flip card container */
 .candidate-card {
-  width: 100px;
-  height: 155px;
+  width: 105px;
+  height: 160px;
   perspective: 600px;
   cursor: pointer;
+  position: relative;
+}
+
+.candidate-card.selected {
+  outline: 2px solid var(--pixel-green);
+  outline-offset: 1px;
+}
+
+.candidate-card.selected .card-select-indicator {
+  opacity: 1;
+}
+
+.card-select-indicator {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--pixel-green);
+  background: var(--pixel-green);
+  opacity: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 6px;
+  color: #000;
+  transition: opacity 0.15s;
+}
+
+.candidate-card.selected .card-select-indicator::after {
+  content: '✓';
 }
 
 .card-inner {
@@ -1635,7 +1716,7 @@ body {
   overflow: hidden;
 }
 
-/* Front of card — character portrait */
+/* Front of card */
 .card-front {
   background: linear-gradient(135deg, #1a1a3e, #0a0a28);
   display: flex;
@@ -1643,19 +1724,20 @@ body {
   align-items: center;
   justify-content: center;
   padding: 6px 5px;
+  position: relative;
 }
 
 .card-front .card-avatar {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 2px solid var(--pixel-cyan);
   background: var(--bg-dark);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  margin-bottom: 4px;
+  font-size: 16px;
+  margin-bottom: 3px;
 }
 
 .card-front .card-name {
@@ -1678,10 +1760,39 @@ body {
   line-height: 1.5;
 }
 
-.card-front .card-relevance {
-  font-size: 5px;
-  color: var(--pixel-green);
-  margin-top: 3px;
+/* Score bar */
+.card-score-bar {
+  width: 80%;
+  height: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  position: relative;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.score-label {
+  position: absolute;
+  top: -1px;
+  right: 2px;
+  font-size: 4px;
+  color: var(--pixel-white);
+  text-shadow: 0 0 2px #000;
+}
+
+.card-reasoning {
+  font-size: 4px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 2px;
+  line-height: 1.4;
+  max-height: 16px;
+  overflow: hidden;
 }
 
 .card-front .card-cost {
@@ -1698,10 +1809,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 85px;
+  max-width: 90px;
 }
 
-/* Back of card — details */
+.card-hosting {
+  font-size: 4.5px;
+  color: var(--pixel-gray);
+  margin-top: 1px;
+}
+
+/* Back of card */
 .card-back {
   background: #0c0c22;
   transform: rotateY(180deg);
@@ -1736,14 +1853,179 @@ body {
   flex: 1;
 }
 
-.card-actions .pixel-btn.hire {
-  background: var(--pixel-green);
-  color: #000;
-}
-
 .card-actions .pixel-btn.interview {
   background: var(--pixel-cyan);
   color: #000;
+}
+
+/* Batch hire bar */
+.candidate-batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 2px solid var(--border);
+  background: var(--bg-dark);
+}
+
+.candidate-batch-bar.hidden {
+  display: none;
+}
+
+.batch-count {
+  font-size: 6px;
+  color: var(--pixel-gray);
+}
+
+.batch-hire-btn {
+  font-size: 7px !important;
+  padding: 5px 14px !important;
+  background: var(--pixel-green) !important;
+  color: #000 !important;
+  letter-spacing: 1px;
+}
+
+.batch-hire-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.batch-hire-btn:not(:disabled):hover {
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.4);
+}
+
+/* ===== Onboarding Progress Modal ===== */
+.onboarding-progress-content {
+  max-width: 480px;
+  max-height: 70vh;
+  border-color: var(--pixel-cyan);
+  box-shadow: 0 0 30px rgba(0, 221, 255, 0.15);
+}
+
+.onboarding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.onboarding-item {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  background: var(--bg-dark);
+  transition: border-color 0.3s;
+}
+
+.onboarding-item.completed {
+  border-color: var(--pixel-green);
+}
+
+.onboarding-item.failed {
+  border-color: var(--pixel-red);
+}
+
+.onboarding-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+}
+
+.onboarding-item-name {
+  font-size: 7px;
+  color: var(--pixel-white);
+}
+
+.onboarding-item-role {
+  font-size: 5px;
+  color: var(--pixel-cyan);
+}
+
+.onboarding-steps {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.onboarding-step {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  font-size: 4.5px;
+  flex: 1;
+}
+
+.step-dot {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.onboarding-step.waiting .step-dot {
+  background: transparent;
+  border-color: var(--pixel-gray);
+}
+
+.onboarding-step.active .step-dot {
+  background: var(--pixel-cyan);
+  border-color: var(--pixel-cyan);
+  box-shadow: 0 0 4px var(--pixel-cyan);
+  animation: pulse-dot 1s infinite;
+}
+
+.onboarding-step.done .step-dot {
+  background: var(--pixel-green);
+  border-color: var(--pixel-green);
+}
+
+.onboarding-step.failed .step-dot {
+  background: var(--pixel-red);
+  border-color: var(--pixel-red);
+}
+
+.step-label {
+  color: var(--pixel-gray);
+}
+
+.onboarding-step.active .step-label {
+  color: var(--pixel-cyan);
+}
+
+.onboarding-step.done .step-label {
+  color: var(--pixel-green);
+}
+
+.onboarding-step.failed .step-label {
+  color: var(--pixel-red);
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.onboarding-item-message {
+  font-size: 5px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  min-height: 8px;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.onboarding-actions.hidden {
+  display: none;
+}
+
+.onboarding-actions .pixel-btn {
+  font-size: 7px;
+  padding: 4px 14px;
 }
 
 /* ===== Interview Chatbot Modal ===== */

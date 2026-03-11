@@ -189,7 +189,12 @@ class AppController {
       'workflow_updated':    (p) => ({ text: `📋 Workflow updated: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
       'candidates_ready':   (p) => {
         this.showCandidateSelection(p);
-        return { text: `📋 HR screening done: ${(p.candidates || []).length} candidates for CEO selection`, cls: 'hr', agent: 'HR' };
+        const totalCandidates = (p.roles || []).reduce((sum, r) => sum + (r.candidates || []).length, 0) || (p.candidates || []).length;
+        return { text: `📋 HR screening done: ${totalCandidates} candidates in ${(p.roles || []).length || 1} role(s)`, cls: 'hr', agent: 'HR' };
+      },
+      'onboarding_progress': (p) => {
+        this._handleOnboardingProgress(p);
+        return null; // no log entry, modal handles it
       },
       'file_edit_proposed':  (p) => {
         return { text: `📝 File edit request: ${p.rel_path} — ${p.reason}`, cls: 'ceo', agent: p.proposed_by || 'AGENT' };
@@ -871,6 +876,10 @@ class AppController {
     document.getElementById('candidate-close-btn').addEventListener('click', () => this.closeCandidateModal());
     document.getElementById('candidate-modal').addEventListener('click', (e) => {
       if (e.target.id === 'candidate-modal') this.closeCandidateModal();
+    });
+    document.getElementById('candidate-batch-hire-btn').addEventListener('click', () => this.batchHireCandidates());
+    document.getElementById('onboarding-done-btn').addEventListener('click', () => {
+      document.getElementById('onboarding-progress-modal').classList.add('hidden');
     });
 
     // Interview chatbot modal bindings
@@ -2328,89 +2337,365 @@ class AppController {
   showCandidateSelection(payload) {
     this._candidateBatchId = payload.batch_id;
     this._candidateList = payload.candidates || [];
+    this._candidateRoles = payload.roles || [];
+    this._selectedCandidates = new Map(); // candidateId -> {candidate, role}
     this._interviewingCandidate = null;
+
+    // If no roles structure, wrap flat candidates into a single role group
+    if (!this._candidateRoles.length && this._candidateList.length) {
+      this._candidateRoles = [{ role: 'Candidates', description: '', candidates: this._candidateList }];
+    }
+
+    // Build flat lookup of all candidates
+    this._allCandidatesMap = new Map();
+    for (const role of this._candidateRoles) {
+      for (const c of (role.candidates || [])) {
+        const cid = c.talent_id || c.id;
+        if (cid) this._allCandidatesMap.set(cid, c);
+      }
+    }
 
     const modal = document.getElementById('candidate-modal');
     const jdEl = document.getElementById('candidate-jd');
-    const cardsEl = document.getElementById('candidate-cards');
+    const rolesEl = document.getElementById('candidate-roles');
 
+    // JD sidebar
     jdEl.innerHTML = '<div style="font-size:7px;color:var(--pixel-yellow);margin-bottom:4px;">JD — Job Description</div>' +
       (payload.jd || '').replace(/\n/g, '<br>');
-    cardsEl.innerHTML = '';
+
+    // Render role groups
+    rolesEl.innerHTML = '';
 
     const ROLE_EMOJI = {
       Engineer: '💻', Designer: '🎨', Analyst: '📊',
       DevOps: '🔧', QA: '🧪', Marketing: '📢',
+      'Game Engineer': '🎮', 'Game Designer': '🎯',
+      'Project Manager': '📋', Manager: '📋',
     };
 
-    for (const c of this._candidateList) {
-      const card = document.createElement('div');
-      card.className = 'candidate-card';
-      const emoji = ROLE_EMOJI[c.role] || '🤖';
-      const tags = (c.personality_tags || []).join(' / ');
-      const skills = (c.skill_set || []).map(s => typeof s === 'object' ? s.name : s).join(', ');
-      const tools = (c.tool_set || []).map(t => typeof t === 'object' ? t.name : t).join(', ');
-      const prompt = (c.system_prompt || '').substring(0, 80);
-      const relevance = c.jd_relevance ? `${(c.jd_relevance * 100).toFixed(0)}%` : '-';
+    for (const roleGroup of this._candidateRoles) {
+      const section = document.createElement('div');
+      section.className = 'role-group';
 
-      const llmModel = c.llm_model || 'default';
-      const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : 'N/A';
-      const hiringFee = c.hiring_fee ? `$${c.hiring_fee.toFixed(2)}` : 'Free';
-      const hosting = c.hosting || 'company';
-      const hostingLabel = hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company';
-      const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
-      card.innerHTML = `
-        <div class="card-inner">
-          <div class="card-front">
-            <div class="card-avatar">${emoji}</div>
-            <div class="card-name">${c.name}</div>
-            <div class="card-role">${c.role} (${c.experience_years || '?'}yr)</div>
-            <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
-            <div class="card-tags">${tags}</div>
-            <div class="card-relevance">Match: ${relevance}</div>
-            <div class="card-cost">Cost: ${costPer1m} | Fee: ${hiringFee}</div>
-            <div class="card-hosting">${hostingLabel}${c.remote ? ' | Remote' : ''}</div>
-          </div>
-          <div class="card-back">
-            <div class="card-detail-title">Skills</div>
-            <div class="card-detail-text">${skills}</div>
-            <div class="card-detail-title">Tools</div>
-            <div class="card-detail-text">${tools}</div>
-            <div class="card-detail-title">LLM</div>
-            <div class="card-detail-text">${c.llm_model || 'default'} (${c.api_provider || 'openrouter'})</div>
-            <div class="card-detail-title">Cost</div>
-            <div class="card-detail-text">${costPer1m} | Hiring: ${hiringFee}</div>
-            <div class="card-detail-title">Hosting</div>
-            <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
-            <div class="card-actions">
-              <button class="pixel-btn hire" data-id="${c.id}">Hire</button>
-              <button class="pixel-btn interview" data-id="${c.id}">Interview</button>
-            </div>
-          </div>
+      const roleEmoji = ROLE_EMOJI[roleGroup.role] || '🤖';
+      const candidateCount = (roleGroup.candidates || []).length;
+
+      section.innerHTML = `
+        <div class="role-group-header">
+          <span class="role-group-icon">${roleEmoji}</span>
+          <span class="role-group-title">${roleGroup.role}</span>
+          <span class="role-group-count">${candidateCount}</span>
+          ${roleGroup.description ? `<span class="role-group-desc">${roleGroup.description}</span>` : ''}
         </div>
+        <div class="role-group-cards"></div>
       `;
 
-      // Click card to flip
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.pixel-btn')) return; // don't flip on button click
-        card.classList.toggle('flipped');
+      const cardsContainer = section.querySelector('.role-group-cards');
+
+      for (const c of (roleGroup.candidates || [])) {
+        const cid = c.talent_id || c.id;
+        const card = document.createElement('div');
+        card.className = 'candidate-card';
+        card.dataset.candidateId = cid;
+        card.dataset.role = roleGroup.role;
+
+        const emoji = ROLE_EMOJI[c.role] || '🤖';
+        const tags = (c.personality_tags || []).join(' / ');
+        const skills = (c.skill_set || c.skills || []).map(s => typeof s === 'object' ? s.name : s).join(', ');
+        const tools = (c.tool_set || []).map(t => typeof t === 'object' ? t.name : t).join(', ');
+
+        // Score display — handle both old (jd_relevance) and new (score) formats
+        const score = c.score || c.jd_relevance || 0;
+        const scorePct = Math.round(score * 100);
+        const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
+        const reasoning = c.reasoning || '';
+
+        const llmModel = c.llm_model || 'default';
+        const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
+        const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+        const hosting = c.hosting || 'company';
+        const hostingLabel = hosting === 'self' ? '🏠 Self' : '🏢 Co.';
+        const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+
+        card.innerHTML = `
+          <div class="card-inner">
+            <div class="card-front">
+              <div class="card-select-indicator"></div>
+              <div class="card-avatar">${emoji}</div>
+              <div class="card-name">${c.name}</div>
+              <div class="card-role">${c.role}</div>
+              <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
+              <div class="card-tags">${tags}</div>
+              <div class="card-score-bar">
+                <div class="score-fill" style="width:${scorePct}%;background:${scoreColor};"></div>
+                <span class="score-label">${scorePct}%</span>
+              </div>
+              ${reasoning ? `<div class="card-reasoning" title="${reasoning.replace(/"/g, '&quot;')}">${reasoning.substring(0, 40)}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
+              <div class="card-cost">${costPer1m} | ${hiringFee}</div>
+              <div class="card-hosting">${hostingLabel}</div>
+            </div>
+            <div class="card-back">
+              <div class="card-detail-title">Skills</div>
+              <div class="card-detail-text">${skills || 'N/A'}</div>
+              <div class="card-detail-title">Tools</div>
+              <div class="card-detail-text">${tools || 'N/A'}</div>
+              <div class="card-detail-title">LLM</div>
+              <div class="card-detail-text">${llmModel} (${c.api_provider || 'openrouter'})</div>
+              <div class="card-detail-title">Cost</div>
+              <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
+              <div class="card-detail-title">Hosting</div>
+              <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
+              <div class="card-actions">
+                <button class="pixel-btn interview" data-id="${cid}">Interview</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Click card to toggle selection (front) or flip (if holding shift)
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.pixel-btn')) return;
+          if (e.shiftKey) {
+            card.classList.toggle('flipped');
+            return;
+          }
+          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+        });
+
+        // Interview button
+        const interviewBtn = card.querySelector('.pixel-btn.interview');
+        if (interviewBtn) {
+          interviewBtn.addEventListener('click', () => this.startInterview(c));
+        }
+
+        cardsContainer.appendChild(card);
+      }
+
+      rolesEl.appendChild(section);
+    }
+
+    // Show batch bar
+    this._updateBatchBar();
+    modal.classList.remove('hidden');
+  }
+
+  _toggleCandidateSelection(candidateId, candidate, role, cardEl) {
+    if (this._selectedCandidates.has(candidateId)) {
+      this._selectedCandidates.delete(candidateId);
+      cardEl.classList.remove('selected');
+    } else {
+      this._selectedCandidates.set(candidateId, { candidate, role });
+      cardEl.classList.add('selected');
+    }
+    this._updateBatchBar();
+  }
+
+  _updateBatchBar() {
+    const count = this._selectedCandidates.size;
+    const bar = document.getElementById('candidate-batch-bar');
+    const countEl = document.getElementById('candidate-batch-count');
+    const btn = document.getElementById('candidate-batch-hire-btn');
+
+    if (count > 0) {
+      bar.classList.remove('hidden');
+      countEl.textContent = `${count} selected`;
+      btn.textContent = `RECRUIT PARTY (${count})`;
+      btn.disabled = false;
+    } else {
+      bar.classList.remove('hidden'); // always show bar for context
+      countEl.textContent = '0 selected — click cards to select';
+      btn.textContent = 'RECRUIT PARTY (0)';
+      btn.disabled = true;
+    }
+  }
+
+  batchHireCandidates() {
+    const selections = [];
+    for (const [candidateId, { candidate, role }] of this._selectedCandidates) {
+      selections.push({ candidate_id: candidateId, role });
+    }
+
+    if (!selections.length) return;
+
+    // Disable button
+    const btn = document.getElementById('candidate-batch-hire-btn');
+    btn.disabled = true;
+    btn.textContent = 'RECRUITING...';
+
+    this.logEntry('CEO', `Batch hiring ${selections.length} candidate(s)...`, 'ceo');
+
+    // Show onboarding progress modal
+    this._showOnboardingProgress(selections);
+
+    // Close candidate modal
+    this.closeCandidateModal();
+
+    fetch('/api/candidates/batch-hire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_id: this._candidateBatchId,
+        selections,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Batch hire failed: ${data.error}`, 'system');
+        } else {
+          const hired = data.results ? data.results.filter(r => r.status === 'hired') : [];
+          this.logEntry('CEO', `🎉 Batch hire complete: ${hired.length} hired`, 'ceo');
+          if (data.state) {
+            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
+          }
+        }
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Batch hire error: ${err.message}`, 'system');
       });
+  }
 
-      // Hire button
-      card.querySelector('.pixel-btn.hire').addEventListener('click', () => this.hireCandidate(c));
+  _showOnboardingProgress(selections) {
+    const modal = document.getElementById('onboarding-progress-modal');
+    const list = document.getElementById('onboarding-progress-list');
+    const actionsEl = document.getElementById('onboarding-progress-actions');
 
-      // Interview button — opens separate chatbot modal
-      card.querySelector('.pixel-btn.interview').addEventListener('click', () => this.startInterview(c));
+    list.innerHTML = '';
+    actionsEl.classList.add('hidden');
+    this._onboardingItems = new Map();
 
-      cardsEl.appendChild(card);
+    for (const sel of selections) {
+      const candidate = this._allCandidatesMap ? this._allCandidatesMap.get(sel.candidate_id) : null;
+      const name = candidate ? candidate.name : sel.candidate_id;
+      const role = sel.role;
+
+      const item = document.createElement('div');
+      item.className = 'onboarding-item';
+      item.innerHTML = `
+        <div class="onboarding-item-header">
+          <span class="onboarding-item-name">${name}</span>
+          <span class="onboarding-item-role">${role}</span>
+        </div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step waiting" data-step="assigning_id">
+            <span class="step-dot"></span>
+            <span class="step-label">Assign ID</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="copying_skills">
+            <span class="step-dot"></span>
+            <span class="step-label">Copy Skills</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="registering_agent">
+            <span class="step-dot"></span>
+            <span class="step-label">Register Agent</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="completed">
+            <span class="step-dot"></span>
+            <span class="step-label">Ready</span>
+          </div>
+        </div>
+        <div class="onboarding-item-message"></div>
+      `;
+
+      list.appendChild(item);
+      this._onboardingItems.set(sel.candidate_id, item);
     }
 
     modal.classList.remove('hidden');
   }
 
+  _handleOnboardingProgress(payload) {
+    const { candidate_id, step, message, name } = payload;
+
+    // Ensure modal is visible
+    const modal = document.getElementById('onboarding-progress-modal');
+    if (modal.classList.contains('hidden')) {
+      modal.classList.remove('hidden');
+    }
+
+    let item = this._onboardingItems ? this._onboardingItems.get(candidate_id) : null;
+
+    // Create item dynamically if not found (e.g., single hire or modal wasn't pre-populated)
+    if (!item) {
+      if (!this._onboardingItems) this._onboardingItems = new Map();
+      const list = document.getElementById('onboarding-progress-list');
+      item = document.createElement('div');
+      item.className = 'onboarding-item';
+      item.innerHTML = `
+        <div class="onboarding-item-header">
+          <span class="onboarding-item-name">${name || candidate_id}</span>
+          <span class="onboarding-item-role"></span>
+        </div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step waiting" data-step="assigning_id">
+            <span class="step-dot"></span>
+            <span class="step-label">Assign ID</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="copying_skills">
+            <span class="step-dot"></span>
+            <span class="step-label">Copy Skills</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="registering_agent">
+            <span class="step-dot"></span>
+            <span class="step-label">Register Agent</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="completed">
+            <span class="step-dot"></span>
+            <span class="step-label">Ready</span>
+          </div>
+        </div>
+        <div class="onboarding-item-message"></div>
+      `;
+      list.appendChild(item);
+      this._onboardingItems.set(candidate_id, item);
+    }
+
+    // Update steps
+    const steps = ['assigning_id', 'copying_skills', 'registering_agent', 'completed'];
+    const stepIndex = steps.indexOf(step);
+
+    const stepEls = item.querySelectorAll('.onboarding-step');
+    stepEls.forEach((el, i) => {
+      el.classList.remove('waiting', 'active', 'done', 'failed');
+      if (step === 'failed') {
+        if (i <= Math.max(stepIndex, 0)) el.classList.add('failed');
+        else el.classList.add('waiting');
+      } else if (i < stepIndex) {
+        el.classList.add('done');
+      } else if (i === stepIndex) {
+        el.classList.add(step === 'completed' ? 'done' : 'active');
+      } else {
+        el.classList.add('waiting');
+      }
+    });
+
+    // Update message
+    const msgEl = item.querySelector('.onboarding-item-message');
+    if (msgEl) msgEl.textContent = message || '';
+
+    // Mark item status
+    if (step === 'completed') {
+      item.classList.add('completed');
+    } else if (step === 'failed') {
+      item.classList.add('failed');
+    }
+
+    // Check if all items are done
+    if (this._onboardingItems) {
+      const allDone = Array.from(this._onboardingItems.values()).every(
+        el => el.classList.contains('completed') || el.classList.contains('failed')
+      );
+      if (allDone) {
+        const actionsEl = document.getElementById('onboarding-progress-actions');
+        actionsEl.classList.remove('hidden');
+      }
+    }
+  }
+
   closeCandidateModal() {
     document.getElementById('candidate-modal').classList.add('hidden');
     this._interviewingCandidate = null;
+    this._selectedCandidates = new Map();
   }
 
   hireCandidate(candidate) {
