@@ -486,6 +486,9 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
 
+    # Recover PENDING dependency tasks whose deps resolved before restart
+    await _em._recover_pending_dependencies()
+
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())
 

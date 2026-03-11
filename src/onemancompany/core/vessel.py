@@ -771,6 +771,50 @@ class EmployeeManager:
             logger.info("Restarted {} holding watchdog(s)", count)
         return count
 
+    async def _recover_pending_dependencies(self) -> None:
+        """On startup, re-check PENDING tasks with depends_on — push if deps are met."""
+        from onemancompany.core.config import PROJECTS_DIR
+        from onemancompany.core.task_tree import TaskTree
+
+        if not PROJECTS_DIR.exists():
+            return
+        recovered = 0
+        for pdir in PROJECTS_DIR.iterdir():
+            tree_path = pdir / "task_tree.yaml"
+            if not tree_path.exists():
+                continue
+            tree = TaskTree.load(tree_path)
+            dirty = False
+            for node in list(tree._nodes.values()):
+                if node.status != "pending" or not node.depends_on:
+                    continue
+                # Skip if already mapped to an AgentTask
+                if node.id in tree.task_id_map.values():
+                    continue
+                if not tree.all_deps_terminal(node.id):
+                    continue
+                if tree.has_failed_deps(node.id) and node.fail_strategy == "block":
+                    node.status = "blocked"
+                    dirty = True
+                    continue
+                context = _build_dependency_context(tree, node)
+                full_desc = context + node.description
+                board = self.boards.setdefault(node.employee_id, AgentTaskBoard())
+                agent_task = board.push(
+                    description=full_desc,
+                    project_id=node.project_id,
+                    project_dir=str(pdir),
+                )
+                tree.task_id_map[agent_task.id] = node.id
+                dirty = True
+                persist_task(node.employee_id, agent_task)
+                logger.info("Startup recovery: unlocked dep-waiting task {} for {}", node.id, node.employee_id)
+                recovered += 1
+            if dirty:
+                tree.save(tree_path)
+        if recovered:
+            logger.info("Startup recovery: {} dependency task(s) unlocked", recovered)
+
     def abort_project(self, project_id: str) -> list:
         """Cancel board tasks AND cancel the running asyncio.Task for a project.
 
