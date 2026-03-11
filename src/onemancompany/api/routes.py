@@ -3009,6 +3009,16 @@ async def get_project_tree(project_id: str) -> dict:
     nodes = []
     for n in tree._nodes.values():
         d = n.to_dict()
+        # Compute dependency_status
+        if n.depends_on:
+            if n.status == "blocked":
+                d["dependency_status"] = "blocked"
+            elif tree.all_deps_terminal(n.id):
+                d["dependency_status"] = "resolved"
+            else:
+                d["dependency_status"] = "waiting"
+        else:
+            d["dependency_status"] = "resolved"
         d["employee_info"] = employee_info.get(n.employee_id, {})
         nodes.append(d)
 
