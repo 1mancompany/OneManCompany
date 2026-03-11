@@ -42,17 +42,30 @@ def _get_current_node_id(tree: TaskTree, task_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 @tool
-def dispatch_child(employee_id: str, description: str, acceptance_criteria: list[str], timeout_seconds: int = 3600) -> dict:
+def dispatch_child(
+    employee_id: str,
+    description: str,
+    acceptance_criteria: list[str],
+    timeout_seconds: int = 3600,
+    depends_on: list[str] = [],
+    fail_strategy: str = "block",
+) -> dict:
     """Dispatch a child task to an employee with acceptance criteria.
 
     Creates a child node in the task tree and pushes a task to the target employee.
     The child must complete and be accepted before this task can finish.
+
+    If depends_on is provided, the child will only be pushed when all dependency
+    nodes reach a terminal status (accepted/failed/cancelled). Until then the child
+    is created in the tree but not pushed to the employee's board.
 
     Args:
         employee_id: Target employee ID
         description: What the employee should do
         acceptance_criteria: List of measurable criteria the result must meet
         timeout_seconds: Max seconds allowed for the child task (default 3600)
+        depends_on: List of TaskNode IDs that must complete before this child starts
+        fail_strategy: "block" (default) or "continue" — what to do if a dependency fails
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
 
@@ -94,6 +107,14 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
                 ),
             }
 
+    # Validate depends_on IDs exist in tree
+    for dep_id in depends_on:
+        if not tree.get_node(dep_id):
+            return {
+                "status": "error",
+                "message": f"Dependency node {dep_id} not found in task tree.",
+            }
+
     # Add child node
     child = tree.add_child(
         parent_id=current_node_id,
@@ -101,7 +122,23 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
         description=description,
         acceptance_criteria=acceptance_criteria,
         timeout_seconds=timeout_seconds,
+        depends_on=depends_on,
+        fail_strategy=fail_strategy,
     )
+
+    # Check if dependencies are already satisfied
+    deps_resolved = tree.all_deps_terminal(child.id)
+
+    if not deps_resolved:
+        # Dependencies unmet — save tree but skip pushing the task
+        _save_tree(project_dir, tree)
+        return {
+            "status": "dispatched_waiting",
+            "node_id": child.id,
+            "employee_id": employee_id,
+            "description": description,
+            "dependency_status": "waiting",
+        }
 
     # Push task to target employee
     from onemancompany.core.vessel import employee_manager
@@ -118,6 +155,7 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
         "node_id": child.id,
         "employee_id": employee_id,
         "description": description,
+        "dependency_status": "resolved",
     }
 
 

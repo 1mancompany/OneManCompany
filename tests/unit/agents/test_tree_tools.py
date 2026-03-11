@@ -466,6 +466,160 @@ class TestEADispatchConstraint:
 # reject_child (continued)
 # ---------------------------------------------------------------------------
 
+class TestDispatchChildDependency:
+    def test_dispatch_with_unmet_dep_skips_push(self):
+        """Task with unmet dependency should not be pushed to board."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        # Create a dependency node that's still pending
+        dep_node = tree.add_child(tree.root_id, "e1", "dep task", [])
+        tree.task_id_map["task-dep1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep1")
+
+        mock_handle = MagicMock()
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": [dep_node.id],
+                })
+
+            assert result["status"] == "dispatched_waiting"
+            assert result["dependency_status"] == "waiting"
+            # push_task should NOT have been called
+            mock_handle.push_task.assert_not_called()
+            # But child node should exist in tree
+            child = tree.get_node(result["node_id"])
+            assert child is not None
+            assert child.depends_on == [dep_node.id]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_with_met_dep_pushes(self):
+        """Task with all deps terminal should be pushed immediately."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        dep_node = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep_node.status = "accepted"  # Terminal
+        tree.task_id_map["task-dep2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep2")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "child-task-met"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": [dep_node.id],
+                })
+
+            assert result["status"] == "dispatched"
+            assert result["dependency_status"] == "resolved"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_invalid_dep_id(self):
+        """depends_on with non-existent node ID should error."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-dep3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep3")
+
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": ["nonexistent_id"],
+                })
+
+            assert result["status"] == "error"
+            assert "nonexistent_id" in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_no_deps_still_works(self):
+        """dispatch_child without depends_on should work as before."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-dep4"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep4")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "child-no-dep"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task A",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
 class TestRejectChildNoRetry:
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
