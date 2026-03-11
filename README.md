@@ -485,6 +485,7 @@ open http://localhost:8000
 <!-- CHANGELOG_START -->
 | Date | Commit | Summary |
 |------|--------|---------|
+| 2026-03-11 | `d61b8c0` | Update: routes, vessel |
 | 2026-03-11 | `d3e70a7` | Update: test_task_tree |
 | 2026-03-11 | `7f7eb11` | Update: 2026-03-11-hr-talent-market-upgrade-design, 2026-03-11-hr-talent-market-upgrade-plan, app, index, onboarding |
 | 2026-03-10 | `e939889` | Update: 2026-03-10-talent-market-platform-design, app, appendix, base, check_gmail |

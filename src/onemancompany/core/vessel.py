@@ -1386,7 +1386,7 @@ class EmployeeManager:
             return
 
         # Check all children of parent — are they all terminal?
-        children = tree.get_children(parent_node.id)
+        children = tree.get_active_children(parent_node.id)
         all_terminal = all(c.is_terminal or c.status == "completed" for c in children)
         if not all_terminal:
             return
