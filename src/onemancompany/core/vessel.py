@@ -40,6 +40,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
@@ -880,6 +881,7 @@ class EmployeeManager:
         emp = company_state.employees.get(employee_id)
         if emp:
             emp.current_task_summary = task.description[:100]
+            await _store.save_employee_runtime(employee_id, current_task_summary=task.description[:100])
 
         # 2. Set contextvars
         loop_token = _current_vessel.set(vessel)
@@ -1077,6 +1079,7 @@ class EmployeeManager:
 
             if emp:
                 emp.current_task_summary = ""
+                await _store.save_employee_runtime(employee_id, current_task_summary="")
 
             # Task tree: update node status and wake parent if all siblings done
             if task.project_dir:
@@ -1814,6 +1817,7 @@ class EmployeeManager:
         for eid, emp in company_state.employees.items():
             if eid not in self._running_tasks:
                 emp.status = STATUS_IDLE
+                await _store.save_employee_runtime(eid, status=STATUS_IDLE)
 
         if not project_id.startswith("_auto_"):
             label = task.description or "Task completed"
@@ -2025,6 +2029,10 @@ class EmployeeManager:
         emp = company_state.employees.get(employee_id)
         if emp:
             emp.status = status
+            try:
+                asyncio.create_task(_store.save_employee_runtime(employee_id, status=status))
+            except RuntimeError:
+                logger.debug("No event loop for runtime persist of {}", employee_id)
 
     def _log(self, employee_id: str, task: AgentTask, log_type: str, content: str) -> None:
         entry = {
