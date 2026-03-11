@@ -352,6 +352,121 @@ class TestRejectChild:
         finally:
             _reset_context(tok_v, tok_t)
 
+
+
+# ---------------------------------------------------------------------------
+# EA dispatch constraint
+# ---------------------------------------------------------------------------
+
+class TestEADispatchConstraint:
+    def test_ea_cannot_dispatch_to_regular_employee(self):
+        """EA (00004) should NOT be able to dispatch to non-O-level employees."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.task_id_map["ea-task-1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "ea-task-1")
+
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00006": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "do coding",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "error"
+            assert "00002" in result["message"] or "COO" in result["message"] or "HR" in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_ea_can_dispatch_to_coo(self):
+        """EA (00004) should be able to dispatch to COO (00003)."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.task_id_map["ea-task-2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "ea-task-2")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "coo-task-1"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00003": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00003",
+                    "description": "manage project",
+                    "acceptance_criteria": ["delivered"],
+                })
+
+            assert result["status"] == "dispatched"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_non_ea_can_dispatch_to_anyone(self):
+        """Non-EA employees (e.g. COO 00003) can dispatch to any employee."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00003")
+        tree.task_id_map["coo-task-3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "coo-task-3")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "eng-task-1"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00006": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "write code",
+                    "acceptance_criteria": ["works"],
+                })
+
+            assert result["status"] == "dispatched"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# reject_child (continued)
+# ---------------------------------------------------------------------------
+
+class TestRejectChildNoRetry:
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
         from onemancompany.agents.tree_tools import reject_child

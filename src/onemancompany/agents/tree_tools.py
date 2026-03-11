@@ -80,6 +80,20 @@ def dispatch_child(employee_id: str, description: str, acceptance_criteria: list
     if not current_node_id or not tree.get_node(current_node_id):
         return {"status": "error", "message": "Current task not found in task tree."}
 
+    # EA can only dispatch to O-level executives
+    from onemancompany.core.config import EA_ID, HR_ID, COO_ID, CSO_ID
+    current_node = tree.get_node(current_node_id)
+    if current_node and current_node.employee_id == EA_ID:
+        allowed_targets = {HR_ID, COO_ID, CSO_ID}
+        if employee_id not in allowed_targets:
+            return {
+                "status": "error",
+                "message": (
+                    f"EA不能直接分派任务给 {employee_id}。"
+                    f"请分派给对应负责人: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID})。"
+                ),
+            }
+
     # Add child node
     child = tree.add_child(
         parent_id=current_node_id,
