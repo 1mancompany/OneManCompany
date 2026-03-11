@@ -1341,6 +1341,7 @@ class AppController {
     this._fetchTaskBoard(emp.id);
     this._fetchExecutionLogs(emp.id);
     this._fetchCronList(emp.id);
+    this._fetchEmployeeProjects(emp.id);
 
     // Start auto-refresh for task board while modal is open
     this._startTaskBoardPolling(emp.id);
@@ -1590,6 +1591,51 @@ class AppController {
       console.error('Failed to cancel cron:', err);
       alert('Failed to stop cron job');
     }
+  }
+
+  // ===== Employee Project History =====
+
+  _fetchEmployeeProjects(employeeId) {
+    const container = document.getElementById('emp-detail-projects');
+    if (!container) return;
+    container.innerHTML = '<span class="empty-hint">Loading...</span>';
+
+    fetch(`/api/employees/${employeeId}/projects`)
+      .then(r => r.json())
+      .then(projects => {
+        if (!projects || projects.length === 0) {
+          container.innerHTML = '<span class="empty-hint">No project history</span>';
+          return;
+        }
+        let html = '';
+        for (const p of projects) {
+          const statusCls = p.status === 'completed' ? 'pixel-green' : 'pixel-yellow';
+          html += `<div class="emp-project-item" data-project-id="${this._escHtml(p.project_id)}">`;
+          html += `<div class="emp-project-task">${this._escHtml(p.task || p.project_id)}</div>`;
+          html += `<div class="emp-project-meta">`;
+          html += `<span class="emp-project-role">${this._escHtml(p.role_in_project)}</span>`;
+          html += `<span style="color:var(--${statusCls});">${this._escHtml(p.status)}</span>`;
+          html += `</div></div>`;
+        }
+        container.innerHTML = html;
+
+        container.querySelectorAll('.emp-project-item').forEach(el => {
+          el.addEventListener('click', () => {
+            const pid = el.dataset.projectId;
+            this.closeEmployeeDetail();
+            this._openProjectFromId(pid);
+          });
+        });
+      })
+      .catch(() => {
+        container.innerHTML = '<span class="empty-hint">Failed to load</span>';
+      });
+  }
+
+  _openProjectFromId(projectId) {
+    this._loadIterationDetail(projectId, projectId);
+    const detailEl = document.getElementById('project-detail');
+    if (detailEl) detailEl.classList.remove('hidden');
   }
 
   // ===== Code Update Banner =====

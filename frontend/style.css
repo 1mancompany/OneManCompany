@@ -4471,3 +4471,40 @@ body {
     color: var(--text-dim);
     font-size: 5px;
 }
+
+/* Employee project history */
+.emp-detail-projects {
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+.emp-project-item {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 5px;
+}
+
+.emp-project-item:hover {
+    background: var(--bg-dark);
+}
+
+.emp-project-task {
+    color: var(--pixel-white);
+    font-size: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.emp-project-meta {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-dim);
+    font-size: 5px;
+    margin-top: 1px;
+}
+
+.emp-project-role {
+    color: var(--pixel-cyan);
+}
