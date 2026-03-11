@@ -187,6 +187,10 @@ def accept_child(node_id: str, notes: str = "") -> dict:
     node.acceptance_result = {"passed": True, "notes": notes}
     _save_tree(task.project_dir, tree)
 
+    # Trigger dependency resolution for dependents
+    from onemancompany.core.vessel import _trigger_dep_resolution
+    _trigger_dep_resolution(task.project_dir, tree, node)
+
     return {"status": "accepted", "node_id": node_id, "notes": notes}
 
 
@@ -246,6 +250,11 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
     else:
         node.status = "failed"
         _save_tree(task.project_dir, tree)
+
+        # Trigger dependency resolution for dependents (failed is terminal)
+        from onemancompany.core.vessel import _trigger_dep_resolution
+        _trigger_dep_resolution(task.project_dir, tree, node)
+
         return {"status": "rejected_failed", "node_id": node_id, "reason": reason}
 
 
