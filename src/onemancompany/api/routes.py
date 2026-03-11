@@ -1464,15 +1464,41 @@ async def abort_task(project_id: str) -> dict:
 
     cancelled_tasks = employee_manager.abort_project(project_id)
 
-    # Update tree nodes
+    # Update tree nodes for board tasks
     await _sync_tree_cancel(cancelled_tasks)
+
+    # Cancel ALL non-terminal tree nodes (including waiting/pending ones not yet pushed to boards)
+    cancelled_tree_nodes = 0
+    from onemancompany.core.project_archive import get_project_dir, load_project as _lp, _save_project
+    from onemancompany.core.task_tree import TaskTree
+    from pathlib import Path as _Path
+    from datetime import datetime as _dt
+
+    pdir = get_project_dir(project_id)
+    if pdir:
+        tree_path = _Path(pdir) / "task_tree.yaml"
+        if tree_path.exists():
+            tree = TaskTree.load(tree_path, project_id=project_id)
+            for node in tree._nodes.values():
+                if node.status not in ("accepted", "failed", "cancelled"):
+                    node.status = "cancelled"
+                    node.result = "Cancelled by CEO (project aborted)"
+                    cancelled_tree_nodes += 1
+            tree.save(tree_path)
+
+    # Update project.yaml status to cancelled
+    proj_doc = _lp(project_id)
+    if proj_doc and proj_doc.get("status") not in ("completed", "cancelled", "failed"):
+        proj_doc["status"] = "cancelled"
+        proj_doc["completed_at"] = _dt.now().isoformat()
+        _save_project(project_id, proj_doc)
 
     # Broadcast state
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
-    return {"status": "ok", "cancelled": len(cancelled_tasks)}
+    return {"status": "ok", "cancelled": len(cancelled_tasks), "tree_nodes_cancelled": cancelled_tree_nodes}
 
 
 @router.post("/api/employee/{employee_id}/task/{task_id}/cancel")

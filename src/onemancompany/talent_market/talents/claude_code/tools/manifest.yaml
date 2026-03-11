@@ -1,4 +1,0 @@
-# Claude Code remote worker — no builtin LangChain tools needed.
-# All capabilities come from the external Claude Code CLI session.
-builtin_tools: []
-custom_tools: []

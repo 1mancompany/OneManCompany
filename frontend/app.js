@@ -506,20 +506,48 @@ class AppController {
         timeHtml = `<span class="task-card-time">${completedTime}</span>`;
       }
 
+      // Cancel button for active tasks
+      const cancelBtn = !isTerminal && t.project_id
+        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="取消任务">✕</button>`
+        : '';
+
       card.innerHTML = `
         <div class="task-card-header">
           <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}</span>
+          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${cancelBtn}</span>
         </div>
         <div class="task-card-text">${taskText}</div>
         ${resultHtml}
         ${treeHtml}
       `;
+
+      // Bind cancel button
+      const btn = card.querySelector('.task-cancel-btn');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._cancelTask(btn.dataset.projectId);
+        });
+      }
+
       if (t.project_id && !t.project_id.startsWith('_auto_')) {
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
       }
       panel.appendChild(card);
+    }
+  }
+
+  async _cancelTask(projectId) {
+    if (!confirm('确定要取消这个任务吗？')) return;
+    try {
+      const resp = await fetch(`/api/task/${projectId}/abort`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this.updateTaskPanel();
+      }
+    } catch (e) {
+      console.error('Cancel task failed:', e);
     }
   }
 
