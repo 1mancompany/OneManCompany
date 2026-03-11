@@ -5181,6 +5181,24 @@ class AppController {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
         }
 
+        // Team section
+        const team = doc.team || [];
+        if (team.length > 0) {
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Team (${team.length})</div>`;
+          detailHtml += `<div class="project-team-list">`;
+          for (const m of team) {
+            const empId = m.employee_id || '';
+            const role = m.role || '';
+            detailHtml += `<div class="project-team-member" data-emp-id="${this._escHtml(empId)}">`;
+            detailHtml += `<img src="/api/employees/${empId}/avatar" class="project-team-avatar" onerror="this.style.display='none'" />`;
+            detailHtml += `<div class="project-team-info">`;
+            detailHtml += `<span class="project-team-name">${this._escHtml(empId)}</span>`;
+            detailHtml += `<span class="project-team-role">${this._escHtml(role)}</span>`;
+            detailHtml += `</div></div>`;
+          }
+          detailHtml += `</div>`;
+        }
+
         // Build full panel HTML with tabs — detail + task tree + dynamic plugin containers
         let fullHtml = tabBarHtml + `<div class="project-tab-content" data-tab="detail">${detailHtml}</div>`;
         fullHtml += `<div class="project-tab-content" data-tab="task-tree" style="display:none;">
@@ -5231,6 +5249,15 @@ class AppController {
         panel.querySelectorAll('.project-file-item').forEach(item => {
           item.addEventListener('click', () => {
             this._openProjectFile(item.dataset.file, item.dataset.url, item.dataset.ext);
+          });
+        });
+
+        // Bind team member click → open employee detail
+        panel.querySelectorAll('.project-team-member').forEach(el => {
+          el.addEventListener('click', () => {
+            const empId = el.dataset.empId;
+            const emp = this.employees.find(e => e.id === empId);
+            if (emp) this.openEmployeeDetail(emp);
           });
         });
 
