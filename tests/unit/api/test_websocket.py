@@ -15,35 +15,31 @@ import pytest
 
 class TestWebSocketManagerConnect:
     async def test_connect_accepts_and_adds(self):
-        with patch("onemancompany.api.websocket.company_state") as mock_state:
-            mock_state.to_json.return_value = {"employees": []}
-            from onemancompany.api.websocket import WebSocketManager
+        from onemancompany.api.websocket import WebSocketManager
 
-            mgr = WebSocketManager()
-            ws = AsyncMock()
+        mgr = WebSocketManager()
+        ws = AsyncMock()
 
-            await mgr.connect(ws)
+        await mgr.connect(ws)
 
-            ws.accept.assert_called_once()
-            assert ws in mgr.connections
-            ws.send_json.assert_called_once()
-            sent_data = ws.send_json.call_args[0][0]
-            assert sent_data["type"] == "state_snapshot"
-            assert sent_data["agent"] == "system"
+        ws.accept.assert_called_once()
+        assert ws in mgr.connections
+        ws.send_json.assert_called_once()
+        sent_data = ws.send_json.call_args[0][0]
+        assert sent_data["type"] == "connected"
+        assert sent_data["payload"]["message"] == "Bootstrap from REST API"
 
     async def test_connect_multiple(self):
-        with patch("onemancompany.api.websocket.company_state") as mock_state:
-            mock_state.to_json.return_value = {}
-            from onemancompany.api.websocket import WebSocketManager
+        from onemancompany.api.websocket import WebSocketManager
 
-            mgr = WebSocketManager()
-            ws1 = AsyncMock()
-            ws2 = AsyncMock()
+        mgr = WebSocketManager()
+        ws1 = AsyncMock()
+        ws2 = AsyncMock()
 
-            await mgr.connect(ws1)
-            await mgr.connect(ws2)
+        await mgr.connect(ws1)
+        await mgr.connect(ws2)
 
-            assert len(mgr.connections) == 2
+        assert len(mgr.connections) == 2
 
 
 class TestWebSocketManagerDisconnect:
@@ -127,10 +123,7 @@ class TestEventBroadcaster:
 
         bus = EventBus()
 
-        with patch("onemancompany.api.websocket.event_bus", bus), \
-             patch("onemancompany.api.websocket.company_state") as mock_state:
-            mock_state.to_json.return_value = {"employees": []}
-
+        with patch("onemancompany.api.websocket.event_bus", bus):
             # Start the broadcaster in a task
             task = asyncio.create_task(mgr.event_broadcaster())
 
@@ -155,6 +148,8 @@ class TestEventBroadcaster:
             sent = ws.send_json.call_args[0][0]
             assert sent["type"] == "agent_done"
             assert sent["agent"] == "HR"
+            # No full state attached
+            assert "state" not in sent
 
     async def test_unsubscribes_on_cancel(self):
         from onemancompany.core.events import EventBus
@@ -163,10 +158,7 @@ class TestEventBroadcaster:
         mgr = WebSocketManager()
         bus = EventBus()
 
-        with patch("onemancompany.api.websocket.event_bus", bus), \
-             patch("onemancompany.api.websocket.company_state") as mock_state:
-            mock_state.to_json.return_value = {}
-
+        with patch("onemancompany.api.websocket.event_bus", bus):
             task = asyncio.create_task(mgr.event_broadcaster())
             await asyncio.sleep(0.01)
             assert len(bus._subscribers) == 1

@@ -7,7 +7,6 @@ import asyncio
 from fastapi import WebSocket
 
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.state import company_state
 
 
 class WebSocketManager:
@@ -17,12 +16,10 @@ class WebSocketManager:
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
         self.connections.add(ws)
-        # Send current state snapshot on connect
+        # Tell frontend to bootstrap from REST API
         await ws.send_json({
-            "type": "state_snapshot",
-            "agent": "system",
-            "payload": {},
-            "state": company_state.to_json(),
+            "type": "connected",
+            "payload": {"message": "Bootstrap from REST API"},
         })
 
     def disconnect(self, ws: WebSocket) -> None:
@@ -38,19 +35,20 @@ class WebSocketManager:
         self.connections -= dead
 
     async def event_broadcaster(self) -> None:
-        """Background task: subscribe to event bus and broadcast to WebSocket clients."""
+        """Background task: forward events to WebSocket clients (no full state)."""
         queue = event_bus.subscribe()
         try:
             while True:
                 event: CompanyEvent = await queue.get()
+                # Real-time events forwarded directly (chat, popups, etc.)
+                # Full state is NOT attached — frontend fetches from REST on tick
                 await self.broadcast({
                     "type": event.type,
                     "agent": event.agent,
                     "payload": event.payload,
-                    "state": company_state.to_json(),
                 })
         except asyncio.CancelledError:
-            pass
+            raise
         finally:
             event_bus.unsubscribe(queue)
 
