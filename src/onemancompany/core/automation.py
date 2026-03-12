@@ -148,7 +148,8 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
 
 def _cancel_cron_tasks(employee_id: str, task_ids: list[str]) -> list[str]:
     """Cancel pending/processing tasks spawned by a cron. Returns cancelled task IDs."""
-    from onemancompany.core.vessel import employee_manager, TaskPhase, persist_task, archive_task
+    from onemancompany.core.task_lifecycle import TaskPhase, transition
+    from onemancompany.core.vessel import employee_manager, persist_task, archive_task
 
     cancelled = []
     board = employee_manager.boards.get(employee_id)
@@ -158,6 +159,7 @@ def _cancel_cron_tasks(employee_id: str, task_ids: list[str]) -> list[str]:
     for task_id in task_ids:
         t = board.get_task(task_id)
         if t and t.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
+            transition(t.id, TaskPhase(t.status), TaskPhase.CANCELLED)
             t.status = TaskPhase.CANCELLED
             t.completed_at = datetime.now(timezone.utc).isoformat()
             t.result = "Cancelled: cron stopped"
