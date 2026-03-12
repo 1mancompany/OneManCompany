@@ -12,6 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from onemancompany.core.task_lifecycle import TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
 
@@ -105,13 +106,13 @@ class TaskTreeManager:
                 if hasattr(node, key):
                     setattr(node, key, value)
         elif event.type == "node_accepted" and node:
-            node.status = "accepted"
+            node.set_status(TaskPhase.ACCEPTED)
             node.acceptance_result = {"passed": True, "notes": event.data.get("notes", "")}
         elif event.type == "node_rejected" and node:
             node.acceptance_result = {"passed": False, "notes": event.data.get("reason", "")}
-            node.status = "failed" if not event.data.get("retry") else "pending"
+            node.set_status(TaskPhase.FAILED if not event.data.get("retry") else TaskPhase.PENDING)
         elif event.type == "node_failed" and node:
-            node.status = "failed"
+            node.set_status(TaskPhase.FAILED)
             node.result = event.data.get("result", node.result)
         else:
             logger.warning("Unknown tree event type or missing node: {} {}", event.type, event.node_id)
