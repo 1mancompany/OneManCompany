@@ -292,7 +292,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     with lock, open(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
-    # Trigger 1: iteration dispatch → in_progress — notify sync tick
+    # Trigger 1: dispatch → in_progress — notify sync tick
     from onemancompany.core.store import mark_dirty
     mark_dirty("task_queue")
 
@@ -439,7 +439,7 @@ def create_project(task: str, routed_to: str, participants: list[str] | None = N
         },
     }
     _save_project(project_id, doc)
-    # Trigger 1: project dispatch → in_progress — notify sync tick
+    # Trigger 1: dispatch → in_progress — notify sync tick
     from onemancompany.core.store import mark_dirty
     mark_dirty("task_queue")
     return project_id
@@ -483,6 +483,9 @@ def complete_project(project_id: str, output: str = "") -> None:
         ]
 
     _save_resolved(version, key, doc)
+    # Signal sync tick that task queue changed
+    from onemancompany.core.store import mark_dirty
+    mark_dirty("task_queue")
 
 
 def load_project(project_id: str) -> dict | None:
@@ -695,8 +698,6 @@ def record_project_cost(
 
 def get_cost_summary() -> dict:
     """Aggregate cost data across all projects."""
-    from onemancompany.core.state import company_state
-
     total_cost = 0.0
     total_input = 0
     total_output = 0
@@ -735,8 +736,12 @@ def get_cost_summary() -> dict:
                 total_output += proj_output
                 for entry in cost.get("breakdown", []):
                     eid = entry.get("employee_id", "")
-                    emp = company_state.employees.get(eid) or company_state.ex_employees.get(eid)
-                    dept = emp.department if emp else "Unknown"
+                    from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
+                    _emp_d = _load_emp(eid)
+                    if not _emp_d:
+                        _ex = _load_ex()
+                        _emp_d = _ex.get(eid, {})
+                    dept = _emp_d.get("department", "Unknown")
                     if dept not in dept_costs:
                         dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
                     dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)
@@ -768,8 +773,11 @@ def get_cost_summary() -> dict:
         # Per-department breakdown from cost.breakdown[]
         for entry in cost.get("breakdown", []):
             eid = entry.get("employee_id", "")
-            emp = company_state.employees.get(eid) or company_state.ex_employees.get(eid)
-            dept = emp.department if emp else "Unknown"
+            from onemancompany.core.store import load_employee as _load_emp2, load_ex_employees as _load_ex2
+            emp_data = _load_emp2(eid)
+            if not emp_data:
+                emp_data = _load_ex2().get(eid)
+            dept = emp_data.get("department", "Unknown") if emp_data else "Unknown"
             if dept not in dept_costs:
                 dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
             dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)

@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from onemancompany.core.config import FOUNDING_LEVEL
+from onemancompany.core import state as state_mod
 from onemancompany.core.state import CompanyState, Employee
 
 
@@ -15,7 +16,8 @@ from onemancompany.core.state import CompanyState, Employee
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_cs() -> CompanyState:
+
+def _make_cs():
     cs = CompanyState()
     cs._next_employee_number = 100
     return cs
@@ -48,10 +50,15 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=2)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
+
+        activity_entries = []
+        monkeypatch.setattr(term_mod._store, "append_activity",
+                            AsyncMock(side_effect=lambda e: activity_entries.append(e)))
 
         result = await term_mod.execute_fire("00010", reason="poor performance")
 
@@ -59,8 +66,8 @@ class TestExecuteFire:
         assert result["name"] == "Emp 00010"
         assert "00010" not in cs.employees
         assert "00010" in cs.ex_employees
-        assert cs.activity_log[-1]["type"] == "employee_fired"
-        assert cs.activity_log[-1]["reason"] == "poor performance"
+        assert activity_entries[-1]["type"] == "employee_fired"
+        assert activity_entries[-1]["reason"] == "poor performance"
 
     @pytest.mark.asyncio
     async def test_cannot_fire_founding(self, monkeypatch):
@@ -70,6 +77,7 @@ class TestExecuteFire:
         emp = _make_emp("00002", level=FOUNDING_LEVEL)
         cs.employees["00002"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         result = await term_mod.execute_fire("00002")
 
@@ -83,6 +91,7 @@ class TestExecuteFire:
 
         cs = _make_cs()
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         result = await term_mod.execute_fire("99999")
 
@@ -97,9 +106,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         # Mock the employee_manager in the source module (agent_loop)
@@ -123,9 +133,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1, name="Test Worker", nickname="剑客")
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         result = await term_mod.execute_fire("00010")
@@ -144,9 +155,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
 
         mock_bus = MagicMock(publish=AsyncMock())
         monkeypatch.setattr(term_mod, "event_bus", mock_bus)
@@ -170,9 +182,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         # Make the employee_manager.unregister raise to trigger the except on line 56-57
@@ -196,9 +209,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
         monkeypatch.setattr(term_mod, "EMPLOYEES_DIR", tmp_path / "employees")
         monkeypatch.setattr(term_mod, "TOOLS_DIR", tmp_path / "tools")
@@ -233,9 +247,10 @@ class TestExecuteFire:
         emp = _make_emp("00010", level=1)
         cs.employees["00010"] = emp
         monkeypatch.setattr(term_mod, "company_state", cs)
+        monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         # Make onboarding import fail — triggers exception on line 78

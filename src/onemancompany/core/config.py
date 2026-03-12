@@ -351,10 +351,8 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
         emp_id = emp_dir.name
         try:
             result[emp_id] = EmployeeConfig(**raw)
-        except Exception:
-            # Skip profiles with missing required fields (e.g. runtime-only stubs)
-            from loguru import logger
-            logger.warning("Skipping invalid employee profile: {}", emp_id)
+        except Exception as e:
+            logger.warning("Skipping corrupt profile {}: {}", emp_id, e)
             continue
     return result
 
@@ -395,19 +393,6 @@ def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
-def update_employee_profile(employee_id: str, updates: dict) -> dict:
-    """Read-modify-write: merge *updates* into an employee's profile.yaml.
-
-    Returns the full updated profile dict.
-    """
-    data = load_employee_profile_yaml(employee_id)
-    if not data:
-        return {}
-    data.update(updates)
-    save_employee_profile_yaml(employee_id, data)
-    return data
-
-
 def load_employee_guidance(employee_id: str) -> list[str]:
     """Load persisted guidance notes from employees/{id}/guidance.yaml."""
     guidance_path = EMPLOYEES_DIR / employee_id / "guidance.yaml"
@@ -420,33 +405,12 @@ def load_employee_guidance(employee_id: str) -> list[str]:
     return []
 
 
-def save_employee_guidance(employee_id: str, notes: list[str]) -> None:
-    """Persist guidance notes to employees/{id}/guidance.yaml."""
-    emp_dir = EMPLOYEES_DIR / employee_id
-    emp_dir.mkdir(parents=True, exist_ok=True)
-    guidance_path = emp_dir / "guidance.yaml"
-    with open(guidance_path, "w") as f:
-        yaml.dump(notes, f, allow_unicode=True, default_flow_style=False)
-
-
 def load_work_principles(employee_id: str) -> str:
     """Load work principles from employees/{id}/work_principles.md."""
     path = EMPLOYEES_DIR / employee_id / "work_principles.md"
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8")
-
-
-def save_work_principles(employee_id: str, content: str) -> None:
-    """Persist work principles as an autoloaded skill."""
-    skill_dir = EMPLOYEES_DIR / employee_id / "skills" / "work-principles"
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    skill_content = (
-        "---\nname: Work Principles\n"
-        "description: Core work principles from CEO guidance\n"
-        "autoload: true\n---\n\n" + content
-    )
-    (skill_dir / "SKILL.md").write_text(skill_content, encoding="utf-8")
 
 
 def get_workspace_dir(employee_id: str) -> Path:
@@ -463,87 +427,6 @@ def ensure_employee_dir(employee_id: str) -> Path:
     skills_dir.mkdir(exist_ok=True)
     workspace_dir.mkdir(exist_ok=True)
     return emp_dir
-
-
-def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
-    """Save a profile.yaml for a new employee, using profile_template.yaml if available."""
-    emp_dir = ensure_employee_dir(employee_id)
-    profile_path = emp_dir / "profile.yaml"
-
-    if PROFILE_TEMPLATE.exists():
-        template_text = PROFILE_TEMPLATE.read_text(encoding="utf-8")
-        desk = config.desk_position if config.desk_position else [0, 0]
-        skills_lines = "\n".join(f"  - {s}" for s in config.skills) if config.skills else "  []"
-        # Format performance history for YAML
-        if config.performance_history:
-            perf_lines = "\n".join(
-                f"  - {{score: {q['score']}, tasks: {q.get('tasks', 3)}}}"
-                for q in config.performance_history
-            )
-        else:
-            perf_lines = "  []"
-        from onemancompany.core.state import make_title
-        perms_lines = "\n".join(f"  - {p}" for p in config.permissions) if config.permissions else "  []"
-        tool_perms_lines = "\n".join(f"  - {t}" for t in config.tool_permissions) if config.tool_permissions else "  []"
-        rendered = template_text.format(
-            name=config.name,
-            nickname=config.nickname,
-            employee_number=config.employee_number,
-            level=config.level,
-            title=make_title(config.level, config.role),
-            department=config.department,
-            role=config.role,
-            desk_x=desk[0],
-            desk_y=desk[1],
-            sprite=config.sprite,
-            llm_model=config.llm_model or settings.default_llm_model,
-            temperature=config.temperature,
-            current_quarter_tasks=config.current_quarter_tasks,
-            performance_history=perf_lines,
-            skills=skills_lines,
-            permissions=perms_lines,
-            tool_permissions=tool_perms_lines,
-            salary_per_1m_tokens=config.salary_per_1m_tokens,
-            probation=str(config.probation).lower(),
-            onboarding_completed=str(config.onboarding_completed).lower(),
-            api_provider=config.api_provider,
-            api_key=config.api_key,
-            hosting=config.hosting,
-            auth_method=config.auth_method,
-        )
-        profile_path.write_text(rendered, encoding="utf-8")
-    else:
-        data = config.model_dump()
-        with open(profile_path, "w") as f:
-            yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-
-    # Keep in-memory employee_configs in sync
-    employee_configs[employee_id] = config
-
-
-def update_tool_permissions(employee_id: str, tool_permissions: list[str]) -> None:
-    """Persist tool_permissions into an existing employee profile.yaml."""
-    update_employee_profile(employee_id, {"tool_permissions": tool_permissions})
-    if employee_id in employee_configs:
-        employee_configs[employee_id].tool_permissions = list(tool_permissions)
-
-
-def update_employee_performance(employee_id: str, current_quarter_tasks: int, performance_history: list[dict]) -> None:
-    """Persist performance fields into an existing employee profile.yaml."""
-    update_employee_profile(employee_id, {
-        "current_quarter_tasks": current_quarter_tasks,
-        "performance_history": performance_history,
-    })
-
-
-def update_employee_level(employee_id: str, level: int, title: str) -> None:
-    """Persist level and title into an existing employee profile.yaml."""
-    update_employee_profile(employee_id, {"level": level, "title": title})
-
-
-def update_employee_field(employee_id: str, field: str, value) -> None:
-    """Persist a single field into an existing employee profile.yaml."""
-    update_employee_profile(employee_id, {field: value})
 
 
 def slugify_tool_name(name: str) -> str:
@@ -672,9 +555,8 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
             with open(profile_path) as f:
                 raw = yaml.safe_load(f) or {}
             result[emp_id] = EmployeeConfig(**raw)
-        except Exception:
-            from loguru import logger
-            logger.warning("Skipping invalid ex-employee profile: {}", emp_id)
+        except Exception as e:
+            logger.warning("Skipping corrupt ex-employee profile {}: {}", emp_id, e)
             continue
     return result
 
@@ -691,8 +573,6 @@ def move_employee_to_ex(employee_id: str) -> bool:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.move(str(src), str(dst))
-    # Remove from in-memory configs
-    employee_configs.pop(employee_id, None)
     return True
 
 
@@ -707,12 +587,6 @@ def move_ex_employee_back(employee_id: str) -> bool:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.move(str(src), str(dst))
-    # Reload into in-memory configs
-    profile_path = dst / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            raw = yaml.safe_load(f) or {}
-        employee_configs[employee_id] = EmployeeConfig(**raw)
     return True
 
 
@@ -725,12 +599,6 @@ def load_company_culture() -> list[dict]:
     if isinstance(data, list):
         return data
     return []
-
-
-def save_company_culture(items: list[dict]) -> None:
-    """Persist company culture items to company_culture.yaml."""
-    with open(COMPANY_CULTURE_FILE, "w") as f:
-        yaml.dump(items, f, allow_unicode=True, default_flow_style=False)
 
 
 # ---------------------------------------------------------------------------
@@ -882,5 +750,64 @@ def list_available_talents() -> list[dict]:
     return result
 
 
-# Load all employee configs at import time
-employee_configs = load_employee_configs()
+class _LazyEmployeeConfigs(dict):
+    """Lazy-loading dict that reads employee configs from disk on demand.
+
+    No import-time cache — every access reads from disk via load_employee_configs().
+    This is a transitional shim; callers should migrate to store.load_employee().
+    """
+
+    def __getitem__(self, key):
+        fresh = load_employee_configs()
+        return fresh[key]
+
+    def get(self, key, default=None):
+        fresh = load_employee_configs()
+        return fresh.get(key, default)
+
+    def __contains__(self, key):
+        fresh = load_employee_configs()
+        return key in fresh
+
+    def __iter__(self):
+        fresh = load_employee_configs()
+        return iter(fresh)
+
+    def items(self):
+        fresh = load_employee_configs()
+        return fresh.items()
+
+    def values(self):
+        fresh = load_employee_configs()
+        return fresh.values()
+
+    def keys(self):
+        fresh = load_employee_configs()
+        return fresh.keys()
+
+    def __len__(self):
+        fresh = load_employee_configs()
+        return len(fresh)
+
+    def __bool__(self):
+        fresh = load_employee_configs()
+        return bool(fresh)
+
+    # Mutation methods are no-ops (no cache to update)
+    def __setitem__(self, key, value):
+        pass  # no-op — disk is the source of truth
+
+    def __delitem__(self, key):
+        pass  # no-op
+
+    def pop(self, key, *args):
+        pass  # no-op
+
+    def clear(self):
+        pass  # no-op
+
+    def update(self, *args, **kwargs):
+        pass  # no-op
+
+
+employee_configs: dict[str, EmployeeConfig] = _LazyEmployeeConfigs()

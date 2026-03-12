@@ -102,31 +102,67 @@ def _mock_company_state(employees: dict | None = None, rooms: dict | None = None
     return state
 
 
+def _fake_emp_to_dict(emp) -> dict:
+    """Convert FakeEmployee to dict matching store.load_employee() output."""
+    d = {}
+    for attr in ("id", "name", "nickname", "role", "skills", "level", "department",
+                 "work_principles", "status", "current_quarter_tasks", "performance_history"):
+        val = getattr(emp, attr, None)
+        if val is not None:
+            d[attr] = val
+    d["runtime"] = {
+        "status": getattr(emp, "status", "idle"),
+        "is_listening": False,
+        "current_task_summary": "",
+    }
+    return d
+
+
+def _routine_store_patches(employees: dict | None = None):
+    """Patch load_employee/load_all_employees on routine module to read from given dict."""
+    from contextlib import contextmanager
+    emps = employees or {}
+
+    @contextmanager
+    def _ctx():
+        def fake_load(eid):
+            e = emps.get(eid)
+            return _fake_emp_to_dict(e) if e else {}
+
+        def fake_all():
+            return {eid: _fake_emp_to_dict(e) for eid, e in emps.items()}
+
+        with patch("onemancompany.core.routine.load_employee", side_effect=fake_load), \
+             patch("onemancompany.core.routine.load_all_employees", side_effect=fake_all):
+            yield
+
+    return _ctx()
+
+
 # ---------------------------------------------------------------------------
 # _set_participants_status
 # ---------------------------------------------------------------------------
 
 class TestSetParticipantsStatus:
-    def test_sets_status(self):
-        emp = FakeEmployee(id="00005", name="Alice", role="Engineer")
-        state = _mock_company_state(employees={"00005": emp})
-        with patch("onemancompany.core.routine.company_state", state):
-            _set_participants_status(["00005"], "in_meeting")
-        assert emp.status == "in_meeting"
+    async def test_sets_status(self):
+        mock_save = AsyncMock()
+        with patch("onemancompany.core.routine._store.save_employee_runtime", mock_save):
+            await _set_participants_status(["00005"], "in_meeting")
+        mock_save.assert_awaited_once_with("00005", status="in_meeting")
 
-    def test_skips_unknown_ids(self):
-        state = _mock_company_state()
-        with patch("onemancompany.core.routine.company_state", state):
-            _set_participants_status(["nonexistent"], "idle")  # should not raise
+    async def test_skips_unknown_ids(self):
+        mock_save = AsyncMock()
+        with patch("onemancompany.core.routine._store.save_employee_runtime", mock_save):
+            await _set_participants_status(["nonexistent"], "idle")
+        mock_save.assert_awaited_once_with("nonexistent", status="idle")
 
-    def test_sets_multiple(self):
-        emp1 = FakeEmployee(id="00005", name="Alice", role="Engineer")
-        emp2 = FakeEmployee(id="00006", name="Bob", role="Designer")
-        state = _mock_company_state(employees={"00005": emp1, "00006": emp2})
-        with patch("onemancompany.core.routine.company_state", state):
-            _set_participants_status(["00005", "00006"], "working")
-        assert emp1.status == "working"
-        assert emp2.status == "working"
+    async def test_sets_multiple(self):
+        mock_save = AsyncMock()
+        with patch("onemancompany.core.routine._store.save_employee_runtime", mock_save):
+            await _set_participants_status(["00005", "00006"], "working")
+        assert mock_save.await_count == 2
+        mock_save.assert_any_await("00005", status="working")
+        mock_save.assert_any_await("00006", status="working")
 
 
 # ---------------------------------------------------------------------------
@@ -164,23 +200,21 @@ class TestStepContext:
                 {"employee_id": "00005", "action": "code_commit", "detail": "Fixed bug"},
             ]
         })
-        with patch("onemancompany.core.routine.company_state", state):
+        with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches({"00005": emp}):
             text = ctx.format_project_timeline()
         assert "Alice" in text
         assert "code_commit" in text
 
     def test_format_company_culture_empty(self):
-        state = _mock_company_state()
-        state.company_culture = []
         ctx = self._make_ctx()
-        with patch("onemancompany.core.routine.company_state", state):
+        with patch("onemancompany.core.routine._store.load_culture", return_value=[]):
             assert ctx.format_company_culture() == ""
 
     def test_format_company_culture_with_items(self):
-        state = _mock_company_state()
-        state.company_culture = [{"content": "Be excellent"}]
         ctx = self._make_ctx()
-        with patch("onemancompany.core.routine.company_state", state):
+        with patch("onemancompany.core.routine._store.load_culture",
+                   return_value=[{"content": "Be excellent"}]):
             text = ctx.format_company_culture()
         assert "Be excellent" in text
 
@@ -469,8 +503,20 @@ class TestRunPostTaskRoutine:
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
 
-        # Mock update_employee_performance to be a no-op
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+        # Mock store reads to use same fake employees
+        emps = state.employees
+
+        def _fake_load(eid):
+            e = emps.get(eid)
+            return _fake_emp_to_dict(e) if e else {}
+
+        def _fake_all():
+            return {eid: _fake_emp_to_dict(e) for eid, e in emps.items()}
+
+        monkeypatch.setattr("onemancompany.core.routine.load_employee", _fake_load)
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees", _fake_all)
+
+
 
         return state
 
@@ -478,6 +524,10 @@ class TestRunPostTaskRoutine:
     async def test_returns_early_with_no_employees(self, monkeypatch):
         state = _mock_company_state()
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
             await run_post_task_routine("task")
         # Should return without doing anything
@@ -599,19 +649,22 @@ class TestRunPostTaskRoutine:
     async def test_increments_employee_tasks(self, mock_env, monkeypatch):
         """Participating normal employees get current_quarter_tasks incremented."""
         monkeypatch.setattr("onemancompany.core.routine.load_workflows", lambda: {})
-        emp = mock_env.employees["00005"]
-        assert emp.current_quarter_tasks == 0
 
         mock_ainvoke = AsyncMock(return_value=_make_llm_response('[{"name": "all", "review": "ok"}]'))
+        mock_save = AsyncMock()
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
              patch("onemancompany.core.routine.make_llm", return_value=MagicMock()), \
              patch("onemancompany.core.routine.get_employee_skills_prompt", return_value=""), \
-             patch("onemancompany.core.routine.get_employee_tools_prompt", return_value=""):
+             patch("onemancompany.core.routine.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.core.routine._store.save_employee", mock_save):
             await run_post_task_routine("task", participants=["00005", "00006"])
 
-        assert emp.current_quarter_tasks == 1
+        # Verify save_employee was called with incremented task count
+        assert mock_save.await_count >= 1
+        saved_calls = {c.args[0]: c.args[1] for c in mock_save.await_args_list}
+        assert saved_calls.get("00005", {}).get("current_quarter_tasks") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +676,10 @@ class TestRunAllHandsMeeting:
     async def test_returns_early_with_no_employees(self, monkeypatch):
         state = _mock_company_state()
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
             await run_all_hands_meeting("Be excellent")
 
@@ -635,6 +692,10 @@ class TestRunAllHandsMeeting:
             rooms={"r1": room},
         )
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
 
         mock_publish = AsyncMock()
         with patch("onemancompany.core.routine._publish", mock_publish):
@@ -656,6 +717,10 @@ class TestRunAllHandsMeeting:
             rooms={"r1": room},
         )
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.REPORTS_DIR", tmp_path)
         monkeypatch.setattr("onemancompany.core.routine.CEO_ID", "00001")
 
@@ -688,6 +753,10 @@ class TestRunAllHandsMeeting:
             rooms={"r1": room},
         )
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.CEO_ID", "00001")
 
         async def failing_ainvoke(*args, **kwargs):
@@ -897,6 +966,7 @@ class TestHandleSelfEvaluation:
 
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("I did my best"))
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -926,6 +996,7 @@ class TestHandleSelfEvaluation:
         )
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.make_llm", return_value=MagicMock()):
@@ -964,6 +1035,7 @@ class TestHandleSeniorReview:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response(review_json))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -999,6 +1071,7 @@ class TestHandleSeniorReview:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("Not valid json at all"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1030,6 +1103,7 @@ class TestHandleSeniorReview:
         )
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock):
             result = await _handle_senior_review(step, ctx)
@@ -1064,6 +1138,7 @@ class TestHandleHrSummary:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response(improvements))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1093,6 +1168,7 @@ class TestHandleHrSummary:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("Free text summary"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1131,6 +1207,7 @@ class TestHandleCooReport:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("Operations are smooth"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1158,6 +1235,7 @@ class TestHandleCooReport:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("Report"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1296,6 +1374,7 @@ class TestHandleEmployeeOpenFloor:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("I need better tools"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1322,6 +1401,7 @@ class TestHandleEmployeeOpenFloor:
         )
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock):
             result = await _handle_employee_open_floor(step, ctx)
@@ -1355,6 +1435,7 @@ class TestHandleActionPlan:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response(actions_json))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1384,6 +1465,7 @@ class TestHandleActionPlan:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response("Just do it"))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1416,6 +1498,7 @@ class TestHandleActionPlan:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response(actions_json))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1516,7 +1599,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Only emp2 contributed
         project_record = {
@@ -1564,7 +1647,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
         monkeypatch.setattr("onemancompany.core.routine.load_workflows", lambda: {})
 
         mock_publish = AsyncMock()
@@ -1593,7 +1676,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Workflow that parses to zero steps
         monkeypatch.setattr("onemancompany.core.routine.load_workflows",
@@ -1621,6 +1704,7 @@ class TestRunOnboardingRoutine:
     @pytest.mark.asyncio
     async def test_onboarding_new_employee(self, monkeypatch):
         from onemancompany.core.routine import run_onboarding_routine
+        from onemancompany.core import state as state_mod
 
         emp = FakeEmployee(id="00010", name="Newbie", role="Engineer", level=1, nickname="新人")
         emp.work_principles = ""
@@ -1628,23 +1712,29 @@ class TestRunOnboardingRoutine:
         state = _mock_company_state(employees={"00010": emp})
 
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr(state_mod, "company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.PROBATION_TASKS", 2)
 
-        mock_save_principles = MagicMock()
-        mock_update_field = MagicMock()
-
+        mock_save_principles = AsyncMock()
+        mock_save_employee = AsyncMock()
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
-             patch("onemancompany.core.config.save_work_principles", mock_save_principles), \
-             patch("onemancompany.core.config.update_employee_field", mock_update_field):
+             patch("onemancompany.core.routine._store.save_work_principles", mock_save_principles), \
+             patch("onemancompany.core.routine._store.save_employee", mock_save_employee):
             await run_onboarding_routine("00010")
 
-        assert emp.onboarding_completed is True
-        assert emp.work_principles != ""
+        # Verify onboarding_completed was persisted via store
+        mock_save_employee.assert_called_once_with("00010", {"onboarding_completed": True})
+        # Verify work principles were generated and saved
         mock_save_principles.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_onboarding_existing_principles(self, monkeypatch):
         from onemancompany.core.routine import run_onboarding_routine
+        from onemancompany.core import state as state_mod
 
         emp = FakeEmployee(id="00010", name="Newbie", role="Engineer", level=1, nickname="新人")
         emp.work_principles = "Existing principles"
@@ -1652,16 +1742,24 @@ class TestRunOnboardingRoutine:
         state = _mock_company_state(employees={"00010": emp})
 
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr(state_mod, "company_state", state)
 
-        mock_update_field = MagicMock()
+        # Mock store reads
+        emps = state.employees
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid: _fake_emp_to_dict(emps[eid]) if eid in emps else {})
 
+        mock_save_principles = AsyncMock()
+        mock_save_employee = AsyncMock()
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
-             patch("onemancompany.core.config.update_employee_field", mock_update_field):
+             patch("onemancompany.core.routine._store.save_work_principles", mock_save_principles), \
+             patch("onemancompany.core.routine._store.save_employee", mock_save_employee):
             await run_onboarding_routine("00010")
 
-        # Principles should not be overwritten
-        assert emp.work_principles == "Existing principles"
-        assert emp.onboarding_completed is True
+        # Principles should NOT be overwritten (already existed)
+        mock_save_principles.assert_not_called()
+        # Onboarding completed should still be persisted via store
+        mock_save_employee.assert_called_once_with("00010", {"onboarding_completed": True})
 
     @pytest.mark.asyncio
     async def test_onboarding_nonexistent_employee(self, monkeypatch):
@@ -1669,6 +1767,10 @@ class TestRunOnboardingRoutine:
 
         state = _mock_company_state()
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
 
         # Should not raise
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
@@ -1688,6 +1790,10 @@ class TestRunOffboardingRoutine:
         state = _mock_company_state(employees={"00010": emp})
 
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.REPORTS_DIR", tmp_path)
 
         mock_publish = AsyncMock()
@@ -1704,6 +1810,10 @@ class TestRunOffboardingRoutine:
 
         state = _mock_company_state()
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
 
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
             await run_offboarding_routine("99999", "voluntary")
@@ -1722,6 +1832,10 @@ class TestRunPerformanceMeeting:
         state = _mock_company_state(employees={"00010": emp})
 
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
 
         mock_publish = AsyncMock()
         with patch("onemancompany.core.routine._publish", mock_publish):
@@ -1735,6 +1849,10 @@ class TestRunPerformanceMeeting:
 
         state = _mock_company_state()
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
 
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock):
             await run_performance_meeting("99999", 3.0, "N/A")
@@ -1771,6 +1889,7 @@ class TestHandleSeniorReviewJsonDecodeError:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response('[invalid json content]'))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1808,6 +1927,7 @@ class TestHandleHrSummaryJsonDecodeError:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response('[invalid json here]'))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1843,6 +1963,7 @@ class TestHandleActionPlanJsonDecodeError:
         mock_ainvoke = AsyncMock(return_value=_make_llm_response('[invalid json action]'))
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -1905,7 +2026,7 @@ class TestRunPostTaskRoutinePreparationSkip:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Workflow with Preparation as first step + CEO Approval
         workflow_md = (
@@ -1954,7 +2075,7 @@ class TestRunPostTaskRoutinePreparationSkip:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         project_record = {
             "id": "proj-1",
@@ -2051,6 +2172,7 @@ class TestLegacyPhaseAdditional:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2094,6 +2216,7 @@ class TestLegacyPhaseAdditional:
         phase1 = {"hr_summary": [{"employee": "Alice", "improvements": ["Faster"]}]}
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2127,6 +2250,7 @@ class TestLegacyPhaseAdditional:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2159,6 +2283,7 @@ class TestLegacyPhaseAdditional:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2192,6 +2317,7 @@ class TestLegacyPhaseAdditional:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2235,6 +2361,7 @@ class TestLegacyPhaseJsonEdgeCases:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2270,6 +2397,7 @@ class TestLegacyPhaseJsonEdgeCases:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2302,6 +2430,7 @@ class TestLegacyPhaseJsonEdgeCases:
             return resp
 
         with patch("onemancompany.core.routine.company_state", state), \
+             _routine_store_patches(state.employees), \
              patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._chat", new_callable=AsyncMock), \
              patch("onemancompany.core.routine.tracked_ainvoke", mock_ainvoke), \
@@ -2334,7 +2463,7 @@ class TestRunPostTaskRoutineArchiveRecording:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         project_record = {
             "id": "proj-1",
@@ -2408,6 +2537,10 @@ class TestRunAllHandsMeetingAdditional:
         )
 
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
+        monkeypatch.setattr("onemancompany.core.routine.load_employee",
+                            lambda eid, _s=state: _fake_emp_to_dict(_s.employees[eid]) if eid in _s.employees else {})
+        monkeypatch.setattr("onemancompany.core.routine.load_all_employees",
+                            lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.REPORTS_DIR", tmp_path)
         monkeypatch.setattr("onemancompany.core.routine.CEO_ID", "00001")
 

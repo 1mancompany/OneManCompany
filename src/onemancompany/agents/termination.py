@@ -17,8 +17,9 @@ from onemancompany.core.config import (
     move_employee_to_ex,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.layout import compute_layout, persist_all_desk_positions
+from onemancompany.core.layout import compute_layout
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 
 from loguru import logger
 
@@ -37,12 +38,12 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
         {"status": "fired", "name": ..., "nickname": ...} on success,
         {"error": "..."} on failure.
     """
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = _store.load_employee(employee_id)
+    if not emp_data:
         return {"error": f"Employee '{employee_id}' not found"}
 
-    if emp.level >= FOUNDING_LEVEL:
-        return {"error": f"Cannot fire founding employee (Lv.{emp.level})"}
+    if emp_data.get("level", 1) >= FOUNDING_LEVEL:
+        return {"error": f"Cannot fire founding employee (Lv.{emp_data.get('level', 1)})"}
 
     # Stop any running agent tasks for this employee
     try:
@@ -77,17 +78,18 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
     except Exception:
         logger.debug("Failed to unregister tools for %s", employee_id)
 
-    # Move to ex-employees (state + folder)
-    name, nickname, role = emp.name, emp.nickname, emp.role
-    company_state.ex_employees[employee_id] = emp
-    del company_state.employees[employee_id]
+    # Move to ex-employees (folder + store)
+    name = emp_data.get("name", "")
+    nickname = emp_data.get("nickname", "")
+    role = emp_data.get("role", "")
+    # Persist ex-employee profile via store before moving folder
+    await _store.save_ex_employee(employee_id, emp_data)
     move_employee_to_ex(employee_id)
 
-    # Recompute layout (zones may shrink) and persist all positions
+    # Recompute layout (zones may shrink)
     compute_layout(company_state)
-    persist_all_desk_positions(company_state)
 
-    company_state.activity_log.append({
+    await _store.append_activity({
         "type": "employee_fired",
         "name": name,
         "nickname": nickname,

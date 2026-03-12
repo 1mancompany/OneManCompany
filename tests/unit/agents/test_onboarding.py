@@ -332,6 +332,9 @@ class TestExecuteHire:
             lambda model: 5.0,
         )
 
+        # Mock store.append_activity
+        monkeypatch.setattr(onboarding._store, "append_activity", AsyncMock())
+
         emp = await onboarding.execute_hire(
             name="Test Developer",
             nickname="追风",
@@ -350,9 +353,10 @@ class TestExecuteHire:
         assert emp.desk_position == (5, 3)
         assert "python" in emp.skills
 
-        # Verify in company_state
-        assert emp.id in cs.employees
-        assert cs.employees[emp.id] is emp
+        # After Task 10 refactoring, employee data is persisted to disk via
+        # store.save_employee (not in-memory cs.employees). The conftest bridge
+        # swallows disk writes in test isolation mode, so we verify the returned
+        # Employee object and the directory structure created by ensure_employee_dir.
 
         # Verify profile saved
         emp_dir = emp_base / emp.id
@@ -375,9 +379,11 @@ class TestExecuteHire:
         assert len(published_events) == 1
         assert published_events[0].type == "employee_hired"
 
-        # Verify activity log
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "employee_hired"
+        # Verify activity log written via store (not in-memory cs.activity_log)
+        # append_activity was called by onboarding via _store
+        onboarding._store.append_activity.assert_awaited()
+        call_entry = onboarding._store.append_activity.call_args[0][0]
+        assert call_entry["type"] == "employee_hired"
 
     @pytest.mark.asyncio
     async def test_hire_remote_employee(self, tmp_path, monkeypatch):

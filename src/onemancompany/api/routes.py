@@ -27,6 +27,8 @@ from onemancompany.core.config import (
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
+from onemancompany.core.store import load_employee as _load_emp, load_all_employees as _load_all
 
 router = APIRouter()
 
@@ -50,12 +52,13 @@ def _get_employee_manager():
     return employee_manager
 
 
-def _require_employee(employee_id: str):
-    """Get employee or raise 404. Use for consistent validation across routes."""
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+def _require_employee(employee_id: str) -> dict:
+    """Get employee data from disk or raise 404."""
+    data = _load_emp(employee_id)
+    if not data:
         raise HTTPException(status_code=404, detail="Employee not found")
-    return emp
+    data["id"] = employee_id
+    return data
 
 
 def _scan_employee_projects(employee_id: str, projects_dir: str = "") -> list[dict]:
@@ -163,8 +166,9 @@ async def admin_clear_tasks() -> dict:
             continue
         for t in load_active_tasks(emp_dir.name):
             archive_task(emp_dir.name, t)
-    for emp in company_state.employees.values():
-        emp.status = STATUS_IDLE
+    all_emps = _store.load_all_employees()
+    for eid in all_emps:
+        await _store.save_employee_runtime(eid, status=STATUS_IDLE)
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
@@ -173,7 +177,33 @@ async def admin_clear_tasks() -> dict:
 
 @router.get("/api/state")
 async def get_state() -> dict:
-    return company_state.to_json()
+    """Legacy full-state endpoint — assembles state from disk via store."""
+    from onemancompany.core.state import get_active_tasks
+    from onemancompany.core.store import (
+        load_activity_log,
+        load_all_employees,
+        load_culture,
+        load_ex_employees,
+        load_overhead,
+        load_rooms,
+        load_sales_tasks,
+    )
+    employees = load_all_employees()
+    ex_employees = load_ex_employees()
+    overhead = load_overhead()
+    return {
+        "employees": list(employees.values()),
+        "ex_employees": list(ex_employees.values()),
+        "tools": [t.to_dict() for t in company_state.tools.values()],
+        "meeting_rooms": load_rooms(),
+        "ceo_tasks": company_state.ceo_tasks[-10:],
+        "active_tasks": [t.to_dict() for t in get_active_tasks()],
+        "activity_log": load_activity_log()[-20:],
+        "company_culture": load_culture(),
+        "office_layout": company_state.office_layout,
+        "sales_tasks": load_sales_tasks(),
+        "company_tokens": overhead.get("company_tokens", 0),
+    }
 
 
 async def _start_inquiry(task: str) -> dict:
@@ -185,7 +215,7 @@ async def _start_inquiry(task: str) -> dict:
     from onemancompany.core.config import route_inquiry
     agent_role, agent_id = route_inquiry(task)
 
-    emp = company_state.employees.get(agent_id)
+    emp_data = _load_emp(agent_id)
 
     # Book a meeting room
     room = None
@@ -196,22 +226,30 @@ async def _start_inquiry(task: str) -> dict:
     if not room:
         return {"error": "No meeting rooms available"}
 
+    participants = [CEO_ID, agent_id]
     room.is_booked = True
     room.booked_by = CEO_ID
-    room.participants = [CEO_ID, agent_id]
+    room.participants = participants
+    await _store.save_room(room.id, {
+        "is_booked": True,
+        "booked_by": CEO_ID,
+        "participants": participants,
+    })
 
     await event_bus.publish(
         CompanyEvent(
             type="meeting_booked",
-            payload={"room_id": room.id, "room_name": room.name, "participants": room.participants},
+            payload={"room_id": room.id, "room_name": room.name, "participants": participants},
             agent="CEO",
         )
     )
 
     # Build agent system prompt
-    skills_str = ", ".join(emp.skills) if emp and emp.skills else "general"
-    principles_section = f"\nYour work principles:\n{emp.work_principles}" if emp and emp.work_principles else ""
-    culture_items = company_state.company_culture
+    skills_list = emp_data.get("skills", []) if emp_data else []
+    skills_str = ", ".join(skills_list) if skills_list else "general"
+    work_principles = emp_data.get("work_principles", "") if emp_data else ""
+    principles_section = f"\nYour work principles:\n{work_principles}" if work_principles else ""
+    culture_items = _store.load_culture()
     culture_section = ""
     if culture_items:
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
@@ -223,13 +261,15 @@ async def _start_inquiry(task: str) -> dict:
 
     # Colleague info
     colleagues = []
-    for e in company_state.employees.values():
-        if e.id not in (CEO_ID, agent_id):
-            colleagues.append(f"  - {e.name} ({e.nickname}): {e.role}, {e.department}")
+    for eid, edata in _load_all().items():
+        if eid not in (CEO_ID, agent_id):
+            colleagues.append(f"  - {edata.get('name', '')} ({edata.get('nickname', '')}): {edata.get('role', '')}, {edata.get('department', '')}")
     colleagues_section = "\nColleagues:\n" + "\n".join(colleagues) if colleagues else ""
 
+    emp_name = emp_data.get("name", agent_role) if emp_data else agent_role
+    emp_nickname = emp_data.get("nickname", "") if emp_data else ""
     system_prompt = (
-        f"You are {emp.name} ({emp.nickname}), the company {agent_role}. "
+        f"You are {emp_name} ({emp_nickname}), the company {agent_role}. "
         f"Skills: {skills_str}. "
         f"You are in a meeting room with the CEO answering their inquiry. "
         f"Be helpful, concise, and knowledgeable. Use your expertise and awareness of company operations."
@@ -254,7 +294,7 @@ async def _start_inquiry(task: str) -> dict:
     answer = result.content
 
     # Publish agent response as meeting_chat
-    speaker_name = emp.name if emp else agent_role
+    speaker_name = emp_name
     await event_bus.publish(
         CompanyEvent(
             type="meeting_chat",
@@ -461,7 +501,7 @@ async def ceo_submit_task(body: dict) -> dict:
     project_name = body.get("project_name", "")
 
     company_state.ceo_tasks.append(task)
-    company_state.activity_log.append({"type": "ceo_task", "task": task})
+    await _store.append_activity({"type": "ceo_task", "task": task})
 
     # Classify task type — EA can override later via set_acceptance_criteria
     from onemancompany.core.task_lifecycle import classify_task_type
@@ -481,7 +521,7 @@ async def ceo_submit_task(body: dict) -> dict:
         pid = project_id
     else:
         # No project association — legacy one-shot project
-        pid = create_project(task, "pending", [e.id for e in company_state.employees.values()], task_type=task_type)
+        pid = create_project(task, "pending", list(_load_all().keys()), task_type=task_type)
         pdir = get_project_dir(pid)
 
     await event_bus.publish(
@@ -709,8 +749,8 @@ async def oneonone_chat(body: dict) -> dict:
     if not employee_id or not message:
         return {"error": "Missing employee_id or message"}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = _load_emp(employee_id)
+    if not emp_data:
         return {"error": f"Employee '{employee_id}' not found"}
 
     # Build attachment info string for prompt injection
@@ -720,12 +760,12 @@ async def oneonone_chat(body: dict) -> dict:
         attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
 
     # On first message (empty history), mark employee as in meeting
-    if not history:
-        emp.is_listening = True
+    if not history and emp_data:
+        await _store.save_employee_runtime(employee_id, is_listening=True)
         await event_bus.publish(
             CompanyEvent(
                 type="guidance_start",
-                payload={"employee_id": employee_id, "name": emp.name},
+                payload={"employee_id": employee_id, "name": emp_data.get("name", "")},
                 agent="CEO",
             )
         )
@@ -794,10 +834,12 @@ async def oneonone_chat(body: dict) -> dict:
     # --- Fallback: plain LLM for normal employees without agent loop ---
     from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
 
-    skills_str = ", ".join(emp.skills) if emp.skills else "general"
+    skills_list = emp_data.get("skills", [])
+    skills_str = ", ".join(skills_list) if skills_list else "general"
     persona_section = get_employee_talent_persona(employee_id)
-    principles_section = f"\nYour work principles:\n{emp.work_principles}" if emp.work_principles else ""
-    culture_items = company_state.company_culture
+    work_principles = emp_data.get("work_principles", "")
+    principles_section = f"\nYour work principles:\n{work_principles}" if work_principles else ""
+    culture_items = _store.load_culture()
     culture_section = ""
     if culture_items:
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
@@ -807,7 +849,7 @@ async def oneonone_chat(body: dict) -> dict:
     tools_section = get_employee_tools_prompt(employee_id)
 
     system_prompt = (
-        f"You are {emp.name} ({emp.nickname}), a {emp.role} in {emp.department}. "
+        f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), a {emp_data.get('role', '')} in {emp_data.get('department', '')}. "
         f"Skills: {skills_str}. "
         f"You are in a private 1-on-1 meeting with the CEO. "
         f"Respond naturally, 2-4 sentences. Be yourself — share thoughts honestly."
@@ -845,17 +887,20 @@ async def oneonone_end(body: dict) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
-    from onemancompany.core.config import save_employee_guidance, save_work_principles
-
     employee_id = body.get("employee_id", "")
     history = body.get("history", [])
 
     if not employee_id:
         return {"error": "Missing employee_id"}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = _load_emp(employee_id)
+    if not emp_data:
         return {"error": f"Employee '{employee_id}' not found"}
+
+    emp_name = emp_data.get("name", "")
+    emp_nickname = emp_data.get("nickname", "")
+    emp_role = emp_data.get("role", "")
+    emp_dept = emp_data.get("department", "")
 
     principles_updated = False
     note_saved = False
@@ -864,15 +909,15 @@ async def oneonone_end(body: dict) -> dict:
         # Build transcript
         transcript_lines = []
         for entry in history:
-            speaker = "CEO" if entry.get("role") == "ceo" else emp.name
+            speaker = "CEO" if entry.get("role") == "ceo" else emp_name
             transcript_lines.append(f"{speaker}: {entry['content']}")
         transcript = "\n".join(transcript_lines)
 
-        current_principles = emp.work_principles or "(No work principles yet)"
+        current_principles = emp_data.get("work_principles", "") or "(No work principles yet)"
 
         # Combined prompt: reflect on principles AND generate 1-1 summary
         reflection_prompt = (
-            f"You are {emp.name} ({emp.nickname}, {emp.role}, Department: {emp.department}).\n\n"
+            f"You are {emp_name} ({emp_nickname}, {emp_role}, Department: {emp_dept}).\n\n"
             f"You just had a 1-on-1 meeting with the CEO. Here is the conversation transcript:\n\n"
             f"{transcript}\n\n"
             f"Your current work principles:\n{current_principles}\n\n"
@@ -906,8 +951,8 @@ async def oneonone_end(body: dict) -> dict:
             else:
                 new_principles = response_text[updated_start:].strip()
             if new_principles:
-                emp.work_principles = new_principles
-                save_work_principles(employee_id, new_principles)
+                # Persist via store
+                await _store.save_work_principles(employee_id, new_principles)
                 principles_updated = True
 
         # Parse and save 1-1 summary as guidance note
@@ -917,18 +962,20 @@ async def oneonone_end(body: dict) -> dict:
             if summary_text:
                 date_str = datetime.now().strftime("%Y-%m-%d")
                 note = f"**{date_str} 1-1 Meeting**\n{summary_text}"
-                emp.guidance_notes.append(note)
-                save_employee_guidance(employee_id, emp.guidance_notes)
+                # Persist guidance via store
+                existing_notes = _store.load_employee_guidance(employee_id)
+                existing_notes.append(note)
+                await _store.save_guidance(employee_id, existing_notes)
                 note_saved = True
 
     # End the meeting
-    emp.is_listening = False
+    await _store.save_employee_runtime(employee_id, is_listening=False)
     await event_bus.publish(
         CompanyEvent(
             type="guidance_end",
             payload={
                 "employee_id": employee_id,
-                "name": emp.name,
+                "name": emp_name,
                 "principles_updated": principles_updated,
                 "note_saved": note_saved,
             },
@@ -948,7 +995,7 @@ async def oneonone_end(body: dict) -> dict:
 async def get_meeting_rooms() -> dict:
     """Get all meeting rooms and their booking status."""
     return {
-        "meeting_rooms": [m.to_dict() for m in company_state.meeting_rooms.values()]
+        "meeting_rooms": _store.load_rooms()
     }
 
 
@@ -996,7 +1043,12 @@ async def release_meeting(body: dict) -> dict:
     room.is_booked = False
     room.booked_by = ""
     room.participants = []
-    company_state.activity_log.append({
+    await _store.save_room(room_id, {
+        "is_booked": False,
+        "booked_by": "",
+        "participants": [],
+    })
+    await _store.append_activity({
         "type": "meeting_released",
         "room": room.name,
         "participants": old_participants,
@@ -1031,8 +1083,8 @@ async def inquiry_chat(body: dict) -> dict:
 
     _inquiry_agent_map = {"HR": HR_ID, "COO": COO_ID, "CSO": CSO_ID, "EA": EA_ID}
     agent_id = _inquiry_agent_map.get(session.agent_role, COO_ID)
-    emp = company_state.employees.get(agent_id)
-    speaker_name = emp.name if emp else session.agent_role
+    _inq_data = _load_emp(agent_id)
+    speaker_name = _inq_data.get("name", session.agent_role) if _inq_data else session.agent_role
 
     # Publish CEO message as meeting_chat
     await event_bus.publish(
@@ -1094,6 +1146,11 @@ async def inquiry_end(body: dict) -> dict:
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await event_bus.publish(
             CompanyEvent(
                 type="meeting_released",
@@ -1133,17 +1190,20 @@ async def trigger_hr_review() -> dict:
         from onemancompany.core.state import LEVEL_NAMES
 
         reviewable, not_ready = [], []
-        for e in company_state.employees.values():
+        for eid, edata in _load_all().items():
+            perf_hist = edata.get("performance_history", [])
             hist_str = ", ".join(
-                f"Q{i+1}={h['score']}" for i, h in enumerate(e.performance_history)
+                f"Q{i+1}={h['score']}" for i, h in enumerate(perf_hist)
             ) or "no history"
+            cqt = edata.get("current_quarter_tasks", 0)
+            elevel = edata.get("level", 1)
             info = (
-                f"- {e.name} (花名: {e.nickname}, ID: {e.id}, "
-                f"Title: {e.title}, Lv.{e.level} {LEVEL_NAMES.get(e.level, '')}, "
-                f"Q tasks: {e.current_quarter_tasks}/3, "
+                f"- {edata.get('name', '')} (花名: {edata.get('nickname', '')}, ID: {eid}, "
+                f"Title: {edata.get('title', '')}, Lv.{elevel} {LEVEL_NAMES.get(elevel, '')}, "
+                f"Q tasks: {cqt}/3, "
                 f"Performance history: [{hist_str}])"
             )
-            if e.current_quarter_tasks >= TASKS_PER_QUARTER:
+            if cqt >= TASKS_PER_QUARTER:
                 reviewable.append(info)
             else:
                 not_ready.append(info)
@@ -1308,7 +1368,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     api_provider = cfg.api_provider if cfg else "openrouter"
     api_key = cfg.api_key if cfg else ""
 
-    result = emp.to_dict()
+    result = dict(emp)  # emp is already a dict from _require_employee
     result["llm_model"] = llm_model
     result["api_provider"] = api_provider
     result["api_key_set"] = bool(api_key)
@@ -1344,7 +1404,6 @@ async def fire_employee(employee_id: str, body: dict) -> dict:
     result = await execute_fire(employee_id, reason)
     if "error" in result:
         return result
-    result["state"] = company_state.to_json()
     return result
 
 
@@ -1362,24 +1421,18 @@ async def get_employee_manifest(employee_id: str) -> dict:
 @router.get("/api/employee/{employee_id}/okrs")
 async def get_employee_okrs(employee_id: str) -> dict:
     """Get OKRs for an employee."""
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    return {"employee_id": employee_id, "okrs": emp.okrs}
+    emp_data = _require_employee(employee_id)
+    return {"employee_id": employee_id, "okrs": emp_data.get("okrs", [])}
 
 
 @router.put("/api/employee/{employee_id}/okrs")
 async def update_employee_okrs(employee_id: str, body: dict) -> dict:
     """Update OKRs for an employee."""
-    from onemancompany.core.config import update_employee_field
-
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        raise HTTPException(status_code=404, detail="Employee not found")
+    _require_employee(employee_id)
 
     okrs = body.get("okrs", [])
-    emp.okrs = okrs
-    update_employee_field(employee_id, "okrs", okrs)
+    # Persist via store
+    await _store.save_employee(employee_id, {"okrs": okrs})
 
     await event_bus.publish(CompanyEvent(
         type="okr_updated",
@@ -1469,7 +1522,7 @@ async def abort_task(project_id: str) -> dict:
 
     # Cancel ALL non-terminal tree nodes (including waiting/pending ones not yet pushed to boards)
     cancelled_tree_nodes = 0
-    from onemancompany.core.project_archive import get_project_dir, load_project as _lp, _save_project
+    from onemancompany.core.project_archive import get_project_dir, load_project as _lp
     from onemancompany.core.task_tree import TaskTree
     from pathlib import Path as _Path
     from datetime import datetime as _dt
@@ -1554,10 +1607,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
             for t in board.tasks
         )
     if not has_active:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            emp.status = STATUS_IDLE
-            emp.current_task_summary = ""
+        await _store.save_employee_runtime(employee_id, status=STATUS_IDLE, current_task_summary="")
 
     # Update tree nodes for cancelled tasks
     await _sync_tree_cancel(all_cancelled)
@@ -1612,19 +1662,15 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
         cfg.llm_model = model_id
         cfg.salary_per_1m_tokens = new_salary
 
-    # Update in-memory employee state
-    emp.salary_per_1m_tokens = new_salary
-
-    # Update profile.yaml on disk
-    from onemancompany.core.config import update_employee_profile
-    update_employee_profile(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
+    # Persist via store
+    await _store.save_employee(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
 
     await event_bus.publish(
         CompanyEvent(
             type="agent_done",
             payload={
                 "role": "CEO",
-                "summary": f"Updated {emp.name} ({emp.nickname})'s model to {model_id}, salary=${new_salary}/1M",
+                "summary": f"Updated {emp.get('name', '')} ({emp.get('nickname', '')})'s model to {model_id}, salary=${new_salary}/1M",
             },
             agent="CEO",
         )
@@ -1663,17 +1709,13 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     # Update in-memory config
     cfg.hosting = new_hosting
 
-    # Update profile.yaml on disk
-    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
-    profile_data = load_employee_profile_yaml(employee_id)
-    if profile_data:
-        profile_data["hosting"] = new_hosting
-        if new_hosting == "self":
-            profile_data.setdefault("api_provider", "anthropic")
-            # Self-hosted uses Claude CLI auth, not OAuth
-            profile_data.pop("auth_method", None)
-            cfg.auth_method = "api_key"  # reset in-memory
-        save_employee_profile_yaml(employee_id, profile_data)
+    # Persist via store
+    hosting_updates: dict = {"hosting": new_hosting}
+    if new_hosting == "self":
+        hosting_updates["api_provider"] = "anthropic"
+        hosting_updates["auth_method"] = None  # self-hosted uses Claude CLI auth
+        cfg.auth_method = "api_key"  # reset in-memory
+    await _store.save_employee(employee_id, hosting_updates)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
     manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
@@ -1745,7 +1787,7 @@ async def update_employee_provider(employee_id: str, body: dict) -> dict:
     if new_provider not in ("openrouter", "anthropic"):
         return {"error": "Invalid provider. Use 'openrouter' or 'anthropic'."}
 
-    emp = _require_employee(employee_id)
+    _require_employee(employee_id)  # validate exists
 
     cfg = employee_configs.get(employee_id)
     if not cfg:
@@ -1753,23 +1795,17 @@ async def update_employee_provider(employee_id: str, body: dict) -> dict:
 
     old_provider = cfg.api_provider
     cfg.api_provider = new_provider
-    emp.api_provider = new_provider
-
     # When switching to anthropic, use company-level key if employee has none
     from onemancompany.core.config import settings as app_settings
+    provider_updates: dict = {"api_provider": new_provider}
     if new_provider == "anthropic" and not cfg.api_key:
         cfg.api_key = app_settings.anthropic_api_key
         cfg.auth_method = app_settings.anthropic_auth_method
+        provider_updates["api_key"] = app_settings.anthropic_api_key
+        provider_updates["auth_method"] = app_settings.anthropic_auth_method
 
-    # Update profile.yaml
-    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
-    profile_data = load_employee_profile_yaml(employee_id)
-    if profile_data:
-        profile_data["api_provider"] = new_provider
-        if new_provider == "anthropic" and not profile_data.get("api_key"):
-            profile_data["api_key"] = app_settings.anthropic_api_key
-            profile_data["auth_method"] = app_settings.anthropic_auth_method
-        save_employee_profile_yaml(employee_id, profile_data)
+    # Persist via store
+    await _store.save_employee(employee_id, provider_updates)
 
     # Rebuild agent LLM
     _rebuild_employee_agent(employee_id)
@@ -1818,12 +1854,11 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
     if new_model:
         cfg.llm_model = new_model
 
-    # Update profile.yaml on disk
-    from onemancompany.core.config import update_employee_profile
+    # Persist to disk via store
     updates = {"api_key": new_key}
     if new_model:
         updates["llm_model"] = new_model
-    update_employee_profile(employee_id, updates)
+    await _store.save_employee(employee_id, updates)
 
     # If an agent loop exists, rebuild its LLM so the new key takes effect
     _rebuild_employee_agent(employee_id)
@@ -1833,7 +1868,7 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
             type="agent_done",
             payload={
                 "role": "CEO",
-                "summary": f"Updated {emp.name}'s API key ({cfg.api_provider})"
+                "summary": f"Updated {emp.get('name', '')}'s API key ({cfg.api_provider})"
                            + (f", model={new_model}" if new_model else ""),
             },
             agent="CEO",
@@ -2173,14 +2208,14 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
         cfg.api_key = api_key
         cfg.oauth_refresh_token = tokens.get("refresh_token", "")
 
-        from onemancompany.core.config import update_employee_profile
-        update_employee_profile(employee_id, {
+        # Persist to disk via store
+        await _store.save_employee(employee_id, {
             "api_key": api_key,
             "oauth_refresh_token": tokens.get("refresh_token", ""),
         })
 
-    emp = company_state.employees.get(employee_id)
-    emp_name = emp.name if emp else employee_id
+    _oauth_emp = _load_emp(employee_id)
+    emp_name = _oauth_emp.get("name", employee_id) if _oauth_emp else employee_id
 
     await event_bus.publish(
         CompanyEvent(
@@ -2277,15 +2312,14 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         cfg.api_key = api_key
         cfg.oauth_refresh_token = refresh_token
 
-        # Persist to profile.yaml
-        from onemancompany.core.config import update_employee_profile
-        update_employee_profile(employee_id, {
+        # Persist to disk via store
+        await _store.save_employee(employee_id, {
             "api_key": api_key,
             "oauth_refresh_token": refresh_token,
         })
 
-    emp = company_state.employees.get(employee_id)
-    emp_name = emp.name if emp else employee_id
+    _oauth_emp2 = _load_emp(employee_id)
+    emp_name = _oauth_emp2.get("name", employee_id) if _oauth_emp2 else employee_id
 
     await event_bus.publish(
         CompanyEvent(
@@ -2346,9 +2380,8 @@ async def oauth_refresh(employee_id: str) -> dict:
     cfg.api_key = tokens.get("access_token", cfg.api_key)
     cfg.oauth_refresh_token = tokens.get("refresh_token", cfg.oauth_refresh_token)
 
-    # Persist
-    from onemancompany.core.config import update_employee_profile
-    update_employee_profile(employee_id, {
+    # Persist to disk via store
+    await _store.save_employee(employee_id, {
         "api_key": cfg.api_key,
         "oauth_refresh_token": cfg.oauth_refresh_token,
     })
@@ -2390,15 +2423,13 @@ async def delete_employee_session(employee_id: str, project_id: str) -> dict:
 @router.get("/api/company-culture")
 async def get_company_culture() -> dict:
     """Get all company culture items."""
-    return {"items": company_state.company_culture}
+    return {"items": _store.load_culture()}
 
 
 @router.post("/api/company-culture")
 async def add_culture_item(body: dict) -> dict:
     """CEO adds a new item to the company culture. Applies to all employees."""
     from datetime import datetime
-
-    from onemancompany.core.config import save_company_culture
 
     content = body.get("content", "").strip()
     if not content:
@@ -2408,34 +2439,35 @@ async def add_culture_item(body: dict) -> dict:
         "content": content,
         "created_at": datetime.now().isoformat(),
     }
-    company_state.company_culture.append(item)
-    save_company_culture(company_state.company_culture)
+    items = _store.load_culture()
+    items.append(item)
+    await _store.save_culture(items)
 
     await event_bus.publish(
         CompanyEvent(
             type="company_culture_updated",
-            payload={"item": item, "total": len(company_state.company_culture)},
+            payload={"item": item, "total": len(items)},
             agent="CEO",
         )
     )
-    return {"status": "added", "item": item, "total": len(company_state.company_culture)}
+    return {"status": "added", "item": item, "total": len(items)}
 
 
 @router.delete("/api/company-culture/{index}")
 async def remove_culture_item(index: int) -> dict:
     """CEO removes a company culture item by index."""
-    from onemancompany.core.config import save_company_culture
+    items = _store.load_culture()
 
-    if index < 0 or index >= len(company_state.company_culture):
+    if index < 0 or index >= len(items):
         return {"error": "Invalid index"}
 
-    removed = company_state.company_culture.pop(index)
-    save_company_culture(company_state.company_culture)
+    removed = items.pop(index)
+    await _store.save_culture(items)
 
     await event_bus.publish(
         CompanyEvent(
             type="company_culture_updated",
-            payload={"removed": removed, "total": len(company_state.company_culture)},
+            payload={"removed": removed, "total": len(items)},
             agent="CEO",
         )
     )
@@ -2447,17 +2479,14 @@ async def remove_culture_item(index: int) -> dict:
 @router.get("/api/company/direction")
 async def get_company_direction() -> dict:
     """Get the current company direction/strategy."""
-    return {"direction": company_state.company_direction}
+    return {"direction": _store.load_direction()}
 
 
 @router.put("/api/company/direction")
 async def update_company_direction(body: dict) -> dict:
     """CEO updates the company direction/strategy."""
-    from onemancompany.core.config import save_company_direction
-
     direction = body.get("direction", "")
-    company_state.company_direction = direction
-    save_company_direction(direction)
+    await _store.save_direction(direction)
 
     await event_bus.publish(
         CompanyEvent(
@@ -2619,7 +2648,8 @@ async def get_dashboard_costs() -> dict:
     from onemancompany.core.project_archive import get_cost_summary
     summary = get_cost_summary()
     # Add overhead costs from non-project LLM calls
-    oh = company_state.overhead_costs
+    from onemancompany.core.state import company_state as _cs
+    oh = _cs.overhead_costs
     summary["overhead"] = {
         "total_cost_usd": round(oh.total_cost_usd, 4),
         "total_input_tokens": oh.total_input_tokens,
@@ -2828,9 +2858,9 @@ def _build_plugin_context(dispatches: list[dict], project_id: str, project_statu
     for d in dispatches:
         emp_id = d.get("employee_id", "")
         if emp_id and emp_id not in employees:
-            emp = company_state.employees.get(emp_id)
-            if emp:
-                employees[emp_id] = {"name": emp.name, "nickname": emp.nickname}
+            _ctx_emp = _load_emp(emp_id)
+            if _ctx_emp:
+                employees[emp_id] = {"name": _ctx_emp.get("name", ""), "nickname": _ctx_emp.get("nickname", "")}
     return {"employees": employees, "project_id": project_id, "project_status": project_status}
 
 
@@ -2968,6 +2998,7 @@ def _normalize_project_status(status: str) -> str:
     return mapping.get(status, status)
 
 
+
 # ===== Task Tree Endpoint =====
 
 
@@ -3013,12 +3044,12 @@ async def get_project_tree(project_id: str) -> dict:
                     "avatar_url": "",
                 }
             else:
-                emp = company_state.employees.get(eid)
-                if emp:
+                _tree_emp = _load_emp(eid)
+                if _tree_emp:
                     employee_info[eid] = {
-                        "name": getattr(emp, "name", ""),
-                        "nickname": getattr(emp, "nickname", ""),
-                        "role": getattr(emp, "role", ""),
+                        "name": _tree_emp.get("name", ""),
+                        "nickname": _tree_emp.get("nickname", ""),
+                        "role": _tree_emp.get("role", ""),
                         "avatar_url": f"/api/employees/{eid}/avatar" if _has_avatar(eid) else "",
                     }
 
@@ -3288,8 +3319,8 @@ async def download_employee_workspace(employee_id: str):
                 zf.write(fpath, fpath.relative_to(ws))
     buf.seek(0)
 
-    emp = company_state.employees.get(employee_id)
-    name = emp.nickname if emp else employee_id
+    _dl_emp = _load_emp(employee_id)
+    name = _dl_emp.get("nickname", employee_id) if _dl_emp else employee_id
     return StreamingResponse(
         buf,
         media_type="application/zip",
@@ -3333,86 +3364,78 @@ async def download_project_workspace(project_id: str):
 @router.get("/api/ex-employees")
 async def get_ex_employees() -> dict:
     """List all ex-employees."""
-    return {"ex_employees": [e.to_dict() for e in company_state.ex_employees.values()]}
+    ex_emps = _store.load_ex_employees()
+    return {"ex_employees": list(ex_emps.values())}
 
 
 @router.post("/api/ex-employees/{employee_id}/rehire")
 async def rehire_ex_employee(employee_id: str) -> dict:
     """Re-hire an ex-employee: move folder back and restore to active state."""
-    from onemancompany.core.config import (
-        load_employee_guidance,
-        load_work_principles,
-        move_ex_employee_back,
-    )
-    from onemancompany.core.state import Employee
+    from onemancompany.core.config import move_ex_employee_back
 
-    if employee_id not in company_state.ex_employees:
+    ex_emps = _store.load_ex_employees()
+    if employee_id not in ex_emps:
         return {"error": "Ex-employee not found"}
 
-    ex_emp = company_state.ex_employees[employee_id]
+    ex_data = ex_emps[employee_id]
 
     # Move folder back from ex-employees/ to employees/
     if not move_ex_employee_back(employee_id):
         return {"error": "Failed to move employee folder"}
 
-    # Reload guidance and principles from restored folder
-    guidance = load_employee_guidance(employee_id)
-    principles = load_work_principles(employee_id)
-
     # Find next available desk position using department-based layout
-    from onemancompany.core.layout import compute_layout, get_next_desk_for_department, persist_all_desk_positions
-    is_remote = ex_emp.remote
+    from onemancompany.core.layout import compute_layout, get_next_desk_for_department
+    is_remote = ex_data.get("remote", False)
+    dept = ex_data.get("department", "General")
     if is_remote:
-        desk_pos = (-1, -1)
+        desk_pos = [-1, -1]
     else:
-        desk_pos = get_next_desk_for_department(company_state, ex_emp.department)
+        desk_pos = list(get_next_desk_for_department(company_state, dept))
 
-    # Restore to active employees with reset performance
-    emp = Employee(
-        id=ex_emp.id,
-        name=ex_emp.name,
-        nickname=ex_emp.nickname,
-        level=1,  # rehired employees start at level 1
-        department=ex_emp.department,
-        role=ex_emp.role,
-        skills=ex_emp.skills,
-        current_quarter_tasks=0,
-        performance_history=[],
-        desk_position=desk_pos,
-        sprite=ex_emp.sprite,
-        guidance_notes=guidance,
-        work_principles=principles,
-        remote=ex_emp.remote,
-    )
-    company_state.employees[employee_id] = emp
-    del company_state.ex_employees[employee_id]
+    # Persist via store — reset performance for rehire
+    await _store.save_employee(employee_id, {
+        "name": ex_data.get("name", ""),
+        "nickname": ex_data.get("nickname", ""),
+        "level": 1,
+        "department": dept,
+        "role": ex_data.get("role", ""),
+        "skills": ex_data.get("skills", []),
+        "current_quarter_tasks": 0,
+        "performance_history": [],
+        "desk_position": desk_pos,
+        "sprite": ex_data.get("sprite", "employee_default"),
+        "remote": is_remote,
+    })
+    await _store.save_employee_runtime(employee_id, status="idle")
 
-    # Recompute layout and persist all desk positions
+    # Recompute layout
     compute_layout(company_state)
-    persist_all_desk_positions(company_state)
 
     # Register in EmployeeManager for on-site employees
     if not is_remote:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(employee_id):
-            from onemancompany.core.config import employee_configs as _rehire_cfgs
-            _rehire_cfg = _rehire_cfgs.get(employee_id)
-            if _rehire_cfg and _rehire_cfg.hosting == "self":
+            emp_profile = _store.load_employee(employee_id)
+            if emp_profile.get("hosting") == "self":
                 register_self_hosted(employee_id)
             else:
                 from onemancompany.agents.base import EmployeeAgent
                 await register_and_start_agent(employee_id, EmployeeAgent(employee_id))
 
-    company_state.activity_log.append({
+    emp_name = ex_data.get("name", "")
+    emp_nickname = ex_data.get("nickname", "")
+    emp_role = ex_data.get("role", "")
+    await _store.append_activity({
         "type": "employee_rehired",
-        "name": emp.name,
-        "nickname": emp.nickname,
-        "role": emp.role,
+        "name": emp_name,
+        "nickname": emp_nickname,
+        "role": emp_role,
     })
+    rehired_data = _store.load_employee(employee_id)
     await event_bus.publish(
         CompanyEvent(
             type="employee_rehired",
-            payload=emp.to_dict(),
+            payload=rehired_data,
             agent="CEO",
         )
     )
@@ -3420,8 +3443,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     return {
         "status": "rehired",
         "employee_id": employee_id,
-        "name": emp.name,
-        "state": company_state.to_json(),
+        "name": emp_name,
     }
 
 
@@ -3469,8 +3491,8 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     from onemancompany.core.agent_loop import get_agent_loop
     coo_loop = get_agent_loop(COO_ID)
     if coo_loop:
-        emp = company_state.employees.get(employee_id)
-        emp_name = emp.name if emp else employee_id
+        _hire_emp = _load_emp(employee_id)
+        emp_name = _hire_emp.get("name", employee_id) if _hire_emp else employee_id
         role = ctx.get("role", "Employee")
         followup = (
             f"新员工就绪通知\n\n"
@@ -3567,7 +3589,7 @@ async def hire_candidate(body: HireRequest) -> dict:
     Executes the full hire flow in code — no LLM involved.
     Reads authoritative fields directly from the talent profile.
     """
-    from onemancompany.agents.hr_agent import pending_candidates
+    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire
 
     candidates = pending_candidates.get(body.batch_id, [])
@@ -3655,6 +3677,7 @@ async def hire_candidate(body: HireRequest) -> dict:
         # Retrospective only triggers after project acceptance + rectification.
 
     pending_candidates.pop(body.batch_id, None)
+    _persist_candidates()
 
     # Resume HR's HOLDING task so EA knows the hire is done
     from onemancompany.core.agent_loop import get_agent_loop
@@ -3675,7 +3698,6 @@ async def hire_candidate(body: HireRequest) -> dict:
         "employee_id": emp.id,
         "name": candidate["name"],
         "nickname": nickname,
-        "state": company_state.to_json(),
     }
 
 
@@ -3687,7 +3709,7 @@ async def batch_hire_candidates(body: dict) -> dict:
         batch_id: str
         selections: list of {candidate_id: str, role: str}
     """
-    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx
+    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
     from onemancompany.core.config import load_talent_profile
 
@@ -3818,6 +3840,7 @@ async def batch_hire_candidates(body: dict) -> dict:
         complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
 
     pending_candidates.pop(batch_id, None)
+    _persist_candidates()
 
     # Resume HR HOLDING task
     from onemancompany.core.agent_loop import get_agent_loop
@@ -3830,7 +3853,7 @@ async def batch_hire_candidates(body: dict) -> dict:
 
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
-    return {"status": "ok", "count": len(hired_names), "results": results, "state": company_state.to_json()}
+    return {"status": "ok", "count": len(hired_names), "results": results}
 
 
 @router.post("/api/candidates/interview")
@@ -4115,8 +4138,8 @@ async def get_tool_definition(tool_id: str):
     if allowed is not None:
         users_info = []
         for uid in (allowed or []):
-            emp = company_state.employees.get(uid)
-            users_info.append({"id": uid, "name": emp.name if emp else uid})
+            _access_emp = _load_emp(uid)
+            users_info.append({"id": uid, "name": _access_emp.get("name", uid) if _access_emp else uid})
         sections.append({
             "type": "access",
             "title": "Access Control",
@@ -4445,24 +4468,31 @@ async def tool_delete_template(tool_id: str, filename: str):
 @router.post("/api/sales/submit")
 async def sales_submit_task(body: dict) -> dict:
     """External clients submit tasks via the sales protocol."""
-    from onemancompany.core.state import SalesTask
-
     client_name = body.get("client_name", "")
     description = body.get("description", "")
     if not client_name or not description:
         return {"error": "Missing client_name or description"}
 
+    from datetime import datetime as _dt
     task_id = _uuid.uuid4().hex[:12]
-    sales_task = SalesTask(
-        id=task_id,
-        client_name=client_name,
-        description=description,
-        requirements=body.get("requirements", ""),
-        budget_tokens=body.get("budget_tokens", 0),
-    )
-    company_state.sales_tasks[task_id] = sales_task
+    sales_task_dict = {
+        "id": task_id,
+        "client_name": client_name,
+        "description": description,
+        "requirements": body.get("requirements", ""),
+        "budget_tokens": body.get("budget_tokens", 0),
+        "status": "pending",
+        "assigned_to": "",
+        "contract_approved": False,
+        "delivery": "",
+        "settlement_tokens": 0,
+        "created_at": _dt.now().isoformat(),
+    }
+    tasks = _store.load_sales_tasks()
+    tasks.append(sales_task_dict)
+    await _store.save_sales_tasks(tasks)
 
-    company_state.activity_log.append({
+    await _store.append_activity({
         "type": "sales_task_submitted",
         "task_id": task_id,
         "client": client_name,
@@ -4486,7 +4516,7 @@ async def sales_submit_task(body: dict) -> dict:
     await event_bus.publish(
         CompanyEvent(
             type="sales_task_submitted",
-            payload=sales_task.to_dict(),
+            payload=sales_task_dict,
             agent="SALES",
         )
     )
@@ -4501,35 +4531,36 @@ async def sales_submit_task(body: dict) -> dict:
 @router.get("/api/sales/tasks")
 async def sales_list_tasks() -> dict:
     """List all sales tasks."""
-    return {
-        "tasks": [t.to_dict() for t in company_state.sales_tasks.values()]
-    }
+    return {"tasks": _store.load_sales_tasks()}
 
 
 @router.get("/api/sales/tasks/{task_id}")
 async def sales_get_task(task_id: str) -> dict:
     """Get details of a specific sales task."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    return task.to_dict()
+    return task
 
 
 @router.post("/api/sales/tasks/{task_id}/deliver")
 async def sales_deliver_task(task_id: str, body: dict) -> dict:
     """Mark a sales task as delivered."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    if task.status != "in_production":
-        return {"error": f"Task status is '{task.status}', expected 'in_production'"}
+    if task.get("status") != "in_production":
+        return {"error": f"Task status is '{task.get('status')}', expected 'in_production'"}
 
-    task.status = "delivered"
-    task.delivery = body.get("delivery_summary", "")
-    company_state.activity_log.append({
+    task["status"] = "delivered"
+    task["delivery"] = body.get("delivery_summary", "")
+    await _store.save_sales_tasks(tasks)
+    await _store.append_activity({
         "type": "task_delivered",
         "task_id": task_id,
-        "client": task.client_name,
+        "client": task.get("client_name", ""),
     })
     return {"status": "delivered", "task_id": task_id}
 
@@ -4537,21 +4568,28 @@ async def sales_deliver_task(task_id: str, body: dict) -> dict:
 @router.post("/api/sales/tasks/{task_id}/settle")
 async def sales_settle_task(task_id: str) -> dict:
     """Collect settlement tokens for a delivered task."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    if task.status != "delivered":
-        return {"error": f"Task status is '{task.status}', must be 'delivered' to settle"}
+    if task.get("status") != "delivered":
+        return {"error": f"Task status is '{task.get('status')}', must be 'delivered' to settle"}
 
-    tokens = task.budget_tokens
-    task.settlement_tokens = tokens
-    task.status = "settled"
-    company_state.company_tokens += tokens
+    tokens = task.get("budget_tokens", 0)
+    task["settlement_tokens"] = tokens
+    task["status"] = "settled"
+    await _store.save_sales_tasks(tasks)
+
+    # Update company tokens in overhead
+    overhead = _store.load_overhead()
+    overhead["company_tokens"] = overhead.get("company_tokens", 0) + tokens
+    await _store.save_overhead(overhead)
+
     return {
         "status": "settled",
         "task_id": task_id,
         "tokens_earned": tokens,
-        "company_total_tokens": company_state.company_tokens,
+        "company_total_tokens": overhead["company_tokens"],
     }
 
 
@@ -4832,3 +4870,63 @@ async def stop_all_crons_endpoint(employee_id: str) -> dict:
         return stop_all_crons_for_employee(employee_id)
     except Exception as e:
         raise HTTPException(400, str(e))
+
+
+# ---------------------------------------------------------------------------
+# Tick-based resource endpoints (single-source-of-truth — read from disk)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/api/employees")
+async def list_employees():
+    """List all active employees — reads from disk."""
+    from onemancompany.core.store import load_all_employees
+    employees = load_all_employees()
+    result = []
+    for emp_id, data in employees.items():
+        runtime = data.pop("runtime", {})
+        data["id"] = emp_id
+        data["employee_number"] = emp_id
+        data["status"] = runtime.get("status", "idle")
+        data["is_listening"] = runtime.get("is_listening", False)
+        data["current_task_summary"] = runtime.get("current_task_summary", "")
+        data["api_online"] = runtime.get("api_online", True)
+        data["needs_setup"] = runtime.get("needs_setup", False)
+        result.append(data)
+    return result
+
+
+@router.get("/api/rooms")
+async def list_rooms():
+    """List rooms with booking status — reads from disk."""
+    from onemancompany.core.store import load_rooms
+    return load_rooms()
+
+
+@router.get("/api/rooms/{room_id}/chat")
+async def get_room_chat(room_id: str):
+    """Room chat history — reads from disk."""
+    from onemancompany.core.store import load_room_chat
+    return load_room_chat(room_id)
+
+
+@router.get("/api/tools")
+async def list_tools():
+    """List tools — reads from disk."""
+    from onemancompany.core.store import load_tools
+    return load_tools()
+
+
+@router.get("/api/employee/{employee_id}/oneonone")
+async def get_oneonone_history(employee_id: str):
+    """1-on-1 chat history — reads from disk."""
+    from onemancompany.core.store import load_oneonone
+    return load_oneonone(employee_id)
+
+
+@router.get("/api/activity-log")
+async def get_activity_log():
+    """Activity log (last 50 entries) — reads from disk."""
+    from onemancompany.core.store import load_activity_log
+    log = load_activity_log()
+    return log[-50:]

@@ -17,13 +17,45 @@ from mcp import ClientSession
 
 from loguru import logger
 
-# ===== In-memory state for pending candidates =====
+from onemancompany.core import store as _store
 
-# batch_id -> [candidate, ...]
+# ===== Pending candidate state (disk-backed) =====
+
+# In-memory dict kept in sync with disk for fast access.
+# Writes go through _persist_candidates() which saves to store.
 pending_candidates: dict[str, list[dict]] = {}
 
 # batch_id -> {project_id, project_dir}
 _pending_project_ctx: dict[str, dict] = {}
+
+
+def _persist_candidates() -> None:
+    """Persist pending_candidates to disk (sync, fire-and-forget async)."""
+    import asyncio
+
+    data = {"batches": pending_candidates, "project_ctx": _pending_project_ctx}
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_store.save_candidates("pending", data))
+    except RuntimeError:
+        # No event loop — write synchronously
+        from onemancompany.core.store import _write_yaml, COMPANY_DIR
+        from onemancompany.core.store import mark_dirty
+        path = COMPANY_DIR / "candidates" / "pending.yaml"
+        _write_yaml(path, data)
+        mark_dirty("candidates")
+
+
+def _load_candidates_from_disk() -> None:
+    """Restore pending_candidates from disk on startup."""
+    data = _store.load_candidates("pending")
+    if data:
+        restored = data.get("batches", {})
+        if restored:
+            pending_candidates.update(restored)
+        ctx = data.get("project_ctx", {})
+        if ctx:
+            _pending_project_ctx.update(ctx)
 
 # candidate_id -> full candidate dict (stashed from last search)
 _last_search_results: dict[str, dict] = {}
@@ -290,6 +322,7 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
 
     batch_id = str(_uuid.uuid4())[:8]
     pending_candidates[batch_id] = all_candidates
+    _persist_candidates()
 
     await event_bus.publish(CompanyEvent(
         type="candidates_ready",
@@ -311,28 +344,7 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
 
 
 # ---------------------------------------------------------------------------
-# Snapshot provider — hiring pipeline state
+# Restore candidates from disk on module load
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
-
-
-@snapshot_provider("recruitment")
-class _RecruitmentSnapshot:
-    @staticmethod
-    def save() -> dict:
-        result = {}
-        if pending_candidates:
-            result["pending_candidates"] = pending_candidates
-        if _pending_project_ctx:
-            result["pending_project_ctx"] = _pending_project_ctx
-        return result
-
-    @staticmethod
-    def restore(data: dict) -> None:
-        restored_candidates = data.get("pending_candidates", {})
-        if restored_candidates:
-            pending_candidates.update(restored_candidates)
-        restored_ctx = data.get("pending_project_ctx", {})
-        if restored_ctx:
-            _pending_project_ctx.update(restored_ctx)
+_load_candidates_from_disk()

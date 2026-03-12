@@ -71,7 +71,26 @@ except Exception:
     logger.exception("do_work failed")
 ```
 
-### 5. Minimal Complexity
+### 5. Single Source of Truth — Disk Is the Only Truth
+
+All business data lives in `.onemancompany/` disk files. Writes go to disk immediately via `core/store.py`. Memory holds only intermediate computation products (layout, counters) — never cached copies of business data.
+
+**Rules:**
+- Every piece of data has exactly **one file** that owns it and exactly **one write function** (`store.save_*()`)
+- Reads always go to disk (`store.load_*()`) — no in-memory caching of business data
+- Frontend is a pure render layer — no `this.state` or cached copies; fetches from REST API on demand
+- Frontend-backend sync runs on a 3-second tick: backend accumulates dirty categories, broadcasts `state_changed`, frontend re-fetches
+- Real-time chat messages are the exception — pushed immediately via WebSocket for low-latency UX
+
+```python
+# Bad: in-memory cache that can diverge from disk
+company_state.employees[emp_id].status = "working"
+
+# Good: write to disk immediately, mark dirty for next tick
+await store.save_employee_runtime(emp_id, status="working")
+```
+
+### 6. Minimal Complexity
 
 Don't over-engineer. The right amount of complexity is the **minimum** needed for the current task. Three similar lines are better than a premature abstraction.
 

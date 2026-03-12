@@ -19,7 +19,6 @@ from onemancompany.core.state import (
     CompanyState,
     Employee,
     MeetingRoom,
-    SalesTask,
     TaskEntry,
 )
 
@@ -59,11 +58,115 @@ def _make_employee(
 
 
 def _make_state(**overrides) -> CompanyState:
-    """Build a CompanyState with sensible defaults."""
+    """Build a CompanyState with sensible defaults.
+
+    Adds ``employees`` and ``ex_employees`` as ad-hoc instance attrs
+    so that ``_store_patches`` can derive mock store data from them.
+    These are NOT CompanyState dataclass fields — just test scaffolding.
+    """
     state = CompanyState()
+    # Test-only attrs for _store_patches to read
+    state.employees = {}  # type: ignore[attr-defined]
+    state.ex_employees = {}  # type: ignore[attr-defined]
     for k, v in overrides.items():
         setattr(state, k, v)
     return state
+
+
+def _emp_to_dict(emp: Employee) -> dict:
+    """Convert Employee object to dict matching store.load_employee() output."""
+    d: dict = {}
+    for attr in ("id", "name", "nickname", "role", "skills", "level", "department",
+                 "permissions", "tool_permissions", "work_principles", "guidance_notes",
+                 "status", "is_listening", "current_task_summary", "okrs",
+                 "current_quarter_tasks", "performance_score"):
+        val = getattr(emp, attr, None)
+        if val is not None:
+            d[attr] = val
+    d["runtime"] = {
+        "status": getattr(emp, "status", "idle"),
+        "is_listening": getattr(emp, "is_listening", False),
+        "current_task_summary": getattr(emp, "current_task_summary", ""),
+    }
+    return d
+
+
+def _store_patches(state: CompanyState):
+    """Return a context manager that patches store reads + routes helpers to use test state."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        employees = getattr(state, "employees", {})
+        ex_employees = getattr(state, "ex_employees", {})
+        activity_log = getattr(state, "activity_log", [])
+        culture = getattr(state, "company_culture", [])
+
+        def fake_load(eid):
+            emp = employees.get(eid)
+            return _emp_to_dict(emp) if emp else {}
+
+        def fake_load_all():
+            return {eid: _emp_to_dict(e) for eid, e in employees.items()}
+
+        def fake_load_ex():
+            return {eid: _emp_to_dict(e) for eid, e in ex_employees.items()}
+
+        def fake_load_activity():
+            return list(activity_log)
+
+        def fake_load_culture():
+            return list(culture)
+
+        direction = getattr(state, "company_direction", "")
+
+        def fake_load_direction():
+            return direction
+
+        meeting_rooms = getattr(state, "meeting_rooms", {})
+
+        def fake_load_rooms():
+            return [m.to_dict() for m in meeting_rooms.values()]
+
+        async def fake_save_room(room_id, updates):
+            pass  # no-op in tests
+
+        # Sales tasks — disk-backed via store
+        sales_tasks = getattr(state, "_sales_tasks", [])
+
+        def fake_load_sales():
+            return list(sales_tasks)
+
+        async def fake_save_sales(tasks):
+            sales_tasks.clear()
+            sales_tasks.extend(tasks)
+
+        # Overhead — disk-backed via store
+        overhead = getattr(state, "_overhead", {"company_tokens": 0})
+
+        def fake_load_overhead():
+            return dict(overhead)
+
+        async def fake_save_overhead(data):
+            overhead.update(data)
+
+        with patch("onemancompany.api.routes._load_emp", side_effect=fake_load), \
+             patch("onemancompany.api.routes._load_all", side_effect=fake_load_all), \
+             patch("onemancompany.core.store.load_all_employees", side_effect=fake_load_all), \
+             patch("onemancompany.core.store.load_ex_employees", side_effect=fake_load_ex), \
+             patch("onemancompany.core.store.load_activity_log", side_effect=fake_load_activity), \
+             patch("onemancompany.core.store.load_culture", side_effect=fake_load_culture), \
+             patch("onemancompany.core.store.load_direction", side_effect=fake_load_direction), \
+             patch("onemancompany.core.store.load_rooms", side_effect=fake_load_rooms), \
+             patch("onemancompany.api.routes._store.load_rooms", side_effect=fake_load_rooms), \
+             patch("onemancompany.api.routes._store.save_room", side_effect=fake_save_room), \
+             patch("onemancompany.api.routes._store.load_sales_tasks", side_effect=fake_load_sales), \
+             patch("onemancompany.api.routes._store.save_sales_tasks", side_effect=fake_save_sales), \
+             patch("onemancompany.api.routes._store.load_overhead", side_effect=fake_load_overhead), \
+             patch("onemancompany.api.routes._store.save_overhead", side_effect=fake_save_overhead):
+            yield
+
+    return _ctx()
 
 
 @pytest.fixture
@@ -83,6 +186,7 @@ class TestGetState:
         state.employees[emp.id] = emp
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -105,6 +209,7 @@ class TestCompanyDirection:
         state = _make_state(company_direction="Build AI products")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -117,16 +222,22 @@ class TestCompanyDirection:
         state = _make_state()
         bus = EventBus()
 
+        saved_direction = {}
+
+        async def fake_save_direction(text):
+            saved_direction["value"] = text
+
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_direction"):
+             patch("onemancompany.core.store.save_direction", side_effect=fake_save_direction):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/company/direction", json={"direction": "New direction"})
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        assert state.company_direction == "New direction"
+        assert saved_direction["value"] == "New direction"
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +255,20 @@ class TestAdminClearTasks:
         bus = EventBus()
         mock_task_entry = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task_entry]), \
              patch("onemancompany.api.routes.EMPLOYEES_DIR", MagicMock(iterdir=MagicMock(return_value=[]))), \
              patch("onemancompany.api.routes.load_active_tasks", create=True, return_value=[]), \
-             patch("onemancompany.api.routes.archive_task", create=True):
+             patch("onemancompany.api.routes.archive_task", create=True), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/admin/clear-tasks")
@@ -158,7 +277,8 @@ class TestAdminClearTasks:
         data = resp.json()
         assert data["status"] == "cleared"
         assert data["tasks_removed"] == 1
-        assert emp.status == "idle"
+        # Verify employee status was reset via store
+        assert any(f.get("status") == "idle" for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +291,7 @@ class TestCeoSubmitTask:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -188,6 +309,7 @@ class TestCeoSubmitTask:
         mock_loop.push_task = MagicMock(return_value=mock_agent_task)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.project_archive.create_project", return_value="proj_123"), \
@@ -213,6 +335,7 @@ class TestCeoSubmitTask:
         mock_save_tree = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.project_archive.create_project", return_value="proj_123"), \
@@ -253,6 +376,7 @@ class TestFireEmployee:
         fire_result = {"status": "fired", "employee_id": "00010"}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.termination.execute_fire", new_callable=AsyncMock, return_value=fire_result):
             app = _make_test_app()
@@ -262,8 +386,6 @@ class TestFireEmployee:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "fired"
-        # state is injected
-        assert "state" in data
 
     async def test_fire_employee_error(self):
         state = _make_state()
@@ -271,6 +393,7 @@ class TestFireEmployee:
         fire_result = {"error": "Cannot fire founding employees"}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.termination.execute_fire", new_callable=AsyncMock, return_value=fire_result):
             app = _make_test_app()
@@ -291,6 +414,7 @@ class TestGetEmployeeDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -311,6 +435,7 @@ class TestGetEmployeeDetail:
         mock_cfg.tool_permissions = ["web_search"]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.load_manifest", return_value=None):
@@ -337,6 +462,7 @@ class TestMeetingRooms:
         state = _make_state(meeting_rooms={"room1": room})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -363,6 +489,7 @@ class TestMeetingRelease:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -379,6 +506,7 @@ class TestMeetingRelease:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -390,6 +518,7 @@ class TestMeetingRelease:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -402,6 +531,7 @@ class TestMeetingRelease:
         state = _make_state(meeting_rooms={"room1": room})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -420,6 +550,7 @@ class TestCompanyCulture:
         state = _make_state(company_culture=[{"content": "Move fast"}])
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -432,21 +563,28 @@ class TestCompanyCulture:
         state = _make_state()
         bus = EventBus()
 
+        saved_culture = {}
+
+        async def fake_save_culture(items):
+            saved_culture["items"] = items
+
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_culture"):
+             patch("onemancompany.core.store.save_culture", side_effect=fake_save_culture):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/company-culture", json={"content": "Move fast"})
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "added"
-        assert len(state.company_culture) == 1
+        assert len(saved_culture["items"]) == 1
 
     async def test_add_culture_empty_content(self):
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -458,22 +596,29 @@ class TestCompanyCulture:
         state = _make_state(company_culture=[{"content": "A"}, {"content": "B"}])
         bus = EventBus()
 
+        saved_culture = {}
+
+        async def fake_save_culture(items):
+            saved_culture["items"] = items
+
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_culture"):
+             patch("onemancompany.core.store.save_culture", side_effect=fake_save_culture):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.delete("/api/company-culture/0")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "removed"
-        assert len(state.company_culture) == 1
-        assert state.company_culture[0]["content"] == "B"
+        assert len(saved_culture["items"]) == 1
+        assert saved_culture["items"][0]["content"] == "B"
 
     async def test_remove_invalid_index(self):
         state = _make_state(company_culture=[{"content": "A"}])
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -493,6 +638,7 @@ class TestRemoteRegister:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._remote_workers", {}), \
              patch("onemancompany.api.routes._remote_task_queues", {}):
@@ -513,6 +659,7 @@ class TestRemoteGetTasks:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._remote_task_queues", {"00010": []}), \
              patch("onemancompany.api.routes._remote_workers", {}):
@@ -529,6 +676,7 @@ class TestRemoteGetTasks:
         workers = {"00010": {"status": "idle", "current_task_id": None}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._remote_task_queues", {"00010": [task_data]}), \
              patch("onemancompany.api.routes._remote_workers", workers):
@@ -547,6 +695,7 @@ class TestRemoteHeartbeat:
         workers = {"00010": {"status": "idle", "current_task_id": None}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._remote_workers", workers):
             app = _make_test_app()
@@ -569,6 +718,7 @@ class TestRemoteSubmitResults:
         workers = {"00010": {"status": "busy", "current_task_id": "t1"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._remote_workers", workers):
             app = _make_test_app()
@@ -590,12 +740,26 @@ class TestRemoteSubmitResults:
 # ---------------------------------------------------------------------------
 
 
+def _make_sales_dict(task_id: str, **kwargs) -> dict:
+    """Create a sales task dict for testing."""
+    defaults = {
+        "id": task_id, "client_name": "Acme", "description": "Build X",
+        "requirements": "", "budget_tokens": 100, "status": "pending",
+        "assigned_to": "", "contract_approved": False, "delivery": "",
+        "settlement_tokens": 0, "created_at": "",
+    }
+    defaults.update(kwargs)
+    return defaults
+
+
 class TestSalesSubmit:
     async def test_submit_task(self):
         state = _make_state()
+        state._sales_tasks = []
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
             app = _make_test_app()
@@ -610,12 +774,14 @@ class TestSalesSubmit:
         data = resp.json()
         assert data["status"] == "submitted"
         assert "task_id" in data
-        assert len(state.sales_tasks) == 1
+        assert len(state._sales_tasks) == 1
 
     async def test_submit_missing_fields(self):
         state = _make_state()
+        state._sales_tasks = []
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -626,10 +792,11 @@ class TestSalesSubmit:
 
 class TestSalesListTasks:
     async def test_list_tasks(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", client_name="Acme")]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -641,10 +808,11 @@ class TestSalesListTasks:
 
 class TestSalesGetTask:
     async def test_get_existing_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", client_name="Acme")]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -655,8 +823,10 @@ class TestSalesGetTask:
 
     async def test_get_nonexistent_task(self):
         state = _make_state()
+        state._sales_tasks = []
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -667,10 +837,11 @@ class TestSalesGetTask:
 
 class TestSalesDeliver:
     async def test_deliver_in_production_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X", status="in_production")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="in_production")]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -678,14 +849,15 @@ class TestSalesDeliver:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "delivered"
-        assert st.status == "delivered"
-        assert st.delivery == "All done"
+        assert state._sales_tasks[0]["status"] == "delivered"
+        assert state._sales_tasks[0]["delivery"] == "All done"
 
     async def test_deliver_wrong_status(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X", status="pending")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="pending")]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -696,10 +868,12 @@ class TestSalesDeliver:
 
 class TestSalesSettle:
     async def test_settle_delivered_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="X", status="delivered", budget_tokens=500)
-        state = _make_state(sales_tasks={"s1": st}, company_tokens=1000)
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="delivered", budget_tokens=500)]
+        state._overhead = {"company_tokens": 1000}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -710,13 +884,14 @@ class TestSalesSettle:
         assert data["status"] == "settled"
         assert data["tokens_earned"] == 500
         assert data["company_total_tokens"] == 1500
-        assert st.status == "settled"
+        assert state._sales_tasks[0]["status"] == "settled"
 
     async def test_settle_wrong_status(self):
-        st = SalesTask(id="s1", client_name="Acme", description="X", status="pending")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="pending")]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -735,6 +910,7 @@ class TestSalesProtocol:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -758,6 +934,7 @@ class TestExEmployees:
         state = _make_state(ex_employees={"00099": ex})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -770,6 +947,7 @@ class TestExEmployees:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -789,6 +967,7 @@ class TestWorkflows:
         mock_workflows = {"onboarding": "# Onboarding\nStep 1...", "review": "# Review\nStep 1..."}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.load_workflows", return_value=mock_workflows):
             app = _make_test_app()
@@ -803,6 +982,7 @@ class TestWorkflows:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.load_workflows", return_value={"onboarding": "# Onboarding"}):
             app = _make_test_app()
@@ -816,6 +996,7 @@ class TestWorkflows:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.load_workflows", return_value={}):
             app = _make_test_app()
@@ -829,6 +1010,7 @@ class TestWorkflows:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.save_workflow"):
             app = _make_test_app()
@@ -842,6 +1024,7 @@ class TestWorkflows:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -860,6 +1043,7 @@ class TestEmployeeTaskboard:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
             app = _make_test_app()
@@ -880,6 +1064,7 @@ class TestEmployeeLogs:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
             app = _make_test_app()
@@ -901,6 +1086,7 @@ class TestAdminReload:
         mock_changes = {"employees_updated": ["00002"], "employees_added": []}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.state.reload_all_from_disk", return_value=mock_changes):
             app = _make_test_app()
@@ -922,6 +1108,7 @@ class TestInquiryEnd:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -933,6 +1120,7 @@ class TestInquiryEnd:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._inquiry_sessions", {}):
             app = _make_test_app()
@@ -947,6 +1135,7 @@ class TestInquiryChat:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -965,6 +1154,7 @@ class TestCeoQA:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -983,6 +1173,7 @@ class TestOneOnOneChat:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -994,6 +1185,7 @@ class TestOneOnOneChat:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1010,6 +1202,7 @@ class TestOneOnOneEnd:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1021,6 +1214,7 @@ class TestOneOnOneEnd:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1039,6 +1233,7 @@ class TestProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.create_named_project", return_value="proj_abc"):
             app = _make_test_app()
@@ -1052,6 +1247,7 @@ class TestProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1070,6 +1266,7 @@ class TestEmployeeManifest:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.load_manifest", return_value=None):
             app = _make_test_app()
@@ -1083,6 +1280,7 @@ class TestEmployeeManifest:
         manifest_data = {"id": "test", "name": "Test", "settings": []}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.load_manifest", return_value=manifest_data):
             app = _make_test_app()
@@ -1107,6 +1305,7 @@ class TestCeoQAHappyPath:
         mock_result.content = "The answer is 42"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()):
@@ -1137,6 +1336,7 @@ class TestOneOnOneChatFallback:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -1167,6 +1367,7 @@ class TestOneOnOneChatFallback:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -1205,11 +1406,18 @@ class TestOneOnOneEndHappyPath:
         mock_result = MagicMock()
         mock_result.content = "NO_UPDATE"
 
+        saved_runtime = {}
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime.update(fields)
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles"):
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -1224,7 +1432,7 @@ class TestOneOnOneEndHappyPath:
         data = resp.json()
         assert data["status"] == "ended"
         assert data["principles_updated"] is False
-        assert emp.is_listening is False
+        assert saved_runtime.get("is_listening") is False
 
     async def test_end_with_update(self):
         emp = _make_employee(id="00010")
@@ -1235,11 +1443,20 @@ class TestOneOnOneEndHappyPath:
         mock_result = MagicMock()
         mock_result.content = "UPDATED: Be more proactive\n- Take initiative"
 
+        saved_principles = {}
+
+        async def fake_save_principles(eid, text):
+            saved_principles["employee_id"] = eid
+            saved_principles["text"] = text
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles") as mock_save:
+             patch("onemancompany.core.store.save_work_principles", side_effect=fake_save_principles), \
+             patch("onemancompany.core.store.save_employee_runtime", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -1252,8 +1469,7 @@ class TestOneOnOneEndHappyPath:
         assert resp.status_code == 200
         data = resp.json()
         assert data["principles_updated"] is True
-        assert emp.work_principles == "Be more proactive\n- Take initiative"
-        mock_save.assert_called_once()
+        assert saved_principles["text"] == "Be more proactive\n- Take initiative"
 
     async def test_end_no_history(self):
         emp = _make_employee(id="00010")
@@ -1262,6 +1478,7 @@ class TestOneOnOneEndHappyPath:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1289,6 +1506,7 @@ class TestMeetingBook:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -1307,6 +1525,7 @@ class TestMeetingBook:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1329,6 +1548,7 @@ class TestHRReview:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -1351,6 +1571,7 @@ class TestRoutineStart:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
@@ -1372,6 +1593,7 @@ class TestRoutineApprove:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1386,6 +1608,7 @@ class TestRoutineApprove:
         mock_em = MagicMock()
         mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.execute_approved_actions", new_callable=AsyncMock):
@@ -1410,6 +1633,7 @@ class TestRoutineAllHands:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1424,6 +1648,7 @@ class TestRoutineAllHands:
         mock_em = MagicMock()
         mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.run_all_hands_meeting", new_callable=AsyncMock):
@@ -1456,6 +1681,7 @@ class TestListModels:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.settings") as mock_settings:
@@ -1479,6 +1705,7 @@ class TestListModels:
         mock_client.get = AsyncMock(side_effect=Exception("Connection error"))
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.settings") as mock_settings:
@@ -1506,6 +1733,7 @@ class TestEmployeeOKRs:
         state = _make_state(employees={"00010": emp})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1518,6 +1746,7 @@ class TestEmployeeOKRs:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1531,8 +1760,8 @@ class TestEmployeeOKRs:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.update_employee_field"):
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/00010/okrs", json={
@@ -1547,6 +1776,7 @@ class TestEmployeeOKRs:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1569,6 +1799,7 @@ class TestEmployeeTaskboardWithLoop:
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -1595,6 +1826,7 @@ class TestUpdateEmployeeModel:
         mock_cfg.salary_per_1m_tokens = 1.0
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock()), \
@@ -1615,6 +1847,7 @@ class TestUpdateEmployeeModel:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1626,6 +1859,7 @@ class TestUpdateEmployeeModel:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1644,6 +1878,7 @@ class TestGetProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.list_projects", return_value=[{"id": "p1", "name": "Project 1"}]):
             app = _make_test_app()
@@ -1664,6 +1899,7 @@ class TestListNamedProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.list_named_projects", return_value=[{"id": "p1"}]):
             app = _make_test_app()
@@ -1684,6 +1920,7 @@ class TestGetNamedProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=None):
             app = _make_test_app()
@@ -1696,6 +1933,7 @@ class TestGetNamedProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value={
                  "name": "Test", "iterations": [], "status": "active"
@@ -1718,6 +1956,7 @@ class TestArchiveProject:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=None):
             app = _make_test_app()
@@ -1730,6 +1969,7 @@ class TestArchiveProject:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value={"name": "Test"}), \
              patch("onemancompany.core.project_archive.archive_project"):
@@ -1751,6 +1991,7 @@ class TestGetProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_project", return_value={"task": "Build"}), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
@@ -1768,6 +2009,7 @@ class TestGetProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_project", return_value=None):
             app = _make_test_app()
@@ -1790,6 +2032,7 @@ class TestDashboardCosts:
         state.overhead_costs = oh
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.get_cost_summary", return_value={
                  "total": {"cost_usd": 1.5}, "projects": [],
@@ -1814,6 +2057,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.list_pending_edits", return_value=[]):
             app = _make_test_app()
@@ -1828,6 +2072,7 @@ class TestFileEdits:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.file_editor.execute_edit", return_value={
                  "status": "ok", "rel_path": "file.py", "backup_path": "/backup/file.py"
@@ -1843,6 +2088,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.execute_edit", return_value={
                  "status": "error", "message": "Edit not found"
@@ -1858,6 +2104,7 @@ class TestFileEdits:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.file_editor.reject_edit", return_value={
                  "status": "ok", "rel_path": "file.py"
@@ -1873,6 +2120,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.reject_edit", return_value={
                  "status": "error", "message": "Not found"
@@ -1894,6 +2142,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.list_deferred_edits", return_value=[]):
             app = _make_test_app()
@@ -1907,6 +2156,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.list_resolutions", return_value=[]):
             app = _make_test_app()
@@ -1920,6 +2170,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.load_resolution", return_value=None):
             app = _make_test_app()
@@ -1932,6 +2183,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.load_resolution", return_value={"id": "r1", "edits": []}):
             app = _make_test_app()
@@ -1945,6 +2197,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1957,6 +2210,7 @@ class TestResolutions:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.resolutions.decide_resolution", return_value={
                  "status": "ok", "results": [{"edit_id": "e1", "action": "approve"}]
@@ -1975,6 +2229,7 @@ class TestResolutions:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.resolutions.execute_deferred_edit", return_value={
                  "status": "ok", "rel_path": "file.py", "backup_path": "/backup"
@@ -2009,6 +2264,7 @@ class TestInquiryEndWithSession:
         )
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._inquiry_sessions", {"sess1": session}):
             app = _make_test_app()
@@ -2050,6 +2306,7 @@ class TestInquiryChatWithSession:
         mock_result.content = "Let me explain further"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._inquiry_sessions", {"sess1": session}), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -2070,6 +2327,7 @@ class TestInquiryChatWithSession:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._inquiry_sessions", {}):
             app = _make_test_app()
@@ -2094,6 +2352,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -2106,6 +2365,7 @@ class TestEmployeeSessions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {}):
             app = _make_test_app()
@@ -2120,6 +2380,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.list_sessions", return_value=[{"project_id": "p1"}]):
@@ -2136,6 +2397,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -2150,6 +2412,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.cleanup_session"):
@@ -2171,6 +2434,7 @@ class TestHiringRequests:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", {"r1": {"role": "Developer", "reason": "Need help"}}):
             app = _make_test_app()
@@ -2185,6 +2449,7 @@ class TestHiringRequests:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", {}):
             app = _make_test_app()
@@ -2199,6 +2464,7 @@ class TestHiringRequests:
         reqs = {"r1": {"role": "Developer", "reason": "Need help"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", reqs):
             app = _make_test_app()
@@ -2219,6 +2485,7 @@ class TestUploadFile:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes.COMPANY_DIR", tmp_path):
             app = _make_test_app()
@@ -2259,6 +2526,7 @@ class TestOneOnOneChatAgentLoop:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -2298,6 +2566,7 @@ class TestOneOnOneChatAgentLoop:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -2341,6 +2610,7 @@ class TestOneOnOneChatAgentLoop:
                 mock_task.status = "complete"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -2365,7 +2635,14 @@ class TestOneOnOneChatAgentLoop:
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -2373,7 +2650,8 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_talent_persona", return_value=""), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
+             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2383,7 +2661,8 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert emp.is_listening is True
+        # Verify save_employee_runtime was called with is_listening=True
+        assert any(f.get("is_listening") is True for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -2401,6 +2680,7 @@ class TestOneOnOneChatSelfHosted:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock, return_value="Self-hosted reply"):
@@ -2424,6 +2704,7 @@ class TestOneOnOneChatSelfHosted:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock, return_value="Follow-up reply"):
@@ -2452,6 +2733,7 @@ class TestCeoSubmitTaskPaths:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.project_archive.create_iteration", return_value="iter_001"), \
@@ -2475,6 +2757,7 @@ class TestCeoSubmitTaskPaths:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.project_archive.create_named_project", return_value="new-project"), \
@@ -2508,6 +2791,7 @@ class TestAbortTask:
         mock_manager.abort_project.return_value = [mock_task]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             app = _make_test_app()
@@ -2530,6 +2814,7 @@ class TestCancelAgentTask:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
             app = _make_test_app()
@@ -2546,6 +2831,7 @@ class TestCancelAgentTask:
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -2564,6 +2850,7 @@ class TestCancelAgentTask:
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -2586,6 +2873,7 @@ class TestCancelAgentTask:
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.task_persistence.persist_task"), \
@@ -2610,6 +2898,7 @@ class TestUpdateEmployeeApiKey:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -2622,6 +2911,7 @@ class TestUpdateEmployeeApiKey:
         state = _make_state(employees={"00010": emp})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {}):
             app = _make_test_app()
@@ -2638,6 +2928,7 @@ class TestUpdateEmployeeApiKey:
         mock_cfg.api_provider = "openrouter"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -2660,6 +2951,7 @@ class TestUpdateEmployeeApiKey:
         mock_path.exists.return_value = False
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(__truediv__=MagicMock(return_value=MagicMock(__truediv__=MagicMock(return_value=mock_path))))), \
@@ -2693,6 +2985,7 @@ class TestGetEmployeeDetailSelfHosted:
         mock_cfg.tool_permissions = []
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.load_manifest", return_value=None), \
@@ -2718,6 +3011,7 @@ class TestGetEmployeeDetailNoConfig:
         state = _make_state(employees={"00010": emp})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {}), \
              patch("onemancompany.core.config.load_manifest", return_value=None):
@@ -2752,6 +3046,7 @@ class TestGetEmployeeDetailWithManifest:
         manifest = {"name": "Test Manifest", "settings": []}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.load_manifest", return_value=manifest):
@@ -2782,6 +3077,7 @@ class TestEmployeeLogsWithLoop:
         ]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -2804,6 +3100,7 @@ class TestEmployeeLogsWithLoop:
         mock_loop.board.tasks = [task1]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -2825,6 +3122,7 @@ class TestEmployeeLogsWithLoop:
         mock_loop.board.tasks = [task_no_logs]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -2854,6 +3152,7 @@ class TestUpdateEmployeeModel:
         mock_path.exists.return_value = False
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(__truediv__=MagicMock(return_value=MagicMock(__truediv__=MagicMock(return_value=mock_path))))), \
@@ -2870,6 +3169,7 @@ class TestUpdateEmployeeModel:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -2881,6 +3181,7 @@ class TestUpdateEmployeeModel:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -2899,6 +3200,7 @@ class TestGetProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.list_projects", return_value=[{"id": "p1", "name": "Project 1"}]):
             app = _make_test_app()
@@ -2919,6 +3221,7 @@ class TestListNamedProjects:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.list_named_projects", return_value=[{"id": "p1"}]):
             app = _make_test_app()
@@ -2939,6 +3242,7 @@ class TestGetNamedProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=None):
             app = _make_test_app()
@@ -2951,6 +3255,7 @@ class TestGetNamedProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value={
                  "name": "Test", "iterations": [], "status": "active"
@@ -2973,6 +3278,7 @@ class TestArchiveProject:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=None):
             app = _make_test_app()
@@ -2985,6 +3291,7 @@ class TestArchiveProject:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value={"name": "Test"}), \
              patch("onemancompany.core.project_archive.archive_project"):
@@ -3006,6 +3313,7 @@ class TestGetProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_project", return_value={"task": "Build"}), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
@@ -3023,6 +3331,7 @@ class TestGetProjectDetail:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_project", return_value=None):
             app = _make_test_app()
@@ -3045,6 +3354,7 @@ class TestDashboardCosts:
         state.overhead_costs = oh
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.get_cost_summary", return_value={
                  "total": {"cost_usd": 1.5}, "projects": [],
@@ -3069,6 +3379,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.list_pending_edits", return_value=[]):
             app = _make_test_app()
@@ -3083,6 +3394,7 @@ class TestFileEdits:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.file_editor.execute_edit", return_value={
                  "status": "ok", "rel_path": "file.py", "backup_path": "/backup/file.py"
@@ -3098,6 +3410,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.execute_edit", return_value={
                  "status": "error", "message": "Edit not found"
@@ -3113,6 +3426,7 @@ class TestFileEdits:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.file_editor.reject_edit", return_value={
                  "status": "ok", "rel_path": "file.py"
@@ -3128,6 +3442,7 @@ class TestFileEdits:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.file_editor.reject_edit", return_value={
                  "status": "error", "message": "Not found"
@@ -3149,6 +3464,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.list_deferred_edits", return_value=[]):
             app = _make_test_app()
@@ -3162,6 +3478,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.list_resolutions", return_value=[]):
             app = _make_test_app()
@@ -3175,6 +3492,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.load_resolution", return_value=None):
             app = _make_test_app()
@@ -3187,6 +3505,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.resolutions.load_resolution", return_value={"id": "r1", "edits": []}):
             app = _make_test_app()
@@ -3200,6 +3519,7 @@ class TestResolutions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3212,6 +3532,7 @@ class TestResolutions:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.resolutions.decide_resolution", return_value={
                  "status": "ok", "results": [{"edit_id": "e1", "action": "approve"}]
@@ -3230,6 +3551,7 @@ class TestResolutions:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.resolutions.execute_deferred_edit", return_value={
                  "status": "ok", "rel_path": "file.py", "backup_path": "/backup"
@@ -3264,6 +3586,7 @@ class TestInquiryEndWithSession:
         )
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._inquiry_sessions", {"sess1": session}):
             app = _make_test_app()
@@ -3305,6 +3628,7 @@ class TestInquiryChatWithSession:
         mock_result.content = "Let me explain further"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._inquiry_sessions", {"sess1": session}), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -3325,6 +3649,7 @@ class TestInquiryChatWithSession:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.api.routes._inquiry_sessions", {}):
             app = _make_test_app()
@@ -3349,6 +3674,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -3361,6 +3687,7 @@ class TestEmployeeSessions:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {}):
             app = _make_test_app()
@@ -3375,6 +3702,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.list_sessions", return_value=[{"project_id": "p1"}]):
@@ -3391,6 +3719,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -3405,6 +3734,7 @@ class TestEmployeeSessions:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.claude_session.cleanup_session"):
@@ -3426,6 +3756,7 @@ class TestHiringRequests:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", {"r1": {"role": "Developer", "reason": "Need help"}}):
             app = _make_test_app()
@@ -3440,6 +3771,7 @@ class TestHiringRequests:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", {}):
             app = _make_test_app()
@@ -3454,6 +3786,7 @@ class TestHiringRequests:
         reqs = {"r1": {"role": "Developer", "reason": "Need help"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", reqs):
             app = _make_test_app()
@@ -3474,6 +3807,7 @@ class TestOAuthStart:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3489,6 +3823,7 @@ class TestOAuthStart:
         mock_cfg.auth_method = "api_key"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -3505,6 +3840,7 @@ class TestOAuthStart:
         mock_cfg.auth_method = "oauth"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.api.routes._oauth_sessions", {}):
@@ -3531,6 +3867,7 @@ class TestOAuthRefresh:
         mock_cfg.oauth_refresh_token = ""
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
             app = _make_test_app()
@@ -3543,6 +3880,7 @@ class TestOAuthRefresh:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.config.employee_configs", {}):
             app = _make_test_app()
@@ -3565,6 +3903,7 @@ class TestMeetingBook:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -3583,6 +3922,7 @@ class TestMeetingBook:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3605,6 +3945,7 @@ class TestHRReview:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -3627,6 +3968,7 @@ class TestRoutineStart:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
@@ -3643,6 +3985,7 @@ class TestRoutineApprove:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3657,6 +4000,7 @@ class TestRoutineApprove:
         mock_em = MagicMock()
         mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.execute_approved_actions", new_callable=AsyncMock):
@@ -3676,6 +4020,7 @@ class TestRoutineAllHands:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3690,6 +4035,7 @@ class TestRoutineAllHands:
         mock_em = MagicMock()
         mock_em.schedule_system_task = MagicMock(return_value="task_123")
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=mock_em), \
              patch("onemancompany.core.routine.run_all_hands_meeting", new_callable=AsyncMock):
@@ -3722,6 +4068,7 @@ class TestListModels:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.settings") as mock_settings:
@@ -3745,6 +4092,7 @@ class TestListModels:
         mock_client.get = AsyncMock(side_effect=Exception("Connection error"))
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.settings") as mock_settings:
@@ -3772,6 +4120,7 @@ class TestEmployeeOKRs:
         state = _make_state(employees={"00010": emp})
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3784,6 +4133,7 @@ class TestEmployeeOKRs:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3797,8 +4147,8 @@ class TestEmployeeOKRs:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.update_employee_field"):
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/00010/okrs", json={
@@ -3812,6 +4162,7 @@ class TestEmployeeOKRs:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3834,6 +4185,7 @@ class TestEmployeeTaskboardWithLoop:
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -3857,6 +4209,7 @@ class TestSalesSubmitWithCSO:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -3875,6 +4228,7 @@ class TestSalesDeliverNotFound:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3888,6 +4242,7 @@ class TestSalesSettleNotFound:
         state = _make_state()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -3919,6 +4274,7 @@ class TestStartInquiry:
         mock_result.content = "Here's what I think..."
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
@@ -3942,6 +4298,7 @@ class TestStartInquiry:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
@@ -3965,6 +4322,7 @@ class TestStartInquiry:
         mock_result.content = "I'll handle recruiting."
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
@@ -3990,6 +4348,7 @@ class TestCeoTaskEAFallback:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.core.project_archive.create_project", return_value="p1"), \
@@ -4015,6 +4374,7 @@ class TestMeetingBookCOOFallback:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.agents.coo_agent.COOAgent") as mock_coo_cls, \
@@ -4046,6 +4406,7 @@ class TestHRReviewFallback:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.agents.hr_agent.HRAgent") as mock_hr_cls, \
@@ -4080,6 +4441,7 @@ class TestOneOnOneChatAttachments:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -4122,6 +4484,7 @@ class TestOneOnOneChatWithHistoryLLM:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
@@ -4157,6 +4520,7 @@ class TestOAuthExchange:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4170,6 +4534,7 @@ class TestOAuthExchange:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4223,6 +4588,7 @@ class TestOAuthExchange:
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
@@ -4252,6 +4618,7 @@ class TestOAuthExchange:
         }
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4281,6 +4648,7 @@ class TestOAuthExchange:
         mock_client.post = AsyncMock(side_effect=RuntimeError("Network error"))
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -4315,6 +4683,7 @@ class TestOAuthExchange:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -4349,6 +4718,7 @@ class TestOAuthExchange:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -4373,6 +4743,7 @@ class TestOAuthCallback:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4391,6 +4762,7 @@ class TestOAuthCallback:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4445,6 +4817,7 @@ class TestOAuthCallback:
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -4478,6 +4851,7 @@ class TestOAuthCallback:
         mock_client.post = AsyncMock(side_effect=RuntimeError("net err"))
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -4512,6 +4886,7 @@ class TestOAuthCallback:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -4554,6 +4929,7 @@ class TestOAuthRefreshTokenExchange:
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
@@ -4582,6 +4958,7 @@ class TestOAuthRefreshTokenExchange:
         mock_client.post = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("httpx.AsyncClient", return_value=mock_client):
@@ -4606,6 +4983,7 @@ class TestOAuthRefreshTokenExchange:
         mock_client.post = AsyncMock(side_effect=RuntimeError("timeout"))
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("httpx.AsyncClient", return_value=mock_client):
@@ -4628,6 +5006,7 @@ class TestRehireEmployee:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4650,6 +5029,7 @@ class TestRehireEmployee:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.load_employee_guidance", return_value="Be helpful"), \
              patch("onemancompany.core.config.load_work_principles", return_value="Work hard"), \
@@ -4674,6 +5054,7 @@ class TestRehireEmployee:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.move_ex_employee_back", return_value=False):
             app = _make_test_app()
@@ -4698,6 +5079,7 @@ class TestRehireEmployee:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.load_employee_guidance", return_value=""), \
              patch("onemancompany.core.config.load_work_principles", return_value=""), \
@@ -4730,6 +5112,7 @@ class TestRehireEmployee:
         mock_cfg.hosting = "self"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.load_employee_guidance", return_value=""), \
              patch("onemancompany.core.config.load_work_principles", return_value=""), \
@@ -4758,8 +5141,9 @@ class TestHireCandidate:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", {}):
+             patch("onemancompany.agents.recruitment.pending_candidates", {}):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/candidates/hire", json={
@@ -4778,12 +5162,14 @@ class TestHireCandidate:
         candidates = {"b1": [{"id": "c1", "name": "New Hire", "role": "Engineer", "skill_set": ["Python"]}]}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, return_value=mock_emp), \
              patch("onemancompany.agents.onboarding.generate_nickname", new_callable=AsyncMock, return_value="CoolNick"), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}), \
-             patch("onemancompany.agents.hr_agent._pending_project_ctx", {}), \
+             patch("onemancompany.agents.recruitment._pending_project_ctx", {}), \
              patch("onemancompany.core.project_archive.append_action"), \
              patch("onemancompany.core.project_archive.complete_project"):
             app = _make_test_app()
@@ -4805,11 +5191,13 @@ class TestHireCandidate:
         candidates = {"b1": [{"id": "c1", "name": "New Hire", "role": "Engineer", "skill_set": []}]}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, return_value=mock_emp), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}), \
-             patch("onemancompany.agents.hr_agent._pending_project_ctx", {"b1": {"project_id": "proj1"}}), \
+             patch("onemancompany.agents.recruitment._pending_project_ctx", {"b1": {"project_id": "proj1"}}), \
              patch("onemancompany.core.project_archive.append_action"), \
              patch("onemancompany.core.project_archive.complete_project"), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
@@ -4831,8 +5219,10 @@ class TestHireCandidate:
         candidates = {"b1": [{"id": "c1", "name": "Bad", "role": "Dev", "skill_set": []}]}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, side_effect=RuntimeError("hire failed")), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}):
             app = _make_test_app()
@@ -4859,6 +5249,7 @@ class TestHiringRequestApproved:
         pending = {"h1": {"role": "Engineer", "desired_skills": ["Go"], "reason": "Growth"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.agents.coo_agent.pending_hiring_requests", pending), \
              patch("onemancompany.api.routes._get_employee_manager", return_value=MagicMock(schedule_system_task=MagicMock(return_value="task_123"))), \
@@ -4890,6 +5281,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4908,6 +5300,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4926,6 +5319,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4944,6 +5338,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4962,6 +5357,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4980,6 +5376,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -4998,6 +5395,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5016,6 +5414,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5034,6 +5433,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5052,6 +5452,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5069,6 +5470,7 @@ class TestProjectFileServing:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5090,6 +5492,7 @@ class TestToolEndpoints:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -5103,6 +5506,7 @@ class TestToolEndpoints:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -5127,6 +5531,7 @@ class TestToolEndpoints:
         (tools_dir / "tool1" / "icon.png").write_bytes(b"\x89PNG")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.TOOLS_DIR", tools_dir):
             app = _make_test_app()
@@ -5152,6 +5557,7 @@ class TestToolEndpoints:
         # No icon.png file
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.TOOLS_DIR", tools_dir):
             app = _make_test_app()
@@ -5179,6 +5585,7 @@ class TestToolEndpoints:
         (tool_dir / "script.py").write_text("print(1)")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.TOOLS_DIR", tools_dir):
             app = _make_test_app()
@@ -5200,6 +5607,7 @@ class TestAdminReload:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.state.reload_all_from_disk", return_value={"employees_updated": [], "employees_added": []}):
             app = _make_test_app()
@@ -5217,6 +5625,7 @@ class TestAdminClearTasks:
         mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
              patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
@@ -5270,6 +5679,7 @@ class TestCancelTaskWithSubtasks:
         mock_manager._running_tasks = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
@@ -5301,6 +5711,7 @@ class TestAbortTaskWithBoards:
         mock_manager.abort_project.return_value = [mock_task]
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             app = _make_test_app()
@@ -5340,6 +5751,7 @@ class TestUpdateApiKeyWithAgentRebuild:
         mock_loop.agent = mock_agent
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
@@ -5377,6 +5789,7 @@ class TestListModelsErrorStatus:
         mock_client.get = AsyncMock(return_value=mock_resp)
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
@@ -5416,6 +5829,7 @@ class TestInterviewQuestion:
         mock_result.content = "I would approach this by..."
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()):
@@ -5439,6 +5853,7 @@ class TestInterviewQuestion:
         mock_result.content = "Looking at the image..."
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()):
@@ -5470,11 +5885,19 @@ class TestOneOnOneEndWithUpdate:
         mock_result = MagicMock()
         mock_result.content = "UPDATED: Focus on quality above all"
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles"):
+             patch("onemancompany.core.store.save_work_principles", new_callable=AsyncMock), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -5486,7 +5909,7 @@ class TestOneOnOneEndWithUpdate:
                 })
 
         assert resp.status_code == 200
-        assert emp.is_listening is False
+        assert any(f.get("is_listening") is False for _, f in saved_runtime_calls)
         assert resp.json()["principles_updated"] is True
 
     async def test_oneonone_end_no_update(self):
@@ -5500,6 +5923,7 @@ class TestOneOnOneEndWithUpdate:
         mock_result.content = "NO_UPDATE"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()):
@@ -5546,6 +5970,7 @@ class TestOneOnOneChatAgentLoopHistory:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -5597,6 +6022,7 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
         mock_cfg.hosting = "company"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -5634,6 +6060,7 @@ class TestUpdateEmployeeModelNonOpenRouter:
         profile_path.write_text("llm_model: old-model\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
@@ -5664,6 +6091,7 @@ class TestHRReviewWithReviewable:
         mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
             app = _make_test_app()
@@ -5697,6 +6125,7 @@ class TestStartInquiryWithCulture:
         mock_result.content = "Strategy discussion"
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
@@ -5726,6 +6155,7 @@ class TestProjectFileTraversal:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -5743,7 +6173,7 @@ class TestProjectFileTraversal:
 
 class TestAdminClearTasksDirect:
     async def test_clear_tasks_resets_status_direct(self):
-        """Line 197: direct call to ensure coverage of emp.status = STATUS_IDLE."""
+        """Line 197: direct call to ensure coverage of save_employee_runtime(status=idle)."""
         from onemancompany.api import routes as routes_mod
 
         emp = _make_employee(id="00010")
@@ -5754,16 +6184,22 @@ class TestAdminClearTasksDirect:
 
         mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch.object(routes_mod, "company_state", state), \
              patch.object(routes_mod, "event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
              patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])):
+             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             result = await routes_mod.admin_clear_tasks()
 
         assert result["status"] == "cleared"
         assert result["tasks_removed"] == 1
-        assert emp.status == "idle"
+        assert any(f.get("status") == "idle" for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -5816,6 +6252,7 @@ class TestOAuthExchangeCreateKeyException:
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
@@ -5884,6 +6321,7 @@ class TestOAuthCallbackCreateKeyException:
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
@@ -5935,6 +6373,7 @@ class TestNamedProjectDetailWithIterations:
         }
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=proj), \
              patch("onemancompany.core.project_archive.load_iteration", return_value=iter_doc), \
@@ -5967,6 +6406,7 @@ class TestNamedProjectDetailWithIterations:
         }
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=proj), \
              patch("onemancompany.core.project_archive.load_iteration", return_value=None), \
@@ -6006,6 +6446,7 @@ class TestProjectFilePathEscape:
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
             app = _make_test_app()
@@ -6101,6 +6542,7 @@ class TestRemoteSubmitResultsWithTokenUsage:
         workers = {"00010": {"status": "busy", "current_task_id": "t1"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._remote_workers", workers), \
              patch("onemancompany.core.project_archive.record_project_cost") as mock_record_cost, \
@@ -6132,6 +6574,7 @@ class TestRemoteSubmitResultsWithTokenUsage:
         workers = {"00010": {"status": "busy", "current_task_id": "t1"}}
 
         with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes._remote_workers", workers), \
              patch("onemancompany.core.project_archive.record_project_cost") as mock_record_cost, \
@@ -6336,3 +6779,163 @@ class TestEmployeeProjects:
         from onemancompany.api.routes import _scan_employee_projects
         projects = _scan_employee_projects("00099", str(tmp_path))
         assert projects == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/employees  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListEmployees:
+    async def test_list_employees_returns_from_disk(self):
+        """GET /api/employees reads from store.load_all_employees."""
+        mock_data = {
+            "00100": {
+                "name": "TestBot",
+                "role": "Engineer",
+                "runtime": {"status": "idle", "is_listening": True},
+            },
+        }
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_all_employees", return_value=mock_data):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employees")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "TestBot"
+        assert data[0]["status"] == "idle"
+        assert data[0]["is_listening"] is True
+        assert data[0]["id"] == "00100"
+
+    async def test_list_employees_empty(self):
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_all_employees", return_value={}):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employees")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rooms  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListRooms:
+    async def test_list_rooms(self):
+        mock_rooms = [{"id": "room1", "name": "Alpha", "booked_by": None}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_rooms", return_value=mock_rooms):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/rooms")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["id"] == "room1"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/rooms/{room_id}/chat  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetRoomChat:
+    async def test_get_room_chat(self):
+        mock_chat = [{"sender": "00100", "text": "Hello"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_room_chat", return_value=mock_chat):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/rooms/room1/chat")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["sender"] == "00100"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tools  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestListTools:
+    async def test_list_tools(self):
+        mock_tools = [{"slug": "gmail", "name": "Gmail"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_tools", return_value=mock_tools):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/tools")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["slug"] == "gmail"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/employee/{employee_id}/oneonone  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetOneononeHistory:
+    async def test_get_oneonone_history(self):
+        mock_history = [{"role": "ceo", "content": "How are you?"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_oneonone", return_value=mock_history):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/employee/00100/oneonone")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["role"] == "ceo"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/activity-log  (tick-based)
+# ---------------------------------------------------------------------------
+
+
+class TestGetActivityLog:
+    async def test_get_activity_log(self):
+        mock_log = [{"event": "hired", "employee_id": "00100"}]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_activity_log", return_value=mock_log):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/activity-log")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["event"] == "hired"
+
+    async def test_activity_log_truncated_to_50(self):
+        mock_log = [{"event": f"e{i}"} for i in range(100)]
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            with patch("onemancompany.core.store.load_activity_log", return_value=mock_log):
+                app = _make_test_app()
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                    resp = await c.get("/api/activity-log")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 50
