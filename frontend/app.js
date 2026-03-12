@@ -1910,9 +1910,10 @@ class AppController {
       input.style.cssText = 'flex:1;';
       input.dataset.fieldKey = field.key;
       input.dataset.fieldType = 'secret';
-      const isSet = field.key === 'api_key' ? empData.api_key_set : !!currentValue;
+      const isSet = field.key === 'api_key' ? empData.api_key_set : !!empData[`${field.key}_set`];
+      const preview = field.key === 'api_key' ? empData.api_key_preview : empData[`${field.key}_preview`];
       input.placeholder = isSet
-        ? `Set (${empData.api_key_preview || '****'})`
+        ? `Set (${preview || '****'})`
         : 'Not set...';
       input.value = '';
       row.appendChild(input);
