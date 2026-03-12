@@ -390,49 +390,32 @@ def flush_pending_reload() -> dict | None:
 
 
 def reload_all_from_disk() -> dict:
-    """Trigger a frontend refresh by marking all categories dirty.
+    """Mark all categories dirty so the next sync tick triggers a frontend refresh.
 
-    Also reloads app config, assets, employee counter, and recomputes layout.
+    Since all business data reads go through store.py (disk is the single source
+    of truth), there is no in-memory cache to invalidate.  We only need to:
+
+    1. Reload app config (the one legitimate in-memory cache).
+    2. Mark every data category dirty for the 3-second sync tick.
+    3. Refresh the employee counter (in-memory counter for ID generation).
+    4. Recompute office layout.
     """
     from onemancompany.core.config import invalidate_manifest_cache, reload_app_config
     from onemancompany.core.store import mark_dirty
 
-    # --- 0. Reload application config (config.yaml) ---
     reload_app_config()
 
-    # --- 1. Mark all data categories dirty for next sync tick ---
-    mark_dirty("employees", "ex_employees", "rooms", "tools", "task_queue", "culture", "activity_log", "sales_tasks", "direction")
+    mark_dirty(
+        "employees", "ex_employees", "rooms", "tools", "task_queue",
+        "culture", "activity_log", "sales_tasks", "direction",
+    )
     invalidate_manifest_cache()
 
-    # --- 2. Refresh employee counter ---
     _init_employee_counter()
 
-    # --- 3. Reload assets (tools + meeting rooms) ---
-    from onemancompany.agents.coo_agent import _load_assets_from_disk
-    _load_assets_from_disk()
-    # Reload asset tools into unified registry
-    from onemancompany.core.tool_registry import tool_registry
-    tool_registry.load_asset_tools()
-
-    # --- 4. Recompute office layout ---
     compute_layout(company_state)
 
-    # --- 5. Broadcast state_snapshot to all WebSocket clients ---
-    from onemancompany.core.events import CompanyEvent, event_bus
-    import asyncio
-
-    async def _broadcast():
-        await event_bus.publish(
-            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-        )
-
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_broadcast())
-    except RuntimeError:
-        logger.debug("No event loop for reload broadcast — skipping")
-
-    return {"status": "reloaded"}
+    return {"status": "dirty_marked", "categories": "all"}
 
 
 # Snapshot provider "company_state" removed — Task 13.
