@@ -858,8 +858,6 @@ async def oneonone_end(body: dict) -> dict:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
-    from onemancompany.core.config import save_employee_guidance, save_work_principles
-
     employee_id = body.get("employee_id", "")
     history = body.get("history", [])
 
@@ -924,11 +922,12 @@ async def oneonone_end(body: dict) -> dict:
             else:
                 new_principles = response_text[updated_start:].strip()
             if new_principles:
-                # Mutation via company_state (Task 9 will migrate writes)
+                # Persist via store
+                await _store.save_work_principles(employee_id, new_principles)
+                # Keep in-memory in sync until Task 10
                 emp = company_state.employees.get(employee_id)
                 if emp:
                     emp.work_principles = new_principles
-                save_work_principles(employee_id, new_principles)
                 principles_updated = True
 
         # Parse and save 1-1 summary as guidance note
@@ -938,10 +937,14 @@ async def oneonone_end(body: dict) -> dict:
             if summary_text:
                 date_str = datetime.now().strftime("%Y-%m-%d")
                 note = f"**{date_str} 1-1 Meeting**\n{summary_text}"
+                # Persist guidance via store
+                existing_notes = _store.load_employee_guidance(employee_id)
+                existing_notes.append(note)
+                await _store.save_guidance(employee_id, existing_notes)
+                # Keep in-memory in sync until Task 10
                 emp = company_state.employees.get(employee_id)
                 if emp:
-                    emp.guidance_notes.append(note)
-                    save_employee_guidance(employee_id, emp.guidance_notes)
+                    emp.guidance_notes = existing_notes
                 note_saved = True
 
     # End the meeting
@@ -1398,16 +1401,15 @@ async def get_employee_okrs(employee_id: str) -> dict:
 @router.put("/api/employee/{employee_id}/okrs")
 async def update_employee_okrs(employee_id: str, body: dict) -> dict:
     """Update OKRs for an employee."""
-    from onemancompany.core.config import update_employee_field
-
     _require_employee(employee_id)
 
     okrs = body.get("okrs", [])
-    # Mutation via company_state (Task 9 will migrate writes)
+    # Persist via store
+    await _store.save_employee(employee_id, {"okrs": okrs})
+    # Keep in-memory in sync until Task 10
     emp = company_state.employees.get(employee_id)
     if emp:
         emp.okrs = okrs
-    update_employee_field(employee_id, "okrs", okrs)
 
     await event_bus.publish(CompanyEvent(
         type="okr_updated",
@@ -1641,14 +1643,12 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
         cfg.llm_model = model_id
         cfg.salary_per_1m_tokens = new_salary
 
-    # Update in-memory employee state (Task 9 will migrate writes)
+    # Persist via store
+    await _store.save_employee(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
+    # Keep in-memory in sync until Task 10
     _cs_emp = company_state.employees.get(employee_id)
     if _cs_emp:
         _cs_emp.salary_per_1m_tokens = new_salary
-
-    # Update profile.yaml on disk
-    from onemancompany.core.config import update_employee_profile
-    update_employee_profile(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
 
     await event_bus.publish(
         CompanyEvent(
@@ -1694,17 +1694,13 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     # Update in-memory config
     cfg.hosting = new_hosting
 
-    # Update profile.yaml on disk
-    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
-    profile_data = load_employee_profile_yaml(employee_id)
-    if profile_data:
-        profile_data["hosting"] = new_hosting
-        if new_hosting == "self":
-            profile_data.setdefault("api_provider", "anthropic")
-            # Self-hosted uses Claude CLI auth, not OAuth
-            profile_data.pop("auth_method", None)
-            cfg.auth_method = "api_key"  # reset in-memory
-        save_employee_profile_yaml(employee_id, profile_data)
+    # Persist via store
+    hosting_updates: dict = {"hosting": new_hosting}
+    if new_hosting == "self":
+        hosting_updates["api_provider"] = "anthropic"
+        hosting_updates["auth_method"] = None  # self-hosted uses Claude CLI auth
+        cfg.auth_method = "api_key"  # reset in-memory
+    await _store.save_employee(employee_id, hosting_updates)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
     manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
@@ -1784,26 +1780,22 @@ async def update_employee_provider(employee_id: str, body: dict) -> dict:
 
     old_provider = cfg.api_provider
     cfg.api_provider = new_provider
-    # Task 9 will migrate writes
+    # Keep in-memory in sync until Task 10
     _cs_emp2 = company_state.employees.get(employee_id)
     if _cs_emp2:
         _cs_emp2.api_provider = new_provider
 
     # When switching to anthropic, use company-level key if employee has none
     from onemancompany.core.config import settings as app_settings
+    provider_updates: dict = {"api_provider": new_provider}
     if new_provider == "anthropic" and not cfg.api_key:
         cfg.api_key = app_settings.anthropic_api_key
         cfg.auth_method = app_settings.anthropic_auth_method
+        provider_updates["api_key"] = app_settings.anthropic_api_key
+        provider_updates["auth_method"] = app_settings.anthropic_auth_method
 
-    # Update profile.yaml
-    from onemancompany.core.config import load_employee_profile_yaml, save_employee_profile_yaml
-    profile_data = load_employee_profile_yaml(employee_id)
-    if profile_data:
-        profile_data["api_provider"] = new_provider
-        if new_provider == "anthropic" and not profile_data.get("api_key"):
-            profile_data["api_key"] = app_settings.anthropic_api_key
-            profile_data["auth_method"] = app_settings.anthropic_auth_method
-        save_employee_profile_yaml(employee_id, profile_data)
+    # Persist via store
+    await _store.save_employee(employee_id, provider_updates)
 
     # Rebuild agent LLM
     _rebuild_employee_agent(employee_id)
@@ -1852,12 +1844,11 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
     if new_model:
         cfg.llm_model = new_model
 
-    # Update profile.yaml on disk
-    from onemancompany.core.config import update_employee_profile
+    # Persist to disk via store
     updates = {"api_key": new_key}
     if new_model:
         updates["llm_model"] = new_model
-    update_employee_profile(employee_id, updates)
+    await _store.save_employee(employee_id, updates)
 
     # If an agent loop exists, rebuild its LLM so the new key takes effect
     _rebuild_employee_agent(employee_id)
@@ -2207,8 +2198,8 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
         cfg.api_key = api_key
         cfg.oauth_refresh_token = tokens.get("refresh_token", "")
 
-        from onemancompany.core.config import update_employee_profile
-        update_employee_profile(employee_id, {
+        # Persist to disk via store
+        await _store.save_employee(employee_id, {
             "api_key": api_key,
             "oauth_refresh_token": tokens.get("refresh_token", ""),
         })
@@ -2311,9 +2302,8 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         cfg.api_key = api_key
         cfg.oauth_refresh_token = refresh_token
 
-        # Persist to profile.yaml
-        from onemancompany.core.config import update_employee_profile
-        update_employee_profile(employee_id, {
+        # Persist to disk via store
+        await _store.save_employee(employee_id, {
             "api_key": api_key,
             "oauth_refresh_token": refresh_token,
         })
@@ -2380,9 +2370,8 @@ async def oauth_refresh(employee_id: str) -> dict:
     cfg.api_key = tokens.get("access_token", cfg.api_key)
     cfg.oauth_refresh_token = tokens.get("refresh_token", cfg.oauth_refresh_token)
 
-    # Persist
-    from onemancompany.core.config import update_employee_profile
-    update_employee_profile(employee_id, {
+    # Persist to disk via store
+    await _store.save_employee(employee_id, {
         "api_key": cfg.api_key,
         "oauth_refresh_token": cfg.oauth_refresh_token,
     })
@@ -3450,6 +3439,22 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         work_principles=principles,
         remote=ex_emp.remote,
     )
+    # Persist via store
+    await _store.save_employee(employee_id, {
+        "name": ex_emp.name,
+        "nickname": ex_emp.nickname,
+        "level": 1,
+        "department": ex_emp.department,
+        "role": ex_emp.role,
+        "skills": ex_emp.skills,
+        "current_quarter_tasks": 0,
+        "performance_history": [],
+        "desk_position": list(desk_pos),
+        "sprite": ex_emp.sprite,
+        "remote": ex_emp.remote,
+    })
+    await _store.save_employee_runtime(employee_id, status="idle")
+    # Keep in-memory in sync until Task 10
     company_state.employees[employee_id] = emp
     del company_state.ex_employees[employee_id]
 
