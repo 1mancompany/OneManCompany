@@ -177,7 +177,33 @@ async def admin_clear_tasks() -> dict:
 
 @router.get("/api/state")
 async def get_state() -> dict:
-    return company_state.to_json()
+    """Legacy full-state endpoint — assembles state from disk via store."""
+    from onemancompany.core.state import get_active_tasks
+    from onemancompany.core.store import (
+        load_activity_log,
+        load_all_employees,
+        load_culture,
+        load_ex_employees,
+        load_overhead,
+        load_rooms,
+        load_sales_tasks,
+    )
+    employees = load_all_employees()
+    ex_employees = load_ex_employees()
+    overhead = load_overhead()
+    return {
+        "employees": list(employees.values()),
+        "ex_employees": list(ex_employees.values()),
+        "tools": [t.to_dict() for t in company_state.tools.values()],
+        "meeting_rooms": load_rooms(),
+        "ceo_tasks": company_state.ceo_tasks[-10:],
+        "active_tasks": [t.to_dict() for t in get_active_tasks()],
+        "activity_log": load_activity_log()[-20:],
+        "company_culture": load_culture(),
+        "office_layout": company_state.office_layout,
+        "sales_tasks": load_sales_tasks(),
+        "company_tokens": overhead.get("company_tokens", 0),
+    }
 
 
 async def _start_inquiry(task: str) -> dict:
@@ -1378,7 +1404,6 @@ async def fire_employee(employee_id: str, body: dict) -> dict:
     result = await execute_fire(employee_id, reason)
     if "error" in result:
         return result
-    result["state"] = company_state.to_json()
     return result
 
 
@@ -3419,7 +3444,6 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         "status": "rehired",
         "employee_id": employee_id,
         "name": emp_name,
-        "state": company_state.to_json(),
     }
 
 
@@ -3674,7 +3698,6 @@ async def hire_candidate(body: HireRequest) -> dict:
         "employee_id": emp.id,
         "name": candidate["name"],
         "nickname": nickname,
-        "state": company_state.to_json(),
     }
 
 
@@ -3830,7 +3853,7 @@ async def batch_hire_candidates(body: dict) -> dict:
 
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
-    return {"status": "ok", "count": len(hired_names), "results": results, "state": company_state.to_json()}
+    return {"status": "ok", "count": len(hired_names), "results": results}
 
 
 @router.post("/api/candidates/interview")

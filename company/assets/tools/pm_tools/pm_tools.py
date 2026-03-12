@@ -262,7 +262,7 @@ def pm_generate_progress_report(project_id: str = "") -> dict:
         load_named_project,
         load_project,
     )
-    from onemancompany.core.state import company_state
+    from onemancompany.core.store import load_employee
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -286,8 +286,8 @@ def pm_generate_progress_report(project_id: str = "") -> dict:
 
             # Resolve employee names
             def _emp_name(eid):
-                emp = company_state.employees.get(eid)
-                return (emp.nickname or emp.name) if emp else eid
+                emp = load_employee(eid)
+                return (emp.get("nickname") or emp.get("name", eid)) if emp else eid
 
             dispatch_rows = []
             for d in all_dispatches:

@@ -58,8 +58,16 @@ def _make_employee(
 
 
 def _make_state(**overrides) -> CompanyState:
-    """Build a CompanyState with sensible defaults."""
+    """Build a CompanyState with sensible defaults.
+
+    Adds ``employees`` and ``ex_employees`` as ad-hoc instance attrs
+    so that ``_store_patches`` can derive mock store data from them.
+    These are NOT CompanyState dataclass fields — just test scaffolding.
+    """
     state = CompanyState()
+    # Test-only attrs for _store_patches to read
+    state.employees = {}  # type: ignore[attr-defined]
+    state.ex_employees = {}  # type: ignore[attr-defined]
     for k, v in overrides.items():
         setattr(state, k, v)
     return state
@@ -378,8 +386,6 @@ class TestFireEmployee:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "fired"
-        # state is injected
-        assert "state" in data
 
     async def test_fire_employee_error(self):
         state = _make_state()

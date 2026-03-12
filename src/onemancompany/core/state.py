@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from loguru import logger
 from datetime import datetime
 
 from onemancompany.core.config import (
@@ -9,43 +8,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
     STATUS_IDLE,
 )
-from onemancompany.core.models import CostRecord, OverheadCosts
-
-
-@dataclass
-class SalesTask:
-    """An external sales task from a client."""
-
-    id: str
-    client_name: str
-    description: str
-    requirements: str = ""
-    budget_tokens: int = 0
-    status: str = "pending"  # pending / accepted / in_production / delivered / settled
-    assigned_to: str = ""    # sales employee ID
-    contract_approved: bool = False
-    delivery: str = ""
-    settlement_tokens: int = 0
-    created_at: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.created_at:
-            self.created_at = datetime.now().isoformat()
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "client_name": self.client_name,
-            "description": self.description,
-            "requirements": self.requirements,
-            "budget_tokens": self.budget_tokens,
-            "status": self.status,
-            "assigned_to": self.assigned_to,
-            "contract_approved": self.contract_approved,
-            "delivery": self.delivery,
-            "settlement_tokens": self.settlement_tokens,
-            "created_at": self.created_at,
-        }
+from onemancompany.core.models import OverheadCosts
 
 
 @dataclass
@@ -283,44 +246,13 @@ class CompanyState:
     def __post_init__(self) -> None:
         if self.overhead_costs is None:
             self.overhead_costs = OverheadCosts()
-        # Legacy attrs — NOT dataclass fields. Set here so old test code
-        # that does ``cs.employees[id] = emp`` won't AttributeError.
-        # Production code reads from store.load_*() instead.
-        # Will be fully removed in Task 19 (final cleanup).
+        # Legacy attrs for test scaffolding — tests set cs.employees[id] = emp
+        # and conftest._bridge_store_to_company_state reads them via getattr().
+        # Production code uses store.load_employee() instead.
         if not hasattr(self, "employees"):
             self.employees: dict = {}
         if not hasattr(self, "ex_employees"):
             self.ex_employees: dict = {}
-
-    def to_json(self) -> dict:
-        from onemancompany.core.store import (
-            load_activity_log,
-            load_all_employees,
-            load_culture,
-            load_ex_employees,
-            load_overhead,
-            load_rooms,
-            load_sales_tasks,
-        )
-        employees = load_all_employees()
-        ex_employees = load_ex_employees()
-        activity_log = load_activity_log()
-        culture = load_culture()
-        sales = load_sales_tasks()
-        overhead = load_overhead()
-        return {
-            "employees": list(employees.values()),
-            "ex_employees": list(ex_employees.values()),
-            "tools": [t.to_dict() for t in self.tools.values()],
-            "meeting_rooms": load_rooms(),
-            "ceo_tasks": self.ceo_tasks[-10:],
-            "active_tasks": [t.to_dict() for t in get_active_tasks()],
-            "activity_log": activity_log[-20:],
-            "company_culture": culture,
-            "office_layout": self.office_layout,
-            "sales_tasks": sales,
-            "company_tokens": overhead.get("company_tokens", 0),
-        }
 
     def next_employee_number(self) -> str:
         """Generate next 5-digit employee number."""
