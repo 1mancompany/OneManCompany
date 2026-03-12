@@ -78,19 +78,23 @@ class AppController {
 
   async bootstrap() {
     try {
-      const [employees, tasks, rooms, tools, activityLog] = await Promise.all([
+      const [employees, tasks, rooms, tools, activityLog, stateData] = await Promise.all([
         fetch('/api/employees').then(r => r.json()),
         fetch('/api/task-queue').then(r => r.json()),
         fetch('/api/rooms').then(r => r.json()),
         fetch('/api/tools').then(r => r.json()),
         fetch('/api/activity-log').then(r => r.json()),
+        fetch('/api/state').then(r => r.json()),
       ]);
       this.updateRoster(employees);
       this.updateTaskPanel(tasks);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
       if (window.officeRenderer) {
-        window.officeRenderer.updateState({ employees, meeting_rooms: rooms, tools });
+        window.officeRenderer.updateState({
+          employees, meeting_rooms: rooms, tools,
+          office_layout: stateData.office_layout,
+        });
       }
       // Update counters
       document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
