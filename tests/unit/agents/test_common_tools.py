@@ -453,8 +453,8 @@ class TestManageToolAccess:
         _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
-            "onemancompany.core.config.update_tool_permissions",
-            lambda eid, perms: None,
+            "onemancompany.core.store.save_employee",
+            AsyncMock(),
         )
 
         result = ct_mod.manage_tool_access.invoke({
@@ -479,8 +479,8 @@ class TestManageToolAccess:
         monkeypatch.setattr(ct_mod, "company_state", cs)
         _mock_store(monkeypatch, cs)
         monkeypatch.setattr(
-            "onemancompany.core.config.update_tool_permissions",
-            lambda eid, perms: None,
+            "onemancompany.core.store.save_employee",
+            AsyncMock(),
         )
 
         result = ct_mod.manage_tool_access.invoke({
@@ -1052,8 +1052,8 @@ class TestManageToolAccessAdditional:
         monkeypatch.setattr(ct_mod, "company_state", cs)
         _mock_store(monkeypatch, cs)
         monkeypatch.setattr(
-            "onemancompany.core.config.update_tool_permissions",
-            lambda eid, perms: None,
+            "onemancompany.core.store.save_employee",
+            AsyncMock(),
         )
 
         result = ct_mod.manage_tool_access.invoke({

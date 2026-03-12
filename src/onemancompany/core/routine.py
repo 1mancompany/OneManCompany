@@ -35,7 +35,6 @@ from onemancompany.core.config import (
     STATUS_IDLE,
     STATUS_IN_MEETING,
     load_workflows,
-    update_employee_performance,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state

@@ -1417,7 +1417,6 @@ class TestOneOnOneEndHappyPath:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles"), \
              patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -1762,8 +1761,7 @@ class TestEmployeeOKRs:
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.update_employee_field"):
+             patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/00010/okrs", json={
@@ -4150,8 +4148,7 @@ class TestEmployeeOKRs:
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.update_employee_field"):
+             patch("onemancompany.api.routes.event_bus", bus):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/employee/00010/okrs", json={
