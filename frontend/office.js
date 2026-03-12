@@ -183,7 +183,7 @@ class OfficeRenderer {
     }
 
     // Check employees — detect click on employee sprite at desk position
-    for (const emp of this.state.employees) {
+    for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       // Employee character is drawn at (ex, ey+3), sprite occupies roughly 1 tile wide, ~2 tiles tall
       if (tx === ex && (ty === ey + 2 || ty === ey + 3 || ty === ey + 4)) {
@@ -196,8 +196,8 @@ class OfficeRenderer {
   }
 
   updateState(newState) {
-    const oldEmpCount = this.state.employees.length;
-    this.state = newState;
+    const oldEmpCount = (this.state.employees || []).length;
+    this.state = { ...this.state, ...newState };
 
     // Dynamically expand canvas rows based on layout
     const newRows = (newState.office_layout || {}).canvas_rows || 15;
@@ -207,8 +207,9 @@ class OfficeRenderer {
     }
 
     // Spawn particles on new hire
-    if (newState.employees.length > oldEmpCount) {
-      const latest = newState.employees[newState.employees.length - 1];
+    const empList = this.state.employees || [];
+    if (empList.length > oldEmpCount) {
+      const latest = empList[empList.length - 1];
       const [gx, gy] = latest.desk_position || [0, 0];
       this._spawnParticles(gx * TILE + 16, (gy + 3) * TILE, PALETTE.led1, 12);
     }
@@ -861,7 +862,7 @@ class OfficeRenderer {
 
     // Check employees
     const LEVEL_NAMES = {1: 'Junior', 2: 'Mid', 3: 'Senior', 4: 'Founding', 5: 'CEO'};
-    for (const emp of this.state.employees) {
+    for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       if (x === ex && (y === ey + 2 || y === ey + 3 || y === ey + 4)) {
         const nn = emp.nickname ? ` (${emp.nickname})` : '';
@@ -884,7 +885,7 @@ class OfficeRenderer {
     }
 
     // Check tools (hit area: tool tile + label tile below, only tools with icons)
-    for (const tool of this.state.tools) {
+    for (const tool of (this.state.tools || [])) {
       if (!tool.has_icon) continue;
       const [tx, ty] = tool.desk_position || [0, 0];
       const canvasY = ty + 3;
@@ -955,7 +956,7 @@ class OfficeRenderer {
     }
 
     // AI Employees — draw desk always, avatar at desk OR meeting room
-    for (const emp of this.state.employees) {
+    for (const emp of (this.state.employees || [])) {
       if (emp.remote) continue;  // remote employees are not rendered in the office
       const [gx, gy] = emp.desk_position || [0, 0];
       this.drawDesk(gx, gy + 3, true);
@@ -971,7 +972,7 @@ class OfficeRenderer {
     }
 
     // Tools/Equipment (only render tools with icons)
-    for (const tool of this.state.tools) {
+    for (const tool of (this.state.tools || [])) {
       if (!tool.has_icon) continue;
       const [gx, gy] = tool.desk_position || [0, 0];
       this.drawToolEquipment(gx, gy + 3, tool);
