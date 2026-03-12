@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 import yaml
 
 from onemancompany.core.config import EmployeeConfig
@@ -31,76 +28,6 @@ class TestEnsureEmployeeDir:
         cfg.ensure_employee_dir("00099")
         cfg.ensure_employee_dir("00099")  # second call should not fail
         assert (tmp_path / "00099").is_dir()
-
-
-# ---------------------------------------------------------------------------
-# save_employee_profile (without template)
-# ---------------------------------------------------------------------------
-
-class TestSaveEmployeeProfile:
-    def test_saves_yaml_without_template(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as cfg
-
-        monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(cfg, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-
-        config = EmployeeConfig(
-            name="Test Dev",
-            nickname="追风",
-            role="Engineer",
-            skills=["python", "java"],
-            level=1,
-            department="Engineering",
-            employee_number="00099",
-            desk_position=[5, 3],
-            sprite="employee_blue",
-        )
-
-        cfg.save_employee_profile("00099", config)
-
-        profile_path = tmp_path / "00099" / "profile.yaml"
-        assert profile_path.exists()
-
-        data = yaml.safe_load(profile_path.read_text())
-        assert data["name"] == "Test Dev"
-        assert data["nickname"] == "追风"
-        assert data["role"] == "Engineer"
-        assert "python" in data["skills"]
-
-        # Should be in employee_configs cache
-        assert "00099" in cfg.employee_configs
-
-    def test_updates_employee_configs_cache(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as cfg
-
-        monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(cfg, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-
-        config = EmployeeConfig(
-            name="Cache Test", role="Designer", skills=["figma"],
-        )
-        cfg.save_employee_profile("00099", config)
-
-        assert cfg.employee_configs["00099"].name == "Cache Test"
-
-
-# ---------------------------------------------------------------------------
-# save_work_principles
-# ---------------------------------------------------------------------------
-
-class TestSaveWorkPrinciples:
-    def test_saves_as_skill(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as cfg
-
-        monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
-
-        cfg.save_work_principles("00099", "# Principles\n\n1. Work hard\n")
-
-        path = tmp_path / "00099" / "skills" / "work-principles" / "SKILL.md"
-        assert path.exists()
-        content = path.read_text()
-        assert "autoload: true" in content
-        assert "Work hard" in content
 
 
 # ---------------------------------------------------------------------------

@@ -698,8 +698,6 @@ def record_project_cost(
 
 def get_cost_summary() -> dict:
     """Aggregate cost data across all projects."""
-    from onemancompany.core.state import company_state
-
     total_cost = 0.0
     total_input = 0
     total_output = 0

@@ -516,8 +516,7 @@ class TestRunPostTaskRoutine:
         monkeypatch.setattr("onemancompany.core.routine.load_employee", _fake_load)
         monkeypatch.setattr("onemancompany.core.routine.load_all_employees", _fake_all)
 
-        # Mock update_employee_performance to be a no-op
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         return state
 
@@ -1600,7 +1599,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Only emp2 contributed
         project_record = {
@@ -1648,7 +1647,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
         monkeypatch.setattr("onemancompany.core.routine.load_workflows", lambda: {})
 
         mock_publish = AsyncMock()
@@ -1677,7 +1676,7 @@ class TestRunPostTaskRoutineWithProject:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Workflow that parses to zero steps
         monkeypatch.setattr("onemancompany.core.routine.load_workflows",
@@ -1722,12 +1721,9 @@ class TestRunOnboardingRoutine:
 
         mock_save_principles = AsyncMock()
         mock_save_employee = AsyncMock()
-        mock_update_field = MagicMock()
-
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._store.save_work_principles", mock_save_principles), \
-             patch("onemancompany.core.routine._store.save_employee", mock_save_employee), \
-             patch("onemancompany.core.config.update_employee_field", mock_update_field):
+             patch("onemancompany.core.routine._store.save_employee", mock_save_employee):
             await run_onboarding_routine("00010")
 
         # Verify onboarding_completed was persisted via store
@@ -1755,12 +1751,9 @@ class TestRunOnboardingRoutine:
 
         mock_save_principles = AsyncMock()
         mock_save_employee = AsyncMock()
-        mock_update_field = MagicMock()
-
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
              patch("onemancompany.core.routine._store.save_work_principles", mock_save_principles), \
-             patch("onemancompany.core.routine._store.save_employee", mock_save_employee), \
-             patch("onemancompany.core.config.update_employee_field", mock_update_field):
+             patch("onemancompany.core.routine._store.save_employee", mock_save_employee):
             await run_onboarding_routine("00010")
 
         # Principles should NOT be overwritten (already existed)
@@ -2033,7 +2026,7 @@ class TestRunPostTaskRoutinePreparationSkip:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         # Workflow with Preparation as first step + CEO Approval
         workflow_md = (
@@ -2082,7 +2075,7 @@ class TestRunPostTaskRoutinePreparationSkip:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         project_record = {
             "id": "proj-1",
@@ -2470,7 +2463,7 @@ class TestRunPostTaskRoutineArchiveRecording:
         monkeypatch.setattr("onemancompany.core.routine.company_state", state)
         monkeypatch.setattr("onemancompany.core.routine.FOUNDING_LEVEL", 4)
         monkeypatch.setattr("onemancompany.core.routine.EA_ID", "00004")
-        monkeypatch.setattr("onemancompany.core.routine.update_employee_performance", lambda *a: None)
+
 
         project_record = {
             "id": "proj-1",

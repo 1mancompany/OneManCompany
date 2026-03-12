@@ -1040,8 +1040,14 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
         return {"status": "error", "message": f"Invalid action: {action}. Use 'grant' or 'revoke'."}
 
     # Persist to disk
-    from onemancompany.core.config import update_tool_permissions
-    update_tool_permissions(employee_id, current_perms)
+    import asyncio as _asyncio
+    from onemancompany.core import store as _store
+    try:
+        _asyncio.get_running_loop().create_task(
+            _store.save_employee(employee_id, {"tool_permissions": current_perms})
+        )
+    except RuntimeError:
+        logger.debug("No event loop for tool_permissions persist of {}", employee_id)
 
     return {
         "status": "ok",

@@ -39,7 +39,7 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.state import company_state
+from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
 from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
 

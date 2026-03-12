@@ -886,9 +886,7 @@ def deposit_company_knowledge(
             _loop = _asyncio.get_running_loop()
             _loop.create_task(_save_culture(items))
         except RuntimeError:
-            # Sync fallback
-            from onemancompany.core.config import save_company_culture
-            save_company_culture(items)
+            logger.debug("No event loop for culture persist")
         path = "company/company_culture.yaml"
         _append_activity({
             "type": "knowledge_deposited",
