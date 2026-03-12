@@ -561,7 +561,7 @@ async def ceo_submit_task(body: dict) -> dict:
             # CEO root node — records original prompt
             ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
             ceo_root.node_type = "ceo_prompt"
-            ceo_root.status = "processing"
+            ceo_root.set_status(TaskPhase.PROCESSING)
             # EA node as child of CEO
             ea_node = tree.add_child(
                 parent_id=ceo_root.id,

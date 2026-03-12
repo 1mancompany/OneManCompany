@@ -840,7 +840,7 @@ class EmployeeManager:
                 if not tree.all_deps_terminal(node.id):
                     continue
                 if tree.has_failed_deps(node.id) and node.fail_strategy == "block":
-                    node.status = "blocked"
+                    node.set_status(TaskPhase.BLOCKED)
                     dirty = True
                     continue
                 context = _build_dependency_context(tree, node)
@@ -1595,7 +1595,13 @@ class EmployeeManager:
         # Sync task data to node (TaskNode is SSOT but task_persistence
         # still uses AgentTask — keep in sync until Task 9 removes AgentTask)
         task_failed = task.status == TaskPhase.FAILED
-        node.status = "failed" if task_failed else "completed"
+        target = TaskPhase.FAILED if task_failed else TaskPhase.COMPLETED
+        if node.status != target.value:
+            # Node may still be "pending" if _execute_task only updated AgentTask status.
+            # Advance through processing first so the transition is valid.
+            if node.status == TaskPhase.PENDING.value:
+                node.set_status(TaskPhase.PROCESSING)
+            node.set_status(target)
         node.result = task.result or ""
         node.input_tokens = task.input_tokens
         node.output_tokens = task.output_tokens
@@ -1619,7 +1625,10 @@ class EmployeeManager:
             logger.info("EA node {} completed (root or child of CEO) — requesting CEO confirmation", node_id)
             # Update CEO root node status
             if is_child_of_ceo:
-                parent_node.status = "completed"
+                if parent_node.status != TaskPhase.COMPLETED.value:
+                    if parent_node.status == TaskPhase.PENDING.value:
+                        parent_node.set_status(TaskPhase.PROCESSING)
+                    parent_node.set_status(TaskPhase.COMPLETED)
                 _save_project_tree(task.project_dir, tree)
             effective_project_id = project_id or task.project_id
             await self._request_ceo_confirmation(
@@ -1711,7 +1720,7 @@ class EmployeeManager:
                     continue  # Already running, blocked, or terminal
 
                 if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
-                    dep_node.status = "blocked"
+                    dep_node.set_status(TaskPhase.BLOCKED)
                     dirty = True
                     # Notify parent about blocked task
                     parent = tree.get_node(dep_node.parent_id)
