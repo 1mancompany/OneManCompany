@@ -24,7 +24,8 @@ from onemancompany.core.state import CompanyState, Employee
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_cs() -> CompanyState:
+
+def _make_cs():
     cs = CompanyState()
     cs._next_employee_number = 100
     return cs
@@ -203,7 +204,6 @@ class TestApplyResultsReview:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -283,8 +283,13 @@ class TestApplyResultsFire:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
+
+        # Track activity log writes via store
+        activity_entries = []
+        monkeypatch.setattr(term_mod._store, "append_activity",
+                            AsyncMock(side_effect=lambda e: activity_entries.append(e)))
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -296,8 +301,8 @@ class TestApplyResultsFire:
 
         assert "00010" not in cs.employees
         assert "00010" in cs.ex_employees
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "employee_fired"
+        assert len(activity_entries) == 1
+        assert activity_entries[0]["type"] == "employee_fired"
 
     @pytest.mark.asyncio
     async def test_cannot_fire_founding_employee(self, monkeypatch):
@@ -358,9 +363,8 @@ class TestCheckPromotions:
         cs.employees = employees
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_level", lambda eid, lvl, title: None)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -427,12 +431,15 @@ class TestCheckPromotions:
         emp = _make_emp("00010", level=1, performance_history=history)
         cs, agent = self._setup_promo(monkeypatch, {"00010": emp})
 
+        activity_entries = []
+        monkeypatch.setattr(hr_agent, "_append_activity", lambda e: activity_entries.append(e))
+
         await hr_agent.HRAgent._check_promotions(agent)
 
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "promotion"
-        assert cs.activity_log[0]["old_level"] == 1
-        assert cs.activity_log[0]["new_level"] == 2
+        assert len(activity_entries) == 1
+        assert activity_entries[0]["type"] == "promotion"
+        assert activity_entries[0]["old_level"] == 1
+        assert activity_entries[0]["new_level"] == 2
 
     @pytest.mark.asyncio
     async def test_no_promote_with_insufficient_history(self, monkeypatch):
@@ -734,8 +741,6 @@ class TestApplyResultsPIP:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -774,7 +779,7 @@ class TestApplyResultsPIP:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.25}]}\n```'
@@ -828,7 +833,6 @@ class TestApplyResultsProbation:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -863,7 +867,7 @@ class TestApplyResultsProbation:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         output = '```json\n{"action": "probation_review", "employee_id": "00010", "passed": false, "feedback": "Did not meet expectations"}\n```'
@@ -913,7 +917,7 @@ class TestApplyResultsJsonFallback:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1055,13 +1059,11 @@ class TestApplyResultsOffboardingExceptions:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1092,7 +1094,7 @@ class TestApplyResultsOffboardingExceptions:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1117,11 +1119,10 @@ class TestApplyResultsOffboardingExceptions:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1148,9 +1149,8 @@ class TestCheckPromotionsEdgeCases:
         cs.employees = employees
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_level", lambda eid, lvl, title: None)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -1166,12 +1166,15 @@ class TestCheckPromotionsEdgeCases:
         emp = _make_emp("00010", level=2, performance_history=history)
         cs, agent = self._setup_promo(monkeypatch, {"00010": emp})
 
+        activity_entries = []
+        monkeypatch.setattr(hr_agent, "_append_activity", lambda e: activity_entries.append(e))
+
         await hr_agent.HRAgent._check_promotions(agent)
 
         assert emp.level == 3
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["old_level"] == 2
-        assert cs.activity_log[0]["new_level"] == 3
+        assert len(activity_entries) == 1
+        assert activity_entries[0]["old_level"] == 2
+        assert activity_entries[0]["new_level"] == 3
 
     @pytest.mark.asyncio
     async def test_no_actual_promotion_when_clamped_at_max(self, monkeypatch):
@@ -1201,7 +1204,10 @@ class TestCheckPromotionsEdgeCases:
         # The employee is at MAX_NORMAL_LEVEL, so _check_promotions line 367
         # would skip it. The test verifies that the guard at line 367 correctly
         # prevents promotion for employees already at max level.
+        activity_entries = []
+        monkeypatch.setattr(hr_agent, "_append_activity", lambda e: activity_entries.append(e))
+
         await hr_agent.HRAgent._check_promotions(agent)
 
         assert emp.level == MAX_NORMAL_LEVEL
-        assert len(cs.activity_log) == 0  # no promotion recorded
+        assert len(activity_entries) == 0  # no promotion recorded

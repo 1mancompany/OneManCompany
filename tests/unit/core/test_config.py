@@ -189,21 +189,10 @@ class TestEmployeeGuidance:
         result = config_mod.load_employee_guidance("00010")
         assert result == []
 
-    def test_save_creates_dir_and_file(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        config_mod.save_employee_guidance("00010", ["note1", "note2"])
-
-        guidance_path = tmp_path / "00010" / "guidance.yaml"
-        assert guidance_path.exists()
-        with open(guidance_path) as f:
-            data = yaml.safe_load(f)
-        assert data == ["note1", "note2"]
 
 
 # ---------------------------------------------------------------------------
-# load_work_principles / save_work_principles
+# load_work_principles
 # ---------------------------------------------------------------------------
 
 class TestWorkPrinciples:
@@ -225,17 +214,6 @@ class TestWorkPrinciples:
         result = config_mod.load_work_principles("00010")
         assert "Be good" in result
 
-    def test_save_creates_skill_file(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        config_mod.save_work_principles("00010", "# Test Principles")
-
-        path = tmp_path / "00010" / "skills" / "work-principles" / "SKILL.md"
-        assert path.exists()
-        content = path.read_text()
-        assert "autoload: true" in content
-        assert "# Test Principles" in content
 
 
 # ---------------------------------------------------------------------------
@@ -251,257 +229,6 @@ class TestEnsureEmployeeDir:
         assert result == tmp_path / "00010"
         assert result.is_dir()
         assert (result / "skills").is_dir()
-
-
-# ---------------------------------------------------------------------------
-# save_employee_profile
-# ---------------------------------------------------------------------------
-
-class TestSaveEmployeeProfile:
-    def test_save_with_template(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
-        # Create a template
-        template_path = tmp_path / "profile_template.yaml"
-        template_text = (
-            "name: {name}\n"
-            "nickname: {nickname}\n"
-            "employee_number: {employee_number}\n"
-            "level: {level}\n"
-            "title: {title}\n"
-            "department: {department}\n"
-            "role: {role}\n"
-            "desk_position: [{desk_x}, {desk_y}]\n"
-            "sprite: {sprite}\n"
-            "llm_model: {llm_model}\n"
-            "temperature: {temperature}\n"
-            "current_quarter_tasks: {current_quarter_tasks}\n"
-            "performance_history:\n{performance_history}\n"
-            "skills:\n{skills}\n"
-            "permissions:\n{permissions}\n"
-            "tool_permissions:\n{tool_permissions}\n"
-            "salary_per_1m_tokens: {salary_per_1m_tokens}\n"
-            "probation: {probation}\n"
-            "onboarding_completed: {onboarding_completed}\n"
-            "api_provider: {api_provider}\n"
-            "api_key: {api_key}\n"
-            "hosting: {hosting}\n"
-            "auth_method: {auth_method}\n"
-        )
-        template_path.write_text(template_text)
-        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", template_path)
-
-        config = EmployeeConfig(
-            name="Template Test",
-            nickname="TT",
-            role="Engineer",
-            skills=["python", "rust"],
-            level=2,
-            department="Engineering",
-            employee_number="00099",
-            desk_position=[5, 3],
-            sprite="blue",
-            permissions=["read_file"],
-            tool_permissions=["sandbox_execute_code"],
-            performance_history=[{"score": 3.5, "tasks": 3}],
-        )
-        config_mod.save_employee_profile("00099", config)
-
-        profile_path = tmp_path / "00099" / "profile.yaml"
-        assert profile_path.exists()
-        content = profile_path.read_text()
-        assert "Template Test" in content
-        assert "00099" in cfg.employee_configs if False else True
-        # Verify in-memory cache updated
-        assert "00099" in config_mod.employee_configs
-
-    def test_save_with_template_empty_skills_and_perms(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
-        template_path = tmp_path / "profile_template.yaml"
-        template_text = (
-            "name: {name}\n"
-            "nickname: {nickname}\n"
-            "employee_number: {employee_number}\n"
-            "level: {level}\n"
-            "title: {title}\n"
-            "department: {department}\n"
-            "role: {role}\n"
-            "desk_position: [{desk_x}, {desk_y}]\n"
-            "sprite: {sprite}\n"
-            "llm_model: {llm_model}\n"
-            "temperature: {temperature}\n"
-            "current_quarter_tasks: {current_quarter_tasks}\n"
-            "performance_history:\n{performance_history}\n"
-            "skills:\n{skills}\n"
-            "permissions:\n{permissions}\n"
-            "tool_permissions:\n{tool_permissions}\n"
-            "salary_per_1m_tokens: {salary_per_1m_tokens}\n"
-            "probation: {probation}\n"
-            "onboarding_completed: {onboarding_completed}\n"
-            "api_provider: {api_provider}\n"
-            "api_key: {api_key}\n"
-            "hosting: {hosting}\n"
-            "auth_method: {auth_method}\n"
-        )
-        template_path.write_text(template_text)
-        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", template_path)
-
-        config = EmployeeConfig(
-            name="Minimal",
-            role="Designer",
-            skills=[],
-            desk_position=[],
-        )
-        config_mod.save_employee_profile("00100", config)
-
-        profile_path = tmp_path / "00100" / "profile.yaml"
-        assert profile_path.exists()
-
-    def test_save_without_template(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
-        config = EmployeeConfig(
-            name="No Template",
-            role="Engineer",
-            skills=["go"],
-        )
-        config_mod.save_employee_profile("00101", config)
-
-        profile_path = tmp_path / "00101" / "profile.yaml"
-        assert profile_path.exists()
-        data = yaml.safe_load(profile_path.read_text())
-        assert data["name"] == "No Template"
-        assert "00101" in config_mod.employee_configs
-
-
-# ---------------------------------------------------------------------------
-# update_tool_permissions
-# ---------------------------------------------------------------------------
-
-class TestUpdateToolPermissions:
-    def test_updates_existing_profile(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "employee_configs", {
-            "00010": EmployeeConfig(name="T", role="E", skills=[], tool_permissions=[])
-        })
-
-        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
-
-        config_mod.update_tool_permissions("00010", ["sandbox_execute_code", "read_file"])
-
-        with open(tmp_path / "00010" / "profile.yaml") as f:
-            data = yaml.safe_load(f)
-        assert data["tool_permissions"] == ["sandbox_execute_code", "read_file"]
-        assert config_mod.employee_configs["00010"].tool_permissions == ["sandbox_execute_code", "read_file"]
-
-    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        # Should not raise even if profile doesn't exist
-        config_mod.update_tool_permissions("99999", ["read_file"])
-
-    def test_employee_not_in_memory(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
-        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
-
-        # Should update file but not crash on missing in-memory entry
-        config_mod.update_tool_permissions("00010", ["read_file"])
-
-        with open(tmp_path / "00010" / "profile.yaml") as f:
-            data = yaml.safe_load(f)
-        assert data["tool_permissions"] == ["read_file"]
-
-
-# ---------------------------------------------------------------------------
-# update_employee_performance
-# ---------------------------------------------------------------------------
-
-class TestUpdateEmployeePerformance:
-    def test_updates_performance_fields(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
-
-        config_mod.update_employee_performance("00010", 5, [{"score": 3.75, "tasks": 3}])
-
-        with open(tmp_path / "00010" / "profile.yaml") as f:
-            data = yaml.safe_load(f)
-        assert data["current_quarter_tasks"] == 5
-        assert data["performance_history"] == [{"score": 3.75, "tasks": 3}]
-
-    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        config_mod.update_employee_performance("99999", 0, [])
-
-
-# ---------------------------------------------------------------------------
-# update_employee_level
-# ---------------------------------------------------------------------------
-
-class TestUpdateEmployeeLevel:
-    def test_updates_level_and_title(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": [], "level": 1})
-
-        config_mod.update_employee_level("00010", 3, "Senior Engineer")
-
-        with open(tmp_path / "00010" / "profile.yaml") as f:
-            data = yaml.safe_load(f)
-        assert data["level"] == 3
-        assert data["title"] == "Senior Engineer"
-
-    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        config_mod.update_employee_level("99999", 2, "Mid")
-
-
-# ---------------------------------------------------------------------------
-# update_employee_field
-# ---------------------------------------------------------------------------
-
-class TestUpdateEmployeeField:
-    def test_updates_arbitrary_field(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
-
-        config_mod.update_employee_field("00010", "nickname", "DragonSlayer")
-
-        with open(tmp_path / "00010" / "profile.yaml") as f:
-            data = yaml.safe_load(f)
-        assert data["nickname"] == "DragonSlayer"
-
-    def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        config_mod.update_employee_field("99999", "nickname", "test")
 
 
 # ---------------------------------------------------------------------------
@@ -821,8 +548,6 @@ class TestMoveExEmployeeBack:
         ex_dir.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
         monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", ex_dir)
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
         # Create ex-employee folder
         (ex_dir / "00010").mkdir()
         (ex_dir / "00010" / "profile.yaml").write_text("name: Rehired\nrole: Engineer\nskills: [python]\n")
@@ -835,7 +560,9 @@ class TestMoveExEmployeeBack:
         assert result is True
         assert not (ex_dir / "00010").exists()
         assert (emp_dir / "00010").exists()
-        assert "00010" in config_mod.employee_configs
+        # Verify employee loadable from disk
+        loaded = config_mod.load_employee_configs()
+        assert "00010" in loaded
 
 
 # ---------------------------------------------------------------------------
@@ -870,19 +597,6 @@ class TestCompanyCulture:
 
         result = config_mod.load_company_culture()
         assert result == []
-
-    def test_save_culture(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        culture_file = tmp_path / "culture.yaml"
-        monkeypatch.setattr(config_mod, "COMPANY_CULTURE_FILE", culture_file)
-
-        items = [{"value": "Innovation"}, {"value": "Quality"}]
-        config_mod.save_company_culture(items)
-
-        with open(culture_file) as f:
-            data = yaml.safe_load(f)
-        assert len(data) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -33,20 +33,24 @@ def _make_emp(emp_id: str, department: str, desk_pos: tuple = (0, 0), **kw) -> E
 # ---------------------------------------------------------------------------
 
 class TestGetNextDeskForDepartment:
-    def test_first_desk_in_empty_department(self):
+    def test_first_desk_in_empty_department(self, monkeypatch):
         from onemancompany.core.layout import get_next_desk_for_department
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         pos = get_next_desk_for_department(cs, "Engineering")
         # Should return a valid position (col, row) within a zone
         assert isinstance(pos, tuple)
         assert len(pos) == 2
         assert pos[1] in DEPT_DESK_ROWS
 
-    def test_avoids_occupied_positions(self):
+    def test_avoids_occupied_positions(self, monkeypatch):
         from onemancompany.core.layout import get_next_desk_for_department
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         # Add employee to occupy the first desk position
         first_pos = get_next_desk_for_department(cs, "Engineering")
         cs.employees["00010"] = _make_emp("00010", "Engineering", desk_pos=first_pos)
@@ -54,10 +58,12 @@ class TestGetNextDeskForDepartment:
         second_pos = get_next_desk_for_department(cs, "Engineering")
         assert second_pos != first_pos
 
-    def test_remote_employees_dont_occupy_desks(self):
+    def test_remote_employees_dont_occupy_desks(self, monkeypatch):
         from onemancompany.core.layout import get_next_desk_for_department
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         # Add remote employee — should not block desk positions
         cs.employees["00010"] = _make_emp(
             "00010", "Engineering", desk_pos=(5, 3), remote=True,
@@ -67,10 +73,12 @@ class TestGetNextDeskForDepartment:
         # The remote employee's position should be available
         assert isinstance(pos, tuple)
 
-    def test_executives_excluded_from_department(self):
+    def test_executives_excluded_from_department(self, monkeypatch):
         from onemancompany.core.layout import get_next_desk_for_department
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         # Add executive — should not be counted in department layout
         cs.employees[HR_ID] = Employee(
             id=HR_ID, name="HR", role="HR", skills=[],
@@ -86,38 +94,49 @@ class TestGetNextDeskForDepartment:
 # ---------------------------------------------------------------------------
 
 class TestComputeLayout:
-    def test_empty_state_produces_layout(self):
+    def test_empty_state_produces_layout(self, monkeypatch):
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         layout = compute_layout(cs)
         assert "zones" in layout
         assert "executive_row" in layout
         assert "canvas_rows" in layout
 
-    def test_assigns_desk_positions_to_employees(self):
+    def test_assigns_desk_positions_to_employees(self, monkeypatch):
+        from unittest.mock import patch as _patch
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "Engineering")
         cs.employees["00011"] = _make_emp("00011", "Engineering")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
-        compute_layout(cs)
+        persisted = {}
+        def capture_persist(updates):
+            persisted.update(updates)
 
-        pos1 = cs.employees["00010"].desk_position
-        pos2 = cs.employees["00011"].desk_position
+        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
+            compute_layout(cs)
+
         # Positions should be assigned (not default 0,0)
-        assert pos1 != (0, 0)
-        assert pos2 != (0, 0)
-        # Positions should be different
-        assert pos1 != pos2
+        assert "00010" in persisted
+        assert "00011" in persisted
+        assert tuple(persisted["00010"]) != (0, 0)
+        assert tuple(persisted["00011"]) != (0, 0)
+        assert persisted["00010"] != persisted["00011"]
 
-    def test_multiple_departments_get_separate_zones(self):
+    def test_multiple_departments_get_separate_zones(self, monkeypatch):
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "Engineering")
         cs.employees["00011"] = _make_emp("00011", "Design")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         layout = compute_layout(cs)
         zones = layout["zones"]
@@ -125,8 +144,9 @@ class TestComputeLayout:
         dept_names = {z["department"] for z in zones}
         assert dept_names == {"Engineering", "Design"}
 
-    def test_executive_positions_assigned(self):
+    def test_executive_positions_assigned(self, monkeypatch):
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees[HR_ID] = Employee(
@@ -137,6 +157,7 @@ class TestComputeLayout:
             id=COO_ID, name="COO", role="COO", skills=[],
             department="Operations", employee_number=COO_ID,
         )
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         compute_layout(cs)
 
@@ -144,12 +165,14 @@ class TestComputeLayout:
         assert cs.employees[HR_ID].desk_position[1] == 0  # EXEC_ROW_GY
         assert cs.employees[COO_ID].desk_position[1] == 0
 
-    def test_sorts_by_level_desc(self):
+    def test_sorts_by_level_desc(self, monkeypatch):
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "Engineering", level=1)
         cs.employees["00011"] = _make_emp("00011", "Engineering", level=3)
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         compute_layout(cs)
 
@@ -166,37 +189,46 @@ class TestComputeLayout:
 
 class TestPersistAllDeskPositions:
     def test_updates_profile_yaml(self, tmp_path, monkeypatch):
+        """_persist_positions writes desk positions to profile.yaml on disk."""
         import yaml
-        from onemancompany.core.layout import persist_all_desk_positions
+        from unittest.mock import patch as _patch
+        from onemancompany.core.layout import compute_layout, _persist_positions
         import onemancompany.core.config as cfg
+        from onemancompany.core import state as state_mod
 
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
 
-        # Create employee profile
+        # Create employee profile on disk
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
         (emp_dir / "profile.yaml").write_text("name: Test\ndesk_position: [0, 0]\n")
 
         cs = CompanyState()
-        cs.employees["00010"] = _make_emp("00010", "Engineering", desk_pos=(7, 3))
+        cs.employees["00010"] = _make_emp("00010", "Engineering")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
-        persist_all_desk_positions(cs)
+        # compute_layout reads from store (bridged to cs.employees),
+        # computes positions, and calls _persist_positions to write YAML
+        compute_layout(cs)
 
         data = yaml.safe_load((emp_dir / "profile.yaml").read_text())
-        assert data["desk_position"] == [7, 3]
+        # Position should have been updated from the default [0, 0]
+        assert data["desk_position"] != [0, 0]
 
     def test_skips_missing_profile(self, tmp_path, monkeypatch):
-        """Line 341: profile.yaml doesn't exist — continue."""
-        from onemancompany.core.layout import persist_all_desk_positions
+        """_persist_positions skips employees without profile.yaml — no crash."""
+        from onemancompany.core.layout import compute_layout
         import onemancompany.core.config as cfg
+        from onemancompany.core import state as state_mod
 
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
 
         cs = CompanyState()
-        cs.employees["00010"] = _make_emp("00010", "Engineering", desk_pos=(7, 3))
+        cs.employees["00010"] = _make_emp("00010", "Engineering")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         # No directory / file created — should not raise
-        persist_all_desk_positions(cs)
+        compute_layout(cs)
 
 
 # ---------------------------------------------------------------------------
@@ -204,24 +236,47 @@ class TestPersistAllDeskPositions:
 # ---------------------------------------------------------------------------
 
 class TestChineseDepartmentMigration:
-    def test_migrates_chinese_department_names(self):
+    def test_migrates_chinese_department_names(self, monkeypatch):
         """Line 67: DEPT_CN_TO_EN migration in compute_layout."""
+        from unittest.mock import patch as _patch
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "技术研发部")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
-        compute_layout(cs)
-        assert cs.employees["00010"].department == "Engineering"
+        persisted = {}
+        def capture_persist(updates):
+            persisted.update(updates)
 
-    def test_does_not_change_english_department(self):
+        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
+            layout = compute_layout(cs)
+
+        # The zone should use the English department name
+        zone_depts = {z["department"] for z in layout["zones"]}
+        assert "Engineering" in zone_depts
+        # Employee should have been placed in the Engineering zone
+        assert "00010" in persisted
+
+    def test_does_not_change_english_department(self, monkeypatch):
+        from unittest.mock import patch as _patch
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "Engineering")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
-        compute_layout(cs)
-        assert cs.employees["00010"].department == "Engineering"
+        persisted = {}
+        def capture_persist(updates):
+            persisted.update(updates)
+
+        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
+            layout = compute_layout(cs)
+
+        zone_depts = {z["department"] for z in layout["zones"]}
+        assert "Engineering" in zone_depts
 
 
 # ---------------------------------------------------------------------------
@@ -229,21 +284,32 @@ class TestChineseDepartmentMigration:
 # ---------------------------------------------------------------------------
 
 class TestRemoteEmployeesExcluded:
-    def test_remote_employees_not_in_zones(self):
+    def test_remote_employees_not_in_zones(self, monkeypatch):
         """Line 75: remote employees skip office desks."""
+        from unittest.mock import patch as _patch
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "Engineering", remote=True)
         cs.employees["00011"] = _make_emp("00011", "Engineering")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
-        layout = compute_layout(cs)
+        persisted = {}
+        def capture_persist(updates):
+            persisted.update(updates)
+
+        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
+            layout = compute_layout(cs)
+
         zones = layout["zones"]
         # Only one non-remote employee, so one zone
         assert len(zones) >= 1
-        # Remote employee stays at default position
-        # Non-remote employee gets assigned
-        assert cs.employees["00011"].desk_position != (0, 0)
+        # Remote employee should NOT have a persisted position
+        assert "00010" not in persisted
+        # Non-remote employee gets assigned a non-default position
+        assert "00011" in persisted
+        assert tuple(persisted["00011"]) != (0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -251,12 +317,14 @@ class TestRemoteEmployeesExcluded:
 # ---------------------------------------------------------------------------
 
 class TestCustomDepartments:
-    def test_custom_department_gets_zone(self):
+    def test_custom_department_gets_zone(self, monkeypatch):
         """Line 119: departments not in DEPT_ORDER appended."""
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
         cs.employees["00010"] = _make_emp("00010", "CustomDeptXYZ")
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         layout = compute_layout(cs)
         zone_depts = {z["department"] for z in layout["zones"]}
@@ -268,11 +336,13 @@ class TestCustomDepartments:
 # ---------------------------------------------------------------------------
 
 class TestZoneComputation:
-    def test_too_many_departments_for_grid(self):
+    def test_too_many_departments_for_grid(self, monkeypatch):
         """Line 132: remaining_cols < 0 scenario."""
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         # Create many departments to exhaust grid columns
         for i in range(12):
             cs.employees[f"001{i:02d}"] = _make_emp(f"001{i:02d}", f"Dept_{i}")
@@ -293,10 +363,13 @@ class TestZoneComputation:
         from onemancompany.core.layout import _assign_desks_in_zone, DeptZone
 
         zone = DeptZone(department="Narrow", start_col=0, end_col=2)
-        emp = _make_emp("00010", "Narrow")
-        _assign_desks_in_zone(zone, [emp])
+        # _assign_desks_in_zone expects dicts (store format), not Employee objects
+        emp_dict = {"id": "00010", "name": "Emp 00010", "role": "Engineer",
+                    "skills": ["python"], "department": "Narrow",
+                    "employee_number": "00010", "desk_position": [0, 0], "level": 1}
+        _assign_desks_in_zone(zone, [emp_dict])
         # Should be placed at center
-        assert emp.desk_position[0] == 1  # 0 + 2//2
+        assert emp_dict["desk_position"][0] == 1  # 0 + 2//2
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +377,13 @@ class TestZoneComputation:
 # ---------------------------------------------------------------------------
 
 class TestAllSlotsFull:
-    def test_fallback_when_all_slots_occupied(self):
+    def test_fallback_when_all_slots_occupied(self, monkeypatch):
         """Line 270: all slots full — place at end of zone."""
         from onemancompany.core.layout import get_next_desk_for_department
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         # Fill up many positions
         for i in range(30):
             emp = _make_emp(f"00{i:03d}", "Engineering")
@@ -319,12 +394,14 @@ class TestAllSlotsFull:
         assert isinstance(pos, tuple)
         assert len(pos) == 2
 
-    def test_fallback_when_no_zone_found(self):
+    def test_fallback_when_no_zone_found(self, monkeypatch):
         """Line 247: no target_zone — use fallback position."""
         from unittest.mock import patch
         from onemancompany.core.layout import get_next_desk_for_department, DeptZone
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         # Mock _compute_zones to return a zone for a DIFFERENT department,
         # so the target department "Phantom" won't find its zone.
@@ -339,12 +416,14 @@ class TestAllSlotsFull:
 # ---------------------------------------------------------------------------
 
 class TestNarrowZoneFallback:
-    def test_narrow_zone_desk_cols_empty(self):
+    def test_narrow_zone_desk_cols_empty(self, monkeypatch):
         """Line 262: zone too narrow for normal desk spacing — uses center column."""
         from unittest.mock import patch
         from onemancompany.core.layout import get_next_desk_for_department, DeptZone
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         # Zone width = 2 (end - start = 2). col = start+1 = 1, end-1 = 1 => 1 < 1 is False
         # So desk_cols is empty, triggering line 262.
@@ -354,12 +433,14 @@ class TestNarrowZoneFallback:
         # desk_cols = [0 + 2//2] = [1], first desk row
         assert pos == (1, DEPT_DESK_ROWS[0])
 
-    def test_all_slots_full_exact(self):
+    def test_all_slots_full_exact(self, monkeypatch):
         """Line 270: all slots occupied — returns fallback position at zone start."""
         from unittest.mock import patch
         from onemancompany.core.layout import get_next_desk_for_department, DeptZone
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
 
         # Create a small zone with known dimensions
         fake_zones = [DeptZone(department="Full", start_col=0, end_col=5)]
@@ -381,11 +462,13 @@ class TestNarrowZoneFallback:
 
 
 class TestExecutivePositions:
-    def test_all_executives_positioned(self):
+    def test_all_executives_positioned(self, monkeypatch):
         """Lines 199-213: All executive positions assigned."""
         from onemancompany.core.layout import compute_layout
+        from onemancompany.core import state as state_mod
 
         cs = CompanyState()
+        monkeypatch.setattr(state_mod, "company_state", cs)
         cs.employees[HR_ID] = Employee(
             id=HR_ID, name="HR", role="HR", skills=[],
             department="HR", employee_number=HR_ID,

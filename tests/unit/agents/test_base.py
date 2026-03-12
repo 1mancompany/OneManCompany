@@ -29,6 +29,37 @@ def _make_emp(emp_id: str, **kwargs) -> Employee:
     return Employee(**defaults)
 
 
+def _emp_to_dict(emp: Employee) -> dict:
+    """Convert an Employee object to a dict mirroring store.load_employee() output."""
+    return {
+        "id": emp.id, "name": emp.name, "role": emp.role,
+        "skills": emp.skills, "employee_number": emp.employee_number,
+        "nickname": emp.nickname, "level": getattr(emp, "level", 1),
+        "department": getattr(emp, "department", ""),
+        "tool_permissions": getattr(emp, "tool_permissions", []) or [],
+        "guidance_notes": getattr(emp, "guidance_notes", []) or [],
+        "runtime": {
+            "status": getattr(emp, "status", "idle"),
+            "api_online": getattr(emp, "api_online", False),
+        },
+    }
+
+
+def _mock_store_for_employees(monkeypatch, employees: dict[str, "Employee"]):
+    """Patch store.load_employee and store.load_all_employees to return dicts from Employee objects."""
+    from onemancompany.core import store as store_mod
+    emp_dicts = {eid: _emp_to_dict(e) for eid, e in employees.items()}
+    monkeypatch.setattr(store_mod, "load_employee",
+                        lambda eid: emp_dicts.get(eid))
+    monkeypatch.setattr(store_mod, "load_all_employees",
+                        lambda: dict(emp_dicts))
+    # Also mock guidance/culture/direction with defaults
+    monkeypatch.setattr(store_mod, "load_employee_guidance",
+                        lambda eid: (emp_dicts.get(eid) or {}).get("guidance_notes", []))
+    monkeypatch.setattr(store_mod, "load_culture", lambda: [])
+    monkeypatch.setattr(store_mod, "load_direction", lambda: "")
+
+
 # ---------------------------------------------------------------------------
 # make_llm
 # ---------------------------------------------------------------------------
@@ -276,15 +307,19 @@ class TestGetEmployeeToolsPrompt:
         meta = ToolMeta(name=name, category="asset", allowed_users=allowed_users, source="asset")
         tool_registry.register(_dummy, meta)
 
+    def _mock_store_employee(self, monkeypatch, emp_id="00010"):
+        """Mock store.load_employee to return a dict for the given employee."""
+        from onemancompany.core import store as store_mod
+        emp_dict = {"id": emp_id, "name": f"Emp {emp_id}", "role": "Engineer",
+                    "skills": ["python"], "tool_permissions": []}
+        monkeypatch.setattr(store_mod, "load_employee",
+                            lambda eid: emp_dict if eid == emp_id else None)
+
     def test_includes_open_access_tools(self, monkeypatch):
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        cs.employees["00010"] = _make_emp("00010")
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(base_mod, "company_state", cs)
-        self._register_asset_tool(monkeypatch, cs, "MyTool", "A tool", allowed_users=None)
+        self._mock_store_employee(monkeypatch, "00010")
+        self._register_asset_tool(monkeypatch, None, "MyTool", "A tool", allowed_users=None)
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "MyTool" in result
@@ -292,13 +327,9 @@ class TestGetEmployeeToolsPrompt:
 
     def test_excludes_restricted_tools_for_unauthorized(self, monkeypatch):
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        cs.employees["00010"] = _make_emp("00010")
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(base_mod, "company_state", cs)
-        self._register_asset_tool(monkeypatch, cs, "SecretTool", "Restricted",
+        self._mock_store_employee(monkeypatch, "00010")
+        self._register_asset_tool(monkeypatch, None, "SecretTool", "Restricted",
                                   allowed_users=["00099"])
 
         result = base_mod.get_employee_tools_prompt("00010")
@@ -306,13 +337,9 @@ class TestGetEmployeeToolsPrompt:
 
     def test_includes_restricted_tools_for_authorized(self, monkeypatch):
         from onemancompany.agents import base as base_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        cs.employees["00010"] = _make_emp("00010")
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(base_mod, "company_state", cs)
-        self._register_asset_tool(monkeypatch, cs, "SpecialTool", "Only for 00010",
+        self._mock_store_employee(monkeypatch, "00010")
+        self._register_asset_tool(monkeypatch, None, "SpecialTool", "Only for 00010",
                                   allowed_users=["00010"])
 
         result = base_mod.get_employee_tools_prompt("00010")
@@ -332,7 +359,9 @@ class TestBaseAgentRunner:
         if cs is None:
             cs = _make_cs()
         if emp is not None:
-            cs.employees[emp.id] = emp
+            _mock_store_for_employees(monkeypatch, {emp.id: emp})
+        else:
+            _mock_store_for_employees(monkeypatch, {})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
 
@@ -345,8 +374,8 @@ class TestBaseAgentRunner:
         emp = _make_emp("00010")
         runner, cs = self._make_runner(monkeypatch, emp=emp)
 
-        runner._set_status("working")
-        assert cs.employees["00010"].status == "working"
+        # _set_status is a no-op now (runtime persisted via store)
+        runner._set_status("working")  # should not raise
 
     def test_set_status_no_employee(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch)
@@ -382,6 +411,10 @@ class TestBaseAgentRunner:
     def test_get_guidance_prompt_section_with_notes(self, monkeypatch):
         emp = _make_emp("00010", guidance_notes=["Be concise", "Focus on quality"])
         runner, _ = self._make_runner(monkeypatch, emp=emp)
+        # Override guidance mock to return the notes
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_employee_guidance",
+                            lambda eid: ["Be concise", "Focus on quality"])
 
         result = runner._get_guidance_prompt_section()
         assert "CEO Guidance" in result
@@ -391,17 +424,16 @@ class TestBaseAgentRunner:
 
     def test_get_company_culture_prompt_section_empty(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        cs.company_culture = []
+        # Default mock returns [] for culture
 
         result = runner._get_company_culture_prompt_section()
         assert result == ""
 
     def test_get_company_culture_prompt_section(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        cs.company_culture = [
-            {"content": "Move fast"},
-            {"content": "Stay humble"},
-        ]
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_culture",
+                            lambda: [{"content": "Move fast"}, {"content": "Stay humble"}])
 
         result = runner._get_company_culture_prompt_section()
         assert "Company Culture" in result
@@ -412,7 +444,7 @@ class TestBaseAgentRunner:
         cs = _make_cs()
         emp1 = _make_emp("00010")
         emp2 = _make_emp("00020", name="Alice", nickname="A", role="Designer", level=2)
-        cs.employees = {"00010": emp1, "00020": emp2}
+        _mock_store_for_employees(monkeypatch, {"00010": emp1, "00020": emp2})
 
         from onemancompany.core import state as state_mod
         from onemancompany.agents import base as base_mod
@@ -430,14 +462,16 @@ class TestBaseAgentRunner:
 
     def test_get_company_direction_section_empty(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        cs.company_direction = ""
+        # Default mock returns "" for direction
 
         result = runner._get_company_direction_section()
         assert result == ""
 
     def test_get_company_direction_section(self, monkeypatch):
         runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        cs.company_direction = "Build the best AI company"
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_direction",
+                            lambda: "Build the best AI company")
 
         result = runner._get_company_direction_section()
         assert "Company Direction" in result
@@ -615,7 +649,7 @@ class TestEmployeeAgent:
 
         cs = _make_cs()
         emp = _make_emp(emp_id, **emp_kwargs)
-        cs.employees[emp_id] = emp
+        _mock_store_for_employees(monkeypatch, {emp_id: emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
@@ -655,6 +689,7 @@ class TestEmployeeAgent:
         from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
+        _mock_store_for_employees(monkeypatch, {})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         mock_registry = MagicMock()
@@ -678,6 +713,7 @@ class TestEmployeeAgent:
         from onemancompany.core import tool_registry as tr_mod
 
         cs = _make_cs()
+        _mock_store_for_employees(monkeypatch, {})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         mock_registry = MagicMock()
@@ -766,7 +802,7 @@ class TestEmployeeAgent:
 
         result = await agent.run("Do something")
         assert result == "Task completed successfully"
-        assert cs.employees["00010"].status == "idle"
+        # _set_status is a no-op now; status persisted via store
 
     @pytest.mark.asyncio
     async def test_run_streamed_fallback(self, monkeypatch):
@@ -807,7 +843,7 @@ class TestEmployeeAgent:
             "00010", name="Alice", nickname="凌霄",
             role="Engineer", department="Engineering", level=2,
         )
-        cs.employees["00010"] = emp
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
 
@@ -1040,7 +1076,7 @@ class TestRunStreamed:
 
         cs = _make_cs()
         emp = _make_emp("00010")
-        cs.employees["00010"] = emp
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
 
@@ -1090,8 +1126,7 @@ class TestRunStreamed:
         # Verify logs were called
         assert any(k == "llm_output" for k, _ in log_calls)
         assert any(k == "tool_result" for k, _ in log_calls)
-        # Status should be idle after completion
-        assert cs.employees["00010"].status == "idle"
+        # _set_status is a no-op now; status persisted via store
         # Should have recorded usage
         assert runner._last_usage["input_tokens"] == 10
         assert runner._last_usage["output_tokens"] == 5
@@ -1104,7 +1139,7 @@ class TestRunStreamed:
 
         cs = _make_cs()
         emp = _make_emp("00010")
-        cs.employees["00010"] = emp
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "event_bus", MagicMock(publish=AsyncMock()))
@@ -1173,7 +1208,7 @@ class TestGetEmployeeToolsPromptWithFiles:
         from onemancompany.core import state as state_mod, config as config_mod
 
         cs = _make_cs()
-        cs.employees["00010"] = _make_emp("00010")
+        _mock_store_for_employees(monkeypatch, {"00010": _make_emp("00010")})
         tool_folder = tmp_path / "tools" / "my_tool"
         tool_folder.mkdir(parents=True)
         (tool_folder / "readme.md").write_text("Tool readme content")
@@ -1192,7 +1227,7 @@ class TestGetEmployeeToolsPromptWithFiles:
         from onemancompany.core import state as state_mod, config as config_mod
 
         cs = _make_cs()
-        cs.employees["00010"] = _make_emp("00010")
+        _mock_store_for_employees(monkeypatch, {"00010": _make_emp("00010")})
         tool_folder = tmp_path / "tools" / "my_tool"
         tool_folder.mkdir(parents=True)
         (tool_folder / "data.bin").write_bytes(b"\x80\x81\x82\x83")
@@ -1289,7 +1324,7 @@ class TestUnauthorizedToolsSectionEmpty:
 
         cs = _make_cs()
         emp = _make_emp("00010", tool_permissions=["some_tool"])
-        cs.employees["00010"] = emp
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
@@ -1350,7 +1385,7 @@ class TestDynamicContextWithActiveTasks:
 
         cs = _make_cs()
         emp = _make_emp("00010")
-        cs.employees["00010"] = emp
+        _mock_store_for_employees(monkeypatch, {"00010": emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
 

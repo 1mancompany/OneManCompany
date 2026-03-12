@@ -18,6 +18,7 @@ from onemancompany.agents.base import get_employee_skills_prompt, get_employee_t
 from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.core.store import load_employee, load_all_employees
 
 # ---------------------------------------------------------------------------
 # CEO interaction — blocking wait for CEO response
@@ -138,9 +139,9 @@ def read(file_path: str, employee_id: str = "") -> dict:
     else:
         permissions = []
         if employee_id:
-            emp = company_state.employees.get(employee_id)
-            if emp:
-                permissions = emp.permissions
+            emp_data = load_employee(employee_id)
+            if emp_data:
+                permissions = emp_data.get("permissions", [])
         resolved = _resolve_path(file_path, permissions=permissions)
 
     if resolved is None:
@@ -185,9 +186,9 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
     else:
         permissions = []
         if employee_id:
-            emp = company_state.employees.get(employee_id)
-            if emp:
-                permissions = emp.permissions
+            emp_data = load_employee(employee_id)
+            if emp_data:
+                permissions = emp_data.get("permissions", [])
         resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
     if resolved is None:
@@ -242,9 +243,9 @@ async def write(
     else:
         permissions = []
         if employee_id:
-            emp = company_state.employees.get(employee_id)
-            if emp:
-                permissions = emp.permissions
+            emp_data = load_employee(employee_id)
+            if emp_data:
+                permissions = emp_data.get("permissions", [])
         resolved = _resolve_path(file_path, permissions=permissions)
 
     if resolved is None:
@@ -261,9 +262,9 @@ async def write(
 
     permissions = []
     if employee_id:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            permissions = emp.permissions
+        emp_data = load_employee(employee_id)
+        if emp_data:
+            permissions = emp_data.get("permissions", [])
 
     result = propose_edit(file_path, content, "write via agent", proposed_by=employee_id or "agent", permissions=permissions)
     if result["status"] == "error":
@@ -326,9 +327,9 @@ async def edit(
     else:
         permissions = []
         if employee_id:
-            emp = company_state.employees.get(employee_id)
-            if emp:
-                permissions = emp.permissions
+            emp_data = load_employee(employee_id)
+            if emp_data:
+                permissions = emp_data.get("permissions", [])
         resolved = _resolve_path(file_path, permissions=permissions)
 
     if resolved is None:
@@ -345,9 +346,9 @@ async def edit(
 
     permissions = []
     if employee_id:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            permissions = emp.permissions
+        emp_data = load_employee(employee_id)
+        if emp_data:
+            permissions = emp_data.get("permissions", [])
 
     result = propose_edit(file_path, new_content, reason or "edit via agent", proposed_by=employee_id or "agent", permissions=permissions)
     if result["status"] == "error":
@@ -424,39 +425,46 @@ def list_colleagues() -> list[dict]:
         tools (authorized tool names), status, and current_task_summary.
     """
     results = []
-    for emp in company_state.employees.values():
+    all_emps = load_all_employees()
+    for emp_id, emp_data in all_emps.items():
         # Gather authorized tool names for this colleague
-        tool_names: list[str] = list(emp.tool_permissions) if emp.tool_permissions else []
+        tool_perms = emp_data.get("tool_permissions", [])
+        tool_names: list[str] = list(tool_perms) if tool_perms else []
         # Also include equipment room tools they have access to
         for t in company_state.tools.values():
-            if not t.allowed_users or emp.id in t.allowed_users:
+            if not t.allowed_users or emp_id in t.allowed_users:
                 if t.name not in tool_names:
                     tool_names.append(t.name)
 
+        runtime = emp_data.get("runtime", {})
         results.append({
-            "id": emp.id,
-            "name": emp.name,
-            "nickname": emp.nickname,
-            "role": emp.role,
-            "department": emp.department,
-            "level": emp.level,
-            "skills": emp.skills,
+            "id": emp_id,
+            "name": emp_data.get("name", ""),
+            "nickname": emp_data.get("nickname", ""),
+            "role": emp_data.get("role", ""),
+            "department": emp_data.get("department", ""),
+            "level": emp_data.get("level", 1),
+            "skills": emp_data.get("skills", []),
             "tools": tool_names,
-            "status": emp.status,
-            "current_task": emp.current_task_summary or None,
+            "status": runtime.get("status", emp_data.get("status", "idle")),
+            "current_task": runtime.get("current_task_summary", "") or None,
         })
     return results
 
 
-def _build_employee_context(emp) -> str:
-    """Build identity + skills + tools context string for an employee."""
+def _build_employee_context(emp_data: dict, emp_id: str = "") -> str:
+    """Build identity + skills + tools context string for an employee (dict from store)."""
+    eid = emp_id or emp_data.get("id", emp_data.get("employee_number", ""))
+    work_principles = emp_data.get("work_principles", "")
     principles_ctx = ""
-    if emp.work_principles:
-        principles_ctx = f"\nYour work principles:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
-    skills_ctx = get_employee_skills_prompt(emp.id)
-    tools_ctx = get_employee_tools_prompt(emp.id)
+    if work_principles:
+        principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+    skills_ctx = get_employee_skills_prompt(eid)
+    tools_ctx = get_employee_tools_prompt(eid)
     return (
-        f"You are {emp.name} ({emp.nickname}, Department: {emp.department}, {emp.role}, Lv.{emp.level}).\n"
+        f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}, "
+        f"Department: {emp_data.get('department', '')}, {emp_data.get('role', '')}, "
+        f"Lv.{emp_data.get('level', 1)}).\n"
         f"{principles_ctx}{skills_ctx}{tools_ctx}"
     )
 
@@ -468,9 +476,9 @@ def _format_chat_history(chat_history: list[dict]) -> str:
     return "\n".join(f"  {m['speaker']}: {m['message']}" for m in chat_history)
 
 
-def _build_evaluate_prompt(emp, topic: str, agenda: str, chat_history: list[dict]) -> str:
+def _build_evaluate_prompt(emp_data: dict, emp_id: str, topic: str, agenda: str, chat_history: list[dict]) -> str:
     """Build a prompt asking the employee whether they need to speak."""
-    ctx = _build_employee_context(emp)
+    ctx = _build_employee_context(emp_data, emp_id)
     history_text = _format_chat_history(chat_history)
     prompt = (
         f"{ctx}"
@@ -489,9 +497,9 @@ def _build_evaluate_prompt(emp, topic: str, agenda: str, chat_history: list[dict
     return prompt
 
 
-def _build_speech_prompt(emp, topic: str, agenda: str, chat_history: list[dict]) -> str:
+def _build_speech_prompt(emp_data: dict, emp_id: str, topic: str, agenda: str, chat_history: list[dict]) -> str:
     """Build a prompt for the employee to deliver their contribution."""
-    ctx = _build_employee_context(emp)
+    ctx = _build_employee_context(emp_data, emp_id)
     history_text = _format_chat_history(chat_history)
     prompt = (
         f"{ctx}"
@@ -533,18 +541,18 @@ async def pull_meeting(
     Returns:
         Meeting result, including discussion summary and action items.
     """
-    # Validate participants
-    valid_participants = []
+    # Validate participants — build list of (emp_id, emp_data) tuples
+    valid_participants: list[tuple[str, dict]] = []
     for pid in participant_ids:
-        emp = company_state.employees.get(pid)
-        if emp:
-            valid_participants.append(emp)
+        emp_data = load_employee(pid)
+        if emp_data:
+            valid_participants.append((pid, emp_data))
 
     if not valid_participants:
         return {"status": "error", "message": "No valid participants found. Please check employee IDs."}
 
     # Prevent solo meetings — need at least 2 distinct people
-    all_unique = set(pid for pid in participant_ids if company_state.employees.get(pid))
+    all_unique = set(pid for pid, _ in valid_participants)
     if initiator_id:
         all_unique.add(initiator_id)
     if len(all_unique) < 2:
@@ -557,11 +565,18 @@ async def pull_meeting(
     # Find a free meeting room
     room = None
     all_ids = [initiator_id] + participant_ids if initiator_id else participant_ids
+    booker = initiator_id or participant_ids[0]
     for r in company_state.meeting_rooms.values():
         if not r.is_booked and r.capacity >= len(all_ids):
             r.is_booked = True
-            r.booked_by = initiator_id or participant_ids[0]
+            r.booked_by = booker
             r.participants = all_ids
+            from onemancompany.core.store import save_room
+            await save_room(r.id, {
+                "is_booked": True,
+                "booked_by": booker,
+                "participants": all_ids,
+            })
             room = r
             break
 
@@ -580,9 +595,9 @@ async def pull_meeting(
 
     initiator_name = "Initiator"
     if initiator_id:
-        ini_emp = company_state.employees.get(initiator_id)
-        if ini_emp:
-            initiator_name = ini_emp.nickname or ini_emp.name
+        ini_data = load_employee(initiator_id)
+        if ini_data:
+            initiator_name = ini_data.get("nickname", "") or ini_data.get("name", "Initiator")
 
     await _chat(room.id, initiator_name, "employee",
                 f"Hello everyone, I've initiated this meeting. Topic: {topic}")
@@ -600,11 +615,12 @@ async def pull_meeting(
             chat_history.append({"speaker": initiator_name, "message": f"Agenda: {agenda}"})
 
         # All participants (including initiator if present) can compete to speak
-        speakers = list(valid_participants)
+        # speakers is a list of (emp_id, emp_data) tuples
+        speakers: list[tuple[str, dict]] = list(valid_participants)
         if initiator_id:
-            ini_emp = company_state.employees.get(initiator_id)
-            if ini_emp and ini_emp not in speakers:
-                speakers.append(ini_emp)
+            ini_data = load_employee(initiator_id)
+            if ini_data and initiator_id not in {pid for pid, _ in speakers}:
+                speakers.append((initiator_id, ini_data))
 
         max_rounds = 15
         loop = asyncio.get_running_loop()
@@ -615,15 +631,16 @@ async def pull_meeting(
             rounds_used = round_num + 1
 
             # Concurrent evaluation — all participants judge whether they need to speak
-            async def _evaluate(emp):
-                prompt = _build_evaluate_prompt(emp, topic, agenda, chat_history)
-                llm = make_llm(emp.id)
+            async def _evaluate(eid_and_data: tuple[str, dict]):
+                eid, edata = eid_and_data
+                prompt = _build_evaluate_prompt(edata, eid, topic, agenda, chat_history)
+                llm = make_llm(eid)
                 t0 = loop.time()
-                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=emp.id)
+                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
                 t1 = loop.time()
                 first_line = resp.content.strip().split("\n")[0].upper()[:20]
                 wants = "YES" in first_line
-                return (emp, wants, t1)
+                return (eid, edata, wants, t1)
 
             results = await asyncio.gather(
                 *[_evaluate(e) for e in speakers],
@@ -631,11 +648,11 @@ async def pull_meeting(
             )
 
             # Filter out exceptions and those who don't want to speak
-            willing = [
-                (emp, ts)
+            willing: list[tuple[str, dict, float]] = [
+                (eid, edata, ts)
                 for r in results
                 if not isinstance(r, Exception)
-                for emp, wants, ts in [r]
+                for eid, edata, wants, ts in [r]
                 if wants
             ]
 
@@ -644,25 +661,25 @@ async def pull_meeting(
                 break
 
             # Token grab — sort by timestamp, fastest wins
-            willing.sort(key=lambda x: x[1])
+            willing.sort(key=lambda x: x[2])
 
             # No-consecutive rule: same person cannot get the token twice in a row
-            winner = willing[0][0]
-            if winner.id == last_speaker_id and len(willing) > 1:
-                winner = willing[1][0]
+            winner_id, winner_data, _ = willing[0]
+            if winner_id == last_speaker_id and len(willing) > 1:
+                winner_id, winner_data, _ = willing[1]
 
             # Winner delivers their speech
-            speech_prompt = _build_speech_prompt(winner, topic, agenda, chat_history)
-            resp = await tracked_ainvoke(make_llm(winner.id), speech_prompt, category="meeting", employee_id=winner.id)
-            last_speaker_id = winner.id
+            speech_prompt = _build_speech_prompt(winner_data, winner_id, topic, agenda, chat_history)
+            resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
+            last_speaker_id = winner_id
 
-            display = winner.nickname or winner.name
-            await _chat(room.id, display, winner.role, resp.content)
+            display = winner_data.get("nickname", "") or winner_data.get("name", "")
+            await _chat(room.id, display, winner_data.get("role", ""), resp.content)
             chat_history.append({"speaker": display, "message": resp.content})
             discussion_entries.append({
-                "id": winner.id,
-                "name": winner.name,
-                "nickname": winner.nickname,
+                "id": winner_id,
+                "name": winner_data.get("name", ""),
+                "nickname": winner_data.get("nickname", ""),
                 "comment": resp.content,
             })
         else:
@@ -675,10 +692,14 @@ async def pull_meeting(
             for d in discussion_entries
         )
         summary_llm = make_llm(initiator_id or HR_ID)
+        participant_names = ", ".join(
+            edata.get("nickname", "") or edata.get("name", "")
+            for _, edata in valid_participants
+        )
         summary_prompt = (
             f"You are the meeting note-taker. Summarize the following focused meeting discussion.\n\n"
             f"Meeting topic: {topic}\n"
-            f"Participants: {', '.join(e.nickname or e.name for e in valid_participants)}\n\n"
+            f"Participants: {participant_names}\n\n"
             f"Discussion:\n{all_comments}\n\n"
             f"Please output:\n"
             f"1. Meeting conclusions (2-3 sentences)\n"
@@ -699,11 +720,12 @@ async def pull_meeting(
         except (json.JSONDecodeError, AttributeError) as _e:
             logger.debug("Failed to parse meeting action items: {}", _e)
 
-        company_state.activity_log.append({
+        from onemancompany.core.store import append_activity_sync
+        append_activity_sync({
             "type": "pull_meeting",
             "topic": topic,
             "initiator": initiator_id,
-            "participants": [e.id for e in valid_participants],
+            "participants": [pid for pid, _ in valid_participants],
             "room": room.name,
             "rounds": rounds_used,
         })
@@ -712,7 +734,10 @@ async def pull_meeting(
             "status": "completed",
             "room": room.name,
             "topic": topic,
-            "participants": [e.nickname or e.name for e in valid_participants],
+            "participants": [
+                edata.get("nickname", "") or edata.get("name", "")
+                for _, edata in valid_participants
+            ],
             "discussion": discussion_entries,
             "summary": summary_text[:MAX_DISCUSSION_SUMMARY_LEN],
             "action_items": action_items,
@@ -724,6 +749,12 @@ async def pull_meeting(
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        from onemancompany.core.store import save_room
+        await save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await _publish("meeting_released", {
             "room_id": room.id, "room_name": room.name,
         })
@@ -871,9 +902,9 @@ async def report_to_ceo(subject: str, report: str, action_required: bool = False
 
     emp_name = ""
     if employee_id:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            emp_name = emp.name
+        emp_data = load_employee(employee_id)
+        if emp_data:
+            emp_name = emp_data.get("name", "")
 
     payload = {
         "employee_id": employee_id,
@@ -941,11 +972,12 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     Returns:
         Status of the request.
     """
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = load_employee(employee_id)
+    if not emp_data:
         return {"status": "error", "message": "Employee not found."}
 
-    if tool_name in (emp.tool_permissions or []):
+    tool_perms = emp_data.get("tool_permissions", [])
+    if tool_name in (tool_perms or []):
         return {"status": "already_granted", "message": f"You already have access to '{tool_name}'."}
 
     # Check tool exists in registry
@@ -961,11 +993,15 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if not loop:
         return {"status": "error", "message": "COO agent not available."}
 
+    emp_name = emp_data.get("name", employee_id)
+    emp_dept = emp_data.get("department", "")
+    emp_role = emp_data.get("role", "")
+    emp_level = emp_data.get("level", 1)
     task_desc = (
-        f"Tool access request: Employee {emp.name} (ID: {emp.id}, {emp.department}/{emp.role}, Lv.{emp.level}) "
+        f"Tool access request: Employee {emp_name} (ID: {employee_id}, {emp_dept}/{emp_role}, Lv.{emp_level}) "
         f"requests access to tool '{tool_name}'. Reason: {reason}. "
         f"Evaluate whether this is appropriate for their role and department. "
-        f"If approved, call manage_tool_access(employee_id='{emp.id}', tool_name='{tool_name}', action='grant')."
+        f"If approved, call manage_tool_access(employee_id='{employee_id}', tool_name='{tool_name}', action='grant')."
     )
     loop.push_task(task_desc)
     return {"status": "requested", "message": f"Access request for '{tool_name}' sent to COO for review."}
@@ -987,31 +1023,38 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     if manager_id != COO_ID:
         return {"status": "denied", "message": "Only COO (00003) can manage tool access."}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    # Read from store to validate existence; mutations still go through company_state (Task 9)
+    emp_data = load_employee(employee_id)
+    if not emp_data:
         return {"status": "error", "message": f"Employee {employee_id} not found."}
 
+    current_perms = list(emp_data.get("tool_permissions", []) or [])
+
     if action == "grant":
-        if tool_name not in (emp.tool_permissions or []):
-            if emp.tool_permissions is None:
-                emp.tool_permissions = []
-            emp.tool_permissions.append(tool_name)
+        if tool_name not in current_perms:
+            current_perms.append(tool_name)
     elif action == "revoke":
-        if emp.tool_permissions and tool_name in emp.tool_permissions:
-            emp.tool_permissions.remove(tool_name)
+        if tool_name in current_perms:
+            current_perms.remove(tool_name)
     else:
         return {"status": "error", "message": f"Invalid action: {action}. Use 'grant' or 'revoke'."}
 
     # Persist to disk
-    from onemancompany.core.config import update_tool_permissions
-    update_tool_permissions(employee_id, emp.tool_permissions or [])
+    import asyncio as _asyncio
+    from onemancompany.core import store as _store
+    try:
+        _asyncio.get_running_loop().create_task(
+            _store.save_employee(employee_id, {"tool_permissions": current_perms})
+        )
+    except RuntimeError:
+        logger.debug("No event loop for tool_permissions persist of {}", employee_id)
 
     return {
         "status": "ok",
         "employee": employee_id,
         "tool": tool_name,
         "action": action,
-        "current_tool_permissions": emp.tool_permissions,
+        "current_tool_permissions": current_perms,
     }
 
 

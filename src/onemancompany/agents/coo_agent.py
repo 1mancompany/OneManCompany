@@ -17,9 +17,10 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
+from onemancompany.core.store import append_activity_sync as _append_activity
 
 # Pending hiring requests awaiting CEO approval.
 # { request_id: { role, reason, skills, requested_by, requested_at } }
@@ -433,7 +434,7 @@ def register_asset(
         office_tool.files = copied_files
 
     company_state.tools[eq_id] = office_tool
-    company_state.activity_log.append(
+    _append_activity(
         {"type": "tool_added", "name": name, "description": description, "folder": folder_name}
     )
 
@@ -475,7 +476,7 @@ def remove_tool(tool_id: str) -> dict:
         if folder.exists():
             shutil.rmtree(folder)
 
-    company_state.activity_log.append(
+    _append_activity(
         {"type": "tool_removed", "name": name, "id": tool_id}
     )
 
@@ -564,10 +565,12 @@ def list_assets() -> list[dict]:
          "type": "tool", "access": "restricted" if t.allowed_users else "open"}
         for t in company_state.tools.values()
     ]
+    from onemancompany.core.store import load_rooms
     items += [
-        {"id": m.id, "name": m.name, "description": m.description, "type": "room",
-         "capacity": m.capacity, "is_booked": m.is_booked, "booked_by": m.booked_by}
-        for m in company_state.meeting_rooms.values()
+        {"id": m.get("id", ""), "name": m.get("name", ""), "description": m.get("description", ""),
+         "type": "room", "capacity": m.get("capacity", 6),
+         "is_booked": m.get("is_booked", False), "booked_by": m.get("booked_by", "")}
+        for m in load_rooms()
     ]
     return items
 
@@ -575,16 +578,17 @@ def list_assets() -> list[dict]:
 @tool
 def list_meeting_rooms() -> list[dict]:
     """List all meeting rooms and their current booking status."""
+    from onemancompany.core.store import load_rooms
     return [
         {
-            "id": m.id,
-            "name": m.name,
-            "capacity": m.capacity,
-            "is_booked": m.is_booked,
-            "booked_by": m.booked_by,
-            "participants": m.participants,
+            "id": m.get("id", ""),
+            "name": m.get("name", ""),
+            "capacity": m.get("capacity", 6),
+            "is_booked": m.get("is_booked", False),
+            "booked_by": m.get("booked_by", ""),
+            "participants": m.get("participants", []),
         }
-        for m in company_state.meeting_rooms.values()
+        for m in load_rooms()
     ]
 
 
@@ -618,7 +622,16 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
             room.is_booked = True
             room.booked_by = employee_id
             room.participants = all_participants
-            company_state.activity_log.append({
+            from onemancompany.core.store import save_room
+            try:
+                asyncio.get_running_loop().create_task(save_room(room.id, {
+                    "is_booked": True,
+                    "booked_by": employee_id,
+                    "participants": all_participants,
+                }))
+            except RuntimeError:
+                logger.debug("No event loop for save_room in book_meeting_room")
+            _append_activity({
                 "type": "meeting_booked",
                 "room": room.name,
                 "booked_by": employee_id,
@@ -633,7 +646,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
                 "message": f"Meeting room {room.name} booked successfully.",
             }
 
-    company_state.activity_log.append({
+    _append_activity({
         "type": "meeting_denied",
         "requested_by": employee_id,
         "reason": "no_free_rooms",
@@ -664,7 +677,16 @@ def release_meeting_room(room_id: str) -> dict:
     room.is_booked = False
     room.booked_by = ""
     room.participants = []
-    company_state.activity_log.append({
+    from onemancompany.core.store import save_room
+    try:
+        asyncio.get_running_loop().create_task(save_room(room_id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        }))
+    except RuntimeError:
+        logger.debug("No event loop for save_room in release_meeting_room")
+    _append_activity({
         "type": "meeting_released",
         "room": room.name,
         "participants": old_participants,
@@ -720,7 +742,7 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
             default_flow_style=False,
         )
 
-    company_state.activity_log.append({
+    _append_activity({
         "type": "tool_added",
         "name": name,
         "description": f"New meeting room (capacity: {capacity})",
@@ -848,7 +870,7 @@ def deposit_company_knowledge(
     if category == "workflow":
         save_workflow(name, content)
         path = str(WORKFLOWS_DIR / f"{name}.md")
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "workflow",
             "name": name,
@@ -856,10 +878,17 @@ def deposit_company_knowledge(
 
     elif category == "culture":
         culture_item = {"content": content, "added_by": "COO", "name": name}
-        company_state.company_culture.append(culture_item)
-        save_company_culture(company_state.company_culture)
+        from onemancompany.core.store import load_culture as _load_culture, save_culture as _save_culture
+        import asyncio as _asyncio
+        items = _load_culture()
+        items.append(culture_item)
+        try:
+            _loop = _asyncio.get_running_loop()
+            _loop.create_task(_save_culture(items))
+        except RuntimeError:
+            logger.debug("No event loop for culture persist")
         path = "company/company_culture.yaml"
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "culture",
             "name": name,
@@ -870,7 +899,7 @@ def deposit_company_knowledge(
         sop_path = SOP_DIR / f"{name}.md"
         sop_path.write_text(content, encoding="utf-8")
         path = str(sop_path)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "sop",
             "name": name,
@@ -881,7 +910,7 @@ def deposit_company_knowledge(
         guidance_path = SHARED_PROMPTS_DIR / f"{name}.md"
         guidance_path.write_text(content, encoding="utf-8")
         path = str(guidance_path)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "guidance",
             "name": name,
@@ -889,9 +918,8 @@ def deposit_company_knowledge(
 
     elif category == "direction":
         save_company_direction(content)
-        company_state.company_direction = content
         path = "company/company_direction.yaml"
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "direction",
             "name": name,
@@ -958,23 +986,5 @@ class COOAgent(BaseAgentRunner):
 # in main.py lifespan via PersistentAgentLoop.
 
 
-# ---------------------------------------------------------------------------
-# Snapshot provider — COO hiring requests
-# ---------------------------------------------------------------------------
-
-from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
-
-
-@snapshot_provider("coo_hiring")
-class _COOHiringSnapshot:
-    @staticmethod
-    def save() -> dict:
-        if not pending_hiring_requests:
-            return {}
-        return {"pending_hiring_requests": pending_hiring_requests}
-
-    @staticmethod
-    def restore(data: dict) -> None:
-        restored = data.get("pending_hiring_requests", {})
-        if restored:
-            pending_hiring_requests.update(restored)
+# Snapshot provider for coo_hiring removed — Task 13.
+# pending_hiring_requests is transient; retained in-memory only.

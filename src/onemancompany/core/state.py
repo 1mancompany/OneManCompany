@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from loguru import logger
 from datetime import datetime
 
 from onemancompany.core.config import (
@@ -9,43 +8,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
     STATUS_IDLE,
 )
-from onemancompany.core.models import CostRecord, OverheadCosts
-
-
-@dataclass
-class SalesTask:
-    """An external sales task from a client."""
-
-    id: str
-    client_name: str
-    description: str
-    requirements: str = ""
-    budget_tokens: int = 0
-    status: str = "pending"  # pending / accepted / in_production / delivered / settled
-    assigned_to: str = ""    # sales employee ID
-    contract_approved: bool = False
-    delivery: str = ""
-    settlement_tokens: int = 0
-    created_at: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.created_at:
-            self.created_at = datetime.now().isoformat()
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "client_name": self.client_name,
-            "description": self.description,
-            "requirements": self.requirements,
-            "budget_tokens": self.budget_tokens,
-            "status": self.status,
-            "assigned_to": self.assigned_to,
-            "contract_approved": self.contract_approved,
-            "delivery": self.delivery,
-            "settlement_tokens": self.settlement_tokens,
-            "created_at": self.created_at,
-        }
+from onemancompany.core.models import OverheadCosts
 
 
 @dataclass
@@ -273,38 +236,23 @@ class OfficeTool:
 
 @dataclass
 class CompanyState:
-    employees: dict[str, Employee] = field(default_factory=dict)
-    ex_employees: dict[str, Employee] = field(default_factory=dict)
     tools: dict[str, OfficeTool] = field(default_factory=dict)
     meeting_rooms: dict[str, MeetingRoom] = field(default_factory=dict)
     ceo_tasks: list[str] = field(default_factory=list)
-    activity_log: list[dict] = field(default_factory=list)
-    company_culture: list[dict] = field(default_factory=list)
-    company_direction: str = ""
     office_layout: dict = field(default_factory=dict)
-    sales_tasks: dict[str, SalesTask] = field(default_factory=dict)
-    company_tokens: int = 0
-    overhead_costs: "OverheadCosts | None" = None  # initialized in __post_init__
+    overhead_costs: "OverheadCosts | None" = None  # in-memory accumulator for LLM cost tracking
     _next_employee_number: int = 0  # auto-increment counter
 
     def __post_init__(self) -> None:
         if self.overhead_costs is None:
             self.overhead_costs = OverheadCosts()
-
-    def to_json(self) -> dict:
-        return {
-            "employees": [e.to_dict() for e in self.employees.values()],
-            "ex_employees": [e.to_dict() for e in self.ex_employees.values()],
-            "tools": [t.to_dict() for t in self.tools.values()],
-            "meeting_rooms": [m.to_dict() for m in self.meeting_rooms.values()],
-            "ceo_tasks": self.ceo_tasks[-10:],
-            "active_tasks": [t.to_dict() for t in get_active_tasks()],
-            "activity_log": self.activity_log[-20:],
-            "company_culture": self.company_culture,
-            "office_layout": self.office_layout,
-            "sales_tasks": [t.to_dict() for t in self.sales_tasks.values()],
-            "company_tokens": self.company_tokens,
-        }
+        # Legacy attrs for test scaffolding — tests set cs.employees[id] = emp
+        # and conftest._bridge_store_to_company_state reads them via getattr().
+        # Production code uses store.load_employee() instead.
+        if not hasattr(self, "employees"):
+            self.employees: dict = {}
+        if not hasattr(self, "ex_employees"):
+            self.ex_employees: dict = {}
 
     def next_employee_number(self) -> str:
         """Generate next 5-digit employee number."""
@@ -317,130 +265,24 @@ class CompanyState:
 company_state = CompanyState()
 
 
-def _seed_employees() -> None:
-    """Seed employees from employees/{emp_num}/profile.yaml + guidance.yaml + work_principles.md.
-
-    Folder names ARE employee numbers (e.g., employees/00002/).
-    """
-    from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID, employee_configs, load_employee_guidance, load_work_principles
-
-    if not employee_configs:
-        # Fallback defaults if no employee folders exist
-        company_state.employees[HR_ID] = Employee(
-            id=HR_ID, name="Sam HR", role="HR",
-            skills=["hiring", "reviews", "people_management"],
-            department="HR", employee_number=HR_ID,
-            desk_position=(3, 2), sprite="hr",
-        )
-        company_state.employees[COO_ID] = Employee(
-            id=COO_ID, name="Alex COO", role="COO",
-            skills=["operations", "tool_management", "strategy"],
-            department="Operations", employee_number=COO_ID,
-            desk_position=(6, 2), sprite="coo",
-        )
-        company_state.employees[EA_ID] = Employee(
-            id=EA_ID, name="Pat EA", role="EA",
-            skills=["task_analysis", "task_routing", "project_management"],
-            department="CEO Office", employee_number=EA_ID,
-            desk_position=(7, 0), sprite="ea",
-        )
-        company_state.employees[CSO_ID] = Employee(
-            id=CSO_ID, name="Morgan CSO", role="CSO",
-            skills=["sales_management", "contract_review", "client_relations"],
-            department="Sales", employee_number=CSO_ID,
-            desk_position=(15, 0), sprite="cso",
-        )
+def _init_employee_counter() -> None:
+    """Set the next employee number counter from existing employee dirs."""
+    if not EMPLOYEES_DIR.exists():
+        company_state._next_employee_number = 6
         return
-
-    company_state._next_employee_number = 6  # start after founding employees
-
-    for emp_num, cfg in employee_configs.items():
-        # Folder name IS the employee number — use it as both id and employee_number
-        guidance = load_employee_guidance(emp_num)
-        principles = load_work_principles(emp_num)
-        # Ensure counter stays ahead of any assigned numbers
-        try:
-            num_val = int(emp_num)
-            if num_val >= company_state._next_employee_number:
-                company_state._next_employee_number = num_val + 1
-        except ValueError:
-            pass  # Non-numeric employee IDs (e.g. slugs) — skip counter update
-        # Legacy detection: if profile.yaml has no probation field, default to passed
-        import yaml as _yaml
-        _profile_path = EMPLOYEES_DIR / emp_num / "profile.yaml"
-        _raw = {}
-        if _profile_path.exists():
-            with open(_profile_path) as _f:
-                _raw = _yaml.safe_load(_f) or {}
-        probation_val = _raw.get("probation", False)  # legacy profiles → False (passed)
-        onboarding_val = _raw.get("onboarding_completed", True)  # legacy → True (done)
-        company_state.employees[emp_num] = Employee(
-            id=emp_num,
-            name=cfg.name,
-            nickname=cfg.nickname,
-            level=cfg.level,
-            department=cfg.department,
-            role=cfg.role,
-            skills=cfg.skills,
-            employee_number=emp_num,
-            current_quarter_tasks=cfg.current_quarter_tasks,
-            performance_history=list(cfg.performance_history),
-            desk_position=tuple(cfg.desk_position),
-            sprite=cfg.sprite,
-            guidance_notes=guidance,
-            work_principles=principles,
-            permissions=list(cfg.permissions),
-            tool_permissions=list(cfg.tool_permissions) if cfg.tool_permissions else [],
-            remote=getattr(cfg, 'remote', False),
-            salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
-            probation=probation_val,
-            okrs=list(cfg.okrs) if hasattr(cfg, 'okrs') and cfg.okrs else [],
-            pip=cfg.pip if hasattr(cfg, 'pip') else None,
-            onboarding_completed=onboarding_val,
-        )
+    max_num = 5  # start after founding employees
+    for emp_dir in EMPLOYEES_DIR.iterdir():
+        if emp_dir.is_dir():
+            try:
+                num = int(emp_dir.name)
+                if num > max_num:
+                    max_num = num
+            except ValueError:
+                continue  # non-numeric directory name — skip
+    company_state._next_employee_number = max_num + 1
 
 
-def _seed_ex_employees() -> None:
-    """Seed ex-employees from ex-employees/ directory (folders named by employee_number)."""
-    from onemancompany.core.config import load_ex_employee_configs
-
-    for emp_num, cfg in load_ex_employee_configs().items():
-        company_state.ex_employees[emp_num] = Employee(
-            id=emp_num,
-            name=cfg.name,
-            nickname=cfg.nickname,
-            level=cfg.level,
-            department=cfg.department,
-            role=cfg.role,
-            skills=cfg.skills,
-            employee_number=emp_num,
-            current_quarter_tasks=cfg.current_quarter_tasks,
-            performance_history=list(cfg.performance_history),
-            desk_position=tuple(cfg.desk_position),
-            sprite=cfg.sprite,
-            remote=getattr(cfg, 'remote', False),
-            salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
-        )
-
-
-def _seed_company_culture() -> None:
-    """Load company culture items from company_culture.yaml."""
-    from onemancompany.core.config import load_company_culture
-
-    company_state.company_culture = load_company_culture()
-
-
-def _seed_company_direction() -> None:
-    """Load company direction from company_direction.yaml."""
-    from onemancompany.core.config import load_company_direction
-
-    company_state.company_direction = load_company_direction()
-
-
-_seed_employees()
-_seed_ex_employees()
-_seed_company_culture()
-_seed_company_direction()
+_init_employee_counter()
 
 # Compute initial department-based office layout
 from onemancompany.core.layout import compute_layout  # noqa: E402
@@ -480,255 +322,34 @@ def flush_pending_reload() -> dict | None:
 
 
 def reload_all_from_disk() -> dict:
-    """Re-read all disk data into company_state in-place (soft reload).
+    """Mark all categories dirty so the next sync tick triggers a frontend refresh.
 
-    Preserves runtime state (status, is_listening) for existing employees.
-    Returns a summary dict of what changed.
+    Since all business data reads go through store.py (disk is the single source
+    of truth), there is no in-memory cache to invalidate.  We only need to:
 
-    Prefer calling request_reload() which checks idle state first.
+    1. Reload app config (the one legitimate in-memory cache).
+    2. Mark every data category dirty for the 3-second sync tick.
+    3. Refresh the employee counter (in-memory counter for ID generation).
+    4. Recompute office layout.
     """
-    from onemancompany.core.config import (
-        load_company_culture,
-        load_employee_configs,
-        load_employee_guidance,
-        load_ex_employee_configs,
-        load_work_principles,
-        reload_app_config,
-    )
-    import onemancompany.core.config as config_module
+    from onemancompany.core.config import invalidate_manifest_cache, reload_app_config
+    from onemancompany.core.store import mark_dirty
 
-    # --- 0. Reload application config (config.yaml) ---
     reload_app_config()
 
-    summary: dict = {"employees_updated": [], "employees_added": [], "culture_reloaded": False, "assets_reloaded": False, "config_reloaded": True}
-
-    # --- 1. Reload employee configs from disk ---
-    fresh_configs = load_employee_configs()
-    # Update the module-level employee_configs dict in-place
-    config_module.employee_configs.clear()
-    config_module.employee_configs.update(fresh_configs)
-
-    seen_ids: set[str] = set()
-    for emp_num, cfg in fresh_configs.items():
-        seen_ids.add(emp_num)
-        guidance = load_employee_guidance(emp_num)
-        principles = load_work_principles(emp_num)
-
-        if emp_num in company_state.employees:
-            # Update mutable fields, preserve runtime state
-            emp = company_state.employees[emp_num]
-            changed_fields = []
-            if emp.name != cfg.name:
-                emp.name = cfg.name
-                changed_fields.append("name")
-            if emp.nickname != cfg.nickname:
-                emp.nickname = cfg.nickname
-                changed_fields.append("nickname")
-            if emp.level != cfg.level:
-                emp.level = cfg.level
-                changed_fields.append("level")
-            if emp.department != cfg.department:
-                emp.department = cfg.department
-                changed_fields.append("department")
-            if emp.role != cfg.role:
-                emp.role = cfg.role
-                changed_fields.append("role")
-            if emp.skills != cfg.skills:
-                emp.skills = cfg.skills
-                changed_fields.append("skills")
-            if emp.current_quarter_tasks != cfg.current_quarter_tasks:
-                emp.current_quarter_tasks = cfg.current_quarter_tasks
-                changed_fields.append("current_quarter_tasks")
-            if emp.performance_history != cfg.performance_history:
-                emp.performance_history = list(cfg.performance_history)
-                changed_fields.append("performance_history")
-            if list(cfg.permissions) != emp.permissions:
-                emp.permissions = list(cfg.permissions)
-                changed_fields.append("permissions")
-            if guidance != emp.guidance_notes:
-                emp.guidance_notes = guidance
-                changed_fields.append("guidance_notes")
-            if principles != emp.work_principles:
-                emp.work_principles = principles
-                changed_fields.append("work_principles")
-            if getattr(cfg, 'remote', False) != emp.remote:
-                emp.remote = cfg.remote
-                changed_fields.append("remote")
-            # HR fields — read raw YAML for legacy detection
-            _profile_path = EMPLOYEES_DIR / emp_num / "profile.yaml"
-            _raw = {}
-            if _profile_path.exists():
-                import yaml as _yaml
-                with open(_profile_path) as _f:
-                    _raw = _yaml.safe_load(_f) or {}
-            _probation = _raw.get("probation", False)
-            _onboarding = _raw.get("onboarding_completed", True)
-            _okrs = _raw.get("okrs", []) or []
-            _pip = _raw.get("pip", None)
-            if emp.probation != _probation:
-                emp.probation = _probation
-                changed_fields.append("probation")
-            if emp.onboarding_completed != _onboarding:
-                emp.onboarding_completed = _onboarding
-                changed_fields.append("onboarding_completed")
-            if emp.okrs != _okrs:
-                emp.okrs = _okrs
-                changed_fields.append("okrs")
-            if emp.pip != _pip:
-                emp.pip = _pip
-                changed_fields.append("pip")
-            if changed_fields:
-                summary["employees_updated"].append({"id": emp_num, "fields": changed_fields})
-        else:
-            # New employee added to disk — seed into company_state
-            try:
-                num_val = int(emp_num)
-                if num_val >= company_state._next_employee_number:
-                    company_state._next_employee_number = num_val + 1
-            except ValueError:
-                pass  # Non-numeric employee IDs (e.g. slugs) — skip counter update
-            company_state.employees[emp_num] = Employee(
-                id=emp_num,
-                name=cfg.name,
-                nickname=cfg.nickname,
-                level=cfg.level,
-                department=cfg.department,
-                role=cfg.role,
-                skills=cfg.skills,
-                employee_number=emp_num,
-                current_quarter_tasks=cfg.current_quarter_tasks,
-                performance_history=list(cfg.performance_history),
-                desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
-                sprite=cfg.sprite,
-                guidance_notes=guidance,
-                work_principles=principles,
-                permissions=list(cfg.permissions),
-                tool_permissions=list(cfg.tool_permissions) if cfg.tool_permissions else [],
-                remote=cfg.remote,
-                salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
-            )
-            summary["employees_added"].append(emp_num)
-
-    # Remove employees whose folders have been deleted from disk
-    removed_ids = [eid for eid in company_state.employees if eid not in seen_ids]
-    for eid in removed_ids:
-        emp = company_state.employees.pop(eid)
-        summary.setdefault("employees_removed", []).append(eid)
-        # Stop agent loop if running
-        try:
-            from onemancompany.core.agent_loop import get_agent_loop, employee_manager
-            loop = get_agent_loop(eid)
-            if loop:
-                employee_manager.vessels.pop(eid, None)
-        except Exception as _e:
-            logger.warning("Failed to stop agent loop for %s: %s", eid, _e)
-
-    # --- 2. Reload ex-employees ---
-    fresh_ex = load_ex_employee_configs()
-    for emp_num, cfg in fresh_ex.items():
-        if emp_num not in company_state.ex_employees:
-            company_state.ex_employees[emp_num] = Employee(
-                id=emp_num,
-                name=cfg.name,
-                nickname=cfg.nickname,
-                level=cfg.level,
-                department=cfg.department,
-                role=cfg.role,
-                skills=cfg.skills,
-                employee_number=emp_num,
-                current_quarter_tasks=cfg.current_quarter_tasks,
-                performance_history=list(cfg.performance_history),
-                desk_position=tuple(cfg.desk_position) if cfg.desk_position else (0, 0),
-                sprite=cfg.sprite,
-                remote=getattr(cfg, 'remote', False),
-                salary_per_1m_tokens=getattr(cfg, 'salary_per_1m_tokens', 0.0),
-            )
-
-    # --- 3. Reload company culture + direction ---
-    company_state.company_culture = load_company_culture()
-    summary["culture_reloaded"] = True
-
-    from onemancompany.core.config import load_company_direction, invalidate_manifest_cache
-    company_state.company_direction = load_company_direction()
+    mark_dirty(
+        "employees", "ex_employees", "rooms", "tools", "task_queue",
+        "culture", "activity_log", "sales_tasks", "direction",
+    )
     invalidate_manifest_cache()
 
-    # --- 4. Reload assets (tools + meeting rooms) ---
-    from onemancompany.agents.coo_agent import _load_assets_from_disk
-    _load_assets_from_disk()
-    # Reload asset tools into unified registry
-    from onemancompany.core.tool_registry import tool_registry
-    tool_registry.load_asset_tools()
-    summary["assets_reloaded"] = True
+    _init_employee_counter()
 
-    # --- 5. Recompute office layout ---
     compute_layout(company_state)
 
-    # --- 6. Broadcast state_snapshot to all WebSocket clients ---
-    from onemancompany.core.events import CompanyEvent, event_bus
-    import asyncio
-
-    async def _broadcast():
-        await event_bus.publish(
-            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-        )
-
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_broadcast())
-    except RuntimeError:
-        logger.debug("No event loop for reload broadcast — skipping")
-
-    return summary
+    return {"status": "dirty_marked", "categories": "all"}
 
 
-# ---------------------------------------------------------------------------
-# Snapshot provider — company-level ephemeral state
-# ---------------------------------------------------------------------------
-
-from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
-
-
-@snapshot_provider("company_state")
-class _CompanyStateSnapshot:
-    @staticmethod
-    def save() -> dict:
-        employee_statuses = {
-            eid: {"status": emp.status, "current_task_summary": emp.current_task_summary}
-            for eid, emp in company_state.employees.items()
-        }
-        room_bookings = {}
-        for rid, room in company_state.meeting_rooms.items():
-            if room.is_booked:
-                room_bookings[rid] = {
-                    "booked_by": room.booked_by,
-                    "participants": room.participants,
-                }
-        return {
-            "activity_log": company_state.activity_log[-50:],
-            "employee_statuses": employee_statuses,
-            "room_bookings": room_bookings,
-        }
-
-    @staticmethod
-    def restore(data: dict) -> None:
-        # Activity log
-        old_log = data.get("activity_log", [])
-        if old_log:
-            company_state.activity_log = old_log + company_state.activity_log
-
-        # Active tasks now read from disk — no restore needed
-
-        # Employee statuses
-        for eid, sdata in data.get("employee_statuses", {}).items():
-            emp = company_state.employees.get(eid)
-            if emp and sdata.get("status"):
-                emp.status = sdata["status"]
-                emp.current_task_summary = sdata.get("current_task_summary", "")
-
-        # Meeting room bookings
-        for rid, bdata in data.get("room_bookings", {}).items():
-            room = company_state.meeting_rooms.get(rid)
-            if room:
-                room.is_booked = True
-                room.booked_by = bdata["booked_by"]
-                room.participants = bdata["participants"]
+# Snapshot provider "company_state" removed — Task 13.
+# Employee statuses are now persisted in profile.yaml runtime: section.
+# Activity log, culture, sales, overhead all on disk via store.

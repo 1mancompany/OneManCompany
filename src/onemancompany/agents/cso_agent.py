@@ -12,7 +12,8 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, CSO_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
-from onemancompany.core.state import company_state
+from onemancompany.core.store import append_activity_sync as _append_activity
+from onemancompany.core import store as _store
 
 CSO_SYSTEM_PROMPT = """You are the CSO (Chief Sales Officer) of "One Man Company".
 You manage the sales pipeline, client relationships, and external task delivery.
@@ -58,6 +59,54 @@ Be concise and results-driven.
 """
 
 
+# ===== Sales task helpers (disk-backed) =====
+
+
+def _get_sales_task(task_id: str) -> dict | None:
+    """Load a single sales task by ID from disk."""
+    tasks = _store.load_sales_tasks()
+    for t in tasks:
+        if t.get("id") == task_id:
+            return t
+    return None
+
+
+def _update_sales_task_sync(task_id: str, updates: dict) -> None:
+    """Update a sales task on disk (sync wrapper for use in LangChain tools)."""
+    import asyncio
+
+    tasks = _store.load_sales_tasks()
+    for t in tasks:
+        if t.get("id") == task_id:
+            t.update(updates)
+            break
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_store.save_sales_tasks(tasks))
+    except RuntimeError:
+        _store.save_sales_tasks_sync(tasks)
+
+
+def _load_overhead_tokens() -> int:
+    """Load company_tokens from overhead.yaml."""
+    data = _store.load_overhead()
+    return data.get("company_tokens", 0)
+
+
+def _save_overhead_tokens_sync(tokens: int) -> None:
+    """Save company_tokens to overhead.yaml (sync wrapper)."""
+    import asyncio
+    data = _store.load_overhead()
+    data["company_tokens"] = tokens
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_store.save_overhead(data))
+    except RuntimeError:
+        _store.save_overhead_sync(data)
+
+
 # ===== CSO-specific tools =====
 
 @tool
@@ -67,7 +116,7 @@ def list_sales_tasks() -> list[dict]:
     Returns:
         A list of sales task dicts with id, client, description, status, etc.
     """
-    return [t.to_dict() for t in company_state.sales_tasks.values()]
+    return _store.load_sales_tasks()
 
 
 @tool
@@ -82,35 +131,34 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
     Returns:
         Review result with updated task status.
     """
-    task = company_state.sales_tasks.get(task_id)
+    task = _get_sales_task(task_id)
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task.status != "pending" and task.status != "accepted":
-        return {"status": "error", "message": f"Task is already '{task.status}', cannot review."}
+    if task["status"] != "pending" and task["status"] != "accepted":
+        return {"status": "error", "message": f"Task is already '{task['status']}', cannot review."}
 
     if approved:
-        task.contract_approved = True
-        task.status = "in_production"
+        _update_sales_task_sync(task_id, {"contract_approved": True, "status": "in_production"})
         # Dispatch to COO for production
         from onemancompany.core.agent_loop import get_agent_loop
         coo_loop = get_agent_loop(COO_ID)
         if coo_loop:
             coo_task = (
                 f"External client task approved for production.\n"
-                f"Client: {task.client_name}\n"
-                f"Task: {task.description}\n"
-                f"Requirements: {task.requirements}\n"
-                f"Budget tokens: {task.budget_tokens}\n"
-                f"Sales Task ID: {task.id}\n"
+                f"Client: {task['client_name']}\n"
+                f"Task: {task['description']}\n"
+                f"Requirements: {task.get('requirements', '')}\n"
+                f"Budget tokens: {task.get('budget_tokens', 0)}\n"
+                f"Sales Task ID: {task['id']}\n"
                 f"CSO notes: {notes}\n\n"
                 f"Please execute this task and report results."
             )
             coo_loop.push_task(coo_task)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "contract_approved",
             "task_id": task_id,
-            "client": task.client_name,
+            "client": task["client_name"],
             "notes": notes,
         })
         return {
@@ -119,11 +167,11 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
             "message": f"Contract approved. Task dispatched to COO for production.",
         }
     else:
-        task.status = "rejected"
-        company_state.activity_log.append({
+        _update_sales_task_sync(task_id, {"status": "rejected"})
+        _append_activity({
             "type": "contract_rejected",
             "task_id": task_id,
-            "client": task.client_name,
+            "client": task["client_name"],
             "notes": notes,
         })
         return {
@@ -144,19 +192,18 @@ def complete_delivery(task_id: str, delivery_summary: str) -> dict:
     Returns:
         Updated task status.
     """
-    task = company_state.sales_tasks.get(task_id)
+    task = _get_sales_task(task_id)
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task.status != "in_production":
-        return {"status": "error", "message": f"Task is '{task.status}', expected 'in_production'."}
+    if task["status"] != "in_production":
+        return {"status": "error", "message": f"Task is '{task['status']}', expected 'in_production'."}
 
-    task.status = "delivered"
-    task.delivery = delivery_summary
-    company_state.activity_log.append({
+    _update_sales_task_sync(task_id, {"status": "delivered", "delivery": delivery_summary})
+    _append_activity({
         "type": "task_delivered",
         "task_id": task_id,
-        "client": task.client_name,
+        "client": task["client_name"],
     })
     return {
         "status": "delivered",
@@ -175,29 +222,33 @@ def settle_task(task_id: str) -> dict:
     Returns:
         Settlement result with tokens credited.
     """
-    task = company_state.sales_tasks.get(task_id)
+    task = _get_sales_task(task_id)
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task.status != "delivered":
-        return {"status": "error", "message": f"Task is '{task.status}', must be 'delivered' to settle."}
+    if task["status"] != "delivered":
+        return {"status": "error", "message": f"Task is '{task['status']}', must be 'delivered' to settle."}
 
-    tokens = task.budget_tokens
-    task.settlement_tokens = tokens
-    task.status = "settled"
-    company_state.company_tokens += tokens
-    company_state.activity_log.append({
+    tokens = task.get("budget_tokens", 0)
+    _update_sales_task_sync(task_id, {
+        "settlement_tokens": tokens,
+        "status": "settled",
+    })
+    current_tokens = _load_overhead_tokens()
+    new_total = current_tokens + tokens
+    _save_overhead_tokens_sync(new_total)
+    _append_activity({
         "type": "task_settled",
         "task_id": task_id,
-        "client": task.client_name,
+        "client": task["client_name"],
         "tokens": tokens,
-        "company_total": company_state.company_tokens,
+        "company_total": new_total,
     })
     return {
         "status": "settled",
         "task_id": task_id,
         "tokens_earned": tokens,
-        "company_total_tokens": company_state.company_tokens,
+        "company_total_tokens": new_total,
     }
 
 

@@ -6,11 +6,8 @@ class AppController {
   constructor() {
     this.ws = null;
     this.reconnectDelay = 1000;
-    // Meeting chat: room_id -> [{speaker, role, message, time}]
-    this.meetingChats = {};
     this.viewingRoomId = null;
     this.viewingEmployeeId = null;
-    this.cachedModels = null;  // cached OpenRouter model list
     // Inquiry session state
     this._inquirySessionId = null;
     this._inquiryRoomId = null;
@@ -54,6 +51,7 @@ class AppController {
         const applyBtn = document.getElementById('code-update-apply-btn');
         if (applyBtn) { applyBtn.textContent = 'Apply'; applyBtn.disabled = false; }
       }
+      this.bootstrap();
     };
 
     this.ws.onmessage = (evt) => {
@@ -78,48 +76,103 @@ class AppController {
     this.ws.onerror = () => {};
   }
 
-  handleMessage(msg) {
-    // Update office canvas state
-    if (msg.state && window.officeRenderer) {
-      window.officeRenderer.updateState(msg.state);
-    }
-
-    // Cache state for tool list and other UI
-    if (msg.state) {
-      this.state = msg.state;
-    }
-
-    // Update counters
-    if (msg.state) {
-      document.getElementById('employee-count').textContent =
-        `👥 ${msg.state.employees.length}`;
-      document.getElementById('tool-count').textContent =
-        `🔧 ${msg.state.tools.length}`;
-      // Meeting room count
-      const rooms = msg.state.meeting_rooms || [];
-      const freeRooms = rooms.filter(r => !r.is_booked).length;
-      document.getElementById('room-count').textContent =
-        `🏢 ${freeRooms}/${rooms.length}`;
-      this.updateRoster(msg.state.employees);
-      this.updateTaskPanel(msg.state.active_tasks || []);
-      this.updateOneononeDropdown(msg.state.employees);
+  async bootstrap() {
+    try {
+      const [employees, tasks, rooms, tools, activityLog] = await Promise.all([
+        fetch('/api/employees').then(r => r.json()),
+        fetch('/api/task-queue').then(r => r.json()),
+        fetch('/api/rooms').then(r => r.json()),
+        fetch('/api/tools').then(r => r.json()),
+        fetch('/api/activity-log').then(r => r.json()),
+      ]);
+      this.updateRoster(employees);
+      this.updateTaskPanel(tasks);
+      this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
+      if (window.officeRenderer) {
+        window.officeRenderer.updateState({ employees, meeting_rooms: rooms, tools });
+      }
+      // Update counters
+      document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
+      document.getElementById('tool-count').textContent = `🔧 ${tools.length}`;
+      const freeRooms = rooms.filter(r => !r.is_booked).length;
+      document.getElementById('room-count').textContent = `🏢 ${freeRooms}/${rooms.length}`;
       // Refresh meeting modal if open
       if (this.viewingRoomId) {
         const room = rooms.find(r => r.id === this.viewingRoomId);
         if (room) this._refreshMeetingModalStatus(room);
       }
+      this._refreshDeferredPanel();
+    } catch (e) {
+      console.error('Bootstrap failed:', e);
+    }
+  }
+
+  async _fetchAndRenderRoster() {
+    const employees = await fetch('/api/employees').then(r => r.json());
+    this.updateRoster(employees);
+    this.updateOneononeDropdown(employees);
+    if (window.officeRenderer) {
+      window.officeRenderer.updateState({ employees });
+    }
+    document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
+  }
+
+  async _fetchAndRenderTaskPanel() {
+    const tasks = await fetch('/api/task-queue').then(r => r.json());
+    this.updateTaskPanel(tasks);
+  }
+
+  async _fetchAndRenderRooms() {
+    const rooms = await fetch('/api/rooms').then(r => r.json());
+    if (window.officeRenderer) {
+      window.officeRenderer.updateState({ meeting_rooms: rooms });
+    }
+    const freeRooms = rooms.filter(r => !r.is_booked).length;
+    document.getElementById('room-count').textContent = `🏢 ${freeRooms}/${rooms.length}`;
+    // Refresh meeting modal if open
+    if (this.viewingRoomId) {
+      const room = rooms.find(r => r.id === this.viewingRoomId);
+      if (room) this._refreshMeetingModalStatus(room);
+    }
+  }
+
+  async _fetchAndRenderTools() {
+    const tools = await fetch('/api/tools').then(r => r.json());
+    if (window.officeRenderer) {
+      window.officeRenderer.updateState({ tools });
+    }
+    document.getElementById('tool-count').textContent = `🔧 ${tools.length}`;
+  }
+
+  handleMessage(msg) {
+    // Handle tick-based state_changed
+    if (msg.type === 'state_changed') {
+      const c = msg.changed || [];
+      if (c.includes('employees'))   this._fetchAndRenderRoster();
+      if (c.includes('task_queue'))  this._fetchAndRenderTaskPanel();
+      if (c.includes('rooms'))       this._fetchAndRenderRooms();
+      if (c.includes('tools'))       this._fetchAndRenderTools();
       // Refresh company culture if modal is open
       if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
       // Refresh deferred resolutions panel
       this._refreshDeferredPanel();
+      // Refresh projects panel
+      this.updateProjectsPanel();
       // Auto-refresh dashboard costs if modal is open (debounce 2s)
       if (!document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
       }
+      return;
+    }
+
+    // Handle connected message — bootstrap from REST API
+    if (msg.type === 'connected') {
+      this.bootstrap();
+      return;
     }
 
     // Log the event
@@ -150,7 +203,6 @@ class AppController {
       'guidance_noted':     (p) => ({ text: `🎓 ${p.name}: ${p.acknowledgment}`, cls: 'guidance', agent: p.name }),
       'guidance_end':       (p) => ({ text: `📖 ${p.name}'s 1-on-1 meeting concluded`, cls: 'guidance', agent: 'CEO' }),
       'meeting_booked':     (p) => {
-        if (p.room_id) this.meetingChats[p.room_id] = [];
         return { text: `🏢 Room booked: ${p.room_name || ''}`, cls: 'coo', agent: 'COO' };
       },
       'meeting_released':   (p) => {
@@ -172,16 +224,14 @@ class AppController {
       },
       'meeting_chat':       (p) => {
         const roomId = p.room_id || '';
-        if (!this.meetingChats[roomId]) this.meetingChats[roomId] = [];
-        const chatEntry = {
-          speaker: p.speaker,
-          role: p.role,
-          message: p.message,
-          time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-        };
-        this.meetingChats[roomId].push(chatEntry);
         // If this room is currently being viewed, append the message live
         if (this.viewingRoomId === roomId) {
+          const chatEntry = {
+            speaker: p.speaker,
+            role: p.role,
+            message: p.message,
+            time: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          };
           this._appendChatMessage(chatEntry);
         }
         return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
@@ -217,7 +267,7 @@ class AppController {
         return { text: `✅ Resolution decided`, cls: 'ceo', agent: 'CEO' };
       },
       'inquiry_started':     (p) => {
-        this._startInquiryMode(p, msg.state);
+        this._startInquiryMode(p);
         return { text: `🔍 Inquiry started with ${p.agent_role} in meeting room`, cls: 'ceo', agent: 'CEO' };
       },
       'inquiry_ended':       (p) => {
@@ -407,10 +457,14 @@ class AppController {
   }
 
   // ===== Task Panel =====
-  updateTaskPanel() {
+  updateTaskPanel(tasks) {
+    if (tasks) {
+      this._renderTaskPanel(tasks);
+      return;
+    }
     fetch('/api/task-queue')
       .then(r => r.json())
-      .then(tasks => this._renderTaskPanel(tasks))
+      .then(t => this._renderTaskPanel(t))
       .catch(() => {});
   }
 
@@ -442,7 +496,7 @@ class AppController {
       let ownerLabel = '';
       if (!isTerminal) {
         // For active tasks, show current owner
-        const ownerEmp = (this._lastEmployees || []).find(e => e.id === t.current_owner);
+        const ownerEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === t.current_owner);
         ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
         // Don't show "pending" as owner
         if (t.current_owner === 'pending' || !ownerLabel) {
@@ -452,7 +506,7 @@ class AppController {
         // For completed tasks, show executor from tree root
         const rootNode = t.tree.active_nodes?.[0];
         if (rootNode) {
-          const rootEmp = (this._lastEmployees || []).find(e => e.id === rootNode.employee_id);
+          const rootEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === rootNode.employee_id);
           ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
         }
       }
@@ -489,7 +543,7 @@ class AppController {
         // Show active worker nodes
         if (tr.active_nodes && tr.active_nodes.length > 0) {
           const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
-            const nEmp = (this._lastEmployees || []).find(e => e.id === n.employee_id);
+            const nEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === n.employee_id);
             const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
             const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
             return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
@@ -555,9 +609,6 @@ class AppController {
   updateRoster(employees) {
     const roster = document.getElementById('roster-list');
     roster.innerHTML = '';
-
-    // Store latest employees for re-filtering
-    this._lastEmployees = employees;
 
     // Read current filter values
     const filterRole = document.getElementById('roster-filter-role')?.value || '';
@@ -662,9 +713,7 @@ class AppController {
   }
 
   _onRosterFilterChange() {
-    if (this._lastEmployees) {
-      this.updateRoster(this._lastEmployees);
-    }
+    this._fetchAndRenderRoster();
   }
 
   // ===== Activity Log =====
@@ -1036,12 +1085,12 @@ class AppController {
     if (currentVal) select.value = currentVal;
   }
 
-  startOneonone() {
+  async startOneonone() {
     const select = document.getElementById('oneonone-target');
     const empId = select.value;
     if (!empId) return;
 
-    const emp = (this._lastEmployees || []).find(e => e.id === empId);
+    const emp = await fetch(`/api/employee/${empId}`).then(r => r.json()).catch(() => null);
     if (!emp) return;
 
     this._oneononeEmployeeId = empId;
@@ -1178,9 +1227,9 @@ class AppController {
           this._oneononeHistory.push({ role: 'ceo', content: message });
           this._oneononeHistory.push({ role: 'employee', content: data.response });
 
-          const emp = (this._lastEmployees || []).find(e => e.id === this._oneononeEmployeeId);
-          const name = emp ? emp.name : 'Employee';
-          this._addOneononeBubble(name, data.response, 'incoming');
+          const empMatch = (window.officeRenderer?.state?.employees || []).find(e => e.id === this._oneononeEmployeeId);
+          const empName = empMatch ? empMatch.name : 'Employee';
+          this._addOneononeBubble(empName, data.response, 'incoming');
         }
       })
       .catch(err => {
@@ -2011,13 +2060,8 @@ class AppController {
 
   async _populateModelSelect(select, currentModel) {
     try {
-      const modelsResp = this.cachedModels
-        ? { models: this.cachedModels }
-        : await fetch('/api/models').then(r => r.json());
+      const modelsResp = await fetch('/api/models').then(r => r.json());
       const models = modelsResp.models || [];
-      if (!this.cachedModels && models.length > 0) {
-        this.cachedModels = models;
-      }
       select.innerHTML = '<option value="">-- Use default --</option>';
       for (const m of models) {
         const opt = document.createElement('option');
@@ -2169,15 +2213,10 @@ class AppController {
 
     try {
       const empResp = empData || await fetch(`/api/employee/${empId}`).then(r => r.json());
-      const modelsResp = this.cachedModels
-        ? { models: this.cachedModels }
-        : await fetch('/api/models').then(r => r.json());
+      const modelsResp = await fetch('/api/models').then(r => r.json());
 
       const currentModel = empResp.llm_model || '';
       const models = modelsResp.models || [];
-      if (!this.cachedModels && models.length > 0) {
-        this.cachedModels = models;
-      }
 
       select.innerHTML = '<option value="">-- Use default model --</option>';
       for (const m of models) {
@@ -2655,9 +2694,7 @@ class AppController {
         } else {
           const hired = data.results ? data.results.filter(r => r.status === 'hired') : [];
           this.logEntry('CEO', `🎉 Batch hire complete: ${hired.length} hired`, 'ceo');
-          if (data.state) {
-            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
-          }
+          this.bootstrap();
         }
       })
       .catch(err => {
@@ -2830,9 +2867,7 @@ class AppController {
         } else {
           const nn = data.nickname ? ` (${data.nickname})` : '';
           this.logEntry('CEO', `🎉 Hired: ${data.name}${nn}`, 'ceo');
-          if (data.state) {
-            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
-          }
+          this.bootstrap();
           this.closeCandidateModal();
           this.closeInterviewModal();
         }
@@ -3679,17 +3714,24 @@ class AppController {
       partEl.innerHTML = '<div style="color:var(--text-dim)">No participants</div>';
     }
 
-    // Load chat history
+    // Load chat history from API
     const chatEl = document.getElementById('meeting-chat-messages');
-    chatEl.innerHTML = '';
-    const history = this.meetingChats[room.id] || [];
-    if (history.length === 0) {
-      chatEl.innerHTML = '<div class="chat-empty">No meeting logs</div>';
-    } else {
-      for (const msg of history) {
-        this._appendChatMessage(msg);
-      }
-    }
+    chatEl.innerHTML = '<div class="chat-empty">Loading...</div>';
+    fetch(`/api/rooms/${encodeURIComponent(room.id)}/chat`)
+      .then(r => r.json())
+      .then(messages => {
+        chatEl.innerHTML = '';
+        if (!messages || messages.length === 0) {
+          chatEl.innerHTML = '<div class="chat-empty">No meeting logs</div>';
+        } else {
+          for (const msg of messages) {
+            this._appendChatMessage(msg);
+          }
+        }
+      })
+      .catch(() => {
+        chatEl.innerHTML = '<div class="chat-empty">Failed to load chat</div>';
+      });
   }
 
   _refreshMeetingModalStatus(room) {
@@ -3752,15 +3794,19 @@ class AppController {
   }
 
   // ===== Inquiry Session =====
-  _startInquiryMode(payload, state) {
+  async _startInquiryMode(payload) {
     this._inquirySessionId = payload.session_id;
     this._inquiryRoomId = payload.room_id;
 
-    // Find the room from state
-    const rooms = (state && state.meeting_rooms) || [];
-    const room = rooms.find(r => r.id === payload.room_id);
-    if (room) {
-      this.openMeetingRoom(room);
+    // Fetch the room from API
+    try {
+      const rooms = await fetch('/api/rooms').then(r => r.json());
+      const room = rooms.find(r => r.id === payload.room_id);
+      if (room) {
+        this.openMeetingRoom(room);
+      }
+    } catch (e) {
+      console.error('Failed to fetch rooms for inquiry:', e);
     }
 
     // Show inquiry input area and actions
@@ -3916,9 +3962,7 @@ class AppController {
           this.logEntry('SYSTEM', `Rehire failed: ${data.error}`, 'system');
         } else {
           this.logEntry('CEO', `🔄 Rehired: ${data.name}`, 'ceo');
-          if (data.state) {
-            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
-          }
+          this.bootstrap();
           this.loadExEmployees(); // Refresh the list
         }
       })
@@ -3936,16 +3980,15 @@ class AppController {
       const ant = data.anthropic || {};
       const tm = data.talent_market || {};
 
-      // Fetch models for dropdown (cached)
+      // Fetch models for dropdown
       let modelOptions = '';
-      if (!this.cachedModels) {
-        try {
-          const mResp = await fetch('/api/models');
-          const mData = await mResp.json();
-          this.cachedModels = mData.models || [];
-        } catch { this.cachedModels = []; }
-      }
-      for (const m of this.cachedModels) {
+      let modelList = [];
+      try {
+        const mResp = await fetch('/api/models');
+        const mData = await mResp.json();
+        modelList = mData.models || [];
+      } catch { modelList = []; }
+      for (const m of modelList) {
         const sel = m.id === or.default_model ? ' selected' : '';
         modelOptions += `<option value="${m.id}"${sel}>${m.name || m.id}</option>`;
       }
@@ -4272,27 +4315,35 @@ class AppController {
 
   _renderCompanyCulture() {
     const list = document.getElementById('company-culture-list');
-    const items = window.officeRenderer?.state?.company_culture || [];
-    if (!items.length) {
-      list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">No culture entries yet. CEO can add above.</div>';
-      return;
-    }
-    list.innerHTML = items.map((item, idx) => {
-      const date = item.created_at ? new Date(item.created_at).toLocaleDateString('zh-CN') : '';
-      return `
-        <div class="company-culture-card">
-          <div class="company-culture-card-num">${idx + 1}</div>
-          <div class="company-culture-card-content">${this._escapeHtml(item.content)}</div>
-          <div class="company-culture-card-meta">
-            <span class="company-culture-card-date">${date}</span>
-            <button class="company-culture-delete-btn" data-index="${idx}" title="Delete">✕</button>
-          </div>
-        </div>`;
-    }).join('');
-    // Bind delete buttons
-    list.querySelectorAll('.company-culture-delete-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.removeCultureItem(parseInt(btn.dataset.index)));
-    });
+    list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">Loading...</div>';
+    fetch('/api/company-culture')
+      .then(r => r.json())
+      .then(data => {
+        const items = data.items || data || [];
+        if (!items.length) {
+          list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">No culture entries yet. CEO can add above.</div>';
+          return;
+        }
+        list.innerHTML = items.map((item, idx) => {
+          const date = item.created_at ? new Date(item.created_at).toLocaleDateString('zh-CN') : '';
+          return `
+            <div class="company-culture-card">
+              <div class="company-culture-card-num">${idx + 1}</div>
+              <div class="company-culture-card-content">${this._escapeHtml(item.content)}</div>
+              <div class="company-culture-card-meta">
+                <span class="company-culture-card-date">${date}</span>
+                <button class="company-culture-delete-btn" data-index="${idx}" title="Delete">✕</button>
+              </div>
+            </div>`;
+        }).join('');
+        // Bind delete buttons
+        list.querySelectorAll('.company-culture-delete-btn').forEach(btn => {
+          btn.addEventListener('click', () => this.removeCultureItem(parseInt(btn.dataset.index)));
+        });
+      })
+      .catch(() => {
+        list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">Failed to load culture.</div>';
+      });
   }
 
   addCultureItem() {
@@ -4761,25 +4812,30 @@ class AppController {
     },
   };
 
-  openToolList() {
+  async openToolList() {
     const modal = document.getElementById('tool-list-modal');
     const body = document.getElementById('tool-list-body');
-    const tools = (this.state && this.state.tools) || [];
-
-    if (tools.length === 0) {
-      body.innerHTML = '<span class="empty-hint">No tools registered</span>';
-    } else {
-      body.innerHTML = tools.map(t => `
-        <div class="tool-list-item" onclick="window.app.openToolDetail('${this._escapeHtml(t.id)}')">
-          ${t.has_icon ? `<img src="/api/tools/${encodeURIComponent(t.id)}/icon" class="tool-list-icon" />` : '<span class="tool-list-no-icon">&#128295;</span>'}
-          <div class="tool-list-info">
-            <div class="tool-list-name">${this._escapeHtml(t.name)}</div>
-            <div class="tool-list-desc">${this._escapeHtml(t.description || '')}</div>
-          </div>
-        </div>
-      `).join('');
-    }
+    body.innerHTML = '<span class="empty-hint">Loading...</span>';
     modal.classList.remove('hidden');
+
+    try {
+      const tools = await fetch('/api/tools').then(r => r.json());
+      if (tools.length === 0) {
+        body.innerHTML = '<span class="empty-hint">No tools registered</span>';
+      } else {
+        body.innerHTML = tools.map(t => `
+          <div class="tool-list-item" onclick="window.app.openToolDetail('${this._escapeHtml(t.id)}')">
+            ${t.has_icon ? `<img src="/api/tools/${encodeURIComponent(t.id)}/icon" class="tool-list-icon" />` : '<span class="tool-list-no-icon">&#128295;</span>'}
+            <div class="tool-list-info">
+              <div class="tool-list-name">${this._escapeHtml(t.name)}</div>
+              <div class="tool-list-desc">${this._escapeHtml(t.description || '')}</div>
+            </div>
+          </div>
+        `).join('');
+      }
+    } catch (e) {
+      body.innerHTML = '<span class="empty-hint">Failed to load tools</span>';
+    }
   }
 
   async openToolDetail(toolId) {

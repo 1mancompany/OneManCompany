@@ -28,9 +28,9 @@ from onemancompany.core.config import (
     TOOLS_DIR,
     EmployeeConfig,
     ensure_employee_dir,
-    save_employee_profile,
     settings,
 )
+from onemancompany.core import store as _store
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.layout import (
     compute_layout,
@@ -46,13 +46,16 @@ from onemancompany.core.state import Employee, company_state, make_title
 
 def _get_existing_nicknames() -> set[str]:
     """Collect all nicknames in use by current and ex-employees."""
+    from onemancompany.core.store import load_all_employees, load_ex_employees
     nicknames: set[str] = set()
-    for emp in company_state.employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
-    for emp in company_state.ex_employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
+    for edata in load_all_employees().values():
+        nn = edata.get("nickname", "")
+        if nn:
+            nicknames.add(nn)
+    for edata in load_ex_employees().values():
+        nn = edata.get("nickname", "")
+        if nn:
+            nicknames.add(nn)
     return nicknames
 
 
@@ -759,31 +762,31 @@ async def execute_hire(
         probation=True,
         onboarding_completed=False,
     )
-    company_state.employees[emp_num] = emp
-
-    # Save profile
-    config = EmployeeConfig(
-        name=name,
-        nickname=nickname,
-        level=1,
-        department=department,
-        role=role,
-        skills=skills,
-        employee_number=emp_num,
-        desk_position=list(desk_pos),
-        sprite=sprite,
-        remote=remote,
-        llm_model=llm_model,
-        temperature=temperature,
-        image_model=image_model,
-        permissions=default_perms,
-        tool_permissions=default_tool_perms,
-        salary_per_1m_tokens=salary,
-        api_provider=api_provider,
-        hosting=hosting,
-        auth_method=auth_method,
-    )
-    save_employee_profile(emp_num, config)
+    # Persist profile via store (single source of truth)
+    await _store.save_employee(emp_num, {
+        "name": name,
+        "nickname": nickname,
+        "level": 1,
+        "department": department,
+        "role": role,
+        "skills": skills,
+        "employee_number": emp_num,
+        "desk_position": list(desk_pos),
+        "sprite": sprite,
+        "remote": remote,
+        "llm_model": llm_model,
+        "temperature": temperature,
+        "image_model": image_model,
+        "permissions": default_perms,
+        "tool_permissions": default_tool_perms,
+        "salary_per_1m_tokens": salary,
+        "api_provider": api_provider,
+        "hosting": hosting,
+        "auth_method": auth_method,
+        "probation": True,
+        "onboarding_completed": False,
+    })
+    await _store.save_employee_runtime(emp_num, status="idle")
 
     if progress_callback:
         await progress_callback("copying_skills", "Copying skill packages...")
@@ -880,15 +883,15 @@ async def execute_hire(
 
     # Recompute layout
     compute_layout(company_state)
-    persist_all_desk_positions(company_state)
 
     if progress_callback:
         await progress_callback("registering_agent", "Registering agent...")
 
-    company_state.activity_log.append(
+    await _store.append_activity(
         {"type": "employee_hired", "name": name, "nickname": nickname, "role": role}
     )
-    await event_bus.publish(CompanyEvent(type="employee_hired", payload=emp.to_dict(), agent="HR"))
+    hired_data = _store.load_employee(emp_num)
+    await event_bus.publish(CompanyEvent(type="employee_hired", payload=hired_data, agent="HR"))
 
     if progress_callback:
         await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")

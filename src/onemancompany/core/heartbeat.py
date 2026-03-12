@@ -14,6 +14,7 @@ import asyncio
 import os
 
 import httpx
+from loguru import logger
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
@@ -22,7 +23,7 @@ from onemancompany.core.config import (
     settings,
     FOUNDING_LEVEL,
 )
-from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 
 
 def _get_heartbeat_method(emp_id: str, cfg) -> str:
@@ -170,10 +171,16 @@ async def _check_script(emp_id: str) -> bool:
 
 
 def _update_online(emp_id: str, online: bool, changed: list[str]) -> None:
-    """Helper: set api_online and track change."""
-    emp = company_state.employees.get(emp_id)
-    if emp and emp.api_online != online:
-        emp.api_online = online
+    """Helper: persist api_online and track change."""
+    emp_data = _store.load_employee(emp_id)
+    if not emp_data:
+        return
+    current = emp_data.get("runtime", {}).get("api_online", False)
+    if current != online:
+        try:
+            asyncio.create_task(_store.save_employee_runtime(emp_id, api_online=online))
+        except RuntimeError:
+            logger.debug("No event loop for runtime persist of {}", emp_id)
         if emp_id not in changed:
             changed.append(emp_id)
 
@@ -181,12 +188,14 @@ def _update_online(emp_id: str, online: bool, changed: list[str]) -> None:
 async def run_heartbeat_cycle() -> list[str]:
     """Run one heartbeat cycle for all employees. Returns list of IDs whose status changed."""
     changed: list[str] = []
+    all_employees = _store.load_all_employees()
 
     # 1. Update needs_setup for all employees
-    for emp_id, emp in company_state.employees.items():
+    for emp_id, emp_data in all_employees.items():
+        runtime = emp_data.get("runtime", {})
         new_needs_setup = check_needs_setup(emp_id)
-        if emp.needs_setup != new_needs_setup:
-            emp.needs_setup = new_needs_setup
+        if runtime.get("needs_setup", False) != new_needs_setup:
+            await _store.save_employee_runtime(emp_id, needs_setup=new_needs_setup)
             changed.append(emp_id)
 
     # 2. Route employees to heartbeat methods
@@ -196,11 +205,14 @@ async def run_heartbeat_cycle() -> list[str]:
     pid_employees: list[str] = []
     script_employees: list[str] = []
 
-    for emp_id, emp in company_state.employees.items():
-        if emp.needs_setup:
+    # Re-read after needs_setup updates
+    all_employees = _store.load_all_employees()
+    for emp_id, emp_data in all_employees.items():
+        runtime = emp_data.get("runtime", {})
+        if runtime.get("needs_setup", False):
             # Skip heartbeat for employees needing setup — needs_setup takes priority
-            if emp.api_online:
-                emp.api_online = False
+            if runtime.get("api_online", False):
+                await _store.save_employee_runtime(emp_id, api_online=False)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
@@ -208,8 +220,8 @@ async def run_heartbeat_cycle() -> list[str]:
         cfg = employee_configs.get(emp_id)
         if not cfg:
             # Founding employees without config — assume always online
-            if not emp.api_online:
-                emp.api_online = True
+            if not runtime.get("api_online", False):
+                await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
@@ -217,12 +229,13 @@ async def run_heartbeat_cycle() -> list[str]:
         method = _get_heartbeat_method(emp_id, cfg)
 
         # Founding employees skip heartbeat unless self-hosted (need CLI check)
-        if emp.level >= FOUNDING_LEVEL and method != "claude_cli":
+        level = emp_data.get("level", 0)
+        if level >= FOUNDING_LEVEL and method != "claude_cli":
             continue
 
         if method == "always_online":
-            if not emp.api_online:
-                emp.api_online = True
+            if not runtime.get("api_online", False):
+                await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue

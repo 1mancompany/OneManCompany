@@ -39,7 +39,8 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.state import company_state
+from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
+from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
@@ -479,8 +480,9 @@ class _VesselRef:
 
     @property
     def role(self) -> str:
-        emp = company_state.employees.get(self.employee_id)
-        return emp.role if emp else "Employee"
+        from onemancompany.core.store import load_employee
+        emp_data = load_employee(self.employee_id)
+        return (emp_data or {}).get("role", "Employee")
 
 
 
@@ -877,9 +879,7 @@ class EmployeeManager:
         self._log(employee_id, task, "start", f"Starting task: {task.description}")
         self._publish_task_update(employee_id, task)
 
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            emp.current_task_summary = task.description[:100]
+        await _store.save_employee_runtime(employee_id, current_task_summary=task.description[:100])
 
         # 2. Set contextvars
         loop_token = _current_vessel.set(vessel)
@@ -1075,8 +1075,7 @@ class EmployeeManager:
                 except Exception:
                     logger.warning("Post-task hook failed for %s", employee_id)
 
-            if emp:
-                emp.current_task_summary = ""
+            await _store.save_employee_runtime(employee_id, current_task_summary="")
 
             # Task tree: update node status and wake parent if all siblings done
             if task.project_dir:
@@ -1461,8 +1460,8 @@ class EmployeeManager:
         from onemancompany.core.config import load_workflows, FOUNDING_LEVEL
         from onemancompany.core.workflow_engine import parse_workflow
 
-        emp = company_state.employees.get(employee_id)
-        role = (emp.role if emp else "Employee").upper()
+        emp_data = _store.load_employee(employee_id) or {}
+        role = emp_data.get("role", "Employee").upper()
         is_manager = role in ("COO", "CSO", "EA", "HR")
 
         if is_manager and role in ("COO", "CSO"):
@@ -1551,8 +1550,7 @@ class EmployeeManager:
         is_root = not node.parent_id
         if is_root and task_failed:
             effective_project_id = project_id or task.project_id
-            from onemancompany.core import store as _store_mod
-            await _store_mod.save_project_status(effective_project_id, "failed")
+            await _store.save_project_status(effective_project_id, "failed")
             return
 
         # Root node or child of CEO node completed — request CEO confirmation
@@ -1689,15 +1687,16 @@ class EmployeeManager:
             if dirty:
                 _save_project_tree(project_dir, tree)
 
-            # Trigger 5: if all tree nodes are now failed/cancelled/blocked,
-            # the project itself has failed
-            all_nodes = list(tree._nodes.values())
-            if all_nodes and all(
-                n.status in ("failed", "cancelled", "blocked")
-                for n in all_nodes
+            # Check if all tree nodes are now terminal or blocked → project failed
+            all_stuck = all(
+                n.status in ("blocked", "failed", "cancelled", "accepted")
+                for n in tree._nodes.values()
+                if n.id != tree.root_id
+            )
+            if all_stuck and any(
+                n.status in ("blocked", "failed") for n in tree._nodes.values()
             ):
-                from onemancompany.core import store as _store_mod
-                await _store_mod.save_project_status(project_id, "failed")
+                await _store.save_project_status(project_id, "failed")
 
             # Schedule outside the mutation loop
             for emp_id, _ in to_schedule:
@@ -1738,9 +1737,9 @@ class EmployeeManager:
             "project_id": project_id,
             "timestamp": datetime.now().isoformat(),
         }
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            payload["employee_name"] = emp.name
+        emp_data = _store.load_employee(employee_id)
+        if emp_data:
+            payload["employee_name"] = emp_data.get("name", "")
         await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
 
         # Block until CEO responds
@@ -1829,19 +1828,20 @@ class EmployeeManager:
         # Only reset employees that are NOT currently running a task.
         # The old code reset ALL non-founding employees to IDLE, which would
         # clobber the status of employees working on other projects.
-        for eid, emp in company_state.employees.items():
+        all_emps = _store.load_all_employees()
+        for eid in all_emps:
             if eid not in self._running_tasks:
-                emp.status = STATUS_IDLE
+                await _store.save_employee_runtime(eid, status=STATUS_IDLE)
 
         if not project_id.startswith("_auto_"):
             label = task.description or "Task completed"
             if agent_error:
                 label = f"{label} (with errors)"
             complete_project(project_id, label)
-            # Trigger 2: project completed — update via store for mark_dirty
-            from onemancompany.core import store as _store_mod
-            await _store_mod.save_project_status(
-                project_id, "completed", completed_at=datetime.now().isoformat()
+            # Trigger 2: project completed/failed — update via store for mark_dirty
+            status = "failed" if agent_error else "completed"
+            await _store.save_project_status(
+                project_id, status, completed_at=datetime.now().isoformat()
             )
 
         from onemancompany.core.state import flush_pending_reload
@@ -1928,14 +1928,14 @@ class EmployeeManager:
             except Exception as exc:
                 logger.debug("Failed to read SOUL.md for {}: {}", employee_id, exc)
 
-        emp = company_state.employees.get(employee_id)
-        if not emp:
+        emp_data = _store.load_employee(employee_id)
+        if not emp_data:
             return
 
         try:
             llm = make_llm(employee_id)
             prompt = (
-                f"You are {emp.name} ({emp.nickname}), {emp.role}.\n"
+                f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), {emp_data.get('role', '')}.\n"
                 f"You just completed a task: {task.description[:500]}\n"
                 f"Task result summary: {task.result[:1000]}\n\n"
                 f"Your current SOUL.md (your personal knowledge file):\n"
@@ -2041,13 +2041,14 @@ class EmployeeManager:
     # ------------------------------------------------------------------
 
     def _get_role(self, employee_id: str) -> str:
-        emp = company_state.employees.get(employee_id)
-        return emp.role if emp else "Employee"
+        emp_data = _store.load_employee(employee_id)
+        return (emp_data or {}).get("role", "Employee")
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
-        emp = company_state.employees.get(employee_id)
-        if emp:
-            emp.status = status
+        try:
+            asyncio.create_task(_store.save_employee_runtime(employee_id, status=status))
+        except RuntimeError:
+            logger.debug("No event loop for runtime persist of {}", employee_id)
 
     def _log(self, employee_id: str, task: AgentTask, log_type: str, content: str) -> None:
         entry = {
