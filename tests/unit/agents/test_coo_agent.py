@@ -281,12 +281,16 @@ class TestListAssets:
     def test_includes_tools_and_rooms(self, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
         from onemancompany.core import state as state_mod
+        from onemancompany.core import store as store_mod
 
         cs = _make_cs()
         cs.tools = {"t1": _make_tool("t1", name="Tool1")}
-        cs.meeting_rooms = {"r1": _make_room("r1", name="Room1")}
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
+        monkeypatch.setattr(store_mod, "load_rooms", lambda: [
+            {"id": "r1", "name": "Room1", "description": "Test room",
+             "capacity": 6, "is_booked": False, "booked_by": ""},
+        ])
 
         result = coo_mod.list_assets.invoke({})
         assert len(result) == 2
@@ -392,17 +396,16 @@ class TestToolAccess:
 
 class TestListMeetingRooms:
     def test_lists_rooms(self, monkeypatch):
+        from onemancompany.core import store as store_mod
+
+        monkeypatch.setattr(store_mod, "load_rooms", lambda: [
+            {"id": "r1", "name": "Room A", "capacity": 6,
+             "is_booked": False, "booked_by": "", "participants": []},
+            {"id": "r2", "name": "Room B", "capacity": 6,
+             "is_booked": True, "booked_by": "00010", "participants": ["00010"]},
+        ])
+
         from onemancompany.agents import coo_agent as coo_mod
-        from onemancompany.core import state as state_mod
-
-        cs = _make_cs()
-        cs.meeting_rooms = {
-            "r1": _make_room("r1", name="Room A"),
-            "r2": _make_room("r2", name="Room B", is_booked=True, booked_by="00010"),
-        }
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(coo_mod, "company_state", cs)
-
         result = coo_mod.list_meeting_rooms.invoke({})
         assert len(result) == 2
         booked_rooms = [r for r in result if r["is_booked"]]

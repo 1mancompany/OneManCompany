@@ -306,6 +306,7 @@ class CompanyState:
             load_all_employees,
             load_culture,
             load_ex_employees,
+            load_rooms,
         )
         employees = load_all_employees()
         ex_employees = load_ex_employees()
@@ -315,7 +316,7 @@ class CompanyState:
             "employees": list(employees.values()),
             "ex_employees": list(ex_employees.values()),
             "tools": [t.to_dict() for t in self.tools.values()],
-            "meeting_rooms": [m.to_dict() for m in self.meeting_rooms.values()],
+            "meeting_rooms": load_rooms(),
             "ceo_tasks": self.ceo_tasks[-10:],
             "active_tasks": [t.to_dict() for t in get_active_tasks()],
             "activity_log": activity_log[-20:],
@@ -458,16 +459,8 @@ class _CompanyStateSnapshot:
             summary = runtime.get("current_task_summary", "")
             if status != "idle" or summary:
                 employee_statuses[eid] = {"status": status, "current_task_summary": summary}
-        room_bookings = {}
-        for rid, room in company_state.meeting_rooms.items():
-            if room.is_booked:
-                room_bookings[rid] = {
-                    "booked_by": room.booked_by,
-                    "participants": room.participants,
-                }
         return {
             "employee_statuses": employee_statuses,
-            "room_bookings": room_bookings,
         }
 
     @staticmethod
@@ -487,11 +480,3 @@ class _CompanyStateSnapshot:
                     ))
                 except RuntimeError:
                     logger.debug("No event loop for runtime restore of {}", eid)
-
-        # Meeting room bookings
-        for rid, bdata in data.get("room_bookings", {}).items():
-            room = company_state.meeting_rooms.get(rid)
-            if room:
-                room.is_booked = True
-                room.booked_by = bdata["booked_by"]
-                room.participants = bdata["participants"]

@@ -116,13 +116,24 @@ def _store_patches(state: CompanyState):
         def fake_load_direction():
             return direction
 
+        meeting_rooms = getattr(state, "meeting_rooms", {})
+
+        def fake_load_rooms():
+            return [m.to_dict() for m in meeting_rooms.values()]
+
+        async def fake_save_room(room_id, updates):
+            pass  # no-op in tests
+
         with patch("onemancompany.api.routes._load_emp", side_effect=fake_load), \
              patch("onemancompany.api.routes._load_all", side_effect=fake_load_all), \
              patch("onemancompany.core.store.load_all_employees", side_effect=fake_load_all), \
              patch("onemancompany.core.store.load_ex_employees", side_effect=fake_load_ex), \
              patch("onemancompany.core.store.load_activity_log", side_effect=fake_load_activity), \
              patch("onemancompany.core.store.load_culture", side_effect=fake_load_culture), \
-             patch("onemancompany.core.store.load_direction", side_effect=fake_load_direction):
+             patch("onemancompany.core.store.load_direction", side_effect=fake_load_direction), \
+             patch("onemancompany.core.store.load_rooms", side_effect=fake_load_rooms), \
+             patch("onemancompany.api.routes._store.load_rooms", side_effect=fake_load_rooms), \
+             patch("onemancompany.api.routes._store.save_room", side_effect=fake_save_room):
             yield
 
     return _ctx()

@@ -148,13 +148,16 @@ class TestCompanyStateToJson:
         )
         cs.company_tokens = 5000
 
-        # Mock store reads for employees, ex_employees, activity_log, culture
+        # Mock store reads for employees, ex_employees, activity_log, culture, rooms
         monkeypatch.setattr(store_mod, "load_all_employees",
                             lambda: {"00010": {"id": "00010", "name": "Test", "role": "Engineer"}})
         monkeypatch.setattr(store_mod, "load_ex_employees",
                             lambda: {"00011": {"id": "00011", "name": "Former", "role": "Designer"}})
         monkeypatch.setattr(store_mod, "load_activity_log", lambda: [])
         monkeypatch.setattr(store_mod, "load_culture", lambda: [])
+        monkeypatch.setattr(store_mod, "load_rooms", lambda: [
+            {"id": "r1", "name": "Room A", "description": "Main room", "capacity": 6},
+        ])
 
         mock_task = TaskEntry(project_id="p1", task="Do stuff", routed_to="COO")
         with patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]):

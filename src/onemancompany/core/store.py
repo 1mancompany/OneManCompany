@@ -252,12 +252,17 @@ def load_rooms() -> list[dict]:
     results = []
     for f in sorted(rdir.iterdir()):
         if f.suffix in (".yaml", ".yml") and not f.name.endswith("_chat.yaml"):
-            results.append(_read_yaml(f))
+            data = _read_yaml(f)
+            data.setdefault("id", f.stem)
+            results.append(data)
     return results
 
 
 def load_room(room_id: str) -> dict:
-    return _read_yaml(_rooms_dir() / f"{room_id}.yaml")
+    data = _read_yaml(_rooms_dir() / f"{room_id}.yaml")
+    if data:
+        data.setdefault("id", room_id)
+    return data
 
 
 async def save_room(room_id: str, updates: dict) -> None:
