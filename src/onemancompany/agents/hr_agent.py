@@ -50,10 +50,8 @@ from onemancompany.core.config import (
     STATUS_WORKING,
     TASKS_PER_QUARTER,
     VALID_SCORES,
-    update_employee_field,
-    update_employee_level,
-    update_employee_performance,
 )
+from onemancompany.core import store as _store
 from onemancompany.core.layout import compute_layout, persist_all_desk_positions
 from onemancompany.core.state import LEVEL_NAMES, company_state
 
@@ -296,10 +294,11 @@ class HRAgent(BaseAgentRunner):
                         if len(emp.performance_history) > MAX_PERFORMANCE_HISTORY:
                             emp.performance_history = emp.performance_history[-MAX_PERFORMANCE_HISTORY:]
                         emp.current_quarter_tasks = 0
-                        # Persist performance to profile.yaml
-                        update_employee_performance(
-                            emp_id, emp.current_quarter_tasks, emp.performance_history
-                        )
+                        # Persist performance via store
+                        await _store.save_employee(emp_id, {
+                            "current_quarter_tasks": 0,
+                            "performance_history": emp.performance_history,
+                        })
                         await self._publish(
                             "employee_reviewed",
                             {"id": emp_id, "score": score,
@@ -319,13 +318,14 @@ class HRAgent(BaseAgentRunner):
                                 await execute_fire(emp_id, reason="Failed PIP — consecutive low performance")
                             else:
                                 # Start PIP
-                                emp.pip = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
-                                update_employee_field(emp_id, "pip", emp.pip)
-                                await self._publish("pip_started", {"id": emp_id, "pip": emp.pip})
+                                pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
+                                emp.pip = pip_data
+                                await _store.save_employee(emp_id, {"pip": pip_data})
+                                await self._publish("pip_started", {"id": emp_id, "pip": pip_data})
                         elif score >= 3.5 and emp.pip:
                             # Resolve PIP
                             emp.pip = None
-                            update_employee_field(emp_id, "pip", None)
+                            await _store.save_employee(emp_id, {"pip": None})
                             await self._publish("pip_resolved", {"id": emp_id})
 
             elif data.get("action") == "fire" and "employee_id" in data:
@@ -348,7 +348,7 @@ class HRAgent(BaseAgentRunner):
                     feedback = data.get("feedback", "")
                     if passed:
                         emp.probation = False
-                        update_employee_field(emp_id, "probation", False)
+                        await _store.save_employee(emp_id, {"probation": False})
                         await self._publish("probation_review", {
                             "id": emp_id, "passed": True, "feedback": feedback,
                         })
@@ -383,8 +383,8 @@ class HRAgent(BaseAgentRunner):
                 emp.level = min(emp.level + 1, MAX_NORMAL_LEVEL)
                 if emp.level == old_level:  # pragma: no cover – guarded by line 367
                     continue  # no actual promotion
-                # Persist new level/title to profile.yaml
-                update_employee_level(emp.id, emp.level, emp.title)
+                # Persist new level/title via store
+                await _store.save_employee(emp.id, {"level": emp.level, "title": emp.title})
                 # Recompute layout (level change affects vertical ordering)
                 compute_layout(company_state)
                 persist_all_desk_positions(company_state)

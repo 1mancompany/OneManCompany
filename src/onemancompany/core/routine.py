@@ -39,6 +39,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee, load_all_employees
 from onemancompany.core.workflow_engine import (
     WorkflowDefinition,
@@ -81,12 +82,13 @@ def _parse_json_array(text: str, fallback: list | None = None) -> list:
     return fallback
 
 
-def _set_participants_status(participant_ids: list[str], status: str) -> None:
+async def _set_participants_status(participant_ids: list[str], status: str) -> None:
     """Set status for all participants (including hr/coo)."""
     for pid in participant_ids:
         emp = company_state.employees.get(pid)
         if emp:
             emp.status = status
+        await _store.save_employee_runtime(pid, status=status)
 
 # Store pending reports that are waiting for CEO approval
 pending_reports: dict[str, dict] = {}
@@ -1006,11 +1008,16 @@ async def run_post_task_routine(
     for pid in participants:
         emp_data = load_employee(pid)
         if emp_data and emp_data.get("level", 1) < FOUNDING_LEVEL:  # only track for normal employees
-            # Mutation still goes through company_state (Task 9 will migrate writes)
+            new_count = emp_data.get("current_quarter_tasks", 0) + 1
+            perf_history = emp_data.get("performance_history", [])
+            await _store.save_employee(pid, {
+                "current_quarter_tasks": new_count,
+                "performance_history": perf_history,
+            })
+            # Keep in-memory in sync until Task 10
             emp = company_state.employees.get(pid)
             if emp:
-                emp.current_quarter_tasks += 1
-                update_employee_performance(pid, emp.current_quarter_tasks, emp.performance_history)
+                emp.current_quarter_tasks = new_count
 
     # Retrospective meeting requires 2+ people — solo tasks skip the meeting
     if len(participants) < 2:
@@ -1070,7 +1077,7 @@ async def run_post_task_routine(
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, STATUS_IN_MEETING)
+    await _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         # Create the execution context (with project record for retrospective)
@@ -1145,7 +1152,7 @@ async def run_post_task_routine(
 
     finally:
         # Release meeting room
-        _set_participants_status(room.participants, STATUS_IDLE)
+        await _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
@@ -1427,7 +1434,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, STATUS_IN_MEETING)
+    await _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         # PHASE 1: Review Meeting
@@ -1464,7 +1471,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         })
 
     finally:
-        _set_participants_status(room.participants, STATUS_IDLE)
+        await _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
@@ -1931,7 +1938,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         "room_name": room.name,
         "participants": room.participants,
     })
-    _set_participants_status(room.participants, STATUS_IN_MEETING)
+    await _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
         await _publish("routine_phase", {
@@ -2000,7 +2007,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         _save_report(report_id, doc)
 
     finally:
-        _set_participants_status(room.participants, STATUS_IDLE)
+        await _set_participants_status(room.participants, STATUS_IDLE)
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
@@ -2017,8 +2024,6 @@ from onemancompany.core.config import PROBATION_TASKS  # noqa: E402
 
 async def run_onboarding_routine(employee_id: str) -> None:
     """Run onboarding for a new employee: welcome, team intro, probation brief."""
-    from onemancompany.core.config import update_employee_field
-
     emp_data = load_employee(employee_id)
     if not emp_data:
         return
@@ -2038,10 +2043,9 @@ async def run_onboarding_routine(employee_id: str) -> None:
         "message": f"{emp_name} has been briefed on the probation period (complete {PROBATION_TASKS} tasks to pass).",
     })
 
-    # Generate work principles if empty — mutation still via company_state
+    # Generate work principles if empty — persist via store
     emp = company_state.employees.get(employee_id)
     if not emp_data.get("work_principles", ""):
-        from onemancompany.core.config import save_work_principles
         from onemancompany.core.state import make_title
         principles = (
             f"# {emp_name} ({emp_nickname}) Work Principles\n\n"
@@ -2053,14 +2057,15 @@ async def run_onboarding_routine(employee_id: str) -> None:
             f"3. Continuously learn and improve\n"
             f"4. Follow company rules and guidelines\n"
         )
-        save_work_principles(employee_id, principles)
+        await _store.save_work_principles(employee_id, principles)
+        # Keep in-memory in sync until Task 10
         if emp:
             emp.work_principles = principles
 
     # Mark onboarding complete
     if emp:
         emp.onboarding_completed = True
-    update_employee_field(employee_id, "onboarding_completed", True)
+    await _store.save_employee(employee_id, {"onboarding_completed": True})
 
     await _publish("onboarding_completed", {"id": employee_id, "name": emp_name})
 

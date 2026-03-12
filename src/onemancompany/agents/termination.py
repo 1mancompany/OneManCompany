@@ -19,6 +19,7 @@ from onemancompany.core.config import (
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.layout import compute_layout, persist_all_desk_positions
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 
 from loguru import logger
 
@@ -77,8 +78,11 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
     except Exception:
         logger.debug("Failed to unregister tools for %s", employee_id)
 
-    # Move to ex-employees (state + folder)
+    # Move to ex-employees (state + folder + store)
     name, nickname, role = emp.name, emp.nickname, emp.role
+    # Persist ex-employee profile via store before moving folder
+    await _store.save_ex_employee(employee_id, emp.to_dict())
+    # Keep in-memory dicts in sync until Task 10 removes them
     company_state.ex_employees[employee_id] = emp
     del company_state.employees[employee_id]
     move_employee_to_ex(employee_id)

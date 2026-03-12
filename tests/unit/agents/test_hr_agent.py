@@ -203,7 +203,6 @@ class TestApplyResultsReview:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -358,7 +357,6 @@ class TestCheckPromotions:
         cs.employees = employees
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_level", lambda eid, lvl, title: None)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
         monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
 
@@ -734,8 +732,6 @@ class TestApplyResultsPIP:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -828,7 +824,6 @@ class TestApplyResultsProbation:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -1055,8 +1050,6 @@ class TestApplyResultsOffboardingExceptions:
         cs.employees[emp.id] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_performance", lambda eid, tasks, hist: None)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
 
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
@@ -1117,7 +1110,6 @@ class TestApplyResultsOffboardingExceptions:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_field", lambda eid, field, value: None)
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
@@ -1148,7 +1140,6 @@ class TestCheckPromotionsEdgeCases:
         cs.employees = employees
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
-        monkeypatch.setattr(hr_agent, "update_employee_level", lambda eid, lvl, title: None)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
         monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
 

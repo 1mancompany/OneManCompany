@@ -1340,7 +1340,7 @@ class TestOneOnOneEndHappyPath:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles") as mock_save:
+             patch("onemancompany.api.routes._store.save_work_principles", new_callable=AsyncMock) as mock_save:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={

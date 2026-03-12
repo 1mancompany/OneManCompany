@@ -144,27 +144,30 @@ def _routine_store_patches(employees: dict | None = None):
 # ---------------------------------------------------------------------------
 
 class TestSetParticipantsStatus:
-    def test_sets_status(self):
+    async def test_sets_status(self):
         emp = FakeEmployee(id="00005", name="Alice", role="Engineer")
         state = _mock_company_state(employees={"00005": emp})
         with patch("onemancompany.core.routine.company_state", state), \
-             _routine_store_patches(state.employees):
-            _set_participants_status(["00005"], "in_meeting")
+             _routine_store_patches(state.employees), \
+             patch("onemancompany.core.routine._store.save_employee_runtime", new_callable=AsyncMock):
+            await _set_participants_status(["00005"], "in_meeting")
         assert emp.status == "in_meeting"
 
-    def test_skips_unknown_ids(self):
+    async def test_skips_unknown_ids(self):
         state = _mock_company_state()
         with patch("onemancompany.core.routine.company_state", state), \
-             _routine_store_patches(state.employees):
-            _set_participants_status(["nonexistent"], "idle")  # should not raise
+             _routine_store_patches(state.employees), \
+             patch("onemancompany.core.routine._store.save_employee_runtime", new_callable=AsyncMock):
+            await _set_participants_status(["nonexistent"], "idle")  # should not raise
 
-    def test_sets_multiple(self):
+    async def test_sets_multiple(self):
         emp1 = FakeEmployee(id="00005", name="Alice", role="Engineer")
         emp2 = FakeEmployee(id="00006", name="Bob", role="Designer")
         state = _mock_company_state(employees={"00005": emp1, "00006": emp2})
         with patch("onemancompany.core.routine.company_state", state), \
-             _routine_store_patches(state.employees):
-            _set_participants_status(["00005", "00006"], "working")
+             _routine_store_patches(state.employees), \
+             patch("onemancompany.core.routine._store.save_employee_runtime", new_callable=AsyncMock):
+            await _set_participants_status(["00005", "00006"], "working")
         assert emp1.status == "working"
         assert emp2.status == "working"
 
@@ -1724,11 +1727,11 @@ class TestRunOnboardingRoutine:
                             lambda _s=state: {eid: _fake_emp_to_dict(e) for eid, e in _s.employees.items()})
         monkeypatch.setattr("onemancompany.core.routine.PROBATION_TASKS", 2)
 
-        mock_save_principles = MagicMock()
+        mock_save_principles = AsyncMock()
         mock_update_field = MagicMock()
 
         with patch("onemancompany.core.routine._publish", new_callable=AsyncMock), \
-             patch("onemancompany.core.config.save_work_principles", mock_save_principles), \
+             patch("onemancompany.core.routine._store.save_work_principles", mock_save_principles), \
              patch("onemancompany.core.config.update_employee_field", mock_update_field):
             await run_onboarding_routine("00010")
 
