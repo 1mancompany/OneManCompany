@@ -1537,7 +1537,8 @@ class EmployeeManager:
             return
 
         # Update node with task results
-        node.status = "completed"
+        task_failed = task.status == TaskPhase.FAILED
+        node.status = "failed" if task_failed else "completed"
         node.result = task.result or ""
         node.input_tokens = task.input_tokens
         node.output_tokens = task.output_tokens
@@ -1546,8 +1547,15 @@ class EmployeeManager:
 
         _save_project_tree(task.project_dir, tree)
 
-        # Root node or child of CEO node completed — request CEO confirmation
+        # Trigger 3: root node failed → project failed
         is_root = not node.parent_id
+        if is_root and task_failed:
+            effective_project_id = project_id or task.project_id
+            from onemancompany.core import store as _store_mod
+            await _store_mod.save_project_status(effective_project_id, "failed")
+            return
+
+        # Root node or child of CEO node completed — request CEO confirmation
         parent_node = tree.get_node(node.parent_id) if node.parent_id else None
         is_child_of_ceo = parent_node and parent_node.is_ceo_node if parent_node else False
 
@@ -1680,6 +1688,16 @@ class EmployeeManager:
 
             if dirty:
                 _save_project_tree(project_dir, tree)
+
+            # Trigger 5: if all tree nodes are now failed/cancelled/blocked,
+            # the project itself has failed
+            all_nodes = list(tree._nodes.values())
+            if all_nodes and all(
+                n.status in ("failed", "cancelled", "blocked")
+                for n in all_nodes
+            ):
+                from onemancompany.core import store as _store_mod
+                await _store_mod.save_project_status(project_id, "failed")
 
             # Schedule outside the mutation loop
             for emp_id, _ in to_schedule:
@@ -1820,6 +1838,11 @@ class EmployeeManager:
             if agent_error:
                 label = f"{label} (with errors)"
             complete_project(project_id, label)
+            # Trigger 2: project completed — update via store for mark_dirty
+            from onemancompany.core import store as _store_mod
+            await _store_mod.save_project_status(
+                project_id, "completed", completed_at=datetime.now().isoformat()
+            )
 
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()

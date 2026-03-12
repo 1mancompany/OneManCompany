@@ -1486,12 +1486,13 @@ async def abort_task(project_id: str) -> dict:
                     cancelled_tree_nodes += 1
             tree.save(tree_path)
 
-    # Update project.yaml status to cancelled
+    # Trigger 4: CEO aborts → cancelled (via store for mark_dirty)
+    from onemancompany.core import store as _store
     proj_doc = _lp(project_id)
     if proj_doc and proj_doc.get("status") not in ("completed", "cancelled", "failed"):
-        proj_doc["status"] = "cancelled"
-        proj_doc["completed_at"] = _dt.now().isoformat()
-        _save_project(project_id, proj_doc)
+        await _store.save_project_status(
+            project_id, "cancelled", completed_at=_dt.now().isoformat()
+        )
 
     # Broadcast state
     await event_bus.publish(
@@ -2933,10 +2934,8 @@ async def get_task_queue() -> list[dict]:
         if p.get("is_named"):
             continue
         tree = _tree_summary(p["project_id"])
-        # Use tree-aggregated status when available (more accurate than project.yaml)
-        file_status = _normalize_project_status(p.get("status", ""))
-        tree_status = _aggregate_tree_status(tree)
-        status = tree_status if tree_status else file_status
+        # project.yaml is the single source of truth for status
+        status = _normalize_project_status(p.get("status", ""))
 
         entry = {
             "project_id": p["project_id"],
@@ -2967,36 +2966,6 @@ def _normalize_project_status(status: str) -> str:
         "cancelled": "cancelled",
     }
     return mapping.get(status, status)
-
-
-# Priority order for aggregating status across tree nodes.
-# Lower index = higher priority (shown first).
-_STATUS_PRIORITY = [
-    "processing",   # actively running
-    "holding",      # blocked/waiting
-    "pending",      # queued
-    "failed",       # error
-    "cancelled",    # aborted
-    "completed",    # done, not yet accepted
-    "accepted",     # fully done
-]
-
-
-def _aggregate_tree_status(tree_summary: dict | None) -> str | None:
-    """Derive project status from tree node statuses.
-
-    Returns the highest-priority status found across all nodes,
-    or None if no tree / no nodes.
-    """
-    if not tree_summary:
-        return None
-    by_status = tree_summary.get("by_status", {})
-    if not by_status:
-        return None
-    for status in _STATUS_PRIORITY:
-        if by_status.get(status, 0) > 0:
-            return status
-    return None
 
 
 # ===== Task Tree Endpoint =====
