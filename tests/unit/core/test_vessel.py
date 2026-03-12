@@ -16,6 +16,7 @@ from onemancompany.core.vessel import (
     LangChainExecutor,
     Launcher,
     LaunchResult,
+    ScheduleEntry,
     ScriptExecutor,
     TaskContext,
     Vessel,
@@ -711,3 +712,116 @@ class TestCeoConfirmation:
         mock_cleanup.assert_called_once()
         call_kwargs = mock_cleanup.call_args
         assert call_kwargs.kwargs.get("run_retrospective") is True
+
+
+# ---------------------------------------------------------------------------
+# ScheduleEntry tests
+# ---------------------------------------------------------------------------
+
+class TestScheduleEntry:
+    """Test ScheduleEntry dataclass and scheduling methods."""
+
+    def test_schedule_entry_creation(self):
+        entry = ScheduleEntry(node_id="abc123", tree_path="/tmp/tree.yaml")
+        assert entry.node_id == "abc123"
+        assert entry.tree_path == "/tmp/tree.yaml"
+
+    def test_schedule_node(self):
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
+        assert len(mgr._schedule["00100"]) == 1
+        assert mgr._schedule["00100"][0].node_id == "node1"
+
+    def test_schedule_multiple_nodes(self):
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
+        mgr.schedule_node("00100", "node2", "/tmp/tree.yaml")
+        assert len(mgr._schedule["00100"]) == 2
+
+    def test_unschedule(self):
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
+        mgr.schedule_node("00100", "node2", "/tmp/tree.yaml")
+        mgr.unschedule("00100", "node1")
+        assert len(mgr._schedule["00100"]) == 1
+        assert mgr._schedule["00100"][0].node_id == "node2"
+
+    def test_unschedule_nonexistent(self):
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
+        mgr.unschedule("00100", "nonexistent")
+        assert len(mgr._schedule["00100"]) == 1
+
+    def test_get_next_scheduled_with_pending_node(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="00100", description="root")
+        child = tree.add_child(
+            parent_id=root.id, employee_id="00100",
+            description="pending task", acceptance_criteria=["done"],
+        )
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", child.id, str(tree_path))
+        entry = mgr.get_next_scheduled("00100")
+        assert entry is not None
+        assert entry.node_id == child.id
+
+    def test_get_next_scheduled_skips_non_pending(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="00100", description="root")
+        child = tree.add_child(
+            parent_id=root.id, employee_id="00100",
+            description="processing task", acceptance_criteria=["done"],
+        )
+        child.status = "processing"
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", child.id, str(tree_path))
+        entry = mgr.get_next_scheduled("00100")
+        assert entry is None
+
+    def test_get_next_scheduled_skips_unresolved_deps(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="00100", description="root")
+        dep = tree.add_child(
+            parent_id=root.id, employee_id="00100",
+            description="dep task", acceptance_criteria=["done"],
+        )
+        dependent = tree.add_child(
+            parent_id=root.id, employee_id="00100",
+            description="depends on dep", acceptance_criteria=["done"],
+            depends_on=[dep.id],
+        )
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+
+        mgr = EmployeeManager()
+        mgr.schedule_node("00100", dependent.id, str(tree_path))
+        entry = mgr.get_next_scheduled("00100")
+        assert entry is None  # dep not resolved yet
+
+    def test_get_next_scheduled_empty(self):
+        mgr = EmployeeManager()
+        entry = mgr.get_next_scheduled("00100")
+        assert entry is None
+
+    def test_task_logs_buffer(self):
+        mgr = EmployeeManager()
+        mgr._log_node("00100", "node1", "start", "Starting task")
+        assert len(mgr._task_logs["node1"]) == 1
+        assert mgr._task_logs["node1"][0]["type"] == "start"
+
+    def test_schedule_entry_from_agent_loop(self):
+        """ScheduleEntry should be importable from agent_loop.py."""
+        from onemancompany.core.agent_loop import ScheduleEntry as SE
+        assert SE is ScheduleEntry
