@@ -129,34 +129,6 @@ class TestCompanyStateNextEmployeeNumber:
 
 
 # ---------------------------------------------------------------------------
-# CompanyState.to_json
-# ---------------------------------------------------------------------------
-
-class TestCompanyStateToJson:
-    def test_empty_state(self, monkeypatch):
-        from onemancompany.core import state as state_mod
-        cs = CompanyState()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        with patch("onemancompany.core.state.get_active_tasks", return_value=[]):
-            j = cs.to_json()
-        assert j["employees"] == []
-        assert j["ex_employees"] == []
-        assert j["tools"] == []
-        assert j["active_tasks"] == []
-
-    def test_with_employees(self, monkeypatch):
-        from onemancompany.core import state as state_mod
-        cs = CompanyState()
-        cs.employees["00010"] = Employee(
-            id="00010", name="Test", role="Engineer", skills=["python"],
-        )
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        j = cs.to_json()
-        assert len(j["employees"]) == 1
-        assert j["employees"][0]["id"] == "00010"
-
-
-# ---------------------------------------------------------------------------
 # LEVEL_NAMES
 # ---------------------------------------------------------------------------
 

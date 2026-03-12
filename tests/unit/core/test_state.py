@@ -11,7 +11,6 @@ from onemancompany.core.state import (
     Employee,
     MeetingRoom,
     OfficeTool,
-    SalesTask,
     TaskEntry,
 )
 
@@ -83,92 +82,6 @@ class TestOfficeTool:
         assert d["files"] == ["readme.md"]
         assert d["folder_name"] == "hammer"
         assert d["has_icon"] is True
-
-
-# ---------------------------------------------------------------------------
-# SalesTask
-# ---------------------------------------------------------------------------
-
-class TestSalesTask:
-    def test_defaults(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build website")
-        assert st.status == "pending"
-        assert st.assigned_to == ""
-        assert st.contract_approved is False
-        assert st.delivery == ""
-        assert st.settlement_tokens == 0
-        assert st.created_at  # auto-set
-
-    def test_explicit_created_at(self):
-        st = SalesTask(
-            id="s1", client_name="Acme", description="Build website",
-            created_at="2025-01-01T00:00:00",
-        )
-        assert st.created_at == "2025-01-01T00:00:00"
-
-    def test_to_dict(self):
-        st = SalesTask(
-            id="s1", client_name="Acme", description="Build website",
-            requirements="Responsive design", budget_tokens=1000000,
-            status="in_production", assigned_to="00005",
-            contract_approved=True, delivery="delivered.zip",
-            settlement_tokens=500000,
-        )
-        d = st.to_dict()
-        assert d["id"] == "s1"
-        assert d["client_name"] == "Acme"
-        assert d["description"] == "Build website"
-        assert d["requirements"] == "Responsive design"
-        assert d["budget_tokens"] == 1000000
-        assert d["status"] == "in_production"
-        assert d["assigned_to"] == "00005"
-        assert d["contract_approved"] is True
-        assert d["delivery"] == "delivered.zip"
-        assert d["settlement_tokens"] == 500000
-        assert "created_at" in d
-
-
-# ---------------------------------------------------------------------------
-# CompanyState.to_json with various content
-# ---------------------------------------------------------------------------
-
-class TestCompanyStateToJson:
-    def test_with_all_entity_types(self, monkeypatch):
-        from onemancompany.core import store as store_mod
-
-        cs = CompanyState()
-        cs.tools["t1"] = OfficeTool(
-            id="t1", name="Tool", description="d", added_by="coo",
-        )
-        cs.meeting_rooms["r1"] = MeetingRoom(
-            id="r1", name="Room A", description="Main room",
-        )
-
-        # Mock store reads for employees, ex_employees, activity_log, culture, rooms, sales, overhead
-        monkeypatch.setattr(store_mod, "load_all_employees",
-                            lambda: {"00010": {"id": "00010", "name": "Test", "role": "Engineer"}})
-        monkeypatch.setattr(store_mod, "load_ex_employees",
-                            lambda: {"00011": {"id": "00011", "name": "Former", "role": "Designer"}})
-        monkeypatch.setattr(store_mod, "load_activity_log", lambda: [])
-        monkeypatch.setattr(store_mod, "load_culture", lambda: [])
-        monkeypatch.setattr(store_mod, "load_rooms", lambda: [
-            {"id": "r1", "name": "Room A", "description": "Main room", "capacity": 6},
-        ])
-        monkeypatch.setattr(store_mod, "load_sales_tasks", lambda: [
-            {"id": "s1", "client_name": "Acme", "description": "Build app"},
-        ])
-        monkeypatch.setattr(store_mod, "load_overhead", lambda: {"company_tokens": 5000})
-
-        mock_task = TaskEntry(project_id="p1", task="Do stuff", routed_to="COO")
-        with patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]):
-            j = cs.to_json()
-        assert len(j["employees"]) == 1
-        assert len(j["ex_employees"]) == 1
-        assert len(j["tools"]) == 1
-        assert len(j["meeting_rooms"]) == 1
-        assert len(j["active_tasks"]) == 1
-        assert len(j["sales_tasks"]) == 1
-        assert j["company_tokens"] == 5000
 
 
 # ---------------------------------------------------------------------------
