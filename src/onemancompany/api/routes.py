@@ -200,14 +200,20 @@ async def _start_inquiry(task: str) -> dict:
     if not room:
         return {"error": "No meeting rooms available"}
 
+    participants = [CEO_ID, agent_id]
     room.is_booked = True
     room.booked_by = CEO_ID
-    room.participants = [CEO_ID, agent_id]
+    room.participants = participants
+    await _store.save_room(room.id, {
+        "is_booked": True,
+        "booked_by": CEO_ID,
+        "participants": participants,
+    })
 
     await event_bus.publish(
         CompanyEvent(
             type="meeting_booked",
-            payload={"room_id": room.id, "room_name": room.name, "participants": room.participants},
+            payload={"room_id": room.id, "room_name": room.name, "participants": participants},
             agent="CEO",
         )
     )
@@ -963,7 +969,7 @@ async def oneonone_end(body: dict) -> dict:
 async def get_meeting_rooms() -> dict:
     """Get all meeting rooms and their booking status."""
     return {
-        "meeting_rooms": [m.to_dict() for m in company_state.meeting_rooms.values()]
+        "meeting_rooms": _store.load_rooms()
     }
 
 
@@ -1011,6 +1017,11 @@ async def release_meeting(body: dict) -> dict:
     room.is_booked = False
     room.booked_by = ""
     room.participants = []
+    await _store.save_room(room_id, {
+        "is_booked": False,
+        "booked_by": "",
+        "participants": [],
+    })
     await _store.append_activity({
         "type": "meeting_released",
         "room": room.name,
@@ -1109,6 +1120,11 @@ async def inquiry_end(body: dict) -> dict:
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await event_bus.publish(
             CompanyEvent(
                 type="meeting_released",

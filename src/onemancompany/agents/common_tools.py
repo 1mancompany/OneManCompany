@@ -565,11 +565,18 @@ async def pull_meeting(
     # Find a free meeting room
     room = None
     all_ids = [initiator_id] + participant_ids if initiator_id else participant_ids
+    booker = initiator_id or participant_ids[0]
     for r in company_state.meeting_rooms.values():
         if not r.is_booked and r.capacity >= len(all_ids):
             r.is_booked = True
-            r.booked_by = initiator_id or participant_ids[0]
+            r.booked_by = booker
             r.participants = all_ids
+            from onemancompany.core.store import save_room
+            await save_room(r.id, {
+                "is_booked": True,
+                "booked_by": booker,
+                "participants": all_ids,
+            })
             room = r
             break
 
@@ -742,6 +749,12 @@ async def pull_meeting(
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        from onemancompany.core.store import save_room
+        await save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await _publish("meeting_released", {
             "room_id": room.id, "room_name": room.name,
         })

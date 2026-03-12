@@ -439,7 +439,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
 
     emp_count = len(load_all_employees())
     tool_count = len(company_state.tools)
-    room_count = len(company_state.meeting_rooms)
+    room_count = len(_store.load_rooms())
 
     timeline_ctx = ""
     timeline_text = ctx.format_project_timeline()
@@ -1052,9 +1052,15 @@ async def run_post_task_routine(
     room = None
     for r in company_state.meeting_rooms.values():
         if not r.is_booked:
+            room_participants = list(dict.fromkeys(participants + [EA_ID]))
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [EA_ID]))
+            r.participants = room_participants
+            await _store.save_room(r.id, {
+                "is_booked": True,
+                "booked_by": HR_ID,
+                "participants": room_participants,
+            })
             room = r
             break
 
@@ -1149,6 +1155,11 @@ async def run_post_task_routine(
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
 
 
@@ -1409,9 +1420,15 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
     room = None
     for r in company_state.meeting_rooms.values():
         if not r.is_booked:
+            room_participants = list(dict.fromkeys(participants + [EA_ID]))
             r.is_booked = True
             r.booked_by = HR_ID
-            r.participants = list(dict.fromkeys(participants + [EA_ID]))
+            r.participants = room_participants
+            await _store.save_room(r.id, {
+                "is_booked": True,
+                "booked_by": HR_ID,
+                "participants": room_participants,
+            })
             room = r
             break
 
@@ -1468,6 +1485,11 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
 
 
@@ -1638,7 +1660,7 @@ async def _run_phase2_legacy(
     # Step 1: COO operations report
     emp_count = len(load_all_employees())
     tool_count = len(company_state.tools)
-    room_count = len(company_state.meeting_rooms)
+    room_count = len(_store.load_rooms())
 
     coo_prompt = (
         f"你是 COO，负责出具公司运营情况报告。\n"
@@ -1911,11 +1933,17 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
     all_emp_ids = list(all_emps.keys())
 
     room = None
+    room_participants = [CEO_ID] + all_emp_ids
     for r in sorted(company_state.meeting_rooms.values(), key=lambda x: x.capacity, reverse=True):
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = CEO_ID
-            r.participants = [CEO_ID] + all_emp_ids
+            r.participants = room_participants
+            await _store.save_room(r.id, {
+                "is_booked": True,
+                "booked_by": CEO_ID,
+                "participants": room_participants,
+            })
             room = r
             break
 
@@ -2004,6 +2032,11 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        })
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
 
 

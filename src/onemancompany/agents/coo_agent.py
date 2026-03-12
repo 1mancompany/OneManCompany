@@ -565,10 +565,12 @@ def list_assets() -> list[dict]:
          "type": "tool", "access": "restricted" if t.allowed_users else "open"}
         for t in company_state.tools.values()
     ]
+    from onemancompany.core.store import load_rooms
     items += [
-        {"id": m.id, "name": m.name, "description": m.description, "type": "room",
-         "capacity": m.capacity, "is_booked": m.is_booked, "booked_by": m.booked_by}
-        for m in company_state.meeting_rooms.values()
+        {"id": m.get("id", ""), "name": m.get("name", ""), "description": m.get("description", ""),
+         "type": "room", "capacity": m.get("capacity", 6),
+         "is_booked": m.get("is_booked", False), "booked_by": m.get("booked_by", "")}
+        for m in load_rooms()
     ]
     return items
 
@@ -576,16 +578,17 @@ def list_assets() -> list[dict]:
 @tool
 def list_meeting_rooms() -> list[dict]:
     """List all meeting rooms and their current booking status."""
+    from onemancompany.core.store import load_rooms
     return [
         {
-            "id": m.id,
-            "name": m.name,
-            "capacity": m.capacity,
-            "is_booked": m.is_booked,
-            "booked_by": m.booked_by,
-            "participants": m.participants,
+            "id": m.get("id", ""),
+            "name": m.get("name", ""),
+            "capacity": m.get("capacity", 6),
+            "is_booked": m.get("is_booked", False),
+            "booked_by": m.get("booked_by", ""),
+            "participants": m.get("participants", []),
         }
-        for m in company_state.meeting_rooms.values()
+        for m in load_rooms()
     ]
 
 
@@ -619,6 +622,15 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
             room.is_booked = True
             room.booked_by = employee_id
             room.participants = all_participants
+            from onemancompany.core.store import save_room
+            try:
+                asyncio.get_running_loop().create_task(save_room(room.id, {
+                    "is_booked": True,
+                    "booked_by": employee_id,
+                    "participants": all_participants,
+                }))
+            except RuntimeError:
+                logger.debug("No event loop for save_room in book_meeting_room")
             _append_activity({
                 "type": "meeting_booked",
                 "room": room.name,
@@ -665,6 +677,15 @@ def release_meeting_room(room_id: str) -> dict:
     room.is_booked = False
     room.booked_by = ""
     room.participants = []
+    from onemancompany.core.store import save_room
+    try:
+        asyncio.get_running_loop().create_task(save_room(room_id, {
+            "is_booked": False,
+            "booked_by": "",
+            "participants": [],
+        }))
+    except RuntimeError:
+        logger.debug("No event loop for save_room in release_meeting_room")
     _append_activity({
         "type": "meeting_released",
         "room": room.name,
