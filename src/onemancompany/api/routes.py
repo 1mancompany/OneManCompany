@@ -25,6 +25,7 @@ from onemancompany.core.config import (
     STATUS_IDLE,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.task_lifecycle import TaskPhase
 from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
@@ -660,7 +661,8 @@ async def task_followup(project_id: str, body: dict) -> dict:
         # Find the EA node (child of CEO root, or legacy root)
         ea_node = tree.get_ea_node()
         if ea_node:
-            ea_node.status = "pending"
+            # Forced reset for new branch — bypasses transition validation
+            ea_node.status = TaskPhase.PENDING.value
             ea_node.result = ""
             ea_node.branch = tree.current_branch
             ea_node.branch_active = True
@@ -674,7 +676,8 @@ async def task_followup(project_id: str, body: dict) -> dict:
                 acceptance_criteria=[],
             )
             followup_node.node_type = "ceo_followup"
-            followup_node.status = "accepted"
+            # CEO follow-up is pre-approved — bypasses transition validation
+            followup_node.status = TaskPhase.ACCEPTED.value
             followup_node.branch = tree.current_branch
             followup_node.branch_active = True
         else:
@@ -692,14 +695,15 @@ async def task_followup(project_id: str, body: dict) -> dict:
         # Update CEO root status
         root = tree.get_node(tree.root_id)
         if root and root.node_type == "ceo_prompt":
-            root.status = "processing"
+            # Branch restart — bypasses transition validation
+            root.status = TaskPhase.PROCESSING.value
             root.branch = tree.current_branch
             root.branch_active = True
     else:
         # No root yet — create CEO root + EA child
         ceo_root = tree.create_root(employee_id=CEO_ID, description=instructions)
         ceo_root.node_type = "ceo_prompt"
-        ceo_root.status = "processing"
+        ceo_root.set_status(TaskPhase.PROCESSING)
         ea_child = tree.add_child(
             parent_id=ceo_root.id,
             employee_id=EA_ID,
@@ -1501,7 +1505,8 @@ async def _sync_tree_cancel(cancelled_tasks: list) -> None:
         if node_id:
             node = tree.get_node(node_id)
             if node and node.status not in ("accepted", "failed", "cancelled"):
-                node.status = "cancelled"
+                # CEO cancellation — force status bypass for terminal override
+                node.status = TaskPhase.CANCELLED.value
                 node.result = task.result or "Cancelled by CEO"
                 from onemancompany.core.events import CompanyEvent as _CE
                 await event_bus.publish(_CE(
@@ -1545,7 +1550,8 @@ async def abort_task(project_id: str) -> dict:
             tree = TaskTree.load(tree_path, project_id=project_id)
             for node in tree._nodes.values():
                 if node.status not in ("accepted", "failed", "cancelled"):
-                    node.status = "cancelled"
+                    # CEO abort — force status bypass for terminal override
+                    node.status = TaskPhase.CANCELLED.value
                     node.result = "Cancelled by CEO (project aborted)"
                     cancelled_tree_nodes += 1
             tree.save(tree_path)
