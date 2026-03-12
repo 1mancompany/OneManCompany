@@ -56,14 +56,18 @@ class TestExecuteFire:
         # persist_all_desk_positions removed in Task 10
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
+        activity_entries = []
+        monkeypatch.setattr(term_mod._store, "append_activity",
+                            AsyncMock(side_effect=lambda e: activity_entries.append(e)))
+
         result = await term_mod.execute_fire("00010", reason="poor performance")
 
         assert result["status"] == "fired"
         assert result["name"] == "Emp 00010"
         assert "00010" not in cs.employees
         assert "00010" in cs.ex_employees
-        assert cs.activity_log[-1]["type"] == "employee_fired"
-        assert cs.activity_log[-1]["reason"] == "poor performance"
+        assert activity_entries[-1]["type"] == "employee_fired"
+        assert activity_entries[-1]["reason"] == "poor performance"
 
     @pytest.mark.asyncio
     async def test_cannot_fire_founding(self, monkeypatch):

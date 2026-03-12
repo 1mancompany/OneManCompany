@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from onemancompany.core.state import CompanyState, Employee, SalesTask
+from onemancompany.core.state import CompanyState, Employee
 
 
 def _make_cs() -> CompanyState:
@@ -50,7 +50,7 @@ def _mock_store_for_employees(monkeypatch, employees: dict):
     monkeypatch.setattr(store_mod, "load_direction", lambda: "")
 
 
-def _make_sales_task(task_id: str, **kwargs) -> SalesTask:
+def _make_sales_task_dict(task_id: str, **kwargs) -> dict:
     defaults = dict(
         id=task_id,
         client_name="TestClient",
@@ -58,9 +58,47 @@ def _make_sales_task(task_id: str, **kwargs) -> SalesTask:
         requirements="Build X",
         budget_tokens=100,
         status="pending",
+        assigned_to="",
+        contract_approved=False,
+        delivery="",
+        settlement_tokens=0,
+        created_at="",
     )
     defaults.update(kwargs)
-    return SalesTask(**defaults)
+    return defaults
+
+
+def _mock_sales_store(monkeypatch, tasks: list[dict]):
+    """Mock store-level sales task reads/writes for CSO tools."""
+    from onemancompany.agents import cso_agent as cso_mod
+
+    # The tasks list is mutated in place by the update helper
+    monkeypatch.setattr(cso_mod._store, "load_sales_tasks", lambda: list(tasks))
+
+    def _mock_save_sync(t):
+        tasks.clear()
+        tasks.extend(t)
+
+    async def _mock_save(t):
+        _mock_save_sync(t)
+
+    monkeypatch.setattr(cso_mod._store, "save_sales_tasks", _mock_save)
+    monkeypatch.setattr(cso_mod._store, "save_sales_tasks_sync", _mock_save_sync)
+
+    # Mock overhead
+    overhead_data = {"company_tokens": 0}
+    monkeypatch.setattr(cso_mod._store, "load_overhead", lambda: dict(overhead_data))
+
+    def _mock_save_oh_sync(data):
+        overhead_data.update(data)
+
+    async def _mock_save_oh(data):
+        _mock_save_oh_sync(data)
+
+    monkeypatch.setattr(cso_mod._store, "save_overhead", _mock_save_oh)
+    monkeypatch.setattr(cso_mod._store, "save_overhead_sync", _mock_save_oh_sync)
+
+    return tasks, overhead_data
 
 
 # ---------------------------------------------------------------------------
@@ -70,26 +108,22 @@ def _make_sales_task(task_id: str, **kwargs) -> SalesTask:
 class TestListSalesTasks:
     def test_returns_empty_list(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        tasks, _ = _mock_sales_store(monkeypatch, [])
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.list_sales_tasks.invoke({})
         assert result == []
 
     def test_returns_all_sales_tasks(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        cs.sales_tasks = {
-            "s1": _make_sales_task("s1", client_name="Alpha"),
-            "s2": _make_sales_task("s2", client_name="Beta"),
-        }
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [
+            _make_sales_task_dict("s1", client_name="Alpha"),
+            _make_sales_task_dict("s2", client_name="Beta"),
+        ]
+        tasks, _ = _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.list_sales_tasks.invoke({})
         assert len(result) == 2
@@ -105,13 +139,9 @@ class TestListSalesTasks:
 class TestReviewContract:
     def test_approve_dispatches_to_coo(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1")]
+        tasks, _ = _mock_sales_store(monkeypatch, task_list)
 
         activity_log = []
         monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: activity_log.append(entry))
@@ -127,21 +157,19 @@ class TestReviewContract:
         })
 
         assert result["status"] == "approved"
-        assert task.status == "in_production"
-        assert task.contract_approved is True
+        # Verify the task was updated on disk
+        updated = [t for t in tasks if t["id"] == "s1"][0]
+        assert updated["status"] == "in_production"
+        assert updated["contract_approved"] is True
         mock_loop.push_task.assert_called_once()
         assert len(activity_log) == 1
         assert activity_log[0]["type"] == "contract_approved"
 
     def test_reject_records_reason(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1")]
+        tasks, _ = _mock_sales_store(monkeypatch, task_list)
 
         activity_log = []
         monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: activity_log.append(entry))
@@ -151,17 +179,16 @@ class TestReviewContract:
         })
 
         assert result["status"] == "rejected"
-        assert task.status == "rejected"
+        updated = [t for t in tasks if t["id"] == "s1"][0]
+        assert updated["status"] == "rejected"
         assert len(activity_log) == 1
         assert activity_log[0]["type"] == "contract_rejected"
 
     def test_review_nonexistent_task(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        _mock_sales_store(monkeypatch, [])
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.review_contract.invoke({
             "task_id": "nonexistent", "approved": True,
@@ -170,13 +197,10 @@ class TestReviewContract:
 
     def test_cannot_review_already_in_production(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", status="in_production")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="in_production")]
+        _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.review_contract.invoke({
             "task_id": "s1", "approved": True,
@@ -186,13 +210,10 @@ class TestReviewContract:
     def test_approve_with_no_coo_loop(self, monkeypatch):
         """Approving when COO loop is not available still updates status."""
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1")]
+        tasks, _ = _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
         monkeypatch.setattr(
             "onemancompany.core.agent_loop.get_agent_loop",
             lambda eid: None,
@@ -202,7 +223,8 @@ class TestReviewContract:
             "task_id": "s1", "approved": True, "notes": "OK",
         })
         assert result["status"] == "approved"
-        assert task.status == "in_production"
+        updated = [t for t in tasks if t["id"] == "s1"][0]
+        assert updated["status"] == "in_production"
 
 
 # ---------------------------------------------------------------------------
@@ -212,31 +234,26 @@ class TestReviewContract:
 class TestCompleteDelivery:
     def test_marks_delivered(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", status="in_production")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="in_production")]
+        tasks, _ = _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.complete_delivery.invoke({
             "task_id": "s1", "delivery_summary": "Built feature X",
         })
 
         assert result["status"] == "delivered"
-        assert task.status == "delivered"
-        assert task.delivery == "Built feature X"
+        updated = [t for t in tasks if t["id"] == "s1"][0]
+        assert updated["status"] == "delivered"
+        assert updated["delivery"] == "Built feature X"
 
     def test_cannot_deliver_pending_task(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", status="pending")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="pending")]
+        _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.complete_delivery.invoke({
             "task_id": "s1", "delivery_summary": "Done",
@@ -245,11 +262,9 @@ class TestCompleteDelivery:
 
     def test_nonexistent_task(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        _mock_sales_store(monkeypatch, [])
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.complete_delivery.invoke({
             "task_id": "bad", "delivery_summary": "X",
@@ -264,56 +279,46 @@ class TestCompleteDelivery:
 class TestSettleTask:
     def test_collects_tokens(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", status="delivered", budget_tokens=200)
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="delivered", budget_tokens=200)]
+        tasks, overhead = _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.settle_task.invoke({"task_id": "s1"})
 
         assert result["status"] == "settled"
         assert result["tokens_earned"] == 200
-        assert task.status == "settled"
-        assert task.settlement_tokens == 200
-        assert cs.company_tokens == 200
+        updated = [t for t in tasks if t["id"] == "s1"][0]
+        assert updated["status"] == "settled"
+        assert updated["settlement_tokens"] == 200
+        assert overhead["company_tokens"] == 200
 
     def test_cumulative_tokens(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        cs.company_tokens = 500
-        task = _make_sales_task("s1", status="delivered", budget_tokens=100)
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="delivered", budget_tokens=100)]
+        tasks, overhead = _mock_sales_store(monkeypatch, task_list)
+        overhead["company_tokens"] = 500
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.settle_task.invoke({"task_id": "s1"})
         assert result["company_total_tokens"] == 600
 
     def test_cannot_settle_non_delivered(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", status="in_production")
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", status="in_production")]
+        _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.settle_task.invoke({"task_id": "s1"})
         assert result["status"] == "error"
 
     def test_settle_nonexistent_task(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        _mock_sales_store(monkeypatch, [])
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
 
         result = cso_mod.settle_task.invoke({"task_id": "nope"})
         assert result["status"] == "error"
@@ -340,7 +345,6 @@ class TestCSOAgent:
 
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
@@ -392,7 +396,6 @@ class TestCSOAgent:
         _mock_store_for_employees(monkeypatch, {config_mod.CSO_ID: emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
         monkeypatch.setattr(base_mod, "load_employee_skills", lambda eid: {})
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", Path("/nonexistent"))
@@ -429,13 +432,10 @@ class TestSalesPipelineLifecycle:
     def test_full_lifecycle(self, monkeypatch):
         """Test pending -> approved -> in_production -> delivered -> settled."""
         from onemancompany.agents import cso_agent as cso_mod
-        from onemancompany.core import state as state_mod
 
-        cs = _make_cs()
-        task = _make_sales_task("s1", budget_tokens=500)
-        cs.sales_tasks["s1"] = task
-        monkeypatch.setattr(state_mod, "company_state", cs)
-        monkeypatch.setattr(cso_mod, "company_state", cs)
+        task_list = [_make_sales_task_dict("s1", budget_tokens=500)]
+        tasks, overhead = _mock_sales_store(monkeypatch, task_list)
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: None)
         monkeypatch.setattr(
             "onemancompany.core.agent_loop.get_agent_loop",
             lambda eid: MagicMock(),
@@ -443,15 +443,15 @@ class TestSalesPipelineLifecycle:
 
         # 1. Review and approve
         result = cso_mod.review_contract.invoke({"task_id": "s1", "approved": True})
-        assert task.status == "in_production"
+        assert tasks[0]["status"] == "in_production"
 
         # 2. Complete delivery
         result = cso_mod.complete_delivery.invoke({
             "task_id": "s1", "delivery_summary": "All done",
         })
-        assert task.status == "delivered"
+        assert tasks[0]["status"] == "delivered"
 
         # 3. Settle
         result = cso_mod.settle_task.invoke({"task_id": "s1"})
-        assert task.status == "settled"
-        assert cs.company_tokens == 500
+        assert tasks[0]["status"] == "settled"
+        assert overhead["company_tokens"] == 500

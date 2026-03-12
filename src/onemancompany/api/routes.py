@@ -2623,7 +2623,8 @@ async def get_dashboard_costs() -> dict:
     from onemancompany.core.project_archive import get_cost_summary
     summary = get_cost_summary()
     # Add overhead costs from non-project LLM calls
-    oh = company_state.overhead_costs
+    from onemancompany.core.state import company_state as _cs
+    oh = _cs.overhead_costs
     summary["overhead"] = {
         "total_cost_usd": round(oh.total_cost_usd, 4),
         "total_input_tokens": oh.total_input_tokens,
@@ -3564,7 +3565,7 @@ async def hire_candidate(body: HireRequest) -> dict:
     Executes the full hire flow in code — no LLM involved.
     Reads authoritative fields directly from the talent profile.
     """
-    from onemancompany.agents.hr_agent import pending_candidates
+    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire
 
     candidates = pending_candidates.get(body.batch_id, [])
@@ -3652,6 +3653,7 @@ async def hire_candidate(body: HireRequest) -> dict:
         # Retrospective only triggers after project acceptance + rectification.
 
     pending_candidates.pop(body.batch_id, None)
+    _persist_candidates()
 
     # Resume HR's HOLDING task so EA knows the hire is done
     from onemancompany.core.agent_loop import get_agent_loop
@@ -3684,7 +3686,7 @@ async def batch_hire_candidates(body: dict) -> dict:
         batch_id: str
         selections: list of {candidate_id: str, role: str}
     """
-    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx
+    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
     from onemancompany.core.config import load_talent_profile
 
@@ -3815,6 +3817,7 @@ async def batch_hire_candidates(body: dict) -> dict:
         complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
 
     pending_candidates.pop(batch_id, None)
+    _persist_candidates()
 
     # Resume HR HOLDING task
     from onemancompany.core.agent_loop import get_agent_loop
@@ -4442,22 +4445,29 @@ async def tool_delete_template(tool_id: str, filename: str):
 @router.post("/api/sales/submit")
 async def sales_submit_task(body: dict) -> dict:
     """External clients submit tasks via the sales protocol."""
-    from onemancompany.core.state import SalesTask
-
     client_name = body.get("client_name", "")
     description = body.get("description", "")
     if not client_name or not description:
         return {"error": "Missing client_name or description"}
 
+    from datetime import datetime as _dt
     task_id = _uuid.uuid4().hex[:12]
-    sales_task = SalesTask(
-        id=task_id,
-        client_name=client_name,
-        description=description,
-        requirements=body.get("requirements", ""),
-        budget_tokens=body.get("budget_tokens", 0),
-    )
-    company_state.sales_tasks[task_id] = sales_task
+    sales_task_dict = {
+        "id": task_id,
+        "client_name": client_name,
+        "description": description,
+        "requirements": body.get("requirements", ""),
+        "budget_tokens": body.get("budget_tokens", 0),
+        "status": "pending",
+        "assigned_to": "",
+        "contract_approved": False,
+        "delivery": "",
+        "settlement_tokens": 0,
+        "created_at": _dt.now().isoformat(),
+    }
+    tasks = _store.load_sales_tasks()
+    tasks.append(sales_task_dict)
+    await _store.save_sales_tasks(tasks)
 
     await _store.append_activity({
         "type": "sales_task_submitted",
@@ -4483,7 +4493,7 @@ async def sales_submit_task(body: dict) -> dict:
     await event_bus.publish(
         CompanyEvent(
             type="sales_task_submitted",
-            payload=sales_task.to_dict(),
+            payload=sales_task_dict,
             agent="SALES",
         )
     )
@@ -4498,35 +4508,36 @@ async def sales_submit_task(body: dict) -> dict:
 @router.get("/api/sales/tasks")
 async def sales_list_tasks() -> dict:
     """List all sales tasks."""
-    return {
-        "tasks": [t.to_dict() for t in company_state.sales_tasks.values()]
-    }
+    return {"tasks": _store.load_sales_tasks()}
 
 
 @router.get("/api/sales/tasks/{task_id}")
 async def sales_get_task(task_id: str) -> dict:
     """Get details of a specific sales task."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    return task.to_dict()
+    return task
 
 
 @router.post("/api/sales/tasks/{task_id}/deliver")
 async def sales_deliver_task(task_id: str, body: dict) -> dict:
     """Mark a sales task as delivered."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    if task.status != "in_production":
-        return {"error": f"Task status is '{task.status}', expected 'in_production'"}
+    if task.get("status") != "in_production":
+        return {"error": f"Task status is '{task.get('status')}', expected 'in_production'"}
 
-    task.status = "delivered"
-    task.delivery = body.get("delivery_summary", "")
+    task["status"] = "delivered"
+    task["delivery"] = body.get("delivery_summary", "")
+    await _store.save_sales_tasks(tasks)
     await _store.append_activity({
         "type": "task_delivered",
         "task_id": task_id,
-        "client": task.client_name,
+        "client": task.get("client_name", ""),
     })
     return {"status": "delivered", "task_id": task_id}
 
@@ -4534,21 +4545,28 @@ async def sales_deliver_task(task_id: str, body: dict) -> dict:
 @router.post("/api/sales/tasks/{task_id}/settle")
 async def sales_settle_task(task_id: str) -> dict:
     """Collect settlement tokens for a delivered task."""
-    task = company_state.sales_tasks.get(task_id)
+    tasks = _store.load_sales_tasks()
+    task = next((t for t in tasks if t.get("id") == task_id), None)
     if not task:
         return {"error": f"Sales task '{task_id}' not found"}
-    if task.status != "delivered":
-        return {"error": f"Task status is '{task.status}', must be 'delivered' to settle"}
+    if task.get("status") != "delivered":
+        return {"error": f"Task status is '{task.get('status')}', must be 'delivered' to settle"}
 
-    tokens = task.budget_tokens
-    task.settlement_tokens = tokens
-    task.status = "settled"
-    company_state.company_tokens += tokens
+    tokens = task.get("budget_tokens", 0)
+    task["settlement_tokens"] = tokens
+    task["status"] = "settled"
+    await _store.save_sales_tasks(tasks)
+
+    # Update company tokens in overhead
+    overhead = _store.load_overhead()
+    overhead["company_tokens"] = overhead.get("company_tokens", 0) + tokens
+    await _store.save_overhead(overhead)
+
     return {
         "status": "settled",
         "task_id": task_id,
         "tokens_earned": tokens,
-        "company_total_tokens": company_state.company_tokens,
+        "company_total_tokens": overhead["company_tokens"],
     }
 
 

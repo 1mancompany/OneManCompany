@@ -632,8 +632,16 @@ class TestDepositCompanyKnowledge:
 
         # Mock store.load_culture to return empty list initially
         monkeypatch.setattr(store_mod, "load_culture", lambda: [])
-        mock_save = MagicMock()
-        monkeypatch.setattr(coo_mod, "save_company_culture", mock_save)
+        # Mock save_culture (async) — the code uses create_task so mock at store level
+        saved_items_captured = []
+        async def _mock_save_culture(items):
+            saved_items_captured.extend(items)
+        monkeypatch.setattr(store_mod, "save_culture", _mock_save_culture)
+
+        import asyncio
+        # Provide a running loop so create_task works
+        loop = asyncio.new_event_loop()
+        monkeypatch.setattr(asyncio, "get_running_loop", lambda: loop)
 
         result = coo_mod.deposit_company_knowledge.invoke({
             "category": "culture",
@@ -641,11 +649,13 @@ class TestDepositCompanyKnowledge:
             "content": "We value innovation above all",
         })
 
+        # Run pending tasks
+        loop.run_until_complete(asyncio.sleep(0))
+        loop.close()
+
         assert result["status"] == "success"
-        mock_save.assert_called_once()
-        saved_items = mock_save.call_args[0][0]
-        assert len(saved_items) == 1
-        assert saved_items[0]["content"] == "We value innovation above all"
+        assert len(saved_items_captured) == 1
+        assert saved_items_captured[0]["content"] == "We value innovation above all"
 
     def test_deposit_sop(self, tmp_path, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod

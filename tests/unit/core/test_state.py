@@ -143,12 +143,8 @@ class TestCompanyStateToJson:
         cs.meeting_rooms["r1"] = MeetingRoom(
             id="r1", name="Room A", description="Main room",
         )
-        cs.sales_tasks["s1"] = SalesTask(
-            id="s1", client_name="Acme", description="Build app",
-        )
-        cs.company_tokens = 5000
 
-        # Mock store reads for employees, ex_employees, activity_log, culture, rooms
+        # Mock store reads for employees, ex_employees, activity_log, culture, rooms, sales, overhead
         monkeypatch.setattr(store_mod, "load_all_employees",
                             lambda: {"00010": {"id": "00010", "name": "Test", "role": "Engineer"}})
         monkeypatch.setattr(store_mod, "load_ex_employees",
@@ -158,6 +154,10 @@ class TestCompanyStateToJson:
         monkeypatch.setattr(store_mod, "load_rooms", lambda: [
             {"id": "r1", "name": "Room A", "description": "Main room", "capacity": 6},
         ])
+        monkeypatch.setattr(store_mod, "load_sales_tasks", lambda: [
+            {"id": "s1", "client_name": "Acme", "description": "Build app"},
+        ])
+        monkeypatch.setattr(store_mod, "load_overhead", lambda: {"company_tokens": 5000})
 
         mock_task = TaskEntry(project_id="p1", task="Do stuff", routed_to="COO")
         with patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]):

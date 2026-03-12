@@ -31,6 +31,7 @@ from onemancompany.agents.base import BaseAgentRunner, extract_final_content, ma
 from onemancompany.agents.recruitment import (
     _last_search_results,
     _pending_project_ctx,
+    _persist_candidates,
     list_open_positions,
     pending_candidates,
     search_candidates,
@@ -256,6 +257,7 @@ class HRAgent(BaseAgentRunner):
                         candidates.append(c)
                 batch_id = str(uuid.uuid4())[:8]
                 pending_candidates[batch_id] = candidates
+                _persist_candidates()
                 await self._publish("candidates_ready", {
                     "batch_id": batch_id,
                     "jd": data.get("jd", ""),

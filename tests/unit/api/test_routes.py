@@ -19,7 +19,6 @@ from onemancompany.core.state import (
     CompanyState,
     Employee,
     MeetingRoom,
-    SalesTask,
     TaskEntry,
 )
 
@@ -124,6 +123,25 @@ def _store_patches(state: CompanyState):
         async def fake_save_room(room_id, updates):
             pass  # no-op in tests
 
+        # Sales tasks — disk-backed via store
+        sales_tasks = getattr(state, "_sales_tasks", [])
+
+        def fake_load_sales():
+            return list(sales_tasks)
+
+        async def fake_save_sales(tasks):
+            sales_tasks.clear()
+            sales_tasks.extend(tasks)
+
+        # Overhead — disk-backed via store
+        overhead = getattr(state, "_overhead", {"company_tokens": 0})
+
+        def fake_load_overhead():
+            return dict(overhead)
+
+        async def fake_save_overhead(data):
+            overhead.update(data)
+
         with patch("onemancompany.api.routes._load_emp", side_effect=fake_load), \
              patch("onemancompany.api.routes._load_all", side_effect=fake_load_all), \
              patch("onemancompany.core.store.load_all_employees", side_effect=fake_load_all), \
@@ -133,7 +151,11 @@ def _store_patches(state: CompanyState):
              patch("onemancompany.core.store.load_direction", side_effect=fake_load_direction), \
              patch("onemancompany.core.store.load_rooms", side_effect=fake_load_rooms), \
              patch("onemancompany.api.routes._store.load_rooms", side_effect=fake_load_rooms), \
-             patch("onemancompany.api.routes._store.save_room", side_effect=fake_save_room):
+             patch("onemancompany.api.routes._store.save_room", side_effect=fake_save_room), \
+             patch("onemancompany.api.routes._store.load_sales_tasks", side_effect=fake_load_sales), \
+             patch("onemancompany.api.routes._store.save_sales_tasks", side_effect=fake_save_sales), \
+             patch("onemancompany.api.routes._store.load_overhead", side_effect=fake_load_overhead), \
+             patch("onemancompany.api.routes._store.save_overhead", side_effect=fake_save_overhead):
             yield
 
     return _ctx()
@@ -712,9 +734,22 @@ class TestRemoteSubmitResults:
 # ---------------------------------------------------------------------------
 
 
+def _make_sales_dict(task_id: str, **kwargs) -> dict:
+    """Create a sales task dict for testing."""
+    defaults = {
+        "id": task_id, "client_name": "Acme", "description": "Build X",
+        "requirements": "", "budget_tokens": 100, "status": "pending",
+        "assigned_to": "", "contract_approved": False, "delivery": "",
+        "settlement_tokens": 0, "created_at": "",
+    }
+    defaults.update(kwargs)
+    return defaults
+
+
 class TestSalesSubmit:
     async def test_submit_task(self):
         state = _make_state()
+        state._sales_tasks = []
         bus = EventBus()
 
         with patch("onemancompany.api.routes.company_state", state), \
@@ -733,10 +768,11 @@ class TestSalesSubmit:
         data = resp.json()
         assert data["status"] == "submitted"
         assert "task_id" in data
-        assert len(state.sales_tasks) == 1
+        assert len(state._sales_tasks) == 1
 
     async def test_submit_missing_fields(self):
         state = _make_state()
+        state._sales_tasks = []
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -750,8 +786,8 @@ class TestSalesSubmit:
 
 class TestSalesListTasks:
     async def test_list_tasks(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", client_name="Acme")]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -766,8 +802,8 @@ class TestSalesListTasks:
 
 class TestSalesGetTask:
     async def test_get_existing_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", client_name="Acme")]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -781,6 +817,7 @@ class TestSalesGetTask:
 
     async def test_get_nonexistent_task(self):
         state = _make_state()
+        state._sales_tasks = []
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -794,8 +831,8 @@ class TestSalesGetTask:
 
 class TestSalesDeliver:
     async def test_deliver_in_production_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X", status="in_production")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="in_production")]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -806,12 +843,12 @@ class TestSalesDeliver:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "delivered"
-        assert st.status == "delivered"
-        assert st.delivery == "All done"
+        assert state._sales_tasks[0]["status"] == "delivered"
+        assert state._sales_tasks[0]["delivery"] == "All done"
 
     async def test_deliver_wrong_status(self):
-        st = SalesTask(id="s1", client_name="Acme", description="Build X", status="pending")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="pending")]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -825,8 +862,9 @@ class TestSalesDeliver:
 
 class TestSalesSettle:
     async def test_settle_delivered_task(self):
-        st = SalesTask(id="s1", client_name="Acme", description="X", status="delivered", budget_tokens=500)
-        state = _make_state(sales_tasks={"s1": st}, company_tokens=1000)
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="delivered", budget_tokens=500)]
+        state._overhead = {"company_tokens": 1000}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -840,11 +878,11 @@ class TestSalesSettle:
         assert data["status"] == "settled"
         assert data["tokens_earned"] == 500
         assert data["company_total_tokens"] == 1500
-        assert st.status == "settled"
+        assert state._sales_tasks[0]["status"] == "settled"
 
     async def test_settle_wrong_status(self):
-        st = SalesTask(id="s1", client_name="Acme", description="X", status="pending")
-        state = _make_state(sales_tasks={"s1": st})
+        state = _make_state()
+        state._sales_tasks = [_make_sales_dict("s1", status="pending")]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -5102,7 +5140,7 @@ class TestHireCandidate:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", {}):
+             patch("onemancompany.agents.recruitment.pending_candidates", {}):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/candidates/hire", json={
@@ -5123,11 +5161,12 @@ class TestHireCandidate:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, return_value=mock_emp), \
              patch("onemancompany.agents.onboarding.generate_nickname", new_callable=AsyncMock, return_value="CoolNick"), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}), \
-             patch("onemancompany.agents.hr_agent._pending_project_ctx", {}), \
+             patch("onemancompany.agents.recruitment._pending_project_ctx", {}), \
              patch("onemancompany.core.project_archive.append_action"), \
              patch("onemancompany.core.project_archive.complete_project"):
             app = _make_test_app()
@@ -5151,10 +5190,11 @@ class TestHireCandidate:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, return_value=mock_emp), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}), \
-             patch("onemancompany.agents.hr_agent._pending_project_ctx", {"b1": {"project_id": "proj1"}}), \
+             patch("onemancompany.agents.recruitment._pending_project_ctx", {"b1": {"project_id": "proj1"}}), \
              patch("onemancompany.core.project_archive.append_action"), \
              patch("onemancompany.core.project_archive.complete_project"), \
              patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
@@ -5178,7 +5218,8 @@ class TestHireCandidate:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.hr_agent.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
              patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, side_effect=RuntimeError("hire failed")), \
              patch("onemancompany.core.config.load_talent_profile", return_value={}):
             app = _make_test_app()
