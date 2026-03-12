@@ -349,7 +349,11 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
         with open(profile_path) as f:
             raw = yaml.safe_load(f) or {}
         emp_id = emp_dir.name
-        result[emp_id] = EmployeeConfig(**raw)
+        try:
+            result[emp_id] = EmployeeConfig(**raw)
+        except Exception as e:
+            logger.warning("Skipping corrupt profile {}: {}", emp_id, e)
+            continue
     return result
 
 
@@ -664,7 +668,11 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
         with open(profile_path) as f:
             raw = yaml.safe_load(f) or {}
         emp_id = emp_dir.name
-        result[emp_id] = EmployeeConfig(**raw)
+        try:
+            result[emp_id] = EmployeeConfig(**raw)
+        except Exception as e:
+            logger.warning("Skipping corrupt ex-employee profile {}: {}", emp_id, e)
+            continue
     return result
 
 

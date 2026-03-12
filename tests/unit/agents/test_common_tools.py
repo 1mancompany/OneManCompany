@@ -25,6 +25,39 @@ def _make_emp(emp_id: str, **kwargs) -> Employee:
     return Employee(**defaults)
 
 
+def _emp_to_dict(emp: Employee) -> dict:
+    """Convert Employee dataclass to dict matching store.load_employee() output."""
+    d: dict = {}
+    for field in ("id", "name", "nickname", "role", "skills", "level", "department",
+                  "permissions", "tool_permissions", "work_principles", "guidance_notes",
+                  "status", "is_listening", "current_task_summary"):
+        val = getattr(emp, field, None)
+        if val is not None:
+            d[field] = val
+    # Include runtime section
+    d["runtime"] = {
+        "status": getattr(emp, "status", "idle"),
+        "is_listening": getattr(emp, "is_listening", False),
+        "current_task_summary": getattr(emp, "current_task_summary", ""),
+    }
+    return d
+
+
+def _mock_store(monkeypatch, cs: CompanyState) -> None:
+    """Patch load_employee/load_all_employees on ct_mod to read from cs.employees."""
+    from onemancompany.agents import common_tools as ct_mod
+
+    def _fake_load_employee(emp_id: str) -> dict:
+        emp = cs.employees.get(emp_id)
+        return _emp_to_dict(emp) if emp else {}
+
+    def _fake_load_all() -> dict[str, dict]:
+        return {eid: _emp_to_dict(e) for eid, e in cs.employees.items()}
+
+    monkeypatch.setattr(ct_mod, "load_employee", _fake_load_employee)
+    monkeypatch.setattr(ct_mod, "load_all_employees", _fake_load_all)
+
+
 # ---------------------------------------------------------------------------
 # list_colleagues
 # ---------------------------------------------------------------------------
@@ -41,6 +74,7 @@ class TestListColleagues:
         }
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.list_colleagues.invoke({})
         assert len(result) == 2
@@ -61,6 +95,7 @@ class TestListColleagues:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.list_colleagues.invoke({})
         assert result == []
@@ -80,6 +115,7 @@ class TestReadFile:
         cs.employees["001"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         # Create a test file in company dir
         company_dir = tmp_path / "company"
@@ -103,6 +139,7 @@ class TestReadFile:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
             "onemancompany.core.file_editor._resolve_path",
@@ -120,6 +157,7 @@ class TestReadFile:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         nonexistent = tmp_path / "nope.txt"
         monkeypatch.setattr(
@@ -143,6 +181,7 @@ class TestListDirectory:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         # Create test directory
         test_dir = tmp_path / "testdir"
@@ -168,6 +207,7 @@ class TestListDirectory:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_dir = tmp_path / "testdir"
         test_dir.mkdir()
@@ -191,6 +231,7 @@ class TestListDirectory:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
             "onemancompany.core.file_editor._resolve_path",
@@ -222,6 +263,7 @@ class TestUseTool:
         cs.tools["t1"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         tools_dir = tmp_path / "tools"
         tool_folder = tools_dir / "open_tool"
@@ -250,6 +292,7 @@ class TestUseTool:
         cs.tools["t1"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "t1",
@@ -270,6 +313,7 @@ class TestUseTool:
         cs.tools["t1"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
         monkeypatch.setattr(config_mod, "TOOLS_DIR", Path("/nonexistent"))
 
         result = ct_mod.use_tool.invoke({
@@ -286,6 +330,7 @@ class TestUseTool:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.use_tool.invoke({
             "tool_name_or_id": "nonexistent",
@@ -309,6 +354,7 @@ class TestRequestToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         mock_coo_loop = MagicMock()
         monkeypatch.setattr(
@@ -342,6 +388,7 @@ class TestRequestToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.request_tool_access.invoke({
             "tool_name": "read_file",
@@ -359,6 +406,7 @@ class TestRequestToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.request_tool_access.invoke({
             "tool_name": "nonexistent_tool",
@@ -374,6 +422,7 @@ class TestRequestToolAccess:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.request_tool_access.invoke({
             "tool_name": "read_file",
@@ -398,6 +447,7 @@ class TestManageToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
             "onemancompany.core.config.update_tool_permissions",
@@ -424,6 +474,7 @@ class TestManageToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
         monkeypatch.setattr(
             "onemancompany.core.config.update_tool_permissions",
             lambda eid, perms: None,
@@ -447,6 +498,7 @@ class TestManageToolAccess:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
             "employee_id": "00010",
@@ -466,6 +518,7 @@ class TestManageToolAccess:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
             "employee_id": "00010",
@@ -485,12 +538,13 @@ class TestMeetingHelpers:
     def test_build_employee_context(self):
         from onemancompany.agents.common_tools import _build_employee_context
 
-        emp = _make_emp("001", name="Alice", nickname="A", department="Eng",
-                        role="Engineer", level=2, work_principles="Be thorough")
+        emp_data = {"id": "001", "name": "Alice", "nickname": "A", "department": "Eng",
+                    "role": "Engineer", "level": 2, "work_principles": "Be thorough",
+                    "skills": ["python"]}
 
         with patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""):
             with patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""):
-                ctx = _build_employee_context(emp)
+                ctx = _build_employee_context(emp_data, emp_id="001")
 
         assert "Alice" in ctx
         assert "Engineer" in ctx
@@ -516,11 +570,11 @@ class TestMeetingHelpers:
     def test_build_evaluate_prompt(self):
         from onemancompany.agents.common_tools import _build_evaluate_prompt
 
-        emp = _make_emp("001", name="Alice", nickname="A")
+        emp_data = {"id": "001", "name": "Alice", "nickname": "A", "role": "Engineer", "skills": ["python"]}
 
         with patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""):
             with patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""):
-                prompt = _build_evaluate_prompt(emp, "Design review", "Review mockups", [])
+                prompt = _build_evaluate_prompt(emp_data, "001", "Design review", "Review mockups", [])
 
         assert "Design review" in prompt
         assert "Review mockups" in prompt
@@ -530,11 +584,11 @@ class TestMeetingHelpers:
     def test_build_speech_prompt(self):
         from onemancompany.agents.common_tools import _build_speech_prompt
 
-        emp = _make_emp("001", name="Alice", nickname="A")
+        emp_data = {"id": "001", "name": "Alice", "nickname": "A", "role": "Engineer", "skills": ["python"]}
 
         with patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""):
             with patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""):
-                prompt = _build_speech_prompt(emp, "Design review", "", [])
+                prompt = _build_speech_prompt(emp_data, "001", "Design review", "", [])
 
         assert "Design review" in prompt
         assert "perspective" in prompt
@@ -553,6 +607,7 @@ class TestPullMeeting:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = await ct_mod.pull_meeting.ainvoke({
             "topic": "Test",
@@ -571,6 +626,7 @@ class TestPullMeeting:
         cs.employees["001"] = _make_emp("001")
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = await ct_mod.pull_meeting.ainvoke({
             "topic": "Test",
@@ -591,6 +647,7 @@ class TestPullMeeting:
         cs.meeting_rooms = {}  # No rooms
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = await ct_mod.pull_meeting.ainvoke({
             "topic": "Test",
@@ -687,6 +744,7 @@ class TestReadFileAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_dir = tmp_path / "adir"
         test_dir.mkdir()
@@ -708,6 +766,7 @@ class TestReadFileAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_file = tmp_path / "bad.bin"
         test_file.write_bytes(b"\x80\x81\x82")
@@ -734,6 +793,7 @@ class TestReadFileAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_file = tmp_path / "open.txt"
         test_file.write_text("content")
@@ -761,6 +821,7 @@ class TestListDirectoryAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_file = tmp_path / "afile.txt"
         test_file.write_text("data")
@@ -782,6 +843,7 @@ class TestListDirectoryAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         mock_dir = MagicMock()
         mock_dir.exists.return_value = True
@@ -807,6 +869,7 @@ class TestListDirectoryAdditional:
         cs.employees["001"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_dir = tmp_path / "src"
         test_dir.mkdir()
@@ -828,6 +891,7 @@ class TestListDirectoryAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
             "onemancompany.core.file_editor._resolve_path",
@@ -846,6 +910,7 @@ class TestListDirectoryAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         test_dir = tmp_path / "mixed"
         test_dir.mkdir()
@@ -883,6 +948,7 @@ class TestUseToolAdditional:
         cs.tools["t1"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
         monkeypatch.setattr(config_mod, "TOOLS_DIR", Path("/nonexistent"))
 
         result = ct_mod.use_tool.invoke({
@@ -907,6 +973,7 @@ class TestUseToolAdditional:
         cs.tools["t2"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         tools_dir = tmp_path / "tools"
         tool_folder = tools_dir / "bintool"
@@ -947,6 +1014,7 @@ class TestUseToolAdditional:
         cs.tools["t3"] = tool
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         tools_dir = tmp_path / "tools"
         tool_folder = tools_dir / "missing_files"
@@ -977,6 +1045,7 @@ class TestManageToolAccessAdditional:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
         monkeypatch.setattr(
             "onemancompany.core.config.update_tool_permissions",
             lambda eid, perms: None,
@@ -999,6 +1068,7 @@ class TestManageToolAccessAdditional:
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = ct_mod.manage_tool_access.invoke({
             "employee_id": "99999",
@@ -1023,6 +1093,7 @@ class TestRequestToolAccessAdditional:
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         monkeypatch.setattr(
             "onemancompany.core.agent_loop.get_agent_loop",
@@ -1129,6 +1200,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         # Track evaluate calls
         eval_count = 0
@@ -1195,6 +1267,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         async def always_yes_ainvoke(llm, prompt, category="", employee_id=""):
             resp = MagicMock()
@@ -1240,6 +1313,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         async def always_no(llm, prompt, category="", employee_id=""):
             resp = MagicMock()
@@ -1284,6 +1358,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         async def failing_ainvoke(llm, prompt, category="", employee_id=""):
             raise RuntimeError("LLM crashed")
@@ -1323,6 +1398,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         result = await ct_mod.pull_meeting.ainvoke({
             "topic": "Crowded meeting",
@@ -1350,6 +1426,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         call_count = 0
 
@@ -1399,6 +1476,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         async def quick_no(llm, prompt, category="", employee_id=""):
             resp = MagicMock()
@@ -1440,6 +1518,7 @@ class TestPullMeetingFull:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         call_idx = 0
 
@@ -1479,11 +1558,11 @@ class TestBuildSpeechPromptWithAgenda:
     def test_speech_prompt_with_agenda(self):
         from onemancompany.agents.common_tools import _build_speech_prompt
 
-        emp = _make_emp("001", name="Alice", nickname="A")
+        emp_data = {"id": "001", "name": "Alice", "nickname": "A", "role": "Engineer", "skills": ["python"]}
 
         with patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""):
             with patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""):
-                prompt = _build_speech_prompt(emp, "Design review", "Review mockups and plan", [{"speaker": "Bob", "message": "Hi"}])
+                prompt = _build_speech_prompt(emp_data, "001", "Design review", "Review mockups and plan", [{"speaker": "Bob", "message": "Hi"}])
 
         assert "Design review" in prompt
         assert "Review mockups and plan" in prompt
@@ -1498,11 +1577,12 @@ class TestBuildEmployeeContextNoPrinciples:
     def test_no_principles(self):
         from onemancompany.agents.common_tools import _build_employee_context
 
-        emp = _make_emp("001", name="Alice", nickname="A", work_principles="")
+        emp_data = {"id": "001", "name": "Alice", "nickname": "A", "role": "Engineer",
+                    "skills": ["python"], "work_principles": ""}
 
         with patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""):
             with patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""):
-                ctx = _build_employee_context(emp)
+                ctx = _build_employee_context(emp_data, emp_id="001")
 
         assert "Alice" in ctx
         assert "principles" not in ctx.lower()
@@ -1533,6 +1613,7 @@ class TestPullMeetingInitiatorNotInParticipants:
         cs.meeting_rooms["r1"] = room
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
 
         async def quick_end(llm, prompt, category="", employee_id=""):
             resp = MagicMock()

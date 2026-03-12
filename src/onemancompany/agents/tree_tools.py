@@ -79,8 +79,8 @@ def dispatch_child(
         return {"status": "error", "message": "Current task not found."}
 
     # Validate employee exists
-    from onemancompany.core.state import company_state
-    if employee_id not in company_state.employees:
+    from onemancompany.core.store import load_employee
+    if not load_employee(employee_id):
         return {"status": "error", "message": f"Employee {employee_id} not found."}
 
     project_dir = task.project_dir
