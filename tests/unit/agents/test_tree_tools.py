@@ -207,6 +207,7 @@ class TestAcceptChild:
             description="subtask",
             acceptance_criteria=["criterion"],
         )
+        child.status = "completed"  # Must be completed before acceptance
         tree.task_id_map["task-789"] = tree.root_id
 
         vessel, task = _make_vessel_and_task()

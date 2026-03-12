@@ -73,7 +73,7 @@ VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     TaskPhase.PENDING:    [TaskPhase.PROCESSING, TaskPhase.HOLDING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.PROCESSING: [TaskPhase.COMPLETED, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
     TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
-    TaskPhase.COMPLETED:  [TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED],
+    TaskPhase.COMPLETED:  [TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.PENDING, TaskPhase.CANCELLED],
     TaskPhase.ACCEPTED:   [TaskPhase.FINISHED],
     TaskPhase.FINISHED:   [],
     TaskPhase.FAILED:     [TaskPhase.PROCESSING, TaskPhase.CANCELLED],

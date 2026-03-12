@@ -11,6 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
+from onemancompany.core.task_lifecycle import TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
 # ---------------------------------------------------------------------------
@@ -186,7 +187,7 @@ def accept_child(node_id: str, notes: str = "") -> dict:
     if not node:
         return {"status": "error", "message": f"Node {node_id} not found."}
 
-    node.status = "accepted"
+    node.set_status(TaskPhase.ACCEPTED)
     node.acceptance_result = {"passed": True, "notes": notes}
     _save_tree(task.project_dir, tree)
 
@@ -232,7 +233,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
             return {"status": "error", "message": f"No handle for employee {node.employee_id}, cannot push correction task."}
 
         # Reset to pending, push correction task
-        node.status = "pending"
+        node.set_status(TaskPhase.PENDING)
         node.result = ""
         _save_tree(task.project_dir, tree)
 
@@ -251,7 +252,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
 
         return {"status": "rejected_retry", "node_id": node_id, "reason": reason}
     else:
-        node.status = "failed"
+        node.set_status(TaskPhase.FAILED)
         _save_tree(task.project_dir, tree)
 
         # Trigger dependency resolution for dependents (failed is terminal)
@@ -287,17 +288,18 @@ def unblock_child(node_id: str, new_description: str = "") -> dict:
     node = tree.get_node(node_id)
     if not node:
         return {"status": "error", "message": f"Node {node_id} not found."}
-    if node.status != "blocked":
+    if node.status != TaskPhase.BLOCKED.value:
         return {"status": "error", "message": f"Node {node_id} is {node.status}, not blocked."}
 
     # Remove failed/cancelled deps
+    _terminal_bad = {TaskPhase.FAILED.value, TaskPhase.CANCELLED.value}
     node.depends_on = [
         d for d in node.depends_on
-        if tree.get_node(d) and tree.get_node(d).status not in ("failed", "cancelled")
+        if tree.get_node(d) and tree.get_node(d).status not in _terminal_bad
     ]
     if new_description:
         node.description = new_description
-    node.status = "pending"
+    node.set_status(TaskPhase.PENDING)
     _save_tree(task.project_dir, tree)
 
     # Check if remaining deps are met
@@ -344,7 +346,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
     if node.is_terminal:
         return {"status": "error", "message": f"Node {node_id} already terminal ({node.status})."}
 
-    node.status = "cancelled"
+    node.set_status(TaskPhase.CANCELLED)
     node.result = reason or "Cancelled by parent"
     _save_tree(task.project_dir, tree)
 
