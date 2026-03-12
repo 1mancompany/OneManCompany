@@ -474,6 +474,17 @@ async def lifespan(app: FastAPI):
             register_self_hosted(emp_id, config=_vessel_cfg)
             print(f"[startup] Registered self-hosted {emp.name} ({emp_id}) — on-demand sessions")
             continue
+
+        # Company-hosted with launch.sh → SubprocessExecutor (foreground per-task)
+        _launch_sh = _emp_dir / "launch.sh"
+        if _launch_sh.exists():
+            from onemancompany.core.subprocess_executor import SubprocessExecutor
+            from onemancompany.core.vessel import employee_manager as _em_mgr
+            _executor = SubprocessExecutor(emp_id, script_path=str(_launch_sh))
+            _em_mgr.register(emp_id, _executor, config=_vessel_cfg)
+            print(f"[startup] Registered {emp.name} ({emp_id}) — SubprocessExecutor (launch.sh)")
+            continue
+
         _runner = EmployeeAgent(emp_id)
         register_agent(emp_id, _runner, config=_vessel_cfg)
         print(f"[startup] Registered {emp.name} ({emp_id}) — LangChain agent")

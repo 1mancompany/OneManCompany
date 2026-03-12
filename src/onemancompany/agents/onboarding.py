@@ -899,6 +899,12 @@ async def execute_hire(
         if not get_agent_loop(emp_num):
             if hosting == "self":
                 register_self_hosted(emp_num)
+            elif (emp_dir / "launch.sh").exists():
+                # Company-hosted with launch.sh → SubprocessExecutor
+                from onemancompany.core.subprocess_executor import SubprocessExecutor
+                from onemancompany.core.vessel import employee_manager
+                _executor = SubprocessExecutor(emp_num, script_path=str(emp_dir / "launch.sh"))
+                employee_manager.register(emp_num, _executor)
             else:
                 agent_runner = _create_agent_runner(emp_num, emp_dir)
                 await register_and_start_agent(emp_num, agent_runner)
