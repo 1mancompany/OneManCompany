@@ -88,7 +88,7 @@ class TestAgentTask:
         task = AgentTask(
             id="t1",
             description="Build widget",
-            status="complete",
+            status="completed",
             parent_id="p1",
             project_id="proj1",
             result="Done!",
@@ -103,7 +103,7 @@ class TestAgentTask:
         d = task.to_dict()
         assert d["id"] == "t1"
         assert d["description"] == "Build widget"
-        assert d["status"] == "complete"
+        assert d["status"] == "completed"
         assert d["parent_id"] == "p1"
         assert d["project_id"] == "proj1"
         assert d["result"] == "Done!"
@@ -131,8 +131,8 @@ class TestAgentTask:
         assert task.status == "pending"
         task.status = "processing"
         assert task.status == "processing"
-        task.status = "complete"
-        assert task.status == "complete"
+        task.status = "completed"
+        assert task.status == "completed"
 
     def test_status_failed(self):
         task = AgentTask(id="t1", description="test")
@@ -186,7 +186,7 @@ class TestAgentTaskBoard:
     def test_get_next_pending_skips_non_pending(self):
         board = AgentTaskBoard()
         t1 = board.push("First")
-        t1.status = "complete"
+        t1.status = "completed"
         t2 = board.push("Second")
         result = board.get_next_pending()
         assert result is t2
@@ -208,13 +208,13 @@ class TestAgentTaskBoard:
         t1 = board.push("Task 1", project_id="proj1")
         t2 = board.push("Task 2", project_id="proj1")
         t3 = board.push("Task 3", project_id="proj2")
-        t2.status = "complete"  # already completed, should not be cancelled
+        t2.status = "completed"  # already completed, should not be cancelled
         cancelled = board.cancel_by_project("proj1")
         assert len(cancelled) == 1
         assert t1 in cancelled
         assert t1.status == "cancelled"
         assert t1.result == "Cancelled by CEO"
-        assert t2.status == "complete"  # not changed
+        assert t2.status == "completed"  # not changed
         assert t3.status == "pending"  # different project
 
     def test_cancel_by_project_cancels_subtasks(self):
@@ -729,7 +729,7 @@ class TestEmployeeManagerExecuteTask:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", task)
 
-        assert task.status == "complete"
+        assert task.status == "completed"
         assert task.result == "Task done!"
         assert task.completed_at != ""
         launcher.execute.assert_called_once()
@@ -1245,7 +1245,7 @@ class TestEmployeeManagerHookFailures:
             await mgr._execute_task("emp01", task)
 
         # Task should still complete despite pre-hook failure
-        assert task.status == "complete"
+        assert task.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -1276,7 +1276,7 @@ class TestEmployeeManagerHookFailures:
             await mgr._execute_task("emp01", task)
 
         # Task should still be completed despite post-hook failure
-        assert task.status == "complete"
+        assert task.status == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -1459,7 +1459,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
                         with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
                             await mgr._execute_task("emp01", task)
 
-        assert task.status == "complete"
+        assert task.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -2019,7 +2019,7 @@ class TestExecuteTaskOnLogCallback:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", task)
 
-        assert task.status == "complete"
+        assert task.status == "completed"
         # Verify the on_log callback populated the task logs
         log_types = [lg["type"] for lg in task.logs]
         assert "progress" in log_types

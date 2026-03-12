@@ -815,7 +815,7 @@ async def oneonone_chat(body: dict) -> dict:
         for _ in range(120):  # up to 60 seconds
             await asyncio.sleep(0.5)
             t = loop.board.get_task(agent_task.id)
-            if t and t.status in ("complete", "failed", "finished"):
+            if t and t.status in ("completed", "failed", "finished"):
                 break
         # Extract the result from logs
         t = loop.board.get_task(agent_task.id)

@@ -1051,7 +1051,7 @@ class EmployeeManager:
                 self._setup_holding_watchdog(employee_id, task, holding_meta)
                 self._log(employee_id, task, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
-                task.status = TaskPhase.COMPLETE
+                task.status = TaskPhase.COMPLETED
                 persist_task(employee_id, task)
 
         if task.status != TaskPhase.HOLDING:
@@ -1062,7 +1062,7 @@ class EmployeeManager:
             self._publish_task_update(employee_id, task)
 
             # 9. Record to history + progress log
-            if task.status == TaskPhase.COMPLETE:
+            if task.status == TaskPhase.COMPLETED:
                 self._append_history(employee_id, task)
                 summary = (task.result or "")[:200]
                 _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
@@ -1183,7 +1183,7 @@ class EmployeeManager:
 
         # Transition to COMPLETE
         task.result = result
-        task.status = TaskPhase.COMPLETE
+        task.status = TaskPhase.COMPLETED
         task.completed_at = datetime.now().isoformat()
         persist_task(employee_id, task)
 
