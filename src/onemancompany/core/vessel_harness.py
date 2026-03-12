@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from onemancompany.core.agent_loop import AgentTask, LaunchResult, TaskContext
+    from onemancompany.core.agent_loop import LaunchResult, TaskContext
     from onemancompany.core.events import CompanyEvent
     from onemancompany.core.vessel_config import VesselConfig
 
@@ -41,19 +41,15 @@ class ExecutionHarness(Protocol):
 class TaskHarness(Protocol):
     """任务套接件 — 任务队列管理。"""
 
-    def push(
-        self,
-        description: str,
-        project_id: str = "",
-        project_dir: str = "",
-        parent_id: str = "",
-    ) -> "AgentTask": ...
+    def schedule_node(
+        self, employee_id: str, node_id: str, tree_path: str,
+    ) -> None: ...
 
-    def get_next_pending(self) -> "AgentTask | None": ...
+    def get_next_scheduled(
+        self, employee_id: str,
+    ) -> "tuple[str, str] | None": ...
 
-    def get_pending_subtasks(self, parent_id: str) -> "list[AgentTask]": ...
-
-    def cancel_by_project(self, project_id: str) -> "list[AgentTask]": ...
+    def cancel_by_project(self, project_id: str) -> int: ...
 
 
 # ---------------------------------------------------------------------------
@@ -65,11 +61,11 @@ class EventHarness(Protocol):
     """事件套接件 — 事件发布。"""
 
     async def publish_log(
-        self, emp_id: str, task: "AgentTask", log_type: str, content: str,
+        self, emp_id: str, node_id: str, log_type: str, content: str,
     ) -> None: ...
 
     async def publish_task_update(
-        self, emp_id: str, task: "AgentTask",
+        self, emp_id: str, node_id: str,
     ) -> None: ...
 
     async def publish_event(self, event: "CompanyEvent") -> None: ...
@@ -87,7 +83,7 @@ class StorageHarness(Protocol):
 
     def load_progress(self, emp_id: str, max_lines: int = 30) -> str: ...
 
-    def append_history(self, emp_id: str, task: "AgentTask") -> None: ...
+    def append_history(self, emp_id: str, node_id: str, summary: str) -> None: ...
 
     def get_history_context(self, emp_id: str) -> str: ...
 
@@ -101,12 +97,12 @@ class ContextHarness(Protocol):
     """上下文套接件 — prompt/context 注入。"""
 
     def build_task_context(
-        self, emp_id: str, task: "AgentTask", config: "VesselConfig",
+        self, emp_id: str, node_id: str, tree_path: str, config: "VesselConfig",
     ) -> str: ...
 
     def get_project_history(self, project_id: str) -> str: ...
 
-    def get_workflow_context(self, emp_id: str, task: "AgentTask") -> str: ...
+    def get_workflow_context(self, emp_id: str, task_description: str) -> str: ...
 
 
 # ---------------------------------------------------------------------------
@@ -122,5 +118,5 @@ class LifecycleHarness(Protocol):
     ) -> str: ...
 
     def call_post_task(
-        self, emp_id: str, task: "AgentTask", result: str,
+        self, emp_id: str, node_id: str, result: str,
     ) -> None: ...
