@@ -1,7 +1,9 @@
 """Tests for task tree data model and persistence."""
 from __future__ import annotations
 
-from onemancompany.core.task_lifecycle import TaskPhase, VALID_TRANSITIONS
+import pytest
+
+from onemancompany.core.task_lifecycle import TaskPhase, TaskTransitionError, VALID_TRANSITIONS
 from onemancompany.core.task_tree import TaskNode, TaskTree
 
 
@@ -362,3 +364,77 @@ class TestTaskTreeDependencyHelpers:
         lb = loaded.get_node(b.id)
         assert lb.depends_on == [a.id]
         assert lb.fail_strategy == "continue"
+
+
+class TestTaskNodeSSoT:
+    def test_node_set_status_valid(self):
+        node = TaskNode(employee_id="e1", description="test")
+        assert node.status == "pending"
+        node.set_status(TaskPhase.PROCESSING)
+        assert node.status == "processing"
+
+    def test_node_set_status_invalid(self):
+        node = TaskNode(employee_id="e1", description="test")
+        with pytest.raises(TaskTransitionError):
+            node.set_status(TaskPhase.ACCEPTED)  # can't go pending → accepted
+
+    def test_node_is_resolved(self):
+        node = TaskNode(employee_id="e1", description="test", status="accepted")
+        assert node.is_resolved is True
+        node2 = TaskNode(employee_id="e1", description="test", status="completed")
+        assert node2.is_resolved is False
+
+    def test_node_is_done_executing(self):
+        node = TaskNode(employee_id="e1", description="test", status="completed")
+        assert node.is_done_executing is True
+        node2 = TaskNode(employee_id="e1", description="test", status="processing")
+        assert node2.is_done_executing is False
+
+    def test_node_unblocks_dependents(self):
+        node = TaskNode(employee_id="e1", description="test", status="accepted")
+        assert node.unblocks_dependents is True
+        node2 = TaskNode(employee_id="e1", description="test", status="failed")
+        assert node2.unblocks_dependents is False
+
+    def test_node_new_fields_in_dict(self):
+        node = TaskNode(employee_id="e1", description="test", task_type="project", model_used="gpt-4", project_dir="/tmp/proj")
+        d = node.to_dict()
+        assert d["task_type"] == "project"
+        assert d["model_used"] == "gpt-4"
+        assert d["project_dir"] == "/tmp/proj"
+
+    def test_node_from_dict_new_fields(self):
+        d = {"employee_id": "e1", "description": "test", "task_type": "project", "model_used": "gpt-4", "project_dir": "/p"}
+        node = TaskNode.from_dict(d)
+        assert node.task_type == "project"
+        assert node.model_used == "gpt-4"
+
+    def test_tree_all_children_done(self):
+        tree = TaskTree(project_id="p1")
+        root = tree.create_root("e1", "root")
+        c1 = tree.add_child(root.id, "e2", "child1", [])
+        c2 = tree.add_child(root.id, "e3", "child2", [])
+        c1.status = "completed"
+        c2.status = "accepted"
+        assert tree.all_children_done(root.id) is True
+
+    def test_tree_all_children_done_false_when_processing(self):
+        tree = TaskTree(project_id="p1")
+        root = tree.create_root("e1", "root")
+        c1 = tree.add_child(root.id, "e2", "child1", [])
+        c1.status = "processing"
+        assert tree.all_children_done(root.id) is False
+
+    def test_tree_all_deps_resolved(self):
+        tree = TaskTree(project_id="p1")
+        root = tree.create_root("e1", "root")
+        c1 = tree.add_child(root.id, "e2", "child1", [])
+        c2 = tree.add_child(root.id, "e3", "child2", [], depends_on=[c1.id])
+        c1.status = "accepted"
+        assert tree.all_deps_resolved(c2.id) is True
+
+    def test_status_migration_complete_to_completed(self):
+        """Old 'complete' status should be normalized to 'completed' on load."""
+        d = {"employee_id": "e1", "description": "test", "status": "complete"}
+        node = TaskNode.from_dict(d)
+        assert node.status == "completed"

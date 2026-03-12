@@ -13,8 +13,12 @@ from pathlib import Path
 
 import yaml
 
-# Terminal statuses — node won't change further
-_TERMINAL = frozenset({"accepted", "failed", "cancelled"})
+from onemancompany.core.task_lifecycle import (
+    TaskPhase, transition,
+    RESOLVED, DONE_EXECUTING, UNBLOCKS_DEPENDENTS, WILL_NOT_DELIVER,
+)
+
+_STATUS_MIGRATION = {"complete": "completed"}
 
 
 @dataclass
@@ -29,6 +33,10 @@ class TaskNode:
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
     node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup"
+
+    task_type: str = "simple"         # "simple" | "project"
+    model_used: str = ""              # which LLM executed
+    project_dir: str = ""             # workspace path
 
     status: str = "pending"  # pending → processing → completed → accepted / failed / cancelled
     result: str = ""
@@ -54,9 +62,27 @@ class TaskNode:
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
 
+    def set_status(self, target: TaskPhase) -> None:
+        """Validated status transition. Raises TaskTransitionError if invalid."""
+        current = TaskPhase(self.status)
+        transition(self.id, current, target)
+        self.status = target.value
+
+    @property
+    def is_resolved(self) -> bool:
+        return TaskPhase(self.status) in RESOLVED
+
+    @property
+    def is_done_executing(self) -> bool:
+        return TaskPhase(self.status) in DONE_EXECUTING
+
+    @property
+    def unblocks_dependents(self) -> bool:
+        return TaskPhase(self.status) in UNBLOCKS_DEPENDENTS
+
     @property
     def is_terminal(self) -> bool:
-        return self.status in _TERMINAL
+        return self.is_resolved
 
     @property
     def is_ceo_node(self) -> bool:
@@ -71,6 +97,9 @@ class TaskNode:
             "description": self.description,
             "acceptance_criteria": list(self.acceptance_criteria),
             "node_type": self.node_type,
+            "task_type": self.task_type,
+            "model_used": self.model_used,
+            "project_dir": self.project_dir,
             "status": self.status,
             "result": self.result,
             "acceptance_result": self.acceptance_result,
@@ -89,7 +118,10 @@ class TaskNode:
 
     @classmethod
     def from_dict(cls, d: dict) -> TaskNode:
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        filtered = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        if "status" in filtered:
+            filtered["status"] = _STATUS_MIGRATION.get(filtered["status"], filtered["status"])
+        return cls(**filtered)
 
 
 class TaskTree:
@@ -188,11 +220,16 @@ class TaskTree:
         """Get only branch_active children of a node."""
         return [c for c in self.get_children(node_id) if c.branch_active]
 
-    def all_children_terminal(self, node_id: str) -> bool:
+    def all_children_done(self, node_id: str) -> bool:
+        """All active children have finished executing (DONE_EXECUTING set)."""
         children = self.get_active_children(node_id)
         if not children:
             return True
-        return all(c.is_terminal for c in children)
+        return all(c.is_done_executing for c in children)
+
+    def all_children_terminal(self, node_id: str) -> bool:
+        """Backward-compat alias for all_children_done."""
+        return self.all_children_done(node_id)
 
     def has_failed_children(self, node_id: str) -> bool:
         return any(c.status == "failed" for c in self.get_active_children(node_id))
@@ -201,25 +238,29 @@ class TaskTree:
         """Find all nodes that depend on the given node."""
         return [n for n in self._nodes.values() if node_id in n.depends_on]
 
-    def all_deps_terminal(self, node_id: str) -> bool:
-        """Check if all depends_on nodes are terminal."""
+    def all_deps_resolved(self, node_id: str) -> bool:
+        """All depends_on nodes are resolved (RESOLVED set)."""
         node = self._nodes.get(node_id)
         if not node or not node.depends_on:
             return True
         for dep_id in node.depends_on:
             dep = self._nodes.get(dep_id)
-            if not dep or not dep.is_terminal:
+            if not dep or not dep.is_resolved:
                 return False
         return True
 
+    def all_deps_terminal(self, node_id: str) -> bool:
+        """Backward-compat alias for all_deps_resolved."""
+        return self.all_deps_resolved(node_id)
+
     def has_failed_deps(self, node_id: str) -> bool:
-        """Check if any depends_on node has failed or been cancelled."""
+        """Check if any depends_on node will not deliver (failed/blocked/cancelled)."""
         node = self._nodes.get(node_id)
         if not node:
             return False
         for dep_id in node.depends_on:
             dep = self._nodes.get(dep_id)
-            if dep and dep.status in ("failed", "cancelled"):
+            if dep and TaskPhase(dep.status) in WILL_NOT_DELIVER:
                 return True
         return False
 
