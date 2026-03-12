@@ -46,6 +46,17 @@ from onemancompany.core.vessel_config import VesselConfig
 from loguru import logger
 
 # ---------------------------------------------------------------------------
+# ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScheduleEntry:
+    """Pure pointer to a TaskNode. No business data."""
+    node_id: str
+    tree_path: str  # path to the tree YAML file
+
+
+# ---------------------------------------------------------------------------
 # Context variables — set during task execution so tools can access context
 # ---------------------------------------------------------------------------
 
@@ -598,6 +609,36 @@ class EmployeeManager:
         self._hooks: dict[str, dict[str, Callable]] = {}
         self._event_loop: asyncio.AbstractEventLoop | None = None  # set by drain_pending
         self._restart_pending: bool = False
+        # ScheduleEntry-based scheduling (replaces boards for new code paths)
+        self._schedule: dict[str, list[ScheduleEntry]] = {}  # employee_id → scheduled nodes
+        self._task_logs: dict[str, list[dict]] = {}  # node_id → temporary log buffer
+
+    # ------------------------------------------------------------------
+    # ScheduleEntry-based node scheduling
+    # ------------------------------------------------------------------
+
+    def schedule_node(self, employee_id: str, node_id: str, tree_path: str) -> None:
+        """Add a node to the employee's schedule."""
+        entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
+        self._schedule.setdefault(employee_id, []).append(entry)
+
+    def unschedule(self, employee_id: str, node_id: str) -> None:
+        """Remove a completed/failed node from schedule."""
+        entries = self._schedule.get(employee_id, [])
+        self._schedule[employee_id] = [e for e in entries if e.node_id != node_id]
+
+    def get_next_scheduled(self, employee_id: str) -> ScheduleEntry | None:
+        """Find next scheduled node that is PENDING with deps resolved."""
+        from onemancompany.core.task_tree import TaskTree
+        for entry in self._schedule.get(employee_id, []):
+            tree_path = Path(entry.tree_path)
+            if not tree_path.exists():
+                continue
+            tree = TaskTree.load(tree_path)
+            node = tree.get_node(entry.node_id)
+            if node and TaskPhase(node.status) == TaskPhase.PENDING and tree.all_deps_resolved(node.id):
+                return entry
+        return None
 
     # Backward-compat aliases (properties so they stay in sync)
     @property
@@ -652,7 +693,11 @@ class EmployeeManager:
         project_id: str = "",
         project_dir: str = "",
     ) -> AgentTask:
-        """Push a task to an employee's board and trigger execution."""
+        """Push a task to an employee's board and trigger execution.
+
+        Also creates a ScheduleEntry if a tree_path can be determined.
+        Returns AgentTask for backward compat (task_persistence, tree_tools).
+        """
         board = self.boards.get(employee_id)
         if not board:
             board = AgentTaskBoard()
@@ -1127,35 +1172,43 @@ class EmployeeManager:
         The cron dispatches a check task to the employee periodically.
         For thread_id-based holds, it checks Gmail. For all other holds
         (e.g. batch_id), it asks the employee to verify the condition.
+
+        Accepts AgentTask for backward compat. Uses task.id as the identifier.
         """
+        self._setup_holding_watchdog_by_id(employee_id, task.id, task.created_at, holding_meta)
+
+    def _setup_holding_watchdog_by_id(
+        self, employee_id: str, task_id: str, created_at: str, holding_meta: dict,
+    ) -> None:
+        """Start a watchdog cron for a HOLDING task, by task/node ID."""
         from onemancompany.core.automation import start_cron as _start_cron
 
         thread_id = holding_meta.get("thread_id", "")
         if thread_id:
             # Specific Gmail reply poller
             interval = holding_meta.get("interval", "1m")
-            cron_name = f"reply_{task.id}"
-            task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task.id}"
+            cron_name = f"reply_{task_id}"
+            task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task_id}"
         else:
             # Generic holding watchdog — employee checks if condition is resolved
             interval = holding_meta.get("interval", "5m")
             meta_summary = ", ".join(f"{k}={v}" for k, v in holding_meta.items() if k != "interval")
-            cron_name = f"holding_{task.id}"
-            holding_since = task.created_at or datetime.now().isoformat()
+            cron_name = f"holding_{task_id}"
+            holding_since = created_at or datetime.now().isoformat()
             task_desc = (
-                f"[holding_check] 你有一个 HOLDING 任务 (task_id={task.id}) 等待外部条件完成。"
+                f"[holding_check] 你有一个 HOLDING 任务 (task_id={task_id}) 等待外部条件完成。"
                 f" 元数据: {meta_summary}。开始等待时间: {holding_since}。"
                 f"\n\n请按以下流程处理："
-                f"\n1. 检查该条件是否已满足。如果已完成，调用 resume_held_task(task_id='{task.id}', result='条件已满足: <具体结果>')。"
+                f"\n1. 检查该条件是否已满足。如果已完成，调用 resume_held_task(task_id='{task_id}', result='条件已满足: <具体结果>')。"
                 f"\n2. 如果等待已超过 10 分钟但未超过 30 分钟，尝试换一种方式推进（重新发送请求、换联系方式、尝试替代方案等）。"
                 f"\n3. 如果等待已超过 30 分钟，上报给上级（用 dispatch_child 或直接在结果中说明情况），"
-                f"并调用 resume_held_task(task_id='{task.id}', result='超时上报: <等待原因和已尝试的方法>') 结束等待。"
+                f"并调用 resume_held_task(task_id='{task_id}', result='超时上报: <等待原因和已尝试的方法>') 结束等待。"
                 f"\n4. 如果尚未超时且条件未满足，无需操作。"
             )
 
         result = _start_cron(employee_id, cron_name, interval, task_desc)
         if result.get("status") != "ok":
-            logger.error("Failed to start holding watchdog for {}: {}", task.id, result)
+            logger.error("Failed to start holding watchdog for {}: {}", task_id, result)
 
     async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
         """Resume a HOLDING task with the provided result.
@@ -1520,7 +1573,11 @@ class EmployeeManager:
             await self._on_child_complete_inner(employee_id, task, project_id)
 
     async def _on_child_complete_inner(self, employee_id: str, task: AgentTask, project_id: str = "") -> None:
-        """Inner implementation of _on_child_complete, called under tree lock."""
+        """Inner implementation of _on_child_complete, called under tree lock.
+
+        TaskNode is the SSOT — status/result/tokens are already on the node
+        (set by _execute_task). This method only needs to propagate upward.
+        """
         tree = _load_project_tree(task.project_dir)
         if tree is None:
             return
@@ -1535,7 +1592,8 @@ class EmployeeManager:
             logger.warning("Tree node {} not found for task {}", node_id, task.id)
             return
 
-        # Update node with task results
+        # Sync task data to node (TaskNode is SSOT but task_persistence
+        # still uses AgentTask — keep in sync until Task 9 removes AgentTask)
         task_failed = task.status == TaskPhase.FAILED
         node.status = "failed" if task_failed else "completed"
         node.result = task.result or ""
@@ -2057,6 +2115,20 @@ class EmployeeManager:
             "content": content,
         }
         task.logs.append(entry)
+        self._publish_log_event(employee_id, task.id, entry)
+
+    def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str) -> None:
+        """Log an event for a node (ScheduleEntry path)."""
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "type": log_type,
+            "content": content,
+        }
+        self._task_logs.setdefault(node_id, []).append(entry)
+        self._publish_log_event(employee_id, node_id, entry)
+
+    def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
+        """Publish a log event via event bus."""
         try:
             role = self._get_role(employee_id)
             loop = asyncio.get_running_loop()
@@ -2065,7 +2137,7 @@ class EmployeeManager:
                     type="agent_log",
                     payload={
                         "employee_id": employee_id,
-                        "task_id": task.id,
+                        "task_id": task_id,
                         "log": entry,
                     },
                     agent=role,
@@ -2089,6 +2161,23 @@ class EmployeeManager:
             ))
         except RuntimeError:
             logger.debug("No event loop for task update publish (%s)", employee_id)
+
+    def _publish_node_update(self, employee_id: str, node) -> None:
+        """Publish a task update event for a TaskNode (ScheduleEntry path)."""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(event_bus.publish(
+                CompanyEvent(
+                    type="agent_task_update",
+                    payload={
+                        "employee_id": employee_id,
+                        "task": node.to_dict(),
+                    },
+                    agent=self._get_role(employee_id),
+                )
+            ))
+        except RuntimeError:
+            logger.debug("No event loop for node update publish (%s)", employee_id)
 
 
 # ---------------------------------------------------------------------------

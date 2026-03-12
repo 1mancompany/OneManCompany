@@ -8,6 +8,7 @@ from onemancompany.core.vessel import *  # noqa: F401,F403
 from onemancompany.core.vessel import (  # noqa: F401 — explicit re-exports for type checkers
     _current_vessel,
     _current_task_id,
+    ScheduleEntry,
     AgentTask,
     AgentTaskBoard,
     LaunchResult,
