@@ -1680,6 +1680,17 @@ class EmployeeManager:
             if dirty:
                 _save_project_tree(project_dir, tree)
 
+            # Check if all tree nodes are now terminal or blocked → project failed
+            all_stuck = all(
+                n.status in ("blocked", "failed", "cancelled", "accepted")
+                for n in tree._nodes.values()
+                if n.id != tree.root_id
+            )
+            if all_stuck and any(
+                n.status in ("blocked", "failed") for n in tree._nodes.values()
+            ):
+                await _store.save_project_status(project_id, "failed")
+
             # Schedule outside the mutation loop
             for emp_id, _ in to_schedule:
                 if emp_id not in self._running_tasks:
@@ -1820,6 +1831,11 @@ class EmployeeManager:
             if agent_error:
                 label = f"{label} (with errors)"
             complete_project(project_id, label)
+            # Single source of truth: persist status to project.yaml via store
+            status = "failed" if agent_error else "completed"
+            await _store.save_project_status(
+                project_id, status, completed_at=datetime.now().isoformat()
+            )
 
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()
