@@ -21,15 +21,16 @@ from onemancompany.core.config import (
     DEPT_ORDER,
     DEPT_START_ROW,
     EA_ID,
-    EXEC_IDS,
+    EXEC_ROW_HEIGHT,
+    FOUNDING_IDS,
     EXEC_FLOOR_COLORS,
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
 )
 
-# Use centralized EXEC_IDS from config
-_EXEC_IDS = EXEC_IDS
+# CEO + executives — all handled separately from department zones
+_SKIP_IDS = FOUNDING_IDS
 
 
 @dataclass
@@ -74,7 +75,7 @@ def compute_layout(company_state) -> dict:
     # Use lightweight dicts with the fields layout needs
     dept_groups: dict[str, list[dict]] = {}
     for emp_id, emp_data in employees.items():
-        if emp_id in _EXEC_IDS:
+        if emp_id in _SKIP_IDS:
             continue  # executives handled separately
         if emp_data.get("remote", False):
             continue  # remote employees don't occupy office desks
@@ -108,6 +109,7 @@ def compute_layout(company_state) -> dict:
     layout = {
         "zones": [z.to_dict() for z in zones],
         "executive_row": EXEC_ROW_GY,
+        "exec_row_height": EXEC_ROW_HEIGHT,
         "exec_floor_colors": list(EXEC_FLOOR_COLORS),
         "dept_start_row": DEPT_START_ROW,
         "dept_end_row": DEPT_END_ROW,
@@ -262,7 +264,7 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
     # Build current department groups (excluding executives)
     dept_groups: dict[str, list[dict]] = {}
     for emp_id, emp_data in employees.items():
-        if emp_id in _EXEC_IDS:
+        if emp_id in _SKIP_IDS:
             continue
         if emp_data.get("remote", False):
             continue  # remote employees don't occupy office desks
@@ -328,7 +330,7 @@ def compute_asset_layout(company_state, layout: dict) -> None:
     Updates positions in-place and sets layout['canvas_rows'].
     """
     # Asset area starts below the department zone
-    asset_start_gy = DEPT_END_ROW + 2  # gap after dept area
+    asset_start_gy = DEPT_END_ROW + 2
 
     # --- Tools row (only tools with icons get canvas positions) ---
     tool_list = [t for t in company_state.tools.values() if t.has_icon]

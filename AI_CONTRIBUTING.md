@@ -306,6 +306,12 @@ tests/
 
 - **Employee IDs**: Avoid `00002`–`00005` in tests (these are founding executive IDs). Use `00100+` for test employees.
 
+- **Disk isolation**: Unit tests **must never write to the real `.onemancompany/` directory**. The `tests/unit/conftest.py` provides autouse fixtures that redirect disk writes to `tmp_path`. When writing new tests:
+  - `persist_task` and `_append_progress` are auto-redirected via `vessel.EMPLOYEES_DIR` and `tp.EMPLOYEES_DIR` patches
+  - `store.save_employee()`, `store.save_employee_runtime()`, `store.append_activity()` are auto-intercepted by the bridge fixture — they only write to disk when the test explicitly patches `store.EMPLOYEES_DIR` to `tmp_path`
+  - If your test needs disk writes, **explicitly `monkeypatch.setattr(store, "EMPLOYEES_DIR", tmp_path)`** — this signals the bridge to allow writes to the controlled tmp directory
+  - If your test does NOT set up in-memory `company_state.employees` and does NOT redirect `store.EMPLOYEES_DIR`, store write calls become no-ops (preventing leaks)
+
 - **Compilation check**: Always verify after editing:
 
 ```bash

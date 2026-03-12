@@ -67,6 +67,11 @@ def _bridge_store_to_company_state(monkeypatch):
     _orig_append_activity_sync_fn = store_mod.append_activity_sync
     _orig_save_runtime_fn = store_mod.save_employee_runtime
 
+    # Capture original paths to detect when a test redirects them
+    _orig_employees_dir = store_mod.EMPLOYEES_DIR
+    _orig_data_root = store_mod.DATA_ROOT
+    _orig_company_dir = store_mod.COMPANY_DIR
+
     # Capture default singleton id to detect test-replaced company_state
     _default_cs_id = id(_get_cs())
 
@@ -154,8 +159,17 @@ def _bridge_store_to_company_state(monkeypatch):
         result = _orig_load_guidance(emp_id)
         return result if result else []
 
+    def _store_is_redirected():
+        """True when a test has explicitly patched store.EMPLOYEES_DIR to tmp."""
+        return store_mod.EMPLOYEES_DIR != _orig_employees_dir
+
     async def _patched_save_employee(emp_id, updates):
-        """Bridge save_employee to update in-memory Employee if present."""
+        """Bridge save_employee to update in-memory Employee if present.
+
+        Only writes to disk when store.EMPLOYEES_DIR was explicitly redirected
+        by the test (i.e., pointing to tmp_path). Never writes to the real
+        .onemancompany directory.
+        """
         cs = _get_cs()
         employees = getattr(cs, "employees", {})
         emp = employees.get(emp_id)
@@ -168,28 +182,34 @@ def _bridge_store_to_company_state(monkeypatch):
                         setattr(emp, key, val)
                     except (AttributeError, TypeError):
                         pass
-        if not _is_test_cs():
+        if _store_is_redirected():
             try:
                 await _orig_save_employee(emp_id, updates)
             except (FileNotFoundError, OSError):
                 pass
 
     async def _patched_save_ex_employee(emp_id, data):
-        """Bridge save_ex_employee to also update in-memory ex_employees."""
+        """Bridge save_ex_employee to also update in-memory ex_employees.
+
+        Only writes to disk when store.EMPLOYEES_DIR is redirected.
+        """
         cs = _get_cs()
         employees = getattr(cs, "employees", {})
         ex_employees = getattr(cs, "ex_employees", {})
         emp = employees.pop(emp_id, None)
         if emp:
             ex_employees[emp_id] = emp
-        if not _is_test_cs():
+        if _store_is_redirected():
             try:
                 await _orig_save_ex_fn(emp_id, data)
             except (FileNotFoundError, OSError):
                 pass
 
     async def _patched_append_activity(entry):
-        """Bridge append_activity to also update in-memory activity_log."""
+        """Bridge append_activity to also update in-memory activity_log.
+
+        Only writes to disk when store.DATA_ROOT is redirected.
+        """
         cs = _get_cs()
         log = getattr(cs, "activity_log", None)
         from datetime import datetime
@@ -197,14 +217,17 @@ def _bridge_store_to_company_state(monkeypatch):
             entry["timestamp"] = datetime.now().isoformat()
         if log is not None:
             log.append(entry)
-        if not _is_test_cs():
+        if store_mod.DATA_ROOT != _orig_data_root or store_mod.COMPANY_DIR != _orig_company_dir:
             try:
                 await _orig_append_activity_fn(entry)
             except (FileNotFoundError, OSError):
                 pass
 
     def _patched_append_activity_sync(entry):
-        """Bridge append_activity_sync to also update in-memory activity_log."""
+        """Bridge append_activity_sync to also update in-memory activity_log.
+
+        Only writes to disk when store.DATA_ROOT is redirected.
+        """
         cs = _get_cs()
         log = getattr(cs, "activity_log", None)
         from datetime import datetime
@@ -212,14 +235,17 @@ def _bridge_store_to_company_state(monkeypatch):
             entry["timestamp"] = datetime.now().isoformat()
         if log is not None:
             log.append(entry)
-        if not _is_test_cs():
+        if store_mod.DATA_ROOT != _orig_data_root or store_mod.COMPANY_DIR != _orig_company_dir:
             try:
                 _orig_append_activity_sync_fn(entry)
             except (FileNotFoundError, OSError):
                 pass
 
     async def _patched_save_employee_runtime(emp_id, **fields):
-        """Bridge save_employee_runtime to update in-memory Employee."""
+        """Bridge save_employee_runtime to update in-memory Employee.
+
+        Only writes to disk when store.EMPLOYEES_DIR is redirected.
+        """
         cs = _get_cs()
         employees = getattr(cs, "employees", {})
         emp = employees.get(emp_id)
@@ -232,9 +258,35 @@ def _bridge_store_to_company_state(monkeypatch):
                         setattr(emp, key, val)
                     except (AttributeError, TypeError):
                         pass
-        if not _is_test_cs():
+        if _store_is_redirected():
             try:
                 await _orig_save_runtime_fn(emp_id, **fields)
+            except (FileNotFoundError, OSError):
+                pass
+
+    _orig_save_room_fn = store_mod.save_room
+    _orig_append_room_chat_fn = store_mod.append_room_chat
+
+    _orig_rooms_dir_fn = store_mod._rooms_dir
+
+    def _rooms_dir_is_redirected():
+        """True when _rooms_dir or DATA_ROOT was patched by the test."""
+        return (store_mod.DATA_ROOT != _orig_data_root
+                or store_mod._rooms_dir is not _orig_rooms_dir_fn)
+
+    async def _patched_save_room(room_id, updates):
+        """No-op save_room unless rooms dir is redirected to tmp."""
+        if _rooms_dir_is_redirected():
+            try:
+                await _orig_save_room_fn(room_id, updates)
+            except (FileNotFoundError, OSError):
+                pass
+
+    async def _patched_append_room_chat(room_id, entry):
+        """No-op append_room_chat unless rooms dir is redirected to tmp."""
+        if _rooms_dir_is_redirected():
+            try:
+                await _orig_append_room_chat_fn(room_id, entry)
             except (FileNotFoundError, OSError):
                 pass
 
@@ -250,3 +302,31 @@ def _bridge_store_to_company_state(monkeypatch):
     monkeypatch.setattr(store_mod, "append_activity", _patched_append_activity)
     monkeypatch.setattr(store_mod, "append_activity_sync", _patched_append_activity_sync)
     monkeypatch.setattr(store_mod, "save_employee_runtime", _patched_save_employee_runtime)
+    monkeypatch.setattr(store_mod, "save_room", _patched_save_room)
+    monkeypatch.setattr(store_mod, "append_room_chat", _patched_append_room_chat)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_disk_writes(tmp_path, monkeypatch):
+    """Redirect disk-writing paths in vessel and task_persistence to tmp_path.
+
+    Prevents test data (emp01, newguy, 00100 etc.) from leaking into the
+    real .onemancompany runtime directory.
+
+    Only patches modules that directly write to disk (vessel, task_persistence).
+    config/store EMPLOYEES_DIR is NOT patched here — the bridge fixture above
+    already intercepts store reads/writes via function-level patches.
+    """
+    emp_dir = tmp_path / "_isolated_employees"
+    emp_dir.mkdir()
+
+    import onemancompany.core.vessel as vessel_mod
+    import onemancompany.core.task_persistence as tp_mod
+
+    # Redirect vessel's EMPLOYEES_DIR (used by _append_progress, _load_progress,
+    # ScriptLauncher.script_path, etc.)
+    monkeypatch.setattr(vessel_mod, "EMPLOYEES_DIR", emp_dir)
+
+    # Redirect task_persistence's EMPLOYEES_DIR (used by persist_task to write
+    # task YAML files to employees/{id}/tasks/)
+    monkeypatch.setattr(tp_mod, "EMPLOYEES_DIR", emp_dir)

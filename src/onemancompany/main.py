@@ -446,7 +446,7 @@ async def lifespan(app: FastAPI):
         else:
             register_agent(_fid, _agent_cls(), config=_f_vessel)
         _registered_founding.add(_fid)
-    for _emp_dir in _EMPLOYEES_DIR.iterdir():
+    for _emp_dir in (_EMPLOYEES_DIR.iterdir() if _EMPLOYEES_DIR.exists() else []):
         if _emp_dir.is_dir():
             if migrate_agent_to_vessel(_emp_dir):
                 print(f"[startup] Migrated {_emp_dir.name} agent/ → vessel/")

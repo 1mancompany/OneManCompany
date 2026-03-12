@@ -121,11 +121,12 @@ DESK_SPACING_Y = 3
 # Department-based office layout
 # ---------------------------------------------------------------------------
 EXEC_ROW_GY = 0          # grid-Y for executive row
-DEPT_START_ROW = 3        # first grid-Y for department zones (gap from exec row to avoid click overlap)
-DEPT_END_ROW = 9          # last grid-Y for department zones
+EXEC_ROW_HEIGHT = 2       # executive row spans 2 grid rows (0-1)
+DEPT_START_ROW = 4        # first grid-Y for department zones (gap from exec area)
+DEPT_END_ROW = 10         # last grid-Y for department zones
 DEPT_MIN_ZONE_WIDTH = 3   # minimum columns per department zone
 DEPT_DESK_SPACING_X = 3   # horizontal spacing between desks within a zone
-DEPT_DESK_ROWS = [3, 6, 9]  # grid-Y rows where desks can be placed
+DEPT_DESK_ROWS = [4, 7, 10]  # grid-Y rows where desks can be placed
 
 # Stable left-to-right ordering of departments
 DEPT_ORDER = [

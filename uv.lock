@@ -854,7 +854,7 @@ wheels = [
 
 [[package]]
 name = "onemancompany"
-version = "0.2.21"
+version = "0.2.45"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

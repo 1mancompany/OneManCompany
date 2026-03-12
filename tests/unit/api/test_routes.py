@@ -6830,13 +6830,14 @@ class TestListEmployees:
 
 class TestListRooms:
     async def test_list_rooms(self):
-        mock_rooms = [{"id": "room1", "name": "Alpha", "booked_by": None}]
-        with patch("onemancompany.api.routes.company_state", _make_state()), \
+        from onemancompany.core.state import MeetingRoom
+        room = MeetingRoom(id="room1", name="Alpha", description="", capacity=6, position=(5, 5))
+        state = _make_state(meeting_rooms={"room1": room})
+        with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", EventBus()):
-            with patch("onemancompany.core.store.load_rooms", return_value=mock_rooms):
-                app = _make_test_app()
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                    resp = await c.get("/api/rooms")
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.get("/api/rooms")
 
         assert resp.status_code == 200
         data = resp.json()

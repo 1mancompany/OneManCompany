@@ -154,8 +154,23 @@ def _step_execute(
         with console.status("  Copying company template..."):
             shutil.copytree(str(src_company), str(dst_company), symlinks=True)
         console.print("  [green]\u2714[/green] Company template copied")
-    elif dst_company.exists():
-        console.print("  [yellow]\u26a0[/yellow] Company directory already exists, skipping copy")
+    elif src_company.exists() and dst_company.exists():
+        # Merge missing files/dirs from template into existing directory
+        with console.status("  Checking company template completeness..."):
+            patched = False
+            for src_path in src_company.rglob("*"):
+                rel = src_path.relative_to(src_company)
+                dst_path = dst_company / rel
+                if src_path.is_dir():
+                    dst_path.mkdir(parents=True, exist_ok=True)
+                elif not dst_path.exists():
+                    dst_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(src_path), str(dst_path))
+                    patched = True
+        if patched:
+            console.print("  [green]\u2714[/green] Missing template files restored")
+        else:
+            console.print("  [green]\u2714[/green] Company directory complete")
     else:
         DATA_ROOT.mkdir(parents=True, exist_ok=True)
         console.print("  [yellow]\u26a0[/yellow] No source company/ template found")

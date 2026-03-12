@@ -39,12 +39,22 @@ run_init() {
   exec .venv/bin/onemancompany "$@"
 }
 
+_init_is_complete() {
+  # Check that key files/dirs exist within .onemancompany/
+  [ -d .onemancompany ] \
+    && [ -f .onemancompany/.env ] \
+    && [ -d .onemancompany/company/human_resource/employees ]
+}
+
 run_server() {
   ensure_venv
 
-  # Auto-init if .onemancompany/ doesn't exist
-  if [ ! -d .onemancompany ]; then
-    warn ".onemancompany/ not found — launching setup wizard first"
+  if ! _init_is_complete; then
+    if [ -d .onemancompany ]; then
+      warn ".onemancompany/ exists but is incomplete — re-running setup wizard"
+    else
+      warn ".onemancompany/ not found — launching setup wizard first"
+    fi
     .venv/bin/onemancompany-init
   fi
 

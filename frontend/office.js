@@ -116,10 +116,10 @@ class OfficeRenderer {
   _resizeCanvas() {
     const parent = this.canvas.parentElement;
     const w = parent.clientWidth;
-    const h = parent.clientHeight - 45; // subtract header
+    const h = parent.clientHeight - 45;
     if (w <= 0 || h <= 0) return;
 
-    // Fill entire container — stretch to fit
+    // Fill entire container
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';
 
@@ -279,6 +279,7 @@ class OfficeRenderer {
     const layout = this.state.office_layout || {};
     const zones = layout.zones || [];
     const execRow = layout.executive_row != null ? layout.executive_row : -1;
+    const execRowHeight = layout.exec_row_height || 2;
     const execColors = layout.exec_floor_colors || null;
     const deptStartRow = layout.dept_start_row != null ? layout.dept_start_row : 1;
     const deptEndRow = layout.dept_end_row != null ? layout.dept_end_row : 7;
@@ -290,8 +291,8 @@ class OfficeRenderer {
         let f1 = PALETTE.floor1;
         let f2 = PALETTE.floor2;
 
-        // Executive row
-        if (gy === execRow && execColors) {
+        // Executive area (spans multiple rows)
+        if (gy >= execRow && gy < execRow + execRowHeight && execColors) {
           f1 = execColors[0];
           f2 = execColors[1];
         }
@@ -404,14 +405,16 @@ class OfficeRenderer {
       }
     }
 
-    // "Executive" watermark on exec row
+    // "Executive" watermark on exec area
+    const execRowH = layout.exec_row_height || 2;
+    const execMidCanvasY = (execRow + execRowH / 2 + 3) * TILE;
     ctx.save();
     ctx.globalAlpha = 0.1;
     ctx.fillStyle = '#c0b060';
-    ctx.font = 'bold 18px monospace';
+    ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Executive', 10 * TILE, (execRow + 3) * TILE + TILE / 2);
+    ctx.fillText('Executive', 10 * TILE, execMidCanvasY);
     ctx.restore();
   }
 

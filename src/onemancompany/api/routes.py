@@ -195,7 +195,7 @@ async def get_state() -> dict:
         "employees": list(employees.values()),
         "ex_employees": list(ex_employees.values()),
         "tools": [t.to_dict() for t in company_state.tools.values()],
-        "meeting_rooms": load_rooms(),
+        "meeting_rooms": [r.to_dict() for r in company_state.meeting_rooms.values()],
         "ceo_tasks": company_state.ceo_tasks[-10:],
         "active_tasks": [t.to_dict() for t in get_active_tasks()],
         "activity_log": load_activity_log()[-20:],
@@ -995,7 +995,7 @@ async def oneonone_end(body: dict) -> dict:
 async def get_meeting_rooms() -> dict:
     """Get all meeting rooms and their booking status."""
     return {
-        "meeting_rooms": _store.load_rooms()
+        "meeting_rooms": [r.to_dict() for r in company_state.meeting_rooms.values()]
     }
 
 
@@ -3426,7 +3426,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     if not is_remote:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(employee_id):
-            emp_profile = _store.load_employee(employee_id)
+            emp_profile = _store.load_employee(employee_id) or {}
             if emp_profile.get("hosting") == "self":
                 register_self_hosted(employee_id)
             else:
@@ -4926,6 +4926,8 @@ async def list_employees():
     employees = load_all_employees()
     result = []
     for emp_id, data in employees.items():
+        if emp_id == CEO_ID:
+            continue  # CEO is the human user, not rendered as employee
         runtime = data.pop("runtime", {})
         data["id"] = emp_id
         data["employee_number"] = emp_id
@@ -4940,9 +4942,8 @@ async def list_employees():
 
 @router.get("/api/rooms")
 async def list_rooms():
-    """List rooms with booking status — reads from disk."""
-    from onemancompany.core.store import load_rooms
-    return load_rooms()
+    """List rooms with booking status — uses layout-computed positions."""
+    return [r.to_dict() for r in company_state.meeting_rooms.values()]
 
 
 @router.get("/api/rooms/{room_id}/chat")
