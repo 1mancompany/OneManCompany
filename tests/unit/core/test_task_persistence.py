@@ -98,9 +98,9 @@ class TestDictToTask:
         assert task.status == TaskPhase.PENDING
 
     def test_status_restored_as_enum(self):
-        d = {"id": "t1", "description": "x", "status": "complete"}
+        d = {"id": "t1", "description": "x", "status": "completed"}
         task = tp._dict_to_task(d)
-        assert task.status == TaskPhase.COMPLETE
+        assert task.status == TaskPhase.COMPLETED
 
     def test_unknown_status_defaults_to_pending(self):
         d = {"id": "t1", "description": "x", "status": "bogus"}
@@ -288,7 +288,7 @@ class TestFullLifecycle:
         tp.persist_task("00010", task)
 
         # Complete the task
-        task.status = TaskPhase.COMPLETE
+        task.status = TaskPhase.COMPLETED
         tp.persist_task("00010", task)
 
         # Finish and archive

@@ -5,7 +5,7 @@ Two orthogonal dimensions:
   - TaskPhase: the project/task lifecycle state machine
 
 State flow (both SIMPLE and PROJECT):
-  pending → processing → (holding →)* complete → finished
+  pending → processing → (holding →)* completed → accepted → finished
 
 Task tree model:
   - Parent dispatches children via dispatch_child()
@@ -44,15 +44,22 @@ class TaskPhase(str, Enum):
     Core states (both SIMPLE and PROJECT):
       PENDING     — created, not yet being worked on
       PROCESSING  — actively being worked on by an employee
-      HOLDING     — blocked, waiting for a dependency to complete
-      COMPLETE    — all execution done, ready to finish
+      HOLDING     — paused, waiting for sub-tasks or external input
+      COMPLETED   — employee finished execution, awaiting supervisor review
+      ACCEPTED    — supervisor approved the deliverable
       FINISHED    — fully done, archived
+
+    Error states:
+      FAILED      — execution failed or supervisor rejected
+      BLOCKED     — dependency failed, cannot proceed
+      CANCELLED   — task was cancelled
     """
     # --- Core states ---
     PENDING = "pending"
     PROCESSING = "processing"
     HOLDING = "holding"
-    COMPLETE = "complete"
+    COMPLETED = "completed"
+    ACCEPTED = "accepted"
     FINISHED = "finished"
 
     # --- Error states ---
@@ -63,28 +70,43 @@ class TaskPhase(str, Enum):
 
 # Valid state transitions
 VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
-    # Core flow
-    TaskPhase.PENDING: [TaskPhase.PROCESSING, TaskPhase.CANCELLED, TaskPhase.HOLDING, TaskPhase.BLOCKED],
-    TaskPhase.PROCESSING: [TaskPhase.COMPLETE, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
-    TaskPhase.HOLDING: [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
-    TaskPhase.COMPLETE: [TaskPhase.FINISHED],
-
-    # Terminal states
-    TaskPhase.FINISHED: [],
-    TaskPhase.FAILED: [TaskPhase.PROCESSING],   # allow retry
-    TaskPhase.BLOCKED: [TaskPhase.CANCELLED, TaskPhase.PENDING],
-    TaskPhase.CANCELLED: [],
+    TaskPhase.PENDING:    [TaskPhase.PROCESSING, TaskPhase.HOLDING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
+    TaskPhase.PROCESSING: [TaskPhase.COMPLETED, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
+    TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
+    TaskPhase.COMPLETED:  [TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED],
+    TaskPhase.ACCEPTED:   [TaskPhase.FINISHED],
+    TaskPhase.FINISHED:   [],
+    TaskPhase.FAILED:     [TaskPhase.PROCESSING, TaskPhase.CANCELLED],
+    TaskPhase.BLOCKED:    [TaskPhase.PENDING, TaskPhase.CANCELLED],
+    TaskPhase.CANCELLED:  [],
 }
 
 
-# States visible to employees as "this task is active"
-ACTIVE_STATES = {
-    TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOLDING,
-    TaskPhase.COMPLETE,
-}
+# ---------------------------------------------------------------------------
+# Category sets — semantic groupings of phases
+# ---------------------------------------------------------------------------
 
-# Terminal states
-TERMINAL_STATES = {TaskPhase.FINISHED, TaskPhase.FAILED, TaskPhase.BLOCKED, TaskPhase.CANCELLED}
+# Resolved: decision has been made, no more work expected from this task
+RESOLVED = frozenset({TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.FAILED, TaskPhase.CANCELLED})
+
+# Done executing: the employee has stopped working (succeeded or failed)
+DONE_EXECUTING = frozenset({TaskPhase.COMPLETED, TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.FAILED, TaskPhase.CANCELLED})
+
+# Unblocks dependents: downstream tasks can proceed
+UNBLOCKS_DEPENDENTS = frozenset({TaskPhase.ACCEPTED, TaskPhase.FINISHED})
+
+# Will not deliver: task will never produce output
+WILL_NOT_DELIVER = frozenset({TaskPhase.FAILED, TaskPhase.BLOCKED, TaskPhase.CANCELLED})
+
+# In lifecycle: task is still being actively managed
+IN_LIFECYCLE = frozenset({TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOLDING, TaskPhase.COMPLETED, TaskPhase.ACCEPTED})
+
+# Terminal: absolutely final, no transitions out
+TERMINAL = frozenset({TaskPhase.FINISHED, TaskPhase.CANCELLED})
+
+# Backward-compat aliases (will be removed in subsequent tasks)
+ACTIVE_STATES = IN_LIFECYCLE
+TERMINAL_STATES = RESOLVED
 
 
 # ---------------------------------------------------------------------------
@@ -177,12 +199,23 @@ Every task in the system follows this state machine:
 |-------|---------|
 | pending | 已创建，等待处理 |
 | processing | 正在被某员工执行 |
-| holding | 等待子任务完成 |
-| complete | 执行完成 |
+| holding | 等待子任务完成或外部输入 |
+| completed | 员工完成执行，等待上级审核 |
+| accepted | 上级审核通过 |
 | finished | 全部完成，已归档 |
-| failed | 执行失败 |
+| failed | 执行失败或审核驳回 |
 | blocked | 依赖任务失败，无法继续 |
 | cancelled | 已取消 |
+
+State flow:
+  pending → processing → completed → accepted → finished
+                ↕ holding (pause/resume)
+  completed → failed (rejection) → processing (retry)
+
+Key distinctions:
+- completed = employee says "I'm done" (awaiting review)
+- accepted = supervisor says "looks good" (deliverable approved)
+- Only accepted/finished unblock downstream dependent tasks
 
 Task tree model:
 - 父任务通过 dispatch_child() 分发子任务给员工

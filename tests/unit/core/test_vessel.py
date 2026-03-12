@@ -264,7 +264,7 @@ class TestTaskPersistenceIntegration:
 
         # persist_task should be called for PROCESSING and COMPLETE
         assert TaskPhase.PROCESSING in captured_statuses
-        assert TaskPhase.COMPLETE in captured_statuses
+        assert TaskPhase.COMPLETED in captured_statuses
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.archive_task")
@@ -284,7 +284,7 @@ class TestTaskPersistenceIntegration:
 
         # COMPLETE is not in TERMINAL_STATES, so archive should NOT be called
         # (COMPLETE transitions to FINISHED via acceptance flow)
-        assert task.status == TaskPhase.COMPLETE
+        assert task.status == TaskPhase.COMPLETED
         mock_archive.assert_not_called()
 
     @pytest.mark.asyncio

@@ -144,7 +144,7 @@ class TestResumeHeldTask:
                 with patch("onemancompany.core.vessel.stop_cron"):
                     result = await mgr.resume_held_task("00010", "held1", "Human said: looks good!")
         assert result is True
-        assert task.status == TaskPhase.COMPLETE
+        assert task.status == TaskPhase.COMPLETED
         assert task.result == "Human said: looks good!"
 
     @pytest.mark.asyncio
@@ -313,7 +313,7 @@ class TestHoldingIntegration:
 
         # 6. Verify final state
         assert ok is True
-        assert task.status == TaskPhase.COMPLETE
+        assert task.status == TaskPhase.COMPLETED
         assert task.result == "Human replied: All tests pass!"
         assert task.completed_at != ""
 
@@ -351,4 +351,4 @@ class TestHoldingIntegration:
                     ok = await mgr.resume_held_task("00010", "restored1", "Reply from human after restart")
 
         assert ok is True
-        assert task.status == TaskPhase.COMPLETE
+        assert task.status == TaskPhase.COMPLETED

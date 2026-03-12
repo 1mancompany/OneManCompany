@@ -143,8 +143,8 @@ class TestAgentTaskUpdatePayload:
         assert p.status == ""
 
     def test_custom(self):
-        p = AgentTaskUpdatePayload(employee_id="e1", task_id="t1", status="complete", summary="done")
-        assert p.status == "complete"
+        p = AgentTaskUpdatePayload(employee_id="e1", task_id="t1", status="completed", summary="done")
+        assert p.status == "completed"
         assert p.summary == "done"
 
 

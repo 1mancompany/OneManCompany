@@ -111,7 +111,7 @@ class TestAgentResult:
 class TestEnums:
     def test_task_phase_values(self):
         assert TaskPhase.PENDING.value == "pending"
-        assert TaskPhase.COMPLETE.value == "complete"
+        assert TaskPhase.COMPLETED.value == "completed"
         assert TaskPhase.PROCESSING.value == "processing"
         assert TaskPhase.FAILED.value == "failed"
         assert TaskPhase.FINISHED.value == "finished"
