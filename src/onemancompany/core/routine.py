@@ -39,6 +39,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.core.store import load_employee, load_all_employees
 from onemancompany.core.workflow_engine import (
     WorkflowDefinition,
     WorkflowStep,
@@ -150,9 +151,9 @@ class StepContext:
         lines = []
         for entry in timeline[-max_entries:]:
             emp_id = entry.get("employee_id", "?")
-            # Resolve name from company_state
-            emp = company_state.employees.get(emp_id)
-            name = f"{emp.name}({emp.nickname})" if emp else emp_id
+            # Resolve name from store
+            emp_data = load_employee(emp_id)
+            name = f"{emp_data.get('name', emp_id)}({emp_data.get('nickname', '')})" if emp_data else emp_id
             action = entry.get("action", "")
             detail = entry.get("detail", "")[:200]
             lines.append(f"- [{name}] {action}: {detail}")
@@ -233,13 +234,14 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
 
     for emp_id in ctx.participants:
-        emp = company_state.employees.get(emp_id)
-        if not emp:
+        emp_data = load_employee(emp_id)
+        if not emp_data:
             continue
 
+        work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
-        if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+        if work_principles:
+            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -248,9 +250,15 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
         culture_ctx = ctx.format_company_culture()
 
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+        emp_dept = emp_data.get("department", "")
+        emp_level = emp_data.get("level", 1)
+        emp_role = emp_data.get("role", "")
+
         prompt = (
-            f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
-            f"级别: Lv.{emp.level}，角色: {emp.role}）。\n"
+            f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_dept}，"
+            f"级别: Lv.{emp_level}，角色: {emp_role}）。\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
@@ -273,13 +281,13 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         eval_text = resp.content
         ctx.self_evaluations.append({
             "employee_id": emp_id,
-            "name": emp.name,
-            "nickname": emp.nickname,
-            "level": emp.level,
+            "name": emp_name,
+            "nickname": emp_nickname,
+            "level": emp_level,
             "evaluation": eval_text,
         })
-        display = emp.nickname or emp.name
-        await _chat(ctx.room_id, display, emp.role, eval_text)
+        display = emp_nickname or emp_name
+        await _chat(ctx.room_id, display, emp_role, eval_text)
 
     await _publish("routine_phase", {"phase": step.title, "message": "员工自评完成"})
     return {"self_evaluations": ctx.self_evaluations}
@@ -291,24 +299,27 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
 
     await _publish("routine_phase", {"phase": step.title, "message": "高级员工开始互评"})
 
-    sorted_emps = sorted(
-        [company_state.employees[eid] for eid in ctx.participants if eid in company_state.employees],
-        key=lambda e: e.level,
-        reverse=True,
-    )
+    # Load participant data from store and sort by level
+    participant_data: list[tuple[str, dict]] = []
+    for eid in ctx.participants:
+        edata = load_employee(eid)
+        if edata:
+            participant_data.append((eid, edata))
+    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
 
-    for senior in sorted_emps:
-        juniors = [e for e in sorted_emps if e.level < senior.level and e.id != senior.id]
+    for senior_id, senior_data in participant_data:
+        senior_level = senior_data.get("level", 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {j.name}（{j.nickname}，Lv.{j.level}）: "
+            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
             + next(
-                (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == j.id),
+                (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == jid),
                 "无自评",
             )
-            for j in juniors
+            for jid, jd in juniors
         )
 
         workflow_ctx = _format_workflow_context(step)
@@ -321,7 +332,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         culture_ctx = ctx.format_company_culture()
 
         prompt = (
-            f"你是 {senior.name}（花名: {senior.nickname}，Lv.{senior.level}，{senior.role}）。\n"
+            f"你是 {senior_data.get('name', '')}（花名: {senior_data.get('nickname', '')}，Lv.{senior_level}，{senior_data.get('role', '')}）。\n"
             f"{culture_ctx}"
             f"任务概要: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
@@ -336,21 +347,21 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
             f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
             f"{workflow_ctx}"
         )
-        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior_id)
         review_text = resp.content
 
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         ctx.senior_reviews.append({
-            "reviewer": senior.name,
-            "reviewer_level": senior.level,
+            "reviewer": senior_data.get("name", ""),
+            "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior.nickname or senior.name
+        display = senior_data.get("nickname", "") or senior_data.get("name", "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(ctx.room_id, display, senior.role, f"[互评] {review_summary}")
+        await _chat(ctx.room_id, display, senior_data.get("role", ""), f"[互评] {review_summary}")
 
     await _publish("routine_phase", {"phase": step.title, "message": "互评完成"})
     return {"senior_reviews": ctx.senior_reviews}
@@ -427,7 +438,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
 
     workflow_ctx = _format_workflow_context(step)
 
-    emp_count = len(company_state.employees)
+    emp_count = len(load_all_employees())
     tool_count = len(company_state.tools)
     room_count = len(company_state.meeting_rooms)
 
@@ -450,8 +461,8 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
             cost_lines = [f"预算: ${budget:.4f}, 实际: ${actual:.4f}"]
             cost_lines.append(f"Token用量: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
             for entry in breakdown:
-                emp = company_state.employees.get(entry.get("employee_id", ""))
-                name = emp.name if emp else entry.get("employee_id", "?")
+                emp_data = load_employee(entry.get("employee_id", ""))
+                name = emp_data.get("name", entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
                 cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
             cost_ctx = "\n\n项目开销数据:\n" + "\n".join(cost_lines) + "\n"
 
@@ -541,13 +552,14 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
     workflow_ctx = _format_workflow_context(step)
 
     for emp_id in ctx.participants:
-        emp = company_state.employees.get(emp_id)
-        if not emp:
+        emp_data = load_employee(emp_id)
+        if not emp_data:
             continue
 
+        work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
-        if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+        if work_principles:
+            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -561,9 +573,15 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
         culture_ctx = ctx.format_company_culture()
 
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+        emp_dept = emp_data.get("department", "")
+        emp_role = emp_data.get("role", "")
+        emp_level = emp_data.get("level", 1)
+
         prompt = (
-            f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，"
-            f"{emp.role}，Lv.{emp.level}）。\n"
+            f"你是 {emp_name}（{emp_nickname}，部门: {emp_dept}，"
+            f"{emp_role}，Lv.{emp_level}）。\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
@@ -585,11 +603,11 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         feedback_content = resp.content
         ctx.employee_feedback.append({
             "employee_id": emp_id,
-            "name": emp.name,
+            "name": emp_name,
             "feedback": feedback_content,
         })
-        display = emp.nickname or emp.name
-        await _chat(ctx.room_id, display, emp.role, feedback_content)
+        display = emp_nickname or emp_name
+        await _chat(ctx.room_id, display, emp_role, feedback_content)
 
     await _publish("routine_phase", {"phase": step.title, "message": "发言结束"})
     return {"employee_feedback": ctx.employee_feedback}
@@ -959,12 +977,12 @@ async def run_post_task_routine(
     Dynamically loads and executes the project_retrospective_workflow from business/workflows/.
     Falls back to the hardcoded two-phase meeting if no workflow document exists.
     """
-    all_employees = list(company_state.employees.values())
-    if not all_employees:
+    all_emps = load_all_employees()
+    if not all_emps:
         return
 
     if participants is None:
-        participants = [e.id for e in all_employees]
+        participants = list(all_emps.keys())
 
     # Load project record for retrospective reference
     project_record: dict = {}
@@ -986,10 +1004,13 @@ async def run_post_task_routine(
 
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
-        emp = company_state.employees.get(pid)
-        if emp and emp.level < FOUNDING_LEVEL:  # only track for normal employees
-            emp.current_quarter_tasks += 1
-            update_employee_performance(pid, emp.current_quarter_tasks, emp.performance_history)
+        emp_data = load_employee(pid)
+        if emp_data and emp_data.get("level", 1) < FOUNDING_LEVEL:  # only track for normal employees
+            # Mutation still goes through company_state (Task 9 will migrate writes)
+            emp = company_state.employees.get(pid)
+            if emp:
+                emp.current_quarter_tasks += 1
+                update_employee_performance(pid, emp.current_quarter_tasks, emp.performance_history)
 
     # Retrospective meeting requires 2+ people — solo tasks skip the meeting
     if len(participants) < 2:
@@ -1463,20 +1484,27 @@ async def _run_phase1_legacy(
 
     # Step 1: Employee self-evaluations
     for emp_id in participants:
-        emp = company_state.employees.get(emp_id)
-        if not emp:
+        emp_data = load_employee(emp_id)
+        if not emp_data:
             continue
 
+        work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
-        if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+        if work_principles:
+            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+        emp_dept = emp_data.get("department", "")
+        emp_level = emp_data.get("level", 1)
+        emp_role = emp_data.get("role", "")
+
         prompt = (
-            f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
-            f"级别: Lv.{emp.level}，角色: {emp.role}）。\n"
+            f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_dept}，"
+            f"级别: Lv.{emp_level}，角色: {emp_role}）。\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
@@ -1491,59 +1519,62 @@ async def _run_phase1_legacy(
         eval_text = resp.content
         result["self_evaluations"].append({
             "employee_id": emp_id,
-            "name": emp.name,
-            "nickname": emp.nickname,
-            "level": emp.level,
+            "name": emp_name,
+            "nickname": emp_nickname,
+            "level": emp_level,
             "evaluation": eval_text,
         })
-        display = emp.nickname or emp.name
-        await _chat(room_id, display, emp.role, eval_text)
+        display = emp_nickname or emp_name
+        await _chat(room_id, display, emp_role, eval_text)
 
     await _publish("routine_phase", {"phase": "第一阶段", "message": "员工自评完成，高级员工开始互评"})
 
     # Step 2: Senior employees review junior employees
-    sorted_emps = sorted(
-        [company_state.employees[eid] for eid in participants if eid in company_state.employees],
-        key=lambda e: e.level,
-        reverse=True,
-    )
-    for senior in sorted_emps:
-        juniors = [e for e in sorted_emps if e.level < senior.level and e.id != senior.id]
+    participant_data: list[tuple[str, dict]] = []
+    for eid in participants:
+        edata = load_employee(eid)
+        if edata:
+            participant_data.append((eid, edata))
+    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+
+    for senior_id, senior_data in participant_data:
+        senior_level = senior_data.get("level", 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {j.name}（{j.nickname}，Lv.{j.level}）: "
+            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
             + next(
-                (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == j.id),
+                (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == jid),
                 "无自评",
             )
-            for j in juniors
+            for jid, jd in juniors
         )
 
         prompt = (
-            f"你是 {senior.name}（花名: {senior.nickname}，Lv.{senior.level}，{senior.role}）。\n"
+            f"你是 {senior_data.get('name', '')}（花名: {senior_data.get('nickname', '')}，Lv.{senior_level}，{senior_data.get('role', '')}）。\n"
             f"任务概要: {task_summary}\n\n"
             f"以下是低级别同事的自评:\n{junior_info}\n\n"
             f"请对每位低级别同事的工作进行简要评价（每人1-2句），重点关注:\n"
             f"- 工作效率\n- 工作效果\n- 是否有失误\n"
             f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
         )
-        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior.id)
+        resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior_id)
         review_text = resp.content
 
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         result["senior_reviews"].append({
-            "reviewer": senior.name,
-            "reviewer_level": senior.level,
+            "reviewer": senior_data.get("name", ""),
+            "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior.nickname or senior.name
+        display = senior_data.get("nickname", "") or senior_data.get("name", "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(room_id, display, senior.role, f"[互评] {review_summary}")
+        await _chat(room_id, display, senior_data.get("role", ""), f"[互评] {review_summary}")
 
     await _publish("routine_phase", {"phase": "第一阶段", "message": "互评完成，HR总结改进点"})
 
@@ -1605,7 +1636,7 @@ async def _run_phase2_legacy(
         workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\n请按照以上工作流规范执行。\n"
 
     # Step 1: COO operations report
-    emp_count = len(company_state.employees)
+    emp_count = len(load_all_employees())
     tool_count = len(company_state.tools)
     room_count = len(company_state.meeting_rooms)
 
@@ -1625,20 +1656,27 @@ async def _run_phase2_legacy(
 
     # Step 2: Employee open floor
     for emp_id in participants:
-        emp = company_state.employees.get(emp_id)
-        if not emp:
+        emp_data = load_employee(emp_id)
+        if not emp_data:
             continue
 
+        work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
-        if emp.work_principles:
-            principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+        if work_principles:
+            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+        emp_dept = emp_data.get("department", "")
+        emp_role = emp_data.get("role", "")
+        emp_level = emp_data.get("level", 1)
+
         prompt = (
-            f"你是 {emp.name}（{emp.nickname}，部门: {emp.department}，"
-            f"{emp.role}，Lv.{emp.level}）。\n"
+            f"你是 {emp_name}（{emp_nickname}，部门: {emp_dept}，"
+            f"{emp_role}，Lv.{emp_level}）。\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
@@ -1654,11 +1692,11 @@ async def _run_phase2_legacy(
         feedback_content = resp.content
         result["employee_feedback"].append({
             "employee_id": emp_id,
-            "name": emp.name,
+            "name": emp_name,
             "feedback": feedback_content,
         })
-        display = emp.nickname or emp.name
-        await _chat(room_id, display, emp.role, feedback_content)
+        display = emp_nickname or emp_name
+        await _chat(room_id, display, emp_role, feedback_content)
 
     await _publish("routine_phase", {"phase": "第二阶段", "message": "发言结束，COO和HR整理行动计划"})
 
@@ -1866,16 +1904,18 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
     Afterwards, each employee absorbs and summarizes the meeting spirit,
     which gets recorded into their guidance notes.
     """
-    all_employees = list(company_state.employees.values())
-    if not all_employees:
+    all_emps = load_all_employees()
+    if not all_emps:
         return
+
+    all_emp_ids = list(all_emps.keys())
 
     room = None
     for r in sorted(company_state.meeting_rooms.values(), key=lambda x: x.capacity, reverse=True):
         if not r.is_booked:
             r.is_booked = True
             r.booked_by = CEO_ID
-            r.participants = [CEO_ID] + [e.id for e in all_employees]
+            r.participants = [CEO_ID] + all_emp_ids
             room = r
             break
 
@@ -1907,17 +1947,21 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
 
         llm = make_llm(HR_ID)
 
-        for emp in all_employees:
+        for emp_id, emp_data in all_emps.items():
+            work_principles = emp_data.get("work_principles", "")
             principles_ctx = ""
-            if emp.work_principles:
-                principles_ctx = f"\n你的工作准则:\n{emp.work_principles[:MAX_PRINCIPLES_LEN]}\n"
+            if work_principles:
+                principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
-            skills_ctx = get_employee_skills_prompt(emp.id)
-            tools_ctx = get_employee_tools_prompt(emp.id)
+            skills_ctx = get_employee_skills_prompt(emp_id)
+            tools_ctx = get_employee_tools_prompt(emp_id)
+
+            emp_name = emp_data.get("name", "")
+            emp_nickname = emp_data.get("nickname", "")
 
             prompt = (
-                f"你是 {emp.name}（花名: {emp.nickname}，部门: {emp.department}，"
-                f"Lv.{emp.level}，{emp.role}）。\n"
+                f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_data.get('department', '')}，"
+                f"Lv.{emp_data.get('level', 1)}，{emp_data.get('role', '')}）。\n"
                 f"{principles_ctx}"
                 f"{skills_ctx}"
                 f"{tools_ctx}"
@@ -1926,22 +1970,22 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
                 f"请用1-2句中文总结你从这次大会中领悟到的会议精神，"
                 f"以及你打算如何在今后的工作中落实。"
             )
-            resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp.id)
+            resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
             summary_text = resp.content
 
-            display = emp.nickname or emp.name
-            await _chat(room.id, display, emp.role, summary_text)
+            display = emp_nickname or emp_name
+            await _chat(room.id, display, emp_data.get("role", ""), summary_text)
 
             await _publish("guidance_noted", {
-                "employee_id": emp.id,
-                "name": emp.name,
+                "employee_id": emp_id,
+                "name": emp_name,
                 "guidance": ceo_message[:80],
                 "acknowledgment": summary_text,
             })
 
         await _publish("routine_phase", {
             "phase": "全员大会",
-            "message": f"全员大会结束，{len(all_employees)}名员工已吸收会议精神"
+            "message": f"全员大会结束，{len(all_emps)}名员工已吸收会议精神"
         })
 
         report_id = str(uuid.uuid4())[:8]
@@ -1951,7 +1995,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             "timestamp": datetime.now().isoformat(),
             "ceo_message": ceo_message,
             "room": room.name,
-            "attendees": [e.id for e in all_employees],
+            "attendees": all_emp_ids,
         }
         _save_report(report_id, doc)
 
@@ -1975,30 +2019,34 @@ async def run_onboarding_routine(employee_id: str) -> None:
     """Run onboarding for a new employee: welcome, team intro, probation brief."""
     from onemancompany.core.config import update_employee_field
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = load_employee(employee_id)
+    if not emp_data:
         return
 
-    await _publish("onboarding_started", {"id": employee_id, "name": emp.name})
+    emp_name = emp_data.get("name", "")
+    emp_nickname = emp_data.get("nickname", "")
+
+    await _publish("onboarding_started", {"id": employee_id, "name": emp_name})
     await _publish("routine_phase", {
         "phase": "onboarding",
-        "message": f"Welcome {emp.name} ({emp.nickname}) to the team! Starting onboarding...",
+        "message": f"Welcome {emp_name} ({emp_nickname}) to the team! Starting onboarding...",
     })
 
     # Brief the new hire on probation
     await _publish("routine_phase", {
         "phase": "onboarding",
-        "message": f"{emp.name} has been briefed on the probation period (complete {PROBATION_TASKS} tasks to pass).",
+        "message": f"{emp_name} has been briefed on the probation period (complete {PROBATION_TASKS} tasks to pass).",
     })
 
-    # Generate work principles if empty
-    if not emp.work_principles:
+    # Generate work principles if empty — mutation still via company_state
+    emp = company_state.employees.get(employee_id)
+    if not emp_data.get("work_principles", ""):
         from onemancompany.core.config import save_work_principles
         from onemancompany.core.state import make_title
         principles = (
-            f"# {emp.name} ({emp.nickname}) Work Principles\n\n"
-            f"**Department**: {emp.department}\n"
-            f"**Title**: {make_title(emp.level, emp.role)}\n\n"
+            f"# {emp_name} ({emp_nickname}) Work Principles\n\n"
+            f"**Department**: {emp_data.get('department', '')}\n"
+            f"**Title**: {make_title(emp_data.get('level', 1), emp_data.get('role', ''))}\n\n"
             f"## Core Principles\n"
             f"1. Complete assigned work diligently\n"
             f"2. Collaborate with the team\n"
@@ -2006,13 +2054,15 @@ async def run_onboarding_routine(employee_id: str) -> None:
             f"4. Follow company rules and guidelines\n"
         )
         save_work_principles(employee_id, principles)
-        emp.work_principles = principles
+        if emp:
+            emp.work_principles = principles
 
     # Mark onboarding complete
-    emp.onboarding_completed = True
+    if emp:
+        emp.onboarding_completed = True
     update_employee_field(employee_id, "onboarding_completed", True)
 
-    await _publish("onboarding_completed", {"id": employee_id, "name": emp.name})
+    await _publish("onboarding_completed", {"id": employee_id, "name": emp_name})
 
 
 # ---------------------------------------------------------------------------
@@ -2021,17 +2071,20 @@ async def run_onboarding_routine(employee_id: str) -> None:
 
 async def run_offboarding_routine(employee_id: str, reason: str) -> None:
     """Run offboarding for a departing employee: exit interview, feedback."""
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = load_employee(employee_id)
+    if not emp_data:
         return
 
+    emp_name = emp_data.get("name", "")
+    emp_nickname = emp_data.get("nickname", "")
+
     await _publish("exit_interview_started", {
-        "id": employee_id, "name": emp.name, "reason": reason,
+        "id": employee_id, "name": emp_name, "reason": reason,
     })
 
     await _publish("routine_phase", {
         "phase": "offboarding",
-        "message": f"Exit interview with {emp.name} ({emp.nickname}). Reason: {reason}",
+        "message": f"Exit interview with {emp_name} ({emp_nickname}). Reason: {reason}",
     })
 
     # Generate exit report
@@ -2041,13 +2094,13 @@ async def run_offboarding_routine(employee_id: str, reason: str) -> None:
         "type": "exit_interview",
         "timestamp": datetime.now().isoformat(),
         "employee_id": employee_id,
-        "employee_name": emp.name,
+        "employee_name": emp_name,
         "reason": reason,
     }
     _save_report(report_id, doc)
 
     await _publish("exit_interview_completed", {
-        "id": employee_id, "name": emp.name, "report_id": report_id,
+        "id": employee_id, "name": emp_name, "report_id": report_id,
     })
 
 
@@ -2057,18 +2110,21 @@ async def run_offboarding_routine(employee_id: str, reason: str) -> None:
 
 async def run_performance_meeting(employee_id: str, score: float, feedback: str) -> None:
     """Run a 1-on-1 performance feedback meeting."""
-    emp = company_state.employees.get(employee_id)
-    if not emp:
+    emp_data = load_employee(employee_id)
+    if not emp_data:
         return
+
+    emp_name = emp_data.get("name", "")
+    emp_nickname = emp_data.get("nickname", "")
 
     await _publish("routine_phase", {
         "phase": "performance_meeting",
-        "message": f"Performance meeting with {emp.name} ({emp.nickname}): score {score}",
+        "message": f"Performance meeting with {emp_name} ({emp_nickname}): score {score}",
     })
 
     await _publish("routine_phase", {
         "phase": "performance_meeting",
-        "message": f"Feedback for {emp.name}: {feedback}",
+        "message": f"Feedback for {emp_name}: {feedback}",
     })
 
 

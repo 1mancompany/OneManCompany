@@ -71,14 +71,11 @@ class TestDispatchChild:
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
 
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
-
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree") as mock_save,
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -121,11 +118,9 @@ class TestDispatchChild:
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-456")
 
-        mock_cs = MagicMock()
-        mock_cs.employees = {}  # No employees
 
         try:
-            with patch("onemancompany.core.state.company_state", mock_cs):
+            with patch("onemancompany.core.store.load_employee", return_value={}):
                 result = dispatch_child.invoke({
                     "employee_id": "99999",
                     "description": "do stuff",
@@ -153,14 +148,12 @@ class TestDispatchChild:
         mock_handle.push_task.return_value = mock_agent_task
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -369,14 +362,12 @@ class TestEADispatchConstraint:
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "ea-task-1")
 
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00006": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00006", "name": "Test"}),
             ):
                 result = dispatch_child.invoke({
                     "employee_id": "00006",
@@ -405,14 +396,12 @@ class TestEADispatchConstraint:
         mock_handle.push_task.return_value = mock_agent_task
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00003": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00003", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -441,14 +430,12 @@ class TestEADispatchConstraint:
         mock_handle.push_task.return_value = mock_agent_task
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00006": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00006", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -482,14 +469,12 @@ class TestDispatchChildDependency:
         mock_handle = MagicMock()
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -528,14 +513,12 @@ class TestDispatchChildDependency:
         mock_handle.push_task.return_value = mock_agent_task
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
@@ -561,14 +544,12 @@ class TestDispatchChildDependency:
         vessel, task = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, "task-dep3")
 
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
             ):
                 result = dispatch_child.invoke({
                     "employee_id": "00100",
@@ -598,14 +579,12 @@ class TestDispatchChildDependency:
         mock_handle.push_task.return_value = mock_agent_task
         mock_em = MagicMock()
         mock_em.get_handle.return_value = mock_handle
-        mock_cs = MagicMock()
-        mock_cs.employees = {"00100": MagicMock()}
 
         try:
             with (
                 patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
                 patch("onemancompany.agents.tree_tools._save_tree"),
-                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
             ):
                 result = dispatch_child.invoke({
