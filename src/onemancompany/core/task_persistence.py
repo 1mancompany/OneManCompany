@@ -155,6 +155,70 @@ def load_active_tasks(employee_id: str, *, crash_recovery: bool = True) -> list[
     return tasks
 
 
+def recover_schedule_from_trees(
+    employee_manager,
+    projects_dir: Path,
+    employees_dir: Path,
+) -> None:
+    """Scan all project and system trees, rebuild EmployeeManager._schedule.
+
+    Called on server restart:
+    - PROCESSING nodes -> set to PENDING (will be re-executed)
+    - PENDING nodes with deps resolved -> schedule_node()
+    - HOLDING nodes -> leave as-is (watchdog will handle)
+    """
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_lifecycle import TaskPhase  # noqa: F811 (lazy re-import OK)
+
+    # 1. Scan all task_tree.yaml files under projects_dir
+    if projects_dir.exists():
+        for tree_path in projects_dir.rglob("task_tree.yaml"):
+            try:
+                tree = TaskTree.load(tree_path)
+            except Exception:
+                logger.warning("Skipping corrupt tree file: {}", tree_path)
+                continue
+
+            modified = False
+            for node in tree._nodes.values():
+                if node.status == TaskPhase.PROCESSING.value:
+                    node.status = TaskPhase.PENDING.value
+                    modified = True
+
+            if modified:
+                tree.save(tree_path)
+
+            for node in tree._nodes.values():
+                if node.status == TaskPhase.PENDING.value and tree.all_deps_resolved(node.id):
+                    employee_manager.schedule_node(
+                        node.employee_id, node.id, str(tree_path),
+                    )
+
+    # 2. Scan system task trees
+    if employees_dir.exists():
+        for sys_path in employees_dir.rglob("system_tasks.yaml"):
+            try:
+                from onemancompany.core.system_tasks import SystemTaskTree
+                emp_id = sys_path.parent.name
+                sys_tree = SystemTaskTree.load(sys_path, emp_id)
+            except Exception:
+                logger.warning("Skipping corrupt system tree: {}", sys_path)
+                continue
+
+            modified = False
+            for node in sys_tree.get_all_nodes():
+                if node.status == TaskPhase.PROCESSING.value:
+                    node.status = TaskPhase.PENDING.value
+                    modified = True
+                if node.status == TaskPhase.PENDING.value:
+                    employee_manager.schedule_node(
+                        node.employee_id, node.id, str(sys_path),
+                    )
+
+            if modified:
+                sys_tree.save(sys_path)
+
+
 def load_all_active_tasks(*, crash_recovery: bool = True) -> dict[str, list[AgentTask]]:
     """Scan all employee directories and load active tasks.
 
