@@ -349,7 +349,13 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
         with open(profile_path) as f:
             raw = yaml.safe_load(f) or {}
         emp_id = emp_dir.name
-        result[emp_id] = EmployeeConfig(**raw)
+        try:
+            result[emp_id] = EmployeeConfig(**raw)
+        except Exception:
+            # Skip profiles with missing required fields (e.g. runtime-only stubs)
+            from loguru import logger
+            logger.warning("Skipping invalid employee profile: {}", emp_id)
+            continue
     return result
 
 
@@ -661,10 +667,15 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
         profile_path = emp_dir / "profile.yaml"
         if not profile_path.exists():
             continue
-        with open(profile_path) as f:
-            raw = yaml.safe_load(f) or {}
         emp_id = emp_dir.name
-        result[emp_id] = EmployeeConfig(**raw)
+        try:
+            with open(profile_path) as f:
+                raw = yaml.safe_load(f) or {}
+            result[emp_id] = EmployeeConfig(**raw)
+        except Exception:
+            from loguru import logger
+            logger.warning("Skipping invalid ex-employee profile: {}", emp_id)
+            continue
     return result
 
 

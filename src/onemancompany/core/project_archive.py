@@ -292,6 +292,10 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     with lock, open(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
+    # Trigger 1: iteration dispatch → in_progress — notify sync tick
+    from onemancompany.core.store import mark_dirty
+    mark_dirty("task_queue")
+
     return iter_id
 
 
@@ -435,6 +439,9 @@ def create_project(task: str, routed_to: str, participants: list[str] | None = N
         },
     }
     _save_project(project_id, doc)
+    # Trigger 1: project dispatch → in_progress — notify sync tick
+    from onemancompany.core.store import mark_dirty
+    mark_dirty("task_queue")
     return project_id
 
 
