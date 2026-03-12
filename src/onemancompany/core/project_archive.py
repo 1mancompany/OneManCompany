@@ -40,6 +40,40 @@ def _get_project_lock(project_id: str) -> threading.Lock:
         return _project_locks[project_id]
 
 
+def _rebase_project_dir(stored_path: str) -> Path:
+    """Rebase a stored absolute project_dir onto the current PROJECTS_DIR.
+
+    Iteration YAML files store absolute paths from whichever machine created
+    them (e.g. /Users/yuzhengxu/projects/OneManCompany/company/business/projects/...).
+    When running on a different machine, these paths don't exist.  This helper
+    extracts the relative portion after 'company/business/projects/' and
+    re-anchors it under the current PROJECTS_DIR.
+
+    If the path is already under PROJECTS_DIR, it is returned as-is.
+    If the marker is not found, the original path is returned as-is.
+    """
+    p = Path(stored_path)
+    # Already local — nothing to do
+    try:
+        p.relative_to(PROJECTS_DIR)
+        return p
+    except ValueError:
+        pass
+    # Try to find the 'company/business/projects' marker and rebase
+    parts = p.parts
+    for i, part in enumerate(parts):
+        if (
+            part == "company"
+            and i + 2 < len(parts)
+            and parts[i + 1] == "business"
+            and parts[i + 2] == "projects"
+        ):
+            relative = Path(*parts[i + 3 :])
+            return PROJECTS_DIR / relative
+    # No marker found — return as-is (caller should handle non-existence)
+    return p
+
+
 def _project_dir(project_id: str) -> Path:
     """Return the directory path for a given project."""
     return PROJECTS_DIR / project_id
@@ -237,7 +271,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
         prev_iter_id = existing[-1]
         prev_doc = load_iteration(project_id, prev_iter_id)
         if prev_doc and prev_doc.get("project_dir"):
-            candidate = Path(prev_doc["project_dir"])
+            candidate = _rebase_project_dir(prev_doc["project_dir"])
             if candidate.is_dir():
                 prev_workspace = candidate
     if prev_workspace is None:
@@ -392,7 +426,7 @@ def get_project_workspace(project_id: str) -> str:
         if iters:
             latest_doc = load_iteration(project_id, iters[-1])
             if latest_doc and latest_doc.get("project_dir"):
-                ws = Path(latest_doc["project_dir"])
+                ws = _rebase_project_dir(latest_doc["project_dir"])
                 ws.mkdir(parents=True, exist_ok=True)
                 return str(ws)
     # Fallback to shared workspace/
@@ -509,7 +543,7 @@ def _resolve_workspace(project_id: str) -> Path:
         if slug:
             iter_doc = load_iteration(slug, bare_id)
             if iter_doc and iter_doc.get("project_dir"):
-                ws = Path(iter_doc["project_dir"])
+                ws = _rebase_project_dir(iter_doc["project_dir"])
                 ws.mkdir(parents=True, exist_ok=True)
                 return ws
             # Fallback for old iterations without per-iter workspace
@@ -568,6 +602,14 @@ def list_project_files(project_id: str) -> list[str]:
     return files
 
 
+def _safe_file_count(project_id: str) -> int:
+    """Return file count for a project, returning 0 on any error."""
+    try:
+        return len(list_project_files(project_id))
+    except Exception:
+        return 0
+
+
 def list_projects() -> list[dict]:
     """List all projects (v1 + v2 summary)."""
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -613,7 +655,7 @@ def list_projects() -> list[dict]:
                 "completed_at": doc.get("archived_at"),
                 "participant_count": 0,
                 "action_count": 0,
-                "file_count": len(list_project_files(d.name)),
+                "file_count": _safe_file_count(d.name),
                 "is_named": True,
                 "name": doc.get("name", d.name),
                 "iteration_count": len(iterations),
@@ -634,7 +676,7 @@ def list_projects() -> list[dict]:
                 "project_dir": doc.get("project_dir", str(d)),
                 "participant_count": len(doc.get("participants", [])),
                 "action_count": len(doc.get("timeline", [])),
-                "file_count": len(list_project_files(d.name)),
+                "file_count": _safe_file_count(d.name),
                 "is_named": False,
                 "cost_usd": round(v1_cost, 4),
             })
