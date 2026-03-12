@@ -13,6 +13,8 @@ from onemancompany.core.state import CompanyState, Employee, MeetingRoom, Office
 def _make_cs() -> CompanyState:
     cs = CompanyState()
     cs._next_employee_number = 100
+    cs.employees = {}      # removed from dataclass; added as instance attr for tests
+    cs.ex_employees = {}
     return cs
 
 
@@ -43,10 +45,11 @@ def _emp_to_dict(emp: Employee) -> dict:
     return d
 
 
-def _mock_store(monkeypatch, cs: CompanyState) -> None:
+def _mock_store(monkeypatch, cs) -> None:
     """Patch load_employee/load_all_employees on ct_mod to read from cs.employees."""
     from onemancompany.agents import common_tools as ct_mod
 
+    # cs is a _TestCompanyState with .employees dict
     def _fake_load_employee(emp_id: str) -> dict:
         emp = cs.employees.get(emp_id)
         return _emp_to_dict(emp) if emp else {}
@@ -462,7 +465,7 @@ class TestManageToolAccess:
         })
 
         assert result["status"] == "ok"
-        assert "read_file" in emp.tool_permissions
+        assert "read_file" in result["current_tool_permissions"]
 
     def test_revoke_access(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
@@ -488,8 +491,8 @@ class TestManageToolAccess:
         })
 
         assert result["status"] == "ok"
-        assert "read_file" not in emp.tool_permissions
-        assert "use_tool" in emp.tool_permissions
+        assert "read_file" not in result["current_tool_permissions"]
+        assert "use_tool" in result["current_tool_permissions"]
 
     def test_denied_non_coo(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod
@@ -679,13 +682,15 @@ class TestToolCategorization:
             assert meta.category == "gated", f"{name} should be gated, got {meta.category}"
 
     def test_get_tools_for_returns_tools(self, monkeypatch):
-        from onemancompany.core import state as state_mod
+        from onemancompany.core import state as state_mod, store as store_mod
         from onemancompany.core.tool_registry import tool_registry
 
         cs = _make_cs()
         emp = _make_emp("00010", tool_permissions=["use_tool"])
         cs.employees["00010"] = emp
         monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(store_mod, "load_employee",
+                            lambda eid: _emp_to_dict(emp) if eid == "00010" else None)
 
         tools = tool_registry.get_tools_for("00010")
         assert len(tools) > 0
@@ -1058,7 +1063,7 @@ class TestManageToolAccessAdditional:
             "manager_id": COO_ID,
         })
         assert result["status"] == "ok"
-        assert emp.tool_permissions == ["read_file"]
+        assert result["current_tool_permissions"] == ["read_file"]
 
     def test_employee_not_found(self, monkeypatch):
         from onemancompany.agents import common_tools as ct_mod

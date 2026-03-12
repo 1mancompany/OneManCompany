@@ -544,9 +544,8 @@ class BaseAgentRunner:
 
     def _set_status(self, status: str) -> None:
         """Set this agent's employee status (idle/working/in_meeting)."""
-        emp = company_state.employees.get(self.employee_id)
-        if emp:
-            emp.status = status
+        # Runtime status is persisted to disk via store; no in-memory update needed.
+        pass
 
     def _get_talent_persona_section(self) -> str:
         """Load talent persona from employees/{id}/prompts/talent_persona.md.
@@ -570,10 +569,11 @@ class BaseAgentRunner:
 
     def _get_guidance_prompt_section(self) -> str:
         """Build a prompt section from CEO guidance notes for this agent."""
-        emp = company_state.employees.get(self.employee_id)
-        if not emp or not emp.guidance_notes:
+        from onemancompany.core.store import load_employee_guidance
+        notes_list = load_employee_guidance(self.employee_id)
+        if not notes_list:
             return ""
-        notes = "\n".join(f"  - {n}" for n in emp.guidance_notes)
+        notes = "\n".join(f"  - {n}" for n in notes_list)
         return (
             f"\n\n## CEO Guidance (follow these directives in all your work):\n{notes}\n"
         )
@@ -581,7 +581,8 @@ class BaseAgentRunner:
 
     def _get_company_culture_prompt_section(self) -> str:
         """Build a prompt section from company culture items."""
-        items = company_state.company_culture
+        from onemancompany.core.store import load_culture
+        items = load_culture()
         if not items:
             return ""
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
@@ -603,14 +604,19 @@ class BaseAgentRunner:
         parts.append(f"- Current time: {now.strftime('%Y-%m-%d %H:%M')}")
 
         # Team roster summary (compact)
+        from onemancompany.core.store import load_all_employees
+        all_emps = load_all_employees()
         team_lines = []
-        for emp in company_state.employees.values():
-            if emp.id == self.employee_id:
+        for eid, edata in all_emps.items():
+            if eid == self.employee_id:
                 continue
-            status_tag = f"[{emp.status}]" if emp.status != "idle" else ""
-            task_hint = f" — {emp.current_task_summary}" if emp.current_task_summary else ""
+            runtime = edata.get("runtime", {})
+            status = runtime.get("status", "idle")
+            task_summary = runtime.get("current_task_summary", "")
+            status_tag = f"[{status}]" if status != "idle" else ""
+            task_hint = f" — {task_summary}" if task_summary else ""
             team_lines.append(
-                f"  - {emp.name}({emp.nickname}) ID:{emp.id} {emp.role} Lv.{emp.level}{status_tag}{task_hint}"
+                f"  - {edata.get('name', '')}({edata.get('nickname', '')}) ID:{eid} {edata.get('role', '')} Lv.{edata.get('level', 1)}{status_tag}{task_hint}"
             )
         if team_lines:
             parts.append("- Team:\n" + "\n".join(team_lines))
@@ -650,7 +656,8 @@ class BaseAgentRunner:
 
     def _get_company_direction_section(self) -> str:
         """Build a prompt section from company direction/strategy."""
-        direction = company_state.company_direction
+        from onemancompany.core.store import load_direction
+        direction = load_direction()
         if not direction:
             return ""
         return (
@@ -753,8 +760,9 @@ class EmployeeAgent(BaseAgentRunner):
         from onemancompany.core.tool_registry import tool_registry
 
         self.employee_id = employee_id
-        emp = company_state.employees.get(employee_id)
-        self.role = emp.role if emp else "Employee"
+        from onemancompany.core.store import load_employee as _load_emp
+        emp_data = _load_emp(employee_id) or {}
+        self.role = emp_data.get("role", "Employee")
 
         proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
 
@@ -773,25 +781,32 @@ class EmployeeAgent(BaseAgentRunner):
         )
 
     def _build_prompt(self) -> str:
-        emp = company_state.employees.get(self.employee_id)
-        if not emp:
+        from onemancompany.core.store import load_employee as _load_emp
+        emp_data = _load_emp(self.employee_id)
+        if not emp_data:
             return "You are a company employee."
 
         pb = self._build_prompt_builder()
+
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+        emp_role = emp_data.get("role", "Employee")
+        emp_dept = emp_data.get("department", "")
+        emp_level = emp_data.get("level", 1)
 
         # 1. Role header: try employee's custom role.md, else default
         role_prompt = self._load_prompt_file("role.md")
         if role_prompt:
             header = (role_prompt
-                      .replace("{name}", emp.name)
-                      .replace("{nickname}", emp.nickname)
-                      .replace("{role}", emp.role)
-                      .replace("{department}", emp.department)
-                      .replace("{level}", str(emp.level)))
+                      .replace("{name}", emp_name)
+                      .replace("{nickname}", emp_nickname)
+                      .replace("{role}", emp_role)
+                      .replace("{department}", emp_dept)
+                      .replace("{level}", str(emp_level)))
         else:
             header = (
-                f"You are {emp.name} (花名: {emp.nickname}), "
-                f"a {emp.role} in {emp.department} (Lv.{emp.level}).\n"
+                f"You are {emp_name} (花名: {emp_nickname}), "
+                f"a {emp_role} in {emp_dept} (Lv.{emp_level}).\n"
                 f"Follow instructions from your managers, complete tasks thoroughly, "
                 f"and collaborate with colleagues when needed.\n"
             )

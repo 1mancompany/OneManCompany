@@ -85,20 +85,44 @@ def _emp_to_dict(emp: Employee) -> dict:
 
 
 def _store_patches(state: CompanyState):
-    """Return a context manager that patches _load_emp and _load_all on routes module."""
+    """Return a context manager that patches store reads + routes helpers to use test state."""
     from contextlib import contextmanager
 
     @contextmanager
     def _ctx():
+        employees = getattr(state, "employees", {})
+        ex_employees = getattr(state, "ex_employees", {})
+        activity_log = getattr(state, "activity_log", [])
+        culture = getattr(state, "company_culture", [])
+
         def fake_load(eid):
-            emp = state.employees.get(eid)
+            emp = employees.get(eid)
             return _emp_to_dict(emp) if emp else {}
 
         def fake_load_all():
-            return {eid: _emp_to_dict(e) for eid, e in state.employees.items()}
+            return {eid: _emp_to_dict(e) for eid, e in employees.items()}
+
+        def fake_load_ex():
+            return {eid: _emp_to_dict(e) for eid, e in ex_employees.items()}
+
+        def fake_load_activity():
+            return list(activity_log)
+
+        def fake_load_culture():
+            return list(culture)
+
+        direction = getattr(state, "company_direction", "")
+
+        def fake_load_direction():
+            return direction
 
         with patch("onemancompany.api.routes._load_emp", side_effect=fake_load), \
-             patch("onemancompany.api.routes._load_all", side_effect=fake_load_all):
+             patch("onemancompany.api.routes._load_all", side_effect=fake_load_all), \
+             patch("onemancompany.core.store.load_all_employees", side_effect=fake_load_all), \
+             patch("onemancompany.core.store.load_ex_employees", side_effect=fake_load_ex), \
+             patch("onemancompany.core.store.load_activity_log", side_effect=fake_load_activity), \
+             patch("onemancompany.core.store.load_culture", side_effect=fake_load_culture), \
+             patch("onemancompany.core.store.load_direction", side_effect=fake_load_direction):
             yield
 
     return _ctx()
@@ -157,17 +181,22 @@ class TestCompanyDirection:
         state = _make_state()
         bus = EventBus()
 
+        saved_direction = {}
+
+        async def fake_save_direction(text):
+            saved_direction["value"] = text
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_direction"):
+             patch("onemancompany.core.store.save_direction", side_effect=fake_save_direction):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.put("/api/company/direction", json={"direction": "New direction"})
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        assert state.company_direction == "New direction"
+        assert saved_direction["value"] == "New direction"
 
 
 # ---------------------------------------------------------------------------
@@ -185,13 +214,20 @@ class TestAdminClearTasks:
         bus = EventBus()
         mock_task_entry = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task_entry]), \
              patch("onemancompany.api.routes.EMPLOYEES_DIR", MagicMock(iterdir=MagicMock(return_value=[]))), \
              patch("onemancompany.api.routes.load_active_tasks", create=True, return_value=[]), \
-             patch("onemancompany.api.routes.archive_task", create=True):
+             patch("onemancompany.api.routes.archive_task", create=True), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/admin/clear-tasks")
@@ -200,7 +236,8 @@ class TestAdminClearTasks:
         data = resp.json()
         assert data["status"] == "cleared"
         assert data["tasks_removed"] == 1
-        assert emp.status == "idle"
+        # Verify employee status was reset via store
+        assert any(f.get("status") == "idle" for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -487,17 +524,22 @@ class TestCompanyCulture:
         state = _make_state()
         bus = EventBus()
 
+        saved_culture = {}
+
+        async def fake_save_culture(items):
+            saved_culture["items"] = items
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_culture"):
+             patch("onemancompany.core.store.save_culture", side_effect=fake_save_culture):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/company-culture", json={"content": "Move fast"})
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "added"
-        assert len(state.company_culture) == 1
+        assert len(saved_culture["items"]) == 1
 
     async def test_add_culture_empty_content(self):
         state = _make_state()
@@ -515,18 +557,23 @@ class TestCompanyCulture:
         state = _make_state(company_culture=[{"content": "A"}, {"content": "B"}])
         bus = EventBus()
 
+        saved_culture = {}
+
+        async def fake_save_culture(items):
+            saved_culture["items"] = items
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.save_company_culture"):
+             patch("onemancompany.core.store.save_culture", side_effect=fake_save_culture):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.delete("/api/company-culture/0")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "removed"
-        assert len(state.company_culture) == 1
-        assert state.company_culture[0]["content"] == "B"
+        assert len(saved_culture["items"]) == 1
+        assert saved_culture["items"][0]["content"] == "B"
 
     async def test_remove_invalid_index(self):
         state = _make_state(company_culture=[{"content": "A"}])
@@ -1304,12 +1351,19 @@ class TestOneOnOneEndHappyPath:
         mock_result = MagicMock()
         mock_result.content = "NO_UPDATE"
 
+        saved_runtime = {}
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime.update(fields)
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles"):
+             patch("onemancompany.core.config.save_work_principles"), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -1324,7 +1378,7 @@ class TestOneOnOneEndHappyPath:
         data = resp.json()
         assert data["status"] == "ended"
         assert data["principles_updated"] is False
-        assert emp.is_listening is False
+        assert saved_runtime.get("is_listening") is False
 
     async def test_end_with_update(self):
         emp = _make_employee(id="00010")
@@ -1335,12 +1389,20 @@ class TestOneOnOneEndHappyPath:
         mock_result = MagicMock()
         mock_result.content = "UPDATED: Be more proactive\n- Take initiative"
 
+        saved_principles = {}
+
+        async def fake_save_principles(eid, text):
+            saved_principles["employee_id"] = eid
+            saved_principles["text"] = text
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.api.routes._store.save_work_principles", new_callable=AsyncMock) as mock_save:
+             patch("onemancompany.core.store.save_work_principles", side_effect=fake_save_principles), \
+             patch("onemancompany.core.store.save_employee_runtime", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -1353,8 +1415,7 @@ class TestOneOnOneEndHappyPath:
         assert resp.status_code == 200
         data = resp.json()
         assert data["principles_updated"] is True
-        assert emp.work_principles == "Be more proactive\n- Take initiative"
-        mock_save.assert_called_once()
+        assert saved_principles["text"] == "Be more proactive\n- Take initiative"
 
     async def test_end_no_history(self):
         emp = _make_employee(id="00010")
@@ -2521,7 +2582,13 @@ class TestOneOnOneChatAgentLoop:
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
@@ -2530,7 +2597,8 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_talent_persona", return_value=""), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
+             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2540,7 +2608,8 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert emp.is_listening is True
+        # Verify save_employee_runtime was called with is_listening=True
+        assert any(f.get("is_listening") is True for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------
@@ -5761,12 +5830,19 @@ class TestOneOnOneEndWithUpdate:
         mock_result = MagicMock()
         mock_result.content = "UPDATED: Focus on quality above all"
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.config.save_work_principles"):
+             patch("onemancompany.core.store.save_work_principles", new_callable=AsyncMock), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/end", json={
@@ -5778,7 +5854,7 @@ class TestOneOnOneEndWithUpdate:
                 })
 
         assert resp.status_code == 200
-        assert emp.is_listening is False
+        assert any(f.get("is_listening") is False for _, f in saved_runtime_calls)
         assert resp.json()["principles_updated"] is True
 
     async def test_oneonone_end_no_update(self):
@@ -6042,7 +6118,7 @@ class TestProjectFileTraversal:
 
 class TestAdminClearTasksDirect:
     async def test_clear_tasks_resets_status_direct(self):
-        """Line 197: direct call to ensure coverage of emp.status = STATUS_IDLE."""
+        """Line 197: direct call to ensure coverage of save_employee_runtime(status=idle)."""
         from onemancompany.api import routes as routes_mod
 
         emp = _make_employee(id="00010")
@@ -6053,16 +6129,22 @@ class TestAdminClearTasksDirect:
 
         mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
+        saved_runtime_calls = []
+
+        async def fake_save_runtime(eid, **fields):
+            saved_runtime_calls.append((eid, fields))
+
         with patch.object(routes_mod, "company_state", state), \
              patch.object(routes_mod, "event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
              patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])):
+             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])), \
+             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             result = await routes_mod.admin_clear_tasks()
 
         assert result["status"] == "cleared"
         assert result["tasks_removed"] == 1
-        assert emp.status == "idle"
+        assert any(f.get("status") == "idle" for _, f in saved_runtime_calls)
 
 
 # ---------------------------------------------------------------------------

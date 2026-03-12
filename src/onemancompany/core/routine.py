@@ -85,9 +85,6 @@ def _parse_json_array(text: str, fallback: list | None = None) -> list:
 async def _set_participants_status(participant_ids: list[str], status: str) -> None:
     """Set status for all participants (including hr/coo)."""
     for pid in participant_ids:
-        emp = company_state.employees.get(pid)
-        if emp:
-            emp.status = status
         await _store.save_employee_runtime(pid, status=status)
 
 # Store pending reports that are waiting for CEO approval
@@ -163,7 +160,7 @@ class StepContext:
 
     def format_company_culture(self) -> str:
         """Format company culture items as a prompt section."""
-        items = company_state.company_culture
+        items = _store.load_culture()
         if not items:
             return ""
         rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
@@ -1014,10 +1011,6 @@ async def run_post_task_routine(
                 "current_quarter_tasks": new_count,
                 "performance_history": perf_history,
             })
-            # Keep in-memory in sync until Task 10
-            emp = company_state.employees.get(pid)
-            if emp:
-                emp.current_quarter_tasks = new_count
 
     # Retrospective meeting requires 2+ people — solo tasks skip the meeting
     if len(participants) < 2:
@@ -2044,7 +2037,6 @@ async def run_onboarding_routine(employee_id: str) -> None:
     })
 
     # Generate work principles if empty — persist via store
-    emp = company_state.employees.get(employee_id)
     if not emp_data.get("work_principles", ""):
         from onemancompany.core.state import make_title
         principles = (
@@ -2058,13 +2050,8 @@ async def run_onboarding_routine(employee_id: str) -> None:
             f"4. Follow company rules and guidelines\n"
         )
         await _store.save_work_principles(employee_id, principles)
-        # Keep in-memory in sync until Task 10
-        if emp:
-            emp.work_principles = principles
 
     # Mark onboarding complete
-    if emp:
-        emp.onboarding_completed = True
     await _store.save_employee(employee_id, {"onboarding_completed": True})
 
     await _publish("onboarding_completed", {"id": employee_id, "name": emp_name})

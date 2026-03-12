@@ -10,7 +10,8 @@ import pytest
 from onemancompany.core.state import CompanyState, Employee
 
 
-def _make_cs() -> CompanyState:
+
+def _make_cs():
     cs = CompanyState()
     cs._next_employee_number = 100
     return cs
@@ -190,7 +191,12 @@ class TestEAAgentRun:
         assert cs.employees[config_mod.EA_ID].status == "idle"
 
     @pytest.mark.asyncio
-    async def test_run_sets_and_resets_status(self, monkeypatch):
+    async def test_run_completes_and_invokes_agent(self, monkeypatch):
+        """Verify that run() invokes the LLM agent and completes successfully.
+
+        Note: _set_status is a no-op after Task 10 (runtime status persisted
+        to disk via save_employee_runtime, not in-memory).
+        """
         from onemancompany.agents import ea_agent as ea_mod
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod, events as events_mod
@@ -212,12 +218,11 @@ class TestEAAgentRun:
             MagicMock(get=lambda x=None: None),
         )
 
-        statuses_seen = []
-
-        original_ainvoke = None
+        agent_invoked = False
 
         async def spy_ainvoke(messages):
-            statuses_seen.append(cs.employees[config_mod.EA_ID].status)
+            nonlocal agent_invoked
+            agent_invoked = True
             return {"messages": [MagicMock(content="done")]}
 
         mock_agent = MagicMock()
@@ -226,7 +231,7 @@ class TestEAAgentRun:
 
         from onemancompany.agents.ea_agent import EAAgent
         agent = EAAgent()
-        await agent.run("test")
+        result = await agent.run("test")
 
-        assert "working" in statuses_seen
-        assert cs.employees[config_mod.EA_ID].status == "idle"
+        assert agent_invoked, "LLM agent should have been invoked"
+        assert result == "done"

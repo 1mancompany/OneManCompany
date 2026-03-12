@@ -25,6 +25,31 @@ def _make_emp(emp_id: str, **kwargs) -> Employee:
     return Employee(**defaults)
 
 
+def _emp_to_dict(emp: Employee) -> dict:
+    return {
+        "id": emp.id, "name": emp.name, "role": emp.role,
+        "skills": emp.skills, "nickname": emp.nickname,
+        "level": getattr(emp, "level", 1),
+        "department": getattr(emp, "department", ""),
+        "tool_permissions": getattr(emp, "tool_permissions", []) or [],
+        "guidance_notes": getattr(emp, "guidance_notes", []) or [],
+        "runtime": {"status": "idle"},
+    }
+
+
+def _mock_store_for_employees(monkeypatch, employees: dict):
+    from onemancompany.core import store as store_mod
+    emp_dicts = {eid: _emp_to_dict(e) for eid, e in employees.items()}
+    monkeypatch.setattr(store_mod, "load_employee",
+                        lambda eid: emp_dicts.get(eid))
+    monkeypatch.setattr(store_mod, "load_all_employees",
+                        lambda: dict(emp_dicts))
+    monkeypatch.setattr(store_mod, "load_employee_guidance",
+                        lambda eid: (emp_dicts.get(eid) or {}).get("guidance_notes", []))
+    monkeypatch.setattr(store_mod, "load_culture", lambda: [])
+    monkeypatch.setattr(store_mod, "load_direction", lambda: "")
+
+
 def _make_sales_task(task_id: str, **kwargs) -> SalesTask:
     defaults = dict(
         id=task_id,
@@ -88,6 +113,9 @@ class TestReviewContract:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(cso_mod, "company_state", cs)
 
+        activity_log = []
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: activity_log.append(entry))
+
         mock_loop = MagicMock()
         monkeypatch.setattr(
             "onemancompany.core.agent_loop.get_agent_loop",
@@ -102,8 +130,8 @@ class TestReviewContract:
         assert task.status == "in_production"
         assert task.contract_approved is True
         mock_loop.push_task.assert_called_once()
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "contract_approved"
+        assert len(activity_log) == 1
+        assert activity_log[0]["type"] == "contract_approved"
 
     def test_reject_records_reason(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
@@ -115,14 +143,17 @@ class TestReviewContract:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(cso_mod, "company_state", cs)
 
+        activity_log = []
+        monkeypatch.setattr(cso_mod, "_append_activity", lambda entry: activity_log.append(entry))
+
         result = cso_mod.review_contract.invoke({
             "task_id": "s1", "approved": False, "notes": "Scope unclear",
         })
 
         assert result["status"] == "rejected"
         assert task.status == "rejected"
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "contract_rejected"
+        assert len(activity_log) == 1
+        assert activity_log[0]["type"] == "contract_rejected"
 
     def test_review_nonexistent_task(self, monkeypatch):
         from onemancompany.agents import cso_agent as cso_mod
@@ -293,7 +324,7 @@ class TestSettleTask:
 # ---------------------------------------------------------------------------
 
 class TestCSOAgent:
-    def _make_agent(self, monkeypatch, cs=None):
+    def _make_agent(self, monkeypatch, cs=None, emp_overrides=None):
         from onemancompany.agents import cso_agent as cso_mod
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
@@ -301,8 +332,11 @@ class TestCSOAgent:
 
         if cs is None:
             cs = _make_cs()
-            emp = _make_emp(config_mod.CSO_ID)
-            cs.employees[config_mod.CSO_ID] = emp
+        emp = _make_emp(config_mod.CSO_ID)
+        emps = {config_mod.CSO_ID: emp}
+        if emp_overrides:
+            emps.update(emp_overrides)
+        _mock_store_for_employees(monkeypatch, emps)
 
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
@@ -335,13 +369,14 @@ class TestCSOAgent:
         assert "Current Context" in prompt
 
     def test_build_prompt_with_guidance(self, monkeypatch):
-        from onemancompany.core import config as config_mod
+        from onemancompany.core import config as config_mod, store as store_mod
 
         cs = _make_cs()
         emp = _make_emp(config_mod.CSO_ID, guidance_notes=["Focus on revenue"])
-        cs.employees[config_mod.CSO_ID] = emp
-
-        agent = self._make_agent(monkeypatch, cs=cs)
+        agent = self._make_agent(monkeypatch, cs=cs,
+                                  emp_overrides={config_mod.CSO_ID: emp})
+        monkeypatch.setattr(store_mod, "load_employee_guidance",
+                            lambda eid: ["Focus on revenue"])
         prompt = agent._build_prompt()
         assert "Focus on revenue" in prompt
 
@@ -354,7 +389,7 @@ class TestCSOAgent:
 
         cs = _make_cs()
         emp = _make_emp(config_mod.CSO_ID)
-        cs.employees[config_mod.CSO_ID] = emp
+        _mock_store_for_employees(monkeypatch, {config_mod.CSO_ID: emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(cso_mod, "company_state", cs)
@@ -383,7 +418,7 @@ class TestCSOAgent:
 
         result = await agent.run("Review contract X")
         assert result == "Contract reviewed"
-        assert cs.employees[config_mod.CSO_ID].status == "idle"
+        # _set_status is a no-op now; status persisted via store
 
 
 # ---------------------------------------------------------------------------

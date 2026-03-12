@@ -43,8 +43,6 @@ class TestSaveEmployeeProfile:
 
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
         monkeypatch.setattr(cfg, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-        # Ensure employee_configs dict exists
-        monkeypatch.setattr(cfg, "employee_configs", {})
 
         config = EmployeeConfig(
             name="Test Dev",
@@ -77,7 +75,6 @@ class TestSaveEmployeeProfile:
 
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", tmp_path)
         monkeypatch.setattr(cfg, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-        monkeypatch.setattr(cfg, "employee_configs", {})
 
         config = EmployeeConfig(
             name="Cache Test", role="Designer", skills=["figma"],
@@ -120,7 +117,7 @@ class TestMoveEmployee:
         ex_dir.mkdir()
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", emp_dir)
         monkeypatch.setattr(cfg, "EX_EMPLOYEES_DIR", ex_dir)
-        monkeypatch.setattr(cfg, "employee_configs", {"00010": EmployeeConfig(name="T", role="E", skills=[])})
+        # employee_configs is now a lazy proxy — reads from EMPLOYEES_DIR on access
 
         # Create employee folder
         (emp_dir / "00010").mkdir()
@@ -148,7 +145,7 @@ class TestMoveEmployee:
         ex_dir.mkdir()
         monkeypatch.setattr(cfg, "EMPLOYEES_DIR", emp_dir)
         monkeypatch.setattr(cfg, "EX_EMPLOYEES_DIR", ex_dir)
-        monkeypatch.setattr(cfg, "employee_configs", {})
+        # employee_configs is now a lazy proxy — reads from EMPLOYEES_DIR on access
 
         # Create ex-employee folder
         (ex_dir / "00010").mkdir()

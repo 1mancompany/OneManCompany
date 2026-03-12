@@ -314,9 +314,11 @@ class TestSaveEmployeeProfile:
         assert profile_path.exists()
         content = profile_path.read_text()
         assert "Template Test" in content
-        assert "00099" in cfg.employee_configs if False else True
-        # Verify in-memory cache updated
-        assert "00099" in config_mod.employee_configs
+        # Verify the file was written correctly (disk is source of truth)
+        import yaml
+        data = yaml.safe_load(content)
+        assert data["name"] == "Template Test"
+        assert data["employee_number"] == "00099"
 
     def test_save_with_template_empty_skills_and_perms(self, tmp_path, monkeypatch):
         import onemancompany.core.config as config_mod
@@ -369,7 +371,6 @@ class TestSaveEmployeeProfile:
 
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "nonexistent.yaml")
-        monkeypatch.setattr(config_mod, "employee_configs", {})
 
         config = EmployeeConfig(
             name="No Template",
@@ -382,7 +383,9 @@ class TestSaveEmployeeProfile:
         assert profile_path.exists()
         data = yaml.safe_load(profile_path.read_text())
         assert data["name"] == "No Template"
-        assert "00101" in config_mod.employee_configs
+        # Verify config is loadable from disk
+        configs = config_mod.load_employee_configs()
+        assert "00101" in configs
 
 
 # ---------------------------------------------------------------------------
@@ -394,9 +397,6 @@ class TestUpdateToolPermissions:
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        monkeypatch.setattr(config_mod, "employee_configs", {
-            "00010": EmployeeConfig(name="T", role="E", skills=[], tool_permissions=[])
-        })
 
         _write_profile(tmp_path, "00010", {"name": "T", "role": "E", "skills": []})
 
@@ -405,7 +405,9 @@ class TestUpdateToolPermissions:
         with open(tmp_path / "00010" / "profile.yaml") as f:
             data = yaml.safe_load(f)
         assert data["tool_permissions"] == ["sandbox_execute_code", "read_file"]
-        assert config_mod.employee_configs["00010"].tool_permissions == ["sandbox_execute_code", "read_file"]
+        # Verify via disk read (disk is single source of truth)
+        loaded = config_mod.load_employee_configs()
+        assert loaded["00010"].tool_permissions == ["sandbox_execute_code", "read_file"]
 
     def test_no_profile_does_nothing(self, tmp_path, monkeypatch):
         import onemancompany.core.config as config_mod
@@ -821,8 +823,6 @@ class TestMoveExEmployeeBack:
         ex_dir.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_dir)
         monkeypatch.setattr(config_mod, "EX_EMPLOYEES_DIR", ex_dir)
-        monkeypatch.setattr(config_mod, "employee_configs", {})
-
         # Create ex-employee folder
         (ex_dir / "00010").mkdir()
         (ex_dir / "00010" / "profile.yaml").write_text("name: Rehired\nrole: Engineer\nskills: [python]\n")
@@ -835,7 +835,9 @@ class TestMoveExEmployeeBack:
         assert result is True
         assert not (ex_dir / "00010").exists()
         assert (emp_dir / "00010").exists()
-        assert "00010" in config_mod.employee_configs
+        # Verify employee loadable from disk
+        loaded = config_mod.load_employee_configs()
+        assert "00010" in loaded
 
 
 # ---------------------------------------------------------------------------

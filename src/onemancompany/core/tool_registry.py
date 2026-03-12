@@ -81,22 +81,22 @@ class ToolRegistry:
         - role: included if employee's role in meta.allowed_roles
         - asset: included if allowed_users is None OR employee_id in allowed_users
         """
-        from onemancompany.core.state import company_state
+        from onemancompany.core.store import load_employee
 
-        emp = company_state.employees.get(employee_id)
-        if emp is None:
+        emp_data = load_employee(employee_id)
+        if not emp_data:
             logger.warning("get_tools_for: employee %s not found", employee_id)
             return []
 
         result = []
         for name, tool in self._tools.items():
             meta = self._meta[name]
-            if self._is_allowed(meta, emp):
+            if self._is_allowed(meta, emp_data, employee_id):
                 result.append(tool)
         return result
 
     @staticmethod
-    def _is_allowed(meta: ToolMeta, emp: object) -> bool:
+    def _is_allowed(meta: ToolMeta, emp_data: dict, employee_id: str) -> bool:
         """Check whether an employee is allowed to use a tool based on its category."""
         category = meta.category
 
@@ -104,17 +104,17 @@ class ToolRegistry:
             return True
 
         if category == "gated":
-            return meta.name in (emp.tool_permissions or [])
+            return meta.name in (emp_data.get("tool_permissions") or [])
 
         if category == "role":
             if meta.allowed_roles is None:
                 return True
-            return emp.role in meta.allowed_roles
+            return emp_data.get("role", "") in meta.allowed_roles
 
         if category == "asset":
             if meta.allowed_users is None:
                 return True
-            return emp.id in meta.allowed_users
+            return employee_id in meta.allowed_users
 
         logger.warning("Unknown tool category %r for tool %s", category, meta.name)
         return False

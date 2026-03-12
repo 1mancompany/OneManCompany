@@ -25,6 +25,31 @@ def _make_emp(emp_id: str, **kwargs) -> Employee:
     return Employee(**defaults)
 
 
+def _emp_to_dict(emp: Employee) -> dict:
+    return {
+        "id": emp.id, "name": emp.name, "role": emp.role,
+        "skills": emp.skills, "nickname": emp.nickname,
+        "level": getattr(emp, "level", 1),
+        "department": getattr(emp, "department", ""),
+        "tool_permissions": getattr(emp, "tool_permissions", []) or [],
+        "guidance_notes": getattr(emp, "guidance_notes", []) or [],
+        "runtime": {"status": "idle"},
+    }
+
+
+def _mock_store_for_employees(monkeypatch, employees: dict):
+    from onemancompany.core import store as store_mod
+    emp_dicts = {eid: _emp_to_dict(e) for eid, e in employees.items()}
+    monkeypatch.setattr(store_mod, "load_employee",
+                        lambda eid: emp_dicts.get(eid))
+    monkeypatch.setattr(store_mod, "load_all_employees",
+                        lambda: dict(emp_dicts))
+    monkeypatch.setattr(store_mod, "load_employee_guidance",
+                        lambda eid: (emp_dicts.get(eid) or {}).get("guidance_notes", []))
+    monkeypatch.setattr(store_mod, "load_culture", lambda: [])
+    monkeypatch.setattr(store_mod, "load_direction", lambda: "")
+
+
 def _make_room(room_id: str, **kwargs) -> MeetingRoom:
     defaults = dict(
         id=room_id, name=f"Room {room_id}", description="Test room",
@@ -596,12 +621,14 @@ class TestDepositCompanyKnowledge:
 
     def test_deposit_culture(self, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
-        from onemancompany.core import state as state_mod
+        from onemancompany.core import state as state_mod, store as store_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
 
+        # Mock store.load_culture to return empty list initially
+        monkeypatch.setattr(store_mod, "load_culture", lambda: [])
         mock_save = MagicMock()
         monkeypatch.setattr(coo_mod, "save_company_culture", mock_save)
 
@@ -612,9 +639,10 @@ class TestDepositCompanyKnowledge:
         })
 
         assert result["status"] == "success"
-        assert len(cs.company_culture) == 1
-        assert cs.company_culture[0]["content"] == "We value innovation above all"
         mock_save.assert_called_once()
+        saved_items = mock_save.call_args[0][0]
+        assert len(saved_items) == 1
+        assert saved_items[0]["content"] == "We value innovation above all"
 
     def test_deposit_sop(self, tmp_path, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
@@ -670,7 +698,7 @@ class TestDepositCompanyKnowledge:
         })
 
         assert result["status"] == "success"
-        assert cs.company_direction == "Focus on AI products"
+        # Direction is now persisted to disk via save_company_direction, not cs
         mock_save.assert_called_once_with("Focus on AI products")
 
     def test_invalid_category(self, monkeypatch):
@@ -694,7 +722,7 @@ class TestDepositCompanyKnowledge:
 # ---------------------------------------------------------------------------
 
 class TestCOOAgent:
-    def _make_agent(self, monkeypatch, cs=None):
+    def _make_agent(self, monkeypatch, cs=None, emp_overrides=None):
         from onemancompany.agents import coo_agent as coo_mod
         from onemancompany.agents import base as base_mod
         from onemancompany.core import state as state_mod
@@ -702,8 +730,11 @@ class TestCOOAgent:
 
         if cs is None:
             cs = _make_cs()
-            emp = _make_emp(config_mod.COO_ID)
-            cs.employees[config_mod.COO_ID] = emp
+        emp = _make_emp(config_mod.COO_ID)
+        emps = {config_mod.COO_ID: emp}
+        if emp_overrides:
+            emps.update(emp_overrides)
+        _mock_store_for_employees(monkeypatch, emps)
 
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
@@ -736,25 +767,19 @@ class TestCOOAgent:
         assert "Current Context" in prompt
 
     def test_build_prompt_with_culture(self, monkeypatch):
-        from onemancompany.core import config as config_mod
+        from onemancompany.core import store as store_mod
 
         cs = _make_cs()
-        emp = _make_emp(config_mod.COO_ID)
-        cs.employees[config_mod.COO_ID] = emp
-        cs.company_culture = [{"content": "Stay humble"}]
-
         agent = self._make_agent(monkeypatch, cs=cs)
+        monkeypatch.setattr(store_mod, "load_culture",
+                            lambda: [{"content": "Stay humble"}])
         prompt = agent._build_prompt()
         assert "Stay humble" in prompt
 
     def test_build_prompt_with_skills(self, monkeypatch):
-        from onemancompany.core import config as config_mod
         from onemancompany.agents import base as base_mod
 
         cs = _make_cs()
-        emp = _make_emp(config_mod.COO_ID)
-        cs.employees[config_mod.COO_ID] = emp
-
         monkeypatch.setattr(
             base_mod, "get_employee_skills_prompt",
             lambda eid: "\n\n## Active Skills\n### Work Principles\nAlways be decisive",
@@ -772,7 +797,7 @@ class TestCOOAgent:
 
         cs = _make_cs()
         emp = _make_emp(config_mod.COO_ID)
-        cs.employees[config_mod.COO_ID] = emp
+        _mock_store_for_employees(monkeypatch, {config_mod.COO_ID: emp})
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(base_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
@@ -801,7 +826,7 @@ class TestCOOAgent:
 
         result = await agent.run("Execute project plan")
         assert result == "Dispatched to engineer"
-        assert cs.employees[config_mod.COO_ID].status == "idle"
+        # _set_status is a no-op now; status persisted via store
 
 
 # ---------------------------------------------------------------------------

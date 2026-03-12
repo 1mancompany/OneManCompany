@@ -208,18 +208,16 @@ class TestVesselRef:
         ref = _VesselRef("00010")
         assert ref.employee_id == "00010"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_vessel_ref_role(self, mock_state):
-        mock_emp = MagicMock()
-        mock_emp.role = "Engineer"
-        mock_state.employees = {"00010": mock_emp}
-
-        ref = _VesselRef("00010")
+    def test_vessel_ref_role(self, monkeypatch):
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_employee",
+                            lambda eid: {"id": eid, "role": "Engineer"})
+        ref = _VesselRef("test_emp")
         assert ref.role == "Engineer"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_vessel_ref_role_default(self, mock_state):
-        mock_state.employees = {}
+    def test_vessel_ref_role_default(self, monkeypatch):
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_employee", lambda eid: None)
         ref = _VesselRef("99999")
         assert ref.role == "Employee"
 

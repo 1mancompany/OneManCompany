@@ -350,9 +350,10 @@ class TestExecuteHire:
         assert emp.desk_position == (5, 3)
         assert "python" in emp.skills
 
-        # Verify in company_state
-        assert emp.id in cs.employees
-        assert cs.employees[emp.id] is emp
+        # After Task 10 refactoring, employee data is persisted to disk via
+        # store.save_employee (not in-memory cs.employees). The conftest bridge
+        # swallows disk writes in test isolation mode, so we verify the returned
+        # Employee object and the directory structure created by ensure_employee_dir.
 
         # Verify profile saved
         emp_dir = emp_base / emp.id

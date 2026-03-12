@@ -20,6 +20,7 @@ from onemancompany.agents.base import BaseAgentRunner, extract_final_content, ma
 from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
+from onemancompany.core.store import append_activity_sync as _append_activity
 
 # Pending hiring requests awaiting CEO approval.
 # { request_id: { role, reason, skills, requested_by, requested_at } }
@@ -433,7 +434,7 @@ def register_asset(
         office_tool.files = copied_files
 
     company_state.tools[eq_id] = office_tool
-    company_state.activity_log.append(
+    _append_activity(
         {"type": "tool_added", "name": name, "description": description, "folder": folder_name}
     )
 
@@ -475,7 +476,7 @@ def remove_tool(tool_id: str) -> dict:
         if folder.exists():
             shutil.rmtree(folder)
 
-    company_state.activity_log.append(
+    _append_activity(
         {"type": "tool_removed", "name": name, "id": tool_id}
     )
 
@@ -618,7 +619,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
             room.is_booked = True
             room.booked_by = employee_id
             room.participants = all_participants
-            company_state.activity_log.append({
+            _append_activity({
                 "type": "meeting_booked",
                 "room": room.name,
                 "booked_by": employee_id,
@@ -633,7 +634,7 @@ def book_meeting_room(employee_id: str, participants: list[str], purpose: str = 
                 "message": f"Meeting room {room.name} booked successfully.",
             }
 
-    company_state.activity_log.append({
+    _append_activity({
         "type": "meeting_denied",
         "requested_by": employee_id,
         "reason": "no_free_rooms",
@@ -664,7 +665,7 @@ def release_meeting_room(room_id: str) -> dict:
     room.is_booked = False
     room.booked_by = ""
     room.participants = []
-    company_state.activity_log.append({
+    _append_activity({
         "type": "meeting_released",
         "room": room.name,
         "participants": old_participants,
@@ -720,7 +721,7 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
             default_flow_style=False,
         )
 
-    company_state.activity_log.append({
+    _append_activity({
         "type": "tool_added",
         "name": name,
         "description": f"New meeting room (capacity: {capacity})",
@@ -848,7 +849,7 @@ def deposit_company_knowledge(
     if category == "workflow":
         save_workflow(name, content)
         path = str(WORKFLOWS_DIR / f"{name}.md")
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "workflow",
             "name": name,
@@ -856,10 +857,12 @@ def deposit_company_knowledge(
 
     elif category == "culture":
         culture_item = {"content": content, "added_by": "COO", "name": name}
-        company_state.company_culture.append(culture_item)
-        save_company_culture(company_state.company_culture)
+        from onemancompany.core.store import load_culture as _load_culture
+        items = _load_culture()
+        items.append(culture_item)
+        save_company_culture(items)
         path = "company/company_culture.yaml"
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "culture",
             "name": name,
@@ -870,7 +873,7 @@ def deposit_company_knowledge(
         sop_path = SOP_DIR / f"{name}.md"
         sop_path.write_text(content, encoding="utf-8")
         path = str(sop_path)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "sop",
             "name": name,
@@ -881,7 +884,7 @@ def deposit_company_knowledge(
         guidance_path = SHARED_PROMPTS_DIR / f"{name}.md"
         guidance_path.write_text(content, encoding="utf-8")
         path = str(guidance_path)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "guidance",
             "name": name,
@@ -889,9 +892,8 @@ def deposit_company_knowledge(
 
     elif category == "direction":
         save_company_direction(content)
-        company_state.company_direction = content
         path = "company/company_direction.yaml"
-        company_state.activity_log.append({
+        _append_activity({
             "type": "knowledge_deposited",
             "category": "direction",
             "name": name,

@@ -340,6 +340,18 @@ async def append_activity(entry: dict) -> None:
     mark_dirty("activity_log")
 
 
+def append_activity_sync(entry: dict) -> None:
+    """Synchronous version of append_activity for use in non-async contexts (e.g., LangChain tools)."""
+    path = COMPANY_DIR / "activity_log.yaml"
+    log = _read_yaml_list(path)
+    log.append(entry)
+    if len(log) > 200:
+        log = log[-200:]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("activity_log")
+
+
 def load_culture() -> list[dict]:
     return _read_yaml_list(COMPANY_DIR / "company_culture.yaml")
 
