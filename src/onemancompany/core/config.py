@@ -515,15 +515,11 @@ def save_employee_profile(employee_id: str, config: EmployeeConfig) -> None:
         with open(profile_path, "w") as f:
             yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
-    # Keep in-memory employee_configs in sync
-    employee_configs[employee_id] = config
 
 
 def update_tool_permissions(employee_id: str, tool_permissions: list[str]) -> None:
     """Persist tool_permissions into an existing employee profile.yaml."""
     update_employee_profile(employee_id, {"tool_permissions": tool_permissions})
-    if employee_id in employee_configs:
-        employee_configs[employee_id].tool_permissions = list(tool_permissions)
 
 
 def update_employee_performance(employee_id: str, current_quarter_tasks: int, performance_history: list[dict]) -> None:
@@ -688,8 +684,6 @@ def move_employee_to_ex(employee_id: str) -> bool:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.move(str(src), str(dst))
-    # Remove from in-memory configs
-    employee_configs.pop(employee_id, None)
     return True
 
 
@@ -704,12 +698,6 @@ def move_ex_employee_back(employee_id: str) -> bool:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.move(str(src), str(dst))
-    # Reload into in-memory configs
-    profile_path = dst / "profile.yaml"
-    if profile_path.exists():
-        with open(profile_path) as f:
-            raw = yaml.safe_load(f) or {}
-        employee_configs[employee_id] = EmployeeConfig(**raw)
     return True
 
 
@@ -879,5 +867,64 @@ def list_available_talents() -> list[dict]:
     return result
 
 
-# Load all employee configs at import time
-employee_configs = load_employee_configs()
+class _LazyEmployeeConfigs(dict):
+    """Lazy-loading dict that reads employee configs from disk on demand.
+
+    No import-time cache — every access reads from disk via load_employee_configs().
+    This is a transitional shim; callers should migrate to store.load_employee().
+    """
+
+    def __getitem__(self, key):
+        fresh = load_employee_configs()
+        return fresh[key]
+
+    def get(self, key, default=None):
+        fresh = load_employee_configs()
+        return fresh.get(key, default)
+
+    def __contains__(self, key):
+        fresh = load_employee_configs()
+        return key in fresh
+
+    def __iter__(self):
+        fresh = load_employee_configs()
+        return iter(fresh)
+
+    def items(self):
+        fresh = load_employee_configs()
+        return fresh.items()
+
+    def values(self):
+        fresh = load_employee_configs()
+        return fresh.values()
+
+    def keys(self):
+        fresh = load_employee_configs()
+        return fresh.keys()
+
+    def __len__(self):
+        fresh = load_employee_configs()
+        return len(fresh)
+
+    def __bool__(self):
+        fresh = load_employee_configs()
+        return bool(fresh)
+
+    # Mutation methods are no-ops (no cache to update)
+    def __setitem__(self, key, value):
+        pass  # no-op — disk is the source of truth
+
+    def __delitem__(self, key):
+        pass  # no-op
+
+    def pop(self, key, *args):
+        pass  # no-op
+
+    def clear(self):
+        pass  # no-op
+
+    def update(self, *args, **kwargs):
+        pass  # no-op
+
+
+employee_configs: dict[str, EmployeeConfig] = _LazyEmployeeConfigs()

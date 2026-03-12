@@ -453,15 +453,14 @@ async def lifespan(app: FastAPI):
 
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
-    from onemancompany.core.config import FOUNDING_LEVEL
-    from onemancompany.core.state import company_state
-    from onemancompany.core.config import FOUNDING_IDS
-    for emp_id, emp in company_state.employees.items():
+    from onemancompany.core.config import FOUNDING_LEVEL, FOUNDING_IDS
+    from onemancompany.core import store as _store_mod
+    for emp_id, emp_data in _store_mod.load_all_employees().items():
         if emp_id in FOUNDING_IDS:
             continue
-        if emp.level >= FOUNDING_LEVEL:
+        if emp_data.get("level", 0) >= FOUNDING_LEVEL:
             continue
-        if emp.remote:
+        if emp_data.get("remote", False):
             continue
 
         # Load VesselConfig for per-employee DNA
@@ -472,11 +471,11 @@ async def lifespan(app: FastAPI):
         if _cfg and _cfg.hosting == "self":
             # Self-hosted: register with ClaudeSessionExecutor (on-demand CLI sessions)
             register_self_hosted(emp_id, config=_vessel_cfg)
-            print(f"[startup] Registered self-hosted {emp.name} ({emp_id}) — on-demand sessions")
+            print(f"[startup] Registered self-hosted {emp_data.get('name', emp_id)} ({emp_id}) — on-demand sessions")
             continue
         _runner = EmployeeAgent(emp_id)
         register_agent(emp_id, _runner, config=_vessel_cfg)
-        print(f"[startup] Registered {emp.name} ({emp_id}) — LangChain agent")
+        print(f"[startup] Registered {emp_data.get('name', emp_id)} ({emp_id}) — LangChain agent")
 
     await start_all_loops()
 

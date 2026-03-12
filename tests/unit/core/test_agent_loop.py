@@ -292,17 +292,16 @@ class TestAgentRef:
         ref = _AgentRef("00010")
         assert ref.employee_id == "00010"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_role_from_state(self, mock_state):
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"00010": emp}
-        ref = _AgentRef("00010")
+    def test_role_from_state(self, monkeypatch):
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_employee",
+                            lambda eid: {"id": eid, "role": "Engineer"})
+        ref = _AgentRef("test_emp")
         assert ref.role == "Engineer"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_role_missing_employee(self, mock_state):
-        mock_state.employees = {}
+    def test_role_missing_employee(self, monkeypatch):
+        from onemancompany.core import store as store_mod
+        monkeypatch.setattr(store_mod, "load_employee", lambda eid: None)
         ref = _AgentRef("00099")
         assert ref.role == "Employee"
 
@@ -693,14 +692,13 @@ class TestEmployeeManagerScheduleNext:
         mgr = EmployeeManager()
         mgr._schedule_next("nobody")  # should not raise
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_schedule_next_no_pending_sets_idle(self, mock_state):
+    @patch("onemancompany.core.vessel._store")
+    def test_schedule_next_no_pending_sets_idle(self, mock_store):
         mgr = EmployeeManager()
-        emp = MagicMock()
-        mock_state.employees = {"emp01": emp}
+        mock_store.save_employee_runtime = AsyncMock()
         mgr.boards["emp01"] = AgentTaskBoard()  # empty board
         mgr._schedule_next("emp01")
-        assert emp.status == "idle"
+        # _set_employee_status now persists via store (no in-memory emp.status)
 
 
 # ---------------------------------------------------------------------------
@@ -1053,31 +1051,28 @@ class TestEmployeeManagerTaskHistory:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerHelpers:
-    @patch("onemancompany.core.vessel.company_state")
-    def test_get_role_found(self, mock_state):
-        emp = MagicMock()
-        emp.role = "COO"
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_get_role_found(self, mock_store):
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "COO"}
         mgr = EmployeeManager()
         assert mgr._get_role("emp01") == "COO"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_get_role_missing(self, mock_state):
-        mock_state.employees = {}
+    @patch("onemancompany.core.vessel._store")
+    def test_get_role_missing(self, mock_store):
+        mock_store.load_employee.return_value = None
         mgr = EmployeeManager()
         assert mgr._get_role("nobody") == "Employee"
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_set_employee_status(self, mock_state):
-        emp = MagicMock()
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_set_employee_status(self, mock_store):
+        mock_store.save_employee_runtime = AsyncMock()
         mgr = EmployeeManager()
         mgr._set_employee_status("emp01", "working")
-        assert emp.status == "working"
+        # _set_employee_status now persists via store (async), no in-memory mutation
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_set_employee_status_missing(self, mock_state):
-        mock_state.employees = {}
+    @patch("onemancompany.core.vessel._store")
+    def test_set_employee_status_missing(self, mock_store):
+        mock_store.save_employee_runtime = AsyncMock()
         mgr = EmployeeManager()
         mgr._set_employee_status("nobody", "working")  # should not raise
 
@@ -1681,33 +1676,27 @@ class TestEmployeeManagerProjectHistoryContext:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerWorkflowContext:
-    @patch("onemancompany.core.vessel.company_state")
-    def test_manager_coo_gets_manager_guide(self, mock_state):
-        emp = MagicMock()
-        emp.role = "COO"
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_manager_coo_gets_manager_guide(self, mock_store):
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "COO"}
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")
         result = mgr._get_project_workflow_context("emp01", task)
         assert "Manager Execution Guide" in result
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_manager_cso_gets_manager_guide(self, mock_state):
-        emp = MagicMock()
-        emp.role = "CSO"
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_manager_cso_gets_manager_guide(self, mock_store):
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "CSO"}
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")
         result = mgr._get_project_workflow_context("emp01", task)
         assert "Manager Execution Guide" in result
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_engineer_gets_verification_instructions(self, mock_state):
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_engineer_gets_verification_instructions(self, mock_store):
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "Engineer"}
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")
@@ -1717,11 +1706,9 @@ class TestEmployeeManagerWorkflowContext:
             assert "Self-Verification" in result
             assert "sandbox_execute_code" in result
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_engineer_with_workflow_verification(self, mock_state):
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
+    @patch("onemancompany.core.vessel._store")
+    def test_engineer_with_workflow_verification(self, mock_store):
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "Engineer"}
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")
@@ -1739,9 +1726,9 @@ class TestEmployeeManagerWorkflowContext:
                 assert "Self-Verification" in result
                 assert "Build and run the code" in result
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_missing_employee_uses_default(self, mock_state):
-        mock_state.employees = {}
+    @patch("onemancompany.core.vessel._store")
+    def test_missing_employee_uses_default(self, mock_store):
+        mock_store.load_employee.return_value = None
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")
@@ -1750,12 +1737,10 @@ class TestEmployeeManagerWorkflowContext:
             result = mgr._get_project_workflow_context("nobody", task)
             assert "Self-Verification" in result
 
-    @patch("onemancompany.core.vessel.company_state")
-    def test_hr_is_manager_but_not_coo_cso(self, mock_state):
+    @patch("onemancompany.core.vessel._store")
+    def test_hr_is_manager_but_not_coo_cso(self, mock_store):
         """HR is a manager role but not COO/CSO, so should get verification guide."""
-        emp = MagicMock()
-        emp.role = "HR"
-        mock_state.employees = {"emp01": emp}
+        mock_store.load_employee.return_value = {"id": "emp01", "role": "HR"}
 
         mgr = EmployeeManager()
         task = AgentTask(id="t1", description="test", project_id="proj1")

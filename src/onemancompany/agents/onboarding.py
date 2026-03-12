@@ -46,13 +46,16 @@ from onemancompany.core.state import Employee, company_state, make_title
 
 def _get_existing_nicknames() -> set[str]:
     """Collect all nicknames in use by current and ex-employees."""
+    from onemancompany.core.store import load_all_employees, load_ex_employees
     nicknames: set[str] = set()
-    for emp in company_state.employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
-    for emp in company_state.ex_employees.values():
-        if emp.nickname:
-            nicknames.add(emp.nickname)
+    for edata in load_all_employees().values():
+        nn = edata.get("nickname", "")
+        if nn:
+            nicknames.add(nn)
+    for edata in load_ex_employees().values():
+        nn = edata.get("nickname", "")
+        if nn:
+            nicknames.add(nn)
     return nicknames
 
 
@@ -759,9 +762,6 @@ async def execute_hire(
         probation=True,
         onboarding_completed=False,
     )
-    # Keep in-memory dict in sync until Task 10 removes it
-    company_state.employees[emp_num] = emp
-
     # Persist profile via store (single source of truth)
     await _store.save_employee(emp_num, {
         "name": name,
@@ -883,15 +883,15 @@ async def execute_hire(
 
     # Recompute layout
     compute_layout(company_state)
-    persist_all_desk_positions(company_state)
 
     if progress_callback:
         await progress_callback("registering_agent", "Registering agent...")
 
-    company_state.activity_log.append(
+    await _store.append_activity(
         {"type": "employee_hired", "name": name, "nickname": nickname, "role": role}
     )
-    await event_bus.publish(CompanyEvent(type="employee_hired", payload=emp.to_dict(), agent="HR"))
+    hired_data = _store.load_employee(emp_num)
+    await event_bus.publish(CompanyEvent(type="employee_hired", payload=hired_data, agent="HR"))
 
     if progress_callback:
         await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")

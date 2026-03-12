@@ -728,8 +728,12 @@ def get_cost_summary() -> dict:
                 total_output += proj_output
                 for entry in cost.get("breakdown", []):
                     eid = entry.get("employee_id", "")
-                    emp = company_state.employees.get(eid) or company_state.ex_employees.get(eid)
-                    dept = emp.department if emp else "Unknown"
+                    from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
+                    _emp_d = _load_emp(eid)
+                    if not _emp_d:
+                        _ex = _load_ex()
+                        _emp_d = _ex.get(eid, {})
+                    dept = _emp_d.get("department", "Unknown")
                     if dept not in dept_costs:
                         dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
                     dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)
@@ -761,8 +765,11 @@ def get_cost_summary() -> dict:
         # Per-department breakdown from cost.breakdown[]
         for entry in cost.get("breakdown", []):
             eid = entry.get("employee_id", "")
-            emp = company_state.employees.get(eid) or company_state.ex_employees.get(eid)
-            dept = emp.department if emp else "Unknown"
+            from onemancompany.core.store import load_employee as _load_emp2, load_ex_employees as _load_ex2
+            emp_data = _load_emp2(eid)
+            if not emp_data:
+                emp_data = _load_ex2().get(eid)
+            dept = emp_data.get("department", "Unknown") if emp_data else "Unknown"
             if dept not in dept_costs:
                 dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
             dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)

@@ -52,8 +52,9 @@ from onemancompany.core.config import (
     VALID_SCORES,
 )
 from onemancompany.core import store as _store
-from onemancompany.core.layout import compute_layout, persist_all_desk_positions
+from onemancompany.core.layout import compute_layout
 from onemancompany.core.state import LEVEL_NAMES, company_state
+from onemancompany.core.store import append_activity_sync as _append_activity
 
 
 HR_SYSTEM_PROMPT = """You are the HR manager of "One Man Company".
@@ -193,17 +194,21 @@ class HRAgent(BaseAgentRunner):
     async def run_quarterly_review(self) -> str:
         reviewable = []
         not_ready = []
-        for e in company_state.employees.values():
+        from onemancompany.core.state import make_title
+        all_emps = _store.load_all_employees()
+        for eid, edata in all_emps.items():
+            perf = edata.get("performance_history", [])
             hist_str = ", ".join(
-                f"Q{i+1}={h['score']}" for i, h in enumerate(e.performance_history)
+                f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
             ) or "no history"
+            level = edata.get("level", 1)
             info = (
-                f"- {e.name} (花名: {e.nickname}, ID: {e.id}, "
-                f"Title: {e.title}, Lv.{e.level} {LEVEL_NAMES.get(e.level, '')}, "
-                f"Q tasks: {e.current_quarter_tasks}/3, "
+                f"- {edata.get('name', '')} (花名: {edata.get('nickname', '')}, ID: {eid}, "
+                f"Title: {make_title(level, edata.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
+                f"Q tasks: {edata.get('current_quarter_tasks', 0)}/3, "
                 f"Performance history: [{hist_str}])"
             )
-            if e.current_quarter_tasks >= TASKS_PER_QUARTER:
+            if edata.get("current_quarter_tasks", 0) >= TASKS_PER_QUARTER:
                 reviewable.append(info)
             else:
                 not_ready.append(info)
@@ -280,34 +285,35 @@ class HRAgent(BaseAgentRunner):
             elif data.get("action") == "review" and "reviews" in data:
                 for review in data["reviews"]:
                     emp_id = review.get("id")
-                    if emp_id and emp_id in company_state.employees:
-                        emp = company_state.employees[emp_id]
+                    emp_data = _store.load_employee(emp_id) if emp_id else {}
+                    if emp_id and emp_data:
                         # Only review if quarter tasks >= threshold
-                        if emp.current_quarter_tasks < TASKS_PER_QUARTER:
+                        if emp_data.get("current_quarter_tasks", 0) < TASKS_PER_QUARTER:
                             continue
                         raw_score = review.get("score", 3.5)
                         # Snap to nearest valid tier
                         score = min(VALID_SCORES, key=lambda s: abs(s - raw_score))
                         # Record quarter and reset task counter
-                        emp.performance_history.append({"score": score, "tasks": TASKS_PER_QUARTER})
+                        perf_history = list(emp_data.get("performance_history", []))
+                        perf_history.append({"score": score, "tasks": TASKS_PER_QUARTER})
                         # Keep only recent quarters
-                        if len(emp.performance_history) > MAX_PERFORMANCE_HISTORY:
-                            emp.performance_history = emp.performance_history[-MAX_PERFORMANCE_HISTORY:]
-                        emp.current_quarter_tasks = 0
+                        if len(perf_history) > MAX_PERFORMANCE_HISTORY:
+                            perf_history = perf_history[-MAX_PERFORMANCE_HISTORY:]
                         # Persist performance via store
                         await _store.save_employee(emp_id, {
                             "current_quarter_tasks": 0,
-                            "performance_history": emp.performance_history,
+                            "performance_history": perf_history,
                         })
                         await self._publish(
                             "employee_reviewed",
                             {"id": emp_id, "score": score,
-                             "history": emp.performance_history},
+                             "history": perf_history},
                         )
 
                         # PIP logic
+                        pip = emp_data.get("pip")
                         if score == SCORE_NEEDS_IMPROVEMENT:
-                            if emp.pip:
+                            if pip:
                                 # Already on PIP and scored 3.25 again → terminate
                                 try:
                                     from onemancompany.core.routine import run_offboarding_routine
@@ -319,12 +325,10 @@ class HRAgent(BaseAgentRunner):
                             else:
                                 # Start PIP
                                 pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
-                                emp.pip = pip_data
                                 await _store.save_employee(emp_id, {"pip": pip_data})
                                 await self._publish("pip_started", {"id": emp_id, "pip": pip_data})
-                        elif score >= 3.5 and emp.pip:
+                        elif score >= 3.5 and pip:
                             # Resolve PIP
-                            emp.pip = None
                             await _store.save_employee(emp_id, {"pip": None})
                             await self._publish("pip_resolved", {"id": emp_id})
 
@@ -342,12 +346,11 @@ class HRAgent(BaseAgentRunner):
 
             elif data.get("action") == "probation_review" and "employee_id" in data:
                 emp_id = data["employee_id"]
-                if emp_id in company_state.employees:
-                    emp = company_state.employees[emp_id]
+                prob_data = _store.load_employee(emp_id)
+                if prob_data:
                     passed = data.get("passed", True)
                     feedback = data.get("feedback", "")
                     if passed:
-                        emp.probation = False
                         await _store.save_employee(emp_id, {"probation": False})
                         await self._publish("probation_review", {
                             "id": emp_id, "passed": True, "feedback": feedback,
@@ -370,36 +373,40 @@ class HRAgent(BaseAgentRunner):
 
         Criteria: QUARTERS_FOR_PROMOTION consecutive quarters of SCORE_EXCELLENT → level up.
         """
-        for emp in company_state.employees.values():
-            if emp.level >= MAX_NORMAL_LEVEL and emp.level < FOUNDING_LEVEL:
+        from onemancompany.core.state import make_title
+        all_emps = _store.load_all_employees()
+        for eid, edata in all_emps.items():
+            level = edata.get("level", 1)
+            if level >= MAX_NORMAL_LEVEL and level < FOUNDING_LEVEL:
                 continue  # already at max normal level
-            if emp.level >= FOUNDING_LEVEL:
+            if level >= FOUNDING_LEVEL:
                 continue  # founding/CEO can't be promoted this way
-            if len(emp.performance_history) < QUARTERS_FOR_PROMOTION:
+            perf = edata.get("performance_history", [])
+            if len(perf) < QUARTERS_FOR_PROMOTION:
                 continue
-            last_n = emp.performance_history[-QUARTERS_FOR_PROMOTION:]
+            last_n = perf[-QUARTERS_FOR_PROMOTION:]
             if all(q.get("score") == SCORE_EXCELLENT for q in last_n):
-                old_level = emp.level
-                emp.level = min(emp.level + 1, MAX_NORMAL_LEVEL)
-                if emp.level == old_level:  # pragma: no cover – guarded by line 367
+                old_level = level
+                new_level = min(level + 1, MAX_NORMAL_LEVEL)
+                if new_level == old_level:
                     continue  # no actual promotion
+                new_title = make_title(new_level, edata.get("role", ""))
                 # Persist new level/title via store
-                await _store.save_employee(emp.id, {"level": emp.level, "title": emp.title})
+                await _store.save_employee(eid, {"level": new_level, "title": new_title})
                 # Recompute layout (level change affects vertical ordering)
                 compute_layout(company_state)
-                persist_all_desk_positions(company_state)
-                company_state.activity_log.append({
+                _append_activity({
                     "type": "promotion",
-                    "name": emp.name,
-                    "nickname": emp.nickname,
+                    "name": edata.get("name", ""),
+                    "nickname": edata.get("nickname", ""),
                     "old_level": old_level,
-                    "new_level": emp.level,
-                    "new_title": emp.title,
+                    "new_level": new_level,
+                    "new_title": new_title,
                 })
                 await self._publish(
                     "agent_done",
                     {"role": "HR",
-                     "summary": f"Promotion: {emp.name} ({emp.nickname}) {LEVEL_NAMES.get(old_level, '')} -> {emp.title}"},
+                     "summary": f"Promotion: {edata.get('name', '')} ({edata.get('nickname', '')}) {LEVEL_NAMES.get(old_level, '')} -> {new_title}"},
                 )
 
 

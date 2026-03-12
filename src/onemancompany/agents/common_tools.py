@@ -713,7 +713,8 @@ async def pull_meeting(
         except (json.JSONDecodeError, AttributeError) as _e:
             logger.debug("Failed to parse meeting action items: {}", _e)
 
-        company_state.activity_log.append({
+        from onemancompany.core.store import append_activity_sync
+        append_activity_sync({
             "type": "pull_meeting",
             "topic": topic,
             "initiator": initiator_id,
@@ -1014,31 +1015,27 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     if not emp_data:
         return {"status": "error", "message": f"Employee {employee_id} not found."}
 
-    emp = company_state.employees.get(employee_id)
-    if not emp:
-        return {"status": "error", "message": f"Employee {employee_id} not found in runtime state."}
+    current_perms = list(emp_data.get("tool_permissions", []) or [])
 
     if action == "grant":
-        if tool_name not in (emp.tool_permissions or []):
-            if emp.tool_permissions is None:
-                emp.tool_permissions = []
-            emp.tool_permissions.append(tool_name)
+        if tool_name not in current_perms:
+            current_perms.append(tool_name)
     elif action == "revoke":
-        if emp.tool_permissions and tool_name in emp.tool_permissions:
-            emp.tool_permissions.remove(tool_name)
+        if tool_name in current_perms:
+            current_perms.remove(tool_name)
     else:
         return {"status": "error", "message": f"Invalid action: {action}. Use 'grant' or 'revoke'."}
 
     # Persist to disk
     from onemancompany.core.config import update_tool_permissions
-    update_tool_permissions(employee_id, emp.tool_permissions or [])
+    update_tool_permissions(employee_id, current_perms)
 
     return {
         "status": "ok",
         "employee": employee_id,
         "tool": tool_name,
         "action": action,
-        "current_tool_permissions": emp.tool_permissions,
+        "current_tool_permissions": current_perms,
     }
 
 

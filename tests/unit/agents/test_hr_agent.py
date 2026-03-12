@@ -24,7 +24,8 @@ from onemancompany.core.state import CompanyState, Employee
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_cs() -> CompanyState:
+
+def _make_cs():
     cs = CompanyState()
     cs._next_employee_number = 100
     return cs
@@ -282,7 +283,7 @@ class TestApplyResultsFire:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -358,7 +359,7 @@ class TestCheckPromotions:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
 
         agent = MagicMock()
         agent._publish = AsyncMock()
@@ -770,7 +771,7 @@ class TestApplyResultsPIP:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.25}]}\n```'
@@ -858,7 +859,7 @@ class TestApplyResultsProbation:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         output = '```json\n{"action": "probation_review", "employee_id": "00010", "passed": false, "feedback": "Did not meet expectations"}\n```'
@@ -908,7 +909,7 @@ class TestApplyResultsJsonFallback:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1054,7 +1055,7 @@ class TestApplyResultsOffboardingExceptions:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1085,7 +1086,7 @@ class TestApplyResultsOffboardingExceptions:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1113,7 +1114,7 @@ class TestApplyResultsOffboardingExceptions:
         monkeypatch.setattr(term_mod, "company_state", cs)
         monkeypatch.setattr(term_mod, "move_employee_to_ex", lambda eid: True)
         monkeypatch.setattr(term_mod, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(term_mod, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10 — no longer in termination module
         monkeypatch.setattr(term_mod, "event_bus", MagicMock(publish=AsyncMock()))
 
         agent = MagicMock()
@@ -1141,7 +1142,7 @@ class TestCheckPromotionsEdgeCases:
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(hr_agent, "company_state", cs)
         monkeypatch.setattr(hr_agent, "compute_layout", lambda cs: {})
-        monkeypatch.setattr(hr_agent, "persist_all_desk_positions", lambda cs: None)
+        # persist_all_desk_positions removed in Task 10
 
         agent = MagicMock()
         agent._publish = AsyncMock()

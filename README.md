@@ -21,6 +21,7 @@ OneManCompany 不仅仅是一个 multi-agent 框架——它是一套**以公司
 - **CEO 是唯一的人** — 系统的全部设计围绕"一个人管一家公司"展开。AI 不是辅助工具，而是真正的员工。
 - **零空转** — 没有 while-True 轮询。所有任务 on-demand 推送，事件驱动，按需执行。
 - **Git-friendly 持久化** — YAML + Markdown + JSON，无数据库依赖。公司状态可以 git diff、git blame、git revert。
+- **磁盘即唯一真相源（Single Source of Truth）** — 所有业务数据只存在于 `.onemancompany/` 目录下的磁盘文件中。内存不缓存业务数据，每次读取从磁盘加载。每份数据有且仅有一个文件拥有它、一个写入函数更新它。前端是纯渲染层，不存储任何业务状态，通过 3 秒同步帧从后端 REST API 获取最新数据。
 
 ---
 

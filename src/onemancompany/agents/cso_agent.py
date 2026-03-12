@@ -13,6 +13,7 @@ from langgraph.prebuilt import create_react_agent
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, CSO_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 from onemancompany.core.state import company_state
+from onemancompany.core.store import append_activity_sync as _append_activity
 
 CSO_SYSTEM_PROMPT = """You are the CSO (Chief Sales Officer) of "One Man Company".
 You manage the sales pipeline, client relationships, and external task delivery.
@@ -107,7 +108,7 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
                 f"Please execute this task and report results."
             )
             coo_loop.push_task(coo_task)
-        company_state.activity_log.append({
+        _append_activity({
             "type": "contract_approved",
             "task_id": task_id,
             "client": task.client_name,
@@ -120,7 +121,7 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
         }
     else:
         task.status = "rejected"
-        company_state.activity_log.append({
+        _append_activity({
             "type": "contract_rejected",
             "task_id": task_id,
             "client": task.client_name,
@@ -153,7 +154,7 @@ def complete_delivery(task_id: str, delivery_summary: str) -> dict:
 
     task.status = "delivered"
     task.delivery = delivery_summary
-    company_state.activity_log.append({
+    _append_activity({
         "type": "task_delivered",
         "task_id": task_id,
         "client": task.client_name,
@@ -186,7 +187,7 @@ def settle_task(task_id: str) -> dict:
     task.settlement_tokens = tokens
     task.status = "settled"
     company_state.company_tokens += tokens
-    company_state.activity_log.append({
+    _append_activity({
         "type": "task_settled",
         "task_id": task_id,
         "client": task.client_name,
