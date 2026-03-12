@@ -384,6 +384,7 @@ class TestOnChildCompleteReviewPrompt:
         with (
             patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
             patch("onemancompany.core.vessel._save_project_tree"),
+            patch("onemancompany.core.vessel.persist_task"),
             patch("onemancompany.core.vessel.company_state") as mock_cs,
         ):
             mock_cs.employees = {}
@@ -434,6 +435,7 @@ class TestOnChildCompleteReviewPrompt:
         with (
             patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
             patch("onemancompany.core.vessel._save_project_tree"),
+            patch("onemancompany.core.vessel.persist_task"),
             patch("onemancompany.core.vessel.company_state") as mock_cs,
         ):
             mock_cs.employees = {}
@@ -475,6 +477,7 @@ class TestOnChildCompleteReviewPrompt:
         with (
             patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
             patch("onemancompany.core.vessel._save_project_tree"),
+            patch("onemancompany.core.vessel.persist_task"),
             patch("onemancompany.core.vessel.company_state") as mock_cs,
         ):
             mock_cs.employees = {}
@@ -654,6 +657,7 @@ class TestCeoConfirmation:
         with (
             patch("onemancompany.core.vessel.event_bus") as mock_bus,
             patch("onemancompany.core.vessel.company_state") as mock_cs,
+            patch("onemancompany.core.vessel.persist_task"),
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
             patch.object(em, "_schedule_next") as mock_schedule,
         ):
