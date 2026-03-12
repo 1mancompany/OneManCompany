@@ -12,11 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-import sys
-
 from langchain_core.tools import tool
 from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
 
 from loguru import logger
 
@@ -97,35 +94,46 @@ _boss_cleanup: asyncio.Task | None = None
 
 
 async def start_boss_online() -> None:
-    """Start the Boss Online MCP server as a persistent subprocess.
+    """Start the Boss Online MCP connection (remote SSE).
 
     Called once during app lifespan startup.  The session is stored in
     module-level ``_boss_session`` so ``search_candidates`` can reuse it.
+
+    Talent Market is a centralized service — always connects via SSE.
+    URL and API key are read from config.yaml (talent_market section).
     """
     global _boss_session, _boss_cleanup
 
-    from pathlib import Path
-
-    boss_online_path = str(
-        Path(__file__).resolve().parent.parent / "talent_market" / "boss_online.py"
-    )
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=[boss_online_path],
-    )
-
-    # stdio_client is an async context manager that starts the subprocess.
-    # We enter it manually and store the exit stack so we can clean up later.
     from contextlib import AsyncExitStack
+
+    # Read talent market config from app settings (config.yaml)
+    from onemancompany.core.config import load_app_config
+    tm_config = load_app_config().get("talent_market", {})
+
+    url = tm_config.get("url", "https://api.carbonkites.com/mcp/sse")
+    api_key = tm_config.get("api_key", "")
+
+    if not api_key:
+        logger.warning("Talent Market API key not configured — skipping connection. "
+                       "Set it in Settings or .onemancompany/config.yaml")
+        return
+
     stack = AsyncExitStack()
-    read, write = await stack.enter_async_context(stdio_client(server_params))
+
+    from mcp.client.sse import sse_client
+    headers = {"Authorization": f"Bearer {api_key}"}
+    read, write = await stack.enter_async_context(
+        sse_client(url=url, headers=headers)
+    )
+    logger.info("Connecting to Talent Market at {}", url)
+
     session = await stack.enter_async_context(ClientSession(read, write))
     await session.initialize()
 
     _boss_session = session
     # Store the stack so stop_boss_online can tear it down
     _boss_session._exit_stack = stack  # type: ignore[attr-defined]
-    logger.info("Boss Online MCP server started (persistent)")
+    logger.info("Talent Market MCP server ready")
 
 
 async def stop_boss_online() -> None:
@@ -139,8 +147,8 @@ async def stop_boss_online() -> None:
         logger.info("Boss Online MCP server stopped")
 
 
-async def _call_boss_online(job_description: str, count: int = 10) -> list[dict]:
-    """Call the persistent Boss Online MCP session."""
+async def _call_boss_online(job_description: str, count: int = 10) -> dict:
+    """Call the persistent Boss Online MCP session. Returns role-grouped result."""
     if _boss_session is None:
         raise RuntimeError("Boss Online MCP server is not running")
 
@@ -148,36 +156,42 @@ async def _call_boss_online(job_description: str, count: int = 10) -> list[dict]
         "search_candidates",
         arguments={"job_description": job_description, "count": count},
     )
-    candidates = []
+    # MCP now returns a single dict with role-grouped structure
     for item in result.content:
         try:
-            candidates.append(json.loads(item.text))
+            parsed = json.loads(item.text)
         except (json.JSONDecodeError, AttributeError) as _e:
-            logger.debug("Skipping unparseable candidate block: {}", _e)
+            logger.debug("Skipping unparseable content block: {}", _e)
             continue
-    return candidates
+        if isinstance(parsed, dict) and "roles" in parsed:
+            return parsed
+    # Fallback if no role-grouped result found
+    logger.warning("Boss Online did not return role-grouped result, returning empty")
+    return {"type": "individual", "summary": "", "roles": []}
 
 
 @tool
-async def search_candidates(job_description: str) -> list[dict]:
+async def search_candidates(job_description: str) -> dict:
     """Search the Boss Online recruitment platform for candidates matching a job description.
 
-    Connects to the Boss Online MCP server, which generates candidate profiles
-    based on the job description. Returns ranked candidates with full profiles
-    including skills, tools, system prompts, and JD relevance scores.
+    Connects to the Boss Online MCP server, which generates role-grouped candidate
+    profiles based on the job description. Returns a dict with type, summary, and
+    roles (each containing ranked candidates).
 
     Args:
         job_description: The job requirements / description text.
 
     Returns:
-        A list of candidate dicts sorted by JD relevance (highest first).
+        A role-grouped dict: {type, summary, roles: [{role, description, candidates}]}.
     """
     try:
-        candidates = await _call_boss_online(job_description)
-        logger.info("Boss Online returned %d candidates for JD: %s", len(candidates), job_description[:80])
+        grouped = await _call_boss_online(job_description)
+        total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
+        logger.info("Boss Online returned %d candidates in %d roles for JD: %s",
+                     total, len(grouped.get("roles", [])), job_description[:80])
     except Exception as e:
         logger.error("Boss Online MCP call failed: %s", e)
-        # Fallback to local talent packages
+        # Fallback to local talent packages, wrapped in role-grouped format
         from onemancompany.core.config import list_available_talents, load_talent_profile
         talents = list_available_talents()
         candidates = []
@@ -185,13 +199,20 @@ async def search_candidates(job_description: str) -> list[dict]:
             profile = load_talent_profile(t["id"])
             if profile:
                 candidates.append(_talent_to_candidate(profile))
-    # Stash full results so shortlist can look up by ID (LLM may drop fields)
+        grouped = {
+            "type": "individual",
+            "summary": "Fallback: local talent packages",
+            "roles": [{"role": "Available Talents", "description": job_description, "candidates": candidates}],
+        }
+
+    # Stash ALL candidates from ALL roles so shortlist can look up by ID
     _last_search_results.clear()
-    for c in candidates:
-        cid = c.get("id") or c.get("talent_id", "")
-        if cid:
-            _last_search_results[cid] = c
-    return candidates
+    for role_group in grouped.get("roles", []):
+        for c in role_group.get("candidates", []):
+            cid = c.get("id") or c.get("talent_id", "")
+            if cid:
+                _last_search_results[cid] = c
+    return grouped
 
 
 @tool
@@ -210,6 +231,83 @@ def list_open_positions() -> list[dict]:
         {"role": "Marketing", "priority": "low", "reason": "Growth and outreach"},
     ]
     return random.sample(positions, k=random.randint(2, 4))
+
+
+@tool
+async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] | None = None) -> str:
+    """Submit a shortlist of candidates to CEO for selection and interview.
+
+    After calling search_candidates(), pick the top 5 candidates and submit
+    their IDs here.  This sends the shortlist to the CEO's frontend for
+    visual selection — do NOT hire directly.
+
+    Args:
+        jd: The job description used for the search.
+        candidate_ids: List of candidate IDs (from search results) to include
+            in the shortlist.  Maximum 5.
+        roles: Optional role-grouped structure from search_candidates(). Each
+            entry has {role, description, candidates}. If provided, candidates
+            are re-hydrated with full data from _last_search_results.
+
+    Returns:
+        Confirmation message with batch_id.
+    """
+    import uuid as _uuid
+
+    from onemancompany.core.events import CompanyEvent, event_bus
+
+    # Build flat candidate list from IDs (always needed for backward compat)
+    all_candidates = []
+    for cid in candidate_ids[:5]:
+        full = _last_search_results.get(cid)
+        if full:
+            all_candidates.append(full)
+        else:
+            logger.warning("submit_shortlist: candidate %s not found in search results", cid)
+
+    if not all_candidates:
+        return "ERROR: No valid candidates found. Call search_candidates() first."
+
+    # Build hydrated role groups
+    if roles:
+        # Re-hydrate each role group with full candidate data
+        hydrated_roles = []
+        for role_group in roles:
+            hydrated_candidates = []
+            for c in role_group.get("candidates", []):
+                cid = c.get("id") or c.get("talent_id", "")
+                full = _last_search_results.get(cid)
+                if full:
+                    hydrated_candidates.append(full)
+            hydrated_roles.append({
+                "role": role_group.get("role", ""),
+                "description": role_group.get("description", ""),
+                "candidates": hydrated_candidates,
+            })
+    else:
+        # Backward compat: wrap flat list in a single role group
+        hydrated_roles = [{"role": "Candidates", "description": jd, "candidates": all_candidates}]
+
+    batch_id = str(_uuid.uuid4())[:8]
+    pending_candidates[batch_id] = all_candidates
+
+    await event_bus.publish(CompanyEvent(
+        type="candidates_ready",
+        payload={
+            "batch_id": batch_id,
+            "jd": jd,
+            "roles": hydrated_roles,
+            "candidates": all_candidates,  # flat list for backward compat
+        },
+        agent="HR",
+    ))
+    logger.info("Shortlist submitted: batch=%s, %d candidates in %d roles",
+                batch_id, len(all_candidates), len(hydrated_roles))
+    return (
+        f"Shortlist submitted (batch_id={batch_id}). "
+        f"{len(all_candidates)} candidates sent to CEO for selection. "
+        "Wait for CEO to choose — do NOT hire directly."
+    )
 
 
 # ---------------------------------------------------------------------------

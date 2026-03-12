@@ -1442,7 +1442,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
     async def test_execute_task_creates_task_entry(self, mock_append, mock_load, mock_bus, mock_state):
-        """When a task has project_id, a TaskEntry is appended to active_tasks."""
+        """When a task has project_id, execution completes the task."""
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
         emp.role = "Engineer"
@@ -1465,8 +1465,6 @@ class TestEmployeeManagerExecuteTaskWithProject:
                             await mgr._execute_task("emp01", task)
 
         assert task.status == "complete"
-        # TaskEntry should have been appended
-        assert len(mock_state.active_tasks) == 1
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -2350,13 +2348,13 @@ class TestTaskTreeCallback:
 # ---------------------------------------------------------------------------
 
 class TestRootNodeCompletion:
-    """Tests for root node completion triggering _full_cleanup."""
+    """Tests for root node completion triggering CEO confirmation gate."""
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_root_complete_triggers_full_cleanup(self, mock_bus, mock_state):
-        """Root node completion triggers _full_cleanup."""
+    async def test_root_complete_triggers_ceo_confirmation(self, mock_bus, mock_state):
+        """Root node completion triggers _request_ceo_confirmation (not _full_cleanup directly)."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
@@ -2375,13 +2373,15 @@ class TestRootNodeCompletion:
 
         with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
              patch("onemancompany.core.vessel._save_project_tree"), \
+             patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
              patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
             await mgr._on_child_complete("00001", task, project_id="proj1")
 
-        # _full_cleanup should have been called
-        mock_cleanup.assert_called_once()
-        call_args = mock_cleanup.call_args
-        assert call_args[1].get("project_id") == "proj1" or call_args[0][3] == "proj1"
+        # _request_ceo_confirmation should have been called, not _full_cleanup
+        mock_confirm.assert_called_once()
+        mock_cleanup.assert_not_called()
+        call_args = mock_confirm.call_args
+        assert call_args[0][4] == "proj1"  # effective_project_id positional arg
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")

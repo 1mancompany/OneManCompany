@@ -37,11 +37,41 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 # Avoid importing heavy deps at module level
-_TOKEN_DIR = Path(__file__).parent.parent.parent.parent / "company" / "assets" / ".oauth_cache"
+from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR
+_TOKEN_DIR = _ASSETS_DIR / ".oauth_cache"
 
 # Track active authorization flows to avoid duplicate popups
 _active_flows: dict[str, float] = {}  # service_name -> deadline
 _flow_lock = threading.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Snapshot provider — persist OAuth flow state across graceful restarts
+# ---------------------------------------------------------------------------
+from onemancompany.core.snapshot import snapshot_provider
+
+
+@snapshot_provider("oauth_flows")
+class _OAuthFlowsSnapshot:
+    @staticmethod
+    def save() -> dict:
+        now = time.time()
+        # Only save flows that haven't expired yet
+        active = {k: v for k, v in _active_flows.items() if v > now}
+        pending = {k: v for k, v in _pending_credentials.items() if v > now}
+        if not active and not pending:
+            return {}
+        return {"active_flows": active, "pending_credentials": pending}
+
+    @staticmethod
+    def restore(data: dict) -> None:
+        now = time.time()
+        for k, v in data.get("active_flows", {}).items():
+            if v > now:
+                _active_flows[k] = v
+        for k, v in data.get("pending_credentials", {}).items():
+            if v > now:
+                _pending_credentials[k] = v
 
 
 @dataclass
@@ -286,6 +316,8 @@ def _trigger_oauth_popup(config: OAuthServiceConfig) -> str:
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
+        "access_type": "offline",
+        "prompt": "consent",
     }
     auth_url = f"{config.authorize_url}?{urlencode(auth_params)}"
 
@@ -317,8 +349,9 @@ def _trigger_oauth_popup(config: OAuthServiceConfig) -> str:
                 ),
                 loop,
             )
-    except Exception:
-        pass  # If event publishing fails, the auth_url is still returned
+    except Exception as e:
+        from loguru import logger as _logger
+        _logger.debug("OAuth popup event publish failed: {}", e)
 
     return auth_url
 
@@ -412,7 +445,8 @@ def request_credentials(
                 loop,
             )
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        from loguru import logger as _logger
+        _logger.debug("Credential request event publish failed: {}", e)
 
     return False

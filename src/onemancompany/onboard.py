@@ -1,0 +1,305 @@
+"""TUI onboarding wizard for OneManCompany.
+
+Run via `onemancompany-init` to bootstrap the .onemancompany/ data directory.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
+from rich.text import Text
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+SOURCE_ROOT = Path(__file__).parent.parent.parent
+DATA_ROOT = Path.cwd() / ".onemancompany"
+
+LOGO = r"""
+   ___  __  __  ____
+  / _ \|  \/  |/ ___|
+ | | | | |\/| | |
+ | |_| | |  | | |___
+  \___/|_|  |_|\____|
+
+  One Man Company
+"""
+
+MODEL_PRESETS: list[tuple[str, str]] = [
+    ("moonshotai/kimi-k2.5", "Kimi K2.5 (default, cost-effective)"),
+    ("anthropic/claude-sonnet-4", "Claude Sonnet 4 (balanced)"),
+    ("anthropic/claude-opus-4", "Claude Opus 4 (most capable)"),
+    ("openai/gpt-4o", "GPT-4o"),
+    ("google/gemini-2.5-pro", "Gemini 2.5 Pro"),
+    ("deepseek/deepseek-chat-v3", "DeepSeek V3 (budget)"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Wizard steps
+# ---------------------------------------------------------------------------
+
+def _step_welcome(console: Console) -> None:
+    console.print(Panel(
+        Text(LOGO, style="bold cyan", justify="center"),
+        title="Welcome",
+        border_style="cyan",
+    ))
+    console.print(
+        "This wizard will set up your [bold].onemancompany/[/bold] workspace.\n"
+        "It takes about 30 seconds.\n"
+    )
+
+
+def _step_llm(console: Console) -> tuple[str, str]:
+    console.rule("[bold]Step 1[/bold]  LLM Configuration")
+    console.print()
+
+    api_key = Prompt.ask(
+        "  OpenRouter API Key",
+        password=True,
+        console=console,
+    )
+    while not api_key.strip():
+        console.print("  [red]API key is required.[/red]")
+        api_key = Prompt.ask("  OpenRouter API Key", password=True, console=console)
+
+    console.print("\n  Available models:")
+    for i, (model_id, desc) in enumerate(MODEL_PRESETS, 1):
+        console.print(f"    [cyan]{i}[/cyan]) {desc}")
+    console.print(f"    [cyan]{len(MODEL_PRESETS) + 1}[/cyan]) Custom (enter model ID)")
+    console.print()
+
+    choice = Prompt.ask(
+        "  Select model",
+        default="1",
+        console=console,
+    )
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(MODEL_PRESETS):
+            model = MODEL_PRESETS[idx][0]
+        else:
+            model = Prompt.ask("  Enter model ID", console=console)
+    except ValueError:
+        model = choice  # treat as raw model ID
+
+    return api_key.strip(), model
+
+
+def _step_server(console: Console) -> tuple[str, int]:
+    console.print()
+    console.rule("[bold]Step 2[/bold]  Server Configuration")
+    console.print()
+
+    host = Prompt.ask("  Host", default="0.0.0.0", console=console)
+    port_str = Prompt.ask("  Port", default="8000", console=console)
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 8000
+
+    return host, port
+
+
+def _step_optional(console: Console) -> dict[str, str]:
+    console.print()
+    console.rule("[bold]Step 3[/bold]  Optional Configuration")
+    console.print()
+
+    extras: dict[str, str] = {}
+
+    if Confirm.ask("  Configure Anthropic API key?", default=False, console=console):
+        key = Prompt.ask("  Anthropic API Key", password=True, console=console)
+        if key.strip():
+            extras["ANTHROPIC_API_KEY"] = key.strip()
+
+    if Confirm.ask("  Configure FastSkills MCP key?", default=False, console=console):
+        key = Prompt.ask("  FastSkills API Key", password=True, console=console)
+        if key.strip():
+            extras["SKILLSMP_API_KEY"] = key.strip()
+
+    if Confirm.ask("  Configure Talent Market API key?", default=False, console=console):
+        key = Prompt.ask("  Talent Market API Key", password=True, console=console)
+        if key.strip():
+            extras["TALENT_MARKET_API_KEY"] = key.strip()
+
+    return extras
+
+
+def _step_execute(
+    console: Console,
+    api_key: str,
+    model: str,
+    host: str,
+    port: int,
+    extras: dict[str, str],
+) -> None:
+    console.print()
+    console.rule("[bold]Step 4[/bold]  Initializing")
+    console.print()
+
+    # 1. Copy company/ template
+    src_company = SOURCE_ROOT / "company"
+    dst_company = DATA_ROOT / "company"
+    if src_company.exists() and not dst_company.exists():
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        with console.status("  Copying company template..."):
+            shutil.copytree(str(src_company), str(dst_company), symlinks=True)
+        console.print("  [green]\u2714[/green] Company template copied")
+    elif dst_company.exists():
+        console.print("  [yellow]\u26a0[/yellow] Company directory already exists, skipping copy")
+    else:
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        console.print("  [yellow]\u26a0[/yellow] No source company/ template found")
+
+    # 2. Write .env
+    env_lines = [
+        "# Generated by onemancompany-init",
+        f"OPENROUTER_API_KEY={api_key}",
+        "OPENROUTER_BASE_URL=https://openrouter.ai/api/v1",
+        f"DEFAULT_LLM_MODEL={model}",
+        f"HOST={host}",
+        f"PORT={port}",
+    ]
+    if "ANTHROPIC_API_KEY" in extras:
+        env_lines.append(f"ANTHROPIC_API_KEY={extras['ANTHROPIC_API_KEY']}")
+        env_lines.append("ANTHROPIC_AUTH_METHOD=api_key")
+    if "SKILLSMP_API_KEY" in extras:
+        env_lines.append(f"SKILLSMP_API_KEY={extras['SKILLSMP_API_KEY']}")
+
+    env_path = DATA_ROOT / ".env"
+    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    console.print("  [green]\u2714[/green] .env written")
+
+    # 3. Copy config.yaml and inject Talent Market API key if provided
+    src_config = SOURCE_ROOT / "config.yaml"
+    dst_config = DATA_ROOT / "config.yaml"
+    if src_config.exists() and not dst_config.exists():
+        shutil.copy2(str(src_config), str(dst_config))
+        console.print("  [green]\u2714[/green] config.yaml copied")
+    tm_key = extras.get("TALENT_MARKET_API_KEY", "")
+    if tm_key and dst_config.exists():
+        import yaml
+        cfg = yaml.safe_load(dst_config.read_text(encoding="utf-8")) or {}
+        cfg.setdefault("talent_market", {})["api_key"] = tm_key
+        dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        console.print("  [green]\u2714[/green] Talent Market API key saved")
+
+    # 4. Generate MCP configs for founding employees
+    with console.status("  Generating MCP configs..."):
+        _generate_mcp_configs(extras.get("SKILLSMP_API_KEY", ""))
+    console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
+
+
+def _generate_mcp_configs(skillsmp_key: str) -> None:
+    """Generate mcp_config.json for founding employees."""
+    import sys
+
+    employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
+    tools_dir = DATA_ROOT / "company" / "assets" / "tools"
+    python_path = sys.executable
+    exec_ids = ["00002", "00003", "00004", "00005"]
+
+    for emp_id in exec_ids:
+        emp_dir = employees_dir / emp_id
+        if not emp_dir.exists():
+            continue
+
+        servers: dict = {
+            "onemancompany": {
+                "command": python_path,
+                "args": ["-m", "onemancompany.tools.mcp.server"],
+                "env": {
+                    "OMC_EMPLOYEE_ID": emp_id,
+                    "OMC_TASK_ID": "",
+                    "OMC_PROJECT_ID": "",
+                    "OMC_PROJECT_DIR": "",
+                    "OMC_SERVER_URL": "http://localhost:8000",
+                },
+            },
+        }
+
+        gmail_mcp = tools_dir / "gmail" / "mcp_server.py"
+        if gmail_mcp.exists():
+            servers["gmail"] = {
+                "command": python_path,
+                "args": [str(gmail_mcp)],
+            }
+
+        if skillsmp_key:
+            servers["fastskills"] = {
+                "command": "uvx",
+                "args": [
+                    "fastskills",
+                    "--skills-dir", str(emp_dir / "skills"),
+                    "--workdir", str(emp_dir / "workspace"),
+                ],
+                "env": {
+                    "SKILLSMP_API_KEY": skillsmp_key,
+                },
+            }
+
+        config_path = emp_dir / "mcp_config.json"
+        config_path.write_text(
+            json.dumps({"mcpServers": servers}, indent=2),
+            encoding="utf-8",
+        )
+
+
+def _step_done(console: Console, host: str, port: int) -> None:
+    console.print()
+    console.rule("[bold green]Done![/bold green]")
+    console.print()
+    console.print(Panel(
+        f"  Workspace created at [bold].onemancompany/[/bold]\n\n"
+        f"  Start the server:\n"
+        f"    [cyan]onemancompany[/cyan]\n\n"
+        f"  Then open [link=http://{host}:{port}]http://{host}:{port}[/link] in your browser.",
+        title="Next Steps",
+        border_style="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def run_wizard() -> None:
+    """Run the onboarding wizard."""
+    console = Console()
+
+    _step_welcome(console)
+
+    # Check existing installation
+    if DATA_ROOT.exists():
+        console.print(
+            f"[yellow]\u26a0[/yellow]  [bold].onemancompany/[/bold] already exists at\n"
+            f"   {DATA_ROOT}\n"
+        )
+        if not Confirm.ask("  Reconfigure?", default=False, console=console):
+            console.print("\n  Aborted. Existing configuration unchanged.")
+            return
+
+    api_key, model = _step_llm(console)
+    host, port = _step_server(console)
+    extras = _step_optional(console)
+    _step_execute(console, api_key, model, host, port, extras)
+    _step_done(console, host, port)
+
+
+def main() -> None:
+    """CLI entry point for onemancompany-init."""
+    try:
+        run_wizard()
+    except KeyboardInterrupt:
+        console = Console()
+        console.print("\n\n  [yellow]Cancelled.[/yellow]")
+        raise SystemExit(1)

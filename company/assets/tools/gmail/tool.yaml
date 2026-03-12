@@ -6,11 +6,12 @@ description: >
   triggers an OAuth popup for CEO authorization.
   IMPORTANT: Gmail is ONLY for external communication (clients, vendors, partners).
   NEVER use Gmail for internal task dispatch or employee coordination —
-  use dispatch_child() for that. NEVER use Gmail to contact CEO — use report_to_ceo() or ask_ceo().
+  use dispatch_child() for that. NEVER use Gmail to contact CEO — use report_to_ceo().
 added_by: CEO
 sprite: desk_equipment
 allowed_users:
 - "00004"  # EA — external communication only
+- "00008"  # Human Bridge — playtester needs email for external coordination
 type: langchain_module
 oauth:
   service_name: gmail

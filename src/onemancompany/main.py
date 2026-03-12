@@ -8,13 +8,19 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
+from loguru import logger
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-# Load .env before any other imports that might read env vars
-load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
+# Load .env from data root (.onemancompany/) first, fall back to source root
+_data_root = Path.cwd() / ".onemancompany"
+_source_root = Path(__file__).parent.parent.parent
+
+load_dotenv(_data_root / ".env", override=False)
+# Also load from source root for backward compatibility during migration
+load_dotenv(_source_root / ".env", override=False)
 
 from onemancompany.api.routes import router
 from onemancompany.api.websocket import ws_manager
@@ -341,11 +347,38 @@ async def _start_code_watcher() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Data directory bootstrap
+# ---------------------------------------------------------------------------
+
+def _bootstrap_data_dir() -> None:
+    """Check that .onemancompany/ exists; abort with hint if not.
+
+    Users should run ``onemancompany-init`` to set up the workspace
+    interactively before starting the server.
+    """
+    from onemancompany.core.config import DATA_ROOT
+
+    if DATA_ROOT.exists():
+        return  # already initialised
+
+    print(
+        "\n  \033[1;33m⚠  .onemancompany/ not found.\033[0m\n\n"
+        "  Run the setup wizard first:\n\n"
+        "    \033[1;36monemancompany-init\033[0m\n\n"
+        "  Or:  python -m onemancompany.onboard\n"
+    )
+    raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Bootstrap data directory on first run
+    _bootstrap_data_dir()
+
     # Eagerly load assets (tools, meeting rooms) into company_state
     from onemancompany.agents.coo_agent import _load_assets_from_disk
     _load_assets_from_disk()
@@ -386,9 +419,12 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.ea_agent import EAAgent
     from onemancompany.agents.cso_agent import CSOAgent
 
-    # Start Boss Online MCP server (persistent subprocess)
+    # Start Talent Market MCP connection (skips gracefully if no API key)
     from onemancompany.agents.recruitment import start_boss_online, stop_boss_online
-    await start_boss_online()
+    try:
+        await start_boss_online()
+    except Exception as e:
+        logger.warning("Talent Market connection failed (configure in Settings): {}", e)
 
     # Migrate existing employees from agent/ to vessel/ directory structure
     from onemancompany.core.vessel_config import migrate_agent_to_vessel, load_vessel_config
@@ -461,6 +497,9 @@ async def lifespan(app: FastAPI):
     if restored_count:
         print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
+
+    # Recover PENDING dependency tasks whose deps resolved before restart
+    await _em._recover_pending_dependencies()
 
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())

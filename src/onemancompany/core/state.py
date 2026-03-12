@@ -92,6 +92,32 @@ class TaskEntry:
         }
 
 
+def get_active_tasks() -> list[TaskEntry]:
+    """Build active task list from persisted per-employee task YAML files.
+
+    This replaces the old in-memory ``CompanyState.active_tasks`` list.
+    Tasks are read from ``employees/{id}/tasks/*.yaml`` on disk.
+    """
+    from onemancompany.core.task_persistence import load_all_active_tasks
+
+    result: list[TaskEntry] = []
+    all_tasks = load_all_active_tasks(crash_recovery=False)
+    for employee_id, tasks in all_tasks.items():
+        for t in tasks:
+            result.append(TaskEntry(
+                project_id=t.project_id,
+                task=t.description,
+                task_type=t.task_type,
+                project_dir=t.project_dir,
+                current_owner=employee_id,
+                status=t.status.value if hasattr(t.status, "value") else str(t.status),
+                result=t.result or "",
+                created_at=t.created_at or "",
+                completed_at=t.completed_at or "",
+            ))
+    return result
+
+
 @dataclass
 class MeetingRoom:
     """Meeting room — must be booked before use."""
@@ -252,7 +278,6 @@ class CompanyState:
     tools: dict[str, OfficeTool] = field(default_factory=dict)
     meeting_rooms: dict[str, MeetingRoom] = field(default_factory=dict)
     ceo_tasks: list[str] = field(default_factory=list)
-    active_tasks: list[TaskEntry] = field(default_factory=list)
     activity_log: list[dict] = field(default_factory=list)
     company_culture: list[dict] = field(default_factory=list)
     company_direction: str = ""
@@ -273,7 +298,7 @@ class CompanyState:
             "tools": [t.to_dict() for t in self.tools.values()],
             "meeting_rooms": [m.to_dict() for m in self.meeting_rooms.values()],
             "ceo_tasks": self.ceo_tasks[-10:],
-            "active_tasks": [t.to_dict() for t in self.active_tasks],
+            "active_tasks": [t.to_dict() for t in get_active_tasks()],
             "activity_log": self.activity_log[-20:],
             "company_culture": self.company_culture,
             "office_layout": self.office_layout,
@@ -428,7 +453,7 @@ _reload_pending: bool = False
 
 def is_idle() -> bool:
     """Return True if no agent tasks are currently running."""
-    return len(company_state.active_tasks) == 0
+    return len(get_active_tasks()) == 0
 
 
 def request_reload() -> dict:
@@ -667,10 +692,6 @@ from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
 class _CompanyStateSnapshot:
     @staticmethod
     def save() -> dict:
-        active_tasks_data = [
-            {"project_id": t.project_id, "task": t.task, "employee_id": t.employee_id}
-            for t in company_state.active_tasks
-        ]
         employee_statuses = {
             eid: {"status": emp.status, "current_task_summary": emp.current_task_summary}
             for eid, emp in company_state.employees.items()
@@ -684,7 +705,6 @@ class _CompanyStateSnapshot:
                 }
         return {
             "activity_log": company_state.activity_log[-50:],
-            "active_tasks": active_tasks_data,
             "employee_statuses": employee_statuses,
             "room_bookings": room_bookings,
         }
@@ -696,17 +716,7 @@ class _CompanyStateSnapshot:
         if old_log:
             company_state.activity_log = old_log + company_state.activity_log
 
-        # Active tasks
-        for at in data.get("active_tasks", []):
-            already = any(t.project_id == at["project_id"] for t in company_state.active_tasks)
-            if not already:
-                company_state.active_tasks.append(
-                    TaskEntry(
-                        project_id=at["project_id"],
-                        task=at.get("task", ""),
-                        current_owner=at.get("employee_id", at.get("current_owner", "")),
-                    )
-                )
+        # Active tasks now read from disk — no restore needed
 
         # Employee statuses
         for eid, sdata in data.get("employee_statuses", {}).items():

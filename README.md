@@ -447,19 +447,52 @@ flowchart LR
 
 ## Quick Start
 
+### 一键启动（推荐）
+
 ```bash
-# 1. Install
-uv sync
+npx onemancompany
+```
 
-# 2. Configure
-cp .env.example .env   # fill OPENROUTER_API_KEY
+首次运行会自动进入 onboard 向导，引导你配置 LLM API Key、Talent Market 等。完成后自动启动服务器。
 
-# 3. Run
-uv run onemancompany
+### 手动安装
 
-# 4. Open
+```bash
+# 1. Clone
+git clone https://github.com/CarbonKite/OneManCompany.git
+cd OneManCompany
+
+# 2. Onboard + 启动（首次运行会进入配置向导，完成后自动启动服务器）
+bash start.sh
+
+# 3. 打开浏览器
 open http://localhost:8000
 ```
+
+### 重启服务器
+
+```bash
+bash start.sh
+```
+
+如果需要指定端口：
+
+```bash
+bash start.sh --port 8080
+```
+
+### 重新配置
+
+如果需要重新运行 onboard 向导（修改 API Key 等）：
+
+```bash
+bash start.sh init
+```
+
+或者直接编辑配置文件：
+- **API Keys**: `.onemancompany/.env`
+- **应用配置**: `.onemancompany/config.yaml`（Talent Market URL 等）
+- **前端设置**: 浏览器内 Settings 面板
 
 ## Key Concepts
 
@@ -482,37 +515,4 @@ open http://localhost:8000
 
 ## Changelog
 
-<!-- CHANGELOG_START -->
-| Date | Commit | Summary |
-|------|--------|---------|
-| 2026-03-10 | `86fe2b2` | Update: 2026-03-10-human-playtester, 2026-03-10-human-playtester-design, 20260310_131316_42c1be, 20260310_135153_e38236, appendix |
-| 2026-03-10 | `11da4e3` | Update: , 2026-03-10-task-persistence, 2026-03-10-task-persistence-design |
-| 2026-03-10 | `a799b98` | Update: test_task_persistence |
-| 2026-03-10 | `d6fd4fb` | Update: main, test_vessel, vessel |
-| 2026-03-10 | `85a2301` | Update: test_vessel, vessel |
-| 2026-03-10 | `20fc244` | Update: base, iter_001, task_persistence, task_tree, test_base |
-| 2026-03-10 | `6a46b93` | Update: base |
-| 2026-03-10 | `161a913` | Update: iter_001, manifest, project, README, task_tree |
-| 2026-03-10 | `db72525` | Update: appendix, base, config, correction-template, launch |
-| 2026-03-10 | `1a175b0` | Update: 2026-03-10-modular-runtime-design, appendix, base, common_tools, config |
-| 2026-03-09 | `694e525` | Update: , 人员缺口分析报告, api_key, app, base |
-| 2026-03-09 | `8bc485e` | Update: 2026-03-09-task-timeout-and-tree-ui, 2026-03-09-task-timeout-and-tree-ui-design, 2026-03-09-task-tree-design, 2026-03-09-task-tree-implementation, AI_CODER_GUIDE |
-| 2026-03-09 | `ba21099` | Update: test_tree_tools, tree_tools |
-| 2026-03-09 | `91ccaee` | Update: task_tree, test_task_tree |
-| 2026-03-09 | `9bbea9e` | Update: test_agent_loop, vessel |
-| 2026-03-09 | `c8e6451` | Update: __init__, 人员缺口分析报告, 1df8f2de, 2026-03-09-unified-tool-registry, 2026-03-09-unified-tool-registry-design |
-| 2026-03-09 | `ea1ef92` | Update: __init__, claude_session, config_builder, godot_research_report, mcp_config |
-| 2026-03-09 | `149732a` | Update: heartbeat, manifest, profile, routes, test_heartbeat |
-| 2026-03-06 | `0001e37` | Update: .state_snapshot, app, manifest, profile |
-| 2026-03-06 | • update: , .state_snapshot, app, base, config |
-| 2026-03-05 | `7609eec` | 1808 unit tests covering workflow engine, heartbeat, claude session, and more |
-| 2026-03-04 | `bd3125f` | Fix test isolation: fire tests no longer leak offboarding routine side effects |
-| 2026-03-04 | `cfb252d` | Persistent meeting reports: pull-meeting auto-generates archived records |
-| 2026-03-04 | `9f74231` | GitHub talent one-click import script + system_prompt_template in prompt pipeline |
-| 2026-03-04 | `49d4c78` | Full HR lifecycle: probation, PIP, OKR goal management, standardized onboarding/offboarding |
-| 2026-03-04 | `e25a50f` | First 976 unit tests + pre-commit test gate + auto-changelog hook |
-| 2026-03-04 | `06d0cfb` | Ralph cross-task memory (progress.log), project routing reports, candidate shortlists |
-| 2026-03-04 | `2e1111d` | API heartbeat health check (zero token cost) + OAuth login fix |
-| 2026-03-04 | `760022c` | Agent modularization: 3-tier customization (prompt sections / hooks / custom runner) + COO knowledge deposit tool |
-| 2026-03-04 | `16bc792` | Frontend CEO Console UX improvements |
-<!-- CHANGELOG_END -->
+See [CHANGELOG.md](CHANGELOG.md) for release history.

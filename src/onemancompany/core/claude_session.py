@@ -205,8 +205,52 @@ class ClaudeDaemon:
         self._started = True
         # Drain stderr in background to prevent pipe buffer deadlock
         self._stderr_task = asyncio.create_task(self._drain_stderr())
+        # Drain initial stdout to discard any stale result from --resume
+        await self._drain_initial_stdout()
         # After first successful start, future restarts should use --resume
         self.is_new = False
+
+    async def _drain_initial_stdout(self) -> None:
+        """Drain any initial stdout output after process start.
+
+        When resuming a session (--resume), Claude CLI may emit messages from
+        the previous session (including a stale ``result`` message). If we
+        don't consume these before sending the first prompt, ``send_prompt``
+        will read the stale result and return immediately.
+
+        Strategy: read lines with a short timeout. Once no more data arrives
+        within the timeout window, we assume the initial burst is over.
+        """
+        if not self.proc or not self.proc.stdout:
+            return
+        drained = 0
+        try:
+            while True:
+                line = await asyncio.wait_for(
+                    self.proc.stdout.readline(), timeout=3.0,
+                )
+                if not line:
+                    # EOF — process exited during drain
+                    break
+                drained += 1
+                line_str = line.decode("utf-8", errors="replace").strip()
+                if line_str:
+                    try:
+                        msg = json.loads(line_str)
+                        msg_type = msg.get("type", "")
+                        logger.debug(
+                            f"[claude-daemon] Drained initial {msg_type} "
+                            f"message for employee={self.employee_id}"
+                        )
+                    except json.JSONDecodeError:
+                        logger.debug("[claude-daemon] Drained non-JSON line: {}", line_str[:100])
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug("[claude-daemon] Drain timeout reached — initial drain complete")
+        if drained:
+            logger.info(
+                f"[claude-daemon] Drained {drained} initial message(s) "
+                f"for employee={self.employee_id} (stale --resume output)"
+            )
 
     async def send_prompt(self, prompt: str, timeout: int = 600) -> dict:
         """Send a prompt and collect the full response.
@@ -348,9 +392,6 @@ async def _get_or_start_daemon(
     if daemon:
         await daemon.stop()
 
-    # Prepare session
-    session_id, is_new = get_or_create_session(employee_id, project_id, work_dir=work_dir)
-
     # Generate MCP config
     mcp_config_path = None
     try:
@@ -364,6 +405,9 @@ async def _get_or_start_daemon(
     except Exception as e:
         logger.warning(f"Failed to generate MCP config: {e}")
 
+    # Try to start daemon (may resume existing session)
+    session_id, is_new = get_or_create_session(employee_id, project_id, work_dir=work_dir)
+
     daemon = ClaudeDaemon(
         employee_id=employee_id,
         project_id=project_id,
@@ -374,6 +418,36 @@ async def _get_or_start_daemon(
         max_turns=max_turns,
     )
     await daemon.start()
+
+    # If process died during startup/drain (common with --resume: CLI outputs
+    # the old result then exits), restart with a fresh session.
+    if not daemon.alive:
+        logger.warning(
+            f"[claude-daemon] Process died after start (--resume output "
+            f"consumed). Restarting with new session for employee={employee_id}"
+        )
+        await daemon.stop()
+        new_session_id = str(uuid.uuid4())
+        sessions = _load_sessions(employee_id)
+        sessions[project_id] = {
+            "session_id": new_session_id,
+            "work_dir": work_dir,
+            "created": datetime.now(timezone.utc).isoformat(),
+            "used": False,
+        }
+        _save_sessions(employee_id, sessions)
+
+        daemon = ClaudeDaemon(
+            employee_id=employee_id,
+            project_id=project_id,
+            session_id=new_session_id,
+            is_new=True,
+            mcp_config_path=mcp_config_path,
+            work_dir=work_dir,
+            max_turns=max_turns,
+        )
+        await daemon.start()
+
     _daemons[key] = daemon
     return daemon
 

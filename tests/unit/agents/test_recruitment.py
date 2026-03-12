@@ -78,17 +78,29 @@ class TestSearchCandidates:
     async def test_returns_candidates(self, monkeypatch):
         from onemancompany.agents import recruitment
 
-        # Mock _call_boss_online to return fake candidates
-        fake_candidates = [
-            {"id": "c1", "name": "Candidate 1", "talent_id": "c1"},
-            {"id": "c2", "name": "Candidate 2", "talent_id": "c2"},
-        ]
-        monkeypatch.setattr(recruitment, "_call_boss_online", AsyncMock(return_value=fake_candidates))
+        # Mock _call_boss_online to return role-grouped result
+        fake_result = {
+            "type": "individual",
+            "summary": "Test",
+            "roles": [
+                {
+                    "role": "Engineer",
+                    "description": "python dev",
+                    "candidates": [
+                        {"id": "c1", "name": "Candidate 1", "talent_id": "c1"},
+                        {"id": "c2", "name": "Candidate 2", "talent_id": "c2"},
+                    ],
+                }
+            ],
+        }
+        monkeypatch.setattr(recruitment, "_call_boss_online", AsyncMock(return_value=fake_result))
 
         result = await recruitment.search_candidates.ainvoke({"job_description": "python dev"})
 
-        assert len(result) == 2
-        assert result[0]["name"] == "Candidate 1"
+        assert isinstance(result, dict)
+        assert len(result["roles"]) == 1
+        assert len(result["roles"][0]["candidates"]) == 2
+        assert result["roles"][0]["candidates"][0]["name"] == "Candidate 1"
         # Should stash results
         assert "c1" in recruitment._last_search_results
 
@@ -113,8 +125,10 @@ class TestSearchCandidates:
 
         result = await recruitment.search_candidates.ainvoke({"job_description": "any dev"})
 
-        assert len(result) >= 1
-        assert result[0]["id"] == "local1"
+        assert isinstance(result, dict)
+        assert len(result["roles"]) >= 1
+        assert len(result["roles"][0]["candidates"]) >= 1
+        assert result["roles"][0]["candidates"][0]["id"] == "local1"
 
 
 # ---------------------------------------------------------------------------
@@ -169,10 +183,12 @@ class TestBossOnlineLifecycle:
 
         recruitment._boss_session = None
 
-        with patch("contextlib.AsyncExitStack", return_value=mock_stack):
-            with patch.object(recruitment, "stdio_client", return_value=AsyncMock()):
-                with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
-                    await recruitment.start_boss_online()
+        fake_config = {"talent_market": {"url": "http://test/sse", "api_key": "test-key"}}
+        with patch("onemancompany.core.config.load_app_config", return_value=fake_config):
+            with patch("contextlib.AsyncExitStack", return_value=mock_stack):
+                with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
+                    with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
+                        await recruitment.start_boss_online()
 
         assert recruitment._boss_session is mock_session
         mock_session.initialize.assert_awaited_once()
@@ -235,7 +251,11 @@ class TestCallBossOnline:
         import json
 
         mock_item1 = MagicMock()
-        mock_item1.text = json.dumps({"id": "c1", "name": "Candidate 1"})
+        mock_item1.text = json.dumps({
+            "type": "individual",
+            "summary": "Test",
+            "roles": [{"role": "Engineer", "description": "", "candidates": [{"id": "c1", "name": "Candidate 1"}]}],
+        })
         mock_item2 = MagicMock()
         mock_item2.text = "not valid json"
 
@@ -247,9 +267,11 @@ class TestCallBossOnline:
         recruitment._boss_session = mock_session
 
         try:
-            candidates = await recruitment._call_boss_online("python dev", count=5)
-            assert len(candidates) == 1
-            assert candidates[0]["id"] == "c1"
+            result = await recruitment._call_boss_online("python dev", count=5)
+            assert isinstance(result, dict)
+            assert "roles" in result
+            assert len(result["roles"]) == 1
+            assert result["roles"][0]["candidates"][0]["id"] == "c1"
             mock_session.call_tool.assert_awaited_once_with(
                 "search_candidates",
                 arguments={"job_description": "python dev", "count": 5},

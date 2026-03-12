@@ -1,7 +1,16 @@
 """Tests for task tree data model and persistence."""
 from __future__ import annotations
 
+from onemancompany.core.task_lifecycle import TaskPhase, VALID_TRANSITIONS
 from onemancompany.core.task_tree import TaskNode, TaskTree
+
+
+class TestDependencyTransitions:
+    def test_pending_to_blocked_allowed(self):
+        assert TaskPhase.BLOCKED in VALID_TRANSITIONS[TaskPhase.PENDING]
+
+    def test_blocked_to_pending_allowed(self):
+        assert TaskPhase.PENDING in VALID_TRANSITIONS[TaskPhase.BLOCKED]
 
 
 class TestTaskNode:
@@ -146,3 +155,210 @@ class TestTaskTree:
         path = tmp_path / "deep" / "nested" / "task_tree.yaml"
         tree.save(path)
         assert path.exists()
+
+
+class TestTaskNodeBranch:
+    def test_default_branch_values(self):
+        node = TaskNode(employee_id="00001", description="test")
+        assert node.branch == 0
+        assert node.branch_active is True
+
+    def test_branch_in_to_dict(self):
+        node = TaskNode(employee_id="00001", description="test", branch=2, branch_active=False)
+        d = node.to_dict()
+        assert d["branch"] == 2
+        assert d["branch_active"] is False
+
+    def test_branch_in_from_dict(self):
+        node = TaskNode.from_dict({"branch": 3, "branch_active": False})
+        assert node.branch == 3
+        assert node.branch_active is False
+
+    def test_from_dict_missing_branch_defaults(self):
+        """Backward compat: old YAML without branch fields."""
+        node = TaskNode.from_dict({"employee_id": "00001"})
+        assert node.branch == 0
+        assert node.branch_active is True
+
+
+class TestTaskNodeDependency:
+    def test_default_depends_on_empty(self):
+        node = TaskNode()
+        assert node.depends_on == []
+        assert node.fail_strategy == "block"
+
+    def test_depends_on_set(self):
+        node = TaskNode(depends_on=["abc", "def"], fail_strategy="continue")
+        assert node.depends_on == ["abc", "def"]
+        assert node.fail_strategy == "continue"
+
+    def test_to_dict_includes_depends_on(self):
+        node = TaskNode(depends_on=["abc"], fail_strategy="continue")
+        d = node.to_dict()
+        assert d["depends_on"] == ["abc"]
+        assert d["fail_strategy"] == "continue"
+
+    def test_from_dict_loads_depends_on(self):
+        d = {"id": "x", "depends_on": ["a", "b"], "fail_strategy": "continue"}
+        node = TaskNode.from_dict(d)
+        assert node.depends_on == ["a", "b"]
+        assert node.fail_strategy == "continue"
+
+    def test_from_dict_without_depends_on_defaults(self):
+        """Backward compat: old YAML without depends_on loads fine."""
+        d = {"id": "x", "status": "pending"}
+        node = TaskNode.from_dict(d)
+        assert node.depends_on == []
+        assert node.fail_strategy == "block"
+
+
+class TestTaskTreeBranching:
+    def test_initial_branch(self):
+        tree = TaskTree(project_id="proj1")
+        assert tree.current_branch == 0
+
+    def test_new_branch_increments(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        new_b = tree.new_branch()
+        assert new_b == 1
+        assert tree.current_branch == 1
+
+    def test_new_branch_deactivates_old_nodes(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        assert c1.branch_active is False
+        assert root.branch_active is True
+
+    def test_all_children_terminal_filters_active_branch(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        assert tree.all_children_terminal(root.id) is False
+        c2.status = "accepted"
+        assert tree.all_children_terminal(root.id) is True
+
+    def test_get_active_children(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        active = tree.get_active_children(root.id)
+        assert len(active) == 1
+        assert active[0].id == c2.id
+
+    def test_has_failed_children_filters_active_branch(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "failed"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        # c1 is failed but inactive — should return False
+        assert tree.has_failed_children(root.id) is False
+        c2.status = "failed"
+        assert tree.has_failed_children(root.id) is True
+
+    def test_branch_persists_in_save_load(self, tmp_path):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        c1 = tree.add_child(root.id, "00010", "A", [])
+        c1.status = "accepted"
+        tree.new_branch()
+        c2 = tree.add_child(root.id, "00011", "B", [])
+        c2.branch = tree.current_branch
+        c2.branch_active = True
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        loaded = TaskTree.load(path)
+        assert loaded.current_branch == 1
+        loaded_c1 = loaded.get_node(c1.id)
+        assert loaded_c1.branch_active is False
+        loaded_c2 = loaded.get_node(c2.id)
+        assert loaded_c2.branch_active is True
+        assert loaded_c2.branch == 1
+
+
+class TestTaskTreeDependencyHelpers:
+    def test_add_child_with_depends_on(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert b.depends_on == [a.id]
+        assert b.fail_strategy == "block"
+
+    def test_add_child_with_fail_strategy(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        assert b.fail_strategy == "continue"
+
+    def test_find_dependents(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        c = tree.add_child(root.id, "e3", "task C", [], depends_on=[a.id])
+        d = tree.add_child(root.id, "e4", "task D", [])
+        dependents = tree.find_dependents(a.id)
+        dep_ids = {n.id for n in dependents}
+        assert dep_ids == {b.id, c.id}
+
+    def test_find_dependents_empty(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        assert tree.find_dependents(a.id) == []
+
+    def test_all_deps_terminal_true(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        a.status = "accepted"
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.all_deps_terminal(b.id) is True
+
+    def test_all_deps_terminal_false(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.all_deps_terminal(b.id) is False
+
+    def test_has_failed_deps(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        a.status = "failed"
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.has_failed_deps(b.id) is True
+
+    def test_save_load_preserves_depends_on(self, tmp_path):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root(employee_id="ceo", description="root")
+        a = tree.add_child(root.id, "e1", "task A", [])
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        path = tmp_path / "tree.yaml"
+        tree.save(path)
+        loaded = TaskTree.load(path)
+        lb = loaded.get_node(b.id)
+        assert lb.depends_on == [a.id]
+        assert lb.fail_strategy == "continue"

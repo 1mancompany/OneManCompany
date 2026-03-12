@@ -116,11 +116,15 @@ def archive_task(employee_id: str, task: AgentTask) -> None:
     logger.debug("Archived task {} for employee {}", task.id, employee_id)
 
 
-def load_active_tasks(employee_id: str) -> list[AgentTask]:
+def load_active_tasks(employee_id: str, *, crash_recovery: bool = True) -> list[AgentTask]:
     """Load all non-archived tasks for an employee.
 
-    Resets PROCESSING status to PENDING (crash recovery: if we were
-    mid-processing when the server stopped, the task should be retried).
+    Args:
+        employee_id: Employee whose tasks to load.
+        crash_recovery: If True (default, for server startup), resets
+            PROCESSING → PENDING so interrupted tasks get retried.
+            Set to False for read-only queries (API, hot-reload) to
+            avoid resetting tasks that are actively running.
 
     Skips corrupt or incomplete YAML files with a warning.
     """
@@ -139,8 +143,9 @@ def load_active_tasks(employee_id: str) -> list[AgentTask]:
                 logger.warning("Skipping incomplete task file: {}", yaml_file)
                 continue
             task = _dict_to_task(data)
-            # Crash recovery: reset PROCESSING → PENDING
-            if task.status == TaskPhase.PROCESSING:
+            # HOLDING tasks stay HOLDING — their reply pollers will be restarted by vessel
+            # Crash recovery: reset PROCESSING → PENDING (only on startup)
+            if crash_recovery and task.status == TaskPhase.PROCESSING:
                 task.status = TaskPhase.PENDING
                 logger.info("Reset task {} from PROCESSING to PENDING (crash recovery)", task.id)
             tasks.append(task)
@@ -150,11 +155,15 @@ def load_active_tasks(employee_id: str) -> list[AgentTask]:
     return tasks
 
 
-def load_all_active_tasks() -> dict[str, list[AgentTask]]:
+def load_all_active_tasks(*, crash_recovery: bool = True) -> dict[str, list[AgentTask]]:
     """Scan all employee directories and load active tasks.
 
     Returns {employee_id: [AgentTask, ...]} for employees that have tasks.
     Skips employee dirs without a tasks/ subdirectory.
+
+    Args:
+        crash_recovery: Passed through to load_active_tasks. Only True on
+            server startup; False for read-only queries.
     """
     if not EMPLOYEES_DIR.exists():
         return {}
@@ -164,7 +173,7 @@ def load_all_active_tasks() -> dict[str, list[AgentTask]]:
         if not emp_dir.is_dir():
             continue
         employee_id = emp_dir.name
-        tasks = load_active_tasks(employee_id)
+        tasks = load_active_tasks(employee_id, crash_recovery=crash_recovery)
         if tasks:
             result[employee_id] = tasks
     return result

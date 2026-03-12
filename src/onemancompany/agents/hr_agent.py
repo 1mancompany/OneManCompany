@@ -27,13 +27,14 @@ from datetime import datetime
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.prebuilt import create_react_agent
 
-from onemancompany.agents.base import BaseAgentRunner, make_llm
+from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.agents.recruitment import (
     _last_search_results,
     _pending_project_ctx,
     list_open_positions,
     pending_candidates,
     search_candidates,
+    submit_shortlist,
 )
 from onemancompany.core.config import (
     FOUNDING_LEVEL,
@@ -61,9 +62,10 @@ HR_SYSTEM_PROMPT = """You are the HR manager of "One Man Company".
 
 ## Hiring (act FAST — no extra analysis)
 1. Call search_candidates(jd) with a brief job description.
-2. Pick top 5 candidates.
-3. Output JSON: `{"action": "shortlist", "jd": "...", "candidates": [<top5>]}`
-4. CEO will choose. Do NOT directly hire. Do NOT invent extra steps.
+2. Pick top 5 candidate IDs from the results.
+3. Call submit_shortlist(jd, candidate_ids) to send the shortlist to CEO.
+4. CEO will see candidates in the UI, interview, and hire. Do NOT directly hire. Do NOT invent extra steps.
+5. Do NOT save shortlists to files. ALWAYS use submit_shortlist() tool.
 
 Department map: Engineer/DevOps/QA → "Engineering", Designer → "Design", Analyst → "Data Analytics", Marketing → "Marketing".
 花名: 2-character wuxia-style Chinese nickname (武侠风格). E.g. 逍遥, 追风, 凌霄, 破军. Founding (Lv.4) get 3 chars.
@@ -111,7 +113,7 @@ Be concise and professional.
 def _register_hr_tools() -> None:
     from onemancompany.core.tool_registry import ToolMeta, tool_registry
 
-    for t in [search_candidates, list_open_positions]:
+    for t in [search_candidates, list_open_positions, submit_shortlist]:
         tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["HR"]))
 
 
@@ -145,8 +147,9 @@ class HRAgent(BaseAgentRunner):
         await self._apply_results(result)
         await self._check_promotions()
 
-        # If a new shortlist batch was created, stash project context
-        # and clear it from the current task to prevent premature cleanup.
+        # If a new shortlist batch was created, stash project context,
+        # clear project_id from the current task to prevent premature cleanup,
+        # and enter HOLDING so EA doesn't think HR is done yet.
         new_batches = set(pending_candidates.keys()) - old_batches
         if new_batches:
             from onemancompany.core.agent_loop import _current_vessel, _current_task_id
@@ -162,6 +165,11 @@ class HRAgent(BaseAgentRunner):
                         }
                     task_obj.project_id = ""  # prevent premature cleanup
 
+            # Return __HOLDING: prefix so vessel puts this task into HOLDING
+            # state. CEO's hire action will resume it via resume_held_task().
+            batch_id = list(new_batches)[0]
+            return f"__HOLDING:batch_id={batch_id}\n{result}"
+
         return result
 
     async def run(self, task: str) -> str:
@@ -176,7 +184,7 @@ class HRAgent(BaseAgentRunner):
         )
 
         self._extract_and_record_usage(result)
-        final_message = result["messages"][-1].content
+        final_message = extract_final_content(result)
         await self._apply_results(final_message)
         # Check promotions after every review
         await self._check_promotions()

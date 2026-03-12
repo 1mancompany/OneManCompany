@@ -140,12 +140,16 @@ class TestAdminClearTasks:
         emp.status = "working"
         state = _make_state(
             employees={emp.id: emp},
-            active_tasks=[TaskEntry(project_id="p1", task="t1", routed_to="COO")],
         )
         bus = EventBus()
+        mock_task_entry = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
         with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus):
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task_entry]), \
+             patch("onemancompany.api.routes.EMPLOYEES_DIR", MagicMock(iterdir=MagicMock(return_value=[]))), \
+             patch("onemancompany.api.routes.load_active_tasks", create=True, return_value=[]), \
+             patch("onemancompany.api.routes.archive_task", create=True):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/admin/clear-tasks")
@@ -154,7 +158,6 @@ class TestAdminClearTasks:
         data = resp.json()
         assert data["status"] == "cleared"
         assert data["tasks_removed"] == 1
-        assert len(state.active_tasks) == 0
         assert emp.status == "idle"
 
 
@@ -199,7 +202,7 @@ class TestCeoSubmitTask:
         assert data["status"] == "processing"
 
     async def test_routes_to_ea_initializes_task_tree(self):
-        """CEO task submission creates a TaskTree with EA as root."""
+        """CEO task submission creates a TaskTree with CEO root and EA child."""
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
@@ -225,10 +228,16 @@ class TestCeoSubmitTask:
         saved_dir, saved_tree = mock_save_tree.call_args[0]
         assert saved_dir == "/tmp/proj"
         assert saved_tree.root_id != ""
+        # Root is CEO prompt node
         root = saved_tree.get_node(saved_tree.root_id)
         assert root is not None
+        assert root.node_type == "ceo_prompt"
         assert root.description == "Build a website"
-        assert saved_tree.task_id_map["agent-task-002"] == root.id
+        # EA is child of CEO root, mapped via task_id_map
+        ea_node_id = saved_tree.task_id_map["agent-task-002"]
+        ea_node = saved_tree.get_node(ea_node_id)
+        assert ea_node is not None
+        assert ea_node_id != root.id
 
 
 # ---------------------------------------------------------------------------
@@ -2490,29 +2499,25 @@ class TestCeoSubmitTaskPaths:
 
 class TestAbortTask:
     async def test_abort_task(self):
-        state = _make_state(active_tasks=[
-            TaskEntry(project_id="proj1", task="Build", routed_to="COO"),
-        ])
+        state = _make_state()
         bus = EventBus()
 
-        mock_board = MagicMock()
-        mock_board.cancel_by_project.return_value = []
-
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        mock_task = MagicMock()
+        mock_task.project_dir = ""
+        mock_manager = MagicMock()
+        mock_manager.abort_project.return_value = [mock_task]
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.agent_loops", {"emp01": mock_loop}):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/task/proj1/abort")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        assert len(state.active_tasks) == 1
-        assert state.active_tasks[0].status == "cancelled"
-        assert state.active_tasks[0].result == "Aborted by CEO"
+        assert resp.json()["cancelled"] == 1
+        mock_manager.abort_project.assert_called_once_with("proj1")
 
 
 # ---------------------------------------------------------------------------
@@ -2573,15 +2578,19 @@ class TestCancelAgentTask:
 
         mock_task = MagicMock()
         mock_task.status = "pending"
-        mock_task.sub_task_ids = []
+        mock_task.id = "t1"
         mock_board = MagicMock()
         mock_board.get_task.return_value = mock_task
+        mock_board.tasks = [mock_task]
         mock_loop = MagicMock()
         mock_loop.board = mock_board
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.core.task_persistence.persist_task"), \
+             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
@@ -5203,11 +5212,15 @@ class TestAdminReload:
 class TestAdminClearTasks:
     async def test_admin_clear_tasks(self):
         state = _make_state()
-        state.active_tasks = [TaskEntry(project_id="p1", task="t1", routed_to="COO")]
         bus = EventBus()
 
+        mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
+
         with patch("onemancompany.api.routes.company_state", state), \
-             patch("onemancompany.api.routes.event_bus", bus):
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
+             patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
+             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/admin/clear-tasks")
@@ -5259,13 +5272,16 @@ class TestCancelTaskWithSubtasks:
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
+             patch("onemancompany.core.task_persistence.persist_task"), \
+             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
 
         assert resp.json()["status"] == "ok"
-        assert sub_task.status == "cancelled"
+        assert main_task.status == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -5277,11 +5293,12 @@ class TestAbortTaskWithBoards:
     async def test_abort_cancels_across_boards(self):
         """Abort project cancels tasks across all agent boards."""
         state = _make_state()
-        state.active_tasks = [TaskEntry(project_id="proj1", task="test", routed_to="COO")]
         bus = EventBus()
 
+        mock_task = MagicMock()
+        mock_task.project_dir = ""
         mock_manager = MagicMock()
-        mock_manager.abort_project.return_value = 1
+        mock_manager.abort_project.return_value = [mock_task]
 
         with patch("onemancompany.api.routes.company_state", state), \
              patch("onemancompany.api.routes.event_bus", bus), \
@@ -5731,21 +5748,22 @@ class TestAdminClearTasksDirect:
 
         emp = _make_employee(id="00010")
         emp.status = "working"
-        state = _make_state(
-            employees={"00010": emp},
-            active_tasks=[TaskEntry(project_id="p1", task="t1", routed_to="COO")],
-        )
+        state = _make_state(employees={"00010": emp})
         bus = MagicMock()
         bus.publish = AsyncMock()
 
+        mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
+
         with patch.object(routes_mod, "company_state", state), \
-             patch.object(routes_mod, "event_bus", bus):
+             patch.object(routes_mod, "event_bus", bus), \
+             patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
+             patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
+             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])):
             result = await routes_mod.admin_clear_tasks()
 
         assert result["status"] == "cleared"
         assert result["tasks_removed"] == 1
         assert emp.status == "idle"
-        assert len(state.active_tasks) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -6279,3 +6297,42 @@ class TestProjectTreeEndpoint:
                 resp = await client.get("/api/projects/proj1/tree")
 
         assert resp.status_code == 404
+
+
+class TestEmployeeProjects:
+    def test_scan_employee_projects(self, tmp_path):
+        """_scan_employee_projects returns projects the employee participated in."""
+        import yaml
+
+        proj1_dir = tmp_path / "proj1"
+        proj1_dir.mkdir()
+        (proj1_dir / "project.yaml").write_text(yaml.dump({
+            "task": "Build game",
+            "status": "completed",
+            "team": [
+                {"employee_id": "00006", "role": "Engineer", "joined_at": "2026-03-11T10:00:00"},
+                {"employee_id": "00003", "role": "COO", "joined_at": "2026-03-11T10:00:00"},
+            ],
+        }))
+
+        proj2_dir = tmp_path / "proj2"
+        proj2_dir.mkdir()
+        (proj2_dir / "project.yaml").write_text(yaml.dump({
+            "task": "Design UI",
+            "status": "in_progress",
+            "team": [
+                {"employee_id": "00007", "role": "Designer", "joined_at": "2026-03-11T11:00:00"},
+            ],
+        }))
+
+        from onemancompany.api.routes import _scan_employee_projects
+        projects = _scan_employee_projects("00006", str(tmp_path))
+        assert len(projects) == 1
+        assert projects[0]["task"] == "Build game"
+        assert projects[0]["role_in_project"] == "Engineer"
+        assert projects[0]["project_id"] == "proj1"
+
+    def test_scan_no_projects(self, tmp_path):
+        from onemancompany.api.routes import _scan_employee_projects
+        projects = _scan_employee_projects("00099", str(tmp_path))
+        assert projects == []

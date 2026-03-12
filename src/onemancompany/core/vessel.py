@@ -39,7 +39,7 @@ from onemancompany.core.config import (
     STATUS_WORKING,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.state import TaskEntry, company_state
+from onemancompany.core.state import company_state
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
@@ -77,6 +77,63 @@ def _node_id_for_task(tree, task_id: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Tree locks — one asyncio.Lock per project to serialize tree mutations
+# ---------------------------------------------------------------------------
+
+_tree_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_tree_lock(project_id: str) -> asyncio.Lock:
+    """Return (or create) an asyncio.Lock for the given project."""
+    if project_id not in _tree_locks:
+        _tree_locks[project_id] = asyncio.Lock()
+    return _tree_locks[project_id]
+
+
+# ---------------------------------------------------------------------------
+# Dependency context builder
+# ---------------------------------------------------------------------------
+
+def _build_dependency_context(tree, node) -> str:
+    """Build context string from resolved dependency results."""
+    if not node.depends_on:
+        return ""
+    sections = []
+    max_per_dep = 2000 if len(node.depends_on) <= 3 else 1000
+    for dep_id in node.depends_on:
+        dep = tree.get_node(dep_id)
+        if not dep or not dep.is_terminal:
+            continue
+        result = dep.result or "(no result)"
+        if len(result) > max_per_dep:
+            result = "..." + result[-max_per_dep:]
+        status_label = "completed" if dep.status == "accepted" else dep.status
+        sections.append(f"{dep.employee_id} {status_label} \"{dep.description}\":\n{result}")
+    if not sections:
+        return ""
+    return "=== Dependency Results ===\n" + "\n\n".join(sections) + "\n=== End Dependencies ===\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Dependency resolution trigger (callable from sync tool context)
+# ---------------------------------------------------------------------------
+
+def _trigger_dep_resolution(project_dir: str, tree, node) -> None:
+    """Schedule async dependency resolution after a node becomes terminal."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            employee_manager._resolve_dependencies(tree, node, project_dir)
+        )
+    except RuntimeError:
+        logger.warning("No running event loop, skipping dep resolution for {}", node.id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning("Could not schedule dep resolution: {}", e)
+
+
+# ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
 
@@ -95,10 +152,67 @@ def archive_task(employee_id: str, task: "AgentTask") -> None:
     _archive(employee_id, task)
 
 
-def load_all_active_tasks() -> dict[str, list["AgentTask"]]:
+def _history_path(employee_id: str) -> Path:
+    """Return path to employee's task history file."""
+    return EMPLOYEES_DIR / employee_id / "task_history.json"
+
+
+def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
+    """Load task history and summary from disk."""
+    path = _history_path(employee_id)
+    if not path.exists():
+        return [], ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("entries", []), data.get("summary", "")
+    except Exception as e:
+        logger.warning("Failed to load task history for {}: {}", employee_id, e)
+        return [], ""
+
+
+def _save_task_history(employee_id: str, entries: list[dict], summary: str) -> None:
+    """Persist task history and summary to disk."""
+    path = _history_path(employee_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "entries": entries,
+            "summary": summary,
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to save task history for {}: {}", employee_id, e)
+
+
+def load_all_active_tasks(*, crash_recovery: bool = True) -> dict[str, list["AgentTask"]]:
     """Lazy-import wrapper to avoid circular import with task_persistence."""
     from onemancompany.core.task_persistence import load_all_active_tasks as _load
-    return _load()
+    return _load(crash_recovery=crash_recovery)
+
+
+def stop_cron(employee_id: str, cron_name: str) -> dict:
+    """Lazy-import wrapper."""
+    from onemancompany.core.automation import stop_cron as _stop
+    return _stop(employee_id, cron_name)
+
+
+def _parse_holding_metadata(result: str | None) -> dict | None:
+    """Parse __HOLDING:key=value,... prefix from agent result.
+
+    Returns dict of metadata if HOLDING prefix found, None otherwise.
+    Only parses the first line.
+    """
+    if not result or not result.startswith("__HOLDING:"):
+        return None
+    first_line = result.split("\n", 1)[0]
+    payload = first_line[len("__HOLDING:"):]
+    if not payload.strip():
+        return {}
+    meta = {}
+    for pair in payload.split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            meta[k.strip()] = v.strip()
+    return meta
 
 
 @dataclass
@@ -504,7 +618,10 @@ class EmployeeManager:
         if employee_id not in self.boards:
             self.boards[employee_id] = AgentTaskBoard()
         if employee_id not in self.task_histories:
-            self.task_histories[employee_id] = []
+            entries, summary = _load_task_history(employee_id)
+            self.task_histories[employee_id] = entries
+            if summary:
+                self._history_summaries[employee_id] = summary
         vessel = Vessel(self, employee_id)
         self.vessels[employee_id] = vessel
         return vessel
@@ -636,14 +753,73 @@ class EmployeeManager:
                 restored += 1
         if restored:
             logger.info("Restored {} task(s) from disk", restored)
+        self._restart_holding_pollers()
         return restored
 
-    def abort_project(self, project_id: str) -> int:
+    def _restart_holding_pollers(self) -> int:
+        """Restart watchdog crons for all HOLDING tasks."""
+        count = 0
+        for emp_id, board in self.boards.items():
+            for task in board.tasks:
+                if task.status == TaskPhase.HOLDING:
+                    meta = _parse_holding_metadata(task.result or "")
+                    if meta:
+                        self._setup_holding_watchdog(emp_id, task, meta)
+                        count += 1
+        if count:
+            logger.info("Restarted {} holding watchdog(s)", count)
+        return count
+
+    async def _recover_pending_dependencies(self) -> None:
+        """On startup, re-check PENDING tasks with depends_on — push if deps are met."""
+        from onemancompany.core.config import PROJECTS_DIR
+        from onemancompany.core.task_tree import TaskTree
+
+        if not PROJECTS_DIR.exists():
+            return
+        recovered = 0
+        for pdir in PROJECTS_DIR.iterdir():
+            tree_path = pdir / "task_tree.yaml"
+            if not tree_path.exists():
+                continue
+            tree = TaskTree.load(tree_path)
+            dirty = False
+            for node in list(tree._nodes.values()):
+                if node.status != "pending" or not node.depends_on:
+                    continue
+                # Skip if already mapped to an AgentTask
+                if node.id in tree.task_id_map.values():
+                    continue
+                if not tree.all_deps_terminal(node.id):
+                    continue
+                if tree.has_failed_deps(node.id) and node.fail_strategy == "block":
+                    node.status = "blocked"
+                    dirty = True
+                    continue
+                context = _build_dependency_context(tree, node)
+                full_desc = context + node.description
+                board = self.boards.setdefault(node.employee_id, AgentTaskBoard())
+                agent_task = board.push(
+                    description=full_desc,
+                    project_id=node.project_id,
+                    project_dir=str(pdir),
+                )
+                tree.task_id_map[agent_task.id] = node.id
+                dirty = True
+                persist_task(node.employee_id, agent_task)
+                logger.info("Startup recovery: unlocked dep-waiting task {} for {}", node.id, node.employee_id)
+                recovered += 1
+            if dirty:
+                tree.save(tree_path)
+        if recovered:
+            logger.info("Startup recovery: {} dependency task(s) unlocked", recovered)
+
+    def abort_project(self, project_id: str) -> list:
         """Cancel board tasks AND cancel the running asyncio.Task for a project.
 
-        Returns the number of tasks cancelled.
+        Returns list of cancelled AgentTask objects.
         """
-        total_cancelled = 0
+        all_cancelled: list = []
         for emp_id, board in self.boards.items():
             cancelled = board.cancel_by_project(project_id)
             for t in cancelled:
@@ -653,7 +829,7 @@ class EmployeeManager:
                     self._publish_task_update(emp_id, t)
                 persist_task(emp_id, t)
                 archive_task(emp_id, t)
-            total_cancelled += len(cancelled)
+            all_cancelled.extend(cancelled)
 
             # Cancel the running asyncio.Task if it's working on this project
             if cancelled and emp_id in self._running_tasks:
@@ -662,7 +838,7 @@ class EmployeeManager:
                     running.cancel()
                     logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
 
-        return total_cancelled
+        return all_cancelled
 
     async def _run_task(self, employee_id: str, task: AgentTask) -> None:
         """Execute a task, then schedule the next one."""
@@ -709,22 +885,9 @@ class EmployeeManager:
         loop_token = _current_vessel.set(vessel)
         task_token = _current_task_id.set(task.id)
 
-        # 3. Create company-level TaskEntry if not already tracked
+        # 3. Task is already persisted via task_persistence — no in-memory tracking needed
         project_id = task.project_id
         project_dir = task.project_dir
-        already_tracked = any(t.project_id == project_id for t in company_state.active_tasks)
-        if project_id and not already_tracked:
-            company_state.active_tasks.append(
-                TaskEntry(
-                    project_id=project_id,
-                    task=task.description,
-                    routed_to=role,
-                    project_dir=project_dir,
-                )
-            )
-            await event_bus.publish(
-                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-            )
 
         ctx_token = current_project_id.set(project_id) if project_id else None
 
@@ -878,68 +1041,175 @@ class EmployeeManager:
             if ctx_token is not None:
                 current_project_id.reset(ctx_token)
 
-        # 8. Mark completed
+        # 8. Mark completed (or HOLDING)
         if task.status not in (TaskPhase.FAILED, TaskPhase.CANCELLED):
-            task.status = TaskPhase.COMPLETE
-            persist_task(employee_id, task)
-        if not task.completed_at:
-            task.completed_at = datetime.now().isoformat()
-        self._log(employee_id, task, "end", f"Task {task.status}")
+            holding_meta = _parse_holding_metadata(task.result or "")
+            if holding_meta is not None:
+                task.status = TaskPhase.HOLDING
+                persist_task(employee_id, task)
+                # Start holding watchdog cron — employee checks status every 5 min
+                self._setup_holding_watchdog(employee_id, task, holding_meta)
+                self._log(employee_id, task, "holding", f"Task entered HOLDING: {holding_meta}")
+            else:
+                task.status = TaskPhase.COMPLETE
+                persist_task(employee_id, task)
+
+        if task.status != TaskPhase.HOLDING:
+            # Normal completion path
+            if not task.completed_at:
+                task.completed_at = datetime.now().isoformat()
+            self._log(employee_id, task, "end", f"Task {task.status}")
+            self._publish_task_update(employee_id, task)
+
+            # 9. Record to history + progress log
+            if task.status == TaskPhase.COMPLETE:
+                self._append_history(employee_id, task)
+                summary = (task.result or "")[:200]
+                _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
+
+            # Post-task hook
+            post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
+            if post_task_hook:
+                try:
+                    post_task_hook(task, task.result or "")
+                except Exception:
+                    logger.warning("Post-task hook failed for %s", employee_id)
+
+            if emp:
+                emp.current_task_summary = ""
+
+            # Task tree: update node status and wake parent if all siblings done
+            if task.project_dir:
+                try:
+                    await self._on_child_complete(employee_id, task, project_id=task.project_id)
+                except Exception as e:
+                    logger.error("Task tree callback failed for {}: {}", employee_id, e)
+
+            # 10. Post-task cleanup
+            effective_project_id = task.project_id
+            if effective_project_id:
+                # Record cost to project
+                if task.total_tokens > 0:
+                    from onemancompany.core.project_archive import record_project_cost
+                    record_project_cost(
+                        effective_project_id, employee_id,
+                        task.model_used, task.input_tokens, task.output_tokens,
+                        task.estimated_cost_usd,
+                    )
+                # Record action
+                if not effective_project_id.startswith("_auto_") and task.result:
+                    from onemancompany.core.project_archive import append_action
+                    role = self._get_role(employee_id)
+                    summary = task.result[:MAX_SUMMARY_LEN]
+                    append_action(effective_project_id, employee_id, f"{role} task completed", summary)
+                # Resolution
+                from onemancompany.core.resolutions import create_resolution
+                resolution = create_resolution(effective_project_id, task.description)
+                if resolution:
+                    resolution["employee_id"] = employee_id
+                    await event_bus.publish(
+                        CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
+                    )
+
+            # 11. Archive task at terminal state
+            if task.status in TERMINAL_STATES:
+                archive_task(employee_id, task)
+        else:
+            # HOLDING — just publish the status update
+            self._publish_task_update(employee_id, task)
+
+    # ------------------------------------------------------------------
+    # HOLDING helpers
+    # ------------------------------------------------------------------
+
+    def _setup_holding_watchdog(self, employee_id: str, task: AgentTask, holding_meta: dict) -> None:
+        """Start a watchdog cron for a HOLDING task.
+
+        The cron dispatches a check task to the employee periodically.
+        For thread_id-based holds, it checks Gmail. For all other holds
+        (e.g. batch_id), it asks the employee to verify the condition.
+        """
+        from onemancompany.core.automation import start_cron as _start_cron
+
+        thread_id = holding_meta.get("thread_id", "")
+        if thread_id:
+            # Specific Gmail reply poller
+            interval = holding_meta.get("interval", "1m")
+            cron_name = f"reply_{task.id}"
+            task_desc = f"[reply_poll] Check Gmail thread {thread_id} for task {task.id}"
+        else:
+            # Generic holding watchdog — employee checks if condition is resolved
+            interval = holding_meta.get("interval", "5m")
+            meta_summary = ", ".join(f"{k}={v}" for k, v in holding_meta.items() if k != "interval")
+            cron_name = f"holding_{task.id}"
+            holding_since = task.created_at or datetime.now().isoformat()
+            task_desc = (
+                f"[holding_check] 你有一个 HOLDING 任务 (task_id={task.id}) 等待外部条件完成。"
+                f" 元数据: {meta_summary}。开始等待时间: {holding_since}。"
+                f"\n\n请按以下流程处理："
+                f"\n1. 检查该条件是否已满足。如果已完成，调用 resume_held_task(task_id='{task.id}', result='条件已满足: <具体结果>')。"
+                f"\n2. 如果等待已超过 10 分钟但未超过 30 分钟，尝试换一种方式推进（重新发送请求、换联系方式、尝试替代方案等）。"
+                f"\n3. 如果等待已超过 30 分钟，上报给上级（用 dispatch_child 或直接在结果中说明情况），"
+                f"并调用 resume_held_task(task_id='{task.id}', result='超时上报: <等待原因和已尝试的方法>') 结束等待。"
+                f"\n4. 如果尚未超时且条件未满足，无需操作。"
+            )
+
+        result = _start_cron(employee_id, cron_name, interval, task_desc)
+        if result.get("status") != "ok":
+            logger.error("Failed to start holding watchdog for {}: {}", task.id, result)
+
+    async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
+        """Resume a HOLDING task with the provided result.
+
+        Transitions HOLDING → COMPLETE, stops the reply poller cron,
+        persists the task, archives it, and triggers task tree callbacks.
+
+        Returns True if task was found and resumed, False otherwise.
+        """
+        board = self.boards.get(employee_id)
+        if not board:
+            return False
+
+        task: AgentTask | None = None
+        for t in board.tasks:
+            if t.id == task_id:
+                task = t
+                break
+        if not task or task.status != TaskPhase.HOLDING:
+            return False
+
+        # Stop holding watchdog cron (reply poller or generic watchdog)
+        stop_cron(employee_id, f"reply_{task_id}")
+        stop_cron(employee_id, f"holding_{task_id}")
+
+        # Transition to COMPLETE
+        task.result = result
+        task.status = TaskPhase.COMPLETE
+        task.completed_at = datetime.now().isoformat()
+        persist_task(employee_id, task)
+
+        self._log(employee_id, task, "resumed", f"HOLDING → COMPLETE with result: {result[:200]}")
         self._publish_task_update(employee_id, task)
 
-        # 9. Record to history + progress log
-        if task.status == TaskPhase.COMPLETE:
-            self._append_history(employee_id, task)
-            summary = (task.result or "")[:200]
-            _append_progress(employee_id, f"Completed: {task.description[:100]} → {summary}")
+        # Record to history + progress log
+        self._append_history(employee_id, task)
+        summary = (task.result or "")[:200]
+        _append_progress(employee_id, f"Completed (resumed): {task.description[:100]} → {summary}")
 
-        # Post-task hook
-        post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
-        if post_task_hook:
-            try:
-                post_task_hook(task, task.result or "")
-            except Exception:
-                logger.warning("Post-task hook failed for %s", employee_id)
-
-        if emp:
-            emp.current_task_summary = ""
-
-        # Task tree: update node status and wake parent if all siblings done
+        # Task tree callback
         if task.project_dir:
             try:
                 await self._on_child_complete(employee_id, task, project_id=task.project_id)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error("Task tree callback failed for {}: {}", employee_id, e)
 
-        # 10. Post-task cleanup
-        effective_project_id = task.project_id
-        if effective_project_id:
-            # Record cost to project
-            if task.total_tokens > 0:
-                from onemancompany.core.project_archive import record_project_cost
-                record_project_cost(
-                    effective_project_id, employee_id,
-                    task.model_used, task.input_tokens, task.output_tokens,
-                    task.estimated_cost_usd,
-                )
-            # Record action
-            if not effective_project_id.startswith("_auto_") and task.result:
-                from onemancompany.core.project_archive import append_action
-                role = self._get_role(employee_id)
-                summary = task.result[:MAX_SUMMARY_LEN]
-                append_action(effective_project_id, employee_id, f"{role} task completed", summary)
-            # Resolution
-            from onemancompany.core.resolutions import create_resolution
-            resolution = create_resolution(effective_project_id, task.description)
-            if resolution:
-                resolution["employee_id"] = employee_id
-                await event_bus.publish(
-                    CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
-                )
-
-        # 11. Archive task at terminal state
+        # Archive
         if task.status in TERMINAL_STATES:
             archive_task(employee_id, task)
+
+        return True
 
     # ------------------------------------------------------------------
     # Task history management
@@ -952,6 +1222,8 @@ class EmployeeManager:
             "result": (task.result or "")[:RESULT_SNIPPET_LEN],
             "completed_at": task.completed_at or datetime.now().isoformat(),
         })
+        # Write-through to disk
+        _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(self._maybe_compress_history(employee_id))
@@ -986,6 +1258,13 @@ class EmployeeManager:
             self._history_summaries[employee_id] = resp.content.strip()[:800]
         except Exception:
             self._history_summaries[employee_id] = (summary + "\n" + old_text)[:800]
+
+        # Write-through compressed history to disk
+        _save_task_history(
+            employee_id,
+            self.task_histories[employee_id],
+            self._history_summaries.get(employee_id, ""),
+        )
 
     def get_history_context(self, employee_id: str) -> str:
         history = self.task_histories.get(employee_id, [])
@@ -1237,6 +1516,12 @@ class EmployeeManager:
 
     async def _on_child_complete(self, employee_id: str, task: AgentTask, project_id: str = "") -> None:
         """Update TaskTree node when a task completes, wake parent if all siblings done."""
+        effective_project_id = project_id or task.project_id
+        async with _get_tree_lock(effective_project_id):
+            await self._on_child_complete_inner(employee_id, task, project_id)
+
+    async def _on_child_complete_inner(self, employee_id: str, task: AgentTask, project_id: str = "") -> None:
+        """Inner implementation of _on_child_complete, called under tree lock."""
         tree = _load_project_tree(task.project_dir)
         if tree is None:
             return
@@ -1261,10 +1546,21 @@ class EmployeeManager:
 
         _save_project_tree(task.project_dir, tree)
 
-        # Root node completed — trigger full project cleanup
-        if not node.parent_id:
-            logger.info("Root node {} completed — triggering project cleanup", node_id)
-            await self._full_cleanup(employee_id, task, agent_error=False, project_id=project_id or task.project_id)
+        # Root node or child of CEO node completed — request CEO confirmation
+        is_root = not node.parent_id
+        parent_node = tree.get_node(node.parent_id) if node.parent_id else None
+        is_child_of_ceo = parent_node and parent_node.is_ceo_node if parent_node else False
+
+        if is_root or is_child_of_ceo:
+            logger.info("EA node {} completed (root or child of CEO) — requesting CEO confirmation", node_id)
+            # Update CEO root node status
+            if is_child_of_ceo:
+                parent_node.status = "completed"
+                _save_project_tree(task.project_dir, tree)
+            effective_project_id = project_id or task.project_id
+            await self._request_ceo_confirmation(
+                employee_id, task, tree, node, effective_project_id
+            )
             return
 
         parent_node = tree.get_node(node.parent_id)
@@ -1272,38 +1568,204 @@ class EmployeeManager:
             return
 
         # Check all children of parent — are they all terminal?
-        children = tree.get_children(parent_node.id)
+        children = tree.get_active_children(parent_node.id)
         all_terminal = all(c.is_terminal or c.status == "completed" for c in children)
         if not all_terminal:
             return
 
         # Build review prompt for parent employee
-        lines = ["你之前分发的子任务已全部完成，请审核结果：", ""]
-        for i, child in enumerate(children, 1):
-            criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
-            lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
-            lines.append(f"  验收标准: {criteria_str}")
-            lines.append(f"  执行结果: \"{child.result}\"")
-            lines.append(f"  状态: {child.status}")
+        # Separate children needing review from already-accepted
+        # Skip CEO nodes (informational only, not reviewable)
+        needs_review = []
+        already_accepted = []
+        for child in children:
+            if child.is_ceo_node:
+                continue
+            if child.status == "accepted":
+                already_accepted.append(child)
+            else:
+                needs_review.append(child)
+
+        lines = []
+        if already_accepted and needs_review:
+            lines.append("以下子任务已通过验收，无需重复审核：")
+            for child in already_accepted:
+                lines.append(f"  \u2713 ({child.employee_id}): {child.description[:80]}")
             lines.append("")
 
-        lines.append("请对每个子任务调用 accept_child() 或 reject_child()。")
+        if needs_review:
+            lines.append("以下子任务需要审核：")
+            lines.append("")
+            for i, child in enumerate(needs_review, 1):
+                criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
+                lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
+                lines.append(f"  验收标准: {criteria_str}")
+                lines.append(f"  执行结果: \"{child.result}\"")
+                lines.append(f"  状态: {child.status}")
+                if child.acceptance_result and not child.acceptance_result.get("passed"):
+                    lines.append(f"  \u26a0 此任务曾被拒绝: {child.acceptance_result.get('notes', '')}")
+                lines.append("")
+        else:
+            lines.append("所有子任务已通过验收。")
+
+        lines.append("请对未验收的子任务调用 accept_child(node_id, notes) 或 reject_child(node_id, reason)。")
         lines.append("如需追加任务，调用 dispatch_child()。")
         lines.append("全部处理完毕后，你的任务将自动完成并向上汇报。")
 
         review_prompt = "\n".join(lines)
 
         board = self.boards.setdefault(parent_node.employee_id, AgentTaskBoard())
-        board.push(
+        review_task = board.push(
             description=review_prompt,
             project_id=project_id,
             project_dir=task.project_dir,
         )
+        persist_task(parent_node.employee_id, review_task)
         logger.info("All children done for parent {} — pushed review task to {}", parent_node.id, parent_node.employee_id)
 
         # Schedule parent if not already running
         if parent_node.employee_id not in self._running_tasks:
             self._schedule_next(parent_node.employee_id)
+
+    # ------------------------------------------------------------------
+    # Dependency resolution — unlock dependents when a node becomes terminal
+    # ------------------------------------------------------------------
+
+    async def _resolve_dependencies(self, tree, completed_node, project_dir: str) -> None:
+        """Check if completing this node unlocks any dependent tasks."""
+        project_id = completed_node.project_id or tree.project_id
+        async with _get_tree_lock(project_id):
+            dependents = tree.find_dependents(completed_node.id)
+            if not dependents:
+                return
+
+            dirty = False
+            to_schedule: list[tuple[str, AgentTask]] = []
+
+            for dep_node in dependents:
+                if dep_node.status != "pending":
+                    continue  # Already running, blocked, or terminal
+
+                if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
+                    dep_node.status = "blocked"
+                    dirty = True
+                    # Notify parent about blocked task
+                    parent = tree.get_node(dep_node.parent_id)
+                    if parent:
+                        msg = (
+                            f"Task \"{dep_node.description}\" is BLOCKED because dependency "
+                            f"\"{completed_node.description}\" failed. Please handle via "
+                            f"reject_child (retry), unblock_child, or cancel_child."
+                        )
+                        board = self.boards.setdefault(parent.employee_id, AgentTaskBoard())
+                        notify_task = board.push(description=msg, project_dir=project_dir)
+                        persist_task(parent.employee_id, notify_task)
+                        to_schedule.append((parent.employee_id, notify_task))
+                    continue
+
+                if tree.all_deps_terminal(dep_node.id):
+                    # Inject dependency context and push task
+                    context = _build_dependency_context(tree, dep_node)
+                    full_desc = context + dep_node.description
+                    board = self.boards.setdefault(dep_node.employee_id, AgentTaskBoard())
+                    agent_task = board.push(
+                        description=full_desc,
+                        project_id=dep_node.project_id,
+                        project_dir=project_dir,
+                    )
+                    tree.task_id_map[agent_task.id] = dep_node.id
+                    dirty = True
+                    persist_task(dep_node.employee_id, agent_task)
+                    to_schedule.append((dep_node.employee_id, agent_task))
+
+            if dirty:
+                _save_project_tree(project_dir, tree)
+
+            # Schedule outside the mutation loop
+            for emp_id, _ in to_schedule:
+                if emp_id not in self._running_tasks:
+                    self._schedule_next(emp_id)
+
+    async def _request_ceo_confirmation(
+        self,
+        employee_id: str,
+        task: AgentTask,
+        tree,
+        root_node,
+        project_id: str,
+    ) -> None:
+        """Send project completion report to CEO and wait for confirmation.
+
+        CEO approve -> _full_cleanup(run_retrospective=True)
+        CEO revise  -> push revision task to root employee
+        """
+        from onemancompany.agents.common_tools import _ceo_pending, _ceo_wait_key
+
+        # Build completion summary from all children (skip CEO info nodes)
+        children = [c for c in tree.get_children(root_node.id) if not c.is_ceo_node]
+        lines = [f"项目完成汇报 — {task.description[:100]}", ""]
+        for i, child in enumerate(children, 1):
+            status_icon = "✓" if child.status == "accepted" else "●"
+            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description[:80]}")
+            lines.append(f"  结果: {(child.result or '无')[:200]}")
+            lines.append("")
+        summary = "\n".join(lines)
+
+        # Publish CEO report event
+        payload = {
+            "subject": f"项目完成确认: {task.description[:60]}",
+            "report": summary,
+            "action_required": True,
+            "employee_id": employee_id,
+            "project_id": project_id,
+            "timestamp": datetime.now().isoformat(),
+        }
+        emp = company_state.employees.get(employee_id)
+        if emp:
+            payload["employee_name"] = emp.name
+        await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
+
+        # Block until CEO responds
+        key = _ceo_wait_key(employee_id, project_id)
+        entry = {"event": asyncio.Event(), "response": {}, "meta": payload}
+        _ceo_pending[key] = entry
+        try:
+            await asyncio.wait_for(entry["event"].wait(), timeout=600)
+            ceo_response = entry.get("response", {})
+            action = ceo_response.get("action", "approve")
+            message = ceo_response.get("message", "")
+        except asyncio.CancelledError:
+            raise
+        except (asyncio.TimeoutError, TimeoutError):
+            action = "approve"
+            message = "CEO未在10分钟内响应，自动确认"
+            logger.warning("CEO confirmation timed out for project {}, auto-approving", project_id)
+        finally:
+            _ceo_pending.pop(key, None)
+
+        if action == "revise" and message:
+            # CEO wants revision — push task back to root employee
+            revision_desc = (
+                f"CEO要求修改:\n{message}\n\n"
+                f"原任务: {task.description[:200]}"
+            )
+            board = self.boards.setdefault(employee_id, AgentTaskBoard())
+            revision_task = board.push(
+                description=revision_desc,
+                project_id=project_id,
+                project_dir=task.project_dir,
+            )
+            persist_task(employee_id, revision_task)
+            self._schedule_next(employee_id)
+            logger.info("CEO requested revision for project {} — pushed to {}", project_id, employee_id)
+        else:
+            # CEO approved — run full cleanup with retrospective for project tasks
+            is_project = task.task_type == "project"
+            await self._full_cleanup(
+                employee_id, task, agent_error=False,
+                project_id=project_id,
+                run_retrospective=is_project,
+            )
 
     async def _full_cleanup(
         self, employee_id: str, task: AgentTask, agent_error: bool,
@@ -1358,14 +1820,6 @@ class EmployeeManager:
             if agent_error:
                 label = f"{label} (with errors)"
             complete_project(project_id, label)
-
-        # Mark task as completed in active_tasks (keep for history)
-        for t in company_state.active_tasks:
-            if t.project_id == project_id:
-                t.status = "completed"
-                t.result = label
-                t.completed_at = datetime.now().isoformat()
-                break
 
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()
@@ -1513,18 +1967,6 @@ class EmployeeManager:
         async def _run() -> None:
             from onemancompany.core.resolutions import create_resolution, current_project_id
 
-            # Register in active_tasks
-            company_state.active_tasks.append(
-                TaskEntry(
-                    project_id=project_id,
-                    task=task_description or task_name,
-                    routed_to=task_name,
-                )
-            )
-            await event_bus.publish(
-                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-            )
-
             ctx_token = current_project_id.set(project_id)
             try:
                 await coro
@@ -1550,14 +1992,6 @@ class EmployeeManager:
             # Sandbox cleanup
             from onemancompany.tools.sandbox import cleanup_sandbox as _cleanup_sandbox
             await _cleanup_sandbox()
-
-            # Mark as completed in active_tasks (keep for history)
-            for t in company_state.active_tasks:
-                if t.project_id == project_id:
-                    t.status = "completed"
-                    t.result = task_description or task_name
-                    t.completed_at = datetime.now().isoformat()
-                    break
 
             # Broadcast updated state
             await event_bus.publish(

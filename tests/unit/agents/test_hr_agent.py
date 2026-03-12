@@ -1022,7 +1022,9 @@ class TestRunStreamedBatchStashing:
             _current_loop.reset(token_loop)
             _current_task_id.reset(token_task)
 
-        assert result == shortlist_output
+        # run_streamed prepends __HOLDING:batch_id=... when a new batch is created
+        assert result.endswith(shortlist_output)
+        assert result.startswith("__HOLDING:batch_id=")
 
         # A new batch should have been created in pending_candidates
         assert len(hr_agent.pending_candidates) == 1

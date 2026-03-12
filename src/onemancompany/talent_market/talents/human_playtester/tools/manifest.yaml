@@ -1,6 +1,0 @@
-builtin_tools:
-- read_file
-- write_file
-- list_dir
-- bash
-custom_tools: []

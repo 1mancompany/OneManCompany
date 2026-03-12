@@ -26,6 +26,72 @@ from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
 
 
+def _extract_text(content) -> str:
+    """Extract text from AIMessage content, handling both str and list-of-blocks formats.
+
+    Anthropic models return content as a list of blocks like
+    [{"type": "text", "text": "..."}, {"type": "tool_use", ...}].
+    OpenAI-compatible models return a plain string.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+    return str(content) if content else ""
+
+
+def extract_final_content(result: dict) -> str:
+    """Extract the final text content from a LangGraph ainvoke result.
+
+    Walks backwards through messages to find the last AIMessage with non-empty
+    text content, since the actual last message may be a ToolMessage.
+
+    If no AIMessage has text, synthesizes a summary from the last tool calls
+    and their results.
+    """
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    messages = result.get("messages", [])
+    if not messages:
+        return ""
+
+    # 1. Try: last AIMessage with non-empty text
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage):
+            text = _extract_text(msg.content)
+            if text.strip():
+                return text
+
+    # 2. Fallback: summarize from tool calls + results at the end of the chain.
+    #    Walk backwards collecting ToolMessages until we hit an AIMessage (the caller).
+    tool_results: list[str] = []
+    tool_names: list[str] = []
+    for msg in reversed(messages):
+        if isinstance(msg, ToolMessage):
+            tool_results.append(_extract_text(msg.content))
+        elif isinstance(msg, AIMessage):
+            # This AIMessage had tool_calls but no text — grab the tool names
+            for tc in getattr(msg, "tool_calls", []) or []:
+                tool_names.append(tc.get("name", "unknown"))
+            break
+
+    if tool_names:
+        parts = [f"Executed: {', '.join(tool_names)}"]
+        for name, res in zip(tool_names, reversed(tool_results)):
+            snippet = res[:300] if res else ""
+            parts.append(f"  {name} → {snippet}")
+        return "\n".join(parts)
+
+    # 3. Last resort
+    return _extract_text(messages[-1].content) or "(no output)"
+
+
 def make_llm(employee_id: str = "") -> BaseChatModel:
     """Create an LLM instance, using per-agent model config from employees/{id}/profile.yaml.
 
@@ -288,7 +354,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
         "NEVER use Gmail/email for internal task routing or employee coordination.\n"
-        "- **CEO communication**: Use report_to_ceo() for reports, ask_ceo() for questions.\n"
+        "- **CEO communication**: Use report_to_ceo(subject, report, action_required) for all CEO communication.\n"
         "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
         "(clients, vendors, partners, third parties)."
     )
@@ -335,6 +401,8 @@ class BaseAgentRunner:
         total_input_tokens = 0
         total_output_tokens = 0
         model_used = ""
+        last_tool_calls: list[str] = []  # track tool names for fallback
+        last_tool_results: list[str] = []
 
         async for event in self._agent.astream_events(
             messages_input, version="v2", config={"recursion_limit": 50},
@@ -362,21 +430,31 @@ class BaseAgentRunner:
                         model_used = meta.get("model_name", "") or meta.get("model", "")
 
                     if hasattr(output, "content"):
-                        content = output.content or ""
-                        if isinstance(content, str):
-                            final_content = content  # track last AI output
-                            on_log("llm_output", content)
+                        text = _extract_text(output.content)
+                        if text.strip():
+                            final_content = text  # track last AI output
+                            on_log("llm_output", text)
                         tool_calls = getattr(output, "tool_calls", None)
                         if tool_calls:
+                            last_tool_calls = []
+                            last_tool_results = []
                             for tc in tool_calls:
                                 name = tc.get("name", "?")
                                 args = str(tc.get("args", {}))
+                                last_tool_calls.append(name)
                                 on_log("tool_call", f"{name}({args})")
             elif kind == "on_tool_end":
                 output = data.get("output", "")
                 name = event.get("name", "tool")
                 result_str = str(output)
+                last_tool_results.append(f"{name} → {result_str[:300]}")
                 on_log("tool_result", f"{name} → {result_str}")
+
+        # If no text content from LLM, synthesize from last tool calls
+        if not final_content.strip() and last_tool_calls:
+            parts = [f"Executed: {', '.join(last_tool_calls)}"]
+            parts.extend(last_tool_results)
+            final_content = "\n".join(parts)
 
         # Store usage for caller to read
         self._last_usage = {
@@ -538,11 +616,20 @@ class BaseAgentRunner:
             parts.append("- Team:\n" + "\n".join(team_lines))
 
         # Active projects (brief)
-        if company_state.active_tasks:
+        from onemancompany.core.state import get_active_tasks
+        active_tasks = get_active_tasks()
+        if active_tasks:
             active = []
-            for t in company_state.active_tasks[:5]:
+            for t in active_tasks[:5]:
                 active.append(f"  - [{t.routed_to}] {t.task[:60]}")
             parts.append("- Active tasks:\n" + "\n".join(active))
+
+        # Custom settings (target_email, polling_interval, etc.)
+        from onemancompany.core.config import load_custom_settings
+        custom = load_custom_settings(self.employee_id)
+        if custom:
+            settings_lines = [f"  - {k}: {v}" for k, v in custom.items()]
+            parts.append("- Your settings:\n" + "\n".join(settings_lines))
 
         return "\n".join(parts)
 
@@ -767,7 +854,7 @@ class EmployeeAgent(BaseAgentRunner):
         )
 
         self._extract_and_record_usage(result)
-        final = result["messages"][-1].content
+        final = extract_final_content(result)
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})
         return final

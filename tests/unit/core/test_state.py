@@ -147,15 +147,14 @@ class TestCompanyStateToJson:
         cs.meeting_rooms["r1"] = MeetingRoom(
             id="r1", name="Room A", description="Main room",
         )
-        cs.active_tasks.append(
-            TaskEntry(project_id="p1", task="Do stuff", routed_to="COO")
-        )
         cs.sales_tasks["s1"] = SalesTask(
             id="s1", client_name="Acme", description="Build app",
         )
         cs.company_tokens = 5000
 
-        j = cs.to_json()
+        mock_task = TaskEntry(project_id="p1", task="Do stuff", routed_to="COO")
+        with patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]):
+            j = cs.to_json()
         assert len(j["employees"]) == 1
         assert len(j["ex_employees"]) == 1
         assert len(j["tools"]) == 1
@@ -173,15 +172,15 @@ class TestIsIdle:
     def test_idle_when_no_tasks(self, monkeypatch):
         import onemancompany.core.state as state_mod
 
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         assert state_mod.is_idle() is True
 
     def test_not_idle_when_tasks_present(self, monkeypatch):
         import onemancompany.core.state as state_mod
 
         monkeypatch.setattr(
-            state_mod.company_state, "active_tasks",
-            [TaskEntry(project_id="p1", task="x", routed_to="COO")]
+            state_mod, "get_active_tasks",
+            lambda: [TaskEntry(project_id="p1", task="x", routed_to="COO")]
         )
         assert state_mod.is_idle() is False
 
@@ -194,7 +193,7 @@ class TestRequestReload:
     def test_immediate_reload_when_idle(self, monkeypatch):
         import onemancompany.core.state as state_mod
 
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         mock_reload = MagicMock(return_value={"status": "ok"})
         monkeypatch.setattr(state_mod, "reload_all_from_disk", mock_reload)
 
@@ -207,8 +206,8 @@ class TestRequestReload:
         import onemancompany.core.state as state_mod
 
         monkeypatch.setattr(
-            state_mod.company_state, "active_tasks",
-            [TaskEntry(project_id="p1", task="x", routed_to="COO")]
+            state_mod, "get_active_tasks",
+            lambda: [TaskEntry(project_id="p1", task="x", routed_to="COO")]
         )
         result = state_mod.request_reload()
         assert result["status"] == "deferred"
@@ -302,7 +301,7 @@ class TestReloadAllFromDisk:
             level=1, department="Engineering", nickname="old_nick",
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         # Create employee profile on disk for the YAML-reading path inside reload
@@ -348,7 +347,7 @@ class TestReloadAllFromDisk:
         from onemancompany.core.config import EmployeeConfig
 
         monkeypatch.setattr(state_mod.company_state, "employees", {})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
         monkeypatch.setattr(state_mod.company_state, "_next_employee_number", 6)
 
@@ -378,7 +377,7 @@ class TestReloadAllFromDisk:
             id="00010", name="Deleted", role="Engineer", skills=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": old_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         _setup_reload_mocks(monkeypatch, config_mod)
@@ -395,7 +394,7 @@ class TestReloadAllFromDisk:
         from onemancompany.core.config import EmployeeConfig
 
         monkeypatch.setattr(state_mod.company_state, "employees", {})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         ex_configs = {
@@ -417,7 +416,7 @@ class TestReloadAllFromDisk:
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(state_mod.company_state, "employees", {})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         _setup_reload_mocks(monkeypatch, config_mod)
@@ -433,7 +432,7 @@ class TestReloadAllFromDisk:
         from onemancompany.core.config import EmployeeConfig
 
         monkeypatch.setattr(state_mod.company_state, "employees", {})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
         monkeypatch.setattr(state_mod.company_state, "_next_employee_number", 6)
 
@@ -462,7 +461,7 @@ class TestReloadAllFromDisk:
             level=1, department="OldDept", nickname="alice",
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -500,7 +499,7 @@ class TestReloadAllFromDisk:
             level=1, department="Eng", nickname="bob",
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -538,7 +537,7 @@ class TestReloadAllFromDisk:
             current_quarter_tasks=0,
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -577,7 +576,7 @@ class TestReloadAllFromDisk:
             performance_history=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -617,7 +616,7 @@ class TestReloadAllFromDisk:
             permissions=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -657,7 +656,7 @@ class TestReloadAllFromDisk:
             guidance_notes=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -697,7 +696,7 @@ class TestReloadAllFromDisk:
             work_principles="",
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -736,7 +735,7 @@ class TestReloadAllFromDisk:
             remote=False,
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -775,7 +774,7 @@ class TestReloadAllFromDisk:
             probation=False,
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -813,7 +812,7 @@ class TestReloadAllFromDisk:
             onboarding_completed=True,
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -851,7 +850,7 @@ class TestReloadAllFromDisk:
             okrs=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -890,7 +889,7 @@ class TestReloadAllFromDisk:
             pip=None,
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": existing_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         emp_dir = tmp_path / "employees" / "00010"
@@ -926,7 +925,7 @@ class TestReloadAllFromDisk:
             id="00010", name="Removed", role="Engineer", skills=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": old_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         _setup_reload_mocks(monkeypatch, config_mod)
@@ -953,7 +952,7 @@ class TestReloadAllFromDisk:
             id="00010", name="Removed", role="Engineer", skills=[],
         )
         monkeypatch.setattr(state_mod.company_state, "employees", {"00010": old_emp})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         _setup_reload_mocks(monkeypatch, config_mod)
@@ -973,7 +972,7 @@ class TestReloadAllFromDisk:
         import onemancompany.core.events as events_mod
 
         monkeypatch.setattr(state_mod.company_state, "employees", {})
-        monkeypatch.setattr(state_mod.company_state, "active_tasks", [])
+        monkeypatch.setattr(state_mod, "get_active_tasks", lambda: [])
         monkeypatch.setattr(state_mod.company_state, "ex_employees", {})
 
         _setup_reload_mocks(monkeypatch, config_mod)

@@ -197,6 +197,13 @@
         <div class="emp-detail-grid">
           <!-- Left: Status (compact) + Work Principles + 1-on-1 Notes -->
           <div class="emp-detail-col emp-detail-left">
+            <div class="employee-avatar-section" id="emp-detail-avatar-section">
+              <img id="emp-detail-avatar" class="employee-avatar" />
+              <label class="avatar-upload-btn">
+                上传头像
+                <input type="file" accept="image/png,image/jpeg" style="display:none" id="emp-avatar-upload-input" />
+              </label>
+            </div>
             <div class="emp-detail-status-card">
               <div class="emp-detail-row">
                 <span class="emp-detail-label">#</span>
@@ -259,6 +266,23 @@
             <div class="emp-detail-section emp-detail-flex-section">
               <div class="emp-detail-section-title">1-on-1 Notes</div>
               <div class="emp-detail-section-content" id="emp-detail-guidance"></div>
+            </div>
+
+            <div class="emp-detail-section emp-detail-flex-section" id="emp-detail-cron-section">
+              <div class="emp-detail-section-title" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>Scheduled Jobs</span>
+                <button class="emp-cron-stop-all-btn" id="emp-cron-stop-all-btn" style="display:none;">Stop All</button>
+              </div>
+              <div class="emp-detail-section-content" id="emp-detail-crons">
+                <span class="empty-hint">No scheduled jobs</span>
+              </div>
+            </div>
+
+            <div class="emp-section" id="emp-detail-projects-section">
+              <div class="emp-section-title">Project History</div>
+              <div id="emp-detail-projects" class="emp-detail-projects">
+                <span class="empty-hint">Loading...</span>
+              </div>
             </div>
           </div>
 
@@ -376,7 +400,11 @@
       </div>
       <div class="modal-body candidate-modal-body">
         <div id="candidate-jd" class="candidate-jd"></div>
-        <div id="candidate-cards" class="candidate-cards"></div>
+        <div id="candidate-roles" class="candidate-roles"></div>
+      </div>
+      <div id="candidate-batch-bar" class="candidate-batch-bar hidden">
+        <span id="candidate-batch-count" class="batch-count">0 selected</span>
+        <button id="candidate-batch-hire-btn" class="pixel-btn batch-hire-btn" disabled>RECRUIT PARTY (0)</button>
       </div>
     </div>
   </div>
@@ -410,6 +438,21 @@
       <div class="interview-actions">
         <button id="interview-hire-btn" class="pixel-btn">&#9989; Hire</button>
         <button id="interview-back-btn" class="pixel-btn secondary">&#8592; Back to Candidates</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Onboarding Progress Modal -->
+  <div id="onboarding-progress-modal" class="modal-overlay hidden">
+    <div class="modal-content onboarding-progress-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#128640; Onboarding Sequence</h3>
+      </div>
+      <div class="modal-body" style="padding:8px;overflow-y:auto;">
+        <div id="onboarding-progress-list" class="onboarding-list"></div>
+      </div>
+      <div id="onboarding-progress-actions" class="onboarding-actions hidden">
+        <button id="onboarding-done-btn" class="pixel-btn">CLOSE</button>
       </div>
     </div>
   </div>

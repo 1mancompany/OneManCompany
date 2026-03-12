@@ -189,7 +189,12 @@ class AppController {
       'workflow_updated':    (p) => ({ text: `📋 Workflow updated: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
       'candidates_ready':   (p) => {
         this.showCandidateSelection(p);
-        return { text: `📋 HR screening done: ${(p.candidates || []).length} candidates for CEO selection`, cls: 'hr', agent: 'HR' };
+        const totalCandidates = (p.roles || []).reduce((sum, r) => sum + (r.candidates || []).length, 0) || (p.candidates || []).length;
+        return { text: `📋 HR screening done: ${totalCandidates} candidates in ${(p.roles || []).length || 1} role(s)`, cls: 'hr', agent: 'HR' };
+      },
+      'onboarding_progress': (p) => {
+        this._handleOnboardingProgress(p);
+        return null; // no log entry, modal handles it
       },
       'file_edit_proposed':  (p) => {
         return { text: `📝 File edit request: ${p.rel_path} — ${p.reason}`, cls: 'ceo', agent: p.proposed_by || 'AGENT' };
@@ -260,10 +265,14 @@ class AppController {
       },
       'ceo_report': (p) => {
         const icon = p.action_required ? '🚨' : '📊';
+        if (p.action_required) {
+          this._showCeoReportDialog(p);
+        }
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'ask_ceo': (p) => {
-        this._showAskCeoDialog(p);
+        // Legacy — redirects to unified ceo_report dialog
+        this._showCeoReportDialog({...p, subject: p.question, report: p.context || p.question, action_required: true});
         return { text: `❓ ${p.employee_name || p.employee_id} 请求CEO反馈: ${p.question}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'code_update_available': (p) => {
@@ -497,20 +506,48 @@ class AppController {
         timeHtml = `<span class="task-card-time">${completedTime}</span>`;
       }
 
+      // Cancel button for active tasks
+      const cancelBtn = !isTerminal && t.project_id
+        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="取消任务">✕</button>`
+        : '';
+
       card.innerHTML = `
         <div class="task-card-header">
           <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}</span>
+          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${cancelBtn}</span>
         </div>
         <div class="task-card-text">${taskText}</div>
         ${resultHtml}
         ${treeHtml}
       `;
+
+      // Bind cancel button
+      const btn = card.querySelector('.task-cancel-btn');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._cancelTask(btn.dataset.projectId);
+        });
+      }
+
       if (t.project_id && !t.project_id.startsWith('_auto_')) {
         card.style.cursor = 'pointer';
         card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
       }
       panel.appendChild(card);
+    }
+  }
+
+  async _cancelTask(projectId) {
+    if (!confirm('确定要取消这个任务吗？')) return;
+    try {
+      const resp = await fetch(`/api/task/${projectId}/abort`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this.updateTaskPanel();
+      }
+    } catch (e) {
+      console.error('Cancel task failed:', e);
     }
   }
 
@@ -822,6 +859,25 @@ class AppController {
     document.getElementById('meeting-inquiry-end-btn').addEventListener('click', () => this._endInquirySession());
 
     // Employee detail modal bindings
+    document.getElementById('emp-avatar-upload-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file || !this.viewingEmployeeId) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const resp = await fetch(`/api/employees/${this.viewingEmployeeId}/avatar`, {
+          method: 'POST',
+          body: new Uint8Array(reader.result),
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
+        if (resp.ok) {
+          const avatarImg = document.getElementById('emp-detail-avatar');
+          avatarImg.src = `/api/employees/${this.viewingEmployeeId}/avatar?t=${Date.now()}`;
+          avatarImg.style.display = '';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
     document.getElementById('employee-close-btn').addEventListener('click', () => this.closeEmployeeDetail());
     document.getElementById('employee-modal').addEventListener('click', (e) => {
       if (e.target.id === 'employee-modal') this.closeEmployeeDetail();
@@ -848,6 +904,10 @@ class AppController {
     document.getElementById('candidate-close-btn').addEventListener('click', () => this.closeCandidateModal());
     document.getElementById('candidate-modal').addEventListener('click', (e) => {
       if (e.target.id === 'candidate-modal') this.closeCandidateModal();
+    });
+    document.getElementById('candidate-batch-hire-btn').addEventListener('click', () => this.batchHireCandidates());
+    document.getElementById('onboarding-done-btn').addEventListener('click', () => {
+      document.getElementById('onboarding-progress-modal').classList.add('hidden');
     });
 
     // Interview chatbot modal bindings
@@ -1190,6 +1250,12 @@ class AppController {
 
     this.viewingEmployeeId = emp.id;
 
+    // Avatar
+    const avatarImg = document.getElementById('emp-detail-avatar');
+    avatarImg.src = `/api/employees/${emp.id}/avatar?t=${Date.now()}`;
+    avatarImg.onerror = function() { this.style.display = 'none'; };
+    avatarImg.onload = function() { this.style.display = ''; };
+
     // Populate data
     const roleIcon = emp.role === 'HR' ? '💼' : emp.role === 'COO' ? '⚙️' : '🤖';
     document.getElementById('emp-modal-title').textContent = `${roleIcon} ${emp.name || ''} Details`;
@@ -1299,9 +1365,11 @@ class AppController {
     // Load model dropdown / API key section based on provider
     this._loadModelOrApiKeySection(emp.id);
 
-    // Fetch and render agent task board + logs
+    // Fetch and render agent task board + logs + crons
     this._fetchTaskBoard(emp.id);
     this._fetchExecutionLogs(emp.id);
+    this._fetchCronList(emp.id);
+    this._fetchEmployeeProjects(emp.id);
 
     // Start auto-refresh for task board while modal is open
     this._startTaskBoardPolling(emp.id);
@@ -1470,6 +1538,7 @@ class AppController {
       if (this.viewingEmployeeId === empId) {
         this._fetchTaskBoard(empId);
         this._fetchExecutionLogs(empId);
+        this._fetchCronList(empId);
       }
     }, 3000);
   }
@@ -1479,6 +1548,158 @@ class AppController {
       clearInterval(this._taskBoardPollTimer);
       this._taskBoardPollTimer = null;
     }
+  }
+
+  // ===== Cron Management =====
+
+  async _fetchCronList(empId) {
+    try {
+      const resp = await fetch(`/api/automations/${empId}`);
+      const data = await resp.json();
+      const crons = data.crons || [];
+      const section = document.getElementById('emp-detail-cron-section');
+      const container = document.getElementById('emp-detail-crons');
+      if (!section || !container) return;
+
+      section.style.display = '';
+      if (crons.length === 0) {
+        container.innerHTML = '<span class="empty-hint">No scheduled jobs</span>';
+        const stopAllBtn = document.getElementById('emp-cron-stop-all-btn');
+        if (stopAllBtn) stopAllBtn.style.display = 'none';
+        return;
+      }
+      container.innerHTML = '';
+
+      // Show/hide "Stop All" button
+      const stopAllBtn = document.getElementById('emp-cron-stop-all-btn');
+      if (stopAllBtn) {
+        if (crons.length >= 2) {
+          stopAllBtn.style.display = '';
+          stopAllBtn.onclick = () => this._stopAllCrons(empId);
+        } else {
+          stopAllBtn.style.display = 'none';
+        }
+      }
+
+      for (const cron of crons) {
+        const item = document.createElement('div');
+        item.className = 'emp-cron-item';
+
+        const statusDot = cron.running
+          ? '<span class="cron-status-dot running"></span>'
+          : '<span class="cron-status-dot stopped"></span>';
+
+        const info = document.createElement('div');
+        info.className = 'emp-cron-info';
+        const taskCount = (cron.dispatched_task_ids || []).length;
+        const taskCountHtml = taskCount > 0
+          ? `<span class="cron-task-count">${taskCount} tasks</span>`
+          : '';
+        info.innerHTML = `
+          ${statusDot}
+          <span class="cron-name">${this._escapeHtml(cron.name)}</span>
+          <span class="cron-interval">${this._escapeHtml(cron.interval)}</span>
+          ${taskCountHtml}
+        `;
+
+        const desc = document.createElement('div');
+        desc.className = 'emp-cron-desc';
+        desc.textContent = cron.task_description || '';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'emp-cron-cancel-btn';
+        cancelBtn.textContent = 'STOP';
+        cancelBtn.onclick = () => this._cancelCron(empId, cron.name);
+
+        item.appendChild(info);
+        item.appendChild(desc);
+        item.appendChild(cancelBtn);
+        container.appendChild(item);
+      }
+    } catch (err) {
+      console.error('Failed to fetch cron list:', err);
+    }
+  }
+
+  async _cancelCron(empId, cronName) {
+    if (!confirm(`Stop scheduled job "${cronName}"? Its pending tasks will also be cancelled.`)) return;
+    try {
+      const resp = await fetch(`/api/automations/${empId}/cron/${encodeURIComponent(cronName)}/stop`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this._fetchCronList(empId);
+      } else {
+        alert(data.detail || data.message || 'Failed to stop cron');
+      }
+    } catch (err) {
+      console.error('Failed to cancel cron:', err);
+      alert('Failed to stop cron job');
+    }
+  }
+
+  async _stopAllCrons(empId) {
+    if (!confirm('Stop ALL scheduled jobs for this employee?')) return;
+    try {
+      const resp = await fetch(`/api/automations/${empId}/crons/stop-all`, {
+        method: 'POST',
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        this._fetchCronList(empId);
+      } else {
+        alert(data.detail || data.message || 'Failed to stop all crons');
+      }
+    } catch (err) {
+      console.error('Failed to stop all crons:', err);
+      alert('Failed to stop all cron jobs');
+    }
+  }
+
+  // ===== Employee Project History =====
+
+  _fetchEmployeeProjects(employeeId) {
+    const container = document.getElementById('emp-detail-projects');
+    if (!container) return;
+    container.innerHTML = '<span class="empty-hint">Loading...</span>';
+
+    fetch(`/api/employees/${employeeId}/projects`)
+      .then(r => r.json())
+      .then(projects => {
+        if (!projects || projects.length === 0) {
+          container.innerHTML = '<span class="empty-hint">No project history</span>';
+          return;
+        }
+        let html = '';
+        for (const p of projects) {
+          const statusCls = p.status === 'completed' ? 'pixel-green' : 'pixel-yellow';
+          html += `<div class="emp-project-item" data-project-id="${this._escHtml(p.project_id)}">`;
+          html += `<div class="emp-project-task">${this._escHtml(p.task || p.project_id)}</div>`;
+          html += `<div class="emp-project-meta">`;
+          html += `<span class="emp-project-role">${this._escHtml(p.role_in_project)}</span>`;
+          html += `<span style="color:var(--${statusCls});">${this._escHtml(p.status)}</span>`;
+          html += `</div></div>`;
+        }
+        container.innerHTML = html;
+
+        container.querySelectorAll('.emp-project-item').forEach(el => {
+          el.addEventListener('click', () => {
+            const pid = el.dataset.projectId;
+            this.closeEmployeeDetail();
+            this._openProjectFromId(pid);
+          });
+        });
+      })
+      .catch(() => {
+        container.innerHTML = '<span class="empty-hint">Failed to load</span>';
+      });
+  }
+
+  _openProjectFromId(projectId) {
+    this._loadIterationDetail(projectId, projectId);
+    const detailEl = document.getElementById('project-detail');
+    if (detailEl) detailEl.classList.remove('hidden');
   }
 
   // ===== Code Update Banner =====
@@ -1558,54 +1779,52 @@ class AppController {
     return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
   }
 
-  _showAskCeoDialog(data) {
+  _showCeoReportDialog(data) {
     const empName = data.employee_name || data.employee_id;
     const overlay = document.createElement('div');
     overlay.className = 'ask-ceo-overlay';
     overlay.innerHTML = `
       <div class="ask-ceo-dialog">
-        <div class="ask-ceo-header">${empName} 请求CEO反馈</div>
-        <div class="ask-ceo-question">${this._escHtml(data.question)}</div>
-        ${data.context ? `<div class="ask-ceo-context">${this._renderMarkdown(data.context)}</div>` : ''}
-        <textarea class="ask-ceo-input" placeholder="输入回复..." rows="3"></textarea>
+        <div class="ask-ceo-header">🚨 ${empName} 请求CEO审批: ${this._escHtml(data.subject)}</div>
+        <div class="ask-ceo-context">${this._renderMarkdown(data.report)}</div>
+        <textarea class="ask-ceo-input" placeholder="批示/修改意见..." rows="3"></textarea>
         <div class="ask-ceo-actions">
-          <button class="pixel-btn ask-ceo-submit">回复</button>
+          <button class="pixel-btn ask-ceo-approve">✓ 批准</button>
+          <button class="pixel-btn ask-ceo-revise">✗ 修改</button>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
 
     const input = overlay.querySelector('.ask-ceo-input');
-    const submitBtn = overlay.querySelector('.ask-ceo-submit');
+    const approveBtn = overlay.querySelector('.ask-ceo-approve');
+    const reviseBtn = overlay.querySelector('.ask-ceo-revise');
     input.focus();
 
-    const submit = () => {
+    const respond = (action) => {
       const message = input.value.trim();
-      if (!message) return;
-      submitBtn.disabled = true;
-      submitBtn.textContent = '⏳';
+      approveBtn.disabled = true;
+      reviseBtn.disabled = true;
       fetch('/api/ceo/respond', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           employee_id: data.employee_id,
           project_id: data.project_id || '',
-          action: 'approve',
-          message: message,
+          action: action,
+          message: message || (action === 'approve' ? 'Approved' : 'Please revise'),
         }),
       })
       .then(() => overlay.remove())
       .catch(err => {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '回复';
-        console.error('ask_ceo respond failed:', err);
+        approveBtn.disabled = false;
+        reviseBtn.disabled = false;
+        console.error('ceo_report respond failed:', err);
       });
     };
 
-    submitBtn.addEventListener('click', submit);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-    });
+    approveBtn.addEventListener('click', () => respond('approve'));
+    reviseBtn.addEventListener('click', () => respond('revise'));
   }
 
   _showCodeUpdateBanner(count, files) {
@@ -1864,6 +2083,19 @@ class AppController {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ api_key: payload.api_key, model: payload.llm_model }),
+        });
+      }
+      // Save custom settings (target_email, polling_interval, etc.) via generic endpoint
+      const reserved = new Set(['hosting', 'llm_model', 'temperature', 'api_key', 'api_provider']);
+      const customPayload = {};
+      for (const [k, v] of Object.entries(payload)) {
+        if (!reserved.has(k)) customPayload[k] = v;
+      }
+      if (Object.keys(customPayload).length > 0) {
+        await fetch(`/api/employee/${empId}/settings`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(customPayload),
         });
       }
       this.logEntry('CEO', `Settings saved for employee #${empId}`, 'ceo');
@@ -2215,89 +2447,365 @@ class AppController {
   showCandidateSelection(payload) {
     this._candidateBatchId = payload.batch_id;
     this._candidateList = payload.candidates || [];
+    this._candidateRoles = payload.roles || [];
+    this._selectedCandidates = new Map(); // candidateId -> {candidate, role}
     this._interviewingCandidate = null;
+
+    // If no roles structure, wrap flat candidates into a single role group
+    if (!this._candidateRoles.length && this._candidateList.length) {
+      this._candidateRoles = [{ role: 'Candidates', description: '', candidates: this._candidateList }];
+    }
+
+    // Build flat lookup of all candidates
+    this._allCandidatesMap = new Map();
+    for (const role of this._candidateRoles) {
+      for (const c of (role.candidates || [])) {
+        const cid = c.talent_id || c.id;
+        if (cid) this._allCandidatesMap.set(cid, c);
+      }
+    }
 
     const modal = document.getElementById('candidate-modal');
     const jdEl = document.getElementById('candidate-jd');
-    const cardsEl = document.getElementById('candidate-cards');
+    const rolesEl = document.getElementById('candidate-roles');
 
+    // JD sidebar
     jdEl.innerHTML = '<div style="font-size:7px;color:var(--pixel-yellow);margin-bottom:4px;">JD — Job Description</div>' +
       (payload.jd || '').replace(/\n/g, '<br>');
-    cardsEl.innerHTML = '';
+
+    // Render role groups
+    rolesEl.innerHTML = '';
 
     const ROLE_EMOJI = {
       Engineer: '💻', Designer: '🎨', Analyst: '📊',
       DevOps: '🔧', QA: '🧪', Marketing: '📢',
+      'Game Engineer': '🎮', 'Game Designer': '🎯',
+      'Project Manager': '📋', Manager: '📋',
     };
 
-    for (const c of this._candidateList) {
-      const card = document.createElement('div');
-      card.className = 'candidate-card';
-      const emoji = ROLE_EMOJI[c.role] || '🤖';
-      const tags = (c.personality_tags || []).join(' / ');
-      const skills = (c.skill_set || []).map(s => typeof s === 'object' ? s.name : s).join(', ');
-      const tools = (c.tool_set || []).map(t => typeof t === 'object' ? t.name : t).join(', ');
-      const prompt = (c.system_prompt || '').substring(0, 80);
-      const relevance = c.jd_relevance ? `${(c.jd_relevance * 100).toFixed(0)}%` : '-';
+    for (const roleGroup of this._candidateRoles) {
+      const section = document.createElement('div');
+      section.className = 'role-group';
 
-      const llmModel = c.llm_model || 'default';
-      const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : 'N/A';
-      const hiringFee = c.hiring_fee ? `$${c.hiring_fee.toFixed(2)}` : 'Free';
-      const hosting = c.hosting || 'company';
-      const hostingLabel = hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company';
-      const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
-      card.innerHTML = `
-        <div class="card-inner">
-          <div class="card-front">
-            <div class="card-avatar">${emoji}</div>
-            <div class="card-name">${c.name}</div>
-            <div class="card-role">${c.role} (${c.experience_years || '?'}yr)</div>
-            <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
-            <div class="card-tags">${tags}</div>
-            <div class="card-relevance">Match: ${relevance}</div>
-            <div class="card-cost">Cost: ${costPer1m} | Fee: ${hiringFee}</div>
-            <div class="card-hosting">${hostingLabel}${c.remote ? ' | Remote' : ''}</div>
-          </div>
-          <div class="card-back">
-            <div class="card-detail-title">Skills</div>
-            <div class="card-detail-text">${skills}</div>
-            <div class="card-detail-title">Tools</div>
-            <div class="card-detail-text">${tools}</div>
-            <div class="card-detail-title">LLM</div>
-            <div class="card-detail-text">${c.llm_model || 'default'} (${c.api_provider || 'openrouter'})</div>
-            <div class="card-detail-title">Cost</div>
-            <div class="card-detail-text">${costPer1m} | Hiring: ${hiringFee}</div>
-            <div class="card-detail-title">Hosting</div>
-            <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
-            <div class="card-actions">
-              <button class="pixel-btn hire" data-id="${c.id}">Hire</button>
-              <button class="pixel-btn interview" data-id="${c.id}">Interview</button>
-            </div>
-          </div>
+      const roleEmoji = ROLE_EMOJI[roleGroup.role] || '🤖';
+      const candidateCount = (roleGroup.candidates || []).length;
+
+      section.innerHTML = `
+        <div class="role-group-header">
+          <span class="role-group-icon">${roleEmoji}</span>
+          <span class="role-group-title">${roleGroup.role}</span>
+          <span class="role-group-count">${candidateCount}</span>
+          ${roleGroup.description ? `<span class="role-group-desc">${roleGroup.description}</span>` : ''}
         </div>
+        <div class="role-group-cards"></div>
       `;
 
-      // Click card to flip
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.pixel-btn')) return; // don't flip on button click
-        card.classList.toggle('flipped');
+      const cardsContainer = section.querySelector('.role-group-cards');
+
+      for (const c of (roleGroup.candidates || [])) {
+        const cid = c.talent_id || c.id;
+        const card = document.createElement('div');
+        card.className = 'candidate-card';
+        card.dataset.candidateId = cid;
+        card.dataset.role = roleGroup.role;
+
+        const emoji = ROLE_EMOJI[c.role] || '🤖';
+        const tags = (c.personality_tags || []).join(' / ');
+        const skills = (c.skill_set || c.skills || []).map(s => typeof s === 'object' ? s.name : s).join(', ');
+        const tools = (c.tool_set || []).map(t => typeof t === 'object' ? t.name : t).join(', ');
+
+        // Score display — handle both old (jd_relevance) and new (score) formats
+        const score = c.score || c.jd_relevance || 0;
+        const scorePct = Math.round(score * 100);
+        const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
+        const reasoning = c.reasoning || '';
+
+        const llmModel = c.llm_model || 'default';
+        const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
+        const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+        const hosting = c.hosting || 'company';
+        const hostingLabel = hosting === 'self' ? '🏠 Self' : '🏢 Co.';
+        const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+
+        card.innerHTML = `
+          <div class="card-inner">
+            <div class="card-front">
+              <div class="card-select-indicator"></div>
+              <div class="card-avatar">${emoji}</div>
+              <div class="card-name">${c.name}</div>
+              <div class="card-role">${c.role}</div>
+              <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
+              <div class="card-tags">${tags}</div>
+              <div class="card-score-bar">
+                <div class="score-fill" style="width:${scorePct}%;background:${scoreColor};"></div>
+                <span class="score-label">${scorePct}%</span>
+              </div>
+              ${reasoning ? `<div class="card-reasoning" title="${reasoning.replace(/"/g, '&quot;')}">${reasoning.substring(0, 40)}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
+              <div class="card-cost">${costPer1m} | ${hiringFee}</div>
+              <div class="card-hosting">${hostingLabel}</div>
+            </div>
+            <div class="card-back">
+              <div class="card-detail-title">Skills</div>
+              <div class="card-detail-text">${skills || 'N/A'}</div>
+              <div class="card-detail-title">Tools</div>
+              <div class="card-detail-text">${tools || 'N/A'}</div>
+              <div class="card-detail-title">LLM</div>
+              <div class="card-detail-text">${llmModel} (${c.api_provider || 'openrouter'})</div>
+              <div class="card-detail-title">Cost</div>
+              <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
+              <div class="card-detail-title">Hosting</div>
+              <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
+              <div class="card-actions">
+                <button class="pixel-btn interview" data-id="${cid}">Interview</button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        // Click card to toggle selection (front) or flip (if holding shift)
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.pixel-btn')) return;
+          if (e.shiftKey) {
+            card.classList.toggle('flipped');
+            return;
+          }
+          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+        });
+
+        // Interview button
+        const interviewBtn = card.querySelector('.pixel-btn.interview');
+        if (interviewBtn) {
+          interviewBtn.addEventListener('click', () => this.startInterview(c));
+        }
+
+        cardsContainer.appendChild(card);
+      }
+
+      rolesEl.appendChild(section);
+    }
+
+    // Show batch bar
+    this._updateBatchBar();
+    modal.classList.remove('hidden');
+  }
+
+  _toggleCandidateSelection(candidateId, candidate, role, cardEl) {
+    if (this._selectedCandidates.has(candidateId)) {
+      this._selectedCandidates.delete(candidateId);
+      cardEl.classList.remove('selected');
+    } else {
+      this._selectedCandidates.set(candidateId, { candidate, role });
+      cardEl.classList.add('selected');
+    }
+    this._updateBatchBar();
+  }
+
+  _updateBatchBar() {
+    const count = this._selectedCandidates.size;
+    const bar = document.getElementById('candidate-batch-bar');
+    const countEl = document.getElementById('candidate-batch-count');
+    const btn = document.getElementById('candidate-batch-hire-btn');
+
+    if (count > 0) {
+      bar.classList.remove('hidden');
+      countEl.textContent = `${count} selected`;
+      btn.textContent = `RECRUIT PARTY (${count})`;
+      btn.disabled = false;
+    } else {
+      bar.classList.remove('hidden'); // always show bar for context
+      countEl.textContent = '0 selected — click cards to select';
+      btn.textContent = 'RECRUIT PARTY (0)';
+      btn.disabled = true;
+    }
+  }
+
+  batchHireCandidates() {
+    const selections = [];
+    for (const [candidateId, { candidate, role }] of this._selectedCandidates) {
+      selections.push({ candidate_id: candidateId, role });
+    }
+
+    if (!selections.length) return;
+
+    // Disable button
+    const btn = document.getElementById('candidate-batch-hire-btn');
+    btn.disabled = true;
+    btn.textContent = 'RECRUITING...';
+
+    this.logEntry('CEO', `Batch hiring ${selections.length} candidate(s)...`, 'ceo');
+
+    // Show onboarding progress modal
+    this._showOnboardingProgress(selections);
+
+    // Close candidate modal
+    this.closeCandidateModal();
+
+    fetch('/api/candidates/batch-hire', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_id: this._candidateBatchId,
+        selections,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          this.logEntry('SYSTEM', `Batch hire failed: ${data.error}`, 'system');
+        } else {
+          const hired = data.results ? data.results.filter(r => r.status === 'hired') : [];
+          this.logEntry('CEO', `🎉 Batch hire complete: ${hired.length} hired`, 'ceo');
+          if (data.state) {
+            this.handleMessage({ type: 'state_snapshot', state: data.state, payload: {} });
+          }
+        }
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Batch hire error: ${err.message}`, 'system');
       });
+  }
 
-      // Hire button
-      card.querySelector('.pixel-btn.hire').addEventListener('click', () => this.hireCandidate(c));
+  _showOnboardingProgress(selections) {
+    const modal = document.getElementById('onboarding-progress-modal');
+    const list = document.getElementById('onboarding-progress-list');
+    const actionsEl = document.getElementById('onboarding-progress-actions');
 
-      // Interview button — opens separate chatbot modal
-      card.querySelector('.pixel-btn.interview').addEventListener('click', () => this.startInterview(c));
+    list.innerHTML = '';
+    actionsEl.classList.add('hidden');
+    this._onboardingItems = new Map();
 
-      cardsEl.appendChild(card);
+    for (const sel of selections) {
+      const candidate = this._allCandidatesMap ? this._allCandidatesMap.get(sel.candidate_id) : null;
+      const name = candidate ? candidate.name : sel.candidate_id;
+      const role = sel.role;
+
+      const item = document.createElement('div');
+      item.className = 'onboarding-item';
+      item.innerHTML = `
+        <div class="onboarding-item-header">
+          <span class="onboarding-item-name">${name}</span>
+          <span class="onboarding-item-role">${role}</span>
+        </div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step waiting" data-step="assigning_id">
+            <span class="step-dot"></span>
+            <span class="step-label">Assign ID</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="copying_skills">
+            <span class="step-dot"></span>
+            <span class="step-label">Copy Skills</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="registering_agent">
+            <span class="step-dot"></span>
+            <span class="step-label">Register Agent</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="completed">
+            <span class="step-dot"></span>
+            <span class="step-label">Ready</span>
+          </div>
+        </div>
+        <div class="onboarding-item-message"></div>
+      `;
+
+      list.appendChild(item);
+      this._onboardingItems.set(sel.candidate_id, item);
     }
 
     modal.classList.remove('hidden');
   }
 
+  _handleOnboardingProgress(payload) {
+    const { candidate_id, step, message, name } = payload;
+
+    // Ensure modal is visible
+    const modal = document.getElementById('onboarding-progress-modal');
+    if (modal.classList.contains('hidden')) {
+      modal.classList.remove('hidden');
+    }
+
+    let item = this._onboardingItems ? this._onboardingItems.get(candidate_id) : null;
+
+    // Create item dynamically if not found (e.g., single hire or modal wasn't pre-populated)
+    if (!item) {
+      if (!this._onboardingItems) this._onboardingItems = new Map();
+      const list = document.getElementById('onboarding-progress-list');
+      item = document.createElement('div');
+      item.className = 'onboarding-item';
+      item.innerHTML = `
+        <div class="onboarding-item-header">
+          <span class="onboarding-item-name">${name || candidate_id}</span>
+          <span class="onboarding-item-role"></span>
+        </div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step waiting" data-step="assigning_id">
+            <span class="step-dot"></span>
+            <span class="step-label">Assign ID</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="copying_skills">
+            <span class="step-dot"></span>
+            <span class="step-label">Copy Skills</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="registering_agent">
+            <span class="step-dot"></span>
+            <span class="step-label">Register Agent</span>
+          </div>
+          <div class="onboarding-step waiting" data-step="completed">
+            <span class="step-dot"></span>
+            <span class="step-label">Ready</span>
+          </div>
+        </div>
+        <div class="onboarding-item-message"></div>
+      `;
+      list.appendChild(item);
+      this._onboardingItems.set(candidate_id, item);
+    }
+
+    // Update steps
+    const steps = ['assigning_id', 'copying_skills', 'registering_agent', 'completed'];
+    const stepIndex = steps.indexOf(step);
+
+    const stepEls = item.querySelectorAll('.onboarding-step');
+    stepEls.forEach((el, i) => {
+      el.classList.remove('waiting', 'active', 'done', 'failed');
+      if (step === 'failed') {
+        if (i <= Math.max(stepIndex, 0)) el.classList.add('failed');
+        else el.classList.add('waiting');
+      } else if (i < stepIndex) {
+        el.classList.add('done');
+      } else if (i === stepIndex) {
+        el.classList.add(step === 'completed' ? 'done' : 'active');
+      } else {
+        el.classList.add('waiting');
+      }
+    });
+
+    // Update message
+    const msgEl = item.querySelector('.onboarding-item-message');
+    if (msgEl) msgEl.textContent = message || '';
+
+    // Mark item status
+    if (step === 'completed') {
+      item.classList.add('completed');
+    } else if (step === 'failed') {
+      item.classList.add('failed');
+    }
+
+    // Check if all items are done
+    if (this._onboardingItems) {
+      const allDone = Array.from(this._onboardingItems.values()).every(
+        el => el.classList.contains('completed') || el.classList.contains('failed')
+      );
+      if (allDone) {
+        const actionsEl = document.getElementById('onboarding-progress-actions');
+        actionsEl.classList.remove('hidden');
+      }
+    }
+  }
+
   closeCandidateModal() {
     document.getElementById('candidate-modal').classList.add('hidden');
     this._interviewingCandidate = null;
+    this._selectedCandidates = new Map();
   }
 
   hireCandidate(candidate) {
@@ -3426,6 +3934,7 @@ class AppController {
       const data = await resp.json();
       const or = data.openrouter || {};
       const ant = data.anthropic || {};
+      const tm = data.talent_market || {};
 
       // Fetch models for dropdown (cached)
       let modelOptions = '';
@@ -3478,6 +3987,29 @@ class AppController {
             </div>
           </div>
         </div>
+        <div class="api-provider-card">
+          <div class="api-card-header api-card-toggle" data-target="api-tm-body">
+            <span class="api-status-dot ${tm.connected ? 'online' : (tm.mode === 'local' ? 'online' : 'offline')}"></span>
+            <span class="api-card-title">Talent Market</span>
+            <span class="api-card-status">${tm.connected ? '☁️ 云端' : (tm.local_talent_count > 0 ? '💾 本地 (' + tm.local_talent_count + ')' : '⚠️ 未连接')}</span>
+            <span class="api-card-arrow">&#9660;</span>
+          </div>
+          <div id="api-tm-body" class="api-card-body collapsed">
+            <div class="tm-status-info" style="font-size:6.5px;margin-bottom:4px;color:var(--text-dim);">
+              ${tm.connected
+                ? '✅ 已连接云端 Talent Market'
+                : tm.api_key_set
+                  ? '❌ 云端连接失败，使用本地 Talent Market'
+                  : '未配置 API Key，使用本地 Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
+            </div>
+            <label class="api-field-label">API Key (配置后使用云端服务)</label>
+            <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
+            <div class="api-card-actions">
+              <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>
+              <span id="api-tm-result" class="api-test-result"></span>
+            </div>
+          </div>
+        </div>
       `;
       // Bind toggle for provider cards
       container.querySelectorAll('.api-card-toggle').forEach(hdr => {
@@ -3503,6 +4035,10 @@ class AppController {
       if (key) body.api_key = key;
       if (url) body.base_url = url;
       if (model) body.default_model = model;
+    } else if (provider === 'talent_market') {
+      body.mode = 'remote';
+      const key = document.getElementById('api-tm-key').value.trim();
+      if (key) body.api_key = key;
     } else {
       const key = document.getElementById('api-ant-key').value.trim();
       if (key) body.api_key = key;
@@ -4697,7 +5233,10 @@ class AppController {
         }
 
         if (doc.status !== 'completed') {
-          detailHtml += `<div style="margin:8px 0;"><button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button></div>`;
+          detailHtml += `<div style="margin:8px 0;display:flex;gap:6px;">`;
+          detailHtml += `<button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button>`;
+          detailHtml += `<button class="pixel-btn" id="stop-iter-btn" style="font-size:6px;padding:4px 10px;background:var(--pixel-red);color:#000;">■ 停止所有任务</button>`;
+          detailHtml += `</div>`;
         }
 
         // Follow-up button (always available)
@@ -4780,6 +5319,24 @@ class AppController {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No cost data</div>`;
         }
 
+        // Team section
+        const team = doc.team || [];
+        if (team.length > 0) {
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Team (${team.length})</div>`;
+          detailHtml += `<div class="project-team-list">`;
+          for (const m of team) {
+            const empId = m.employee_id || '';
+            const role = m.role || '';
+            detailHtml += `<div class="project-team-member" data-emp-id="${this._escHtml(empId)}">`;
+            detailHtml += `<img src="/api/employees/${empId}/avatar" class="project-team-avatar" onerror="this.style.display='none'" />`;
+            detailHtml += `<div class="project-team-info">`;
+            detailHtml += `<span class="project-team-name">${this._escHtml(empId)}</span>`;
+            detailHtml += `<span class="project-team-role">${this._escHtml(role)}</span>`;
+            detailHtml += `</div></div>`;
+          }
+          detailHtml += `</div>`;
+        }
+
         // Build full panel HTML with tabs — detail + task tree + dynamic plugin containers
         let fullHtml = tabBarHtml + `<div class="project-tab-content" data-tab="detail">${detailHtml}</div>`;
         fullHtml += `<div class="project-tab-content" data-tab="task-tree" style="display:none;">
@@ -4811,8 +5368,8 @@ class AppController {
               if (!this._treeRenderer) {
                 this._treeRenderer = new TaskTreeRenderer('board-tree-container', 'board-tree-detail');
               }
-              this._treeRenderer.load(projectId);
-              this._currentTreeProjectId = projectId;
+              this._treeRenderer.load(iterationId);
+              this._currentTreeProjectId = iterationId;
             } else if (tabName.startsWith('plugin-')) {
               const pluginId = tabName.replace('plugin-', '');
               this._viewingBoardProjectId = projectId;
@@ -4833,11 +5390,37 @@ class AppController {
           });
         });
 
+        // Bind team member click → open employee detail
+        panel.querySelectorAll('.project-team-member').forEach(el => {
+          el.addEventListener('click', () => {
+            const empId = el.dataset.empId;
+            const emp = this.employees.find(e => e.id === empId);
+            if (emp) this.openEmployeeDetail(emp);
+          });
+        });
+
         // Bind continue button
         const continueBtn = document.getElementById('continue-iter-btn');
         if (continueBtn) {
           continueBtn.addEventListener('click', () => {
             this._continueIteration(projectId, iterationId);
+          });
+        }
+
+        // Bind stop button
+        const stopBtn = document.getElementById('stop-iter-btn');
+        if (stopBtn) {
+          stopBtn.addEventListener('click', () => {
+            if (!confirm('确定停止该轮次所有执行中的任务？')) return;
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ 停止中...';
+            fetch(`/api/task/${encodeURIComponent(iterationId)}/abort`, { method: 'POST' })
+              .then(r => r.json())
+              .then(data => {
+                stopBtn.textContent = `■ 已停止 (${data.cancelled || 0})`;
+                this._loadIterationDetail(projectId, iterationId);
+              })
+              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ 停止所有任务'; });
           });
         }
 

@@ -306,6 +306,528 @@ class TestRejectChild:
         finally:
             _reset_context(tok_v, tok_t)
 
+    def test_reject_retry_no_handle_returns_error(self):
+        """Reject with retry=True returns error when employee handle is missing."""
+        from onemancompany.agents.tree_tools import reject_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(
+            parent_id=tree.root_id,
+            employee_id="00100",
+            description="subtask",
+            acceptance_criteria=["criterion A"],
+        )
+        child.status = "completed"
+        child.result = "some result"
+        tree.task_id_map["task-nohandle"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-nohandle")
+
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = None  # No handle available
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree") as mock_save,
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = reject_child.invoke({
+                    "node_id": child.id,
+                    "reason": "bad work",
+                    "retry": True,
+                })
+
+            # Should return error, NOT "rejected_retry"
+            assert result["status"] == "error"
+            assert "00100" in result["message"]
+
+            # Node status should NOT have been changed to pending
+            assert child.status == "completed"
+            assert child.result == "some result"
+
+            # Tree should NOT have been saved (no state mutation)
+            mock_save.assert_not_called()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+
+# ---------------------------------------------------------------------------
+# EA dispatch constraint
+# ---------------------------------------------------------------------------
+
+class TestEADispatchConstraint:
+    def test_ea_cannot_dispatch_to_regular_employee(self):
+        """EA (00004) should NOT be able to dispatch to non-O-level employees."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.task_id_map["ea-task-1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "ea-task-1")
+
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00006": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "do coding",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "error"
+            assert "00002" in result["message"] or "COO" in result["message"] or "HR" in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_ea_can_dispatch_to_coo(self):
+        """EA (00004) should be able to dispatch to COO (00003)."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.task_id_map["ea-task-2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "ea-task-2")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "coo-task-1"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00003": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00003",
+                    "description": "manage project",
+                    "acceptance_criteria": ["delivered"],
+                })
+
+            assert result["status"] == "dispatched"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_non_ea_can_dispatch_to_anyone(self):
+        """Non-EA employees (e.g. COO 00003) can dispatch to any employee."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00003")
+        tree.task_id_map["coo-task-3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "coo-task-3")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "eng-task-1"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00006": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "write code",
+                    "acceptance_criteria": ["works"],
+                })
+
+            assert result["status"] == "dispatched"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# reject_child (continued)
+# ---------------------------------------------------------------------------
+
+class TestDispatchChildDependency:
+    def test_dispatch_with_unmet_dep_skips_push(self):
+        """Task with unmet dependency should not be pushed to board."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        # Create a dependency node that's still pending
+        dep_node = tree.add_child(tree.root_id, "e1", "dep task", [])
+        tree.task_id_map["task-dep1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep1")
+
+        mock_handle = MagicMock()
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": [dep_node.id],
+                })
+
+            assert result["status"] == "dispatched_waiting"
+            assert result["dependency_status"] == "waiting"
+            # push_task should NOT have been called
+            mock_handle.push_task.assert_not_called()
+            # But child node should exist in tree
+            child = tree.get_node(result["node_id"])
+            assert child is not None
+            assert child.depends_on == [dep_node.id]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_with_met_dep_pushes(self):
+        """Task with all deps terminal should be pushed immediately."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        dep_node = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep_node.status = "accepted"  # Terminal
+        tree.task_id_map["task-dep2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep2")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "child-task-met"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": [dep_node.id],
+                })
+
+            assert result["status"] == "dispatched"
+            assert result["dependency_status"] == "resolved"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_invalid_dep_id(self):
+        """depends_on with non-existent node ID should error."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-dep3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep3")
+
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task B",
+                    "acceptance_criteria": ["done"],
+                    "depends_on": ["nonexistent_id"],
+                })
+
+            assert result["status"] == "error"
+            assert "nonexistent_id" in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_no_deps_still_works(self):
+        """dispatch_child without depends_on should work as before."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root()
+        tree.task_id_map["task-dep4"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-dep4")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "child-no-dep"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+        mock_cs = MagicMock()
+        mock_cs.employees = {"00100": MagicMock()}
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.state.company_state", mock_cs),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "task A",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# unblock_child
+# ---------------------------------------------------------------------------
+
+class TestUnblockChild:
+    def test_unblock_resets_to_pending(self):
+        """BLOCKED node should transition to PENDING."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep.status = "failed"
+        child = tree.add_child(tree.root_id, "e2", "blocked task", [],
+                               depends_on=[dep.id], fail_strategy="block")
+        child.status = "blocked"
+        tree.task_id_map["task-ub1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub1")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "unblocked_waiting" or result["status"] == "unblocked_and_dispatched"
+            assert child.status == "pending"
+            # Failed dep should be removed from depends_on
+            assert dep.id not in child.depends_on
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_with_new_description(self):
+        """Unblock should update description if provided."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep = tree.add_child(tree.root_id, "e1", "dep task", [])
+        dep.status = "failed"
+        child = tree.add_child(tree.root_id, "e2", "old desc", [],
+                               depends_on=[dep.id])
+        child.status = "blocked"
+        tree.task_id_map["task-ub2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub2")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({
+                    "node_id": child.id,
+                    "new_description": "updated desc",
+                })
+
+            assert child.description == "updated desc"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_pushes_if_all_deps_met(self):
+        """If remaining deps are terminal after unblock, push_task."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        dep1 = tree.add_child(tree.root_id, "e1", "dep1", [])
+        dep1.status = "failed"
+        dep2 = tree.add_child(tree.root_id, "e3", "dep2", [])
+        dep2.status = "accepted"
+        child = tree.add_child(tree.root_id, "e2", "task", [],
+                               depends_on=[dep1.id, dep2.id])
+        child.status = "blocked"
+        tree.task_id_map["task-ub3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub3")
+
+        mock_handle = MagicMock()
+        mock_agent_task = MagicMock()
+        mock_agent_task.id = "unblocked-task"
+        mock_handle.push_task.return_value = mock_agent_task
+        mock_em = MagicMock()
+        mock_em.get_handle.return_value = mock_handle
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "unblocked_and_dispatched"
+            mock_handle.push_task.assert_called_once()
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_unblock_non_blocked_node_errors(self):
+        """Unblocking a non-BLOCKED node should return error."""
+        from onemancompany.agents.tree_tools import unblock_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task", [])
+        child.status = "pending"
+        tree.task_id_map["task-ub4"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-ub4")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = unblock_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# cancel_child
+# ---------------------------------------------------------------------------
+
+class TestCancelChild:
+    def test_cancel_sets_cancelled(self):
+        """Cancel sets node status to cancelled."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        child.status = "pending"
+        tree.task_id_map["task-cc1"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc1")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({
+                    "node_id": child.id,
+                    "reason": "no longer needed",
+                })
+
+            assert result["status"] == "cancelled"
+            assert child.status == "cancelled"
+            assert child.result == "no longer needed"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_cancel_terminal_node_errors(self):
+        """Cannot cancel a node that's already terminal."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        child.status = "accepted"  # Already terminal
+        tree.task_id_map["task-cc2"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc2")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({
+                    "node_id": child.id,
+                    "reason": "test",
+                })
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_cancel_default_reason(self):
+        """Cancel without reason uses default."""
+        from onemancompany.agents.tree_tools import cancel_child
+
+        tree = _make_tree_with_root()
+        child = tree.add_child(tree.root_id, "e1", "task A", [])
+        tree.task_id_map["task-cc3"] = tree.root_id
+
+        vessel, task = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, "task-cc3")
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+            ):
+                result = cancel_child.invoke({"node_id": child.id})
+
+            assert result["status"] == "cancelled"
+            assert child.result == "Cancelled by parent"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+class TestRejectChildNoRetry:
     def test_reject_no_retry(self):
         """Reject with retry=False marks node as failed."""
         from onemancompany.agents.tree_tools import reject_child

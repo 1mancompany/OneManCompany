@@ -38,10 +38,13 @@ class TestResolvePath:
         assert str(result).endswith("business/test.md")
 
     def test_company_prefix_stripped(self):
+        from onemancompany.core.config import COMPANY_DIR
         result = _resolve_path("company/business/test.md")
         assert result is not None
-        # Should NOT double up: company/company/business/test.md
-        assert "company/company" not in str(result)
+        # "company/" prefix should be stripped — result should be COMPANY_DIR/business/test.md
+        # not COMPANY_DIR/company/business/test.md
+        expected = COMPANY_DIR / "business" / "test.md"
+        assert result == expected.resolve()
 
     def test_src_path_without_permission_denied(self):
         result = _resolve_path("src/onemancompany/core/config.py")

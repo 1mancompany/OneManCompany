@@ -64,7 +64,7 @@ class TaskPhase(str, Enum):
 # Valid state transitions
 VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     # Core flow
-    TaskPhase.PENDING: [TaskPhase.PROCESSING, TaskPhase.CANCELLED, TaskPhase.HOLDING],
+    TaskPhase.PENDING: [TaskPhase.PROCESSING, TaskPhase.CANCELLED, TaskPhase.HOLDING, TaskPhase.BLOCKED],
     TaskPhase.PROCESSING: [TaskPhase.COMPLETE, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
     TaskPhase.HOLDING: [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.COMPLETE: [TaskPhase.FINISHED],
@@ -72,7 +72,7 @@ VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     # Terminal states
     TaskPhase.FINISHED: [],
     TaskPhase.FAILED: [TaskPhase.PROCESSING],   # allow retry
-    TaskPhase.BLOCKED: [TaskPhase.CANCELLED],
+    TaskPhase.BLOCKED: [TaskPhase.CANCELLED, TaskPhase.PENDING],
     TaskPhase.CANCELLED: [],
 }
 
