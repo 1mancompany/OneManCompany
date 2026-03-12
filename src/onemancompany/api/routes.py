@@ -1384,7 +1384,8 @@ async def get_employee_detail(employee_id: str) -> dict:
         result["manifest"] = manifest
         # For secret fields, indicate whether they are set in env
         import os as _os
-        for section in (manifest.get("settings", {}).get("sections", [])):
+        settings = manifest.get("settings", {})
+        for section in (settings.get("sections", []) if isinstance(settings, dict) else []):
             for field in section.get("fields", []):
                 if field.get("type") == "secret" and field["key"] != "api_key":
                     env_key = field["key"].upper()

@@ -58,7 +58,7 @@ def _rebase_project_dir(stored_path: str) -> Path:
         p.relative_to(PROJECTS_DIR)
         return p
     except ValueError:
-        pass
+        pass  # not under PROJECTS_DIR — fall through to rebase logic
     # Try to find the 'company/business/projects' marker and rebase
     parts = p.parts
     for i, part in enumerate(parts):
