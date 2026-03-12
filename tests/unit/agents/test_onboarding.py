@@ -332,6 +332,9 @@ class TestExecuteHire:
             lambda model: 5.0,
         )
 
+        # Mock store.append_activity
+        monkeypatch.setattr(onboarding._store, "append_activity", AsyncMock())
+
         emp = await onboarding.execute_hire(
             name="Test Developer",
             nickname="追风",
@@ -376,9 +379,11 @@ class TestExecuteHire:
         assert len(published_events) == 1
         assert published_events[0].type == "employee_hired"
 
-        # Verify activity log
-        assert len(cs.activity_log) == 1
-        assert cs.activity_log[0]["type"] == "employee_hired"
+        # Verify activity log written via store (not in-memory cs.activity_log)
+        # append_activity was called by onboarding via _store
+        onboarding._store.append_activity.assert_awaited()
+        call_entry = onboarding._store.append_activity.call_args[0][0]
+        assert call_entry["type"] == "employee_hired"
 
     @pytest.mark.asyncio
     async def test_hire_remote_employee(self, tmp_path, monkeypatch):

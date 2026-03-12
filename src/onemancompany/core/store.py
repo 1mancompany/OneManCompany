@@ -393,6 +393,14 @@ async def save_sales_tasks(tasks: list[dict]) -> None:
     mark_dirty("sales_tasks")
 
 
+def save_sales_tasks_sync(tasks: list[dict]) -> None:
+    """Synchronous version of save_sales_tasks for use in non-async contexts (e.g., LangChain tools)."""
+    path = COMPANY_DIR / "sales" / "tasks.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    mark_dirty("sales_tasks")
+
+
 # ---------------------------------------------------------------------------
 # Candidate reads/writes
 # ---------------------------------------------------------------------------
@@ -438,4 +446,11 @@ async def save_overhead(data: dict) -> None:
     path = COMPANY_DIR / "overhead.yaml"
     async with _get_lock(str(path)):
         _write_yaml(path, data)
+    mark_dirty("overhead")
+
+
+def save_overhead_sync(data: dict) -> None:
+    """Synchronous version of save_overhead for use in non-async contexts (e.g., LangChain tools)."""
+    path = COMPANY_DIR / "overhead.yaml"
+    _write_yaml(path, data)
     mark_dirty("overhead")

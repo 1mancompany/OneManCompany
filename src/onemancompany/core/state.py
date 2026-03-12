@@ -277,9 +277,7 @@ class CompanyState:
     meeting_rooms: dict[str, MeetingRoom] = field(default_factory=dict)
     ceo_tasks: list[str] = field(default_factory=list)
     office_layout: dict = field(default_factory=dict)
-    sales_tasks: dict[str, SalesTask] = field(default_factory=dict)  # TODO: migrate to store in Task 13
-    company_tokens: int = 0
-    overhead_costs: "OverheadCosts | None" = None  # initialized in __post_init__
+    overhead_costs: "OverheadCosts | None" = None  # in-memory accumulator for LLM cost tracking
     _next_employee_number: int = 0  # auto-increment counter
 
     def __post_init__(self) -> None:
@@ -293,12 +291,6 @@ class CompanyState:
             self.employees: dict = {}
         if not hasattr(self, "ex_employees"):
             self.ex_employees: dict = {}
-        if not hasattr(self, "activity_log"):
-            self.activity_log: list = []
-        if not hasattr(self, "company_culture"):
-            self.company_culture: list = []
-        if not hasattr(self, "company_direction"):
-            self.company_direction: str = ""
 
     def to_json(self) -> dict:
         from onemancompany.core.store import (
@@ -306,12 +298,16 @@ class CompanyState:
             load_all_employees,
             load_culture,
             load_ex_employees,
+            load_overhead,
             load_rooms,
+            load_sales_tasks,
         )
         employees = load_all_employees()
         ex_employees = load_ex_employees()
         activity_log = load_activity_log()
         culture = load_culture()
+        sales = load_sales_tasks()
+        overhead = load_overhead()
         return {
             "employees": list(employees.values()),
             "ex_employees": list(ex_employees.values()),
@@ -322,8 +318,8 @@ class CompanyState:
             "activity_log": activity_log[-20:],
             "company_culture": culture,
             "office_layout": self.office_layout,
-            "sales_tasks": [t.to_dict() for t in self.sales_tasks.values()],
-            "company_tokens": self.company_tokens,
+            "sales_tasks": sales,
+            "company_tokens": overhead.get("company_tokens", 0),
         }
 
     def next_employee_number(self) -> str:
@@ -439,44 +435,6 @@ def reload_all_from_disk() -> dict:
     return {"status": "reloaded"}
 
 
-# ---------------------------------------------------------------------------
-# Snapshot provider — company-level ephemeral state
-# ---------------------------------------------------------------------------
-
-from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
-
-
-@snapshot_provider("company_state")
-class _CompanyStateSnapshot:
-    @staticmethod
-    def save() -> dict:
-        from onemancompany.core.store import load_all_employees
-        employees = load_all_employees()
-        employee_statuses = {}
-        for eid, emp_data in employees.items():
-            runtime = emp_data.get("runtime", {})
-            status = runtime.get("status", "idle")
-            summary = runtime.get("current_task_summary", "")
-            if status != "idle" or summary:
-                employee_statuses[eid] = {"status": status, "current_task_summary": summary}
-        return {
-            "employee_statuses": employee_statuses,
-        }
-
-    @staticmethod
-    def restore(data: dict) -> None:
-        import asyncio
-        from onemancompany.core.store import save_employee_runtime
-
-        # Employee statuses — write back to disk
-        for eid, sdata in data.get("employee_statuses", {}).items():
-            if sdata.get("status"):
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(save_employee_runtime(
-                        eid,
-                        status=sdata["status"],
-                        current_task_summary=sdata.get("current_task_summary", ""),
-                    ))
-                except RuntimeError:
-                    logger.debug("No event loop for runtime restore of {}", eid)
+# Snapshot provider "company_state" removed — Task 13.
+# Employee statuses are now persisted in profile.yaml runtime: section.
+# Activity log, culture, sales, overhead all on disk via store.

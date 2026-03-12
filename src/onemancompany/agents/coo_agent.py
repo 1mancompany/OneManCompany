@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_culture, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
@@ -878,10 +878,17 @@ def deposit_company_knowledge(
 
     elif category == "culture":
         culture_item = {"content": content, "added_by": "COO", "name": name}
-        from onemancompany.core.store import load_culture as _load_culture
+        from onemancompany.core.store import load_culture as _load_culture, save_culture as _save_culture
+        import asyncio as _asyncio
         items = _load_culture()
         items.append(culture_item)
-        save_company_culture(items)
+        try:
+            _loop = _asyncio.get_running_loop()
+            _loop.create_task(_save_culture(items))
+        except RuntimeError:
+            # Sync fallback
+            from onemancompany.core.config import save_company_culture
+            save_company_culture(items)
         path = "company/company_culture.yaml"
         _append_activity({
             "type": "knowledge_deposited",
@@ -981,23 +988,5 @@ class COOAgent(BaseAgentRunner):
 # in main.py lifespan via PersistentAgentLoop.
 
 
-# ---------------------------------------------------------------------------
-# Snapshot provider — COO hiring requests
-# ---------------------------------------------------------------------------
-
-from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
-
-
-@snapshot_provider("coo_hiring")
-class _COOHiringSnapshot:
-    @staticmethod
-    def save() -> dict:
-        if not pending_hiring_requests:
-            return {}
-        return {"pending_hiring_requests": pending_hiring_requests}
-
-    @staticmethod
-    def restore(data: dict) -> None:
-        restored = data.get("pending_hiring_requests", {})
-        if restored:
-            pending_hiring_requests.update(restored)
+# Snapshot provider for coo_hiring removed — Task 13.
+# pending_hiring_requests is transient; retained in-memory only.
