@@ -46,10 +46,10 @@ fi
 OPENCLAW_CONFIG="$HOME/.openclaw/openclaw.json"
 if [ ! -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
     >&2 echo "[launch.sh] First run — configuring openclaw with OpenRouter..."
-    "$OPENCLAW_BIN" onboard --auth-choice apiKey \
-        --token-provider openrouter \
-        --token "$OPENROUTER_API_KEY" \
-        --install-daemon >&2 2>&1 || true
+    "$OPENCLAW_BIN" onboard --non-interactive --accept-risk \
+        --auth-choice openrouter-api-key \
+        --openrouter-api-key "$OPENROUTER_API_KEY" \
+        --flow quickstart >&2 2>&1 || true
 fi
 
 # ── Ensure gateway is running ─────────────────────────────────────────────────

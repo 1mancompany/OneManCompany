@@ -3,7 +3,7 @@
   "name": "OpenClaw Gateway Agent",
   "version": "1.0.0",
   "role": "Engineer",
-  "hosting": "self",
+  "hosting": "company",
   "settings": {
     "sections": [
       {
@@ -14,10 +14,21 @@
         ]
       },
       {
-        "id": "session",
-        "title": "Session",
+        "id": "channels",
+        "title": "Channel Credentials",
         "fields": [
-          {"key": "session_status", "type": "readonly", "label": "Status", "value_from": "api:sessions"}
+          {"key": "telegram_bot_token", "type": "secret", "label": "Telegram Bot Token"},
+          {"key": "discord_bot_token", "type": "secret", "label": "Discord Bot Token"},
+          {"key": "slack_app_token", "type": "secret", "label": "Slack App Token (xapp-...)"},
+          {"key": "slack_bot_token", "type": "secret", "label": "Slack Bot Token (xoxb-...)"}
+        ]
+      },
+      {
+        "id": "voice",
+        "title": "Voice & Search",
+        "fields": [
+          {"key": "elevenlabs_api_key", "type": "secret", "label": "ElevenLabs API Key (TTS)"},
+          {"key": "brave_api_key", "type": "secret", "label": "Brave Search API Key"}
         ]
       }
     ]

@@ -1322,6 +1322,16 @@ async def get_employee_detail(employee_id: str) -> dict:
     manifest = load_manifest(employee_id)
     if manifest:
         result["manifest"] = manifest
+        # For secret fields, indicate whether they are set in env
+        import os as _os
+        for section in (manifest.get("settings", {}).get("sections", [])):
+            for field in section.get("fields", []):
+                if field.get("type") == "secret" and field["key"] != "api_key":
+                    env_key = field["key"].upper()
+                    val = _os.environ.get(env_key, "")
+                    result[f"{field['key']}_set"] = bool(val)
+                    if len(val) >= 4:
+                        result[f"{field['key']}_preview"] = "..." + val[-4:]
 
     # Include custom settings (target_email, polling_interval, etc.)
     from onemancompany.core.config import load_custom_settings
@@ -4681,6 +4691,37 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
     ))
 
     return {"status": "ok", "service": service_name, "fields_saved": list(body.keys())}
+
+
+@router.put("/api/employee/{employee_id}/secrets")
+async def save_employee_secrets(employee_id: str, request: Request) -> dict:
+    """Save manifest secret fields to .env (using their key names directly)."""
+    import os
+    body = await request.json()  # {"telegram_bot_token": "...", ...}
+
+    from onemancompany.core.config import COMPANY_ROOT
+    env_path = COMPANY_ROOT.parent / ".env"
+    existing = env_path.read_text() if env_path.exists() else ""
+
+    updated_keys = {}
+    for key, value in body.items():
+        env_key = key.upper()
+        os.environ[env_key] = str(value)
+        updated_keys[env_key] = value
+
+    # Update .env — replace existing keys, append new ones
+    lines = existing.splitlines()
+    result_lines = []
+    for line in lines:
+        k = line.split("=", 1)[0].strip()
+        if k in updated_keys:
+            continue
+        result_lines.append(line)
+    for k, v in updated_keys.items():
+        result_lines.append(f"{k}={v}")
+    env_path.write_text("\n".join(result_lines) + "\n")
+
+    return {"status": "ok", "fields_saved": list(body.keys())}
 
 
 @router.websocket("/ws")
