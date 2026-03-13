@@ -51,7 +51,7 @@ if [ -n "$DRY_RUN" ]; then
   warn "Dry run — skipping publish"
   npm publish --dry-run --access public
 else
-  info "Publishing onemancompany@${PY_VERSION} to npm..."
+  info "Publishing @carbonkite/onemancompany@${PY_VERSION} to npm..."
   npm publish --access public
-  info "Published! Users can now run: npx onemancompany"
+  info "Published! Users can now run: npx @carbonkite/onemancompany"
 fi
