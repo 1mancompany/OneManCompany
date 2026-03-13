@@ -8,6 +8,7 @@
  */
 
 const { execSync, spawn, spawnSync } = require("child_process");
+const readline = require("readline");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -32,8 +33,77 @@ const fail = (msg) => {
 };
 
 const isWindows = os.platform() === "win32";
+const PID_FILE = ".onemancompany.pid";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+}
+
+function findInstallDir() {
+  const dirFromArgs = (() => {
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === "--dir" && args[i + 1]) return path.resolve(args[i + 1]);
+    }
+    return null;
+  })();
+  return dirFromArgs || path.resolve(process.cwd(), DIR_NAME);
+}
+
+function writePidFile(installDir, pid) {
+  fs.writeFileSync(path.join(installDir, PID_FILE), String(pid));
+}
+
+function readPidFile(installDir) {
+  const pidPath = path.join(installDir, PID_FILE);
+  if (!fs.existsSync(pidPath)) return null;
+  const pid = parseInt(fs.readFileSync(pidPath, "utf-8").trim(), 10);
+  return isNaN(pid) ? null : pid;
+}
+
+function removePidFile(installDir) {
+  const pidPath = path.join(installDir, PID_FILE);
+  if (fs.existsSync(pidPath)) fs.unlinkSync(pidPath);
+}
+
+function isProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stopService(installDir) {
+  const pid = readPidFile(installDir);
+  if (pid && isProcessRunning(pid)) {
+    info(`Stopping OneManCompany service (PID ${pid})...`);
+    try {
+      process.kill(pid, "SIGTERM");
+      // Wait up to 5s for graceful shutdown
+      for (let i = 0; i < 50; i++) {
+        if (!isProcessRunning(pid)) break;
+        spawnSync("sleep", ["0.1"]);
+      }
+      if (isProcessRunning(pid)) {
+        process.kill(pid, "SIGKILL");
+      }
+      info("Service stopped");
+    } catch {
+      warn("Could not stop service — it may have already exited");
+    }
+  }
+  removePidFile(installDir);
+}
 function commandExists(cmd) {
   try {
     if (isWindows) {
@@ -123,17 +193,18 @@ function ensurePython() {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-function main() {
+async function main() {
   const args = process.argv.slice(2);
 
   // Help
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-${cyan("Memento-OneManCompany")} — The AI Operating System for One-Person Companies
+${cyan("OneManCompany")} — The AI Operating System for One-Person Companies
 
 ${green("Usage:")}
   npx @carbonkite/onemancompany              Start (auto-installs everything)
   npx @carbonkite/onemancompany init         Re-run setup wizard
+  npx @carbonkite/onemancompany uninstall    Stop service and remove installation
   npx @carbonkite/onemancompany --port 8080  Custom port
   npx @carbonkite/onemancompany --dir ./my   Custom install directory
 
@@ -150,9 +221,35 @@ ${green("What gets installed automatically:")}
     return;
   }
 
+  // ── Uninstall ─────────────────────────────────────────────────────────
+  if (args[0] === "uninstall") {
+    const installDir = findInstallDir();
+    if (!fs.existsSync(installDir)) {
+      warn(`No installation found at ${installDir}`);
+      return;
+    }
+
+    const answer = await ask(
+      yellow("⚠") + `  This will stop the service and delete ${installDir}\n` +
+      "  Are you sure? [y/N] "
+    );
+    if (answer !== "y" && answer !== "yes") {
+      console.log("  Aborted.");
+      return;
+    }
+
+    stopService(installDir);
+
+    info(`Removing ${installDir}...`);
+    fs.rmSync(installDir, { recursive: true, force: true });
+    info("OneManCompany has been uninstalled.");
+    console.log(dim(`  To reinstall: npx @carbonkite/onemancompany`));
+    return;
+  }
+
   console.log();
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
-  console.log(cyan("║   Memento-OneManCompany — AI Company OS       ║"));
+  console.log(cyan("║   OneManCompany — AI Company OS       ║"));
   console.log(cyan("╚═══════════════════════════════════════════════╝"));
   console.log();
 
@@ -199,6 +296,32 @@ ${green("What gets installed automatically:")}
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`);
   }
 
+  // ── Check if already running ─────────────────────────────────────────
+  const existingPid = readPidFile(installDir);
+  if (existingPid && isProcessRunning(existingPid)) {
+    warn("OneManCompany is already running.");
+    const answer = await ask(
+      "  Stop the service and re-setup? [y/N] "
+    );
+    if (answer === "y" || answer === "yes") {
+      stopService(installDir);
+      info("Re-running setup wizard...\n");
+      const pythonBinCheck = isWindows
+        ? path.join(installDir, ".venv", "Scripts", "python.exe")
+        : path.join(installDir, ".venv", "bin", "python");
+      if (fs.existsSync(pythonBinCheck)) {
+        const initResult = spawnSync(pythonBinCheck, ["-m", "onemancompany.onboard"], {
+          cwd: installDir,
+          stdio: "inherit",
+        });
+        if (initResult.status !== 0) fail("Setup wizard failed");
+      }
+    } else {
+      console.log("  Continuing with existing service.");
+      return;
+    }
+  }
+
   // ── Setup venv + deps via UV ──────────────────────────────────────────
   const venvDir = path.join(installDir, ".venv");
   if (!fs.existsSync(venvDir)) {
@@ -238,8 +361,29 @@ ${green("What gets installed automatically:")}
     cwd: installDir,
     stdio: "inherit",
   });
-  child.on("close", (code) => process.exit(code ?? 0));
-  child.on("error", (err) => fail(`Failed to start: ${err.message}`));
+
+  writePidFile(installDir, child.pid);
+
+  const cleanup = () => {
+    removePidFile(installDir);
+  };
+  child.on("close", (code) => {
+    cleanup();
+    process.exit(code ?? 0);
+  });
+  child.on("error", (err) => {
+    cleanup();
+    fail(`Failed to start: ${err.message}`);
+  });
+  process.on("SIGINT", () => {
+    child.kill("SIGTERM");
+  });
+  process.on("SIGTERM", () => {
+    child.kill("SIGTERM");
+  });
 }
 
-main();
+main().catch((err) => {
+  console.error(red(`✖ ${err.message}`));
+  process.exit(1);
+});
