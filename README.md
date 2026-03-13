@@ -1,38 +1,36 @@
-# Memento-OneManCompany
+<p align="center">
+  <img src="img/talent-market-icon.png" alt="OneManCompany" height="64" />
+</p>
 
-**The AI Operating System for One-Person Companies**
+<h1 align="center">OneManCompany</h1>
+
+<p align="center"><b>The AI Operating System for One-Person Companies</b></p>
+
+<p align="center">
+  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://carbonkites.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/CarbonKite/OneManCompany/issues">Issues</a>
+</p>
 
 > Others use AI to write code. You use AI to run a company.
 >
-> If Linux is the OS for servers, Memento-OneManCompany is the OS for companies.
+> If Linux is the OS for servers, OneManCompany is the OS for companies.
 
-Memento-OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
+OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
 Yes, your AI employees have performance reviews. Yes, they get nervous.
 
-Tired of auto-generated AI agents that confidently produce nonsense? Memento-OneManCompany ships with a **Talent Market** — community-verified AI employees that actually deliver, not hallucination machines.
-
-[中文文档](README_zh.md)
-
-<p align="center">
-  <a href="https://carbonkites.com">
-    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
-    <b>Talent Market</b>
-  </a>
-</p>
+Tired of auto-generated AI agents that confidently produce nonsense? OneManCompany ships with a **Talent Market** — community-verified AI employees that actually deliver, not hallucination machines.
 
 ---
 
-## Why Memento-OneManCompany?
+## Why OneManCompany?
 
-Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. Memento-OneManCompany gives you **an entire organization.**
+Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. OneManCompany gives you **an entire organization.**
 
 - **Not a chatbot** — a company with org structure, hiring, task management, performance reviews, and knowledge management
 - **Not a demo** — delivers production-grade output (games, comics, apps — not "here's a draft, good luck")
 - **Not a framework** — a complete platform you can run from your browser, no code required
 
 ### What You Can Build
-
 
 | AI Company           | What It Delivers                                                  |
 | -------------------- | ----------------------------------------------------------------- |
@@ -42,11 +40,9 @@ Today's AI tools help you do individual tasks — write an email, generate an im
 | 🎨 AI Content Studio | Marketing campaigns, branded content, and media production        |
 | 🔬 AI Research Lab   | Literature review, data analysis, and report generation           |
 
-
 These aren't toy demos — each AI company produces **product-level deliverables** through a full team of collaborating AI agents.
 
 ### How We're Different
-
 
 |                                | Typical Agent Orchestrators          | OneManCompany                                                                                                                                     |
 | ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,7 +51,6 @@ These aren't toy demos — each AI company produces **product-level deliverables
 | **Execution model**            | Heartbeat polling / loop             | Event-driven, zero-idle, on-demand dispatch                                                                                                       |
 | **Organization**               | Simple task queues                   | Full Fortune 500-style company simulation (see below)                                                                                             |
 | **Deliverables**               | Single-point task outputs            | Production-grade, multi-iteration project delivery with quality gates                                                                             |
-
 
 ### Built Like a Real Company
 
@@ -77,7 +72,7 @@ Something missing? [Open an issue](https://github.com/CarbonKite/OneManCompany/i
 
 ### Why It's an OS, Not Just a Company
 
-Memento-OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
+OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
 
 1. **Company Direction** — Your vision statement is injected into every employee's reasoning. Change the direction, the entire company pivots.
 2. **Company Culture** — Behavioral principles that govern every employee. Same Talents, same Vessels, completely different company personality.
@@ -87,13 +82,9 @@ Memento-OneManCompany doesn't build **a** company — it lets you build **any** 
 
 ## Features
 
-
-
-
 |                                                                      |                                                               |
 | -------------------------------------------------------------------- | ------------------------------------------------------------- |
 | **Task Tree** — Hierarchical task breakdown with dependency tracking | **Task Management** — CEO reviews and approves at every level |
-
 
 ---
 
@@ -112,7 +103,7 @@ You type: *"Build a puzzle game for mobile"*
 
 **You manage. AI executes.**
 
-```
+```text
 CEO (You, the only human who gets coffee breaks)
   └── EA ── routes tasks, quality gate
         ├── HR ── hiring, performance reviews, promotions
@@ -183,6 +174,7 @@ npx @carbonkite/onemancompany
 </details>
 
 First run automatically:
+
 1. Installs **UV** (fast Python package manager)
 2. Installs **Python 3.12** via UV (isolated, no system changes)
 3. Clones the repository
@@ -239,7 +231,6 @@ bash start.sh init
 | `.onemancompany/config.yaml` | App config (Talent Market URL, etc.)   |
 | Browser Settings panel       | Frontend preferences                   |
 
-
 ---
 
 ## Vision & Roadmap
@@ -248,20 +239,17 @@ bash start.sh init
 
 **Long-term:** Redefine the relationship between AI, humans, and organizations.
 
-
 | Tier                        | Focus                                 | Examples                                                                 |
 | --------------------------- | ------------------------------------- | ------------------------------------------------------------------------ |
 | 🔧 **Stronger AI Agents**   | Make each employee more capable       | Enhanced sandbox, better tool usage, improved code execution             |
 | 🏢 **Smarter Organization** | Make the company run more efficiently | CEO experience, advanced task scheduling, multi-agent collaboration      |
 | 🌐 **AI-Native Ecosystem**  | Build a thriving open ecosystem       | Talent Market expansion, third-party tools/APIs, community contributions |
 
-
 This is a living plan — [request a feature](https://github.com/CarbonKite/OneManCompany/issues) or [contribute directly](https://github.com/CarbonKite/OneManCompany/pulls).
 
 ---
 
 ## Documentation
-
 
 | Document                               | Description                                                    |
 | -------------------------------------- | -------------------------------------------------------------- |
@@ -270,7 +258,6 @@ This is a living plan — [request a feature](https://github.com/CarbonKite/OneM
 | [Task System](docs/task-system.md)     | Task status state machine                                      |
 | [Coding Guide](vibe-coding-guide.md)   | Coding guidelines, testing rules, code style                   |
 | [Changelog](CHANGELOG.md)              | Release history                                                |
-
 
 ---
 
@@ -289,11 +276,11 @@ See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ## Citation
 
-If you use Memento-OneManCompany in your research or project, please cite it:
+If you use OneManCompany in your research or project, please cite it:
 
 ```bibtex
 @software{onemancompany2025,
-  title = {Memento-OneManCompany: The AI Operating System for One-Person Companies},
+  title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
   url = {https://github.com/CarbonKite/OneManCompany},
   year = {2025},
@@ -305,7 +292,7 @@ If you use Memento-OneManCompany in your research or project, please cite it:
 
 ## Links
 
-<p>
+<p align="center">
   <a href="https://carbonkites.com">
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
@@ -313,15 +300,12 @@ If you use Memento-OneManCompany in your research or project, please cite it:
   &nbsp;—&nbsp;Community-verified AI employee marketplace
 </p>
 
-<!-- Add more links here, same format:
-<p>
-  <a href="https://your-url.com">
-    <img src="img/your-icon.svg" alt="Name" height="28" style="vertical-align: middle;" />
-    <b>Project Name</b>
+<p align="center">
+  <a href="https://github.com/CarbonKite/talent-template">
+    <b>Talent Template</b>
   </a>
-  &nbsp;—&nbsp;Short description
+  &nbsp;—&nbsp;Template repo for building your own Talents
 </p>
--->
 
 ---
 
