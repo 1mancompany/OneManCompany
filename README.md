@@ -361,20 +361,9 @@ If you use OneManCompany in your research or project, please cite it:
 
 ## Links
 
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-  <a href="https://carbonkites.com" style="display:inline-flex;align-items:center;gap:4px">
-    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" />
-    <b>Talent Market</b>
-  </a>
-  &nbsp;—&nbsp;Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
-</div>
+**[Talent Market](https://carbonkites.com)** — Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
 
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-  <a href="https://github.com/1mancompany/talent-template">
-    <b>Talent Template</b>
-  </a>
-  &nbsp;—&nbsp;Template repo for building your own Talents
-</div>
+**[Talent Template](https://github.com/1mancompany/talent-template)** — Template repo for building your own Talents
 
 ---
 

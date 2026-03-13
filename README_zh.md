@@ -380,20 +380,9 @@ npx @carbonkite/onemancompany uninstall
 
 ## 相关链接
 
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-  <a href="https://carbonkites.com" style="display:inline-flex;align-items:center;gap:4px">
-    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" />
-    <b>Talent Market</b>
-  </a>
-  &nbsp;—&nbsp;社区验证的 AI 员工市场（养🦞的人还不知道🦞养熟怎么用？放到市场上来卖吧）
-</div>
+**[Talent Market](https://carbonkites.com)** — 社区验证的 AI 员工市场（养🦞的人还不知道🦞养熟怎么用？放到市场上来卖吧）
 
-<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-  <a href="https://github.com/1mancompany/talent-template">
-    <b>Talent Template</b>
-  </a>
-  &nbsp;—&nbsp;构建自定义 Talent 的模板仓库
-</div>
+**[Talent Template](https://github.com/1mancompany/talent-template)** — 构建自定义 Talent 的模板仓库
 
 ---
 
