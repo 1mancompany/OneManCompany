@@ -2799,7 +2799,8 @@ class TestAbortTask:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value=None):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/task/proj1/abort")
@@ -5707,7 +5708,8 @@ class TestAbortTaskWithBoards:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.employee_manager", mock_manager):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value=None):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/task/proj1/abort")
