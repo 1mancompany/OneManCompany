@@ -14,19 +14,21 @@
 
 > Others use AI to write code. You use AI to run a company.
 >
-> If Linux is the OS for servers, OneManCompany is the OS for companies.
+> Linux runs servers. OneManCompany runs companies.
 >
 > Not building a company — building any company.
 
-OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
+OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser.
 
-Yes, your AI employees have performance reviews. Yes, they get nervous.
+**You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
-And your company gets better with use — every project retrospective, performance review, and 1-on-1 coaching session is distilled into employee-level work experience and company-level workflows and knowledge base, driving continuous organizational evolution. This isn't simple prompt tuning — it's proven management practices borrowed from successful tech companies.
+🏢 **Real company management** — Yes, your AI employees have performance reviews. Yes, they get nervous.
 
-Tired of auto-generated AI agents that confidently produce nonsense? OneManCompany ships with a **Talent Market** — community-verified AI employees that actually deliver, not hallucination machines.
+📈 **Gets better with use** — Your AI employees don't plateau. Every retrospective, performance review, and 1-on-1 coaching session becomes lasting work experience and company knowledge — yell at them once for a mistake, they won't make it twice. Still not good enough? Fire them — the next one will be more obedient.
 
-It's not just an AI company — it's the operating system for building any AI company: a unified runtime that abstracts away AI differences, letting powerful agents like Claude Code and OpenClaw all work for you; an open Talent Market that deconstructs agent tools and skills into shareable, community-built packages ready to plug in; and a configurable foundation where changing the setup means changing the company.
+🛡️ **No more hallucinations** — Tired of AI agents that confidently produce nonsense? We ship with a **[Talent Market](https://carbonkites.com)** — community-verified AI employees that actually deliver. Not random hallucination machines — these ones had to pass an interview.
+
+⚙️ **Not just a company — an operating system** — A unified runtime that abstracts away AI differences, so Claude Code, OpenClaw, and other heavyweights all work for you; skill packages on the Talent Market install like phone apps; swap the direction, swap the team, and you've got a whole new company.
 
 ---
 
