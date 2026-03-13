@@ -6,6 +6,8 @@ on:
     paths:
       - 'mkdocs-docs/**'
       - 'mkdocs.yml'
+      - 'docs/index.html'
+      - 'docs/index-full.html'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 

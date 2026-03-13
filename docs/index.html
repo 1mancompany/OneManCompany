@@ -73,8 +73,12 @@
     /* ── Hero ─────────────────────────────────────────────────── */
     .hero {
       text-align: center;
-      padding: 100px 0 80px;
+      padding: 40px 0 16px;
       position: relative;
+      min-height: calc(100vh - 100px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .hero-badge {
       display: inline-block;
@@ -83,7 +87,7 @@
       color: var(--green);
       border: 2px solid var(--green);
       padding: 6px 14px;
-      margin-bottom: 32px;
+      margin-bottom: 20px;
       text-transform: uppercase;
       letter-spacing: 2px;
       image-rendering: pixelated;
@@ -92,17 +96,17 @@
       font-family: var(--pixel);
       font-size: clamp(18px, 3.5vw, 30px);
       color: #fff;
-      margin-bottom: 20px;
+      margin-bottom: 14px;
       line-height: 1.4;
       text-shadow: 4px 4px 0 var(--bg), 4px 4px 0 rgba(0,229,255,.15);
     }
     .hero h1 .accent { color: var(--cyan); }
     .hero .tagline {
-      font-size: 18px;
+      font-size: 16px;
       color: var(--text-dim);
       max-width: 600px;
-      margin: 0 auto 40px;
-      line-height: 1.6;
+      margin: 0 auto 20px;
+      line-height: 1.5;
     }
     .hero-cta {
       display: inline-flex; gap: 16px; flex-wrap: wrap; justify-content: center;
@@ -319,7 +323,7 @@
     /* ── Footer ───────────────────────────────────────────────── */
     footer {
       border-top: 2px solid var(--border);
-      padding: 40px 0;
+      padding: 20px 0;
       text-align: center;
     }
     footer p { color: var(--text-dim); font-size: 13px; }
@@ -358,17 +362,17 @@
       Others use AI to write code. You use AI to run a company.<br />
       One command. A full AI company in your browser.
     </p>
-    <p class="tagline" style="margin-top: 12px; font-size: 0.95rem;">
+    <p class="tagline" style="margin-top: 4px; margin-bottom: 0; font-size: 0.9rem;">
       We hereby offer your OneManCompany — with unlimited, verified AI employees, powered by 🔒. No more gambling on unvetted AI agents.
     </p>
-    <div style="margin-top: 48px; text-align: center;">
-      <div style="font-family: var(--pixel); font-size: clamp(14px, 2.5vw, 22px); color: var(--yellow); letter-spacing: 2px; margin-bottom: 16px; text-shadow: 2px 2px 0 rgba(255,230,0,.15);">
+    <div style="margin-top: 28px; text-align: center;">
+      <div style="font-family: var(--pixel); font-size: clamp(13px, 2.5vw, 20px); color: var(--yellow); letter-spacing: 2px; margin-bottom: 10px; text-shadow: 2px 2px 0 rgba(255,230,0,.15);">
         "Agents, Assemble." — Coming Soon
       </div>
-      <p style="color: var(--text-dim); font-size: 0.95rem; max-width: 480px; margin: 0 auto;">
+      <p style="color: var(--text-dim); font-size: 0.9rem; max-width: 480px; margin: 0 auto;">
         Your AI founding team is suiting up. Drop your email — we'll send a signal when HQ goes live.
       </p>
-      <form id="notify-form" style="margin-top: 28px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 440px; margin-left: auto; margin-right: auto;">
+      <form id="notify-form" style="margin-top: 18px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 440px; margin-left: auto; margin-right: auto;">
         <input type="email" id="notify-email" placeholder="you@example.com" required
           style="flex: 1; min-width: 200px; padding: 10px 14px; font-family: var(--body); font-size: 14px;
           background: var(--bg); color: var(--text); border: 2px solid var(--border);
