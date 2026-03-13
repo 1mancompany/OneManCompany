@@ -26,7 +26,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.task_lifecycle import TaskPhase
-from onemancompany.talent_market.boss_online import HireRequest, InterviewRequest, InterviewResponse
+from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee as _load_emp, load_all_employees as _load_all
@@ -3959,7 +3959,7 @@ async def batch_hire_candidates(body: dict) -> dict:
 async def interview_candidate(body: InterviewRequest) -> InterviewResponse:
     """CEO interviews a candidate by asking a question. Supports text and image input.
 
-    Request body validated by InterviewRequest (see boss_online.py for schema).
+    Request body validated by InterviewRequest (see recruitment.py for schema).
     Returns InterviewResponse.
     """
     from onemancompany.agents.base import make_llm
