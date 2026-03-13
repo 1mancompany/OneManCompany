@@ -107,6 +107,7 @@ class AppController {
         if (room) this._refreshMeetingModalStatus(room);
       }
       this._refreshDeferredPanel();
+      this._refreshCeoInbox();
     } catch (e) {
       console.error('Bootstrap failed:', e);
     }
@@ -176,6 +177,22 @@ class AppController {
     // Handle connected message — bootstrap from REST API
     if (msg.type === 'connected') {
       this.bootstrap();
+      return;
+    }
+
+    // CEO inbox real-time updates
+    if (msg.type === 'ceo_inbox_updated') {
+      this._refreshCeoInbox();
+      return;
+    }
+    if (msg.type === 'ceo_conversation') {
+      if (this._currentConvNodeId === (msg.payload && msg.payload.node_id)) {
+        this._appendConvMessage({
+          sender: msg.payload.sender,
+          text: msg.payload.text,
+          timestamp: msg.payload.timestamp,
+        });
+      }
       return;
     }
 
@@ -826,6 +843,17 @@ class AppController {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', () => this._onRosterFilterChange());
     });
+
+    // CEO conversation dialog: Enter key to send
+    const convInput = document.getElementById('ceo-conv-input');
+    if (convInput) {
+      convInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          app._sendCeoMessage();
+        }
+      });
+    }
 
     // 1-on-1 meeting modal bindings
     const oneononeModal = document.getElementById('oneonone-modal');
@@ -1851,6 +1879,159 @@ class AppController {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  // ===== CEO Inbox =====
+  async _refreshCeoInbox() {
+    try {
+      const resp = await fetch('/api/ceo/inbox');
+      const data = await resp.json();
+      this._renderCeoInbox(data.items || []);
+    } catch (e) {
+      console.error('Failed to refresh CEO inbox:', e);
+    }
+  }
+
+  _renderCeoInbox(items) {
+    const list = document.getElementById('ceo-inbox-list');
+    const badge = document.getElementById('ceo-inbox-badge');
+    if (!list) return;
+
+    if (items.length === 0) {
+      list.innerHTML = '<div class="inbox-empty">No pending requests</div>';
+      if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
+      return;
+    }
+
+    if (badge) {
+      badge.textContent = items.length;
+      badge.classList.remove('hidden');
+      badge.classList.toggle('inbox-badge-active', items.length > 0);
+    }
+
+    list.innerHTML = items.map(item => `
+      <div class="inbox-item" data-node-id="${item.node_id}" onclick="app._openCeoConversation('${item.node_id}')">
+        <span class="inbox-status">${item.status === 'processing' ? '🔄' : '⏸'}</span>
+        <div class="inbox-item-content">
+          <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
+          <div class="inbox-item-desc">${this._escHtml(item.description.substring(0, 60))}${item.description.length > 60 ? '...' : ''}</div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // ===== CEO Conversation Dialog =====
+  async _openCeoConversation(nodeId) {
+    try {
+      const resp = await fetch(`/api/ceo/inbox/${nodeId}/open`, { method: 'POST' });
+      const data = await resp.json();
+      this._currentConvNodeId = nodeId;
+
+      const overlay = document.getElementById('ceo-conv-overlay');
+      const title = document.getElementById('ceo-conv-title');
+      const desc = document.getElementById('ceo-conv-desc');
+
+      const nickname = data.employee_nickname || data.employee_id || '员工';
+      title.textContent = `📥 来自 ${nickname} 的任务请求`;
+      if (data.description) {
+        desc.textContent = data.description;
+        desc.classList.remove('hidden');
+      }
+      this._renderConvMessages(data.messages || []);
+      overlay.classList.remove('hidden');
+      document.getElementById('ceo-conv-input').focus();
+    } catch (e) {
+      console.error('Failed to open conversation:', e);
+    }
+  }
+
+  _closeCeoConversation() {
+    document.getElementById('ceo-conv-overlay').classList.add('hidden');
+  }
+
+  _renderConvMessages(messages) {
+    const container = document.getElementById('ceo-conv-messages');
+    container.innerHTML = messages.map(m => {
+      const isCeo = m.sender === 'ceo';
+      const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
+      let attachHtml = '';
+      if (m.attachments && m.attachments.length) {
+        attachHtml = m.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
+      }
+      return `<div class="conv-msg ${cls}">
+        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(m.sender)}</div>
+        <div class="conv-msg-text">${this._escHtml(m.text)}</div>
+        ${attachHtml}
+        <div class="conv-msg-time">${new Date(m.timestamp).toLocaleTimeString()}</div>
+      </div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  _appendConvMessage(msg) {
+    const container = document.getElementById('ceo-conv-messages');
+    const isCeo = msg.sender === 'ceo';
+    const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
+    let attachHtml = '';
+    if (msg.attachments && msg.attachments.length) {
+      attachHtml = msg.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
+    }
+    container.insertAdjacentHTML('beforeend', `
+      <div class="conv-msg ${cls}">
+        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(msg.sender)}</div>
+        <div class="conv-msg-text">${this._escHtml(msg.text)}</div>
+        ${attachHtml}
+        <div class="conv-msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
+      </div>
+    `);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async _sendCeoMessage() {
+    const input = document.getElementById('ceo-conv-input');
+    const text = input.value.trim();
+    if (!text || !this._currentConvNodeId) return;
+    input.value = '';
+    this._appendConvMessage({ sender: 'ceo', text, timestamp: new Date().toISOString() });
+    try {
+      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+    } catch (e) {
+      console.error('Failed to send message:', e);
+    }
+  }
+
+  async _completeCeoConversation() {
+    if (!this._currentConvNodeId) return;
+    if (!confirm('确认完成此对话？')) return;
+    try {
+      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/complete`, { method: 'POST' });
+      this._closeCeoConversation();
+      this._currentConvNodeId = null;
+      this._refreshCeoInbox();
+    } catch (e) {
+      console.error('Failed to complete conversation:', e);
+    }
+  }
+
+  async _uploadCeoAttachment() {
+    const fileInput = document.getElementById('ceo-conv-file');
+    if (!fileInput.files.length || !this._currentConvNodeId) return;
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    try {
+      const resp = await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/upload`, {
+        method: 'POST', body: formData,
+      });
+      const data = await resp.json();
+      this._appendConvMessage(data.message);
+    } catch (e) {
+      console.error('Failed to upload:', e);
+    }
+    fileInput.value = '';
   }
 
   async _loadModelOrApiKeySection(empId) {
