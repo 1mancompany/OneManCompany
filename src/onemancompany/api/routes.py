@@ -3804,9 +3804,10 @@ async def batch_hire_candidates(body: dict) -> dict:
             logger.error("Talent Market purchase failed: {}", e)
             return {"error": f"Purchase failed: {e}"}
 
-        # Onboard + clone each purchased talent
+        # Onboard + clone each purchased talent (concurrently)
         from onemancompany.agents.onboarding import clone_talent_repo
-        for tid in talent_ids:
+
+        async def _onboard_one(tid):
             try:
                 onboard_result = await talent_market.onboard(tid)
                 repo_url = onboard_result.get("repo_url", "")
@@ -3815,8 +3816,31 @@ async def batch_hire_candidates(body: dict) -> dict:
             except Exception as e:
                 logger.error("Failed to onboard/clone talent {}: {}", tid, e)
 
+        await asyncio.gather(*[_onboard_one(tid) for tid in talent_ids])
+
     total = len(selections)
     results = []
+
+    # Pre-generate nicknames concurrently (LLM calls are the main bottleneck)
+    async def _gen_nick(sel):
+        cid = sel.get("candidate_id", "")
+        candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == cid), None)
+        if not candidate:
+            return cid, ""
+        cand_name = candidate.get("name", cid)
+        coo_ctx = {}  # role for nickname only
+        if _pending_coo_hire_queue:
+            coo_ctx_role = sel.get("role", "") or candidate.get("role", "Engineer")
+        else:
+            coo_ctx_role = sel.get("role", "") or candidate.get("role", "Engineer")
+        try:
+            nick = await generate_nickname(cand_name, coo_ctx_role, is_founding=False)
+        except Exception:
+            nick = ""
+        return cid, nick
+
+    nickname_results = await asyncio.gather(*[_gen_nick(s) for s in selections])
+    nickname_map = dict(nickname_results)
 
     for idx, sel in enumerate(selections):
         candidate_id = sel.get("candidate_id", "")
@@ -3882,17 +3906,17 @@ async def batch_hire_candidates(body: dict) -> dict:
         progress_cb = await _make_progress_cb(candidate_id, cand_name, idx)
 
         try:
-            nickname = await generate_nickname(cand_name, final_role, is_founding=False)
+            nickname = nickname_map.get(candidate_id, "") or await generate_nickname(cand_name, final_role, is_founding=False)
             emp = await execute_hire(
                 name=cand_name,
                 nickname=nickname,
                 role=final_role,
                 skills=skill_names,
                 talent_id=talent_id,
-                llm_model=talent_data.get("llm_model", "") or candidate.get("llm_model", ""),
+                llm_model="" if talent_data.get("hosting") == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
                 temperature=float(talent_data.get("temperature", 0.7)),
                 image_model=candidate.get("image_model", ""),
-                api_provider=talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter"),
+                api_provider="" if talent_data.get("hosting") == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
                 hosting=talent_data.get("hosting", "company"),
                 auth_method=talent_data.get("auth_method", "api_key"),
                 sprite=candidate.get("sprite", "employee_default"),

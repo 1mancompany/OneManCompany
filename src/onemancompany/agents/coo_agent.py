@@ -790,7 +790,7 @@ def request_hiring(
     caller_loop = _current_vessel.get()
     caller_task_id = _current_task_id.get()
     if caller_loop and caller_task_id:
-        caller_task = caller_loop.board.get_task(caller_task_id)
+        caller_task = caller_loop.get_task(caller_task_id)
         if caller_task:
             project_id = caller_task.project_id or caller_task.original_project_id
             project_dir = caller_task.project_dir or caller_task.original_project_dir

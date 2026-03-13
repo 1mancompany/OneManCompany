@@ -237,7 +237,7 @@ OneManCompany is an open-source project. We believe the future of work is AI-nat
 - **Share Demos** — Show what your AI company can build
 - **Report Issues** — Help us find and fix bugs
 
-See [AI_CONTRIBUTING.md](AI_CONTRIBUTING.md) for coding guidelines.
+See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ---
 
@@ -504,7 +504,7 @@ All transitions enforced through `transition()` in `task_lifecycle.py`.
 
 ## Development
 
-See [AI_CONTRIBUTING.md](AI_CONTRIBUTING.md) for detailed coding guidelines, testing rules, and code style.
+See [vibe-coding-guide.md](vibe-coding-guide.md) for detailed coding guidelines, testing rules, and code style.
 
 ```bash
 # Start server

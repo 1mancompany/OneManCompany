@@ -1,7 +1,7 @@
 # Task Tree Architecture Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-> **IMPORTANT:** Read `AI_CONTRIBUTING.md` before writing ANY code. Follow its rules exactly: systematic design, registry pattern, no silent exceptions, TDD, mock at importing module level, loguru logger, lazy imports for circular deps.
+> **IMPORTANT:** Read `vibe-coding-guide.md` before writing ANY code. Follow its rules exactly: systematic design, registry pattern, no silent exceptions, TDD, mock at importing module level, loguru logger, lazy imports for circular deps.
 
 **Goal:** Replace the flat dispatch + subtask + acceptance state machine with a unified task tree where EA is root, children are subtrees, and results propagate upward with acceptance at each level.
 
@@ -11,7 +11,7 @@
 
 **Key reference files:**
 - Design doc: `docs/plans/2026-03-09-task-tree-design.md`
-- Coding guide: `AI_CONTRIBUTING.md`
+- Coding guide: `vibe-coding-guide.md`
 - Current vessel: `src/onemancompany/core/vessel.py` (AgentTask lines 64-116, EmployeeManager lines 446-2125)
 - Current tools: `src/onemancompany/agents/common_tools.py` (dispatch_task line 1254, create_subtask line 747, acceptance tools lines 767-895)
 - Current archive: `src/onemancompany/core/project_archive.py` (dispatch tracking lines 642-877)

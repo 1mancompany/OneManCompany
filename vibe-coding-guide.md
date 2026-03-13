@@ -1,6 +1,36 @@
-# OneManCompany Coding Guide
+# OneManCompany Vibe Coding Guide
 
 > For AI coders and human contributors alike. Read this before writing any code.
+
+## What This Project Is
+
+OneManCompany is an **operating system for building AI-powered companies**. One human CEO, a team of AI employees, a real company structure. It's not a chatbot wrapper or an agent demo — it's a full organizational simulation with hiring, task management, performance reviews, and company culture.
+
+The codebase models a real company: employees have profiles (YAML), skills, departments, and work principles. They receive tasks, execute them via LangChain agents or Claude CLI, report progress, and get reviewed. The CEO (user) manages everything through a pixel-art office UI.
+
+## Why This Guide Exists
+
+AI coding tools are powerful but opinionated. Left unchecked, they'll add "helpful" abstractions, swallow exceptions, cache data in memory, and create helpers for one-time operations. This guide exists to align AI coders with our engineering philosophy — which is opinionated in the opposite direction.
+
+**Three principles above all else:**
+
+1. **SSOT (Single Source of Truth)** — Every piece of data has exactly one owner. Disk is truth. No caching. No duplication. If you find yourself storing the same data in two places, one of them is wrong.
+2. **TDD (Test-Driven Development)** — Write the test first. Watch it fail. Then implement. This isn't a suggestion — it's the workflow. Code without a failing test first is code that doesn't belong here.
+3. **Modular, registry-based design** — If you're writing `if/elif/else` for different types, you're doing it wrong. Use registries and dispatch. New types should be addable without touching existing code.
+
+These aren't suggestions. They're load-bearing walls. Violate them and the system breaks in subtle, hard-to-debug ways.
+
+## Common AI Coding Mistakes (Don't Do These)
+
+Before you start, here's what AI coders consistently get wrong in this codebase:
+
+- **Adding in-memory caches** — "I'll store the employee list in a dict for faster access." No. Read from disk every time. `store.load_*()` is the only read path.
+- **Creating unnecessary abstractions** — "Let me extract a base class for this." If there's only one implementation, inline it. Extract on the third use.
+- **Swallowing exceptions** — `except Exception: pass` is banned. Log it, re-raise `CancelledError`, handle it properly.
+- **Adding "just in case" error handling** — Don't validate inputs that come from trusted internal code. Only validate at system boundaries.
+- **Improving code you weren't asked to touch** — Don't refactor neighboring functions, add docstrings to existing code, or rename variables for "clarity". Touch only what the task requires.
+- **Mocking at the wrong level** — Patch where the function is *imported*, not where it's *defined*. This catches real import-path bugs.
+- **Writing test files outside `tmp_path`** — All unit test I/O must go to `tmp_path`. Never write to the repo, `company/`, or `.onemancompany/`. Tests that pollute the codebase are worse than no tests.
 
 ## Table of Contents
 
@@ -306,11 +336,12 @@ tests/
 
 - **Employee IDs**: Avoid `00002`–`00005` in tests (these are founding executive IDs). Use `00100+` for test employees.
 
-- **Disk isolation**: Unit tests **must never write to the real `.onemancompany/` directory**. The `tests/unit/conftest.py` provides autouse fixtures that redirect disk writes to `tmp_path`. When writing new tests:
+- **Disk isolation — ALL unit tests MUST run in `tmp_path`**. Tests must never write to the real `.onemancompany/` directory, the project source tree, or any persistent location. A test that leaves files behind is a test that pollutes the codebase. The `tests/unit/conftest.py` provides autouse fixtures that redirect disk writes to `tmp_path`:
   - `persist_task` and `_append_progress` are auto-redirected via `vessel.EMPLOYEES_DIR` and `tp.EMPLOYEES_DIR` patches
   - `store.save_employee()`, `store.save_employee_runtime()`, `store.append_activity()` are auto-intercepted by the bridge fixture — they only write to disk when the test explicitly patches `store.EMPLOYEES_DIR` to `tmp_path`
   - If your test needs disk writes, **explicitly `monkeypatch.setattr(store, "EMPLOYEES_DIR", tmp_path)`** — this signals the bridge to allow writes to the controlled tmp directory
   - If your test does NOT set up in-memory `company_state.employees` and does NOT redirect `store.EMPLOYEES_DIR`, store write calls become no-ops (preventing leaks)
+  - **Bottom line**: if your test creates files, they go in `tmp_path`. No exceptions. No "temporary" files in the repo root. No writing to `company/` or `.onemancompany/`.
 
 - **Compilation check**: Always verify after editing:
 

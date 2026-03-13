@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-12-unified-task-status-design.md`
 
-**IMPORTANT:** Read `AI_CONTRIBUTING.md` before starting any task.
+**IMPORTANT:** Read `vibe-coding-guide.md` before starting any task.
 
 ---
 

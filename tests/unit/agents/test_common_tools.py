@@ -1141,7 +1141,7 @@ class TestSetProjectBudget:
         from onemancompany.agents import common_tools as ct_mod
 
         mock_loop = MagicMock()
-        mock_loop.board.get_task.return_value = None
+        mock_loop.get_task.return_value = None
         monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
@@ -1155,7 +1155,7 @@ class TestSetProjectBudget:
         mock_task.project_id = ""
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
-        mock_loop.board.get_task.return_value = mock_task
+        mock_loop.get_task.return_value = mock_task
         monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 
@@ -1169,7 +1169,7 @@ class TestSetProjectBudget:
         mock_task.project_id = "proj-1"
         mock_task.original_project_id = ""
         mock_loop = MagicMock()
-        mock_loop.board.get_task.return_value = mock_task
+        mock_loop.get_task.return_value = mock_task
         monkeypatch.setattr("onemancompany.core.agent_loop._current_vessel", MagicMock(get=lambda: mock_loop))
         monkeypatch.setattr("onemancompany.core.agent_loop._current_task_id", MagicMock(get=lambda: "task-1"))
 

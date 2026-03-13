@@ -521,6 +521,20 @@ class EmployeeManager:
                 return entry
         return None
 
+    def get_task(self, task_id: str):
+        """Look up a TaskNode by its ID across all scheduled trees."""
+        from onemancompany.core.task_tree import get_tree
+        for entries in self._schedule.values():
+            for entry in entries:
+                tree_path = Path(entry.tree_path)
+                if not tree_path.exists():
+                    continue
+                tree = get_tree(tree_path)
+                node = tree.get_node(task_id)
+                if node:
+                    return node
+        return None
+
     # Backward-compat aliases (properties so they stay in sync)
     @property
     def launchers(self) -> dict[str, Launcher]:
@@ -1034,6 +1048,7 @@ class EmployeeManager:
                         logger.error("Task tree callback failed for {}: {}", employee_id, e)
 
                 self.unschedule(employee_id, task_id)
+                self._schedule_next(employee_id)
                 return True
 
         return False
