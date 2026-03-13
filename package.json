@@ -20,13 +20,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CarbonKite/OneManCompany.git"
+    "url": "git+https://github.com/1mancompany/OneManCompany.git"
   },
-  "homepage": "https://github.com/CarbonKite/OneManCompany",
+  "homepage": "https://github.com/1mancompany/OneManCompany",
   "bugs": {
-    "url": "https://github.com/CarbonKite/OneManCompany/issues"
+    "url": "https://github.com/1mancompany/OneManCompany/issues"
   },
-  "author": "CarbonKite",
+  "author": "1mancompany",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=16"

@@ -9,7 +9,7 @@
 <p align="center"><b>The AI Operating System for One-Person Companies</b></p>
 
 <p align="center">
-  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://carbonkites.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/CarbonKite/OneManCompany/issues">Issues</a>
+  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://carbonkites.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.
@@ -54,6 +54,14 @@ These aren't toy demos — each AI company produces **product-level deliverables
 | **Organization**               | Simple task queues                   | Full Fortune 500-style company simulation (see below)                                                                                             |
 | **Deliverables**               | Single-point task outputs            | Production-grade, multi-iteration project delivery with quality gates                                                                             |
 
+### Why We Deliver Product-Grade Output
+
+Scattered AI tools stop at draft-quality output. OneManCompany replicates the full business processes of successful companies, minimizing human intervention for end-to-end delivery:
+
+- **Enterprise-style task orchestration** — The multi-agent system automatically breaks complex projects into specialized phases (requirements → design → development → testing → deployment), assigns owners, and coordinates like a real team.
+- **Smart talent matching** — The recruiting agent matches the right AI employee to every role — senior engineer, UI/UX designer, project manager — ensuring skills align precisely with task demands.
+- **Closed-loop management & agent growth** — After delivery, the system automatically runs retrospectives, captures lessons learned, and optimizes workflows. Your AI employees don't just complete tasks — they evolve with experience. Insights from every project (better coding standards, design feedback, problem-solving strategies) are absorbed into their work principles, making the next project even better.
+
 ### Built Like a Real Company
 
 We didn't just borrow corporate vocabulary — we faithfully modeled how Fortune 500 companies actually operate:
@@ -70,15 +78,25 @@ We didn't just borrow corporate vocabulary — we faithfully modeled how Fortune
 - **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior
 - **Hot reload & graceful restart** — zero-downtime deployments for AI companies
 
-Something missing? [Open an issue](https://github.com/CarbonKite/OneManCompany/issues) or build it yourself — that's the beauty of open source.
+Something missing? [Open an issue](https://github.com/1mancompany/OneManCompany/issues) or build it yourself — that's the beauty of open source.
 
 ### Why It's an OS, Not Just a Company
 
-OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
+OneManCompany doesn't build **a** company — it lets you build **any** company. Three traits make it an operating system, not just a product:
 
-1. **Company Direction** — Your vision statement is injected into every employee's reasoning. Change the direction, the entire company pivots.
-2. **Company Culture** — Behavioral principles that govern every employee. Same Talents, same Vessels, completely different company personality.
-3. **Vessel + Talent** — Modular architecture that makes everything swappable. Same OS, same founding team, different Talents from the marketplace.
+1. **Unified Runtime** — An OS abstracts away hardware differences so you don't care if the CPU is Intel or AMD. OneManCompany abstracts away AI differences — you don't need to know if your employee runs on Claude Code or OpenClaw. The Vessel layer handles scheduling, retries, and communication uniformly.
+2. **Install Employees Like Apps** — Phone OS has an app store; OneManCompany has a Talent Market. Need a designer? HR hires one from the market, plug and play. Not performing? Coach them or fire them — the next one will be better.
+3. **Same System, Different Company** — The same iOS can be your work phone or your kid's gaming device — it depends on what apps you install and how you configure it. OneManCompany works the same way: swap the Direction, Culture, and Talents, and you have an entirely different company.
+
+### Open Ecosystem, Unlimited Possibilities
+
+OneManCompany goes beyond built-in capabilities — it's open to the global agent community.
+
+**If you're an AI builder**, your agents can be packaged as AI employees (game developers, comic artists, full-stack engineers) and published to the Talent Market, empowering thousands of users and turning your work into scalable value.
+
+**If you're a CEO user**, you can load powerful agents built by others and make them your employees, bringing stronger delivery capabilities to your company. Each agent's core abilities are packaged as modular Skills (e.g., "React component development", "2D character design") that can be freely combined for any project.
+
+You're not just using AI — you're leading a continuously growing, dynamically expanding organization that delivers professional-grade results at a fraction of the cost of a real team.
 
 ---
 
@@ -200,7 +218,7 @@ bash start.sh
 
 ```bash
 # 1. Clone
-git clone https://github.com/CarbonKite/OneManCompany.git
+git clone https://github.com/1mancompany/OneManCompany.git
 cd OneManCompany
 
 # 2. Start (auto-installs UV + Python if needed, then runs setup wizard on first launch)
@@ -257,7 +275,7 @@ bash start.sh init
 
 Contributions welcome — we encourage vibe-coding. AI contributors please follow the [vibe-coding-guide](vibe-coding-guide.md).
 
-This is a living plan — [request a feature](https://github.com/CarbonKite/OneManCompany/issues) or [contribute directly](https://github.com/CarbonKite/OneManCompany/pulls).
+This is a living plan — [request a feature](https://github.com/1mancompany/OneManCompany/issues) or [contribute directly](https://github.com/1mancompany/OneManCompany/pulls).
 
 ---
 
@@ -294,7 +312,7 @@ If you use OneManCompany in your research or project, please cite it:
 @software{onemancompany2025,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
-  url = {https://github.com/CarbonKite/OneManCompany},
+  url = {https://github.com/1mancompany/OneManCompany},
   year = {2025},
   license = {Apache-2.0}
 }
@@ -313,7 +331,7 @@ If you use OneManCompany in your research or project, please cite it:
 </p>
 
 <p>
-  <a href="https://github.com/CarbonKite/talent-template">
+  <a href="https://github.com/1mancompany/talent-template">
     <b>Talent Template</b>
   </a>
   &nbsp;—&nbsp;Template repo for building your own Talents

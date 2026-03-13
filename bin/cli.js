@@ -13,7 +13,7 @@ const fs = require("fs");
 const os = require("os");
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const REPO_URL = "https://github.com/CarbonKite/OneManCompany.git";
+const REPO_URL = "https://github.com/1mancompany/OneManCompany.git";
 const DIR_NAME = "OneManCompany";
 const PYTHON_VERSION = "3.12";
 
