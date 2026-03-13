@@ -202,7 +202,9 @@ async function main() {
 ${cyan("OneManCompany")} — The AI Operating System for One-Person Companies
 
 ${green("Usage:")}
-  npx @carbonkite/onemancompany              Start (auto-installs everything)
+  npx @carbonkite/onemancompany              Start (runs in background)
+  npx @carbonkite/onemancompany --debug      Start with logs (Ctrl+C to stop)
+  npx @carbonkite/onemancompany stop         Stop background service
   npx @carbonkite/onemancompany init         Re-run setup wizard
   npx @carbonkite/onemancompany uninstall    Stop service and remove installation
   npx @carbonkite/onemancompany --port 8080  Custom port
@@ -211,6 +213,7 @@ ${green("Usage:")}
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
   --port <port>   Server port (default: 8000)
+  --debug         Run in foreground with logs (default: background)
   --help, -h      Show this help
 
 ${green("What gets installed automatically:")}
@@ -244,6 +247,20 @@ ${green("What gets installed automatically:")}
     fs.rmSync(installDir, { recursive: true, force: true });
     info("OneManCompany has been uninstalled.");
     console.log(dim(`  To reinstall: npx @carbonkite/onemancompany`));
+    return;
+  }
+
+  // ── Stop ────────────────────────────────────────────────────────────
+  if (args[0] === "stop") {
+    const installDir = findInstallDir();
+    const pid = readPidFile(installDir);
+    if (pid && isProcessRunning(pid)) {
+      stopService(installDir);
+      console.log(green("  ✓ OneManCompany stopped."));
+    } else {
+      warn("No running OneManCompany service found.");
+      removePidFile(installDir);
+    }
     return;
   }
 
@@ -356,31 +373,60 @@ ${green("What gets installed automatically:")}
   }
 
   // Start server
-  info("Starting OneManCompany...\n");
-  const child = spawn(pythonBin, ["-m", "onemancompany.main", ...passthrough], {
-    cwd: installDir,
-    stdio: "inherit",
-  });
+  const debugMode = passthrough.includes("--debug");
+  const launchArgs = passthrough.filter((a) => a !== "--debug");
 
-  writePidFile(installDir, child.pid);
+  if (debugMode) {
+    // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
+    info("Starting OneManCompany in debug mode (Ctrl+C to stop)...\n");
+    const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
+      cwd: installDir,
+      stdio: "inherit",
+    });
 
-  const cleanup = () => {
-    removePidFile(installDir);
-  };
-  child.on("close", (code) => {
-    cleanup();
-    process.exit(code ?? 0);
-  });
-  child.on("error", (err) => {
-    cleanup();
-    fail(`Failed to start: ${err.message}`);
-  });
-  process.on("SIGINT", () => {
-    child.kill("SIGTERM");
-  });
-  process.on("SIGTERM", () => {
-    child.kill("SIGTERM");
-  });
+    writePidFile(installDir, child.pid);
+
+    const cleanup = () => { removePidFile(installDir); };
+    child.on("close", (code) => { cleanup(); process.exit(code ?? 0); });
+    child.on("error", (err) => { cleanup(); fail(`Failed to start: ${err.message}`); });
+    process.on("SIGINT", () => { child.kill("SIGTERM"); });
+    process.on("SIGTERM", () => { child.kill("SIGTERM"); });
+  } else {
+    // ── Background mode: detach and exit CLI ────────────────────────
+    info("Starting OneManCompany in background...");
+    const logFile = path.join(installDir, ".onemancompany", "server.log");
+    // Ensure log directory exists
+    const logDir = path.dirname(logFile);
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+    const out = fs.openSync(logFile, "a");
+    const err = fs.openSync(logFile, "a");
+
+    const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
+      cwd: installDir,
+      stdio: ["ignore", out, err],
+      detached: true,
+    });
+
+    writePidFile(installDir, child.pid);
+    child.unref();
+
+    // Wait a moment to check it didn't crash immediately
+    await new Promise((r) => setTimeout(r, 1500));
+    if (isProcessRunning(child.pid)) {
+      console.log();
+      console.log(green("  ✓ OneManCompany is running!"));
+      console.log();
+      console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
+      console.log(`  ${dim("  Logs:")} ${logFile}`);
+      console.log(`  ${dim("  Stop:")} npx @carbonkite/onemancompany stop`);
+      console.log(`  ${dim("  Debug:")} npx @carbonkite/onemancompany --debug`);
+      console.log();
+    } else {
+      removePidFile(installDir);
+      fail("Server exited unexpectedly. Run with --debug to see logs.");
+    }
+  }
 }
 
 main().catch((err) => {
