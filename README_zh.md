@@ -180,6 +180,17 @@ CEO（你，唯一能喝咖啡的人）
 
 只需要 **Node.js 16+** 和 **Git**。其他一切（UV、Python 3.12、依赖）都会自动安装。
 
+### 执行模式
+
+创始员工（EA、HR、COO、CSO）支持两种执行模式，可在设置中切换：
+
+| 模式 | 说明 | 要求 |
+| --- | --- | --- |
+| **Company Hosted Agent** | OMC 自建 Agent，通过 OpenRouter 调用 LLM | OpenRouter API Key（设置向导中配置） |
+| **Claude Code** | 能力更强，更省 token 开销 | 需要 [Claude Pro/Max 订阅](https://claude.ai) |
+
+默认使用 Company Hosted Agent，无需额外订阅即可开始。
+
 <details>
 <summary><b>macOS</b></summary>
 
@@ -307,13 +318,24 @@ bash start.sh init
 
 ## 文档
 
-| 文档                                     | 说明                                 |
-| ---------------------------------------- | ------------------------------------ |
-| [架构](docs/architecture_zh.md)          | 系统架构、图表、模块索引、设计哲学   |
-| [Vessel 系统](docs/vessel-system_zh.md)  | Vessel + Talent 深度解析、Harness 协议 |
-| [任务系统](docs/task-system_zh.md)       | 任务状态机                           |
-| [编码规范](vibe-coding-guide.md)         | 编码指南、测试规则、代码风格         |
-| [更新日志](CHANGELOG.md)                 | 版本历史                             |
+**[完整文档站](https://carbonkite.github.io/OneManCompany/docs/zh/)** —— 功能指南、使用说明、技术参考。
+
+| 用户指南 | 说明 |
+| --- | --- |
+| [快速上手](https://carbonkite.github.io/OneManCompany/docs/zh/guide/getting-started/) | 首次启动到完成第一个任务 |
+| [执行模式](https://carbonkite.github.io/OneManCompany/docs/zh/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
+| [任务管理](https://carbonkite.github.io/OneManCompany/docs/zh/guide/task-management/) | 创建、分派、审批、迭代 |
+| [招聘与人才市场](https://carbonkite.github.io/OneManCompany/docs/zh/guide/hiring/) | 搜索、面试、入职 AI 员工 |
+| [1-on-1 辅导](https://carbonkite.github.io/OneManCompany/docs/zh/guide/coaching/) | CEO 指导，永久改变员工行为 |
+| [绩效管理](https://carbonkite.github.io/OneManCompany/docs/zh/guide/performance/) | 考核、PIP、晋升、解雇 |
+
+| 技术参考 | 说明 |
+| --- | --- |
+| [架构](docs/architecture_zh.md) | 系统架构、图表、模块索引、设计哲学 |
+| [Vessel 系统](docs/vessel-system_zh.md) | Vessel + Talent 深度解析、Harness 协议 |
+| [任务系统](docs/task-system_zh.md) | 任务状态机 |
+| [编码规范](vibe-coding-guide.md) | 编码指南、测试规则、代码风格 |
+| [更新日志](CHANGELOG.md) | 版本历史 |
 
 ---
 
