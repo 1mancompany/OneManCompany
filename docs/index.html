@@ -822,14 +822,15 @@ document.body.appendChild(musicBtn);
 const musicNotice = document.createElement('div');
 musicNotice.innerHTML = '♪ This page has background music (ON by default). Toggle: bottom-right button';
 Object.assign(musicNotice.style, {
-  position: 'fixed', top: '12px', left: '16px', zIndex: '999',
   fontFamily: 'var(--pixel)', fontSize: '7px', lineHeight: '1.6',
   color: 'var(--text-dim)', background: 'rgba(10,10,26,0.85)',
   border: '1px solid var(--border)', padding: '6px 12px',
   borderRadius: '2px', maxWidth: '340px',
-  transition: 'opacity .5s',
+  transition: 'opacity .5s', marginLeft: '16px', marginTop: '4px',
 });
-document.body.appendChild(musicNotice);
+// Insert right after the nav element
+const navEl = document.querySelector('nav');
+navEl.parentNode.insertBefore(musicNotice, navEl.nextSibling);
 // Fade out notice after 6 seconds
 setTimeout(() => { musicNotice.style.opacity = '0'; }, 6000);
 setTimeout(() => { musicNotice.remove(); }, 6600);
