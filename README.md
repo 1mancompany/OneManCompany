@@ -15,12 +15,18 @@
 > Others use AI to write code. You use AI to run a company.
 >
 > If Linux is the OS for servers, OneManCompany is the OS for companies.
+>
+> Not building a company — building any company.
 
 OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
 Yes, your AI employees have performance reviews. Yes, they get nervous.
 
+And your company gets better with use — every project retrospective, performance review, and 1-on-1 coaching session is distilled into employee-level work experience and company-level workflows and knowledge base, driving continuous organizational evolution. This isn't simple prompt tuning — it's proven management practices borrowed from successful tech companies.
+
 Tired of auto-generated AI agents that confidently produce nonsense? OneManCompany ships with a **Talent Market** — community-verified AI employees that actually deliver, not hallucination machines.
+
+It's not just an AI company — it's the operating system for building any AI company: a unified runtime that abstracts away AI differences, letting powerful agents like Claude Code and OpenClaw all work for you; an open Talent Market that deconstructs agent tools and skills into shareable, community-built packages ready to plug in; and a configurable foundation where changing the setup means changing the company.
 
 ---
 
@@ -60,7 +66,7 @@ Scattered AI tools stop at draft-quality output. OneManCompany replicates the fu
 
 - **Enterprise-style task orchestration** — The multi-agent system automatically breaks complex projects into specialized phases (requirements → design → development → testing → deployment), assigns owners, and coordinates like a real team.
 - **Smart talent matching** — The recruiting agent matches the right AI employee to every role — senior engineer, UI/UX designer, project manager — ensuring skills align precisely with task demands.
-- **Closed-loop management & agent growth** — After delivery, the system automatically runs retrospectives, captures lessons learned, and optimizes workflows. Your AI employees don't just complete tasks — they evolve with experience. Insights from every project (better coding standards, design feedback, problem-solving strategies) are absorbed into their work principles, making the next project even better.
+- **Closed-loop management & organizational evolution** — After delivery, the system automatically runs retrospectives, captures lessons learned, and optimizes workflows. Insights from every project (better coding standards, design feedback, problem-solving strategies) are distilled into employee-level work experience and company-level knowledge base, making the entire organization better with use.
 
 ### Built Like a Real Company
 
@@ -82,7 +88,7 @@ Something missing? [Open an issue](https://github.com/1mancompany/OneManCompany/
 
 ### Why It's an OS, Not Just a Company
 
-OneManCompany doesn't build **a** company — it lets you build **any** company. Three traits make it an operating system, not just a product:
+A company is a team with specific goals and members. An operating system is the underlying infrastructure that gives your team scalability, flexibility, and the ability to evolve. OneManCompany doesn't build **a** company — it lets you build **any** company. Three traits make it an operating system, not just a product:
 
 1. **Unified Runtime** — An OS abstracts away hardware differences so you don't care if the CPU is Intel or AMD. OneManCompany abstracts away AI differences — you don't need to know if your employee runs on Claude Code or OpenClaw. The Vessel layer handles scheduling, retries, and communication uniformly.
 2. **Install Employees Like Apps** — Phone OS has an app store; OneManCompany has a Talent Market. Need a designer? HR hires one from the market, plug and play. Not performing? Coach them or fire them — the next one will be better.
