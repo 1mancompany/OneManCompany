@@ -103,7 +103,12 @@ def _persist_candidates() -> None:
     """Persist pending_candidates to disk (sync, fire-and-forget async)."""
     import asyncio
 
-    data = {"batches": pending_candidates, "project_ctx": _pending_project_ctx}
+    data = {
+        "batches": pending_candidates,
+        "project_ctx": _pending_project_ctx,
+        "search_results": _last_search_results,
+        "session_id": _last_session_id,
+    }
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(_store.save_candidates("pending", data))
@@ -117,7 +122,8 @@ def _persist_candidates() -> None:
 
 
 def _load_candidates_from_disk() -> None:
-    """Restore pending_candidates from disk on startup."""
+    """Restore pending_candidates + search cache from disk on startup."""
+    global _last_session_id
     data = _store.load_candidates("pending")
     if data:
         restored = data.get("batches", {})
@@ -126,12 +132,112 @@ def _load_candidates_from_disk() -> None:
         ctx = data.get("project_ctx", {})
         if ctx:
             _pending_project_ctx.update(ctx)
+        search = data.get("search_results", {})
+        if search:
+            _last_search_results.update(search)
+        sid = data.get("session_id", "")
+        if sid:
+            _last_session_id = sid
 
 # candidate_id -> full candidate dict (stashed from last search)
 _last_search_results: dict[str, dict] = {}
 
 # session_id from the most recent Talent Market search (used by hire_talents)
 _last_session_id: str = ""
+
+
+def _extract_candidate_id(candidate: dict) -> str:
+    """Extract candidate ID from various response formats.
+
+    Handles both local format (flat dict with "id") and
+    Talent Market API format (nested talent.profile.id).
+    """
+    # Flat format (local fallback / already normalized)
+    cid = candidate.get("id") or candidate.get("talent_id", "")
+    if cid:
+        return cid
+    # Talent Market nested format: {talent: {profile: {id: ...}, id: ...}}
+    talent = candidate.get("talent", {})
+    if isinstance(talent, dict):
+        cid = talent.get("id", "")
+        if not cid:
+            profile = talent.get("profile", {})
+            if isinstance(profile, dict):
+                cid = profile.get("id", "")
+    return cid
+
+
+def _normalize_market_candidate(candidate: dict) -> dict:
+    """Normalize a Talent Market API candidate into CandidateProfile-compatible dict.
+
+    Talent Market returns: {talent: {profile: {...}, skills_detail, ...}, score, reasoning}
+    We flatten this into the same shape as local candidates.
+    """
+    talent = candidate.get("talent", {})
+    if not isinstance(talent, dict):
+        return candidate  # already flat or unknown format
+
+    profile = talent.get("profile", {})
+    if not isinstance(profile, dict):
+        return candidate
+
+    talent_id = profile.get("id", "")
+    sprites = ["employee_blue", "employee_red", "employee_green", "employee_purple", "employee_orange"]
+
+    # Build skill_set from skills_detail
+    skill_set = []
+    for sd in talent.get("skills_detail", []):
+        skill_set.append({
+            "name": sd.get("name", ""),
+            "description": sd.get("description", sd.get("content_preview", "")[:200]),
+            "code": "",
+        })
+
+    # Build tool_set from tools_detail
+    tool_set = []
+    for td in talent.get("tools_detail", []):
+        tool_set.append({
+            "name": td.get("name", ""),
+            "description": td.get("description", ""),
+            "code": "",
+        })
+
+    llm_model = profile.get("llm_model", "")
+    api_provider = profile.get("api_provider", "openrouter")
+    cost_per_1m = 0.0
+    if llm_model and api_provider == "openrouter":
+        try:
+            from onemancompany.core.model_costs import compute_salary
+            cost_per_1m = compute_salary(llm_model)
+        except Exception as exc:
+            logger.debug("Could not compute salary for {}: {}", llm_model, exc)
+
+    return {
+        "id": talent_id,
+        "name": profile.get("name", talent_id),
+        "role": profile.get("role", "Engineer"),
+        "experience_years": 3,
+        "personality_tags": profile.get("personality_tags", []),
+        "system_prompt": profile.get("system_prompt_template", ""),
+        "skill_set": skill_set,
+        "tool_set": tool_set,
+        "sprite": random.choice(sprites),
+        "llm_model": llm_model,
+        "temperature": profile.get("temperature", 0.7),
+        "image_model": profile.get("image_model", ""),
+        "jd_relevance": candidate.get("score", 1.0),
+        "remote": profile.get("remote", False),
+        "talent_id": talent_id,
+        "api_provider": api_provider,
+        "hosting": profile.get("hosting", "company"),
+        "auth_method": profile.get("auth_method", "api_key"),
+        "cost_per_1m_tokens": round(cost_per_1m, 2),
+        "hiring_fee": float(profile.get("hiring_fee", 0.0)),
+        # Preserve raw data for hire flow
+        "description_md": talent.get("description_md", ""),
+        "source_repo": talent.get("source_repo", ""),
+        "dir_name": talent.get("dir_name", ""),
+    }
 
 
 def _talent_to_candidate(talent: dict) -> dict:
@@ -349,13 +455,21 @@ async def search_candidates(job_description: str) -> dict:
 
     _last_session_id = grouped.get("session_id", "")
 
-    # Stash ALL candidates from ALL roles so shortlist can look up by ID
+    # Normalize Talent Market candidates into flat CandidateProfile dicts
+    # and stash ALL candidates from ALL roles for shortlist lookup by ID
     _last_search_results.clear()
     for role_group in grouped.get("roles", []):
+        normalized = []
         for c in role_group.get("candidates", []):
-            cid = c.get("id") or c.get("talent_id", "")
+            # Check if this is a nested Talent Market response
+            if "talent" in c and isinstance(c.get("talent"), dict):
+                c = _normalize_market_candidate(c)
+            cid = _extract_candidate_id(c)
             if cid:
                 _last_search_results[cid] = c
+            normalized.append(c)
+        role_group["candidates"] = normalized
+    _persist_candidates()  # persist search cache to survive restarts
     return grouped
 
 

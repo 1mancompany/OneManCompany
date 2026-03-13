@@ -69,18 +69,26 @@ _current_task_id: ContextVar[str] = ContextVar("_current_task_id", default="")
 # ---------------------------------------------------------------------------
 
 def _load_project_tree(project_dir: str):
-    """Load TaskTree from project directory."""
-    from onemancompany.core.task_tree import TaskTree
+    """Get TaskTree from memory cache (loading from disk if needed)."""
+    from onemancompany.core.task_tree import get_tree
     path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         return None
-    return TaskTree.load(path)
+    return get_tree(path)
 
 
 def _save_project_tree(project_dir: str, tree):
-    """Save TaskTree to project directory."""
+    """Register tree in cache and save to disk.
+
+    First call creates the file synchronously; subsequent saves are async.
+    """
+    from onemancompany.core.task_tree import register_tree, save_tree_async
     path = Path(project_dir) / "task_tree.yaml"
-    tree.save(path)
+    register_tree(path, tree)
+    if not path.exists():
+        tree.save(path)  # sync: create file on disk
+    else:
+        save_tree_async(path)
 
 
 
@@ -502,12 +510,12 @@ class EmployeeManager:
 
     def get_next_scheduled(self, employee_id: str) -> ScheduleEntry | None:
         """Find next scheduled node that is PENDING with deps resolved."""
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree
         for entry in self._schedule.get(employee_id, []):
             tree_path = Path(entry.tree_path)
             if not tree_path.exists():
                 continue
-            tree = TaskTree.load(tree_path)
+            tree = get_tree(tree_path)
             node = tree.get_node(entry.node_id)
             if node and TaskPhase(node.status) == TaskPhase.PENDING and tree.all_deps_resolved(node.id):
                 return entry
@@ -663,13 +671,13 @@ class EmployeeManager:
 
     def _restart_holding_pollers(self) -> int:
         """Restart watchdog crons for all HOLDING nodes in scheduled trees."""
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree
 
         count = 0
         for emp_id, entries in self._schedule.items():
             for entry in entries:
                 try:
-                    tree = TaskTree.load(Path(entry.tree_path))
+                    tree = get_tree(entry.tree_path)
                     node = tree.get_node(entry.node_id)
                     if node and node.status == TaskPhase.HOLDING.value:
                         meta = _parse_holding_metadata(node.result or "")
@@ -684,13 +692,13 @@ class EmployeeManager:
 
     def abort_project(self, project_id: str) -> int:
         """Cancel all tasks for a project. Returns count cancelled."""
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree, save_tree_async
 
         count = 0
         for emp_id, entries in list(self._schedule.items()):
             for entry in list(entries):
                 try:
-                    tree = TaskTree.load(Path(entry.tree_path))
+                    tree = get_tree(entry.tree_path)
                     node = tree.get_node(entry.node_id)
                     if not node or node.project_id != project_id:
                         continue
@@ -699,7 +707,7 @@ class EmployeeManager:
                         node.status = TaskPhase.CANCELLED.value
                         node.completed_at = datetime.now().isoformat()
                         node.result = "Cancelled by CEO"
-                        tree.save(Path(entry.tree_path))
+                        save_tree_async(entry.tree_path)
                         self._log_node(emp_id, entry.node_id, "cancelled", "Task aborted by CEO")
                         self._publish_node_update(emp_id, node)
                         self.unschedule(emp_id, entry.node_id)
@@ -732,9 +740,9 @@ class EmployeeManager:
     # ------------------------------------------------------------------
 
     async def _execute_task(self, employee_id: str, entry: ScheduleEntry) -> None:
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree, save_tree_async
 
-        tree = TaskTree.load(Path(entry.tree_path))
+        tree = get_tree(entry.tree_path)
         node = tree.get_node(entry.node_id)
         if not node:
             logger.error("Node {} not found in tree {}", entry.node_id, entry.tree_path)
@@ -749,7 +757,7 @@ class EmployeeManager:
 
         # 1. Mark PROCESSING
         node.set_status(TaskPhase.PROCESSING)
-        tree.save(Path(entry.tree_path))
+        save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description}")
         self._publish_node_update(employee_id, node)
@@ -869,7 +877,6 @@ class EmployeeManager:
             node.result = node.result or "Cancelled by CEO"
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
-            tree.save(Path(entry.tree_path))
             self._log_node(employee_id, entry.node_id, "cancelled", "Task cancelled")
         except TimeoutError as te:
             agent_error = True
@@ -877,13 +884,11 @@ class EmployeeManager:
             node.result = str(te)
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
-            tree.save(Path(entry.tree_path))
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out: {te!s}")
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
             node.result = f"Error: {e!s}"
-            tree.save(Path(entry.tree_path))
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
             traceback.print_exc()
         finally:
@@ -891,21 +896,22 @@ class EmployeeManager:
             _current_task_id.reset(task_token)
 
         # 8. Mark completed (or HOLDING)
+        # (No stale-read issue: tree is in-memory cache, all tools modify the same object)
         if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
             holding_meta = _parse_holding_metadata(node.result or "")
             if holding_meta is not None:
                 node.set_status(TaskPhase.HOLDING)
-                tree.save(Path(entry.tree_path))
+                save_tree_async(entry.tree_path)
                 self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)
-                tree.save(Path(entry.tree_path))
+                save_tree_async(entry.tree_path)
 
         if node.status != TaskPhase.HOLDING.value:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
-            tree.save(Path(entry.tree_path))
+            save_tree_async(entry.tree_path)
             self._log_node(employee_id, entry.node_id, "end", f"Task {node.status}")
             self._publish_node_update(employee_id, node)
 
@@ -994,12 +1000,12 @@ class EmployeeManager:
 
         Returns True if task was found and resumed, False otherwise.
         """
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree, save_tree_async
 
         # Search schedule for the node
         for entry in self._schedule.get(employee_id, []):
             if entry.node_id == task_id:
-                tree = TaskTree.load(Path(entry.tree_path))
+                tree = get_tree(entry.tree_path)
                 node = tree.get_node(task_id)
                 if not node or node.status != TaskPhase.HOLDING.value:
                     return False
@@ -1010,7 +1016,7 @@ class EmployeeManager:
                 node.result = result
                 node.set_status(TaskPhase.COMPLETED)
                 node.completed_at = datetime.now().isoformat()
-                tree.save(Path(entry.tree_path))
+                save_tree_async(entry.tree_path)
 
                 self._log_node(employee_id, task_id, "resumed", f"HOLDING → COMPLETE with result: {result[:200]}")
                 self._publish_node_update(employee_id, node)
@@ -1346,13 +1352,13 @@ class EmployeeManager:
         TaskNode is the SSOT — status/result/tokens are already on the node
         (set by _execute_task). This method only needs to propagate upward.
         """
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree, save_tree_async
 
         tree_file = Path(entry.tree_path)
         if not tree_file.exists():
             logger.debug("Tree file {} not found, skipping child complete", entry.tree_path)
             return
-        tree = TaskTree.load(tree_file)
+        tree = get_tree(tree_file)
         node = tree.get_node(entry.node_id)
         if not node:
             logger.debug("Node {} not found in tree {}", entry.node_id, entry.tree_path)
@@ -1376,7 +1382,7 @@ class EmployeeManager:
                     if parent_node.status == TaskPhase.PENDING.value:
                         parent_node.set_status(TaskPhase.PROCESSING)
                     parent_node.set_status(TaskPhase.COMPLETED)
-                tree.save(Path(entry.tree_path))
+                save_tree_async(entry.tree_path)
             await self._request_ceo_confirmation(
                 employee_id, node, tree, entry, project_id
             )
@@ -1412,7 +1418,7 @@ class EmployeeManager:
                 parent_node.set_status(TaskPhase.PROCESSING)
             parent_node.set_status(TaskPhase.COMPLETED)
             parent_node.result = "All child tasks accepted."
-            tree.save(Path(entry.tree_path))
+            save_tree_async(entry.tree_path)
             self._publish_node_update(parent_node.employee_id, parent_node)
             return
 
@@ -1466,7 +1472,7 @@ class EmployeeManager:
         review_node.task_type = "simple"
         review_node.project_id = project_id
         review_node.project_dir = project_dir
-        tree.save(Path(entry.tree_path))
+        save_tree_async(entry.tree_path)
 
         self.schedule_node(parent_node.employee_id, review_node.id, entry.tree_path)
         logger.info("All children done for parent {} — scheduled review node to {}", parent_node.id, parent_node.employee_id)
