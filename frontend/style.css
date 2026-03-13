@@ -146,6 +146,7 @@ body {
   padding: 8px 12px;
   border-bottom: 2px solid var(--border);
   background: var(--bg-panel-alt);
+  position: relative;
 }
 
 .pixel-title {
@@ -225,6 +226,44 @@ body {
 
 .toolbar-icon-btn:active {
   transform: translate(1px, 1px);
+}
+
+/* ===== Floating Panel (Settings dropdown etc.) ===== */
+.floating-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-panel, #1a1a2e);
+  border: 2px solid var(--pixel-cyan, #0ff);
+  box-shadow: 0 4px 20px rgba(0, 255, 255, 0.2);
+  min-width: 320px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.floating-panel.hidden { display: none; }
+.floating-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #333);
+  color: var(--pixel-cyan, #0ff);
+  font-family: var(--font-pixel);
+  font-size: 9px;
+}
+.floating-panel-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+}
+.floating-panel-close:hover {
+  color: var(--pixel-white, #fff);
+}
+.floating-panel-body {
+  padding: 8px 12px;
 }
 
 /* ===== Console Panel (Right) ===== */
@@ -2741,11 +2780,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* ===== Settings Panel ===== */
-#settings-body {
-  overflow-y: auto;
 }
 
 /* Settings sub-section headers */
