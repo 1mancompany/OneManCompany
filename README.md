@@ -160,6 +160,17 @@ Think of it like **EVA or Gundam** — a powerful mech that comes alive when a p
 
 You only need **Node.js 16+** and **Git**. Everything else (UV, Python 3.12, dependencies) is installed automatically.
 
+### Execution Modes
+
+Founding employees (EA, HR, COO, CSO) support two execution modes, switchable in settings:
+
+| Mode | Description | Requirements |
+| --- | --- | --- |
+| **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup wizard) |
+| **Claude Code** | More capable, lower token cost | Requires [Claude Pro/Max subscription](https://claude.ai) |
+
+Defaults to Company Hosted Agent — no extra subscription needed to get started.
+
 <details>
 <summary><b>macOS</b></summary>
 
@@ -287,13 +298,24 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 
 ## Documentation
 
-| Document                               | Description                                                    |
-| -------------------------------------- | -------------------------------------------------------------- |
-| [Architecture](docs/architecture.md)   | System architecture, diagrams, module index, design philosophy |
-| [Vessel System](docs/vessel-system.md) | Vessel + Talent deep dive, Harness protocols                   |
-| [Task System](docs/task-system.md)     | Task status state machine                                      |
-| [Coding Guide](vibe-coding-guide.md)   | Coding guidelines, testing rules, code style                   |
-| [Changelog](CHANGELOG.md)              | Release history                                                |
+**[Full Documentation Site](https://carbonkite.github.io/OneManCompany/docs/)** — Feature guides, usage instructions, and technical reference.
+
+| Guide | Description |
+| --- | --- |
+| [Getting Started](https://carbonkite.github.io/OneManCompany/docs/guide/getting-started/) | First-time setup and your first task |
+| [Execution Modes](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
+| [Task Management](https://carbonkite.github.io/OneManCompany/docs/guide/task-management/) | Create, delegate, review, and approve tasks |
+| [Hiring & Talent Market](https://carbonkite.github.io/OneManCompany/docs/guide/hiring/) | Find and hire AI employees |
+| [1-on-1 Coaching](https://carbonkite.github.io/OneManCompany/docs/guide/coaching/) | Shape employee behavior permanently |
+| [Performance Reviews](https://carbonkite.github.io/OneManCompany/docs/guide/performance/) | Evaluate, promote, or fire employees |
+
+| Technical Reference | Description |
+| --- | --- |
+| [Architecture](docs/architecture.md) | System architecture, diagrams, module index, design philosophy |
+| [Vessel System](docs/vessel-system.md) | Vessel + Talent deep dive, Harness protocols |
+| [Task System](docs/task-system.md) | Task status state machine |
+| [Coding Guide](vibe-coding-guide.md) | Coding guidelines, testing rules, code style |
+| [Changelog](CHANGELOG.md) | Release history |
 
 ---
 

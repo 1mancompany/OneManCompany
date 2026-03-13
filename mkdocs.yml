@@ -1,0 +1,97 @@
+site_name: OneManCompany Docs
+site_url: https://carbonkite.github.io/OneManCompany/docs/
+site_description: Documentation for OneManCompany — The AI Operating System for One-Person Companies
+repo_url: https://github.com/1mancompany/OneManCompany
+repo_name: OneManCompany
+
+docs_dir: mkdocs-docs
+site_dir: docs/docs
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: cyan
+      accent: light green
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: cyan
+      accent: light green
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: zh
+          name: 中文
+          build: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: guide/getting-started.md
+      - Execution Modes: guide/execution-modes.md
+  - Running Your Company:
+      - Task Management: guide/task-management.md
+      - Hiring & Talent Market: guide/hiring.md
+      - Meetings: guide/meetings.md
+      - File Approval: guide/file-approval.md
+  - Managing Your Team:
+      - 1-on-1 Coaching: guide/coaching.md
+      - Performance Reviews: guide/performance.md
+  - Company Configuration:
+      - Direction & Culture: guide/company-config.md
+      - Cost Tracking: guide/cost-tracking.md
+  - Technical Reference:
+      - Architecture: reference/architecture.md
+      - Vessel + Talent System: reference/vessel-system.md
+      - Task Lifecycle: reference/task-system.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/1mancompany/OneManCompany
+  homepage: https://carbonkite.github.io/OneManCompany/

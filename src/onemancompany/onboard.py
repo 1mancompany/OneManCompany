@@ -244,24 +244,25 @@ def _step_server(console: Console) -> tuple[str, int]:
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
     console.rule("[bold]Step 3[/bold]  Optional Configuration")
-    console.print()
+    console.print("  [dim]Press Enter to skip any key you don't have.[/dim]\n")
 
     extras: dict[str, str] = {}
 
-    if Confirm.ask("  Configure Anthropic API key?", default=False, console=console):
-        key = Prompt.ask("  Anthropic API Key", password=True, console=console)
-        if key.strip():
-            extras["ANTHROPIC_API_KEY"] = key.strip()
+    key = Prompt.ask("  Anthropic API Key", default="", password=True, console=console)
+    if key.strip():
+        extras["ANTHROPIC_API_KEY"] = key.strip()
 
-    if Confirm.ask("  Configure FastSkills MCP key?", default=False, console=console):
-        key = Prompt.ask("  FastSkills API Key", password=True, console=console)
-        if key.strip():
-            extras["SKILLSMP_API_KEY"] = key.strip()
+    key = Prompt.ask("  FastSkills MCP Key", default="", password=True, console=console)
+    if key.strip():
+        extras["SKILLSMP_API_KEY"] = key.strip()
 
-    if Confirm.ask("  Configure Talent Market API key?", default=False, console=console):
-        key = Prompt.ask("  Talent Market API Key", password=True, console=console)
-        if key.strip():
-            extras["TALENT_MARKET_API_KEY"] = key.strip()
+    console.print(
+        "  [bold yellow]★ Recommended[/bold yellow] Talent Market — hire community-verified AI employees\n"
+        "    Register at [link=https://carbonkites.com]https://carbonkites.com[/link] to get your API key"
+    )
+    key = Prompt.ask("  Talent Market API Key", default="", password=True, console=console)
+    if key.strip():
+        extras["TALENT_MARKET_API_KEY"] = key.strip()
 
     return extras
 
