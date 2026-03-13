@@ -1,46 +1,238 @@
 # OneManCompany
 
-**AI 公司框架 + 运营平台** — 一个人用 AI 运转一整家公司。
+**The AI Operating System for One-Person Companies**
 
-OneManCompany 不仅仅是一个 multi-agent 框架——它是一套**以公司组织为核心隐喻的 AI agent 运营平台**。你是 CEO（唯一的人类），在浏览器里经营一家拥有完整组织架构的公司：招聘、入职、任务分配、项目管理、验收、绩效考核，全部由 AI 高管和员工自主执行。
+> Others use AI to write code. You use AI to run a company.
+>
+> If Linux is the OS for servers, OneManCompany is the OS for companies.
 
-**核心定位**：
+OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
-- **框架**：提供 Vessel（躯壳）+ Talent（灵魂）的 agent 抽象、Harness 套接件标准、可插拔执行后端
-- **平台**：开箱即用的像素风办公室 UI、CEO Console、实时 WebSocket 推送、项目全生命周期管理
+Yes, your AI employees have performance reviews. Yes, they get nervous.
 
----
-
-## Design Philosophy — 设计哲学
-
-- **公司即系统** — 不是在写一个"多 agent 框架"，而是在建一家真实运转的公司。组织架构、汇报关系、入职离职、绩效考核，都是一等公民。
-- **Vessel + Talent = Employee** — 躯壳（执行容器）与灵魂（能力包）分离。同一个躯壳可以注入不同灵魂，同一个灵魂可以装进不同躯壳。员工是两者结合的产物。
-- **DNA 驱动** — 每个员工的行为由 `vessel.yaml` 定义：重试策略、超时、上下文注入、能力声明。不写代码也能调整员工特性。
-- **套接件标准（Harness）** — 执行、任务、事件、存储、上下文、生命周期，六类 Protocol 定义了躯壳与公司系统的全部连接点。替换任意一个不影响其余。
-- **Talent Market = 插件商店** — 招人就是装插件。一个 talent 包自带 profile、skills、tools、vessel config，HR 一键入职即可上岗。
-- **CEO 是唯一的人** — 系统的全部设计围绕"一个人管一家公司"展开。AI 不是辅助工具，而是真正的员工。
-- **零空转** — 没有 while-True 轮询。所有任务 on-demand 推送，事件驱动，按需执行。
-- **Git-friendly 持久化** — YAML + Markdown + JSON，无数据库依赖。公司状态可以 git diff、git blame、git revert。
-- **磁盘即唯一真相源（Single Source of Truth）** — 所有业务数据只存在于 `.onemancompany/` 目录下的磁盘文件中。内存不缓存业务数据，每次读取从磁盘加载。每份数据有且仅有一个文件拥有它、一个写入函数更新它。前端是纯渲染层，不存储任何业务状态，通过 3 秒同步帧从后端 REST API 获取最新数据。
+[中文文档](README_zh.md)
 
 ---
 
-## 1. Company Overview — 公司全景
+## Why OneManCompany?
 
-> 把系统当成一家真实运转的公司来看：CEO 是唯一的真人，其余全部由 AI Agent 驱动。
+Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. OneManCompany gives you **an entire organization.**
+
+- **Not a chatbot** — a company with org structure, hiring, task management, performance reviews, and knowledge management
+- **Not a demo** — delivers production-grade output (games, comics, apps — not "here's a draft, good luck")
+- **Not a framework** — a complete platform you can run from your browser, no code required
+
+### What You Can Build
+
+| AI Company | What It Delivers |
+|-----------|-----------------|
+| 🎮 AI Game Studio | Production-grade games with full playtesting and iteration cycles |
+| 📖 AI Manga Studio | Serialized comic stories with consistent art and narrative |
+| 💻 AI Dev Agency | Ship software products end-to-end |
+| 🎨 AI Content Studio | Marketing campaigns, branded content, and media production |
+| 🔬 AI Research Lab | Literature review, data analysis, and report generation |
+
+These aren't toy demos — each AI company produces **product-level deliverables** through a full team of collaborating AI agents.
+
+### How We're Different
+
+Most multi-agent tools treat agents as interchangeable task runners — you "bring your own agent," wire up an orchestration layer, and hope for the best. OneManCompany takes a fundamentally different approach:
+
+| | Typical Agent Orchestrators | OneManCompany |
+|---|---|---|
+| **Agent architecture** | Flat task runners, BYOA | Vessel + Talent separation — deep modular architecture with 6 Harness protocols and 3-tier customization |
+| **Where do agents come from?** | You find and configure them yourself | **Founding C-suite built-in on Day 1**. Other employees hired by HR from a community-verified **Talent Market** — no more hunting for good agents |
+| **Execution model** | Heartbeat polling / loop | Event-driven, zero-idle, on-demand dispatch |
+| **Organization** | Simple task queues | Full Fortune 500-style company simulation (see below) |
+| **Deliverables** | Single-point task outputs | Production-grade, multi-iteration project delivery with quality gates |
+
+The Vessel + Talent architecture isn't just a metaphor — it's a real engineering separation that unlocks composability no orchestration layer can match. Swap execution backends without touching agent logic. Plug a new Talent into an existing Vessel and get a fully functional employee in seconds. Build community Talents that work across any company.
+
+### Built Like a Real Company
+
+We didn't just borrow corporate vocabulary — we faithfully modeled how Fortune 500 companies actually operate. If a real company has it, we built it (or it's on the roadmap, and you're welcome to contribute it):
+
+- **Org chart & reporting lines** — hierarchical management, department-based structure
+- **Hiring & onboarding** — HR searches Talent Market, CEO interviews, automated onboarding flow
+- **Firing & offboarding** — yes, you can fire underperformers (with proper cleanup, not just `kill -9`)
+- **Performance reviews** — quarterly 3.25/3.5/3.75 scoring, probation, PIP, promotion tracks
+- **Project retrospectives** — EA-led post-mortems after project delivery
+- **Task delegation & approval chains** — CEO → executives → employees, with quality gates at every level
+- **Meeting rooms** — multi-agent synchronous discussions with meeting reports
+- **Knowledge base & SOPs** — company culture, direction docs, workflow definitions, shared prompts
+- **File change approvals** — employees propose edits, CEO reviews diffs and approves in batch
+- **Cost accounting** — per-project LLM token usage and USD cost tracking
+- **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior
+- **Company culture & direction** — injected into every employee's system prompt
+- **Hot reload & graceful restart** — because even AI companies need zero-downtime deployments
+
+Something missing? [Open an issue](https://github.com/CarbonKite/OneManCompany/issues) or build it yourself — that's the beauty of open source.
+
+---
+
+## How It Works
+
+You open a browser. You see a pixel-art office. Your AI employees are at their desks, pretending to look busy.
+
+You type: *"Build a puzzle game for mobile"*
+
+What happens next:
+
+1. Your **EA** (Executive Assistant) receives the task and routes it — finally, an EA that doesn't lose your emails
+2. Your **COO** breaks it down and dispatches subtasks to the right employees
+3. Engineers, designers, and QA **work autonomously** on their parts
+4. They hold **meetings** to align when needed (and yes, the meetings could have been an email)
+5. Work goes through **review, iteration, and quality gates**
+6. You get notified and approve the final result
+
+**You manage. AI executes.** That's it. No standup meetings. No Slack pings at 11pm. Just results.
+
+```
+CEO (You, the only human who gets coffee breaks)
+  └── EA ── routes tasks, quality gate
+        ├── HR ── hiring, performance reviews, promotions
+        ├── COO ── operations, task dispatch, acceptance
+        │    ├── Engineer (AI)  ← hired from Talent Market
+        │    ├── Designer (AI)  ← hired from Talent Market
+        │    └── QA (AI)        ← hired from Talent Market
+        └── CSO ── sales, client relations
+```
+
+**Founding team (EA, HR, COO, CSO)** comes built-in — they're your Day 1 executive suite, ready to go before you've finished your first coffee. Need more people? Your HR searches the **Talent Market**, a community-verified marketplace of AI employees. No more hunting for good agents or struggling with prompt engineering — just tell HR what role you need, review the candidates, and hire. HR handles the rest, including onboarding paperwork (well, YAML files, but same energy).
+
+### The Vessel + Talent System
+
+Think of it like **EVA or Gundam** — a powerful mech that comes alive when a pilot is plugged in.
+
+- **Vessel** (the mech) = execution container. Defines how an employee runs: retry logic, timeouts, tool access, communication protocols.
+- **Talent** (the pilot) = capability package. Brings skills, knowledge, personality, and specialized tools.
+- **Employee** = Vessel + Talent. Hire from the Talent Market, and the system handles the rest.
+
+Same Vessel, different Talents → different employees.
+Same Talent, different Vessels → different execution environments.
+
+**For users:** hiring an employee is as simple as browsing the Talent Market and clicking "Hire."
+**For developers:** the Vessel Harness protocol defines 6 standardized connection points, making every component swappable.
+
+---
+
+## Vision & Roadmap
+
+### Vision
+
+**Near-term:** Enable 100 AI one-person companies within one year.
+
+**Long-term:** Redefine the relationship between AI, humans, and organizations. AI is not just a tool — it's a colleague, a team member, an organization.
+
+### Roadmap
+
+| Tier | Focus | Examples |
+|------|-------|---------|
+| 🔧 **Stronger AI Agents** | Make each employee more capable | Enhanced sandbox, better tool usage, improved code execution |
+| 🏢 **Smarter Organization** | Make the company run more efficiently | CEO experience, advanced task scheduling, multi-agent collaboration |
+| 🌐 **AI-Native Ecosystem** | Build a thriving open ecosystem | Talent Market expansion, third-party tools/APIs, community contributions |
+
+---
+
+## Quick Start
+
+### One-Line Launch (Recommended)
+
+```bash
+npx onemancompany
+```
+
+First run walks you through setup (API keys, Talent Market config). Then open `http://localhost:8000`. Congratulations, you're a CEO now.
+
+### Manual Install
+
+```bash
+# 1. Clone
+git clone https://github.com/CarbonKite/OneManCompany.git
+cd OneManCompany
+
+# 2. Start (first run enters setup wizard, then auto-starts)
+bash start.sh
+
+# 3. Open browser
+open http://localhost:8000
+```
+
+### Restart / Reconfigure
+
+```bash
+# Restart server
+bash start.sh
+
+# Custom port
+bash start.sh --port 8080
+
+# Re-run setup wizard (change API keys, etc.)
+bash start.sh init
+```
+
+### Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `.onemancompany/.env` | API keys (OpenRouter, Anthropic, etc.) |
+| `.onemancompany/config.yaml` | App config (Talent Market URL, etc.) |
+| Browser Settings panel | Frontend preferences |
+
+---
+
+## Key Concepts
+
+| Concept | What It Means |
+|---------|--------------|
+| **Vessel (躯壳)** | The mech — an employee's execution container with configurable DNA |
+| **Talent (灵魂)** | The pilot — a self-contained capability package (skills, tools, personality) |
+| **Talent Market** | The app store for employees — browse and hire AI talent with one click |
+| **CEO Console** | Your command center — type tasks, manage people, configure the company |
+| **CEO Inbox** | Async communication channel — employees report to you, you respond when ready |
+| **Task Tree** | Hierarchical task breakdown — parent tasks spawn child tasks, dependencies tracked |
+| **Meeting Room** | Multi-agent synchronous discussion — employees align before executing |
+| **Knowledge Base** | Company memory — workflows, SOPs, culture docs, shared prompts |
+| **File Resolution** | Safe edit system — employees propose file changes, CEO reviews diffs and approves |
+| **Performance Review** | Quarterly evaluations — probation, PIP, promotion, just like a real company |
+
+---
+
+## Community & Contributing
+
+OneManCompany is an open-source project. We believe the future of work is AI-native, and we're building it together.
+
+### How to Contribute
+
+- **Build Talents** — Create new AI employee types for the Talent Market
+- **Build Tools** — Add integrations (APIs, services, platforms)
+- **Add Company Features** — Performance dashboards, OKR tracking, employee training... if a real company has it, we want it
+- **Improve the OS** — Core engine, frontend, documentation
+- **Share Demos** — Show what your AI company can build
+- **Report Issues** — Help us find and fix bugs
+
+See [AI_CONTRIBUTING.md](AI_CONTRIBUTING.md) for coding guidelines.
+
+---
+
+# Technical Reference
+
+> Everything below is for developers and contributors. If you're a CEO, you can stop reading and go manage your company.
+
+## Architecture Overview
 
 ```mermaid
 graph TB
     CEO["👤 CEO (Human)<br>Browser — CEO Console"]
 
-    subgraph ExecFloor["C-Suite — 创始高管 (Lv.4, Permanent)"]
-        HR["HR<br>招聘 / 绩效 / 晋升"]
-        COO["COO<br>运营 / 资产 / 验收 / 知识沉淀"]
-        EA["EA<br>CEO 质量把关"]
-        CSO["CSO<br>销售 / 客户"]
+    subgraph ExecFloor["C-Suite — Founding Executives (Lv.4, Permanent)"]
+        HR["HR<br>Hiring / Reviews / Promotions"]
+        COO["COO<br>Operations / Assets / Acceptance"]
+        EA["EA<br>CEO Quality Gate"]
+        CSO["CSO<br>Sales / Clients"]
     end
 
-    subgraph Departments["部门 — 动态招聘的员工 (Lv.1-3)"]
+    subgraph Departments["Departments — Dynamically Hired Employees (Lv.1-3)"]
         Eng["Engineering<br>Engineer / DevOps / QA"]
         Design["Design<br>Designer"]
         Analytics["Analytics<br>Analyst"]
@@ -48,171 +240,138 @@ graph TB
         General["General<br>Other Roles"]
     end
 
-    subgraph TalentMkt["Talent Market — 人才市场 (Plugin Store)"]
+    subgraph TalentMkt["Talent Market — Plugin Store"]
         TP["Talent Packages<br>profile / skills / tools<br>functions / agent"]
         MCP["Boss Online<br>MCP Recruitment Server"]
     end
 
-    subgraph CompanyAssets["Company Assets — 公司资产"]
+    subgraph CompanyAssets["Company Assets"]
         Tools["Tools & Equipment<br>company/assets/tools/"]
         Rooms["Meeting Rooms<br>company/assets/rooms/"]
-        Knowledge["Knowledge Base<br>workflows / SOPs / culture<br>direction / shared prompts"]
+        Knowledge["Knowledge Base<br>workflows / SOPs / culture"]
     end
 
-    subgraph IT["IT Infrastructure"]
-        Sandbox["Sandbox<br>Docker Code Execution"]
-        Monitor["Heartbeat Monitor<br>API Health Check"]
-    end
-
-    CEO -->|"下达指令 / 审批"| ExecFloor
-    HR -->|"招聘"| TalentMkt
-    HR -->|"入职 / 解雇"| Departments
-    COO -->|"分配任务 / 验收"| Departments
-    COO -->|"注册 / 管理"| CompanyAssets
-    EA -->|"审查项目质量"| COO
-    CSO -->|"协调商务"| Departments
-    Departments -->|"使用工具"| CompanyAssets
-    Departments -->|"运行代码"| IT
-    TalentMkt -.->|"安装 talent"| Departments
+    CEO -->|"commands / approvals"| ExecFloor
+    HR -->|"recruit"| TalentMkt
+    HR -->|"onboard / offboard"| Departments
+    COO -->|"dispatch / accept"| Departments
+    COO -->|"register / manage"| CompanyAssets
+    EA -->|"review quality"| COO
+    CSO -->|"coordinate"| Departments
+    Departments -->|"use tools"| CompanyAssets
+    TalentMkt -.->|"install talent"| Departments
 ```
 
-
-
-**运转模式**：CEO 在浏览器输入任务 → 系统路由到对应高管 → 高管拆解并 `dispatch_task()` 给合适员工 → 员工执行 → 高管验收 → EA 复核 → 项目归档。
-
----
-
-## 2. Module Architecture — 技术模块
-
-> 从代码视角看各层模块如何连接。纵向是调用链，横向是同层协作。
+### System Layers
 
 ```mermaid
 graph TB
-    subgraph Presentation["表现层 — Frontend"]
+    subgraph Presentation["Presentation — Frontend"]
         HTML["index.html<br>3-Column Layout"]
         OfficeJS["office.js<br>Canvas 2D Pixel Art"]
         AppJS["app.js<br>CEO Console + WS Client"]
     end
 
-    subgraph Gateway["网关层 — FastAPI"]
-        REST["routes.py<br>/task /hire /fire /state<br>/talents /projects"]
+    subgraph Gateway["Gateway — FastAPI"]
+        REST["routes.py<br>/task /hire /fire /state"]
         WSS["websocket.py<br>/ws Real-time Push"]
     end
 
-    subgraph AgentLayer["Agent 层 — LangChain Agents"]
-        direction TB
-        subgraph Runners["Agent Runners"]
-            BAR["BaseAgentRunner<br>streaming / prompt / status"]
-            EA2["EmployeeAgent<br>通用员工 runner"]
-            Custom["Custom Runner<br>talent 自带 runner"]
-        end
-        subgraph Founding["创始 Agent (专用 prompt + tools)"]
-            HRA["HRAgent"]
-            COOA["COOAgent"]
-            EAA["EAAgent"]
-            CSOA["CSOAgent"]
-        end
-        subgraph AgentInfra["Agent 基础设施"]
-            PB["PromptBuilder<br>composable sections"]
-            CT["common_tools.py<br>dispatch / meeting<br>list_colleagues / file ops"]
-            OB["onboarding.py<br>hire flow + talent install"]
-            TM["termination.py<br>fire flow + cleanup"]
-        end
+    subgraph AgentLayer["Agent Layer — LangChain Agents"]
+        Runners["Agent Runners<br>BaseAgentRunner / EmployeeAgent / Custom"]
+        Founding["Founding Agents<br>HR / COO / EA / CSO"]
+        Infra["Agent Infrastructure<br>PromptBuilder / common_tools / onboarding"]
     end
 
-    subgraph CoreEngine["核心引擎 — Core"]
-        EM["EmployeeManager<br>on-demand task dispatch<br>hooks / history / retry"]
+    subgraph CoreEngine["Core Engine"]
+        EM["EmployeeManager<br>on-demand task dispatch"]
         EB["EventBus<br>async pub/sub"]
         CS["CompanyState<br>singleton + hot-reload"]
-        PA["ProjectArchive<br>lifecycle / cost / iteration"]
-        RT["routine.py<br>post-task workflows"]
-        WE["workflow_engine.py<br>markdown → steps"]
-        LY["layout.py<br>office grid allocation"]
-        CFG["config.py<br>paths / constants / loaders"]
+        PA["ProjectArchive<br>lifecycle / cost"]
     end
 
-    subgraph VesselLayer["Vessel 执行层 — 执行后端"]
+    subgraph VesselLayer["Vessel Execution Layer"]
         LC["LangChainExecutor<br>company-hosted"]
         CL["ClaudeSessionExecutor<br>self-hosted (CLI)"]
         SL["ScriptExecutor<br>bash scripts"]
     end
 
-    subgraph TalentLayer["Talent Market"]
-        TS["talent_spec.py<br>TalentPackage<br>AgentManifest"]
-        BO["boss_online.py<br>MCP Server"]
-        TD["talents/{id}/<br>profile / skills / tools<br>functions / agent"]
+    subgraph Persistence["Persistence — company/"]
+        EMP["employees/ — profiles, skills, agents"]
+        AST["assets/ — tools, rooms"]
+        BIZ["business/ — workflows, projects"]
     end
 
-    subgraph Persistence["持久层 — company/"]
-        EMP["employees/{id}/<br>profile / skills / agent"]
-        AST["assets/<br>tools / rooms"]
-        BIZ["business/<br>workflows / projects<br>resolutions / reports"]
-        CUL["company_culture.yaml<br>company_direction.yaml<br>shared_prompts/"]
-    end
-
-    %% Presentation → Gateway
     AppJS -->|"HTTP + WS"| Gateway
-
-    %% Gateway → Core
     REST --> EM
-    REST --> CS
     WSS --> EB
-
-    %% Core orchestration
     EM -->|"dispatch"| VesselLayer
     EM --> EB
-    EM --> PA
     EB --> WSS
-    RT --> WE
-    CS --> CFG
-    LY --> CS
-
-    %% Executors → Runners
-    LC --> BAR
-    CL -->|"claude CLI"| EMP
-    SL -->|"launch.sh"| EMP
-
-    %% Agent hierarchy
-    HRA --> BAR
-    COOA --> BAR
-    EAA --> BAR
-    CSOA --> BAR
-    EA2 --> BAR
-    Custom --> BAR
-    BAR --> PB
-    BAR --> CT
-
-    %% Onboarding path
-    OB --> TS
-    OB --> EM
-    OB --> CFG
-
-    %% Data access
-    CFG --> Persistence
-    COOA --> AST
-    PA --> BIZ
+    VesselLayer --> Runners
+    Founding --> Runners
+    Runners --> Infra
+    CoreEngine --> Persistence
 ```
 
+## Tech Stack
 
+- **Backend**: Python 3.12+ / UV, FastAPI + WebSocket, LangChain (`create_react_agent`)
+- **LLM**: OpenRouter API (configurable per employee), Anthropic API (OAuth/API key)
+- **Frontend**: Vanilla JS + Canvas 2D pixel art (zero build tools)
+- **Infra**: Docker sandbox, MCP server, Watchdog hot-reload
+- **Data**: YAML profiles + Markdown workflows + JSON project archives (git-friendly, no database)
 
-**关键分层**：
+## Vessel Architecture — Deep Dive
 
-- **表现层**：纯静态前端，零构建工具，Canvas 像素画 + WebSocket 实时推送
-- **网关层**：FastAPI REST + WS，负责路由和认证
-- **Agent 层**：所有 AI 角色的实现，共享 `BaseAgentRunner` 和 `PromptBuilder`
-- **核心引擎**：`EmployeeManager` 统一调度，`EventBus` 事件驱动，`CompanyState` 单例状态
-- **Vessel 执行层**：插拔式执行后端（Executor），同一套 Harness 协议支持三种运行模式
-- **持久层**：YAML + Markdown + JSON，git-friendly，无数据库依赖
+### Employee Directory Structure
 
----
+```
+employees/00010/
+├── profile.yaml          # Employee profile
+├── vessel/               # Vessel DNA
+│   ├── vessel.yaml       # Config: runner / hooks / limits / capabilities
+│   └── prompt_sections/  # Prompt fragments
+├── skills/               # Talent — skills
+└── progress.log          # Working memory
+```
 
-## 3. Operating Modes — 运转模式
+### vessel.yaml — The DNA
 
-公司有两种驱动模式，对应不同的任务入口，但共享同一套执行 → 验收 → 归档管线。
+| Field | Purpose |
+|-------|---------|
+| `runner` | Neural system — custom runner module and class |
+| `hooks` | Lifecycle hooks — pre_task / post_task callbacks |
+| `context` | Context injection — prompt sections, progress log, task history |
+| `limits` | Execution limits — retry count, timeout, subtask depth |
+| `capabilities` | Capability declarations — sandbox, file upload, WebSocket, image gen |
 
-### Mode A: CEO 驱动 — 内部经营
+### Vessel Harness — 6 Connection Protocols
 
-> CEO 通过浏览器直接下达指令，高管拆解执行。这是日常经营模式。
+| Harness | Responsibility |
+|---------|---------------|
+| `ExecutionHarness` | Executor protocol (execute / is_ready) |
+| `TaskHarness` | Task queue management (push / get_next / cancel) |
+| `EventHarness` | Logging and event publishing |
+| `StorageHarness` | Progress log and history persistence |
+| `ContextHarness` | Prompt / context assembly |
+| `LifecycleHarness` | Pre/post task hook invocation |
+
+### Talent → Employee Flow
+
+```mermaid
+flowchart LR
+    T["Talent Package<br>(pilot)"] -->|"onboarding"| V["Vessel<br>(mech)"]
+    D["default_vessel.yaml"] -.->|"fallback"| V
+    V --> E["Employee<br>(active unit)"]
+    E --> EM["EmployeeManager<br>register + dispatch"]
+```
+
+Priority: talent's own `vessel.yaml` → legacy `manifest.yaml` (auto-converted) → system `default_vessel.yaml`
+
+## Operating Modes
+
+### Mode A: CEO-Driven — Internal Operations
 
 ```mermaid
 sequenceDiagram
@@ -223,297 +382,28 @@ sequenceDiagram
     participant Officer as COO / HR
     participant Worker as Employee Agent
     participant EA as EA Agent
-    participant Archive as ProjectArchive
 
-    CEO->>FE: 输入任务 (CEO Console)
+    CEO->>FE: Submit task (CEO Console)
     FE->>API: POST /task
-    API->>API: 路由判断 (HR关键词 / 销售关键词 / 默认COO)
-    API->>Archive: 创建 Project (task, criteria, budget)
     API->>EM: push_task(officer_id, task)
-
     EM->>Officer: execute via Executor
-    Note over Officer: 分析任务 → 拆解子任务
-
-    Officer->>EM: dispatch_task(worker_id, sub_task)
+    Officer->>EM: dispatch_task(worker, subtask)
     EM->>Worker: execute via Executor
-
-    Note over Worker: 执行工作 (code / doc / design)
-    Worker->>EM: task completed + result
-    EM->>Archive: record completion + cost
-
-    Note over EM: all dispatches complete?
-    EM->>Officer: 推送验收任务
-    Officer->>Officer: 逐条验证 acceptance criteria
-    Officer->>Archive: accept_project(accepted=true)
-
-    EM->>EA: 推送 EA 复核任务
-    EA->>EA: 代 CEO 最终审查
-    alt 通过
-        EA->>Archive: ea_review(approved=true)
-        Archive->>Archive: complete_project()
-        EM->>FE: EventBus → state_snapshot
-    else 驳回
-        EA->>Archive: ea_review(approved=false)
-        EM->>Officer: 推送整改任务 (rectification)
-        Note over Officer: 重新分配 → 再次验收
-    end
-
-    FE->>CEO: 实时日志 + 完成通知
+    Worker->>EM: task completed
+    EM->>Officer: push acceptance review
+    Officer->>Officer: verify acceptance criteria
+    EM->>EA: push EA review
+    EA->>EA: final quality check
+    EA-->>CEO: notify completion
 ```
 
+### Mode B: Internet Task Orders — External Services (Planned)
 
-
-### Mode B: 互联网任务单驱动 — 对外接单
-
-> 外部客户通过 Sales API 提交任务单，CSO 接单评估，内部团队执行交付。公司作为服务商运转。
-
-```mermaid
-sequenceDiagram
-    actor Client as External Client
-    participant Sales as Sales API
-    participant CSO as CSO Agent
-    participant EM as EmployeeManager
-    participant Officer as COO
-    participant Worker as Employee Agent
-    participant Archive as ProjectArchive
-
-    Client->>Sales: POST /api/sales/submit
-    Note over Sales: {client_name, description,<br>requirements, budget_tokens}
-    Sales->>Archive: 创建 SalesTask
-    Sales->>CSO: 通知新任务单
-
-    CSO->>CSO: 评估可行性 + 报价
-    Note over CSO: 检查团队能力、排期、成本
-
-    alt 接单
-        CSO->>EM: dispatch_task(COO, 执行方案)
-        EM->>Officer: 拆解并分配
-        Officer->>EM: dispatch_task(worker, sub_task)
-        EM->>Worker: execute
-        Worker->>EM: completed
-        EM->>Archive: record cost
-
-        Note over CSO: 交付验收
-        CSO->>Sales: POST /deliver (交付物)
-        Sales->>Client: 通知交付完成
-
-        Client->>Sales: POST /settle (结算)
-        Sales->>Archive: 标记结算
-    else 拒单
-        CSO->>Sales: 回复客户无法承接
-    end
-
-    Client->>Sales: GET /tasks/{id} (查询进度)
-```
-
-
-
-**两种模式对比**：
-
-
-|         | CEO 驱动                 | 互联网任务单                          |
-| ------- | ---------------------- | ------------------------------- |
-| **入口**  | CEO Console (Browser)  | Sales API (`/api/sales/submit`) |
-| **路由**  | 关键词匹配 → HR / COO / CSO | CSO 统一接单                        |
-| **质量门** | 员工自检 → 高管验收 → EA 复核    | CSO 验收 → 交付客户                   |
-| **结算**  | 内部 cost tracking       | 客户 budget_tokens 结算             |
-| **场景**  | 日常经营、产品开发、内部建设         | 对外接活、SaaS 交付、定制开发               |
-
-
-**共享的核心管线**：无论哪种模式，底层都走 `EmployeeManager.push_task()` → `Executor.execute()` → `ProjectArchive` 同一条执行链路。
-
----
-
-## Module Index
-
-
-| Layer        | Module               | Role                                                                                 |
-| ------------ | -------------------- | ------------------------------------------------------------------------------------ |
-| **Entry**    | `main.py`            | FastAPI app, lifespan (register agents, sandbox, watchdog, heartbeat)                |
-| **API**      | `routes.py`          | REST: `/task`, `/hire`, `/fire`, `/state`, talent market, projects                   |
-| **API**      | `websocket.py`       | WS `/ws` — broadcasts EventBus events to frontend                                    |
-| **Agents**   | `base.py`            | `BaseAgentRunner` (streaming, prompt building), `EmployeeAgent`                      |
-| **Agents**   | `hr_agent.py`        | Hiring, performance review, promotion, quarterly cycle                               |
-| **Agents**   | `coo_agent.py`       | Asset management, meeting rooms, project acceptance, knowledge deposit               |
-| **Agents**   | `ea_agent.py`        | CEO quality gate — final review before project close                                 |
-| **Agents**   | `cso_agent.py`       | Sales pipeline, client outreach                                                      |
-| **Agents**   | `common_tools.py`    | `dispatch_task`, `pull_meeting`, `list_colleagues`, file/sandbox ops                 |
-| **Agents**   | `prompt_builder.py`  | Named sections with priority, composable prompt system                               |
-| **Agents**   | `onboarding.py`      | `execute_hire()`, talent asset install, agent config, hooks                          |
-| **Agents**   | `termination.py`     | `execute_fire()`, tool cleanup, layout recompute                                     |
-| **Core**     | `config.py`          | All paths, constants, employee/talent config loaders                                 |
-| **Core**     | `state.py`           | `CompanyState` singleton, hot-reload, employee/project state                         |
-| **Core**     | `events.py`          | Async `EventBus` — pub/sub for all system events                                     |
-| **Core**     | `vessel.py`          | `Vessel`(躯壳), `EmployeeManager`, `Executor` protocol, task queue, hooks, history     |
-| **Core**     | `vessel_config.py`   | `VesselConfig`(DNA) — load/save/migrate `vessel.yaml` per employee                   |
-| **Core**     | `vessel_harness.py`  | Harness protocols(套接件): `ExecutionHarness`, `TaskHarness`, `EventHarness`, etc.      |
-| **Core**     | `agent_loop.py`      | Backward-compat shim — re-exports everything from `vessel.py`                        |
-| **Core**     | `routine.py`         | Post-task workflow dispatch (project retrospective, etc.)                            |
-| **Core**     | `workflow_engine.py` | Parses `company/business/workflows/*.md` → `WorkflowDefinition`                      |
-| **Core**     | `project_archive.py` | Project CRUD, iteration tracking, cost recording                                     |
-| **Core**     | `layout.py`          | Department-based office grid, desk allocation                                        |
-| **Talent**   | `talent_spec.py`     | Dataclasses: `TalentPackage`, `VesselManifest`, `AgentManifest`, `FunctionsManifest` |
-| **Talent**   | `boss_online.py`     | MCP server subprocess for recruitment                                                |
-| **Infra**    | `tools/sandbox/`     | Docker-based code execution (execute, runcommand, write/read)                        |
-| **Infra**    | `claude_session.py`  | Claude Code CLI session management (self-hosted employees)                           |
-| **Infra**    | `heartbeat.py`       | Periodic API connectivity check (zero token cost)                                    |
-| **Frontend** | `index.html`         | 3-column layout: Office / Console / Details                                          |
-| **Frontend** | `office.js`          | Canvas 2D pixel art renderer, sprite system                                          |
-| **Frontend** | `app.js`             | CEO console, WebSocket handler, UI state                                             |
-
-
-## Tech Stack
-
-- **Backend**: Python 3.12+ / UV, FastAPI + WebSocket, LangChain (`create_react_agent`)
-- **LLM**: OpenRouter API (configurable per employee), Anthropic API (OAuth/API key)
-- **Frontend**: Vanilla JS + Canvas 2D pixel art (no build tools)
-- **Infra**: Docker sandbox, MCP server, Watchdog hot-reload
-- **Data**: YAML profiles + Markdown workflows + JSON project archives
-
-## Vessel Architecture — 躯壳 · 灵魂 · 套接件
-
-> **哲学**: Vessel（躯壳）+ Talent（灵魂）= Employee（员工）
-
-每个员工由两部分组成：**Vessel** 是执行容器（躯壳），提供运行环境、重试策略、上下文注入等基础设施；**Talent** 是能力包（灵魂），提供技能、提示词、自定义 runner。入职时灵魂注入躯壳，形成完整员工。
-
-### 核心概念
-
-```
-employees/00010/
-├── profile.yaml          # 员工档案
-├── vessel/               # 躯壳 DNA
-│   ├── vessel.yaml       # 配置：runner / hooks / limits / capabilities
-│   └── prompt_sections/  # 提示词片段
-├── skills/               # 灵魂 — 技能
-└── progress.log          # 工作记忆
-```
-
-**vessel.yaml** — 躯壳的 DNA，定义执行行为：
-
-
-| 字段             | 说明                                 |
-| -------------- | ---------------------------------- |
-| `runner`       | 神经系统 — 自定义 runner 模块和类名            |
-| `hooks`        | 生命周期钩子 — pre_task / post_task 回调   |
-| `context`      | 上下文注入 — prompt sections、进度日志、任务历史  |
-| `limits`       | 执行限制 — 重试次数、超时、子任务深度               |
-| `capabilities` | 能力声明 — sandbox、文件上传、WebSocket、图片生成 |
-
-
-### VesselHarness — 套接件标准
-
-6 类 Protocol 定义了 Vessel 与公司系统的连接标准：
-
-
-| Harness            | 职责                                       |
-| ------------------ | ---------------------------------------- |
-| `ExecutionHarness` | 执行套接件 — Executor 协议（execute / is_ready）  |
-| `TaskHarness`      | 任务套接件 — 任务队列管理（push / get_next / cancel） |
-| `EventHarness`     | 事件套接件 — 日志和事件发布                          |
-| `StorageHarness`   | 存储套接件 — 进度日志和历史持久化                       |
-| `ContextHarness`   | 上下文套接件 — prompt / context 组装             |
-| `LifecycleHarness` | 生命周期套接件 — pre/post task 钩子调用             |
-
-
-### Talent → Employee 转换
-
-```mermaid
-flowchart LR
-    T["Talent Package<br>(灵魂)"] -->|"onboarding"| V["Vessel<br>(躯壳)"]
-    D["default_vessel.yaml"] -.->|"fallback"| V
-    V --> E["Employee<br>(完整员工)"]
-    E --> EM["EmployeeManager<br>注册 + 调度"]
-```
-
-
-
-安装优先级：talent 自带 `vessel/vessel.yaml` → talent 旧版 `agent/manifest.yaml`（自动转换） → 系统默认 `default_vessel.yaml`
-
-### 向后兼容
-
-所有旧名称通过别名继续可用：
-
-
-| 旧名                      | 新名                                           |
-| ----------------------- | -------------------------------------------- |
-| `EmployeeHandle`        | `Vessel`                                     |
-| `Launcher`              | `ExecutionHarness`                           |
-| `LangChainLauncher`     | `LangChainExecutor`                          |
-| `ClaudeSessionLauncher` | `ClaudeSessionExecutor`                      |
-| `ScriptLauncher`        | `ScriptExecutor`                             |
-| `agent_loop.py`         | `vessel.py`（agent_loop.py 变为 re-export shim） |
-
-
----
-
-## Quick Start
-
-### 一键启动（推荐）
-
-```bash
-npx onemancompany
-```
-
-首次运行会自动进入 onboard 向导，引导你配置 LLM API Key、Talent Market 等。完成后自动启动服务器。
-
-### 手动安装
-
-```bash
-# 1. Clone
-git clone https://github.com/CarbonKite/OneManCompany.git
-cd OneManCompany
-
-# 2. Onboard + 启动（首次运行会进入配置向导，完成后自动启动服务器）
-bash start.sh
-
-# 3. 打开浏览器
-open http://localhost:8000
-```
-
-### 重启服务器
-
-```bash
-bash start.sh
-```
-
-如果需要指定端口：
-
-```bash
-bash start.sh --port 8080
-```
-
-### 重新配置
-
-如果需要重新运行 onboard 向导（修改 API Key 等）：
-
-```bash
-bash start.sh init
-```
-
-或者直接编辑配置文件：
-- **API Keys**: `.onemancompany/.env`
-- **应用配置**: `.onemancompany/config.yaml`（Talent Market URL 等）
-- **前端设置**: 浏览器内 Settings 面板
-
-## Key Concepts
-
-
-| Concept                        | Description                                                                         |
-| ------------------------------ | ----------------------------------------------------------------------------------- |
-| **Vessel = 躯壳**                | 员工的执行容器，包含 DNA（vessel.yaml）、神经系统（runner）、套接件（harness）                               |
-| **Talent = 灵魂**                | `talents/{id}/` 自包含的 agent 包（profile / skills / tools / functions / vessel config）  |
-| **Vessel + Talent = Employee** | 躯壳（执行容器）+ 灵魂（能力包）= 完整员工                                                             |
-| **VesselConfig = DNA**         | `vessel.yaml` 定义 runner / hooks / context / limits / capabilities                   |
-| **VesselHarness = 套接件**        | 6 类 Protocol：Execution / Task / Event / Storage / Context / Lifecycle               |
-| **Agent Modularization**       | 三层定制：prompt sections（轻量）→ lifecycle hooks（中等）→ custom runner（完全替换）                  |
-| **EmployeeManager**            | 中央调度器，on-demand 推送任务，无空转轮询                                                          |
-| **Executor Protocol**          | `LangChainExecutor` / `ClaudeSessionExecutor` / `ScriptExecutor` — 统一接口，三种后端        |
-| **EventBus**                   | 所有状态变更 → async pub/sub → WebSocket → 前端实时更新                                         |
-| **Knowledge Deposit**          | COO 通过 `deposit_company_knowledge()` 将 workflow / SOP / culture / guidance 沉淀到公司知识库 |
+External clients submit tasks via Sales API → CSO evaluates → internal team delivers. The company operates as a service provider.
 
 ## Task Status System
 
-All tasks (AgentTask and TaskNode) share one unified status enum (`TaskPhase`):
+All tasks share a unified `TaskPhase` state machine:
 
 ```
 pending → processing ⇄ holding → completed → accepted → finished
@@ -524,32 +414,95 @@ pending/holding → blocked (dependency failed)
 any non-terminal → cancelled
 ```
 
-| Status | Meaning | Triggered By |
-|--------|---------|-------------|
-| `pending` | Created, waiting to start | Task creation |
-| `processing` | Agent actively executing | EmployeeManager starts execution |
-| `holding` | Waiting for child tasks / CEO response | `dispatch_child()` |
-| `completed` | Execution done, awaiting supervisor review | Agent submits result |
-| `accepted` | Supervisor approved (unblocks dependents) | `accept_child()` / auto for simple tasks |
-| `finished` | Archived after retrospective | EA retrospective / auto for simple tasks |
-| `failed` | Execution failed (retryable → processing) | Agent error |
-| `blocked` | Dependency failed, cannot proceed | Dependent task failed |
-| `cancelled` | Cancelled | CEO / supervisor |
+| Status | Meaning |
+|--------|---------|
+| `pending` | Created, waiting to start |
+| `processing` | Agent actively executing |
+| `holding` | Waiting for child tasks / CEO response |
+| `completed` | Done, awaiting supervisor review |
+| `accepted` | Supervisor approved (unblocks dependents) |
+| `finished` | Archived after retrospective |
+| `failed` | Execution failed (retryable) |
+| `blocked` | Dependency failed |
+| `cancelled` | Cancelled by CEO or supervisor |
 
-**Status categories:**
-- **Terminal** (never changes): `finished`, `cancelled`
-- **Unblocks dependents**: `accepted`, `finished`
-- **Active**: `pending`, `processing`, `holding`, `completed`
-- **Error** (recoverable): `failed`, `blocked`
+**Simple vs Project tasks** use the same state machine. The difference is auto-skip:
+- **Simple**: `completed` → auto `accepted` → auto `finished`
+- **Project**: `completed` → manual review → EA retrospective → `finished`
 
-**Simple vs Project tasks** use the same status machine. The difference is auto-skip:
-- Simple: `completed` → auto `accepted` → auto `finished` (no review, no retrospective)
-- Project: `completed` → manual `accept_child()` → EA retrospective → `finished`
+All transitions enforced through `transition()` in `task_lifecycle.py`.
 
-**Enforcement:** All status changes go through `transition()` in `task_lifecycle.py`. Direct assignment is banned.
+## Module Index
+
+| Layer | Module | Role |
+|-------|--------|------|
+| **Entry** | `main.py` | FastAPI app, lifespan |
+| **API** | `routes.py` | REST endpoints |
+| **API** | `websocket.py` | WS real-time push |
+| **Agents** | `base.py` | `BaseAgentRunner`, `EmployeeAgent` |
+| **Agents** | `hr_agent.py` | Hiring, reviews, promotions |
+| **Agents** | `coo_agent.py` | Operations, assets, acceptance |
+| **Agents** | `ea_agent.py` | CEO quality gate |
+| **Agents** | `cso_agent.py` | Sales pipeline |
+| **Agents** | `common_tools.py` | Shared tools (dispatch, meeting, file ops) |
+| **Agents** | `prompt_builder.py` | Composable prompt system |
+| **Agents** | `onboarding.py` | Hire flow + talent install |
+| **Agents** | `termination.py` | Fire flow + cleanup |
+| **Core** | `config.py` | Paths, constants, config loaders |
+| **Core** | `state.py` | `CompanyState` singleton, hot-reload |
+| **Core** | `events.py` | Async `EventBus` pub/sub |
+| **Core** | `vessel.py` | `Vessel`, `EmployeeManager`, `Executor` protocol |
+| **Core** | `vessel_config.py` | `VesselConfig` (DNA) load/save/migrate |
+| **Core** | `vessel_harness.py` | 6 Harness protocols |
+| **Core** | `routine.py` | Post-task workflow dispatch |
+| **Core** | `workflow_engine.py` | Markdown → `WorkflowDefinition` |
+| **Core** | `project_archive.py` | Project CRUD, cost tracking |
+| **Core** | `layout.py` | Office grid allocation |
+| **Talent** | `talent_spec.py` | `TalentPackage`, `AgentManifest` |
+| **Talent** | `boss_online.py` | MCP recruitment server |
+| **Infra** | `tools/sandbox/` | Docker code execution |
+| **Infra** | `claude_session.py` | Claude CLI session management |
+| **Frontend** | `index.html` | 3-column layout |
+| **Frontend** | `office.js` | Canvas 2D pixel art renderer |
+| **Frontend** | `app.js` | CEO console, WebSocket handler |
+
+## Design Philosophy
+
+1. **Systematic Design, Not Patching** — Every change is structural. No `if id == "special_case"`.
+2. **Registry/Dispatch over if-elif** — Data-driven patterns everywhere.
+3. **Complete Data Packages** — Every state is serializable, recoverable, registered, and terminable.
+4. **No Silent Exceptions** — Always log. Always re-raise `CancelledError`.
+5. **Disk = Single Source of Truth** — No in-memory caching of business data.
+6. **Zero Idle** — No `while True` polling. Event-driven, on-demand execution.
+7. **Git-Friendly Persistence** — YAML + Markdown + JSON. `git diff`, `git blame`, `git revert`.
+8. **Minimal Complexity** — Three similar lines > premature abstraction.
+
+## Development
+
+See [AI_CONTRIBUTING.md](AI_CONTRIBUTING.md) for detailed coding guidelines, testing rules, and code style.
+
+```bash
+# Start server
+.venv/bin/python -m onemancompany.main
+
+# Verify compilation
+.venv/bin/python -c "from onemancompany.api.routes import router; print('OK')"
+
+# Run tests
+.venv/bin/python -m pytest tests/unit/ -x
+
+# Check frontend syntax
+node -c frontend/app.js
+```
 
 ---
 
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+---
+
+## License
+
+[MIT](LICENSE)

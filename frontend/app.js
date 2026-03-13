@@ -106,7 +106,6 @@ class AppController {
         const room = rooms.find(r => r.id === this.viewingRoomId);
         if (room) this._refreshMeetingModalStatus(room);
       }
-      this._refreshDeferredPanel();
       this._refreshCeoInbox();
     } catch (e) {
       console.error('Bootstrap failed:', e);
@@ -162,8 +161,6 @@ class AppController {
       if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      // Refresh deferred resolutions panel
-      this._refreshDeferredPanel();
       // Refresh projects panel
       this.updateProjectsPanel();
       // Auto-refresh dashboard costs if modal is open (debounce 2s)
@@ -278,14 +275,6 @@ class AppController {
       },
       'hiring_request_decided': (p) => {
         return { text: `${p.approved ? '✅' : '❌'} Hiring request ${p.approved ? 'approved' : 'rejected'}: ${p.role}`, cls: 'ceo', agent: 'CEO' };
-      },
-      'resolution_ready':    (p) => {
-        this._showResolutionModal(p);
-        return { text: `📋 Resolution ready: ${(p.edits || []).length} file edit(s) for review`, cls: 'ceo', agent: 'SYSTEM' };
-      },
-      'resolution_decided':  (p) => {
-        this._refreshDeferredPanel();
-        return { text: `✅ Resolution decided`, cls: 'ceo', agent: 'CEO' };
       },
       'inquiry_started':     (p) => {
         this._startInquiryMode(p);
@@ -907,14 +896,6 @@ class AppController {
     });
     document.getElementById('oneonone-end-btn').addEventListener('click', () => this.endOneononeMeeting());
 
-    // Resolution review modal bindings
-    document.getElementById('resolution-close-btn').addEventListener('click', () => this._closeResolutionModal());
-    document.getElementById('resolution-cancel-btn').addEventListener('click', () => this._closeResolutionModal());
-    document.getElementById('resolution-submit-btn').addEventListener('click', () => this._submitResolutionDecisions());
-    document.getElementById('resolution-modal').addEventListener('click', (e) => {
-      if (e.target.id === 'resolution-modal') this._closeResolutionModal();
-    });
-
     // Meeting room modal bindings
     document.getElementById('meeting-close-btn').addEventListener('click', () => this.closeMeetingRoom());
     document.getElementById('meeting-modal').addEventListener('click', (e) => {
@@ -1075,9 +1056,15 @@ class AppController {
       settingsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         settingsPanel.classList.toggle('hidden');
-        if (!settingsPanel.classList.contains('hidden') && !this._settingsLoaded) {
-          this._settingsLoaded = true;
-          this._renderApiSettings();
+        if (!settingsPanel.classList.contains('hidden')) {
+          // Position below the button using fixed positioning
+          const rect = settingsBtn.getBoundingClientRect();
+          settingsPanel.style.top = (rect.bottom + 4) + 'px';
+          settingsPanel.style.right = (window.innerWidth - rect.right) + 'px';
+          if (!this._settingsLoaded) {
+            this._settingsLoaded = true;
+            this._renderApiSettings();
+          }
         }
       });
       document.addEventListener('click', (e) => {
@@ -1546,23 +1533,14 @@ class AppController {
       return;
     }
 
-    // Group: top-level tasks first, sub-tasks nested under parents
-    const topLevel = tasks.filter(t => !t.parent_id);
-    const subTasks = tasks.filter(t => t.parent_id);
-    const subByParent = {};
-    for (const st of subTasks) {
-      if (!subByParent[st.parent_id]) subByParent[st.parent_id] = [];
-      subByParent[st.parent_id].push(st);
-    }
-
     const empId = this.viewingEmployeeId;
     let html = '';
-    for (const task of topLevel) {
+    for (const task of tasks) {
       const statusCls = task.status.replace('_', '-');
       html += `<div class="emp-taskboard-item ${statusCls}">`;
       html += `<div class="emp-taskboard-status" style="display:flex;justify-content:space-between;align-items:center;">`;
       html += `<span>${task.status}</span>`;
-      if (task.status === 'pending' || task.status === 'in_progress') {
+      if (task.status === 'pending' || task.status === 'processing') {
         html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${task.id}')">CANCEL</button>`;
       }
       html += `</div>`;
@@ -1570,26 +1548,10 @@ class AppController {
       if (task.result) {
         html += `<div class="emp-taskboard-result">${this._escHtml(task.result.substring(0, 100))}</div>`;
       }
-      if (task.total_tokens > 0) {
-        const costStr = task.estimated_cost_usd ? `$${task.estimated_cost_usd.toFixed(4)}` : '';
-        html += `<div class="emp-taskboard-cost">${task.total_tokens} tokens ${costStr}</div>`;
+      if (task.cost_usd > 0) {
+        html += `<div class="emp-taskboard-cost">$${task.cost_usd.toFixed(4)}</div>`;
       }
       html += '</div>';
-
-      // Render sub-tasks indented
-      const subs = subByParent[task.id] || [];
-      for (const sub of subs) {
-        const subCls = sub.status.replace('_', '-');
-        html += `<div class="emp-taskboard-item sub-task ${subCls}">`;
-        html += `<div class="emp-taskboard-status" style="display:flex;justify-content:space-between;align-items:center;">`;
-        html += `<span>${sub.status}</span>`;
-        if (sub.status === 'pending' || sub.status === 'in_progress') {
-          html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${sub.id}')">CANCEL</button>`;
-        }
-        html += `</div>`;
-        html += `<div class="emp-taskboard-desc">${this._escHtml(sub.description.substring(0, 100))}</div>`;
-        html += '</div>';
-      }
     }
     el.innerHTML = html;
   }
@@ -3395,160 +3357,6 @@ class AppController {
     return html;
   }
 
-
-  // ===== Resolution Review Modal =====
-
-  _showResolutionModal(resolution) {
-    this._currentResolution = resolution;
-    const modal = document.getElementById('resolution-modal');
-    const taskInfo = document.getElementById('resolution-task-info');
-    const editsEl = document.getElementById('resolution-edits');
-
-    taskInfo.innerHTML = `
-      <div class="res-task-label">Task: <span class="res-task-text">${this._escapeHtml(resolution.task || '')}</span></div>
-      <div class="res-meta">Project: ${this._escapeHtml(resolution.project_id || '')} &middot; ${(resolution.edits || []).length} edit(s)</div>
-    `;
-
-    let html = '';
-    for (const edit of (resolution.edits || [])) {
-      html += `<div class="res-edit-card" data-edit-id="${this._escapeHtml(edit.edit_id)}">`;
-      html += `<div class="res-edit-header">`;
-      html += `<span class="res-edit-file">${this._escapeHtml(edit.rel_path || '')}</span>`;
-      html += `<span class="res-edit-by">by ${this._escapeHtml(edit.proposed_by || 'agent')}</span>`;
-      html += `</div>`;
-      html += `<div class="res-edit-reason">${this._escapeHtml(edit.reason || '')}</div>`;
-      html += this._buildDiffView(edit.old_content || '', edit.new_content || '');
-      html += `<div class="res-edit-actions">`;
-      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="approve" checked> Approve</label>`;
-      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="reject"> Reject</label>`;
-      html += `<label class="res-radio"><input type="radio" name="decision_${edit.edit_id}" value="defer"> Defer</label>`;
-      html += `</div>`;
-      html += `</div>`;
-    }
-    editsEl.innerHTML = html;
-    modal.classList.remove('hidden');
-  }
-
-  _closeResolutionModal() {
-    document.getElementById('resolution-modal').classList.add('hidden');
-    const fb = document.getElementById('resolution-ceo-feedback');
-    if (fb) fb.value = '';
-    this._currentResolution = null;
-  }
-
-  _submitResolutionDecisions() {
-    const resolution = this._currentResolution;
-    if (!resolution) return;
-
-    const decisions = {};
-    for (const edit of (resolution.edits || [])) {
-      const selected = document.querySelector(`input[name="decision_${edit.edit_id}"]:checked`);
-      if (selected) {
-        decisions[edit.edit_id] = selected.value;
-      }
-    }
-
-    const feedbackEl = document.getElementById('resolution-ceo-feedback');
-    const ceoFeedback = (feedbackEl && feedbackEl.value || '').trim();
-
-    const btn = document.getElementById('resolution-submit-btn');
-    btn.disabled = true;
-
-    fetch(`/api/resolutions/${encodeURIComponent(resolution.resolution_id)}/decide`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decisions }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.status === 'error') {
-          this.logEntry('SYSTEM', `Resolution error: ${data.message}`, 'system');
-        } else {
-          const results = data.results || [];
-          const approved = results.filter(r => r.decision === 'approve').length;
-          const rejected = results.filter(r => r.decision === 'reject').length;
-          const deferred = results.filter(r => r.decision === 'defer').length;
-          this.logEntry('CEO', `Resolution decided: ${approved} approved, ${rejected} rejected, ${deferred} deferred`, 'ceo');
-          this._refreshDeferredPanel();
-        }
-        // If CEO wrote feedback, push it as a task to the employee via CEO task endpoint
-        if (ceoFeedback && resolution.employee_id) {
-          fetch('/api/ceo/task', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              task: `CEO Review 反馈:\n${ceoFeedback}`,
-              project_id: resolution.project_id || '',
-            }),
-          }).catch(err => console.error('Failed to send resolution feedback:', err));
-        }
-        this._closeResolutionModal();
-      })
-      .catch(err => {
-        this.logEntry('SYSTEM', `Resolution submit failed: ${err.message}`, 'system');
-      })
-      .finally(() => {
-        btn.disabled = false;
-      });
-  }
-
-  // ===== Deferred Resolutions Panel =====
-
-  _refreshDeferredPanel() {
-    fetch('/api/resolutions/deferred')
-      .then(r => r.json())
-      .then(data => {
-        const list = document.getElementById('deferred-list');
-        const edits = data.edits || [];
-        if (edits.length === 0) {
-          list.innerHTML = '<div class="deferred-empty">No deferred edits</div>';
-          return;
-        }
-        let html = '';
-        for (const edit of edits) {
-          const expiredBadge = edit.expired
-            ? '<span class="deferred-expired">EXPIRED</span>'
-            : '<span class="deferred-active">ACTIVE</span>';
-          html += `<div class="deferred-card${edit.expired ? ' expired' : ''}">`;
-          html += `<div class="deferred-card-header">`;
-          html += `<span class="deferred-file">${this._escapeHtml(edit.rel_path || '')}</span>`;
-          html += expiredBadge;
-          html += `</div>`;
-          html += `<div class="deferred-reason">${this._escapeHtml(edit.reason || '')}</div>`;
-          if (!edit.expired) {
-            html += `<button class="pixel-btn small deferred-exec-btn" data-res-id="${this._escapeHtml(edit.resolution_id)}" data-edit-id="${this._escapeHtml(edit.edit_id)}">Execute</button>`;
-          }
-          html += `</div>`;
-        }
-        list.innerHTML = html;
-
-        // Bind execute buttons
-        list.querySelectorAll('.deferred-exec-btn').forEach(btn => {
-          btn.addEventListener('click', () => {
-            const resId = btn.dataset.resId;
-            const editId = btn.dataset.editId;
-            btn.disabled = true;
-            fetch(`/api/resolutions/deferred/${encodeURIComponent(resId)}/${encodeURIComponent(editId)}/execute`, {
-              method: 'POST',
-            })
-              .then(r => r.json())
-              .then(result => {
-                if (result.status === 'error') {
-                  this.logEntry('SYSTEM', `Deferred exec failed: ${result.message}`, 'system');
-                } else {
-                  this.logEntry('CEO', `Deferred edit executed: ${result.rel_path || editId}`, 'ceo');
-                }
-                this._refreshDeferredPanel();
-              })
-              .catch(err => {
-                this.logEntry('SYSTEM', `Deferred exec failed: ${err.message}`, 'system');
-                btn.disabled = false;
-              });
-          });
-        });
-      })
-      .catch(() => {});
-  }
 
   // ===== Workflow Viewer/Editor =====
   openWorkflowPanel() {

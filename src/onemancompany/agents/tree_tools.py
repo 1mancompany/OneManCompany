@@ -145,6 +145,9 @@ def dispatch_child(
     if employee_id == CEO_EMPLOYEE_ID:
         child.node_type = "ceo_request"
         _save_tree(project_dir, tree)
+        # Persist task index entry for taskboard
+        from onemancompany.core.store import append_task_index_entry
+        append_task_index_entry(employee_id, child.id, tree_path_str)
         # Publish WebSocket event (async from sync context)
         from onemancompany.core.events import CompanyEvent, event_bus
         try:
@@ -173,6 +176,9 @@ def dispatch_child(
 
     if not deps_resolved:
         _save_tree(project_dir, tree)
+        # Persist task index entry for taskboard even though not yet scheduled
+        from onemancompany.core.store import append_task_index_entry
+        append_task_index_entry(employee_id, child.id, tree_path_str)
         return {
             "status": "dispatched_waiting",
             "node_id": child.id,

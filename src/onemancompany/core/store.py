@@ -402,6 +402,44 @@ def save_sales_tasks_sync(tasks: list[dict]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Employee task index — per-employee list of (node_id, tree_path) pointers
+# ---------------------------------------------------------------------------
+
+
+def load_task_index(employee_id: str) -> list[dict]:
+    """Read the task index for an employee.
+
+    Returns list of dicts: [{node_id, tree_path}, ...]
+    """
+    path = EMPLOYEES_DIR / employee_id / "task_index.yaml"
+    return _read_yaml_list(path)
+
+
+def save_task_index(employee_id: str, entries: list[dict]) -> None:
+    """Overwrite the task index for an employee (sync)."""
+    path = EMPLOYEES_DIR / employee_id / "task_index.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.dump(entries, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
+def append_task_index_entry(employee_id: str, node_id: str, tree_path: str) -> None:
+    """Add a task pointer to the employee's task index (idempotent)."""
+    entries = load_task_index(employee_id)
+    # Avoid duplicates
+    for e in entries:
+        if e.get("node_id") == node_id:
+            return
+    entries.append({"node_id": node_id, "tree_path": tree_path})
+    # Cap at 100 most recent entries
+    if len(entries) > 100:
+        entries = entries[-100:]
+    save_task_index(employee_id, entries)
+
+
+# ---------------------------------------------------------------------------
 # Candidate reads/writes
 # ---------------------------------------------------------------------------
 

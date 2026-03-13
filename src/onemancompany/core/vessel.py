@@ -145,7 +145,7 @@ def _trigger_dep_resolution(project_dir: str, tree, node) -> None:
 # Data models
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL, RESOLVED
 
 
 def _history_path(employee_id: str) -> Path:
@@ -491,6 +491,9 @@ class EmployeeManager:
         """Add a node to the employee's schedule."""
         entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
         self._schedule.setdefault(employee_id, []).append(entry)
+        # Persist to disk-based task index for taskboard queries
+        from onemancompany.core.store import append_task_index_entry
+        append_task_index_entry(employee_id, node_id, tree_path)
 
     def unschedule(self, employee_id: str, node_id: str) -> None:
         """Remove a completed/failed node from schedule."""
@@ -730,7 +733,6 @@ class EmployeeManager:
 
     async def _execute_task(self, employee_id: str, entry: ScheduleEntry) -> None:
         from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.resolutions import current_project_id
 
         tree = TaskTree.load(Path(entry.tree_path))
         node = tree.get_node(entry.node_id)
@@ -760,8 +762,6 @@ class EmployeeManager:
 
         project_id = node.project_id
         project_dir = node.project_dir
-        ctx_token = current_project_id.set(project_id) if project_id else None
-
         agent_error = False
         try:
             # 4. Build task context with injections
@@ -889,8 +889,6 @@ class EmployeeManager:
         finally:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
-            if ctx_token is not None:
-                current_project_id.reset(ctx_token)
 
         # 8. Mark completed (or HOLDING)
         if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
@@ -943,13 +941,6 @@ class EmployeeManager:
                     from onemancompany.core.project_archive import append_action
                     summary = node.result[:MAX_SUMMARY_LEN]
                     append_action(project_id, employee_id, f"{role} task completed", summary)
-                from onemancompany.core.resolutions import create_resolution
-                resolution = create_resolution(project_id, node.description)
-                if resolution:
-                    resolution["employee_id"] = employee_id
-                    await event_bus.publish(
-                        CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
-                    )
 
             # Unschedule completed node
             self.unschedule(employee_id, entry.node_id)
@@ -1395,9 +1386,34 @@ class EmployeeManager:
         if not parent_node:
             return
 
+        # Skip if parent is already resolved (failed/cancelled/accepted/finished)
+        if TaskPhase(parent_node.status) in RESOLVED:
+            logger.debug("Parent {} is {} — skipping review spawn", parent_node.id, parent_node.status)
+            return
+
         # Check all children of parent — are they all done executing?
         children = tree.get_active_children(parent_node.id)
         if not tree.all_children_done(parent_node.id):
+            return
+
+        # Skip if there's already a pending/processing review node for this parent
+        # (prevents infinite review loop when review node itself completes)
+        for child in children:
+            if child.employee_id == parent_node.employee_id and child.description.startswith("以下子任务"):
+                if child.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
+                    logger.debug("Review node {} already active for parent {} — skipping", child.id, parent_node.id)
+                    return
+
+        # If all children that need review are already accepted, auto-complete the parent
+        non_review_children = [c for c in children if c.employee_id != parent_node.employee_id or not c.description.startswith("以下子任务")]
+        if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
+            logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
+            if parent_node.status == TaskPhase.HOLDING.value:
+                parent_node.set_status(TaskPhase.PROCESSING)
+            parent_node.set_status(TaskPhase.COMPLETED)
+            parent_node.result = "All child tasks accepted."
+            tree.save(Path(entry.tree_path))
+            self._publish_node_update(parent_node.employee_id, parent_node)
             return
 
         # Build review prompt for parent employee
@@ -1576,10 +1592,8 @@ class EmployeeManager:
         project_id: str, run_retrospective: bool = False,
     ) -> None:
         from onemancompany.core.project_archive import append_action, complete_project
-        from onemancompany.core.resolutions import create_resolution, current_project_id
 
         if run_retrospective:
-            routine_ctx = current_project_id.set(project_id)
             try:
                 from onemancompany.core.routine import run_post_task_routine
                 await run_post_task_routine(node.description, project_id=project_id)
@@ -1593,15 +1607,6 @@ class EmployeeManager:
                         payload={"role": "ROUTINE", "summary": f"Routine error: {e!s}"},
                         agent="ROUTINE",
                     )
-                )
-            finally:
-                current_project_id.reset(routine_ctx)
-
-            routine_resolution = create_resolution(project_id, f"Routine: {node.description}")
-            if routine_resolution:
-                routine_resolution["employee_id"] = employee_id
-                await event_bus.publish(
-                    CompanyEvent(type="resolution_ready", payload=routine_resolution, agent="SYSTEM")
                 )
 
         await self._update_soul(employee_id, node)
@@ -1761,9 +1766,6 @@ class EmployeeManager:
             project_id = f"_sys_{uuid.uuid4().hex[:8]}"
 
         async def _run() -> None:
-            from onemancompany.core.resolutions import create_resolution, current_project_id
-
-            ctx_token = current_project_id.set(project_id)
             try:
                 await coro
             except Exception as e:
@@ -1774,15 +1776,6 @@ class EmployeeManager:
                         payload={"role": task_name, "summary": f"Error: {e!s}"},
                         agent=task_name,
                     )
-                )
-            finally:
-                current_project_id.reset(ctx_token)
-
-            # Create resolution if file edits were accumulated
-            resolution = create_resolution(project_id, task_description)
-            if resolution:
-                await event_bus.publish(
-                    CompanyEvent(type="resolution_ready", payload=resolution, agent="SYSTEM")
                 )
 
             # Sandbox cleanup

@@ -1448,24 +1448,45 @@ async def update_employee_okrs(employee_id: str, body: dict) -> dict:
 
 @router.get("/api/employee/{employee_id}/taskboard")
 async def get_employee_taskboard(employee_id: str) -> dict:
-    """Get an agent's scheduled tasks from EmployeeManager._schedule."""
+    """Get all tasks for an employee from disk-based task index.
+
+    Reads task_index.yaml for the employee, then loads actual node data
+    from the referenced tree files (disk is SSOT). Also merges any entries
+    from _schedule that haven't been indexed yet (backward compat).
+    """
     from pathlib import Path
+    from onemancompany.core.store import load_task_index, append_task_index_entry
     from onemancompany.core.vessel import employee_manager
     from onemancompany.core.task_tree import TaskTree
 
-    entries = employee_manager._schedule.get(employee_id, [])
+    # Merge disk index + in-memory schedule (for entries not yet indexed)
+    index_entries = load_task_index(employee_id)
+    indexed_ids = {e.get("node_id") for e in index_entries}
+
+    # Backfill any scheduled entries missing from the index
+    for sched in employee_manager._schedule.get(employee_id, []):
+        if sched.node_id not in indexed_ids and Path(sched.tree_path).exists():
+            append_task_index_entry(employee_id, sched.node_id, sched.tree_path)
+            index_entries.append({"node_id": sched.node_id, "tree_path": sched.tree_path})
+
     tasks = []
-    for entry in entries:
-        tp = Path(entry.tree_path)
+    seen_ids: set[str] = set()
+    for entry in reversed(index_entries):  # newest first
+        node_id = entry.get("node_id", "")
+        tree_path = entry.get("tree_path", "")
+        if not node_id or not tree_path or node_id in seen_ids:
+            continue
+        seen_ids.add(node_id)
+        tp = Path(tree_path)
         if not tp.exists():
             continue
         try:
             tree = TaskTree.load(tp)
-            node = tree.get_node(entry.node_id)
+            node = tree.get_node(node_id)
             if node:
                 tasks.append(node.to_dict())
         except Exception as e:
-            logger.warning("Failed to load task tree {}: {}", entry.tree_path, e)
+            logger.warning("Failed to load task tree {}: {}", tree_path, e)
     return {"tasks": tasks}
 
 
@@ -2631,75 +2652,6 @@ async def reject_file_edit(edit_id: str) -> dict:
     return result
 
 
-# ===== Resolutions (Batch File-Edit Review) =====
-
-@router.get("/api/resolutions/deferred")
-async def get_deferred_edits() -> dict:
-    """List all deferred edits across all resolutions."""
-    from onemancompany.core.resolutions import list_deferred_edits
-    return {"edits": list_deferred_edits()}
-
-
-@router.get("/api/resolutions")
-async def get_resolutions() -> dict:
-    """List all resolutions (summary view)."""
-    from onemancompany.core.resolutions import list_resolutions
-    return {"resolutions": list_resolutions()}
-
-
-@router.get("/api/resolutions/{resolution_id}")
-async def get_resolution_detail(resolution_id: str) -> dict:
-    """Get full resolution detail including all edits."""
-    from onemancompany.core.resolutions import load_resolution
-    data = load_resolution(resolution_id)
-    if not data:
-        return {"error": "Resolution not found"}
-    return data
-
-
-@router.post("/api/resolutions/{resolution_id}/decide")
-async def decide_on_resolution(resolution_id: str, body: dict) -> dict:
-    """CEO submits decisions for each edit in a resolution.
-
-    Body: { "decisions": { "edit_id": "approve"|"reject"|"defer", ... } }
-    """
-    from onemancompany.core.resolutions import decide_resolution
-
-    decisions = body.get("decisions", {})
-    if not decisions:
-        return {"error": "No decisions provided"}
-
-    result = decide_resolution(resolution_id, decisions)
-    if result.get("status") == "ok":
-        await event_bus.publish(
-            CompanyEvent(
-                type="resolution_decided",
-                payload={"resolution_id": resolution_id, "results": result.get("results", [])},
-                agent="CEO",
-            )
-        )
-    return result
-
-
-@router.post("/api/resolutions/deferred/{resolution_id}/{edit_id}/execute")
-async def execute_deferred(resolution_id: str, edit_id: str) -> dict:
-    """Execute a previously deferred edit (checks MD5 staleness)."""
-    from onemancompany.core.resolutions import execute_deferred_edit
-
-    result = execute_deferred_edit(resolution_id, edit_id)
-    if result.get("status") == "ok":
-        await event_bus.publish(
-            CompanyEvent(
-                type="file_edit_applied",
-                payload={
-                    "edit_id": edit_id,
-                    "rel_path": result.get("rel_path", ""),
-                    "backup_path": result.get("backup_path"),
-                },
-                agent="CEO",
-            )
-        )
-    return result
 
 
 # ===== Project Archive =====

@@ -199,11 +199,13 @@ class OfficeRenderer {
     const oldEmpCount = (this.state.employees || []).length;
     this.state = { ...this.state, ...newState };
 
-    // Dynamically expand canvas rows based on layout
-    const newRows = (newState.office_layout || {}).canvas_rows || 15;
-    if (newRows !== ROWS) {
-      ROWS = newRows;
-      this._resizeCanvas();
+    // Dynamically expand canvas rows based on layout (only when office_layout is provided)
+    if (newState.office_layout) {
+      const newRows = newState.office_layout.canvas_rows || 15;
+      if (newRows !== ROWS) {
+        ROWS = newRows;
+        this._resizeCanvas();
+      }
     }
 
     // Spawn particles on new hire

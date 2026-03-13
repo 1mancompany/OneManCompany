@@ -305,6 +305,10 @@ def _bridge_store_to_company_state(monkeypatch):
     monkeypatch.setattr(store_mod, "save_room", _patched_save_room)
     monkeypatch.setattr(store_mod, "append_room_chat", _patched_append_room_chat)
 
+    # Prevent task index writes from leaking to real disk
+    monkeypatch.setattr(store_mod, "append_task_index_entry", lambda *a, **kw: None)
+    monkeypatch.setattr(store_mod, "save_task_index", lambda *a, **kw: None)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_disk_writes(tmp_path, monkeypatch):

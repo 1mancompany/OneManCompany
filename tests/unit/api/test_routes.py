@@ -1043,7 +1043,8 @@ class TestEmployeeTaskboard:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
+             patch("onemancompany.core.store.load_task_index", return_value=[]):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/taskboard")
@@ -1807,7 +1808,9 @@ class TestEmployeeTaskboardWithLoop:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em):
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
+             patch("onemancompany.core.store.load_task_index", return_value=[]), \
+             patch("onemancompany.core.store.append_task_index_entry"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/taskboard")
@@ -2137,120 +2140,6 @@ class TestFileEdits:
 
         assert resp.json()["status"] == "error"
 
-
-# ---------------------------------------------------------------------------
-# Resolutions endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestResolutions:
-    async def test_get_deferred_edits(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.list_deferred_edits", return_value=[]):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/deferred")
-
-        assert resp.status_code == 200
-        assert resp.json()["edits"] == []
-
-    async def test_list_resolutions(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.list_resolutions", return_value=[]):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions")
-
-        assert resp.status_code == 200
-        assert resp.json()["resolutions"] == []
-
-    async def test_get_resolution_detail_not_found(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.load_resolution", return_value=None):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/nonexistent")
-
-        assert resp.json()["error"] == "Resolution not found"
-
-    async def test_get_resolution_detail_found(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.load_resolution", return_value={"id": "r1", "edits": []}):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/r1")
-
-        assert resp.status_code == 200
-        assert resp.json()["id"] == "r1"
-
-    async def test_decide_on_resolution_missing_decisions(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/r1/decide", json={"decisions": {}})
-
-        assert resp.json()["error"] == "No decisions provided"
-
-    async def test_decide_on_resolution_success(self):
-        state = _make_state()
-        bus = EventBus()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.resolutions.decide_resolution", return_value={
-                 "status": "ok", "results": [{"edit_id": "e1", "action": "approve"}]
-             }):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/r1/decide", json={
-                    "decisions": {"e1": "approve"},
-                })
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-    async def test_execute_deferred_success(self):
-        state = _make_state()
-        bus = EventBus()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.resolutions.execute_deferred_edit", return_value={
-                 "status": "ok", "rel_path": "file.py", "backup_path": "/backup"
-             }):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/deferred/r1/e1/execute")
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-
-# ---------------------------------------------------------------------------
-# Inquiry end — with session
-# ---------------------------------------------------------------------------
 
 
 class TestInquiryEndWithSession:
@@ -3456,120 +3345,6 @@ class TestFileEdits:
 
 
 # ---------------------------------------------------------------------------
-# Resolutions endpoints
-# ---------------------------------------------------------------------------
-
-
-class TestResolutions:
-    async def test_get_deferred_edits(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.list_deferred_edits", return_value=[]):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/deferred")
-
-        assert resp.status_code == 200
-        assert resp.json()["edits"] == []
-
-    async def test_list_resolutions(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.list_resolutions", return_value=[]):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions")
-
-        assert resp.status_code == 200
-        assert resp.json()["resolutions"] == []
-
-    async def test_get_resolution_detail_not_found(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.load_resolution", return_value=None):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/nonexistent")
-
-        assert resp.json()["error"] == "Resolution not found"
-
-    async def test_get_resolution_detail_found(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.resolutions.load_resolution", return_value={"id": "r1", "edits": []}):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/resolutions/r1")
-
-        assert resp.status_code == 200
-        assert resp.json()["id"] == "r1"
-
-    async def test_decide_on_resolution_missing_decisions(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/r1/decide", json={"decisions": {}})
-
-        assert resp.json()["error"] == "No decisions provided"
-
-    async def test_decide_on_resolution_success(self):
-        state = _make_state()
-        bus = EventBus()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.resolutions.decide_resolution", return_value={
-                 "status": "ok", "results": [{"edit_id": "e1", "action": "approve"}]
-             }):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/r1/decide", json={
-                    "decisions": {"e1": "approve"},
-                })
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-    async def test_execute_deferred_success(self):
-        state = _make_state()
-        bus = EventBus()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.resolutions.execute_deferred_edit", return_value={
-                 "status": "ok", "rel_path": "file.py", "backup_path": "/backup"
-             }):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/resolutions/deferred/r1/e1/execute")
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
-
-
-# ---------------------------------------------------------------------------
-# Inquiry end — with session
-# ---------------------------------------------------------------------------
-
-
 class TestInquiryEndWithSession:
     async def test_end_with_existing_session(self):
         from onemancompany.api.routes import InquirySession
@@ -4196,7 +3971,9 @@ class TestEmployeeTaskboardWithLoop:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em):
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
+             patch("onemancompany.core.store.load_task_index", return_value=[]), \
+             patch("onemancompany.core.store.append_task_index_entry"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/taskboard")

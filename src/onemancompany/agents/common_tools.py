@@ -143,12 +143,6 @@ async def write(
 ) -> dict:
     """Write content to a file. Creates the file if it doesn't exist.
 
-    Free zones (no approval needed):
-    - Your workspace: "workspace/notes.md", "workspace/plan.md", etc.
-    - Project workspace: files inside the current project_dir
-
-    Other locations (company/, src/) require CEO approval.
-
     Args:
         file_path: File path to write.
         content: The text content to write.
@@ -180,38 +174,10 @@ async def write(
         resolved.write_text(content, encoding="utf-8")
         return {"status": "ok", "path": str(resolved)}
 
-    # Not in free zone → propose edit (CEO approval)
-    from onemancompany.core.file_editor import propose_edit, pending_file_edits
-
-    permissions = []
-    if employee_id:
-        emp_data = load_employee(employee_id)
-        if emp_data:
-            permissions = emp_data.get("permissions", [])
-
-    result = propose_edit(file_path, content, "write via agent", proposed_by=employee_id or "agent", permissions=permissions)
-    if result["status"] == "error":
-        return result
-
-    edit = pending_file_edits.get(result["edit_id"])
-    if not edit:
-        return result
-
-    from onemancompany.core.resolutions import current_project_id, collect_edit
-    pid = current_project_id.get("")
-    if pid:
-        collect_edit(pid, edit)
-    else:
-        await _publish("file_edit_proposed", {
-            "edit_id": edit["edit_id"],
-            "rel_path": edit["rel_path"],
-            "reason": edit["reason"],
-            "proposed_by": edit["proposed_by"],
-            "old_content": edit["old_content"],
-            "new_content": edit["new_content"],
-        })
-
-    return result
+    # Not in free zone → direct write (no approval needed)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(content, encoding="utf-8")
+    return {"status": "ok", "path": str(resolved)}
 
 
 
@@ -225,12 +191,6 @@ async def edit(
     project_dir: str = "",
 ) -> dict:
     """Edit (overwrite) an existing file.
-
-    Free zones (no approval needed):
-    - Your workspace: "workspace/..."
-    - Project workspace: files inside the current project_dir
-
-    Other locations (company/, src/) require CEO approval.
 
     Args:
         file_path: File path to edit.
@@ -264,38 +224,10 @@ async def edit(
         resolved.write_text(new_content, encoding="utf-8")
         return {"status": "ok", "path": str(resolved)}
 
-    # Not in free zone → propose edit (CEO approval)
-    from onemancompany.core.file_editor import propose_edit, pending_file_edits
-
-    permissions = []
-    if employee_id:
-        emp_data = load_employee(employee_id)
-        if emp_data:
-            permissions = emp_data.get("permissions", [])
-
-    result = propose_edit(file_path, new_content, reason or "edit via agent", proposed_by=employee_id or "agent", permissions=permissions)
-    if result["status"] == "error":
-        return result
-
-    edit_entry = pending_file_edits.get(result["edit_id"])
-    if not edit_entry:
-        return result
-
-    from onemancompany.core.resolutions import current_project_id, collect_edit
-    pid = current_project_id.get("")
-    if pid:
-        collect_edit(pid, edit_entry)
-    else:
-        await _publish("file_edit_proposed", {
-            "edit_id": edit_entry["edit_id"],
-            "rel_path": edit_entry["rel_path"],
-            "reason": edit_entry["reason"],
-            "proposed_by": edit_entry["proposed_by"],
-            "old_content": edit_entry["old_content"],
-            "new_content": edit_entry["new_content"],
-        })
-
-    return result
+    # Not in free zone → direct write (no approval needed)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(new_content, encoding="utf-8")
+    return {"status": "ok", "path": str(resolved)}
 
 
 @tool
