@@ -638,10 +638,10 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", mock_start_all)
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", mock_stop_all)
 
-        mock_start_boss = AsyncMock()
-        mock_stop_boss = AsyncMock()
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", mock_start_boss)
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", mock_stop_boss)
+        mock_start_tm = AsyncMock()
+        mock_stop_tm = AsyncMock()
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", mock_start_tm)
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", mock_stop_tm)
 
         # Mock employee classes
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
@@ -682,13 +682,13 @@ class TestLifespan:
             # Verify startup was called
             mock_load_assets.assert_called_once()
             mock_start_sandbox.assert_called_once()
-            mock_start_boss.assert_awaited_once()
+            mock_start_tm.assert_awaited_once()
             mock_start_all.assert_awaited_once()
             assert mock_register_agent.call_count == 4  # HR, COO, EA, CSO
 
         # Verify shutdown was called
         mock_stop_all.assert_awaited_once()
-        mock_stop_boss.assert_awaited_once()
+        mock_stop_tm.assert_awaited_once()
         main_mod._save_ephemeral_state.assert_called_once()
         mock_cleanup_sandbox.assert_awaited_once()
         mock_stop_sandbox.assert_called_once()
@@ -711,8 +711,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -773,8 +773,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -833,8 +833,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -889,8 +889,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -945,8 +945,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -1002,8 +1002,8 @@ class TestLifespan:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)
@@ -1064,8 +1064,8 @@ class TestLifespanGatherCancelledError:
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.stop_all_loops", AsyncMock())
 
-        monkeypatch.setattr("onemancompany.agents.recruitment.start_boss_online", AsyncMock())
-        monkeypatch.setattr("onemancompany.agents.recruitment.stop_boss_online", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.start_talent_market", AsyncMock())
+        monkeypatch.setattr("onemancompany.agents.recruitment.stop_talent_market", AsyncMock())
 
         monkeypatch.setattr("onemancompany.agents.hr_agent.HRAgent", MagicMock, raising=False)
         monkeypatch.setattr("onemancompany.agents.coo_agent.COOAgent", MagicMock, raising=False)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -70,15 +71,263 @@ class TestTalentToCandidate:
 
 
 # ---------------------------------------------------------------------------
+# TalentMarketClient
+# ---------------------------------------------------------------------------
+
+class TestTalentMarketClient:
+    def test_initial_state(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+        client = TalentMarketClient()
+        assert not client.connected
+        assert client._session is None
+        assert client._api_key == ""
+
+    @pytest.mark.asyncio
+    async def test_connect(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        mock_session = AsyncMock()
+        mock_session.initialize = AsyncMock()
+
+        call_count = 0
+
+        async def mock_enter(cm):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return (AsyncMock(), AsyncMock())  # read, write
+            return mock_session
+
+        with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
+            with patch("onemancompany.agents.recruitment.AsyncExitStack") as MockStack:
+                mock_stack = AsyncMock()
+                mock_stack.enter_async_context = mock_enter
+                MockStack.return_value = mock_stack
+
+                with patch("onemancompany.agents.recruitment.ClientSession", return_value=mock_session):
+                    await client.connect("http://test/sse", "test-key")
+
+        assert client.connected
+        assert client._api_key == "test-key"
+        mock_session.initialize.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_connect_already_connected_is_noop(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._session = AsyncMock()  # Simulate already connected
+
+        # Should not raise or change anything
+        await client.connect("http://test/sse", "new-key")
+        assert client._api_key == ""  # Unchanged — early return
+
+    @pytest.mark.asyncio
+    async def test_disconnect(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        mock_stack = AsyncMock()
+        mock_stack.aclose = AsyncMock()
+
+        client._session = AsyncMock()
+        client._stack = mock_stack
+        client._api_key = "test-key"
+
+        await client.disconnect()
+
+        assert not client.connected
+        assert client._api_key == ""
+        mock_stack.aclose.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_disconnect_no_session(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        await client.disconnect()  # Should be a noop
+        assert not client.connected
+
+    @pytest.mark.asyncio
+    async def test_call_not_connected(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        with pytest.raises(RuntimeError, match="Not connected"):
+            await client._call("some_tool")
+
+    @pytest.mark.asyncio
+    async def test_call_parses_json(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._api_key = "test-key"
+
+        mock_item = MagicMock()
+        mock_item.text = json.dumps({"status": "ok", "data": [1, 2, 3]})
+
+        mock_result = MagicMock()
+        mock_result.content = [mock_item]
+
+        mock_session = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+        client._session = mock_session
+
+        result = await client._call("test_tool", foo="bar")
+        assert result == {"status": "ok", "data": [1, 2, 3]}
+        mock_session.call_tool.assert_awaited_once_with(
+            "test_tool", arguments={"foo": "bar", "api_key": "test-key"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_call_returns_empty_on_no_dict(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._api_key = "key"
+
+        mock_item = MagicMock()
+        mock_item.text = "not json"
+
+        mock_result = MagicMock()
+        mock_result.content = [mock_item]
+
+        mock_session = AsyncMock()
+        mock_session.call_tool = AsyncMock(return_value=mock_result)
+        client._session = mock_session
+
+        result = await client._call("test_tool")
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_search(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"roles": []})
+
+        result = await client.search("python dev")
+        client._call.assert_awaited_once_with("search_candidates", job_description="python dev")
+        assert result == {"roles": []}
+
+    @pytest.mark.asyncio
+    async def test_hire(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"hired": True})
+
+        result = await client.hire(["t1", "t2"], session_id="s1")
+        client._call.assert_awaited_once_with("hire_talents", talent_ids=["t1", "t2"], session_id="s1")
+        assert result == {"hired": True}
+
+    @pytest.mark.asyncio
+    async def test_hire_no_session_id(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"hired": True})
+
+        await client.hire(["t1"])
+        client._call.assert_awaited_once_with("hire_talents", talent_ids=["t1"])
+
+    @pytest.mark.asyncio
+    async def test_onboard(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"onboarded": True})
+
+        result = await client.onboard("t1")
+        client._call.assert_awaited_once_with("onboard_talent", talent_id="t1")
+        assert result == {"onboarded": True}
+
+    @pytest.mark.asyncio
+    async def test_list_my_talents(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"talents": []})
+
+        result = await client.list_my_talents()
+        client._call.assert_awaited_once_with("list_my_talents")
+        assert result == {"talents": []}
+
+    @pytest.mark.asyncio
+    async def test_list_available(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"talents": []})
+
+        result = await client.list_available(role="Engineer", skills="python", page=2)
+        client._call.assert_awaited_once_with(
+            "list_available_talents", role="Engineer", skills="python", page=2, page_size=20
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_info(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"name": "Test"})
+
+        result = await client.get_info("t1")
+        client._call.assert_awaited_once_with("get_talent_info", talent_id="t1")
+
+    @pytest.mark.asyncio
+    async def test_get_cv(self):
+        from onemancompany.agents.recruitment import TalentMarketClient
+
+        client = TalentMarketClient()
+        client._call = AsyncMock(return_value={"cv": "..."})
+
+        result = await client.get_cv("t1")
+        client._call.assert_awaited_once_with("get_talent_cv", talent_id="t1")
+
+
+# ---------------------------------------------------------------------------
+# start_talent_market / stop_talent_market
+# ---------------------------------------------------------------------------
+
+class TestStartStopTalentMarket:
+    @pytest.mark.asyncio
+    async def test_start_no_api_key(self, monkeypatch):
+        """start_talent_market with no key configured should skip."""
+        from onemancompany.agents import recruitment
+
+        monkeypatch.setattr(
+            "onemancompany.core.config.load_app_config",
+            lambda: {"talent_market": {"url": "http://test", "api_key": ""}},
+        )
+        # Reset singleton state
+        recruitment.talent_market._session = None
+
+        await recruitment.start_talent_market()
+        assert not recruitment.talent_market.connected
+
+    @pytest.mark.asyncio
+    async def test_stop_delegates_to_disconnect(self, monkeypatch):
+        """stop_talent_market should call talent_market.disconnect()."""
+        from onemancompany.agents import recruitment
+
+        mock_disconnect = AsyncMock()
+        monkeypatch.setattr(recruitment.talent_market, "disconnect", mock_disconnect)
+
+        await recruitment.stop_talent_market()
+        mock_disconnect.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # search_candidates
 # ---------------------------------------------------------------------------
 
 class TestSearchCandidates:
     @pytest.mark.asyncio
-    async def test_returns_candidates(self, monkeypatch):
+    async def test_returns_candidates_from_talent_market(self, monkeypatch):
         from onemancompany.agents import recruitment
 
-        # Mock _call_boss_online to return role-grouped result
         fake_result = {
             "type": "individual",
             "summary": "Test",
@@ -93,7 +342,8 @@ class TestSearchCandidates:
                 }
             ],
         }
-        monkeypatch.setattr(recruitment, "_call_boss_online", AsyncMock(return_value=fake_result))
+        monkeypatch.setattr(recruitment.talent_market, "search", AsyncMock(return_value=fake_result))
+        monkeypatch.setattr(recruitment.talent_market, "_session", True)  # Make connected=True
 
         result = await recruitment.search_candidates.ainvoke({"job_description": "python dev"})
 
@@ -101,20 +351,19 @@ class TestSearchCandidates:
         assert len(result["roles"]) == 1
         assert len(result["roles"][0]["candidates"]) == 2
         assert result["roles"][0]["candidates"][0]["name"] == "Candidate 1"
-        # Should stash results
         assert "c1" in recruitment._last_search_results
 
+        # Cleanup
+        recruitment.talent_market._session = None
+
     @pytest.mark.asyncio
-    async def test_fallback_to_local_talents(self, monkeypatch):
+    async def test_fallback_to_local_talents_when_disconnected(self, monkeypatch):
         from onemancompany.agents import recruitment
         from onemancompany.core import config as config_mod
 
-        # Make boss online fail
-        monkeypatch.setattr(
-            recruitment, "_call_boss_online",
-            AsyncMock(side_effect=RuntimeError("offline")),
-        )
-        # Provide local talents as fallback
+        # Ensure disconnected
+        recruitment.talent_market._session = None
+
         monkeypatch.setattr(config_mod, "list_available_talents", lambda: [{"id": "local1"}])
         monkeypatch.setattr(
             config_mod, "load_talent_profile",
@@ -129,6 +378,34 @@ class TestSearchCandidates:
         assert len(result["roles"]) >= 1
         assert len(result["roles"][0]["candidates"]) >= 1
         assert result["roles"][0]["candidates"][0]["id"] == "local1"
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_talent_market_error(self, monkeypatch):
+        from onemancompany.agents import recruitment
+        from onemancompany.core import config as config_mod
+
+        # Connected but search fails
+        recruitment.talent_market._session = True  # Make connected=True
+        monkeypatch.setattr(
+            recruitment.talent_market, "search",
+            AsyncMock(side_effect=RuntimeError("network error")),
+        )
+
+        monkeypatch.setattr(config_mod, "list_available_talents", lambda: [{"id": "local1"}])
+        monkeypatch.setattr(
+            config_mod, "load_talent_profile",
+            lambda tid: {"id": "local1", "name": "Fallback Dev", "skills": [], "api_provider": "openrouter"},
+        )
+        monkeypatch.setattr(config_mod, "load_talent_skills", lambda tid: [])
+        monkeypatch.setattr(config_mod, "load_talent_tools", lambda tid: [])
+
+        result = await recruitment.search_candidates.ainvoke({"job_description": "any dev"})
+
+        assert isinstance(result, dict)
+        assert result["roles"][0]["candidates"][0]["id"] == "local1"
+
+        # Cleanup
+        recruitment.talent_market._session = None
 
 
 # ---------------------------------------------------------------------------
@@ -149,132 +426,3 @@ class TestPendingCandidates:
 
         # Cleanup
         pending_candidates.clear()
-
-
-# ---------------------------------------------------------------------------
-# start_boss_online / stop_boss_online / _call_boss_online
-# ---------------------------------------------------------------------------
-
-class TestBossOnlineLifecycle:
-    @pytest.mark.asyncio
-    async def test_start_boss_online(self, monkeypatch):
-        """Lines 108-129: start_boss_online initializes MCP session."""
-        from onemancompany.agents import recruitment
-        from contextlib import AsyncExitStack
-
-        mock_session = AsyncMock()
-        mock_session.initialize = AsyncMock()
-
-        mock_read = AsyncMock()
-        mock_write = AsyncMock()
-
-        call_count = 0
-
-        async def mock_enter(cm):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return (mock_read, mock_write)
-            return mock_session
-
-        mock_stack = AsyncMock()
-        mock_stack.enter_async_context = mock_enter
-        mock_stack.aclose = AsyncMock()
-
-        recruitment._boss_session = None
-
-        fake_config = {"talent_market": {"url": "http://test/sse", "api_key": "test-key"}}
-        with patch("onemancompany.core.config.load_app_config", return_value=fake_config):
-            with patch("contextlib.AsyncExitStack", return_value=mock_stack):
-                with patch("mcp.client.sse.sse_client", return_value=AsyncMock()):
-                    with patch.object(recruitment, "ClientSession", return_value=AsyncMock()):
-                        await recruitment.start_boss_online()
-
-        assert recruitment._boss_session is mock_session
-        mock_session.initialize.assert_awaited_once()
-        # Clean up
-        recruitment._boss_session = None
-
-    @pytest.mark.asyncio
-    async def test_stop_boss_online_with_session(self, monkeypatch):
-        """Lines 135-140: stop_boss_online tears down exit stack."""
-        from onemancompany.agents import recruitment
-
-        mock_stack = AsyncMock()
-        mock_stack.aclose = AsyncMock()
-
-        mock_session = MagicMock()
-        mock_session._exit_stack = mock_stack
-
-        recruitment._boss_session = mock_session
-
-        await recruitment.stop_boss_online()
-
-        assert recruitment._boss_session is None
-        mock_stack.aclose.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_stop_boss_online_no_session(self, monkeypatch):
-        """Lines 135-140: stop_boss_online with no active session is a noop."""
-        from onemancompany.agents import recruitment
-
-        recruitment._boss_session = None
-        await recruitment.stop_boss_online()
-        assert recruitment._boss_session is None
-
-    @pytest.mark.asyncio
-    async def test_stop_boss_online_no_exit_stack(self, monkeypatch):
-        """Lines 136-138: stop with session but no _exit_stack attr."""
-        from onemancompany.agents import recruitment
-
-        mock_session = MagicMock(spec=[])  # No attributes
-        recruitment._boss_session = mock_session
-
-        await recruitment.stop_boss_online()
-        assert recruitment._boss_session is None
-
-
-class TestCallBossOnline:
-    @pytest.mark.asyncio
-    async def test_call_boss_online_no_session(self):
-        """Lines 145-146: _call_boss_online raises when no session."""
-        from onemancompany.agents import recruitment
-
-        recruitment._boss_session = None
-        with pytest.raises(RuntimeError, match="not running"):
-            await recruitment._call_boss_online("python dev")
-
-    @pytest.mark.asyncio
-    async def test_call_boss_online_success(self):
-        """Lines 148-158: _call_boss_online parses results from session."""
-        from onemancompany.agents import recruitment
-        import json
-
-        mock_item1 = MagicMock()
-        mock_item1.text = json.dumps({
-            "type": "individual",
-            "summary": "Test",
-            "roles": [{"role": "Engineer", "description": "", "candidates": [{"id": "c1", "name": "Candidate 1"}]}],
-        })
-        mock_item2 = MagicMock()
-        mock_item2.text = "not valid json"
-
-        mock_result = MagicMock()
-        mock_result.content = [mock_item1, mock_item2]
-
-        mock_session = AsyncMock()
-        mock_session.call_tool = AsyncMock(return_value=mock_result)
-        recruitment._boss_session = mock_session
-
-        try:
-            result = await recruitment._call_boss_online("python dev", count=5)
-            assert isinstance(result, dict)
-            assert "roles" in result
-            assert len(result["roles"]) == 1
-            assert result["roles"][0]["candidates"][0]["id"] == "c1"
-            mock_session.call_tool.assert_awaited_once_with(
-                "search_candidates",
-                arguments={"job_description": "python dev", "count": 5},
-            )
-        finally:
-            recruitment._boss_session = None

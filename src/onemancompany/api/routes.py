@@ -1978,8 +1978,8 @@ async def update_employee_api_key(employee_id: str, body: dict) -> dict:
 def _get_talent_market_connected() -> bool:
     """Check if the cloud Talent Market MCP session is active."""
     try:
-        from onemancompany.agents.recruitment import _boss_session
-        return _boss_session is not None
+        from onemancompany.agents.recruitment import talent_market
+        return talent_market.connected
     except ImportError:
         return False
 
@@ -2048,11 +2048,11 @@ async def update_api_settings(body: dict) -> dict:
         APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding="utf-8")
         reload_app_config()
 
-        # Reconnect Boss Online with new API key
+        # Reconnect Talent Market with new API key
         try:
-            from onemancompany.agents.recruitment import stop_boss_online, start_boss_online
-            await stop_boss_online()
-            await start_boss_online()
+            from onemancompany.agents.recruitment import stop_talent_market, start_talent_market
+            await stop_talent_market()
+            await start_talent_market()
         except Exception as e:
             logger.error("Failed to reconnect Talent Market: {}", e)
 

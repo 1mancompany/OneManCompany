@@ -420,9 +420,9 @@ async def lifespan(app: FastAPI):
     from onemancompany.agents.cso_agent import CSOAgent
 
     # Start Talent Market MCP connection (skips gracefully if no API key)
-    from onemancompany.agents.recruitment import start_boss_online, stop_boss_online
+    from onemancompany.agents.recruitment import start_talent_market, stop_talent_market
     try:
-        await start_boss_online()
+        await start_talent_market()
     except Exception as e:
         logger.warning("Talent Market connection failed (configure in Settings): {}", e)
 
@@ -542,8 +542,8 @@ async def lifespan(app: FastAPI):
     if daemons_stopped:
         print(f"[shutdown] Stopped {daemons_stopped} Claude daemon(s)")
 
-    # Stop Boss Online MCP server
-    await stop_boss_online()
+    # Stop Talent Market MCP connection
+    await stop_talent_market()
 
     # Save ephemeral state before shutdown
     _save_ephemeral_state()
