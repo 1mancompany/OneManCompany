@@ -1,9 +1,0 @@
-id: opensandbox
-name: OpenSandbox Code Execution Environment
-description: >
-  Secure container-based sandbox for executing code, running shell commands,
-  and managing files in isolated environments. Supports Python, JS, shell.
-  Powered by alibaba/OpenSandbox.
-added_by: CEO
-sprite: desk_equipment
-allowed_users: []

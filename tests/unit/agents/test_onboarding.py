@@ -282,7 +282,7 @@ class TestExecuteHire:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "nonexistent_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         # Mock settings for connection.json
         mock_settings = MagicMock()
@@ -400,7 +400,7 @@ class TestExecuteHire:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         mock_settings = MagicMock()
         mock_settings.host = "localhost"
@@ -446,7 +446,7 @@ class TestExecuteHire:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         mock_settings = MagicMock()
         mock_settings.host = "localhost"
@@ -507,7 +507,7 @@ class TestExecuteHire:
             emp_base.mkdir(exist_ok=True)
             monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
             monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-            monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+            monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
             monkeypatch.setattr(onboarding, "settings", MagicMock(host="localhost", port=8000))
             monkeypatch.setattr("onemancompany.agents.onboarding.get_next_desk_for_department", lambda cs, d: (1, 1))
             monkeypatch.setattr("onemancompany.agents.onboarding.compute_layout", lambda cs: {})
@@ -537,7 +537,7 @@ class TestExecuteHire:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "settings", MagicMock(host="localhost", port=8000))
         monkeypatch.setattr("onemancompany.agents.onboarding.get_next_desk_for_department", lambda cs, d: (1, 1))
         monkeypatch.setattr("onemancompany.agents.onboarding.compute_layout", lambda cs: {})
@@ -578,7 +578,7 @@ class TestExecuteHire:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "settings", MagicMock(host="localhost", port=8000))
         monkeypatch.setattr("onemancompany.agents.onboarding.get_next_desk_for_department", lambda cs, d: (1, 1))
         monkeypatch.setattr("onemancompany.agents.onboarding.compute_layout", lambda cs: {})
@@ -807,7 +807,7 @@ class TestInstallTalentFunctions:
 
         talent_dir = tmp_path / "talents" / "test_talent"
         talent_dir.mkdir(parents=True)
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tmp_path / "tools")
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -821,7 +821,7 @@ class TestInstallTalentFunctions:
         manifest = talent_dir / "manifest.yaml"
         manifest.write_text("functions: []\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tmp_path / "tools")
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -835,7 +835,7 @@ class TestInstallTalentFunctions:
         manifest = talent_dir / "manifest.yaml"
         manifest.write_text("functions:\n  - name: ''\n    description: 'no name'\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tmp_path / "tools")
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -850,7 +850,7 @@ class TestInstallTalentFunctions:
         manifest.write_text("functions:\n  - name: missing_tool\n    description: 'tool'\n")
         # .py file doesn't exist
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tmp_path / "tools")
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -880,7 +880,7 @@ class TestInstallTalentFunctions:
 
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -922,7 +922,7 @@ class TestInstallTalentFunctions:
             "id: shared_tool\nname: shared_tool\nallowed_users:\n- '00001'\n"
         )
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -952,7 +952,7 @@ class TestInstallTalentFunctions:
 
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -984,7 +984,7 @@ class TestInstallTalentFunctions:
 
         tools_dir = tmp_path / "tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         result = onboarding.install_talent_functions(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
@@ -1008,7 +1008,7 @@ class TestInstallTalentAgentConfig:
 
         talent_dir = tmp_path / "talents" / "test_talent"
         talent_dir.mkdir(parents=True)
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         result = onboarding.install_talent_agent_config(tmp_path / "talents" / "test_talent", tmp_path / "emp", "00010")
         assert result is None
@@ -1023,7 +1023,7 @@ class TestInstallTalentAgentConfig:
         manifest.write_text("runner:\n  module: my_runner\n  class: MyRunner\n")
         (agent_dir / "my_runner.py").write_text("# runner code\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1043,7 +1043,7 @@ class TestInstallTalentAgentConfig:
         agent_dir.mkdir(parents=True)
         (agent_dir / "manifest.yaml").write_text("runner: {}\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         dst_agent = emp_dir / "agent"
@@ -1071,7 +1071,7 @@ class TestInstallTalentAgentConfig:
         )
         (agent_dir / "my_hooks.py").write_text("# hooks file with no functions\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1286,7 +1286,7 @@ class TestCopyTalentAssetsAdditional:
             "system_prompt_template: 'You are a senior engineer.'\n"
         )
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1305,7 +1305,7 @@ class TestCopyTalentAssetsAdditional:
         talent_dir.mkdir(parents=True)
         (talent_dir / "CLAUDE.md").write_text("# Claude instructions\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1326,7 +1326,7 @@ class TestCopyTalentAssetsAdditional:
         (tools_dir / "config.yaml").write_text("key: value")
         (tools_dir / "manifest.yaml").write_text("builtin_tools: []\ncustom_tools: []")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1354,7 +1354,7 @@ class TestCopyTalentAssetsAdditional:
         central_tool_dir.mkdir(parents=True)
         (central_tool_dir / "tool.yaml").write_text("id: my_custom_tool\nallowed_users: []\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tmp_path / "central_tools")
 
         emp_dir = tmp_path / "00010"
@@ -1392,7 +1392,7 @@ class TestCopyTalentAssetsAdditional:
 
         tools_dir = tmp_path / "central_tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         emp_dir = tmp_path / "00010"
@@ -1417,7 +1417,7 @@ class TestCopyTalentAssetsAdditional:
             "system_prompt_template: '   '\n"
         )
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1434,7 +1434,7 @@ class TestCopyTalentAssetsAdditional:
         talent_dir.mkdir(parents=True)
         (talent_dir / "CLAUDE.md").write_text("NEW content")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1464,7 +1464,7 @@ class TestExecuteHireAdditional:
         emp_base.mkdir()
         monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", emp_base)
         monkeypatch.setattr(config_mod, "PROFILE_TEMPLATE", tmp_path / "no_template.yaml")
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "settings", MagicMock(host="localhost", port=8000))
         monkeypatch.setattr("onemancompany.agents.onboarding.get_next_desk_for_department", lambda cs, d: (1, 1))
         monkeypatch.setattr("onemancompany.agents.onboarding.compute_layout", lambda cs: {})
@@ -1616,7 +1616,7 @@ class TestInstallTalentAgentConfigExceptions:
         )
         (agent_dir / "broken_runner.py").write_text("raise RuntimeError('broken')\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1639,7 +1639,7 @@ class TestInstallTalentAgentConfigExceptions:
         )
         (agent_dir / "broken_hooks.py").write_text("raise RuntimeError('broken hooks')\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1664,7 +1664,7 @@ class TestInstallTalentAgentConfigExceptions:
             "    pass\n"
         )
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1686,7 +1686,7 @@ class TestInstallTalentAgentConfigExceptions:
         )
         (agent_dir / "some_runner.py").write_text("# no class here\n")
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1709,7 +1709,7 @@ class TestInstallTalentAgentConfigExceptions:
             "def before(task): pass\ndef after(task): pass\n"
         )
 
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
 
         emp_dir = tmp_path / "emp"
         emp_dir.mkdir()
@@ -1749,7 +1749,7 @@ class TestCopyTalentAssetsManifestMerge:
 
         tools_dir = tmp_path / "central_tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         emp_dir = tmp_path / "00010"
@@ -1793,7 +1793,7 @@ class TestCopyTalentAssetsManifestMerge:
 
         tools_dir = tmp_path / "central_tools"
         tools_dir.mkdir()
-        monkeypatch.setattr(onboarding, "_LEGACY_TALENTS_DIR", tmp_path / "talents")
+        monkeypatch.setattr(onboarding, "_TALENTS_CLONE_DIR", tmp_path / "talents")
         monkeypatch.setattr(onboarding, "TOOLS_DIR", tools_dir)
 
         emp_dir = tmp_path / "00010"

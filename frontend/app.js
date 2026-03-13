@@ -1242,7 +1242,10 @@ class AppController {
         attachments,
       }),
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) return r.text().then(t => ({ error: `Server error (${r.status}): ${t}` }));
+        return r.json();
+      })
       .then(data => {
         typing.classList.add('hidden');
         if (data.error) {
@@ -1279,7 +1282,10 @@ class AppController {
         history: this._oneononeHistory,
       }),
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) return r.text().then(t => ({ error: `Server error (${r.status}): ${t}` }));
+        return r.json();
+      })
       .then(data => {
         if (data.error) {
           this._addOneononeSystemMsg(`Error: ${data.error}`);
@@ -2008,7 +2014,11 @@ class AppController {
       const empResp = await fetch(`/api/employee/${empId}`).then(r => r.json());
       const manifest = empResp.manifest;
 
-      if (manifest && manifest.settings && manifest.settings.sections) {
+      if (empResp.hosting === 'self') {
+        // Self-hosted (Claude Code) — show login status instead of model picker
+        container.innerHTML = '';
+        this._renderSelfHostedSection(empId, empResp, container);
+      } else if (manifest && manifest.settings && manifest.settings.sections) {
         container.innerHTML = '';
         for (const section of manifest.settings.sections) {
           const sectionEl = document.createElement('div');
@@ -2252,6 +2262,33 @@ class AppController {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save';
     }
+  }
+
+  _renderSelfHostedSection(empId, empData, container) {
+    const sessions = empData.sessions || [];
+    const hasActive = sessions.some(s => s.status === 'running');
+    const statusColor = hasActive ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
+    const statusText = hasActive ? 'Active' : (sessions.length > 0 ? 'Idle' : 'No sessions');
+
+    const section = document.createElement('div');
+    section.className = 'emp-detail-section-content';
+    section.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+    section.innerHTML = `
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Hosting</span>
+        <span style="font-size:6px;color:var(--pixel-cyan);">Self-hosted (Claude Code)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Auth</span>
+        <span style="font-size:6px;color:var(--text-main);">${this._escHtml(empData.auth_method || 'cli')}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Status</span>
+        <span style="font-size:6px;color:${statusColor};">${statusText}</span>
+      </div>
+      ${sessions.length > 0 ? `<div style="font-size:5px;color:var(--text-dim);margin-top:2px;">${sessions.length} session(s)</div>` : ''}
+    `;
+    container.appendChild(section);
   }
 
   _renderFallbackModelSection(empId, empData, container) {

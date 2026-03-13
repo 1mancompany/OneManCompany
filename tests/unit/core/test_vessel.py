@@ -473,20 +473,26 @@ class TestScheduleEntry:
         assert entry.node_id == "abc123"
         assert entry.tree_path == "/tmp/tree.yaml"
 
-    def test_schedule_node(self):
+    def _mgr_with_executor(self):
+        """Create an EmployeeManager with a dummy executor for 00100."""
         mgr = EmployeeManager()
+        mgr.executors["00100"] = MagicMock()
+        return mgr
+
+    def test_schedule_node(self):
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
         assert len(mgr._schedule["00100"]) == 1
         assert mgr._schedule["00100"][0].node_id == "node1"
 
     def test_schedule_multiple_nodes(self):
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
         mgr.schedule_node("00100", "node2", "/tmp/tree.yaml")
         assert len(mgr._schedule["00100"]) == 2
 
     def test_unschedule(self):
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
         mgr.schedule_node("00100", "node2", "/tmp/tree.yaml")
         mgr.unschedule("00100", "node1")
@@ -494,7 +500,7 @@ class TestScheduleEntry:
         assert mgr._schedule["00100"][0].node_id == "node2"
 
     def test_unschedule_nonexistent(self):
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", "node1", "/tmp/tree.yaml")
         mgr.unschedule("00100", "nonexistent")
         assert len(mgr._schedule["00100"]) == 1
@@ -509,7 +515,7 @@ class TestScheduleEntry:
         tree_path = tmp_path / "task_tree.yaml"
         tree.save(tree_path)
 
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", child.id, str(tree_path))
         entry = mgr.get_next_scheduled("00100")
         assert entry is not None
@@ -526,7 +532,7 @@ class TestScheduleEntry:
         tree_path = tmp_path / "task_tree.yaml"
         tree.save(tree_path)
 
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", child.id, str(tree_path))
         entry = mgr.get_next_scheduled("00100")
         assert entry is None
@@ -546,7 +552,7 @@ class TestScheduleEntry:
         tree_path = tmp_path / "task_tree.yaml"
         tree.save(tree_path)
 
-        mgr = EmployeeManager()
+        mgr = self._mgr_with_executor()
         mgr.schedule_node("00100", dependent.id, str(tree_path))
         entry = mgr.get_next_scheduled("00100")
         assert entry is None  # dep not resolved yet

@@ -42,9 +42,10 @@ SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
-# Talent market — package resource, stays source-relative
+# Talent market — built-in talents (source-relative), cloned talents (runtime)
 TALENT_MARKET_DIR = Path(__file__).parent.parent / "talent_market"
-TALENTS_DIR = TALENT_MARKET_DIR / "talents"
+TALENTS_DIR = TALENT_MARKET_DIR / "talents"  # built-in (general-assistant, etc.)
+TALENTS_RUNTIME_DIR = DATA_ROOT / "talent_market" / "talents"  # cloned from market
 
 # ---------------------------------------------------------------------------
 # Founding member IDs (permanent employee numbers)
@@ -683,13 +684,15 @@ def save_custom_settings(employee_id: str, updates: dict) -> dict:
 def load_talent_profile(talent_id: str) -> dict:
     """Load a talent profile from talents/{id}/profile.yaml.
 
+    Searches runtime dir (cloned talents) first, then built-in src dir.
     Returns the parsed YAML as a dict, or empty dict if not found.
     """
-    profile_path = TALENTS_DIR / talent_id / "profile.yaml"
-    if not profile_path.exists():
-        return {}
-    with open(profile_path) as f:
-        return yaml.safe_load(f) or {}
+    for base in (TALENTS_RUNTIME_DIR, TALENTS_DIR):
+        profile_path = base / talent_id / "profile.yaml"
+        if profile_path.exists():
+            with open(profile_path) as f:
+                return yaml.safe_load(f) or {}
+    return {}
 
 
 

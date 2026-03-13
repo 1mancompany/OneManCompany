@@ -522,35 +522,62 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
 
 # Legacy fallback: local talent_market package (will be removed once all
 # hiring flows fetch talent data via Talent Market API/MCP)
-_LEGACY_TALENTS_DIR = Path(__file__).resolve().parent.parent / "talent_market" / "talents"
+from onemancompany.core.config import TALENTS_RUNTIME_DIR as _TALENTS_CLONE_DIR, TALENTS_DIR as _BUILTIN_TALENTS_DIR
 
 
 def resolve_talent_dir(talent_id: str) -> Path | None:
     """Resolve a talent_id to a filesystem path.
 
-    Currently falls back to the local talent_market/talents/ directory.
-    In the future, this will clone from the Talent Market registry.
+    Searches talents/{id}/ first, then talents/{repo}/{id}/ for
+    multi-talent repos cloned as a single directory.
     """
     if not talent_id:
         return None
-    candidate = _LEGACY_TALENTS_DIR / talent_id
-    if candidate.exists():
-        return candidate
+    # Search runtime (cloned) first, then built-in
+    for base in (_TALENTS_CLONE_DIR, _BUILTIN_TALENTS_DIR):
+        candidate = base / talent_id
+        if candidate.exists():
+            return candidate
     return None
 
 
 async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
-    """Clone a talent repo into talent_market/talents/{talent_id}/.
+    """Clone a talent repo and flatten sub-talent directories into talents/.
 
-    If the directory already exists, does a git pull instead.
-    Returns the local talent directory path.
+    A repo may contain multiple talents as subdirectories (each with profile.yaml).
+    After cloning, those subdirectories are moved up to talents/{sub_id}/ and the
+    repo wrapper is removed.
+
+    Returns the local talent directory path for the requested talent_id.
     """
-    target = _LEGACY_TALENTS_DIR / talent_id
-    if target.exists():
-        subprocess.run(["git", "-C", str(target), "pull"], check=True)
-    else:
-        subprocess.run(["git", "clone", repo_url, str(target)], check=True)
-    return target
+    import tempfile
+
+    _TALENTS_CLONE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Clone into a temp dir first to inspect structure
+    tmp_clone = Path(tempfile.mkdtemp(prefix="talent_clone_"))
+    try:
+        subprocess.run(["git", "clone", repo_url, str(tmp_clone)], check=True)
+
+        # Check if repo itself is a single talent (has profile.yaml at root)
+        if (tmp_clone / "profile.yaml").exists():
+            dest = _TALENTS_CLONE_DIR / talent_id
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(str(tmp_clone), str(dest), ignore=shutil.ignore_patterns(".git"))
+        else:
+            # Multi-talent repo: each subdir with profile.yaml is a talent
+            for sub in tmp_clone.iterdir():
+                if sub.is_dir() and (sub / "profile.yaml").exists():
+                    dest = _TALENTS_CLONE_DIR / sub.name
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(str(sub), str(dest), ignore=shutil.ignore_patterns(".git"))
+    finally:
+        shutil.rmtree(tmp_clone, ignore_errors=True)
+
+    resolved = _TALENTS_CLONE_DIR / talent_id
+    return resolved if resolved.exists() else _TALENTS_CLONE_DIR
 
 
 # ---------------------------------------------------------------------------
