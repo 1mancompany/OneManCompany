@@ -110,7 +110,50 @@ You're not just using AI — you're leading a continuously growing, dynamically 
 
 ## Features
 
-🌳 **Task Tree** — Hierarchical breakdown with dependency tracking · 🔍 **CEO Review** — Nothing ships without your approval · 🤝 **Multi-Agent Meetings** — Employees align autonomously when needed · 📊 **Performance Reviews** — Evaluate, PIP, promote, or fire · 🧠 **1-on-1 Coaching** — Guidance that permanently shapes behavior · 🏪 **Talent Market** — Hire community-verified AI employees in one click · ⚡ **3 Execution Modes** — Company Hosted, Claude Code, or OpenClaw · 🔧 **Modular Skills** — Reusable building blocks per employee · 💰 **Cost Tracking** — Per-task token usage and budget visibility · 🔄 **Self-Evolution** — The more you use it, the smarter your team gets
+<table>
+  <tr>
+    <td width="33%">
+      <h3>🌳 Task Tree</h3>
+      Hierarchical task breakdown with dependency tracking. Complex projects become manageable subtask graphs.
+    </td>
+    <td width="33%">
+      <h3>🔍 CEO Review</h3>
+      You approve at every level. Nothing ships without your sign-off — quality gates at each stage.
+    </td>
+    <td width="33%">
+      <h3>🤝 Multi-Agent Meetings</h3>
+      Employees pull each other into meetings to align autonomously. You can sit in or let them figure it out.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <h3>📊 Performance Reviews</h3>
+      Evaluate, PIP, promote, or fire underperformers. Your company, your standards.
+    </td>
+    <td>
+      <h3>🧠 1-on-1 Coaching</h3>
+      Give guidance that permanently shapes employee behavior. They actually remember and improve.
+    </td>
+    <td>
+      <h3>🏪 Talent Market</h3>
+      Hire community-verified AI employees in one click. Game devs, designers, full-stack engineers — ready to work.
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <h3>⚡ 3 Execution Modes</h3>
+      Company Hosted Agent, Claude Code, or OpenClaw. Pick the runtime that fits each employee.
+    </td>
+    <td>
+      <h3>🔧 Modular Skills</h3>
+      Each employee's abilities are reusable building blocks. Mix and match skills across your team.
+    </td>
+    <td>
+      <h3>🔄 Self-Evolution</h3>
+      The more you use it, the smarter your team gets. PUA not enough? Next one will be even better.
+    </td>
+  </tr>
+</table>
 
 ---
 
