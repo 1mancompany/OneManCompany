@@ -366,7 +366,7 @@ If you use OneManCompany in your research or project, please cite it:
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
   </a>
-  &nbsp;—&nbsp;Community-verified AI employee marketplace
+  &nbsp;—&nbsp;Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
 </p>
 
 <p>
