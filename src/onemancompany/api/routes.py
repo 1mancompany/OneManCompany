@@ -6,6 +6,7 @@ import asyncio
 import traceback
 import uuid as _uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -30,6 +31,10 @@ from onemancompany.agents.recruitment import HireRequest, InterviewRequest, Inte
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee as _load_emp, load_all_employees as _load_all
+from onemancompany.core.ceo_conversation import (
+    ConversationSession, get_session, register_session, unregister_session,
+    load_messages, append_message,
+)
 
 router = APIRouter()
 
@@ -5060,3 +5065,188 @@ async def get_activity_log():
     from onemancompany.core.store import load_activity_log
     log = load_activity_log()
     return log[-50:]
+
+
+# ===== CEO Inbox =====
+
+
+def _scan_ceo_inbox_nodes() -> list[dict]:
+    """Scan all active task trees for ceo_request nodes that aren't terminal."""
+    from pathlib import Path as _Path
+
+    results = []
+    projects_dir = COMPANY_DIR / "projects"
+    if not projects_dir.exists():
+        return results
+
+    for proj_dir in projects_dir.iterdir():
+        tree_path = proj_dir / "task_tree.yaml"
+        if not tree_path.exists():
+            continue
+        from onemancompany.core.task_tree import TaskTree
+        tree = TaskTree.load(tree_path)
+        for node in tree._nodes.values():
+            if node.node_type != "ceo_request":
+                continue
+            if TaskPhase(node.status) in (TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.CANCELLED):
+                continue
+            # Find dispatching employee (parent)
+            from_id = ""
+            from_nickname = ""
+            parent = tree.get_node(node.parent_id) if node.parent_id else None
+            if parent:
+                from_id = parent.employee_id
+                emp = _load_emp(from_id)
+                from_nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
+            results.append({
+                "project_id": node.project_id,
+                "node_id": node.id,
+                "description": node.description,
+                "from_employee_id": from_id,
+                "from_nickname": from_nickname,
+                "status": node.status,
+                "created_at": node.created_at,
+            })
+    return results
+
+
+def _find_ceo_node(node_id: str):
+    """Find a ceo_request node across all project trees.
+
+    Returns (node, tree, project_dir) or raises HTTPException(404).
+    """
+    from onemancompany.core.task_tree import TaskTree
+
+    projects_dir = COMPANY_DIR / "projects"
+    if projects_dir.exists():
+        for proj_dir in projects_dir.iterdir():
+            tree_path = proj_dir / "task_tree.yaml"
+            if not tree_path.exists():
+                continue
+            tree = TaskTree.load(tree_path)
+            node = tree.get_node(node_id)
+            if node and node.node_type == "ceo_request":
+                return node, tree, str(proj_dir)
+    raise HTTPException(status_code=404, detail=f"CEO request node {node_id} not found")
+
+
+@router.get("/api/ceo/inbox")
+async def get_ceo_inbox():
+    """List all active CEO request nodes."""
+    items = _scan_ceo_inbox_nodes()
+    return {"items": items}
+
+
+@router.post("/api/ceo/inbox/{node_id}/open")
+async def open_ceo_conversation(node_id: str):
+    """Open a conversation with the dispatching employee."""
+    from onemancompany.core.task_lifecycle import transition
+
+    node, tree, project_dir = _find_ceo_node(node_id)
+
+    # Check if session already exists (reopen)
+    session = get_session(node_id)
+    if session:
+        messages = load_messages(Path(project_dir) / "conversations", node_id)
+        return {"status": "resumed", "node_id": node_id, "messages": messages}
+
+    # Transition to processing
+    if node.status == TaskPhase.PENDING.value:
+        transition(node.id, TaskPhase.PENDING, TaskPhase.PROCESSING)
+        node.status = TaskPhase.PROCESSING.value
+        tree.save(Path(project_dir) / "task_tree.yaml")
+
+    # Find the dispatching employee (parent node's employee)
+    parent = tree.get_node(node.parent_id) if node.parent_id else None
+    employee_id = parent.employee_id if parent else ""
+
+    # Resolve nickname
+    emp = _load_emp(employee_id) if employee_id else None
+    nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
+
+    # Create session
+    session = ConversationSession(
+        node_id=node_id,
+        employee_id=employee_id,
+        project_dir=project_dir,
+        broadcast_fn=ws_manager.broadcast,
+    )
+    register_session(session)
+
+    # Start conversation loop as background task
+    asyncio.create_task(_run_conversation_loop(session, node, tree, project_dir))
+
+    messages = load_messages(Path(project_dir) / "conversations", node_id)
+    return {
+        "status": "opened",
+        "node_id": node_id,
+        "messages": messages,
+        "description": node.description,
+        "employee_id": employee_id,
+        "employee_nickname": nickname,
+    }
+
+
+async def _run_conversation_loop(session, node, tree, project_dir):
+    """Run conversation loop and handle completion."""
+    from onemancompany.core.task_lifecycle import transition
+    from onemancompany.core.vessel import _trigger_dep_resolution
+
+    try:
+        summary = await session.run()
+        node.result = summary
+        transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
+        node.status = TaskPhase.COMPLETED.value
+        transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
+        node.status = TaskPhase.ACCEPTED.value
+        tree.save(Path(project_dir) / "task_tree.yaml")
+        _trigger_dep_resolution(project_dir, tree, node)
+    except Exception as e:
+        logger.error("Conversation loop error for {}: {}", session.node_id, e)
+    finally:
+        unregister_session(session.node_id)
+        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+
+
+@router.post("/api/ceo/inbox/{node_id}/message")
+async def send_ceo_message(node_id: str, body: dict):
+    """CEO sends a message in an open conversation."""
+    session = get_session(node_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active conversation for this node")
+
+    text = body.get("text", "")
+    if not text:
+        raise HTTPException(status_code=400, detail="Message text required")
+
+    msg = await session.send(text)
+    return {"status": "sent", "message": msg}
+
+
+@router.post("/api/ceo/inbox/{node_id}/upload")
+async def upload_ceo_attachment(node_id: str, file: UploadFile):
+    """CEO uploads a file attachment."""
+    session = get_session(node_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active conversation")
+
+    workspace = Path(session.project_dir) / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    dest = workspace / file.filename
+    content = await file.read()
+    dest.write_bytes(content)
+
+    attachment = {"filename": file.filename, "path": str(dest)}
+    msg = await session.send(f"[Attached file: {file.filename}]", attachments=[attachment])
+    return {"status": "uploaded", "message": msg}
+
+
+@router.post("/api/ceo/inbox/{node_id}/complete")
+async def complete_ceo_conversation(node_id: str):
+    """CEO marks conversation as complete."""
+    session = get_session(node_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active conversation")
+
+    await session.complete()
+    return {"status": "completing", "node_id": node_id}
