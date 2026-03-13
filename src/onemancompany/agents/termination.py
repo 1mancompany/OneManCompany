@@ -86,32 +86,38 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
     await _store.save_ex_employee(employee_id, emp_data)
     move_employee_to_ex(employee_id)
 
-    # Recompute layout (zones may shrink)
-    compute_layout(company_state)
+    # Post-fire cleanup — employee is already gone, so wrap to ensure we return success
+    try:
+        compute_layout(company_state)
+    except Exception as e:
+        logger.warning("compute_layout after fire failed: {}", e)
 
-    await _store.append_activity({
-        "type": "employee_fired",
-        "name": name,
-        "nickname": nickname,
-        "role": role,
-        "reason": reason,
-    })
-
-    await event_bus.publish(CompanyEvent(
-        type="employee_fired",
-        payload={
-            "id": employee_id,
+    try:
+        await _store.append_activity({
+            "type": "employee_fired",
             "name": name,
             "nickname": nickname,
             "role": role,
             "reason": reason,
-        },
-        agent="HR",
-    ))
+        })
 
-    await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
-    )
+        await event_bus.publish(CompanyEvent(
+            type="employee_fired",
+            payload={
+                "id": employee_id,
+                "name": name,
+                "nickname": nickname,
+                "role": role,
+                "reason": reason,
+            },
+            agent="HR",
+        ))
+
+        await event_bus.publish(
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        )
+    except Exception as e:
+        logger.warning("Post-fire event publishing failed for {}: {}", employee_id, e)
 
     logger.info("Fired employee %s (%s) — reason: %s", employee_id, name, reason)
 

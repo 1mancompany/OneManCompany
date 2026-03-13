@@ -1491,13 +1491,17 @@ class AppController {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: reason || 'CEO decision' }),
     })
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
       .then(data => {
         if (data.error) {
           alert(`Cannot dismiss: ${data.error}`);
         } else {
           this.closeEmployeeDetail();
           this.addLog(`Dismissed ${data.name} (${data.nickname}) — ${data.reason}`);
+          this.fetchState();
         }
       })
       .catch(err => {

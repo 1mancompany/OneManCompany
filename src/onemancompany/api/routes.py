@@ -1405,9 +1405,11 @@ async def fire_employee(employee_id: str, body: dict) -> dict:
     from onemancompany.agents.termination import execute_fire
 
     reason = body.get("reason", "CEO decision")
-    result = await execute_fire(employee_id, reason)
-    if "error" in result:
-        return result
+    try:
+        result = await execute_fire(employee_id, reason)
+    except Exception as e:
+        logger.error("fire_employee failed for {}: {}", employee_id, e)
+        return {"error": str(e)}
     return result
 
 
