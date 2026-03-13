@@ -672,6 +672,12 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_watcher)
         monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_watcher)
 
+        # Mock restore_persisted_tasks to avoid scanning real project files
+        monkeypatch.setattr(
+            "onemancompany.core.vessel.EmployeeManager.restore_persisted_tasks",
+            MagicMock(return_value=0),
+        )
+
         # Mock shutdown dependencies
         mock_cleanup_sandbox = AsyncMock()
         mock_stop_sandbox = MagicMock()

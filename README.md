@@ -1,22 +1,24 @@
-# OneManCompany
+# Memento-OneManCompany
 
 **The AI Operating System for One-Person Companies**
 
 > Others use AI to write code. You use AI to run a company.
 >
-> If Linux is the OS for servers, OneManCompany is the OS for companies.
+> If Linux is the OS for servers, Memento-OneManCompany is the OS for companies.
 
-OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
+Memento-OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser. You are the CEO — the only human. Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
 Yes, your AI employees have performance reviews. Yes, they get nervous.
+
+Tired of auto-generated AI agents that confidently produce nonsense? Memento-OneManCompany ships with a **Talent Market** — community-verified AI employees that actually deliver, not hallucination machines.
 
 [中文文档](README_zh.md)
 
 ---
 
-## Why OneManCompany?
+## Why Memento-OneManCompany?
 
-Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. OneManCompany gives you **an entire organization.**
+Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. Memento-OneManCompany gives you **an entire organization.**
 
 - **Not a chatbot** — a company with org structure, hiring, task management, performance reviews, and knowledge management
 - **Not a demo** — delivers production-grade output (games, comics, apps — not "here's a draft, good luck")
@@ -68,11 +70,23 @@ Something missing? [Open an issue](https://github.com/CarbonKite/OneManCompany/i
 
 ### Why It's an OS, Not Just a Company
 
-OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
+Memento-OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
 
 1. **Company Direction** — Your vision statement is injected into every employee's reasoning. Change the direction, the entire company pivots.
 2. **Company Culture** — Behavioral principles that govern every employee. Same Talents, same Vessels, completely different company personality.
 3. **Vessel + Talent** — Modular architecture that makes everything swappable. Same OS, same founding team, different Talents from the marketplace.
+
+---
+
+## Features
+
+
+
+
+|                                                                      |                                                               |
+| -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Task Tree** — Hierarchical task breakdown with dependency tracking | **Task Management** — CEO reviews and approves at every level |
+
 
 ---
 
@@ -118,13 +132,68 @@ Think of it like **EVA or Gundam** — a powerful mech that comes alive when a p
 
 ## Quick Start
 
-### One-Line Launch (Recommended)
+### Prerequisites
+
+You only need **Node.js 16+** and **Git**. Everything else (UV, Python 3.12, dependencies) is installed automatically.
+
+<details>
+<summary><b>macOS</b></summary>
 
 ```bash
-npx onemancompany
+# Install Git (if not already installed)
+xcode-select --install
+
+# Launch (auto-installs UV + Python 3.12 + dependencies)
+npx @carbonkite/onemancompany
 ```
 
-First run walks you through setup (API keys, Talent Market config). Then open `http://localhost:8000`. Congratulations, you're a CEO now.
+</details>
+
+<details>
+<summary><b>Windows</b></summary>
+
+```powershell
+# Install Git: https://git-scm.com/download/win
+# Install Node.js: https://nodejs.org/
+
+# Launch (auto-installs UV + Python 3.12 + dependencies)
+npx @carbonkite/onemancompany
+```
+
+</details>
+
+<details>
+<summary><b>Linux (Ubuntu/Debian)</b></summary>
+
+```bash
+# Install prerequisites
+sudo apt update && sudo apt install -y git nodejs npm
+
+# Launch (auto-installs UV + Python 3.12 + dependencies)
+npx @carbonkite/onemancompany
+```
+
+</details>
+
+First run automatically:
+1. Installs **UV** (fast Python package manager)
+2. Installs **Python 3.12** via UV (isolated, no system changes)
+3. Clones the repository
+4. Creates venv and installs dependencies
+5. Launches the setup wizard (API keys, Talent Market config)
+
+Then open `http://localhost:8000`. Congratulations, you're a CEO now.
+
+### Start Again Later
+
+```bash
+# Option 1: npx again (auto-updates if there's a new version)
+npx @carbonkite/onemancompany
+
+# Option 2: run directly from the cloned directory
+cd OneManCompany
+bash start.sh
+```
 
 ### Manual Install
 
@@ -133,11 +202,13 @@ First run walks you through setup (API keys, Talent Market config). Then open `h
 git clone https://github.com/CarbonKite/OneManCompany.git
 cd OneManCompany
 
-# 2. Start (first run enters setup wizard, then auto-starts)
+# 2. Start (auto-installs UV + Python if needed, then runs setup wizard on first launch)
 bash start.sh
 
 # 3. Open browser
-open http://localhost:8000
+open http://localhost:8000    # macOS
+# xdg-open http://localhost:8000  # Linux
+# start http://localhost:8000     # Windows
 ```
 
 ### Restart / Reconfigure
@@ -154,7 +225,6 @@ bash start.sh init
 ```
 
 ### Configuration Files
-
 
 | File                         | Purpose                                |
 | ---------------------------- | -------------------------------------- |
@@ -212,12 +282,12 @@ See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ## Citation
 
-If you use OneManCompany in your research or project, please cite it:
+If you use Memento-OneManCompany in your research or project, please cite it:
 
 ```bibtex
 @software{onemancompany2025,
-  title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang,  Weilin Luo},
+  title = {Memento-OneManCompany: The AI Operating System for One-Person Companies},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
   url = {https://github.com/CarbonKite/OneManCompany},
   year = {2025},
   license = {Apache-2.0}

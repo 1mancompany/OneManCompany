@@ -13,22 +13,35 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PYTHON="${PYTHON:-python3}"
-
 # ---------- helpers ----------
 info()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 warn()  { printf '\033[1;33m⚠ %s\033[0m\n' "$*"; }
 error() { printf '\033[1;31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 
-ensure_venv() {
-  if [ ! -d .venv ]; then
-    info "Creating Python virtual environment..."
-    $PYTHON -m venv .venv
+# ---------- UV detection ----------
+ensure_uv() {
+  if command -v uv &>/dev/null; then
+    return
   fi
+  info "Installing UV (fast Python package manager)..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  command -v uv &>/dev/null || error "UV installed but not in PATH. Restart your terminal and try again."
+}
+
+# ---------- venv setup ----------
+ensure_venv() {
+  ensure_uv
+
+  if [ ! -d .venv ]; then
+    info "Creating Python virtual environment (via UV)..."
+    uv venv --python 3.12
+  fi
+
   # shellcheck disable=SC1091
   source .venv/bin/activate
   info "Installing dependencies..."
-  pip install -q -e . 2>/dev/null
+  uv pip install -e . -q
 }
 
 run_init() {

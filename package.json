@@ -1,9 +1,9 @@
 {
-  "name": "onemancompany",
-  "version": "0.2.77",
+  "name": "@carbonkite/onemancompany",
+  "version": "0.2.79",
   "description": "The AI Operating System for One-Person Companies",
   "bin": {
-    "onemancompany": "./bin/cli.js"
+    "onemancompany": "bin/cli.js"
   },
   "files": [
     "bin/cli.js"
@@ -20,7 +20,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/CarbonKite/OneManCompany"
+    "url": "git+https://github.com/CarbonKite/OneManCompany.git"
   },
   "homepage": "https://github.com/CarbonKite/OneManCompany",
   "bugs": {
