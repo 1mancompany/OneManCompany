@@ -613,7 +613,7 @@ const SFX = (() => {
     return ctx;
   };
 
-  function play(freq, type, duration, vol = 0.08) {
+  function play(freq, type, duration, vol = 0.15) {
     const c = getCtx();
     const osc = c.createOscillator();
     const gain = c.createGain();
@@ -814,10 +814,18 @@ musicBtn.addEventListener('click', () => {
 });
 document.body.appendChild(musicBtn);
 
-// Boot sound on first interaction
+// Auto-start music + boot sound on first interaction (browser requires user gesture)
 let booted = false;
 document.addEventListener('click', () => {
-  if (!booted) { booted = true; SFX.boot(); }
+  if (!booted) {
+    booted = true;
+    SFX.boot();
+    if (!BGM.isPlaying()) {
+      BGM.start();
+      musicBtn.innerHTML = '♪ ON';
+      musicBtn.style.color = 'var(--green)';
+    }
+  }
 }, { once: true });
 </script>
 
