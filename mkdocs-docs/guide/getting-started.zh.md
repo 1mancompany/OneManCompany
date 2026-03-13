@@ -67,12 +67,10 @@ npx @carbonkite/onemancompany
 ## 再次启动
 
 ```bash
-# 方式一：npx（自动更新）
 npx @carbonkite/onemancompany
-
-# 方式二：从已克隆的目录启动
-cd OneManCompany && bash start.sh
 ```
+
+有新版本会自动更新。如果服务已在运行，会提示是否停止并重新配置。
 
 ## 重新配置
 
@@ -83,6 +81,14 @@ npx @carbonkite/onemancompany init
 # 自定义端口
 npx @carbonkite/onemancompany --port 8080
 ```
+
+## 卸载
+
+```bash
+npx @carbonkite/onemancompany uninstall
+```
+
+停止正在运行的服务，并删除整个安装目录。需要确认后才会执行。
 
 ## 配置文件
 

@@ -67,12 +67,10 @@ Watch what happens:
 ## Starting Again
 
 ```bash
-# Option 1: npx (auto-updates)
 npx @carbonkite/onemancompany
-
-# Option 2: from cloned directory
-cd OneManCompany && bash start.sh
 ```
+
+If there's a new version, it updates automatically. If the service is already running, you'll be asked whether to stop and re-setup.
 
 ## Reconfiguration
 
@@ -83,6 +81,14 @@ npx @carbonkite/onemancompany init
 # Custom port
 npx @carbonkite/onemancompany --port 8080
 ```
+
+## Uninstall
+
+```bash
+npx @carbonkite/onemancompany uninstall
+```
+
+Stops the running service and deletes the entire installation directory. Requires confirmation.
 
 ## Configuration Files
 
