@@ -385,7 +385,7 @@ npx @carbonkite/onemancompany uninstall
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
   </a>
-  &nbsp;—&nbsp;社区验证的 AI 员工市场
+  &nbsp;—&nbsp;社区验证的 AI 员工市场（养🦞的人还不知道🦞养熟怎么用？放到市场上来卖吧）
 </p>
 
 <p>
