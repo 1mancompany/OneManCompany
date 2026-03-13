@@ -1,60 +1,56 @@
-# Memento-OneManCompany
+<p align="center">
+  <img src="img/talent-market-icon.png" alt="OneManCompany" height="64" />
+</p>
 
-**AI 一人公司操作系统**
+<h1 align="center">OneManCompany</h1>
+
+<p align="center"><b>AI 一人公司操作系统</b></p>
+
+<p align="center">
+  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://carbonkites.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/CarbonKite/OneManCompany/issues">Issues</a>
+</p>
 
 > 别人用 AI 写代码，你用 AI 开公司。
 >
-> 如果 Linux 是服务器的操作系统，Memento-OneManCompany 就是公司的操作系统。
+> 如果 Linux 是服务器的操作系统，OneManCompany 就是公司的操作系统。
 
-Memento-OneManCompany 是一个开源的 AI 操作系统，让任何人都能在浏览器里组建并运营一整家 AI 驱动的公司。你是 CEO——唯一的人类。其余所有人——HR、COO、工程师、设计师——都是能独立思考、协作和交付的 AI 员工。
+OneManCompany 是一个开源的 AI 操作系统，让任何人都能在浏览器里组建并运营一整家 AI 驱动的公司。你是 CEO——唯一的人类。其余所有人——HR、COO、工程师、设计师——都是能独立思考、协作和交付的 AI 员工。
 
 没错，你的 AI 员工有绩效考核。没错，他们会紧张。
 
-受够了自动生成的 AI Agent 一本正经地胡说八道？Memento-OneManCompany 配套 **Talent Market**——社区验证过的真正能干活的 AI 员工，不是随机拼凑的幻觉机器。
-
-[English](README.md)
-
-<p align="center">
-  <a href="https://carbonkites.com">
-    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
-    <b>Talent Market</b>
-  </a>
-</p>
+受够了自动生成的 AI Agent 一本正经地胡说八道？OneManCompany 配套 **Talent Market**——社区验证过的真正能干活的 AI 员工，不是随机拼凑的幻觉机器。
 
 ---
 
-## 为什么是 Memento-OneManCompany？
+## 为什么是 OneManCompany？
 
-
-今天的 AI 工具帮你完成单点任务——写邮件、生成图片、修 Bug。挺可爱的。Memento-OneManCompany 给你**一整个组织。**
+今天的 AI 工具帮你完成单点任务——写邮件、生成图片、修 Bug。挺可爱的。OneManCompany 给你**一整个组织。**
 
 - **不是聊天机器人** —— 是一家有组织架构、招聘、任务管理、绩效考核、知识管理的完整公司
 - **不是玩具 Demo** —— 交付产品级成果（游戏、漫画、应用——不是"这是初稿，您自己看着改吧"）
 - **不是开发框架** —— 是一个开箱即用的平台，浏览器打开就能用，不需要写代码
 
-
-
 ### 你可以用它构建什么
 
-| AI 公司 | 交付物 |
-|---------|--------|
-| 🎮 AI 游戏工作室 | 产品级游戏，包含完整的试玩和迭代流程 |
-| 📖 AI 漫剧工作室 | 连载漫画故事，画风和叙事保持一致 |
-| 💻 AI 开发公司 | 端到端交付软件产品 |
-| 🎨 AI 内容工作室 | 营销活动、品牌内容、多媒体制作 |
-| 🔬 AI 研究实验室 | 文献调研、数据分析、研究报告 |
+| AI 公司          | 交付物                                 |
+| ---------------- | -------------------------------------- |
+| 🎮 AI 游戏工作室 | 产品级游戏，包含完整的试玩和迭代流程   |
+| 📖 AI 漫剧工作室 | 连载漫画故事，画风和叙事保持一致       |
+| 💻 AI 开发公司   | 端到端交付软件产品                     |
+| 🎨 AI 内容工作室 | 营销活动、品牌内容、多媒体制作         |
+| 🔬 AI 研究实验室 | 文献调研、数据分析、研究报告           |
 
 这些不是单点 Demo——每家 AI 公司都通过一个完整的 AI 团队协作，产出**产品级交付物**。
 
 ### 我们有什么不同
 
-| | 典型 Agent 编排工具 | OneManCompany |
-|---|---|---|
-| **Agent 架构** | 扁平的任务执行器，自带 Agent | Vessel + Talent 分离——深度模块化架构，6 类 Harness 协议，3 层定制能力 |
-| **Agent 从哪来？** | 你自己找、自己配 | **创始高管开箱自带**。其他员工由 HR 从社区验证的**人才市场**招聘 |
-| **执行模型** | 心跳轮询 / 循环 | 事件驱动，零空转，按需调度 |
-| **组织管理** | 简单的任务队列 | 完全参照世界五百强企业架构 |
-| **交付成果** | 单点任务输出 | 产品级多轮迭代项目交付，带质量关卡 |
+|                    | 典型 Agent 编排工具        | OneManCompany                                                                    |
+| ------------------ | -------------------------- | -------------------------------------------------------------------------------- |
+| **Agent 架构**     | 扁平的任务执行器，自带 Agent | Vessel + Talent 分离——深度模块化架构，6 类 Harness 协议，3 层定制能力             |
+| **Agent 从哪来？** | 你自己找、自己配           | **创始高管开箱自带**。其他员工由 HR 从社区验证的**人才市场**招聘                  |
+| **执行模型**       | 心跳轮询 / 循环            | 事件驱动，零空转，按需调度                                                       |
+| **组织管理**       | 简单的任务队列             | 完全参照世界五百强企业架构                                                       |
+| **交付成果**       | 单点任务输出               | 产品级多轮迭代项目交付，带质量关卡                                               |
 
 ### 完全参照真实企业架构
 
@@ -74,7 +70,7 @@ Memento-OneManCompany 是一个开源的 AI 操作系统，让任何人都能在
 
 ### 为什么是"操作系统"
 
-Memento-OneManCompany 不是造**一家**公司——它让你造**任何一家**公司：
+OneManCompany 不是造**一家**公司——它让你造**任何一家**公司：
 
 1. **企业定位** —— 愿景注入每个员工的推理过程。改变定位，整家公司随之转向。
 2. **企业文化** —— 行为原则控制每个员工。同样的 Talent，完全不同的公司性格。
@@ -127,7 +123,7 @@ Memento-OneManCompany 不是造**一家**公司——它让你造**任何一家*
 
 **你来管理，AI 来执行。**
 
-```
+```text
 CEO（你，唯一能喝咖啡的人）
   └── EA ── 任务路由、质量把关
         ├── HR ── 招聘、绩效考核、晋升
@@ -198,6 +194,7 @@ npx @carbonkite/onemancompany
 </details>
 
 首次运行自动完成：
+
 1. 安装 **UV**（高速 Python 包管理器）
 2. 通过 UV 安装 **Python 3.12**（隔离环境，不影响系统）
 3. 克隆仓库
@@ -248,11 +245,11 @@ bash start.sh init
 
 ### 配置文件
 
-| 文件 | 用途 |
-|------|------|
-| `.onemancompany/.env` | API Keys（OpenRouter、Anthropic 等） |
-| `.onemancompany/config.yaml` | 应用配置（人才市场 URL 等） |
-| 浏览器 Settings 面板 | 前端偏好设置 |
+| 文件                         | 用途                                   |
+| ---------------------------- | -------------------------------------- |
+| `.onemancompany/.env`        | API Keys（OpenRouter、Anthropic 等）   |
+| `.onemancompany/config.yaml` | 应用配置（人才市场 URL 等）            |
+| 浏览器 Settings 面板         | 前端偏好设置                           |
 
 ---
 
@@ -262,11 +259,11 @@ bash start.sh init
 
 **长期愿景：** 重构 AI、人和组织的关系。
 
-| 层级 | 方向 | 举例 |
-|------|------|------|
-| 🔧 **更强的 AI Agent** | 让每个员工更强 | 增强沙箱、更好的工具使用、更强的代码执行 |
-| 🏢 **更高效的组织** | 让公司运转更流畅 | CEO 体验优化、高级任务调度、多 Agent 协作 |
-| 🌐 **AI 原生生态** | 构建繁荣的开放生态 | 人才市场扩展、第三方工具/API、社区贡献 |
+| 层级                       | 方向                   | 举例                                             |
+| -------------------------- | ---------------------- | ------------------------------------------------ |
+| 🔧 **更强的 AI Agent**     | 让每个员工更强         | 增强沙箱、更好的工具使用、更强的代码执行         |
+| 🏢 **更高效的组织**        | 让公司运转更流畅       | CEO 体验优化、高级任务调度、多 Agent 协作        |
+| 🌐 **AI 原生生态**         | 构建繁荣的开放生态     | 人才市场扩展、第三方工具/API、社区贡献           |
 
 这是一份动态计划——[提需求](https://github.com/CarbonKite/OneManCompany/issues) 或 [直接贡献代码](https://github.com/CarbonKite/OneManCompany/pulls)，都欢迎。
 
@@ -274,13 +271,13 @@ bash start.sh init
 
 ## 文档
 
-| 文档 | 说明 |
-|------|------|
-| [架构](docs/architecture_zh.md) | 系统架构、图表、模块索引、设计哲学 |
-| [Vessel 系统](docs/vessel-system_zh.md) | Vessel + Talent 深度解析、Harness 协议 |
-| [任务系统](docs/task-system_zh.md) | 任务状态机 |
-| [编码规范](vibe-coding-guide.md) | 编码指南、测试规则、代码风格 |
-| [更新日志](CHANGELOG.md) | 版本历史 |
+| 文档                                     | 说明                                 |
+| ---------------------------------------- | ------------------------------------ |
+| [架构](docs/architecture_zh.md)          | 系统架构、图表、模块索引、设计哲学   |
+| [Vessel 系统](docs/vessel-system_zh.md)  | Vessel + Talent 深度解析、Harness 协议 |
+| [任务系统](docs/task-system_zh.md)       | 任务状态机                           |
+| [编码规范](vibe-coding-guide.md)         | 编码指南、测试规则、代码风格         |
+| [更新日志](CHANGELOG.md)                 | 版本历史                             |
 
 ---
 
@@ -302,7 +299,7 @@ bash start.sh init
 
 ```bibtex
 @software{onemancompany2025,
-  title = {Memento-OneManCompany: The AI Operating System for One-Person Companies},
+  title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
   url = {https://github.com/CarbonKite/OneManCompany},
   year = {2025},
@@ -314,7 +311,7 @@ bash start.sh init
 
 ## 相关链接
 
-<p>
+<p align="center">
   <a href="https://carbonkites.com">
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
@@ -322,15 +319,12 @@ bash start.sh init
   &nbsp;—&nbsp;社区验证的 AI 员工市场
 </p>
 
-<!-- 更多链接在此追加，格式同上：
-<p>
-  <a href="https://your-url.com">
-    <img src="img/your-icon.svg" alt="名称" height="28" style="vertical-align: middle;" />
-    <b>项目名称</b>
+<p align="center">
+  <a href="https://github.com/CarbonKite/talent-template">
+    <b>Talent Template</b>
   </a>
-  &nbsp;—&nbsp;简要说明
+  &nbsp;—&nbsp;构建自定义 Talent 的模板仓库
 </p>
--->
 
 ---
 
