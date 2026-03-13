@@ -265,6 +265,14 @@ bash start.sh init
 | 🏢 **更高效的组织**        | 让公司运转更流畅       | CEO 体验优化、高级任务调度、多 Agent 协作        |
 | 🌐 **AI 原生生态**         | 构建繁荣的开放生态     | 人才市场扩展、第三方工具/API、社区贡献           |
 
+### TODO
+
+- [ ] 更多内置工具（看板、进度可视化、甘特图等）
+- [ ] 可选前端主题（未来风、赛博朋克、简约风、像素风等）
+- [ ] 更多 LLM 提供商（Ollama 本地部署、Azure OpenAI、AWS Bedrock 等）
+- [ ] 更高效的 AI 协作（多 Agent 交接、并行执行、冲突处理）
+- [ ] 更高效的 Company-hosted Agent Vessel 逻辑（智能重试、上下文延续、成本感知调度）
+
 这是一份动态计划——[提需求](https://github.com/CarbonKite/OneManCompany/issues) 或 [直接贡献代码](https://github.com/CarbonKite/OneManCompany/pulls)，都欢迎。
 
 ---
@@ -311,7 +319,7 @@ bash start.sh init
 
 ## 相关链接
 
-<p align="center">
+<p>
   <a href="https://carbonkites.com">
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
@@ -319,7 +327,7 @@ bash start.sh init
   &nbsp;—&nbsp;社区验证的 AI 员工市场
 </p>
 
-<p align="center">
+<p>
   <a href="https://github.com/CarbonKite/talent-template">
     <b>Talent Template</b>
   </a>
