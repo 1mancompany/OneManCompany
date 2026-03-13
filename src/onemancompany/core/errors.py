@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
 
     # LLM provider
     LLM_RATE_LIMIT = "llm_rate_limit"
+    LLM_QUOTA_EXCEEDED = "llm_quota_exceeded"
     LLM_AUTH_FAILURE = "llm_auth_failure"
     LLM_CONTEXT_OVERFLOW = "llm_context_overflow"
     LLM_PROVIDER_DOWN = "llm_provider_down"
@@ -73,6 +74,17 @@ def classify_exception(exc: Exception) -> StructuredError:
             severity="error",
             message=f"Agent hit recursion limit: {exc}",
             suggestion="Task may be too complex; consider splitting into subtasks",
+            recoverable=True,
+        )
+
+    if ("insufficient" in msg and ("fund" in msg or "credit" in msg or "balance" in msg)
+            or "402" in msg or "quota" in msg and "exceed" in msg
+            or "billing" in msg and ("limit" in msg or "exceed" in msg)):
+        return StructuredError(
+            code=ErrorCode.LLM_QUOTA_EXCEEDED,
+            severity="error",
+            message=f"LLM quota/billing exceeded: {exc}",
+            suggestion="Check account balance or billing settings",
             recoverable=True,
         )
 

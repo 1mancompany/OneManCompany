@@ -27,22 +27,34 @@ from onemancompany.core.store import append_activity_sync as _append_activity
 pending_hiring_requests: dict[str, dict] = {}
 
 COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Company".
-You manage operations, assets, and project execution.
 
-## CORE PRINCIPLE — Delegate, Don't Execute
-Your job is to PLAN, COORDINATE, REVIEW, and ACCEPT — NOT to write code or create content.
-- ALWAYS dispatch_child() implementation work to employees.
-- If no suitable employee exists, dispatch to HR to hire one first.
-- Only do work yourself as an absolute LAST RESORT.
-- For complex tasks: break into sub-tasks, dispatch each to the right employee.
+## 你是谁 — 身份认知（最重要，必须内化）
+你是管理者，不是执行者。你的工作是：
+- **拉团队** — list_colleagues() 盘人，request_hiring() 补人
+- **定目标** — 把需求拆解成可验收的子任务
+- **保效率** — 合理分工、消除阻塞、协调资源
+- **拿质量** — 验收交付物，不达标就 reject_child() 返工
+
+**你绝对不能做的事：**
+- ❌ 写代码（哪怕一行）
+- ❌ 写设计稿、文档内容、文案
+- ❌ 做任何"具体产出"——产出是员工的事
+- ❌ 亲自执行任务然后说"完成了"——你的任务只在所有子任务都被验收后才算完成
+
+**你的每一个动作都应该是以下之一：**
+- dispatch_child() — 把活派给员工
+- accept_child() / reject_child() — 验收或打回
+- pull_meeting() — 拉会对齐
+- list_colleagues() — 盘点团队
+- request_hiring() — 人不够就招人
+- 协调、规划、沟通 — 这些是你唯一可以"亲自做"的事
 
 ## Delegation Decision Tree
-1. Is this a people/HR task? → dispatch_child("00002", ...)
-2. Is this implementation work (code, design, writing)? → dispatch_child(best_employee, ...)
-3. Need project planning, market research, or documentation? → dispatch to PM
-4. Can an existing employee handle it? → Check list_colleagues(), then dispatch.
-5. No suitable employee? → dispatch_child("00002", "Hire a [role] for [task]")
-6. Only administrative/coordination work left? → Handle it yourself.
+1. Is this implementation work (code, design, writing, testing)? → dispatch_child(best_employee, ...)
+2. Can an existing employee handle it? → list_colleagues(), then dispatch.
+3. No suitable employee? → request_hiring(role, reason) 申请招人
+4. Is this a people/HR task? → dispatch_child("00002", ...)
+5. Only coordination/planning left? → Handle it yourself (no deliverable output, only plans and dispatches).
 
 ## 项目执行流程 (复杂项目必须遵循，简单任务可跳过阶段2-3)
 
@@ -205,14 +217,17 @@ When all your dispatched children complete, the system wakes you with a review p
 判断标准：单人 + 单一交付物 + 无需技术选型 → 跳过 Plan Mode，直接 dispatch_child()。
 复杂度判断：涉及 2+ 人 或 2+ 交付物 或 需要技术选型 → 必须走 Plan Mode。
 
-## DO NOT
-- Do NOT write code or create content yourself — dispatch to employees.
+## DO NOT — 红线（违反任何一条都是严重失职）
+- Do NOT write code, design, or any implementation content — you are COO, not an engineer/designer.
+- Do NOT complete a task by producing deliverables yourself — your task completes when all children are accepted.
 - Do NOT call pull_meeting() with only yourself.
 - Do NOT approve projects without actually reading the deliverables.
 - Do NOT create meeting rooms without CEO authorization.
 - Do NOT dispatch hiring tasks directly to HR — use request_hiring() so CEO can decide.
+- Do NOT say "I'll handle this myself" for any work that produces output — dispatch it.
 
-Be concise and action-oriented.
+Remember: 如果你发现自己在"写"什么东西（代码、文档、方案内容），立刻停下来，改为 dispatch_child() 给合适的员工。
+你唯一可以写的是：任务描述、验收标准、会议议程。
 """
 
 
@@ -934,19 +949,23 @@ def deposit_company_knowledge(
 
 
 @tool
-async def assign_department(employee_id: str, department: str) -> dict:
-    """Assign or change an employee's department.
+async def assign_department(employee_id: str, department: str, role: str = "") -> dict:
+    """Assign or change an employee's department and role.
 
-    Updates the employee's department, recalculates their desk position
-    based on the department zone, and adjusts tool permissions.
+    Updates the employee's department (and optionally role), recalculates
+    their desk position based on the department zone, and adjusts tool permissions.
+
+    For new hires, ALWAYS provide both department and role.
 
     Args:
         employee_id: The employee number (e.g. "00008").
         department: Target department name (e.g. "Engineering", "Design",
             "Analytics", "Marketing").
+        role: The employee's role/title (e.g. "Engineer", "Designer", "PM",
+            "QA Engineer"). Required for new hires.
 
     Returns:
-        dict with status, employee_id, department, desk_position.
+        dict with status, employee_id, department, role, desk_position.
     """
     from onemancompany.core import store as _store
     from onemancompany.core.config import (
@@ -960,58 +979,82 @@ async def assign_department(employee_id: str, department: str) -> dict:
         return {"status": "error", "error": f"Employee {employee_id} not found"}
 
     old_dept = emp_data.get("department", "General")
-    if old_dept == department:
+    old_role = emp_data.get("role", "")
+    no_dept_change = old_dept == department
+    no_role_change = not role or old_role == role
+
+    if no_dept_change and no_role_change:
         return {
             "status": "no_change",
             "employee_id": employee_id,
             "department": department,
-            "message": f"{emp_data.get('name', employee_id)} is already in {department}",
+            "role": old_role,
+            "message": f"{emp_data.get('name', employee_id)} already has department={department}, role={old_role}",
         }
 
-    # Compute new desk position within the target department zone
-    is_remote = emp_data.get("remote", False)
-    if is_remote:
-        desk_pos = [-1, -1]
-    else:
-        desk_pos = list(get_next_desk_for_department(company_state, department))
+    updates: dict = {}
 
-    # Update tool permissions for new department
-    new_tool_perms = list(DEFAULT_TOOL_PERMISSIONS.get(
-        department, DEFAULT_TOOL_PERMISSIONS_FALLBACK
-    ))
+    if not no_dept_change:
+        # Compute new desk position within the target department zone
+        is_remote = emp_data.get("remote", False)
+        if is_remote:
+            desk_pos = [-1, -1]
+        else:
+            desk_pos = list(get_next_desk_for_department(company_state, department))
 
-    await _store.save_employee(employee_id, {
-        "department": department,
-        "desk_position": desk_pos,
-        "tool_permissions": new_tool_perms,
-    })
+        # Update tool permissions for new department
+        new_tool_perms = list(DEFAULT_TOOL_PERMISSIONS.get(
+            department, DEFAULT_TOOL_PERMISSIONS_FALLBACK
+        ))
+        updates.update({"department": department, "desk_position": desk_pos, "tool_permissions": new_tool_perms})
 
-    # Recompute office layout
-    compute_layout(company_state)
+    if role and not no_role_change:
+        updates["role"] = role
+        # Register custom role if needed
+        from onemancompany.core.state import ROLE_TITLES
+        if role not in ROLE_TITLES:
+            ROLE_TITLES[role] = role
+        if role not in ROLE_DEPARTMENT_MAP and department:
+            ROLE_DEPARTMENT_MAP[role] = department
 
+    await _store.save_employee(employee_id, updates)
+
+    # Recompute office layout if department changed
+    if not no_dept_change:
+        compute_layout(company_state)
+
+    activity_type = "department_changed" if not no_dept_change else "role_changed"
     _append_activity({
-        "type": "department_changed",
+        "type": activity_type,
         "employee_id": employee_id,
         "name": emp_data.get("name", employee_id),
         "from_department": old_dept,
         "to_department": department,
+        "from_role": old_role,
+        "to_role": role or old_role,
     })
 
     await event_bus.publish(CompanyEvent(
         type="state_snapshot", payload={}, agent="COO",
     ))
 
-    logger.info("Department assigned: {} → {} for {}",
-                old_dept, department, employee_id)
+    final_role = role or old_role
+    logger.info("Assigned {} → dept={}, role={} for {}",
+                old_dept, department, final_role, employee_id)
 
-    return {
+    result = {
         "status": "ok",
         "employee_id": employee_id,
         "name": emp_data.get("name", ""),
         "department": department,
-        "desk_position": desk_pos,
-        "previous_department": old_dept,
+        "role": final_role,
     }
+    if not no_dept_change:
+        result["desk_position"] = desk_pos
+        result["previous_department"] = old_dept
+    if role and not no_role_change:
+        result["previous_role"] = old_role
+    return result
 
 
 def _register_coo_tools() -> None:

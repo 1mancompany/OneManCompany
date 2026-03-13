@@ -423,6 +423,10 @@ class Vessel:
     def get_history_context(self) -> str:
         return self.manager.get_history_context(self.employee_id)
 
+    def get_task(self, task_id: str):
+        """Look up a TaskNode by ID (delegates to EmployeeManager)."""
+        return self.manager.get_task(task_id)
+
 
 
 
@@ -497,6 +501,9 @@ class EmployeeManager:
 
     def schedule_node(self, employee_id: str, node_id: str, tree_path: str) -> None:
         """Add a node to the employee's schedule."""
+        if employee_id not in self.executors:
+            logger.debug("Skipping schedule_node for {} (no executor, e.g. CEO)", employee_id)
+            return
         entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
         self._schedule.setdefault(employee_id, []).append(entry)
         # Persist to disk-based task index for taskboard queries

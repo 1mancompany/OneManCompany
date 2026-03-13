@@ -35,6 +35,53 @@ from onemancompany.core.ceo_conversation import (
     ConversationSession, get_session, register_session, unregister_session,
     load_messages, append_message,
 )
+from onemancompany.core.errors import ErrorCode, classify_exception
+
+
+# ---------------------------------------------------------------------------
+# LLM invocation with retry
+# ---------------------------------------------------------------------------
+
+async def _llm_invoke_with_retry(
+    llm,
+    messages: list,
+    *,
+    category: str = "",
+    employee_id: str = "",
+    max_retries: int = 3,
+    quota_max_retries: int = 6,
+    base_delay: float = 2.0,
+    quota_base_delay: float = 30.0,
+) -> object:
+    """Invoke LLM with retry. Quota/billing errors get more retries and longer delays."""
+    last_exc = None
+    for attempt in range(max(max_retries, quota_max_retries)):
+        try:
+            return await tracked_ainvoke(
+                llm, messages, category=category, employee_id=employee_id,
+            )
+        except Exception as e:
+            last_exc = e
+            err = classify_exception(e)
+            is_quota = err.code == ErrorCode.LLM_QUOTA_EXCEEDED
+            is_rate_limit = err.code == ErrorCode.LLM_RATE_LIMIT
+            limit = quota_max_retries if is_quota else max_retries
+            if attempt + 1 >= limit:
+                break
+            if not err.recoverable:
+                break
+            if is_quota:
+                delay = quota_base_delay * (attempt + 1)  # 30s, 60s, 90s, ...
+            elif is_rate_limit:
+                delay = base_delay * 2 ** attempt  # 2s, 4s, 8s, ...
+            else:
+                delay = base_delay * (attempt + 1)  # 2s, 4s, 6s
+            logger.warning(
+                "LLM invoke retry {}/{} for {} ({}), waiting {:.0f}s",
+                attempt + 1, limit, category, err.code, delay,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc  # type: ignore[misc]
 
 router = APIRouter()
 
@@ -860,7 +907,7 @@ async def oneonone_chat(body: dict) -> dict:
     messages.append(HumanMessage(content=message))
 
     llm = make_llm(employee_id)
-    result = await tracked_ainvoke(llm, messages, category="oneonone", employee_id=employee_id)
+    result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
 
     content = result.content
     # Normalize content — some models return list of content blocks
@@ -927,12 +974,28 @@ async def oneonone_end(body: dict) -> dict:
             f"SUMMARY: ..."
         )
 
-        llm = make_llm(employee_id)
-        result = await tracked_ainvoke(llm, [
-            SystemMessage(content="You are an employee reflecting on a meeting with the CEO."),
-            HumanMessage(content=reflection_prompt),
-        ], category="oneonone", employee_id=employee_id)
-        response_text = result.content.strip()
+        try:
+            llm = make_llm(employee_id)
+            result = await _llm_invoke_with_retry(llm, [
+                SystemMessage(content="You are an employee reflecting on a meeting with the CEO."),
+                HumanMessage(content=reflection_prompt),
+            ], category="oneonone", employee_id=employee_id)
+            response_text = result.content.strip()
+        except Exception as e:
+            logger.error("oneonone_end reflection failed for {} after retries: {}", employee_id, e)
+            # Still end the meeting even if reflection fails
+            await _store.save_employee_runtime(employee_id, is_listening=False)
+            await event_bus.publish(
+                CompanyEvent(
+                    type="guidance_end",
+                    payload={"employee_id": employee_id, "name": emp_name,
+                             "principles_updated": False, "note_saved": False},
+                    agent="CEO",
+                )
+            )
+            return {"status": "ended", "employee_id": employee_id,
+                    "principles_updated": False, "note_saved": False,
+                    "warning": f"Reflection failed: {e!s}"}
 
         # Parse principles update
         if "UPDATED:" in response_text and "NO_UPDATE" not in response_text.split("SUMMARY:")[0]:
@@ -3678,8 +3741,8 @@ async def hire_candidate(body: HireRequest) -> dict:
         coo_ctx = _pending_coo_hire_queue.pop(0)
         logger.info(f"[hiring] Applying COO context: role='{coo_ctx['role']}' over talent role='{candidate['role']}'")
 
-    # Determine final role and department
-    hire_role = coo_ctx.get("role") or candidate["role"]
+    # Role and department assigned by COO after hire (unless COO pre-specified)
+    hire_role = coo_ctx.get("role") or ""
     hire_department = coo_ctx.get("department", "")
 
     # Ensure COO's requested role is in the role mappings
@@ -3865,10 +3928,13 @@ async def batch_hire_candidates(body: dict) -> dict:
         cand_name = candidate.get("name", candidate_id)
         talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
 
-        # Read authoritative fields from talent profile
+        # Read authoritative fields from talent profile, fallback to candidate data
         talent_data: dict = {}
         if talent_id:
             talent_data = load_talent_profile(talent_id)
+        if not talent_data:
+            # Talent profile not found on disk — use candidate data from Talent Market
+            talent_data = candidate
 
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", candidate.get("skills", []))]
 
@@ -3877,7 +3943,9 @@ async def batch_hire_candidates(body: dict) -> dict:
         if _pending_coo_hire_queue:
             coo_ctx = _pending_coo_hire_queue.pop(0)
 
-        final_role = coo_ctx.get("role") or hire_role or candidate.get("role", "Engineer")
+        # Role and department are assigned by COO after hire, not during hire.
+        # Only use COO context if explicitly provided (e.g. pre-approved hiring request).
+        final_role = coo_ctx.get("role") or ""
         final_dept = coo_ctx.get("department", "")
 
         # Register custom roles
@@ -3975,17 +4043,18 @@ async def batch_hire_candidates(body: dict) -> dict:
 
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
-    # Dispatch COO task to assign departments for new hires
+    # Dispatch COO task to assign departments and roles for new hires
     hired_entries = [r for r in results if r["status"] == "hired"]
     if hired_entries:
         emp_lines = "\n".join(
-            f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}，角色: {next((s.get('role','') for s in selections if s.get('candidate_id') == r['candidate_id']), '')}"
+            f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}"
             for r in hired_entries
         )
         _push_adhoc_task(
             COO_ID,
-            f"以下新员工刚入职，请为他们分配部门。使用 assign_department 工具逐个分配。\n"
-            f"可选部门: Engineering, Design, Analytics, Marketing\n\n"
+            f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
+            f"可选部门: Engineering, Design, Analytics, Marketing\n"
+            f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
             f"{emp_lines}",
         )
 

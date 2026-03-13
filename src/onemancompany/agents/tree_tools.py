@@ -40,6 +40,47 @@ def _get_current_node(tree: TaskTree, task_id: str):
     return tree.get_node(task_id)
 
 
+def _create_standalone_ceo_request(
+    description: str,
+    requester_task_id: str,
+    vessel,
+) -> dict:
+    """Create a CEO inbox request without requiring a task tree context.
+
+    Used when agents running system/adhoc tasks (no tree) need to escalate to CEO.
+    """
+    import uuid
+    node_id = f"ceo_req_{uuid.uuid4().hex[:8]}"
+
+    # Publish WebSocket event so CEO sees it
+    from onemancompany.core.events import CompanyEvent, event_bus
+    try:
+        import asyncio
+        loop = asyncio.get_running_loop()
+        loop.create_task(event_bus.publish(CompanyEvent(
+            type="ceo_inbox_updated",
+            payload={
+                "node_id": node_id,
+                "description": description,
+                "source_task_id": requester_task_id,
+                "source_employee": vessel.employee_id if vessel else "unknown",
+            },
+            agent="SYSTEM",
+        )))
+    except RuntimeError:
+        logger.warning("No event loop for standalone ceo_inbox_updated publish")
+
+    return {
+        "status": "dispatched",
+        "node_id": node_id,
+        "employee_id": "00001",
+        "description": description,
+        "node_type": "ceo_request",
+        "ceo_request": True,
+        "message": "Task dispatched to CEO inbox. CEO will respond when available.",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -93,6 +134,14 @@ def dispatch_child(
             break
 
     if not project_dir or not tree_path_str:
+        # --- Standalone CEO request (no tree context, e.g. system/adhoc tasks) ---
+        CEO_EMPLOYEE_ID = "00001"
+        if employee_id == CEO_EMPLOYEE_ID:
+            return _create_standalone_ceo_request(
+                description=description,
+                requester_task_id=task_id,
+                vessel=vessel,
+            )
         return {"status": "error", "message": "No project directory in current task context."}
 
     # Validate employee exists
@@ -110,11 +159,15 @@ def dispatch_child(
     if current_node.employee_id == EA_ID:
         allowed_targets = {HR_ID, COO_ID, CSO_ID}
         if employee_id not in allowed_targets:
+            # Suggest the correct O-level target based on common patterns
+            suggestion = f"COO({COO_ID})"  # default: most tasks are execution
             return {
                 "status": "error",
                 "message": (
                     f"EA不能直接分派任务给 {employee_id}。"
-                    f"请分派给对应负责人: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID})。"
+                    f"请改为 dispatch_child 给对应O-level负责人: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID})。"
+                    f"提示：开发/设计/运营任务请dispatch给{suggestion}，由其组织团队执行。"
+                    f"请立即用正确的employee_id重新调用dispatch_child。"
                 ),
             }
 

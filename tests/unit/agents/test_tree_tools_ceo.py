@@ -38,6 +38,59 @@ def _make_mock_em(root_id, tree_path="/tmp/proj/task_tree.yaml"):
     return mock_em
 
 
+class TestStandaloneCeoRequest:
+    """dispatch_child to CEO works even without tree context (system/adhoc tasks)."""
+
+    def test_standalone_ceo_request_no_schedule(self):
+        """When task_id not in _schedule but target is CEO, creates standalone request."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        vessel = MagicMock()
+        vessel.employee_id = "00003"
+        tok_v, tok_t = _set_context(vessel, "adhoc_task_123")
+        # Empty schedule — no tree context
+        mock_em = MagicMock()
+        mock_em._schedule = defaultdict(list)
+
+        try:
+            with patch("onemancompany.core.vessel.employee_manager", mock_em):
+                result = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need CEO decision on budget",
+                    "acceptance_criteria": ["Approve"],
+                })
+
+            assert result["status"] == "dispatched"
+            assert result.get("ceo_request") is True
+            assert result.get("node_type") == "ceo_request"
+            assert "node_id" in result
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_standalone_non_ceo_still_errors(self):
+        """When no tree context and target is NOT CEO, still returns error."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        vessel = MagicMock()
+        vessel.employee_id = "00003"
+        tok_v, tok_t = _set_context(vessel, "adhoc_task_123")
+        mock_em = MagicMock()
+        mock_em._schedule = defaultdict(list)
+
+        try:
+            with patch("onemancompany.core.vessel.employee_manager", mock_em):
+                result = dispatch_child.invoke({
+                    "employee_id": "00010",
+                    "description": "Some task",
+                    "acceptance_criteria": ["Done"],
+                })
+
+            assert result["status"] == "error"
+            assert "No project directory" in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
 class TestDispatchChildCeo:
     """dispatch_child targeting CEO creates ceo_request node without scheduling."""
 
