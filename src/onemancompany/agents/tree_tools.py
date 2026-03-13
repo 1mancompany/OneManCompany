@@ -140,6 +140,34 @@ def dispatch_child(
     child.project_id = current_node.project_id
     child.project_dir = project_dir
 
+    # --- CEO request interception ---
+    CEO_EMPLOYEE_ID = "00001"
+    if employee_id == CEO_EMPLOYEE_ID:
+        child.node_type = "ceo_request"
+        _save_tree(project_dir, tree)
+        # Publish WebSocket event (async from sync context)
+        from onemancompany.core.events import CompanyEvent, event_bus
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            loop.create_task(event_bus.publish(CompanyEvent(
+                type="ceo_inbox_updated",
+                payload={"node_id": child.id, "description": description},
+                agent="SYSTEM",
+            )))
+        except RuntimeError:
+            logger.warning("No event loop for ceo_inbox_updated publish")
+        return {
+            "status": "dispatched",
+            "node_id": child.id,
+            "employee_id": employee_id,
+            "description": description,
+            "node_type": "ceo_request",
+            "ceo_request": True,
+            "message": "Task dispatched to CEO inbox. CEO will respond when available.",
+        }
+
+    # --- Normal employee dispatch (existing logic) ---
     # Check if dependencies are already satisfied
     deps_resolved = tree.all_deps_resolved(child.id)
 
