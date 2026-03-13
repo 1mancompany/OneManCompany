@@ -209,42 +209,37 @@ ${green("What gets installed automatically:")}
   info("Installing dependencies...");
   runShell("uv pip install -e .", { cwd: installDir });
 
-  // ── Launch ────────────────────────────────────────────────────────────
-  const startScript = path.join(installDir, "start.sh");
-  const initComplete = fs.existsSync(path.join(installDir, ".onemancompany", ".env"));
+  // ── Launch (directly via Python, all platforms) ────────────────────────
+  const pythonBin = isWindows
+    ? path.join(venvDir, "Scripts", "python.exe")
+    : path.join(venvDir, "bin", "python");
 
-  // Determine entry command
-  let launchArgs;
-  if (isWindows) {
-    // Windows: call Python directly
-    const pythonBin = path.join(venvDir, "Scripts", "python.exe");
-    if (passthrough[0] === "init" || !initComplete) {
-      info("Running setup wizard...\n");
-      const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard"], {
-        cwd: installDir,
-        stdio: "inherit",
-      });
-      if (initResult.status !== 0) fail("Setup wizard failed");
-      passthrough.shift(); // remove 'init' if present
-    }
-    info("Starting OneManCompany...\n");
-    const child = spawn(pythonBin, ["-m", "onemancompany.main", ...passthrough], {
-      cwd: installDir,
-      stdio: "inherit",
-    });
-    child.on("close", (code) => process.exit(code ?? 0));
-    child.on("error", (err) => fail(`Failed to start: ${err.message}`));
-  } else {
-    // macOS / Linux: use start.sh
-    info("Launching OneManCompany...\n");
-    const child = spawn("bash", [startScript, ...passthrough], {
-      cwd: installDir,
-      stdio: "inherit",
-      env: { ...process.env },
-    });
-    child.on("close", (code) => process.exit(code ?? 0));
-    child.on("error", (err) => fail(`Failed to start: ${err.message}`));
+  if (!fs.existsSync(pythonBin)) {
+    fail(`Python not found at ${pythonBin}. Try deleting .venv and running again.`);
   }
+
+  const initComplete = fs.existsSync(path.join(installDir, ".onemancompany", ".env"))
+    && fs.existsSync(path.join(installDir, ".onemancompany", "company", "human_resource", "employees"));
+
+  // Run setup wizard if needed
+  if (passthrough[0] === "init" || !initComplete) {
+    info("Running setup wizard...\n");
+    const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard"], {
+      cwd: installDir,
+      stdio: "inherit",
+    });
+    if (initResult.status !== 0) fail("Setup wizard failed");
+    if (passthrough[0] === "init") passthrough.shift();
+  }
+
+  // Start server
+  info("Starting OneManCompany...\n");
+  const child = spawn(pythonBin, ["-m", "onemancompany.main", ...passthrough], {
+    cwd: installDir,
+    stdio: "inherit",
+  });
+  child.on("close", (code) => process.exit(code ?? 0));
+  child.on("error", (err) => fail(`Failed to start: ${err.message}`));
 }
 
 main();
