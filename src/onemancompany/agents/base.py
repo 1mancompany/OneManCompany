@@ -354,7 +354,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
         "NEVER use Gmail/email for internal task routing or employee coordination.\n"
-        "- **CEO communication**: Use report_to_ceo(subject, report, action_required) for all CEO communication.\n"
+        "- **CEO communication**: Use dispatch_child(\"00001\", description) to escalate issues to CEO.\n"
         "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
         "(clients, vendors, partners, third parties)."
     )

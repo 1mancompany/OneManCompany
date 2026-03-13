@@ -1535,13 +1535,12 @@ class EmployeeManager:
         entry: ScheduleEntry,
         project_id: str,
     ) -> None:
-        """Send project completion report to CEO and wait for confirmation.
+        """Publish project completion notification and proceed with cleanup.
 
-        CEO approve -> _full_cleanup(run_retrospective=True)
-        CEO revise  -> schedule revision node
+        The old blocking wait for CEO response has been removed.
+        CEO reviews project completions via the CEO Inbox (dispatch_child to CEO 00001).
+        This now auto-approves and runs cleanup immediately.
         """
-        from onemancompany.agents.common_tools import _ceo_pending, _ceo_wait_key
-
         # Build completion summary from all children (skip CEO info nodes)
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
         lines = [f"项目完成汇报 — {node.description[:100]}", ""]
@@ -1555,7 +1554,6 @@ class EmployeeManager:
         payload = {
             "subject": f"项目完成确认: {node.description[:60]}",
             "report": summary,
-            "action_required": True,
             "employee_id": employee_id,
             "project_id": project_id,
             "timestamp": datetime.now().isoformat(),
@@ -1565,50 +1563,13 @@ class EmployeeManager:
             payload["employee_name"] = emp_data.get("name", "")
         await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
 
-        key = _ceo_wait_key(employee_id, project_id)
-        pending_entry = {"event": asyncio.Event(), "response": {}, "meta": payload}
-        _ceo_pending[key] = pending_entry
-        try:
-            await asyncio.wait_for(pending_entry["event"].wait(), timeout=600)
-            ceo_response = pending_entry.get("response", {})
-            action = ceo_response.get("action", "approve")
-            message = ceo_response.get("message", "")
-        except asyncio.CancelledError:
-            raise
-        except (asyncio.TimeoutError, TimeoutError):
-            action = "approve"
-            message = "CEO未在10分钟内响应，自动确认"
-            logger.warning("CEO confirmation timed out for project {}, auto-approving", project_id)
-        finally:
-            _ceo_pending.pop(key, None)
-
-        if action == "revise" and message:
-            from onemancompany.core.task_tree import TaskTree
-            tree = TaskTree.load(Path(entry.tree_path))
-            revision_desc = (
-                f"CEO要求修改:\n{message}\n\n"
-                f"原任务: {node.description[:200]}"
-            )
-            project_dir = node.project_dir or str(Path(entry.tree_path).parent)
-            revision_node = tree.add_child(
-                parent_id=node.id,
-                employee_id=employee_id,
-                description=revision_desc,
-                acceptance_criteria=[],
-            )
-            revision_node.project_id = project_id
-            revision_node.project_dir = project_dir
-            tree.save(Path(entry.tree_path))
-            self.schedule_node(employee_id, revision_node.id, entry.tree_path)
-            self._schedule_next(employee_id)
-            logger.info("CEO requested revision for project {} — scheduled to {}", project_id, employee_id)
-        else:
-            is_project = node.task_type == "project"
-            await self._full_cleanup(
-                employee_id, node, agent_error=False,
-                project_id=project_id,
-                run_retrospective=is_project,
-            )
+        # Auto-approve: proceed directly with cleanup
+        is_project = node.task_type == "project"
+        await self._full_cleanup(
+            employee_id, node, agent_error=False,
+            project_id=project_id,
+            run_retrospective=is_project,
+        )
 
     async def _full_cleanup(
         self, employee_id: str, node, agent_error: bool,
