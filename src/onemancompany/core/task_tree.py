@@ -32,7 +32,7 @@ class TaskNode:
     employee_id: str = ""
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
-    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup"
+    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request"
 
     task_type: str = "simple"         # "simple" | "project"
     model_used: str = ""              # which LLM executed
@@ -82,7 +82,7 @@ class TaskNode:
 
     @property
     def is_ceo_node(self) -> bool:
-        return self.node_type in ("ceo_prompt", "ceo_followup")
+        return self.node_type in ("ceo_prompt", "ceo_followup", "ceo_request")
 
     def to_dict(self) -> dict:
         return {
