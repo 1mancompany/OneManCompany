@@ -245,6 +245,14 @@ bash start.sh init
 | 🏢 **Smarter Organization** | Make the company run more efficiently | CEO experience, advanced task scheduling, multi-agent collaboration      |
 | 🌐 **AI-Native Ecosystem**  | Build a thriving open ecosystem       | Talent Market expansion, third-party tools/APIs, community contributions |
 
+### TODO
+
+- [ ] More built-in tools (Kanban board, progress visualization, Gantt chart, etc.)
+- [ ] Selectable frontend themes (futuristic, cyberpunk, minimalist, pixel-art, etc.)
+- [ ] More LLM provider options (Ollama local, Azure OpenAI, AWS Bedrock, etc.)
+- [ ] More efficient AI collaboration (multi-agent handoff, parallel execution, conflict resolution)
+- [ ] More efficient company-hosted agent Vessel logic (smarter retry, context carryover, cost-aware scheduling)
+
 This is a living plan — [request a feature](https://github.com/CarbonKite/OneManCompany/issues) or [contribute directly](https://github.com/CarbonKite/OneManCompany/pulls).
 
 ---
@@ -292,7 +300,7 @@ If you use OneManCompany in your research or project, please cite it:
 
 ## Links
 
-<p align="center">
+<p>
   <a href="https://carbonkites.com">
     <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
@@ -300,7 +308,7 @@ If you use OneManCompany in your research or project, please cite it:
   &nbsp;—&nbsp;Community-verified AI employee marketplace
 </p>
 
-<p align="center">
+<p>
   <a href="https://github.com/CarbonKite/talent-template">
     <b>Talent Template</b>
   </a>
