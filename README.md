@@ -117,26 +117,26 @@ You're not just using AI — you're leading a continuously growing, dynamically 
       Hierarchical task breakdown with dependency tracking. Complex projects become manageable subtask graphs.
     </td>
     <td width="33%">
-      <h3>🔍 CEO Review</h3>
-      You approve at every level. Nothing ships without your sign-off — quality gates at each stage.
-    </td>
-    <td width="33%">
       <h3>🤝 Multi-Agent Meetings</h3>
       Employees pull each other into meetings to align autonomously. You can sit in or let them figure it out.
+    </td>
+    <td width="33%">
+      <h3>🔍 CEO Review</h3>
+      You approve at every level. Nothing ships without your sign-off — quality gates at each stage.
     </td>
   </tr>
   <tr>
     <td>
-      <h3>📊 Performance Reviews</h3>
-      Evaluate, PIP, promote, or fire underperformers. Your company, your standards.
+      <h3>🏪 Talent Market</h3>
+      Hire community-verified AI employees in one click. Game devs, designers, full-stack engineers — ready to work.
     </td>
     <td>
       <h3>🧠 1-on-1 Coaching</h3>
       Give guidance that permanently shapes employee behavior. They actually remember and improve.
     </td>
     <td>
-      <h3>🏪 Talent Market</h3>
-      Hire community-verified AI employees in one click. Game devs, designers, full-stack engineers — ready to work.
+      <h3>📊 Performance Reviews</h3>
+      Evaluate, PIP, promote, or fire underperformers. Your company, your standards.
     </td>
   </tr>
   <tr>
