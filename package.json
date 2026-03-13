@@ -1,6 +1,6 @@
 {
   "name": "@carbonkite/onemancompany",
-  "version": "0.2.79",
+  "version": "0.2.80",
   "description": "The AI Operating System for One-Person Companies",
   "bin": {
     "onemancompany": "bin/cli.js"
