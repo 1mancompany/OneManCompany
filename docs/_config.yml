@@ -1,0 +1,10 @@
+title: OneManCompany
+description: The AI Operating System for One-Person Companies
+url: https://carbonkite.github.io
+baseurl: /OneManCompany
+theme: null
+
+exclude:
+  - "*.md"
+  - README.md
+  - PRODUCT_OVERVIEW.md
