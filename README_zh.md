@@ -15,8 +15,8 @@ Memento-OneManCompany 是一个开源的 AI 操作系统，让任何人都能在
 [English](README.md)
 
 <p align="center">
-  <a href="https://carbonkites.com/talent-market">
-    <img src="img/talent-market-icon.svg" alt="Talent Market" height="28" style="vertical-align: middle;" />
+  <a href="https://carbonkites.com">
+    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
   </a>
 </p>
@@ -315,8 +315,8 @@ bash start.sh init
 ## 相关链接
 
 <p>
-  <a href="https://carbonkites.com/talent-market">
-    <img src="img/talent-market-icon.svg" alt="Talent Market" height="28" style="vertical-align: middle;" />
+  <a href="https://carbonkites.com">
+    <img src="img/talent-market-icon.png" alt="Talent Market" height="28" style="vertical-align: middle;" />
     <b>Talent Market</b>
   </a>
   &nbsp;—&nbsp;社区验证的 AI 员工市场
