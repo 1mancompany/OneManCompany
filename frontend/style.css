@@ -4572,3 +4572,79 @@ body {
 .emp-project-role {
     color: var(--pixel-cyan);
 }
+
+/* ===== Talent Pool Modal ===== */
+.talent-pool-modal-content {
+  max-width: 600px;
+  max-height: 70vh;
+}
+
+.talent-pool-modal-body {
+  overflow-y: auto;
+  max-height: 55vh;
+  padding: 12px;
+}
+
+.talent-pool-badge {
+  font-size: 8px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  margin-left: 8px;
+  font-family: 'Press Start 2P', monospace;
+}
+
+.talent-pool-badge.api {
+  background: #22c55e;
+  color: #fff;
+}
+
+.talent-pool-badge.local {
+  background: #6b7280;
+  color: #fff;
+}
+
+.talent-pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.talent-pool-card {
+  border: 2px solid var(--border);
+  padding: 10px;
+  background: var(--bg-card);
+  image-rendering: pixelated;
+}
+
+.talent-pool-card .talent-name {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--text-primary);
+}
+
+.talent-pool-card .talent-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.talent-pool-card .talent-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.talent-pool-card .skill-tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  font-family: 'Press Start 2P', monospace;
+}
+
+.talent-pool-card .talent-status {
+  font-size: 9px;
+  margin-top: 6px;
+  color: var(--text-muted);
+}
