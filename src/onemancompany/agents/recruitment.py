@@ -15,9 +15,78 @@ import random
 from langchain_core.tools import tool
 from mcp import ClientSession
 
+from pydantic import BaseModel, Field
+from typing import Literal
 from loguru import logger
 
 from onemancompany.core import store as _store
+
+# --- Pydantic models (migrated from talent_market/boss_online.py) ---
+
+RoleType = Literal["Engineer", "Designer", "Analyst", "DevOps", "QA", "Marketing"]
+
+SpriteType = Literal[
+    "employee_blue", "employee_red", "employee_green",
+    "employee_purple", "employee_orange",
+]
+
+
+class CandidateSkill(BaseModel):
+    """A skill the candidate possesses."""
+    name: str = Field(description="Skill identifier")
+    description: str = Field(description="Human-readable skill description")
+    code: str = Field(default="", description="Example code snippet")
+
+
+class CandidateTool(BaseModel):
+    """A tool the candidate can operate."""
+    name: str = Field(description="Tool identifier")
+    description: str = Field(description="What the tool does")
+    code: str = Field(default="", description="Example code snippet")
+
+
+class CandidateProfile(BaseModel):
+    """Full candidate profile returned by talent market search."""
+    id: str = Field(description="Talent package ID")
+    name: str = Field(description="Talent name")
+    role: RoleType = Field(description="Primary role")
+    experience_years: int = Field(ge=0, le=30, description="Years of experience")
+    personality_tags: list[str] = Field(description="Personality traits")
+    system_prompt: str = Field(description="LLM persona prompt")
+    skill_set: list[CandidateSkill] = Field(description="Skills")
+    tool_set: list[CandidateTool] = Field(description="Tools")
+    sprite: SpriteType = Field(description="Pixel art avatar type")
+    llm_model: str = Field(description="LLM model")
+    jd_relevance: float = Field(ge=0.0, le=1.0, description="JD match score")
+    remote: bool = Field(default=False)
+    talent_id: str = Field(default="")
+    cost_per_1m_tokens: float = Field(default=0.0)
+    hiring_fee: float = Field(default=0.0)
+    api_provider: str = Field(default="openrouter")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    hosting: str = Field(default="company")
+    auth_method: str = Field(default="api_key")
+
+
+class HireRequest(BaseModel):
+    """Request to hire a candidate from a shortlist batch."""
+    batch_id: str = Field(description="Batch ID from the shortlist")
+    candidate_id: str = Field(description="ID of the selected candidate")
+    nickname: str = Field(default="", description="Optional 花名")
+
+
+class InterviewRequest(BaseModel):
+    """Request to interview a candidate."""
+    question: str = Field(description="The interview question text")
+    candidate: CandidateProfile = Field(description="Full candidate profile")
+    images: list[str] = Field(default_factory=list, description="Optional base64 images")
+
+
+class InterviewResponse(BaseModel):
+    """Response from a candidate interview."""
+    candidate_id: str = Field(description="ID of the interviewed candidate")
+    question: str = Field(description="The original question")
+    answer: str = Field(description="Candidate's answer")
 
 # ===== Pending candidate state (disk-backed) =====
 
