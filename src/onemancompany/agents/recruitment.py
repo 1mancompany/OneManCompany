@@ -2,7 +2,7 @@
 
 Extracted from hr_agent.py. Contains:
 - Talent-to-candidate conversion
-- Boss Online MCP client management
+- TalentMarketClient (MCP SSE connection to cloud talent market)
 - search_candidates / list_open_positions LangChain tools
 - Pending candidate state for CEO selection
 """
@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+from contextlib import AsyncExitStack
 from langchain_core.tools import tool
 from mcp import ClientSession
 
@@ -187,97 +188,140 @@ def _talent_to_candidate(talent: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Persistent Boss Online MCP client
+# Talent Market MCP client
 # ---------------------------------------------------------------------------
 
-_boss_session: ClientSession | None = None
-_boss_cleanup: asyncio.Task | None = None
 
+class TalentMarketClient:
+    """SSE-based MCP client for the cloud Talent Market service."""
 
-async def start_boss_online() -> None:
-    """Start the Boss Online MCP connection (remote SSE).
+    def __init__(self) -> None:
+        self._session: ClientSession | None = None
+        self._stack: AsyncExitStack | None = None
+        self._api_key: str = ""
 
-    Called once during app lifespan startup.  The session is stored in
-    module-level ``_boss_session`` so ``search_candidates`` can reuse it.
+    async def connect(self, url: str, api_key: str) -> None:
+        """Establish an SSE connection to the Talent Market MCP server."""
+        if self._session is not None:
+            return
+        from mcp.client.sse import sse_client
 
-    Talent Market is a centralized service — always connects via SSE.
-    URL and API key are read from config.yaml (talent_market section).
-    """
-    global _boss_session, _boss_cleanup
+        stack = AsyncExitStack()
+        headers = {"Authorization": f"Bearer {api_key}"}
+        read, write = await stack.enter_async_context(sse_client(url=url, headers=headers))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        self._session = session
+        self._stack = stack
+        self._api_key = api_key
+        logger.info("Connected to Talent Market at {}", url)
 
-    from contextlib import AsyncExitStack
-
-    # Read talent market config from app settings (config.yaml)
-    from onemancompany.core.config import load_app_config
-    tm_config = load_app_config().get("talent_market", {})
-
-    url = tm_config.get("url", "https://api.carbonkites.com/mcp/sse")
-    api_key = tm_config.get("api_key", "")
-
-    if not api_key:
-        logger.warning("Talent Market API key not configured — skipping connection. "
-                       "Set it in Settings or .onemancompany/config.yaml")
-        return
-
-    stack = AsyncExitStack()
-
-    from mcp.client.sse import sse_client
-    headers = {"Authorization": f"Bearer {api_key}"}
-    read, write = await stack.enter_async_context(
-        sse_client(url=url, headers=headers)
-    )
-    logger.info("Connecting to Talent Market at {}", url)
-
-    session = await stack.enter_async_context(ClientSession(read, write))
-    await session.initialize()
-
-    _boss_session = session
-    # Store the stack so stop_boss_online can tear it down
-    _boss_session._exit_stack = stack  # type: ignore[attr-defined]
-    logger.info("Talent Market MCP server ready")
-
-
-async def stop_boss_online() -> None:
-    """Shut down the persistent Boss Online MCP server."""
-    global _boss_session
-    if _boss_session is not None:
-        stack = getattr(_boss_session, "_exit_stack", None)
-        _boss_session = None
+    async def disconnect(self) -> None:
+        """Tear down the MCP connection."""
+        if self._session is None:
+            return
+        stack = self._stack
+        self._session = None
+        self._stack = None
+        self._api_key = ""
         if stack:
             await stack.aclose()
-        logger.info("Boss Online MCP server stopped")
+        logger.info("Talent Market disconnected")
+
+    @property
+    def connected(self) -> bool:
+        """Return True if an active session exists."""
+        return self._session is not None
+
+    async def _call(self, tool_name: str, **kwargs) -> dict:
+        """Invoke an MCP tool, auto-injecting the API key."""
+        if not self._session:
+            raise RuntimeError("Not connected to Talent Market")
+        kwargs["api_key"] = self._api_key
+        result = await self._session.call_tool(tool_name, arguments=kwargs)
+        for item in result.content:
+            try:
+                parsed = json.loads(item.text)
+            except (json.JSONDecodeError, AttributeError):
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    async def search(self, job_description: str) -> dict:
+        """Search for candidates matching a job description."""
+        return await self._call("search_candidates", job_description=job_description)
+
+    async def list_available(self, role: str = "", skills: str = "", page: int = 1, page_size: int = 20) -> dict:
+        """List available talents with optional filters."""
+        return await self._call("list_available_talents", role=role, skills=skills, page=page, page_size=page_size)
+
+    async def list_my_talents(self) -> dict:
+        """List talents owned by the current account."""
+        return await self._call("list_my_talents")
+
+    async def get_info(self, talent_id: str) -> dict:
+        """Get detailed info for a talent."""
+        return await self._call("get_talent_info", talent_id=talent_id)
+
+    async def get_cv(self, talent_id: str) -> dict:
+        """Get the CV/resume for a talent."""
+        return await self._call("get_talent_cv", talent_id=talent_id)
+
+    async def hire(self, talent_ids: list[str], session_id: str = "") -> dict:
+        """Hire one or more talents."""
+        args: dict = {"talent_ids": talent_ids}
+        if session_id:
+            args["session_id"] = session_id
+        return await self._call("hire_talents", **args)
+
+    async def onboard(self, talent_id: str) -> dict:
+        """Onboard a hired talent."""
+        return await self._call("onboard_talent", talent_id=talent_id)
 
 
-async def _call_boss_online(job_description: str, count: int = 10) -> dict:
-    """Call the persistent Boss Online MCP session. Returns role-grouped result."""
-    if _boss_session is None:
-        raise RuntimeError("Boss Online MCP server is not running")
+talent_market = TalentMarketClient()
 
-    result = await _boss_session.call_tool(
-        "search_candidates",
-        arguments={"job_description": job_description, "count": count},
-    )
-    # MCP now returns a single dict with role-grouped structure
-    for item in result.content:
-        try:
-            parsed = json.loads(item.text)
-        except (json.JSONDecodeError, AttributeError) as _e:
-            logger.debug("Skipping unparseable content block: {}", _e)
-            continue
-        if isinstance(parsed, dict) and "roles" in parsed:
-            return parsed
-    # Fallback if no role-grouped result found
-    logger.warning("Boss Online did not return role-grouped result, returning empty")
-    return {"type": "individual", "summary": "", "roles": []}
+
+async def start_talent_market() -> None:
+    """Connect to the Talent Market MCP server using config.yaml settings."""
+    from onemancompany.core.config import load_app_config
+
+    tm_config = load_app_config().get("talent_market", {})
+    url = tm_config.get("url", "https://api.carbonkites.com/mcp/sse")
+    api_key = tm_config.get("api_key", "")
+    if not api_key:
+        logger.warning("Talent Market API key not configured — skipping connection")
+        return
+    await talent_market.connect(url, api_key)
+
+
+async def stop_talent_market() -> None:
+    """Disconnect from the Talent Market MCP server."""
+    await talent_market.disconnect()
+
+
+def _local_fallback_search(job_description: str) -> dict:
+    """Search local talent packages as a fallback when Talent Market is unavailable."""
+    from onemancompany.core.config import list_available_talents, load_talent_profile
+
+    talents = list_available_talents()
+    candidates = []
+    for t in talents:
+        profile = load_talent_profile(t["id"])
+        if profile:
+            candidates.append(_talent_to_candidate(profile))
+    return {
+        "type": "individual",
+        "summary": "Local talent packages",
+        "roles": [{"role": "Available Talents", "description": job_description, "candidates": candidates}],
+    }
 
 
 @tool
 async def search_candidates(job_description: str) -> dict:
-    """Search the Boss Online recruitment platform for candidates matching a job description.
-
-    Connects to the Boss Online MCP server, which generates role-grouped candidate
-    profiles based on the job description. Returns a dict with type, summary, and
-    roles (each containing ranked candidates).
+    """Search for candidates matching a job description.
+    Uses Talent Market API when connected, falls back to local talent packages.
 
     Args:
         job_description: The job requirements / description text.
@@ -285,26 +329,17 @@ async def search_candidates(job_description: str) -> dict:
     Returns:
         A role-grouped dict: {type, summary, roles: [{role, description, candidates}]}.
     """
-    try:
-        grouped = await _call_boss_online(job_description)
-        total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
-        logger.info("Boss Online returned %d candidates in %d roles for JD: %s",
-                     total, len(grouped.get("roles", [])), job_description[:80])
-    except Exception as e:
-        logger.error("Boss Online MCP call failed: %s", e)
-        # Fallback to local talent packages, wrapped in role-grouped format
-        from onemancompany.core.config import list_available_talents, load_talent_profile
-        talents = list_available_talents()
-        candidates = []
-        for t in talents:
-            profile = load_talent_profile(t["id"])
-            if profile:
-                candidates.append(_talent_to_candidate(profile))
-        grouped = {
-            "type": "individual",
-            "summary": "Fallback: local talent packages",
-            "roles": [{"role": "Available Talents", "description": job_description, "candidates": candidates}],
-        }
+    if talent_market.connected:
+        try:
+            grouped = await talent_market.search(job_description)
+            total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
+            logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
+                        total, len(grouped.get("roles", [])), job_description[:80])
+        except Exception as e:
+            logger.error("Talent Market search failed: {}", e)
+            grouped = _local_fallback_search(job_description)
+    else:
+        grouped = _local_fallback_search(job_description)
 
     # Stash ALL candidates from ALL roles so shortlist can look up by ID
     _last_search_results.clear()
