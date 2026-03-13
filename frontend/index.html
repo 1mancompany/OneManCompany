@@ -66,8 +66,24 @@
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
+          <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings">&#9881;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
           <span class="status-item" id="last-sync-time"></span>
+        </div>
+      </div>
+      <div id="settings-floating-panel" class="floating-panel hidden">
+        <div class="floating-panel-header">
+          <span>&#9881; SETTINGS</span>
+          <button class="floating-panel-close" onclick="document.getElementById('settings-floating-panel').classList.add('hidden')">&#10005;</button>
+        </div>
+        <div class="floating-panel-body">
+          <div class="settings-section-header" data-target="settings-api-body">
+            <span class="settings-collapse-arrow">&#9654;</span>
+            <span class="settings-section-title">&#128273; API Connections</span>
+          </div>
+          <div id="settings-api-body" class="settings-section-body">
+            <div id="api-settings-content"></div>
+          </div>
         </div>
       </div>
       <canvas id="office-canvas" width="640" height="480"></canvas>
@@ -110,21 +126,6 @@
             <button id="hr-review-btn" class="pixel-btn secondary">&#128203; Quarterly Review</button>
           </div>
         </div>
-      </div>
-
-      <div class="collapsible-header collapsed" data-target="settings-body">
-        <span class="collapse-arrow">&#9660;</span>
-        <h3 class="pixel-title">&#9881; SETTINGS</h3>
-      </div>
-      <div id="settings-body" class="collapsible-body collapsed">
-        <div class="settings-section-header" data-target="settings-api-body">
-          <span class="settings-collapse-arrow">&#9654;</span>
-          <span class="settings-section-title">&#128273; API Connections</span>
-        </div>
-        <div id="settings-api-body" class="settings-section-body">
-          <div id="api-settings-content"></div>
-        </div>
-        <!-- future settings sections go here -->
       </div>
 
 

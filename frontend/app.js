@@ -1039,14 +1039,22 @@ class AppController {
       if (e.target.id === 'generic-popup-modal') this.closePopup();
     });
 
-    // Settings panel: fetch API settings on first expand
+    // Settings floating panel: toggle via toolbar button
     this._settingsLoaded = false;
-    const settingsHeader = document.querySelector('[data-target="settings-body"]');
-    if (settingsHeader) {
-      settingsHeader.addEventListener('click', () => {
-        if (!this._settingsLoaded) {
+    const settingsBtn = document.getElementById('settings-toolbar-btn');
+    const settingsPanel = document.getElementById('settings-floating-panel');
+    if (settingsBtn && settingsPanel) {
+      settingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        settingsPanel.classList.toggle('hidden');
+        if (!settingsPanel.classList.contains('hidden') && !this._settingsLoaded) {
           this._settingsLoaded = true;
           this._renderApiSettings();
+        }
+      });
+      document.addEventListener('click', (e) => {
+        if (!settingsPanel.contains(e.target) && e.target !== settingsBtn) {
+          settingsPanel.classList.add('hidden');
         }
       });
     }
