@@ -48,7 +48,7 @@ class AgentLogPayload(BaseModel):
     content: str = ""
 
 
-class AgentTaskUpdatePayload(BaseModel):
+class TaskUpdatePayload(BaseModel):
     employee_id: str = ""
     task_id: str = ""
     status: str = ""
@@ -149,7 +149,7 @@ EventPayload = Union[
     AgentThinkingPayload,
     AgentDonePayload,
     AgentLogPayload,
-    AgentTaskUpdatePayload,
+    TaskUpdatePayload,
     CandidatesReadyPayload,
     ResolutionReadyPayload,
     ResolutionDecidedPayload,

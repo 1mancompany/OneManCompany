@@ -266,8 +266,6 @@ class TestAdminClearTasks:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task_entry]), \
              patch("onemancompany.api.routes.EMPLOYEES_DIR", MagicMock(iterdir=MagicMock(return_value=[]))), \
-             patch("onemancompany.api.routes.load_active_tasks", create=True, return_value=[]), \
-             patch("onemancompany.api.routes.archive_task", create=True), \
              patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -356,11 +354,11 @@ class TestCeoSubmitTask:
         assert root is not None
         assert root.node_type == "ceo_prompt"
         assert root.description == "Build a website"
-        # EA is child of CEO root, mapped via task_id_map
-        ea_node_id = saved_tree.task_id_map["agent-task-002"]
-        ea_node = saved_tree.get_node(ea_node_id)
-        assert ea_node is not None
-        assert ea_node_id != root.id
+        # EA is child of CEO root
+        children = saved_tree.get_active_children(root.id)
+        assert len(children) >= 1
+        ea_node = children[0]
+        assert ea_node.id != root.id
 
 
 # ---------------------------------------------------------------------------
@@ -1503,12 +1501,12 @@ class TestMeetingBook:
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task") as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/meeting/book", json={
@@ -1519,7 +1517,7 @@ class TestMeetingBook:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "processing"
-        mock_loop.push_task.assert_called_once()
+        mock_push.assert_called_once()
 
     async def test_book_meeting_missing_employee_id(self):
         state = _make_state()
@@ -1545,19 +1543,19 @@ class TestHRReview:
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task") as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/hr/review")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "HR review started"
-        mock_loop.push_task.assert_called_once()
+        mock_push.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1791,17 +1789,25 @@ class TestEmployeeOKRs:
 
 
 class TestEmployeeTaskboardWithLoop:
-    async def test_taskboard_with_loop(self):
+    async def test_taskboard_with_loop(self, tmp_path):
         state = _make_state()
-        mock_board = MagicMock()
-        mock_board.to_dict.return_value = [{"id": "t1", "description": "Task"}]
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+        from collections import defaultdict
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="00010", description="Task")
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+
+        mock_em = MagicMock()
+        mock_em._schedule = defaultdict(list)
+        mock_em._schedule["00010"] = [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/taskboard")
@@ -2504,24 +2510,26 @@ class TestUploadFile:
 
 
 class TestOneOnOneChatAgentLoop:
-    async def test_chat_via_agent_loop(self):
+    async def test_chat_via_agent_loop(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.id = "t1"
-        mock_task.status = "completed"
-        mock_task.result = "Agent response here"
-        mock_task.logs = []
+        # Create a tree on disk with a completed node
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "completed"
+        root.result = "Agent response here"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
 
         mock_loop = MagicMock()
-        mock_loop.push_task.return_value = mock_task
-        mock_loop.board = mock_board
-
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
@@ -2530,6 +2538,8 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -2541,27 +2551,26 @@ class TestOneOnOneChatAgentLoop:
         assert resp.status_code == 200
         assert resp.json()["response"] == "Agent response here"
 
-    async def test_chat_via_agent_loop_with_logs_fallback(self):
+    async def test_chat_via_agent_loop_no_result(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.id = "t1"
-        mock_task.status = "completed"
-        mock_task.result = ""
-        mock_task.logs = [
-            {"type": "start", "content": "Started"},
-            {"type": "result", "content": "Log-based result"},
-        ]
+        # Create a tree on disk with a completed node but no result
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "completed"
+        root.result = ""
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
 
         mock_loop = MagicMock()
-        mock_loop.push_task.return_value = mock_task
-        mock_loop.board = mock_board
-
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
@@ -2570,6 +2579,8 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -2579,42 +2590,38 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "Log-based result"
+        assert resp.json()["response"] == "（处理完成）"
 
-    async def test_chat_via_agent_loop_no_result_no_logs(self):
+    async def test_chat_via_agent_loop_timeout(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.id = "t1"
-        mock_task.status = "in_progress"
-        mock_task.result = ""
-        mock_task.logs = []
+        # Create a tree on disk with a still-processing node (never completes)
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "processing"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
 
         mock_loop = MagicMock()
-        mock_loop.push_task.return_value = mock_task
-        mock_loop.board = mock_board
-
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
-
-        sleep_count = 0
-        async def fast_sleep(t):
-            nonlocal sleep_count
-            sleep_count += 1
-            if sleep_count >= 3:
-                mock_task.status = "completed"
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("asyncio.sleep", side_effect=fast_sleep):
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2623,6 +2630,7 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
+        assert resp.json()["response"] == "（任务已提交，正在处理中）"
 
     async def test_chat_first_message_marks_listening(self):
         emp = _make_employee(id="00010")
@@ -2785,10 +2793,8 @@ class TestAbortTask:
         state = _make_state()
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.project_dir = ""
         mock_manager = MagicMock()
-        mock_manager.abort_project.return_value = [mock_task]
+        mock_manager.abort_project.return_value = 1
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -2809,83 +2815,78 @@ class TestAbortTask:
 # ---------------------------------------------------------------------------
 
 
-class TestCancelAgentTask:
-    async def test_cancel_task_no_loop(self):
+class TestCancelTask:
+    async def test_cancel_task_not_in_schedule(self):
         state = _make_state()
+        mock_em = MagicMock()
+        mock_em._schedule = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
 
-        assert resp.json()["message"] == "Agent not found"
+        assert resp.json()["message"] == "Task not found in schedule"
 
-    async def test_cancel_task_not_found(self):
+    async def test_cancel_task_already_completed(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         state = _make_state()
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = None
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        tree = TaskTree("proj1")
+        root = tree.create_root("00010", "task")
+        root.status = "completed"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [entry]}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/employee/00010/task/t999/cancel")
-
-        assert resp.json()["message"] == "Task not found"
-
-    async def test_cancel_task_already_completed(self):
-        state = _make_state()
-        mock_task = MagicMock()
-        mock_task.status = "completed"
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/employee/00010/task/t1/cancel")
+                resp = await c.post(f"/api/employee/00010/task/{root.id}/cancel")
 
         assert "already" in resp.json()["message"]
 
-    async def test_cancel_task_success(self):
+    async def test_cancel_task_success(self, tmp_path):
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         state = _make_state()
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.status = "pending"
-        mock_task.id = "t1"
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
-        mock_board.tasks = [mock_task]
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        tree = TaskTree("proj1")
+        root = tree.create_root("00010", "task")
+        root.status = "pending"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [entry]}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.task_persistence.persist_task"), \
-             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em), \
              patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/employee/00010/task/t1/cancel")
+                resp = await c.post(f"/api/employee/00010/task/{root.id}/cancel")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
-        assert mock_task.status == "cancelled"
+        # Verify node was cancelled on disk
+        reloaded = TaskTree.load(tree_path)
+        assert reloaded.get_node(root.id).status == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -3068,18 +3069,21 @@ class TestGetEmployeeDetailWithManifest:
 class TestEmployeeLogsWithLoop:
     async def test_logs_with_current_task(self):
         state = _make_state()
+        from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
 
-        mock_loop = MagicMock()
-        mock_loop._current_task = MagicMock()
-        mock_loop._current_task.logs = [
+        mock_em = MagicMock(spec=EmployeeManager)
+        mock_em._running_tasks = {"00010": MagicMock()}
+        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
+        mock_em._schedule = {"00010": [entry]}
+        mock_em._task_logs = {"n1": [
             {"type": "start", "content": "Started"},
             {"type": "result", "content": "Done"},
-        ]
+        ]}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/logs")
@@ -3089,20 +3093,18 @@ class TestEmployeeLogsWithLoop:
 
     async def test_logs_from_recent_task(self):
         state = _make_state()
-        from onemancompany.core.agent_loop import AgentTask as AT
+        from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
 
-        task1 = AT(id="t1", description="Old task")
-        task1.logs = [{"type": "result", "content": "Old result"}]
-
-        mock_loop = MagicMock()
-        mock_loop._current_task = None
-        mock_loop.board = MagicMock()
-        mock_loop.board.tasks = [task1]
+        mock_em = MagicMock(spec=EmployeeManager)
+        mock_em._running_tasks = {"00010": MagicMock()}
+        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
+        mock_em._schedule = {"00010": [entry]}
+        mock_em._task_logs = {"n1": [{"type": "result", "content": "Old result"}]}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/logs")
@@ -3112,19 +3114,17 @@ class TestEmployeeLogsWithLoop:
 
     async def test_logs_no_tasks_with_logs(self):
         state = _make_state()
-        from onemancompany.core.agent_loop import AgentTask as AT
+        from onemancompany.core.vessel import EmployeeManager
 
-        task_no_logs = AT(id="t1", description="Task")
-
-        mock_loop = MagicMock()
-        mock_loop._current_task = None
-        mock_loop.board = MagicMock()
-        mock_loop.board.tasks = [task_no_logs]
+        mock_em = MagicMock(spec=EmployeeManager)
+        mock_em._running_tasks = {}
+        mock_em._schedule = {}
+        mock_em._task_logs = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/logs")
@@ -3900,12 +3900,12 @@ class TestMeetingBook:
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task") as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/meeting/book", json={
@@ -3916,7 +3916,7 @@ class TestMeetingBook:
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "processing"
-        mock_loop.push_task.assert_called_once()
+        mock_push.assert_called_once()
 
     async def test_book_meeting_missing_employee_id(self):
         state = _make_state()
@@ -3942,19 +3942,19 @@ class TestHRReview:
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task") as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/hr/review")
 
         assert resp.status_code == 200
         assert resp.json()["status"] == "HR review started"
-        mock_loop.push_task.assert_called_once()
+        mock_push.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -4177,17 +4177,25 @@ class TestEmployeeOKRs:
 
 
 class TestEmployeeTaskboardWithLoop:
-    async def test_taskboard_with_loop(self):
+    async def test_taskboard_with_loop(self, tmp_path):
         state = _make_state()
-        mock_board = MagicMock()
-        mock_board.to_dict.return_value = [{"id": "t1", "description": "Task"}]
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+        from collections import defaultdict
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="00010", description="Task")
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+
+        mock_em = MagicMock()
+        mock_em._schedule = defaultdict(list)
+        mock_em._schedule["00010"] = [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/employee/00010/taskboard")
@@ -4206,12 +4214,12 @@ class TestSalesSubmitWithCSO:
         state = _make_state()
         bus = EventBus()
         mock_loop = MagicMock()
-        mock_loop.push_task = MagicMock()
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value="n1") as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/sales/submit", json={
@@ -4220,7 +4228,7 @@ class TestSalesSubmitWithCSO:
                 })
 
         assert resp.status_code == 200
-        mock_loop.push_task.assert_called_once()
+        mock_push.assert_called_once()
 
 
 class TestSalesDeliverNotFound:
@@ -5622,14 +5630,18 @@ class TestAdminClearTasks:
         state = _make_state()
         bus = EventBus()
 
-        mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
+        from onemancompany.core.vessel import ScheduleEntry
+        from collections import defaultdict
+
+        mock_em = MagicMock()
+        mock_em._schedule = defaultdict(list)
+        mock_em._schedule["00003"] = [ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")]
+        mock_em._running_tasks = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
-             patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/admin/clear-tasks")
@@ -5644,54 +5656,38 @@ class TestAdminClearTasks:
 
 
 class TestCancelTaskWithSubtasks:
-    async def test_cancel_task_with_subtasks(self):
-        """Cancel a task that has sub-tasks."""
+    async def test_cancel_task_with_children(self, tmp_path):
+        """Cancel a parent node that has child nodes in the tree."""
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         state = _make_state()
         bus = EventBus()
 
-        sub_task = MagicMock()
-        sub_task.status = "pending"
-        sub_task.completed_at = None
-        sub_task.result = ""
+        tree = TaskTree("proj1")
+        root = tree.create_root("00010", "parent task")
+        root.status = "processing"
+        child = tree.add_child(root.id, "00010", "child task", [])
+        child.status = "pending"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        main_task = MagicMock()
-        main_task.id = "t1"
-        main_task.status = "processing"
-        main_task.completed_at = None
-        main_task.result = ""
-        main_task.sub_task_ids = ["s1"]
-
-        mock_board = MagicMock()
-        def get_task_side_effect(tid):
-            if tid == "t1":
-                return main_task
-            if tid == "s1":
-                return sub_task
-            return None
-        mock_board.get_task = get_task_side_effect
-
-        mock_loop = MagicMock()
-        mock_loop.board = mock_board
-        mock_loop._log = MagicMock()
-        mock_loop._publish_task_update = MagicMock()
-
-        mock_manager = MagicMock()
-        mock_manager._running_tasks = {}
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [entry]}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.agent_loop.employee_manager", mock_manager), \
-             patch("onemancompany.core.task_persistence.persist_task"), \
-             patch("onemancompany.core.task_persistence.archive_task"), \
+             patch("onemancompany.core.agent_loop.employee_manager", mock_em), \
              patch("onemancompany.core.automation.stop_cron"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/employee/00010/task/t1/cancel")
+                resp = await c.post(f"/api/employee/00010/task/{root.id}/cancel")
 
         assert resp.json()["status"] == "ok"
-        assert main_task.status == "cancelled"
+        reloaded = TaskTree.load(tree_path)
+        assert reloaded.get_node(root.id).status == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -5705,10 +5701,8 @@ class TestAbortTaskWithBoards:
         state = _make_state()
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.project_dir = ""
         mock_manager = MagicMock()
-        mock_manager.abort_project.return_value = [mock_task]
+        mock_manager.abort_project.return_value = 1
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -5947,25 +5941,26 @@ class TestOneOnOneEndWithUpdate:
 
 
 class TestOneOnOneChatAgentLoopHistory:
-    async def test_chat_agent_loop_with_history(self):
-        """Covers line 536 — agent loop chat with conversation history."""
+    async def test_chat_agent_loop_with_history(self, tmp_path):
+        """Covers agent loop chat with conversation history."""
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.id = "t1"
-        mock_task.status = "completed"
-        mock_task.result = "Got your history"
-        mock_task.logs = []
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "completed"
+        root.result = "Got your history"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
 
         mock_loop = MagicMock()
-        mock_loop.push_task.return_value = mock_task
-        mock_loop.board = mock_board
-
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
@@ -5974,6 +5969,8 @@ class TestOneOnOneChatAgentLoopHistory:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -5996,28 +5993,26 @@ class TestOneOnOneChatAgentLoopHistory:
 
 
 class TestOneOnOneChatAgentLoopLogsNoResult:
-    async def test_chat_logs_no_llm_output(self):
-        """Covers line 564 — logs exist but none are llm_output/result type."""
+    async def test_chat_completed_no_result(self, tmp_path):
+        """Covers completed node with no result — returns fallback message."""
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_task = MagicMock()
-        mock_task.id = "t1"
-        mock_task.status = "completed"
-        mock_task.result = ""
-        mock_task.logs = [
-            {"type": "tool_call", "content": "Called search tool"},
-            {"type": "info", "content": "Completed processing"},
-        ]
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "completed"
+        root.result = ""
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
 
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
 
         mock_loop = MagicMock()
-        mock_loop.push_task.return_value = mock_task
-        mock_loop.board = mock_board
-
         mock_cfg = MagicMock()
         mock_cfg.hosting = "company"
 
@@ -6026,6 +6021,8 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -6035,7 +6032,7 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "Completed processing"
+        assert resp.json()["response"] == "（处理完成）"
 
 
 # ---------------------------------------------------------------------------
@@ -6192,7 +6189,6 @@ class TestAdminClearTasksDirect:
         with patch.object(routes_mod, "company_state", state), \
              patch.object(routes_mod, "event_bus", bus), \
              patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
-             patch("onemancompany.core.task_persistence.load_active_tasks", return_value=[]), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])), \
              patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
             result = await routes_mod.admin_clear_tasks()
@@ -6479,7 +6475,6 @@ class TestDispatchHiringToHR:
             "project_dir": "/tmp/proj",
         }
 
-        mock_vessel = MagicMock()
         mock_bus = MagicMock()
         mock_bus.publish = AsyncMock()
 
@@ -6487,13 +6482,14 @@ class TestDispatchHiringToHR:
         queue_before = len(_pending_coo_hire_queue)
 
         with patch("onemancompany.api.routes.event_bus", mock_bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_vessel):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value="n1") as mock_push:
             from onemancompany.api.routes import decide_hiring_request
             result = await decide_hiring_request(req_id, {"approved": True})
 
         assert result["status"] == "approved"
-        mock_vessel.push_task.assert_called_once()
-        jd = mock_vessel.push_task.call_args[0][0]
+        mock_push.assert_called_once()
+        jd = mock_push.call_args[0][1]  # second positional arg is description
         assert "Developer" in jd
         assert "Python" in jd
         assert "Engineering" in jd  # department included in JD

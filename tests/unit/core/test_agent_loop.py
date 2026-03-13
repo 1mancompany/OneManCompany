@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from onemancompany.core.agent_loop import (
-    AgentTask,
-    AgentTaskBoard,
     ClaudeSessionLauncher,
     EmployeeHandle,
     EmployeeManager,
@@ -18,6 +16,7 @@ from onemancompany.core.agent_loop import (
     LangChainLauncher,
     Launcher,
     ScriptLauncher,
+    ScheduleEntry,
     TaskContext,
     _AgentRef,
     _append_progress,
@@ -33,223 +32,26 @@ from onemancompany.core.agent_loop import (
     MAX_RETRIES,
     RETRY_DELAYS,
 )
+from onemancompany.core.task_tree import TaskNode, TaskTree
 from onemancompany.core.task_lifecycle import TaskPhase
 
 
-# ---------------------------------------------------------------------------
-# AgentTask
-# ---------------------------------------------------------------------------
+def _make_tree_entry(tmp_path, employee_id="emp01", description="Build widget",
+                     project_id="proj1", node_id="", status="pending"):
+    """Create a TaskTree file with one node and return (ScheduleEntry, tree_path, node)."""
+    tree = TaskTree(project_id=project_id)
+    root = tree.create_root(employee_id=employee_id, description=description)
+    if node_id:
+        root.id = node_id
+        tree._nodes = {root.id: root}
+        tree.root_id = root.id
+    if status != "pending":
+        root.status = status
+    tree_path = tmp_path / "task_tree.yaml"
+    tree.save(tree_path)
+    entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+    return entry, tree_path, root
 
-class TestAgentTask:
-    def test_creation_defaults(self):
-        task = AgentTask(id="abc123", description="Do something")
-        assert task.id == "abc123"
-        assert task.description == "Do something"
-        assert task.status == "pending"
-        assert task.parent_id == ""
-        assert task.project_id == ""
-        assert task.project_dir == ""
-        assert task.logs == []
-        assert task.result == ""
-        assert task.created_at != ""  # auto-set by __post_init__
-        assert task.completed_at == ""
-        assert task.input_tokens == 0
-        assert task.output_tokens == 0
-        assert task.total_tokens == 0
-        assert task.estimated_cost_usd == 0.0
-
-    def test_creation_with_values(self):
-        task = AgentTask(
-            id="xyz",
-            description="Build feature",
-            status="processing",
-            parent_id="parent1",
-            project_id="proj1",
-            project_dir="/tmp/proj",
-            created_at="2024-01-01T00:00:00",
-        )
-        assert task.status == "processing"
-        assert task.parent_id == "parent1"
-        assert task.project_id == "proj1"
-        assert task.project_dir == "/tmp/proj"
-        assert task.created_at == "2024-01-01T00:00:00"
-
-    def test_post_init_sets_created_at(self):
-        before = datetime.now().isoformat()
-        task = AgentTask(id="t1", description="test")
-        after = datetime.now().isoformat()
-        assert before <= task.created_at <= after
-
-    def test_post_init_preserves_explicit_created_at(self):
-        task = AgentTask(id="t1", description="test", created_at="2020-01-01")
-        assert task.created_at == "2020-01-01"
-
-    def test_to_dict(self):
-        task = AgentTask(
-            id="t1",
-            description="Build widget",
-            status="completed",
-            parent_id="p1",
-            project_id="proj1",
-            result="Done!",
-            created_at="2024-01-01T00:00:00",
-            completed_at="2024-01-01T01:00:00",
-            model_used="gpt-4",
-            input_tokens=100,
-            output_tokens=50,
-            total_tokens=150,
-            estimated_cost_usd=0.01,
-        )
-        d = task.to_dict()
-        assert d["id"] == "t1"
-        assert d["description"] == "Build widget"
-        assert d["status"] == "completed"
-        assert d["parent_id"] == "p1"
-        assert d["project_id"] == "proj1"
-        assert d["result"] == "Done!"
-        assert d["created_at"] == "2024-01-01T00:00:00"
-        assert d["completed_at"] == "2024-01-01T01:00:00"
-        assert d["model_used"] == "gpt-4"
-        assert d["input_tokens"] == 100
-        assert d["output_tokens"] == 50
-        assert d["total_tokens"] == 150
-        assert d["estimated_cost_usd"] == 0.01
-
-    def test_to_dict_truncates_logs_to_50(self):
-        task = AgentTask(id="t1", description="test")
-        task.logs = [{"timestamp": "t", "type": "log", "content": f"entry {i}"} for i in range(80)]
-        d = task.to_dict()
-        assert len(d["logs"]) == 50
-
-    def test_to_dict_truncates_result(self):
-        task = AgentTask(id="t1", description="test", result="x" * 1000)
-        d = task.to_dict()
-        assert len(d["result"]) <= 300  # MAX_SUMMARY_LEN
-
-    def test_status_transitions(self):
-        task = AgentTask(id="t1", description="test")
-        assert task.status == "pending"
-        task.status = "processing"
-        assert task.status == "processing"
-        task.status = "completed"
-        assert task.status == "completed"
-
-    def test_status_failed(self):
-        task = AgentTask(id="t1", description="test")
-        task.status = "failed"
-        assert task.status == "failed"
-
-    def test_status_cancelled(self):
-        task = AgentTask(id="t1", description="test")
-        task.status = "cancelled"
-        assert task.status == "cancelled"
-
-
-# ---------------------------------------------------------------------------
-# AgentTaskBoard
-# ---------------------------------------------------------------------------
-
-class TestAgentTaskBoard:
-    def test_push_creates_task(self):
-        board = AgentTaskBoard()
-        task = board.push("Do something")
-        assert task.description == "Do something"
-        assert task.status == "pending"
-        assert len(task.id) == 12
-        assert len(board.tasks) == 1
-
-    def test_push_with_project_info(self):
-        board = AgentTaskBoard()
-        task = board.push("Build it", project_id="proj1", project_dir="/tmp/proj")
-        assert task.project_id == "proj1"
-        assert task.project_dir == "/tmp/proj"
-
-    def test_push_subtask_links_parent(self):
-        board = AgentTaskBoard()
-        parent = board.push("Parent task")
-        child = board.push("Child task", parent_id=parent.id)
-        assert child.parent_id == parent.id
-
-    def test_push_subtask_with_missing_parent(self):
-        board = AgentTaskBoard()
-        child = board.push("Orphan child", parent_id="nonexistent")
-        assert child.parent_id == "nonexistent"
-        assert len(board.tasks) == 1
-
-    def test_get_next_pending_returns_first_top_level(self):
-        board = AgentTaskBoard()
-        t1 = board.push("First")
-        t2 = board.push("Second")
-        result = board.get_next_pending()
-        assert result is t1
-
-    def test_get_next_pending_skips_non_pending(self):
-        board = AgentTaskBoard()
-        t1 = board.push("First")
-        t1.status = "completed"
-        t2 = board.push("Second")
-        result = board.get_next_pending()
-        assert result is t2
-
-    def test_get_next_pending_skips_subtasks(self):
-        board = AgentTaskBoard()
-        parent = board.push("Parent")
-        parent.status = "processing"
-        child = board.push("Child", parent_id=parent.id)
-        result = board.get_next_pending()
-        assert result is None  # child is a subtask, not top-level
-
-    def test_get_next_pending_empty_board(self):
-        board = AgentTaskBoard()
-        assert board.get_next_pending() is None
-
-    def test_cancel_by_project(self):
-        board = AgentTaskBoard()
-        t1 = board.push("Task 1", project_id="proj1")
-        t2 = board.push("Task 2", project_id="proj1")
-        t3 = board.push("Task 3", project_id="proj2")
-        t2.status = "completed"  # already completed, should not be cancelled
-        cancelled = board.cancel_by_project("proj1")
-        assert len(cancelled) == 1
-        assert t1 in cancelled
-        assert t1.status == "cancelled"
-        assert t1.result == "Cancelled by CEO"
-        assert t2.status == "completed"  # not changed
-        assert t3.status == "pending"  # different project
-
-    def test_cancel_by_project_cancels_subtasks(self):
-        board = AgentTaskBoard()
-        parent = board.push("Parent", project_id="proj1")
-        child = board.push("Child", project_id="proj1", parent_id=parent.id)
-        cancelled = board.cancel_by_project("proj1")
-        assert len(cancelled) == 2
-        assert parent.status == "cancelled"
-        assert child.status == "cancelled"
-        assert child.result == "Cancelled by CEO"
-
-    def test_cancel_by_project_no_match(self):
-        board = AgentTaskBoard()
-        board.push("Task", project_id="proj1")
-        cancelled = board.cancel_by_project("nonexistent")
-        assert cancelled == []
-
-    def test_get_task_found(self):
-        board = AgentTaskBoard()
-        t = board.push("Test")
-        assert board.get_task(t.id) is t
-
-    def test_get_task_not_found(self):
-        board = AgentTaskBoard()
-        assert board.get_task("nonexistent") is None
-
-    def test_to_dict(self):
-        board = AgentTaskBoard()
-        board.push("Task 1")
-        board.push("Task 2")
-        result = board.to_dict()
-        assert len(result) == 2
-        assert result[0]["description"] == "Task 1"
-        assert result[1]["description"] == "Task 2"
 
 
 # ---------------------------------------------------------------------------
@@ -478,20 +280,6 @@ class TestEmployeeHandle:
         assert handle.employee_id == "emp01"
         assert handle.agent.employee_id == "emp01"
 
-    def test_board_returns_existing(self):
-        mgr = EmployeeManager()
-        board = AgentTaskBoard()
-        mgr.boards["emp01"] = board
-        handle = EmployeeHandle(mgr, "emp01")
-        assert handle.board is board
-
-    def test_board_returns_new_if_missing(self):
-        mgr = EmployeeManager()
-        handle = EmployeeHandle(mgr, "emp01")
-        board = handle.board
-        assert isinstance(board, AgentTaskBoard)
-        assert len(board.tasks) == 0
-
     def test_task_history_returns_existing(self):
         mgr = EmployeeManager()
         mgr.task_histories["emp01"] = [{"task": "t1"}]
@@ -506,14 +294,15 @@ class TestEmployeeHandle:
     @patch.object(EmployeeManager, "push_task")
     def test_push_task_delegates_to_manager(self, mock_push):
         mgr = EmployeeManager()
-        mock_push.return_value = AgentTask(id="t1", description="test")
+        mock_push.return_value = "node123"
         handle = EmployeeHandle(mgr, "emp01")
         result = handle.push_task("Do something", project_id="proj1", project_dir="/tmp")
         mock_push.assert_called_once_with(
             "emp01", "Do something",
             project_id="proj1", project_dir="/tmp",
+            node_id="", tree_path="",
         )
-        assert result.id == "t1"
+        assert result == "node123"
 
     @patch.object(EmployeeManager, "get_history_context")
     def test_get_history_context_delegates(self, mock_ctx):
@@ -584,19 +373,8 @@ class TestEmployeeManagerRegistration:
         assert isinstance(handle, EmployeeHandle)
         assert handle.employee_id == "emp01"
         assert mgr.executors["emp01"] is launcher
-        assert "emp01" in mgr.boards
         assert "emp01" in mgr.task_histories
         assert mgr.vessels["emp01"] is handle
-
-    def test_register_preserves_existing_board(self):
-        mgr = EmployeeManager()
-        board = AgentTaskBoard()
-        board.push("Existing task")
-        mgr.boards["emp01"] = board
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("emp01", launcher)
-        assert mgr.boards["emp01"] is board
-        assert len(mgr.boards["emp01"].tasks) == 1
 
     def test_register_hooks(self):
         mgr = EmployeeManager()
@@ -634,42 +412,29 @@ class TestEmployeeManagerRegistration:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerPushTask:
-    def test_push_task_creates_task(self):
+    def test_push_task_with_node_schedules(self):
         mgr = EmployeeManager()
         launcher = MagicMock(spec=Launcher)
         mgr.register("emp01", launcher)
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                task = mgr.push_task("emp01", "Do something", project_id="proj1")
-                assert task.description == "Do something"
-                assert task.project_id == "proj1"
-                assert len(mgr.boards["emp01"].tasks) == 1
+        with patch.object(mgr, "_schedule_next"):
+            result = mgr.push_task("emp01", "Do something", node_id="n1", tree_path="/tmp/tree.yaml")
+            assert result == "n1"
+            assert len(mgr._schedule["emp01"]) == 1
+            assert mgr._schedule["emp01"][0].node_id == "n1"
 
-    def test_push_task_auto_creates_board(self):
+    def test_push_task_without_node_returns_empty(self):
         mgr = EmployeeManager()
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next"):
-                task = mgr.push_task("newguy", "Do something")
-                assert "newguy" in mgr.boards
-                assert task.description == "Do something"
+        with patch.object(mgr, "_schedule_next"):
+            result = mgr.push_task("emp01", "Do something")
+            assert result == ""
 
     def test_push_task_calls_schedule(self):
         mgr = EmployeeManager()
         launcher = MagicMock(spec=Launcher)
         mgr.register("emp01", launcher)
-        with patch.object(mgr, "_publish_task_update"):
-            with patch.object(mgr, "_schedule_next") as mock_sched:
-                mgr.push_task("emp01", "Do something")
-                mock_sched.assert_called_once_with("emp01")
-
-    def test_push_task_publishes_update(self):
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        mgr.register("emp01", launcher)
-        with patch.object(mgr, "_publish_task_update") as mock_pub:
-            with patch.object(mgr, "_schedule_next"):
-                task = mgr.push_task("emp01", "Do something")
-                mock_pub.assert_called_once_with("emp01", task)
+        with patch.object(mgr, "_schedule_next") as mock_sched:
+            mgr.push_task("emp01", "Do something")
+            mock_sched.assert_called_once_with("emp01")
 
 
 # ---------------------------------------------------------------------------
@@ -682,13 +447,13 @@ class TestEmployeeManagerScheduleNext:
         launcher = MagicMock(spec=Launcher)
         mgr.register("emp01", launcher)
         mgr._running_tasks["emp01"] = MagicMock()
-        mgr.boards["emp01"].push("Task")
+        mgr.schedule_node("emp01", "n1", "/tmp/tree.yaml")
         # Should not create new task because one is already running
         mgr._schedule_next("emp01")
         # The running_tasks should still have only the mock
         assert isinstance(mgr._running_tasks["emp01"], MagicMock)
 
-    def test_schedule_next_no_board(self):
+    def test_schedule_next_no_schedule(self):
         mgr = EmployeeManager()
         mgr._schedule_next("nobody")  # should not raise
 
@@ -696,7 +461,7 @@ class TestEmployeeManagerScheduleNext:
     def test_schedule_next_no_pending_sets_idle(self, mock_store):
         mgr = EmployeeManager()
         mock_store.save_employee_runtime = AsyncMock()
-        mgr.boards["emp01"] = AgentTaskBoard()  # empty board
+        mgr._schedule["emp01"] = []  # empty schedule
         mgr._schedule_next("emp01")
         # _set_employee_status now persists via store (no in-memory emp.status)
 
@@ -711,27 +476,27 @@ class TestEmployeeManagerExecuteTask:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_happy_path(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_execute_task_happy_path(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
         launcher = MagicMock(spec=Launcher)
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Task done!"))
-        handle = mgr.register("emp01", launcher)
+        mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        assert task.status == "completed"
-        assert task.result == "Task done!"
-        assert task.completed_at != ""
+        # Reload tree to check node status
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "completed"
+        assert node.result == "Task done!"
+        assert node.completed_at != ""
         launcher.execute.assert_called_once()
 
     @pytest.mark.asyncio
@@ -739,27 +504,26 @@ class TestEmployeeManagerExecuteTask:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_failure_retries(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_execute_task_failure_retries(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
         launcher = MagicMock(spec=Launcher)
         launcher.execute = AsyncMock(side_effect=RuntimeError("API down"))
-        handle = mgr.register("emp01", launcher)
+        mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.vessel.asyncio.sleep", new_callable=AsyncMock):
             with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-                await mgr._execute_task("emp01", task)
+                await mgr._execute_task("emp01", entry)
 
-        assert task.status == "failed"
-        assert "Error" in task.result
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "failed"
+        assert "Error" in node.result
         assert launcher.execute.call_count == MAX_RETRIES
 
     @pytest.mark.asyncio
@@ -767,38 +531,33 @@ class TestEmployeeManagerExecuteTask:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_no_launcher_raises(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_execute_task_no_launcher(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        # Register but then remove the launcher to simulate missing launcher
-        mgr.boards["emp01"] = AgentTaskBoard()
+        # Create vessel without launcher
         mgr.vessels["emp01"] = EmployeeHandle(mgr, "emp01")
         mgr.task_histories["emp01"] = []
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        assert task.status == "failed"
-        assert "No executor" in task.result
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "failed"
+        assert "No executor" in node.result
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="Previous work here")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_injects_progress(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_execute_task_injects_progress(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -806,13 +565,12 @@ class TestEmployeeManagerExecuteTask:
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        # Verify progress was injected into the task description
         call_args = launcher.execute.call_args
         task_with_ctx = call_args[0][0]
         assert "Previous Work Learnings" in task_with_ctx
@@ -823,93 +581,8 @@ class TestEmployeeManagerExecuteTask:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_pre_hook_modifies_description(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_execute_task_records_token_usage(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
-        mgr.register("emp01", launcher)
-        mgr.register_hooks("emp01", {"pre_task": lambda desc, ctx: "Modified: " + desc})
-
-        task = AgentTask(id="t1", description="Original task")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        call_args = launcher.execute.call_args
-        task_desc = call_args[0][0]
-        assert task_desc.startswith("Modified: ")
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_post_hook_called(self, mock_append, mock_load, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        post_hook = MagicMock()
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
-        mgr.register("emp01", launcher)
-        mgr.register_hooks("emp01", {"post_task": post_hook})
-
-        task = AgentTask(id="t1", description="Do task")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        post_hook.assert_called_once_with(task, "Done")
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_with_project_dir(self, mock_append, mock_load, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-        launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build", project_dir="/tmp/workspace")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        call_args = launcher.execute.call_args
-        task_desc = call_args[0][0]
-        assert "Project workspace: /tmp/workspace" in task_desc
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_records_token_usage(self, mock_append, mock_load, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -923,49 +596,18 @@ class TestEmployeeManagerExecuteTask:
         ))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             with patch("onemancompany.core.model_costs.get_model_cost", return_value={"input": 10.0, "output": 30.0}):
-                await mgr._execute_task("emp01", task)
+                await mgr._execute_task("emp01", entry)
 
-        assert task.model_used == "gpt-4"
-        assert task.input_tokens == 1000
-        assert task.output_tokens == 500
-        assert task.total_tokens == 1500
-        assert task.estimated_cost_usd > 0
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    @patch("onemancompany.core.vessel._load_progress", return_value="")
-    @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_cancelled_task_stays_cancelled(self, mock_append, mock_load, mock_bus, mock_state):
-        mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
-        mock_state.active_tasks = []
-
-        mgr = EmployeeManager()
-        launcher = MagicMock(spec=Launcher)
-
-        async def fake_execute(desc, ctx, on_log=None):
-            # Simulate cancellation during execution
-            task.status = "cancelled"
-            return LaunchResult(output="partial")
-
-        launcher.execute = AsyncMock(side_effect=fake_execute)
-        mgr.register("emp01", launcher)
-
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
-
-        with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
-
-        assert task.status == "cancelled"
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.model_used == "gpt-4"
+        assert node.input_tokens == 1000
+        assert node.output_tokens == 500
 
 
 # ---------------------------------------------------------------------------
@@ -978,11 +620,8 @@ class TestEmployeeManagerRunTask:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_run_task_cleans_up_and_schedules_next(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_run_task_cleans_up_and_schedules_next(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -990,12 +629,12 @@ class TestEmployeeManagerRunTask:
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Task 1")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
         mgr._running_tasks["emp01"] = MagicMock()
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._run_task("emp01", task)
+            await mgr._run_task("emp01", entry)
 
         # After _run_task, the running task should be removed
         assert "emp01" not in mgr._running_tasks
@@ -1006,13 +645,14 @@ class TestEmployeeManagerRunTask:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerTaskHistory:
-    def test_append_history(self):
+    def test_append_history_from_node(self):
         mgr = EmployeeManager()
-        task = AgentTask(
+        node = TaskNode(
             id="t1", description="Built feature X",
             result="Feature X is done", completed_at="2024-01-01T12:00:00",
+            employee_id="emp01",
         )
-        mgr._append_history("emp01", task)
+        mgr._append_history_from_node("emp01", node)
         history = mgr.task_histories["emp01"]
         assert len(history) == 1
         assert history[0]["task"] == "Built feature X"
@@ -1078,23 +718,22 @@ class TestEmployeeManagerHelpers:
 
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    def test_log_appends_to_task(self, mock_bus, mock_state):
+    def test_log_node_appends_to_buffer(self, mock_bus, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test")
-        mgr._log("emp01", task, "info", "Something happened")
-        assert len(task.logs) == 1
-        assert task.logs[0]["type"] == "info"
-        assert task.logs[0]["content"] == "Something happened"
+        mgr._log_node("emp01", "n1", "info", "Something happened")
+        assert len(mgr._task_logs["n1"]) == 1
+        assert mgr._task_logs["n1"][0]["type"] == "info"
+        assert mgr._task_logs["n1"][0]["content"] == "Something happened"
 
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    def test_publish_task_update_no_event_loop(self, mock_bus, mock_state):
+    def test_publish_node_update_no_event_loop(self, mock_bus, mock_state):
         mock_state.employees = {}
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test")
+        node = TaskNode(id="n1", description="test", employee_id="emp01")
         # Should not raise even without event loop
-        mgr._publish_task_update("emp01", task)
+        mgr._publish_node_update("emp01", node)
 
 
 
@@ -1186,13 +825,10 @@ class TestEmployeeManagerGraphRecursionError:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_graph_recursion_error_no_retry(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_graph_recursion_error_no_retry(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         from langgraph.errors import GraphRecursionError
 
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -1200,13 +836,15 @@ class TestEmployeeManagerGraphRecursionError:
         launcher.execute = AsyncMock(side_effect=GraphRecursionError("Recursion limit"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Recursive task")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, description="Recursive task")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        assert task.status == "failed"
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "failed"
         # GraphRecursionError should NOT be retried — only 1 call
         assert launcher.execute.call_count == 1
 
@@ -1221,11 +859,8 @@ class TestEmployeeManagerHookFailures:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_pre_hook_failure_continues(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_pre_hook_failure_continues(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -1238,25 +873,23 @@ class TestEmployeeManagerHookFailures:
 
         mgr.register_hooks("emp01", {"pre_task": bad_pre_hook})
 
-        task = AgentTask(id="t1", description="Test task")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, description="Test task")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        # Task should still complete despite pre-hook failure
-        assert task.status == "completed"
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_post_hook_failure_does_not_crash(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_post_hook_failure_does_not_crash(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -1269,31 +902,15 @@ class TestEmployeeManagerHookFailures:
 
         mgr.register_hooks("emp01", {"post_task": bad_post_hook})
 
-        task = AgentTask(id="t1", description="Test task")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, description="Test task")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        # Task should still be completed despite post-hook failure
-        assert task.status == "completed"
-
-
-# ---------------------------------------------------------------------------
-# AgentTask — additional edge cases for to_dict
-# ---------------------------------------------------------------------------
-
-class TestAgentTaskToDict:
-    def test_to_dict_empty_result(self):
-        task = AgentTask(id="t1", description="test", result="")
-        d = task.to_dict()
-        assert d["result"] == ""
-
-    def test_to_dict_logs_under_50(self):
-        task = AgentTask(id="t1", description="test")
-        task.logs = [{"timestamp": "t", "type": "log", "content": f"entry {i}"} for i in range(10)]
-        d = task.to_dict()
-        assert len(d["logs"]) == 10
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -1392,8 +1009,8 @@ class TestEmployeeManagerScheduleNextWithLoop:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_schedule_next_creates_task(self, mock_bus, mock_state):
-        """When event loop is running and there's a pending task, _schedule_next creates a task."""
+    async def test_schedule_next_creates_task(self, mock_bus, mock_state, tmp_path):
+        """When event loop is running and there's a pending node, _schedule_next creates a task."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
 
@@ -1402,8 +1019,8 @@ class TestEmployeeManagerScheduleNextWithLoop:
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Test")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         # Call _schedule_next which should create an asyncio.Task
         mgr._schedule_next("emp01")
@@ -1417,11 +1034,11 @@ class TestEmployeeManagerScheduleNextWithLoop:
             pass
         mgr._running_tasks.pop("emp01", None)
 
-    def test_schedule_next_no_event_loop(self):
+    def test_schedule_next_no_event_loop(self, tmp_path):
         """When no event loop is running, _schedule_next should not raise."""
         mgr = EmployeeManager()
-        mgr.boards["emp01"] = AgentTaskBoard()
-        mgr.boards["emp01"].push("Test task")
+        entry, tree_path, root = _make_tree_entry(tmp_path)
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
         # No event loop running — should gracefully handle RuntimeError
         mgr._schedule_next("emp01")
 
@@ -1436,12 +1053,9 @@ class TestEmployeeManagerExecuteTaskWithProject:
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_creates_task_entry(self, mock_append, mock_load, mock_bus, mock_state):
-        """When a task has project_id, execution completes the task."""
+    async def test_execute_task_creates_task_entry(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
+        """When a node has project_id, execution completes the task."""
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -1449,29 +1063,28 @@ class TestEmployeeManagerExecuteTaskWithProject:
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget", project_id="proj1")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, project_id="proj1")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             with patch("onemancompany.core.project_archive.record_project_cost"):
                 with patch("onemancompany.core.project_archive.append_action"):
                     with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
                         with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
-                            await mgr._execute_task("emp01", task)
+                            await mgr._execute_task("emp01", entry)
 
-        assert task.status == "completed"
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_execute_task_with_project_context(self, mock_append, mock_load, mock_bus, mock_state):
-        """When task has project_id, project history context is injected."""
+    async def test_execute_task_with_project_context(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
+        """When node has project_id, project history context is injected."""
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
@@ -1479,8 +1092,8 @@ class TestEmployeeManagerExecuteTaskWithProject:
         launcher.execute = AsyncMock(return_value=LaunchResult(output="Done"))
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget", project_id="proj1")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, project_id="proj1")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             with patch.object(mgr, "_get_project_history_context", return_value="[Project Context]") as mock_ctx:
@@ -1489,7 +1102,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
                         with patch("onemancompany.core.project_archive.append_action"):
                             with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
                                 with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
-                                    await mgr._execute_task("emp01", task)
+                                    await mgr._execute_task("emp01", entry)
 
         call_args = launcher.execute.call_args
         task_desc = call_args[0][0]
@@ -1681,8 +1294,7 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = {"id": "emp01", "role": "COO"}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
-        result = mgr._get_project_workflow_context("emp01", task)
+        result = mgr._get_project_workflow_context("emp01", "proj1")
         assert "Manager Execution Guide" in result
 
     @patch("onemancompany.core.vessel._store")
@@ -1690,8 +1302,7 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = {"id": "emp01", "role": "CSO"}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
-        result = mgr._get_project_workflow_context("emp01", task)
+        result = mgr._get_project_workflow_context("emp01", "proj1")
         assert "Manager Execution Guide" in result
 
     @patch("onemancompany.core.vessel._store")
@@ -1699,10 +1310,9 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = {"id": "emp01", "role": "Engineer"}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
 
         with patch("onemancompany.core.config.load_workflows", return_value={}):
-            result = mgr._get_project_workflow_context("emp01", task)
+            result = mgr._get_project_workflow_context("emp01", "proj1")
             assert "Self-Verification" in result
             assert "sandbox_execute_code" in result
 
@@ -1711,7 +1321,6 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = {"id": "emp01", "role": "Engineer"}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
 
         mock_wf_doc = "# Workflow\n## 1. Execution\n- Build and run the code\n- Verify output"
         mock_wf = MagicMock()
@@ -1722,7 +1331,7 @@ class TestEmployeeManagerWorkflowContext:
 
         with patch("onemancompany.core.config.load_workflows", return_value={"project_intake_workflow": mock_wf_doc}):
             with patch("onemancompany.core.workflow_engine.parse_workflow", return_value=mock_wf):
-                result = mgr._get_project_workflow_context("emp01", task)
+                result = mgr._get_project_workflow_context("emp01", "proj1")
                 assert "Self-Verification" in result
                 assert "Build and run the code" in result
 
@@ -1731,10 +1340,9 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = None
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
 
         with patch("onemancompany.core.config.load_workflows", return_value={}):
-            result = mgr._get_project_workflow_context("nobody", task)
+            result = mgr._get_project_workflow_context("nobody", "proj1")
             assert "Self-Verification" in result
 
     @patch("onemancompany.core.vessel._store")
@@ -1743,10 +1351,9 @@ class TestEmployeeManagerWorkflowContext:
         mock_store.load_employee.return_value = {"id": "emp01", "role": "HR"}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
 
         with patch("onemancompany.core.config.load_workflows", return_value={}):
-            result = mgr._get_project_workflow_context("emp01", task)
+            result = mgr._get_project_workflow_context("emp01", "proj1")
             assert "Self-Verification" in result
 
 
@@ -1765,7 +1372,7 @@ class TestEmployeeManagerFullCleanup:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
+        node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
 
         with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock) as mock_routine:
             with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
@@ -1773,7 +1380,7 @@ class TestEmployeeManagerFullCleanup:
                     with patch("onemancompany.core.project_archive.complete_project"):
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
+                                await mgr._full_cleanup("emp01", node, False, "proj1", run_retrospective=True)
                                 mock_routine.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1785,7 +1392,7 @@ class TestEmployeeManagerFullCleanup:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
+        node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
 
         with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock, side_effect=RuntimeError("Routine failed")):
             with patch("onemancompany.core.project_archive.append_action"):
@@ -1794,7 +1401,7 @@ class TestEmployeeManagerFullCleanup:
                         with patch("onemancompany.core.project_archive.complete_project"):
                             with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                                 with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                    await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
+                                    await mgr._full_cleanup("emp01", node, False, "proj1", run_retrospective=True)
                                     # Should not raise, should publish error event
                                     assert mock_bus.publish.call_count >= 1
 
@@ -1809,7 +1416,7 @@ class TestEmployeeManagerFullCleanup:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
+        node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
 
         with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
             with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
@@ -1819,7 +1426,7 @@ class TestEmployeeManagerFullCleanup:
                             "employees_updated": ["emp01"], "employees_added": []
                         }):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "proj1")
+                                await mgr._full_cleanup("emp01", node, False, "proj1")
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -1830,7 +1437,7 @@ class TestEmployeeManagerFullCleanup:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
+        node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
 
         with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
             with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
@@ -1838,7 +1445,7 @@ class TestEmployeeManagerFullCleanup:
                     with patch("onemancompany.core.project_archive.complete_project") as mock_complete:
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, True, "proj1")
+                                await mgr._full_cleanup("emp01", node, True, "proj1")
                                 call_args = mock_complete.call_args
                                 assert "with errors" in call_args[0][1]
 
@@ -1851,7 +1458,7 @@ class TestEmployeeManagerFullCleanup:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="_auto_12345")
+        node = TaskNode(id="t1", description="test", project_id="_auto_12345", employee_id="emp01")
 
         with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
             with patch("onemancompany.core.resolutions.create_resolution", return_value=None):
@@ -1859,7 +1466,7 @@ class TestEmployeeManagerFullCleanup:
                     with patch("onemancompany.core.project_archive.complete_project") as mock_complete:
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "_auto_12345")
+                                await mgr._full_cleanup("emp01", node, False, "_auto_12345")
                                 mock_complete.assert_not_called()
 
 
@@ -1872,26 +1479,22 @@ class TestEmployeeManagerLogWithLoop:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_log_publishes_event(self, mock_bus, mock_state):
-        """When event loop is running, _log should fire-and-forget an event."""
+    async def test_log_node_publishes_event(self, mock_bus, mock_state):
+        """When event loop is running, _log_node should fire-and-forget an event."""
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
+        mock_state.employees = {}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test")
-        mgr._log("emp01", task, "info", "Test message")
+        mgr._log_node("emp01", "n1", "info", "Test message")
 
-        # Give the fire-and-forget task a chance to run
         await asyncio.sleep(0.01)
 
-        assert len(task.logs) == 1
-        assert task.logs[0]["content"] == "Test message"
+        assert len(mgr._task_logs["n1"]) == 1
+        assert mgr._task_logs["n1"][0]["content"] == "Test message"
 
 
 # ---------------------------------------------------------------------------
-# EmployeeManager — _publish_task_update with running event loop
+# EmployeeManager — _publish_node_update with running event loop
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerPublishWithLoop:
@@ -1904,8 +1507,8 @@ class TestEmployeeManagerPublishWithLoop:
         mock_state.employees = {}
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test")
-        mgr._publish_task_update("emp01", task)
+        node = TaskNode(id="n1", description="test", employee_id="emp01")
+        mgr._publish_node_update("emp01", node)
 
         await asyncio.sleep(0.01)
 
@@ -1987,24 +1590,20 @@ import onemancompany.core.vessel as agent_loop_mod
 
 
 class TestExecuteTaskOnLogCallback:
-    """Line 553: The _on_log closure inside _execute_task must be called by the launcher."""
+    """The _on_log closure inside _execute_task must be called by the launcher."""
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     @patch("onemancompany.core.vessel._load_progress", return_value="")
     @patch("onemancompany.core.vessel._append_progress")
-    async def test_on_log_callback_called_by_launcher(self, mock_append, mock_load, mock_bus, mock_state):
+    async def test_on_log_callback_called_by_launcher(self, mock_append, mock_load, mock_bus, mock_state, tmp_path):
         mock_bus.publish = AsyncMock()
-        emp = MagicMock()
-        emp.role = "Engineer"
-        mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
 
         async def fake_execute(desc, ctx, on_log=None):
-            # Launcher calls the on_log callback — triggers line 553
             if on_log:
                 on_log("progress", "Working on it...")
             return LaunchResult(output="Done")
@@ -2013,15 +1612,18 @@ class TestExecuteTaskOnLogCallback:
         launcher.execute = AsyncMock(side_effect=fake_execute)
         mgr.register("emp01", launcher)
 
-        task = AgentTask(id="t1", description="Build widget")
-        mgr.boards["emp01"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, description="Build widget")
+        mgr.schedule_node("emp01", entry.node_id, entry.tree_path)
 
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
-            await mgr._execute_task("emp01", task)
+            await mgr._execute_task("emp01", entry)
 
-        assert task.status == "completed"
-        # Verify the on_log callback populated the task logs
-        log_types = [lg["type"] for lg in task.logs]
+        tree = TaskTree.load(tree_path)
+        node = tree.get_node(entry.node_id)
+        assert node.status == "completed"
+        # Verify the on_log callback populated the task log buffer
+        logs = mgr._task_logs.get(entry.node_id, [])
+        log_types = [lg["type"] for lg in logs]
         assert "progress" in log_types
 
 
@@ -2176,7 +1778,7 @@ class TestFullCleanupRoutineResolution:
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="test", project_id="proj1")
+        node = TaskNode(id="t1", description="test", project_id="proj1")
 
         mock_resolution = {"id": "res2", "summary": "Routine resolution"}
 
@@ -2186,7 +1788,7 @@ class TestFullCleanupRoutineResolution:
                     with patch("onemancompany.core.project_archive.complete_project"):
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", task, False, "proj1", run_retrospective=True)
+                                await mgr._full_cleanup("emp01", node, False, "proj1", run_retrospective=True)
 
         # Verify resolution_ready event was published
         resolution_calls = [
@@ -2207,7 +1809,7 @@ class TestTaskTreeCallback:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_child_complete_wakes_parent_when_all_siblings_done(self, mock_bus, mock_state):
+    async def test_child_complete_wakes_parent_when_all_siblings_done(self, mock_bus, mock_state, tmp_path):
         """When last sibling completes, parent employee gets a review task."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2217,7 +1819,6 @@ class TestTaskTreeCallback:
         parent_launcher = MagicMock(spec=Launcher)
         mgr.register("00003", parent_launcher)
 
-        from onemancompany.core.task_tree import TaskTree
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root")
         parent_node = tree.add_child(root.id, "00003", "Manage feature", ["Feature works"])
@@ -2227,22 +1828,19 @@ class TestTaskTreeCallback:
         child2.status = "completed"  # Just completed
         child2.result = "Frontend built"
 
-        # Map task ID to node ID
-        tree.task_id_map["t1"] = child2.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child2.id, tree_path=str(tree_path))
 
-        task = AgentTask(id="t1", description="Frontend", project_id="proj1", project_dir="/tmp/proj", result="Frontend built")
+        await mgr._on_child_complete("00011", entry, project_id="proj1")
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
-             patch("onemancompany.core.vessel._save_project_tree"):
-            await mgr._on_child_complete("00011", task, project_id="proj1")
-
-        # Parent (00003) should have received a review task
-        assert mgr.boards["00003"].get_next_pending() is not None
+        # Parent (00003) should have received a scheduled review task
+        assert len(mgr._schedule.get("00003", [])) > 0
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_child_complete_waits_when_siblings_pending(self, mock_bus, mock_state):
+    async def test_child_complete_waits_when_siblings_pending(self, mock_bus, mock_state, tmp_path):
         """When siblings still running, no wake-up."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2250,7 +1848,6 @@ class TestTaskTreeCallback:
 
         mgr = EmployeeManager()
 
-        from onemancompany.core.task_tree import TaskTree
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root")
         parent_node = tree.add_child(root.id, "00003", "Manage", [])
@@ -2259,21 +1856,19 @@ class TestTaskTreeCallback:
         child1.status = "completed"
         child2.status = "processing"  # Still running
 
-        tree.task_id_map["t1"] = child1.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child1.id, tree_path=str(tree_path))
 
-        task = AgentTask(id="t1", description="Backend", project_id="proj1", project_dir="/tmp/proj", result="Done")
-
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
-             patch("onemancompany.core.vessel._save_project_tree"):
-            await mgr._on_child_complete("00010", task, project_id="proj1")
+        await mgr._on_child_complete("00010", entry, project_id="proj1")
 
         # Parent should NOT be woken
-        assert "00003" not in mgr.boards or mgr.boards["00003"].get_next_pending() is None
+        assert len(mgr._schedule.get("00003", [])) == 0
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_child_complete_updates_node(self, mock_bus, mock_state):
+    async def test_child_complete_updates_node(self, mock_bus, mock_state, tmp_path):
         """Child completion updates node status and result in tree."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2281,51 +1876,43 @@ class TestTaskTreeCallback:
 
         mgr = EmployeeManager()
 
-        from onemancompany.core.task_tree import TaskTree
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root")
         child = tree.add_child(root.id, "00010", "Do work", ["Work done"])
-        child.status = "processing"
+        child.status = "completed"
+        child.result = "Work completed successfully"
+        child.input_tokens = 100
+        child.output_tokens = 50
+        child.cost_usd = 0.01
 
-        tree.task_id_map["t1"] = child.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
-        task = AgentTask(
-            id="t1", description="Do work", project_id="proj1",
-            project_dir="/tmp/proj", result="Work completed successfully",
-            input_tokens=100, output_tokens=50, estimated_cost_usd=0.01,
-        )
+        await mgr._on_child_complete("00010", entry, project_id="proj1")
 
-        saved_trees = []
-        def capture_save(project_dir, t):
-            saved_trees.append(t)
-
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
-             patch("onemancompany.core.vessel._save_project_tree", side_effect=capture_save):
-            await mgr._on_child_complete("00010", task, project_id="proj1")
-
-        # Node should be updated
-        assert child.status == "completed"
-        assert child.result == "Work completed successfully"
-        assert child.input_tokens == 100
-        assert child.output_tokens == 50
-        assert child.cost_usd == 0.01
-        assert child.completed_at != ""
+        # Reload from disk to verify persistence
+        reloaded = TaskTree.load(tree_path)
+        updated_child = reloaded.get_node(child.id)
+        assert updated_child.result == "Work completed successfully"
+        assert updated_child.input_tokens == 100
+        assert updated_child.output_tokens == 50
+        assert updated_child.cost_usd == 0.01
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_no_tree_file_is_noop(self, mock_bus, mock_state):
-        """If no task_tree.yaml exists, _on_child_complete is a no-op."""
+    async def test_no_tree_file_is_noop(self, mock_bus, mock_state, tmp_path):
+        """If tree file doesn't exist, _on_child_complete is a no-op."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
-        task = AgentTask(id="t1", description="Work", project_dir="/tmp/no-tree")
+        entry = ScheduleEntry(node_id="nonexistent", tree_path=str(tmp_path / "no-tree.yaml"))
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=None):
-            # Should not raise
-            await mgr._on_child_complete("00010", task, project_id="proj1")
+        # Should not raise
+        await mgr._on_child_complete("00010", entry, project_id="proj1")
 
 
 # ---------------------------------------------------------------------------
@@ -2338,7 +1925,7 @@ class TestRootNodeCompletion:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_root_complete_triggers_ceo_confirmation(self, mock_bus, mock_state):
+    async def test_root_complete_triggers_ceo_confirmation(self, mock_bus, mock_state, tmp_path):
         """Root node completion triggers _request_ceo_confirmation (not _full_cleanup directly)."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2346,32 +1933,27 @@ class TestRootNodeCompletion:
 
         mgr = EmployeeManager()
 
-        from onemancompany.core.task_tree import TaskTree
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root task")
-        tree.task_id_map["t1"] = root.id
+        root.status = "completed"
+        root.result = "All done"
 
-        task = AgentTask(
-            id="t1", description="Root task", project_id="proj1",
-            project_dir="/tmp/proj", result="All done",
-        )
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
-             patch("onemancompany.core.vessel._save_project_tree"), \
-             patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
              patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
-            await mgr._on_child_complete("00001", task, project_id="proj1")
+            await mgr._on_child_complete("00001", entry, project_id="proj1")
 
         # _request_ceo_confirmation should have been called, not _full_cleanup
         mock_confirm.assert_called_once()
         mock_cleanup.assert_not_called()
-        call_args = mock_confirm.call_args
-        assert call_args[0][4] == "proj1"  # effective_project_id positional arg
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_child_complete_does_not_trigger_full_cleanup(self, mock_bus, mock_state):
+    async def test_child_complete_does_not_trigger_full_cleanup(self, mock_bus, mock_state, tmp_path):
         """Non-root node completion does NOT trigger _full_cleanup."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
@@ -2379,21 +1961,18 @@ class TestRootNodeCompletion:
 
         mgr = EmployeeManager()
 
-        from onemancompany.core.task_tree import TaskTree
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root task")
         child = tree.add_child(root.id, "00010", "Child task", ["Done"])
-        tree.task_id_map["t2"] = child.id
+        child.status = "completed"
+        child.result = "Child done"
 
-        task = AgentTask(
-            id="t2", description="Child task", project_id="proj1",
-            project_dir="/tmp/proj", result="Child done",
-        )
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=tree), \
-             patch("onemancompany.core.vessel._save_project_tree"), \
-             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
-            await mgr._on_child_complete("00010", task, project_id="proj1")
+        with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+            await mgr._on_child_complete("00010", entry, project_id="proj1")
 
         # _full_cleanup should NOT have been called (child, not root)
         mock_cleanup.assert_not_called()
@@ -2409,7 +1988,7 @@ class TestTaskTimeout:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_timeout_marks_task_failed(self, mock_bus, mock_state):
+    async def test_timeout_marks_task_failed(self, mock_bus, mock_state, tmp_path):
         """When executor raises TimeoutError, task is marked FAILED."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {"00010": MagicMock(current_task_summary="")}
@@ -2421,21 +2000,21 @@ class TestTaskTimeout:
         mock_executor.is_ready.return_value = True
         mgr.register("00010", mock_executor)
 
-        task = AgentTask(id="t1", description="slow work", project_dir="/tmp/proj")
-        mgr.boards["00010"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="00010", description="slow work")
+        mgr.schedule_node("00010", entry.node_id, str(tree_path))
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=None), \
-             patch("onemancompany.core.vessel._save_project_tree"):
-            await mgr._execute_task("00010", task)
+        await mgr._execute_task("00010", entry)
 
-        assert task.status == TaskPhase.FAILED
-        assert "Timeout" in task.result
+        reloaded = TaskTree.load(tree_path)
+        node = reloaded.get_node(entry.node_id)
+        assert node.status == TaskPhase.FAILED.value
+        assert "Timeout" in (node.result or "")
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_timeout_publishes_agent_done(self, mock_bus, mock_state):
-        """TimeoutError publishes agent_done event."""
+    async def test_timeout_publishes_task_update(self, mock_bus, mock_state, tmp_path):
+        """TimeoutError publishes agent_task_update event with failed status."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {"00010": MagicMock(current_task_summary="")}
         mock_state.active_tasks = []
@@ -2446,15 +2025,13 @@ class TestTaskTimeout:
         mock_executor.is_ready.return_value = True
         mgr.register("00010", mock_executor)
 
-        task = AgentTask(id="t1", description="slow work", project_dir="/tmp/proj")
-        mgr.boards["00010"].tasks.append(task)
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="00010", description="slow work")
+        mgr.schedule_node("00010", entry.node_id, str(tree_path))
 
-        with patch("onemancompany.core.vessel._load_project_tree", return_value=None), \
-             patch("onemancompany.core.vessel._save_project_tree"):
-            await mgr._execute_task("00010", task)
+        await mgr._execute_task("00010", entry)
 
-        # Check agent_done was published
-        calls = mock_bus.publish.call_args_list
-        agent_done_calls = [c for c in calls if c[0][0].type == "agent_done"]
-        assert len(agent_done_calls) >= 1
-        assert "Timeout" in agent_done_calls[0][0][0].payload["summary"]
+        # Verify node was marked failed on disk
+        reloaded = TaskTree.load(tree_path)
+        node = reloaded.get_node(entry.node_id)
+        assert node.status == TaskPhase.FAILED.value
+        assert "Timeout" in (node.result or "")

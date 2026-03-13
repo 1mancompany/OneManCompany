@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from onemancompany.core.vessel import (
-    AgentTask,
-    AgentTaskBoard,
     ClaudeSessionExecutor,
     EmployeeHandle,
     EmployeeManager,
@@ -31,7 +30,24 @@ from onemancompany.core.vessel import (
     register_self_hosted,
 )
 from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_tree import TaskNode, TaskTree
 from onemancompany.core.vessel_config import VesselConfig, LimitsConfig
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_tree_entry(tmp_path, employee_id="emp01", description="Build widget",
+                     project_id="proj1", status="pending"):
+    tree = TaskTree(project_id=project_id)
+    root = tree.create_root(employee_id=employee_id, description=description)
+    if status != "pending":
+        root.status = status
+    tree_path = tmp_path / "task_tree.yaml"
+    tree.save(tree_path)
+    entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+    return entry, tree_path, root
 
 
 # ---------------------------------------------------------------------------
@@ -103,13 +119,6 @@ class TestVessel:
         vessel = Vessel(mgr, "00010")
         assert vessel.employee_id == "00010"
         assert vessel.agent.employee_id == "00010"
-
-    def test_vessel_board_default(self):
-        mgr = EmployeeManager()
-        vessel = Vessel(mgr, "00010")
-        board = vessel.board
-        assert isinstance(board, AgentTaskBoard)
-        assert len(board.tasks) == 0
 
     def test_vessel_task_history_default(self):
         mgr = EmployeeManager()
@@ -224,121 +233,6 @@ class TestVesselRef:
 
 
 # ---------------------------------------------------------------------------
-# Task persistence integration
-# ---------------------------------------------------------------------------
-
-class TestTaskPersistenceIntegration:
-    """Verify EmployeeManager calls persist_task/archive_task at status changes."""
-
-    def _make_manager(self):
-        em = EmployeeManager()
-        mock_launcher = MagicMock(spec=Launcher)
-        em.register("00010", mock_launcher)
-        return em
-
-    @patch("onemancompany.core.vessel.persist_task")
-    def test_push_task_persists(self, mock_persist):
-        em = self._make_manager()
-        task = em.push_task("00010", "test task")
-        mock_persist.assert_called_once_with("00010", task)
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.archive_task")
-    async def test_execute_task_persists_processing_and_complete(self, mock_archive):
-        em = self._make_manager()
-        mock_launcher = em.executors["00010"]
-        mock_launcher.execute = AsyncMock(return_value=LaunchResult(output="done"))
-
-        task = AgentTask(id="t1", description="test")
-        em.boards["00010"].tasks.append(task)
-
-        # Capture status at each persist_task call since task is mutable
-        captured_statuses = []
-        def _capture_persist(emp_id, t):
-            captured_statuses.append(t.status)
-
-        with patch("onemancompany.core.vessel.persist_task", side_effect=_capture_persist):
-            with patch("onemancompany.core.vessel.company_state") as mock_cs:
-                mock_cs.employees = {}
-                mock_cs.active_tasks = []
-                await em._execute_task("00010", task)
-
-        # persist_task should be called for PROCESSING and COMPLETE
-        assert TaskPhase.PROCESSING in captured_statuses
-        assert TaskPhase.COMPLETED in captured_statuses
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.archive_task")
-    @patch("onemancompany.core.vessel.persist_task")
-    async def test_execute_task_does_not_archive_on_complete(self, mock_persist, mock_archive):
-        em = self._make_manager()
-        mock_launcher = em.executors["00010"]
-        mock_launcher.execute = AsyncMock(return_value=LaunchResult(output="done"))
-
-        task = AgentTask(id="t2", description="test archive")
-        em.boards["00010"].tasks.append(task)
-
-        with patch("onemancompany.core.vessel.company_state") as mock_cs:
-            mock_cs.employees = {}
-            mock_cs.active_tasks = []
-            await em._execute_task("00010", task)
-
-        # COMPLETE is not in TERMINAL_STATES, so archive should NOT be called
-        # (COMPLETE transitions to FINISHED via acceptance flow)
-        assert task.status == TaskPhase.COMPLETED
-        mock_archive.assert_not_called()
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.archive_task")
-    async def test_execute_task_persists_and_archives_on_failure(self, mock_archive):
-        em = self._make_manager()
-        mock_launcher = em.executors["00010"]
-        mock_launcher.execute = AsyncMock(side_effect=RuntimeError("boom"))
-
-        task = AgentTask(id="t3", description="test fail")
-        em.boards["00010"].tasks.append(task)
-
-        # Capture status at each persist_task call since task is mutable
-        captured_statuses = []
-        def _capture_persist(emp_id, t):
-            captured_statuses.append(t.status)
-
-        with patch("onemancompany.core.vessel.persist_task", side_effect=_capture_persist):
-            with patch("onemancompany.core.vessel.company_state") as mock_cs:
-                mock_cs.employees = {}
-                mock_cs.active_tasks = []
-                await em._execute_task("00010", task)
-
-        assert task.status == TaskPhase.FAILED
-        # persist_task called for PROCESSING and FAILED
-        assert TaskPhase.PROCESSING in captured_statuses
-        assert TaskPhase.FAILED in captured_statuses
-        # archive_task called for FAILED (terminal state)
-        mock_archive.assert_called_once_with("00010", task)
-
-    @patch("onemancompany.core.vessel.archive_task")
-    @patch("onemancompany.core.vessel.persist_task")
-    def test_abort_project_persists_and_archives(self, mock_persist, mock_archive):
-        em = self._make_manager()
-        board = em.boards["00010"]
-        task = board.push("project task", project_id="proj_1")
-
-        # Reset mocks after push (which also calls persist_task)
-        mock_persist.reset_mock()
-        mock_archive.reset_mock()
-
-        em.abort_project("proj_1")
-
-        assert task.status == TaskPhase.CANCELLED
-        mock_persist.assert_called_once_with("00010", task)
-        mock_archive.assert_called_once_with("00010", task)
-
-
-# ---------------------------------------------------------------------------
-# restore_persisted_tasks
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # Review prompt in _on_child_complete
 # ---------------------------------------------------------------------------
 
@@ -346,17 +240,20 @@ class TestOnChildCompleteReviewPrompt:
     """Verify _on_child_complete builds correct review prompts with rejection context."""
 
     @pytest.mark.asyncio
-    async def test_review_prompt_skips_accepted_children(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_review_prompt_skips_accepted_children(self, mock_bus, mock_state, tmp_path):
         """Already-accepted children listed separately, not in review list."""
-        from onemancompany.core.task_tree import TaskNode, TaskTree
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
 
         tree = TaskTree(project_id="proj1")
-        tree.create_root(employee_id="00100", description="parent task")
-        root_id = tree.root_id
+        root = tree.create_root(employee_id="00100", description="parent task")
 
         # Child 1: already accepted
         child1 = tree.add_child(
-            parent_id=root_id, employee_id="00101",
+            parent_id=root.id, employee_id="00101",
             description="accepted subtask", acceptance_criteria=["c1"],
         )
         child1.status = "accepted"
@@ -365,39 +262,32 @@ class TestOnChildCompleteReviewPrompt:
 
         # Child 2: completed, needs review
         child2 = tree.add_child(
-            parent_id=root_id, employee_id="00102",
+            parent_id=root.id, employee_id="00102",
             description="needs review subtask", acceptance_criteria=["c2"],
         )
         child2.status = "completed"
         child2.result = "also done"
 
-        # Map a task ID for child2
-        tree.task_id_map["child2-task"] = child2.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child2.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
         em.register("00102", MagicMock(spec=Launcher))
 
-        task = AgentTask(id="child2-task", description="needs review subtask",
-                         project_dir="/tmp/proj", project_id="proj1")
-        task.result = "also done"
+        await em._on_child_complete("00102", entry, project_id="proj1")
 
-        with (
-            patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
-            patch("onemancompany.core.vessel._save_project_tree"),
-            patch("onemancompany.core.vessel.persist_task"),
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
-        ):
-            mock_cs.employees = {}
-            mock_cs.active_tasks = []
-            await em._on_child_complete("00102", task, project_id="proj1")
+        # Parent (00100) should have a scheduled review node
+        parent_entries = em._schedule.get("00100", [])
+        assert len(parent_entries) > 0
 
-        # Parent's board should have a review task
-        board = em.boards.get("00100")
-        assert board is not None
-        assert len(board.tasks) == 1
+        # Load tree and check review node content
+        reloaded = TaskTree.load(tree_path)
+        review_entry = parent_entries[0]
+        review_node = reloaded.get_node(review_entry.node_id)
+        prompt = review_node.description
 
-        prompt = board.tasks[0].description
         # Already-accepted child listed with checkmark
         assert "\u2713" in prompt
         assert "accepted subtask" in prompt
@@ -406,137 +296,88 @@ class TestOnChildCompleteReviewPrompt:
         assert "c2" in prompt
 
     @pytest.mark.asyncio
-    async def test_review_prompt_shows_rejection_history(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_review_prompt_shows_rejection_history(self, mock_bus, mock_state, tmp_path):
         """Previously rejected children show rejection reason in review prompt."""
-        from onemancompany.core.task_tree import TaskNode, TaskTree
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
 
         tree = TaskTree(project_id="proj1")
-        tree.create_root(employee_id="00100", description="parent task")
-        root_id = tree.root_id
+        root = tree.create_root(employee_id="00100", description="parent task")
 
         # Child that was previously rejected and re-completed
         child = tree.add_child(
-            parent_id=root_id, employee_id="00103",
+            parent_id=root.id, employee_id="00103",
             description="retried subtask", acceptance_criteria=["works"],
         )
         child.status = "completed"
         child.result = "second attempt result"
         child.acceptance_result = {"passed": False, "notes": "tests were failing"}
 
-        tree.task_id_map["retry-task"] = child.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
         em.register("00103", MagicMock(spec=Launcher))
 
-        task = AgentTask(id="retry-task", description="retried subtask",
-                         project_dir="/tmp/proj", project_id="proj1")
-        task.result = "second attempt result"
+        await em._on_child_complete("00103", entry, project_id="proj1")
 
-        with (
-            patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
-            patch("onemancompany.core.vessel._save_project_tree"),
-            patch("onemancompany.core.vessel.persist_task"),
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
-        ):
-            mock_cs.employees = {}
-            mock_cs.active_tasks = []
-            await em._on_child_complete("00103", task, project_id="proj1")
+        parent_entries = em._schedule.get("00100", [])
+        assert len(parent_entries) > 0
 
-        board = em.boards.get("00100")
-        assert board is not None
-        prompt = board.tasks[0].description
+        reloaded = TaskTree.load(tree_path)
+        review_node = reloaded.get_node(parent_entries[0].node_id)
+        prompt = review_node.description
+
         # Should show rejection warning
         assert "\u26a0" in prompt
         assert "tests were failing" in prompt
 
     @pytest.mark.asyncio
-    async def test_review_prompt_no_previously_accepted(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_review_prompt_no_previously_accepted(self, mock_bus, mock_state, tmp_path):
         """When no children are accepted yet, prompt lists all for review without accepted section."""
-        from onemancompany.core.task_tree import TaskNode, TaskTree
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
 
         tree = TaskTree(project_id="proj1")
-        tree.create_root(employee_id="00100", description="parent task")
-        root_id = tree.root_id
+        root = tree.create_root(employee_id="00100", description="parent task")
 
         child = tree.add_child(
-            parent_id=root_id, employee_id="00104",
+            parent_id=root.id, employee_id="00104",
             description="only subtask", acceptance_criteria=["done"],
         )
-        child.status = "pending"  # will be overwritten to "completed" by _on_child_complete
+        child.status = "completed"
+        child.result = "all done"
 
-        tree.task_id_map["single-task"] = child.id
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
         em.register("00104", MagicMock(spec=Launcher))
 
-        task = AgentTask(id="single-task", description="only subtask",
-                         project_dir="/tmp/proj", project_id="proj1")
-        task.result = "all done"
+        await em._on_child_complete("00104", entry, project_id="proj1")
 
-        with (
-            patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
-            patch("onemancompany.core.vessel._save_project_tree"),
-            patch("onemancompany.core.vessel.persist_task"),
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
-        ):
-            mock_cs.employees = {}
-            mock_cs.active_tasks = []
-            await em._on_child_complete("00104", task, project_id="proj1")
+        parent_entries = em._schedule.get("00100", [])
+        assert len(parent_entries) > 0
 
-        board = em.boards.get("00100")
-        assert board is not None
-        prompt = board.tasks[0].description
+        reloaded = TaskTree.load(tree_path)
+        review_node = reloaded.get_node(parent_entries[0].node_id)
+        prompt = review_node.description
+
         # Should NOT have checkmark section (no previously accepted)
         assert "\u2713" not in prompt
         # Should list the subtask for review
         assert "only subtask" in prompt
         assert "以下子任务需要审核" in prompt
-
-
-class TestRestorePersistedTasks:
-    """Verify EmployeeManager.restore_persisted_tasks loads from disk."""
-
-    @patch("onemancompany.core.vessel.load_all_active_tasks")
-    def test_restore_pushes_to_boards(self, mock_load):
-        em = EmployeeManager()
-        mock_launcher = MagicMock(spec=Launcher)
-        em.register("00010", mock_launcher)
-
-        task = AgentTask(id="restored1", description="Restored task")
-        mock_load.return_value = {"00010": [task]}
-
-        count = em.restore_persisted_tasks()
-        assert count == 1
-        assert len(em.boards["00010"].tasks) == 1
-        assert em.boards["00010"].tasks[0].id == "restored1"
-
-    @patch("onemancompany.core.vessel.load_all_active_tasks")
-    def test_skips_unregistered_employees(self, mock_load):
-        em = EmployeeManager()
-        # Don't register "00099"
-        task = AgentTask(id="orphan", description="Orphan")
-        mock_load.return_value = {"00099": [task]}
-
-        count = em.restore_persisted_tasks()
-        assert count == 0
-
-    @patch("onemancompany.core.vessel.load_all_active_tasks")
-    def test_restores_multiple_employees(self, mock_load):
-        em = EmployeeManager()
-        em.register("00010", MagicMock(spec=Launcher))
-        em.register("00020", MagicMock(spec=Launcher))
-
-        mock_load.return_value = {
-            "00010": [AgentTask(id="a1", description="Task A")],
-            "00020": [AgentTask(id="b1", description="Task B"), AgentTask(id="b2", description="Task C")],
-        }
-
-        count = em.restore_persisted_tasks()
-        assert count == 3
-        assert len(em.boards["00010"].tasks) == 1
-        assert len(em.boards["00020"].tasks) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -546,10 +387,8 @@ class TestRestorePersistedTasks:
 class TestCeoConfirmation:
     """Test CEO confirmation gate before project retrospective."""
 
-    def _make_tree_with_root(self):
-        """Create a TaskTree with root and one completed child."""
-        from onemancompany.core.task_tree import TaskTree
-
+    def _make_tree_with_root(self, tmp_path):
+        """Create a TaskTree with root and one completed child, saved to disk."""
         tree = TaskTree(project_id="proj_ceo")
         tree.create_root(employee_id="00100", description="root task")
         child = tree.add_child(
@@ -558,72 +397,70 @@ class TestCeoConfirmation:
         )
         child.status = "accepted"
         child.result = "child done"
-        return tree
+
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        return tree, tree_path
 
     @pytest.mark.asyncio
-    async def test_root_complete_sends_ceo_report(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_root_complete_sends_ceo_report(self, mock_bus, mock_state, tmp_path):
         """Root node completion should call _request_ceo_confirmation, not _full_cleanup."""
-        tree = self._make_tree_with_root()
-        tree.task_id_map["root-task"] = tree.root_id
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        tree, tree_path = self._make_tree_with_root(tmp_path)
+        root = tree.get_node(tree.root_id)
+        root.status = "completed"
+        root.result = "project done"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
 
-        task = AgentTask(
-            id="root-task", description="root task",
-            project_dir="/tmp/proj", project_id="proj_ceo",
-            task_type="project",
-        )
-        task.result = "project done"
-
         with (
-            patch("onemancompany.core.vessel._load_project_tree", return_value=tree),
-            patch("onemancompany.core.vessel._save_project_tree"),
             patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
-            await em._on_child_complete("00100", task, project_id="proj_ceo")
+            await em._on_child_complete("00100", entry, project_id="proj_ceo")
 
         # Should call _request_ceo_confirmation, NOT _full_cleanup
         mock_confirm.assert_called_once()
         mock_cleanup.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_ceo_approve_triggers_retrospective(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_ceo_approve_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
         """CEO approve should call _full_cleanup with run_retrospective=True for project tasks."""
-        tree = self._make_tree_with_root()
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+
+        tree, tree_path = self._make_tree_with_root(tmp_path)
         root_node = tree.get_node(tree.root_id)
+        root_node.task_type = "project"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
 
-        task = AgentTask(
-            id="root-task", description="root task",
-            project_dir="/tmp/proj", project_id="proj_ceo",
-            task_type="project",
-        )
-
-        # Pre-set the _ceo_pending entry to auto-resolve with "approve"
         import onemancompany.agents.common_tools as ct
-        key = ct._ceo_wait_key("00100", "proj_ceo")
 
         async def _auto_approve():
-            """Simulate CEO approving after a short delay."""
             await asyncio.sleep(0.01)
             ct.resolve_ceo_pending("00100", "proj_ceo", {"action": "approve", "message": ""})
 
         with (
-            patch("onemancompany.core.vessel.event_bus") as mock_bus,
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
         ):
-            mock_bus.publish = AsyncMock()
-            mock_cs.employees = {}
-
-            # Start auto-approve concurrently
-            import asyncio
             approve_task = asyncio.create_task(_auto_approve())
-            await em._request_ceo_confirmation("00100", task, tree, root_node, "proj_ceo")
+            await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
             await approve_task
 
         # Should call _full_cleanup with run_retrospective=True
@@ -632,81 +469,29 @@ class TestCeoConfirmation:
         assert call_kwargs.kwargs.get("run_retrospective") is True
 
     @pytest.mark.asyncio
-    async def test_ceo_revise_pushes_task(self):
-        """CEO revise should push revision task to root employee, not cleanup."""
-        tree = self._make_tree_with_root()
-        root_node = tree.get_node(tree.root_id)
-
-        em = EmployeeManager()
-        em.register("00100", MagicMock(spec=Launcher))
-
-        task = AgentTask(
-            id="root-task", description="root task",
-            project_dir="/tmp/proj", project_id="proj_ceo",
-            task_type="project",
-        )
-
-        import onemancompany.agents.common_tools as ct
-
-        async def _auto_revise():
-            await asyncio.sleep(0.01)
-            ct.resolve_ceo_pending("00100", "proj_ceo", {
-                "action": "revise",
-                "message": "请修改报告格式",
-            })
-
-        with (
-            patch("onemancompany.core.vessel.event_bus") as mock_bus,
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
-            patch("onemancompany.core.vessel.persist_task"),
-            patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-            patch.object(em, "_schedule_next") as mock_schedule,
-        ):
-            mock_bus.publish = AsyncMock()
-            mock_cs.employees = {}
-
-            import asyncio
-            revise_task = asyncio.create_task(_auto_revise())
-            await em._request_ceo_confirmation("00100", task, tree, root_node, "proj_ceo")
-            await revise_task
-
-        # Should NOT call _full_cleanup
-        mock_cleanup.assert_not_called()
-        # Should push a revision task
-        board = em.boards.get("00100")
-        assert board is not None
-        assert len(board.tasks) == 1
-        assert "请修改报告格式" in board.tasks[0].description
-        assert "CEO要求修改" in board.tasks[0].description
-        # Should schedule next
-        mock_schedule.assert_called_once_with("00100")
-
-    @pytest.mark.asyncio
-    async def test_ceo_timeout_auto_approves(self):
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_ceo_timeout_auto_approves(self, mock_bus, mock_state, tmp_path):
         """If CEO doesn't respond in time, auto-approve and run cleanup."""
-        tree = self._make_tree_with_root()
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+
+        tree, tree_path = self._make_tree_with_root(tmp_path)
         root_node = tree.get_node(tree.root_id)
+        root_node.task_type = "project"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
 
-        task = AgentTask(
-            id="root-task", description="root task",
-            project_dir="/tmp/proj", project_id="proj_ceo",
-            task_type="project",
-        )
-
         with (
-            patch("onemancompany.core.vessel.event_bus") as mock_bus,
-            patch("onemancompany.core.vessel.company_state") as mock_cs,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
             # Mock asyncio.wait_for to immediately raise TimeoutError
             patch("onemancompany.core.vessel.asyncio.wait_for", side_effect=TimeoutError),
         ):
-            mock_bus.publish = AsyncMock()
-            mock_cs.employees = {}
-
-            await em._request_ceo_confirmation("00100", task, tree, root_node, "proj_ceo")
+            await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
 
         # Should auto-approve and call _full_cleanup with retrospective
         mock_cleanup.assert_called_once()
@@ -753,8 +538,6 @@ class TestScheduleEntry:
         assert len(mgr._schedule["00100"]) == 1
 
     def test_get_next_scheduled_with_pending_node(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-
         tree = TaskTree(project_id="proj1")
         root = tree.create_root(employee_id="00100", description="root")
         child = tree.add_child(
@@ -771,8 +554,6 @@ class TestScheduleEntry:
         assert entry.node_id == child.id
 
     def test_get_next_scheduled_skips_non_pending(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-
         tree = TaskTree(project_id="proj1")
         root = tree.create_root(employee_id="00100", description="root")
         child = tree.add_child(
@@ -789,8 +570,6 @@ class TestScheduleEntry:
         assert entry is None
 
     def test_get_next_scheduled_skips_unresolved_deps(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-
         tree = TaskTree(project_id="proj1")
         root = tree.create_root(employee_id="00100", description="root")
         dep = tree.add_child(
