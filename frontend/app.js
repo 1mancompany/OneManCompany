@@ -963,6 +963,12 @@ class AppController {
       document.getElementById('onboarding-progress-modal').classList.add('hidden');
     });
 
+    // Talent pool modal bindings
+    document.getElementById('talent-pool-close-btn').addEventListener('click', () => this.closeTalentPool());
+    document.getElementById('talent-pool-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'talent-pool-modal') this.closeTalentPool();
+    });
+
     // Interview chatbot modal bindings
     document.getElementById('interview-close-btn').addEventListener('click', () => this.closeInterviewModal());
     document.getElementById('interview-modal').addEventListener('click', (e) => {
@@ -1413,6 +1419,24 @@ class AppController {
     } else {
       fireBtn.style.display = '';
       fireBtn.onclick = () => this._confirmFireEmployee(emp);
+    }
+
+    // Talent Pool button — only for HR (00001)
+    let talentPoolBtn = document.getElementById('emp-talent-pool-btn');
+    if (!talentPoolBtn) {
+      talentPoolBtn = document.createElement('button');
+      talentPoolBtn.id = 'emp-talent-pool-btn';
+      talentPoolBtn.className = 'pixel-btn emp-fire-btn';
+      talentPoolBtn.textContent = '📋 人才库';
+      talentPoolBtn.style.marginRight = '8px';
+      const fireBtn2 = document.getElementById('emp-fire-btn');
+      fireBtn2.parentNode.insertBefore(talentPoolBtn, fireBtn2);
+    }
+    if (emp.id === '00001') {
+      talentPoolBtn.style.display = '';
+      talentPoolBtn.onclick = () => this.openTalentPool();
+    } else {
+      talentPoolBtn.style.display = 'none';
     }
 
     // Load model dropdown / API key section based on provider
@@ -5675,6 +5699,49 @@ class AppController {
         btn.disabled = false;
         btn.title = 'Reload Data';
       });
+  }
+
+  async openTalentPool() {
+    try {
+      const resp = await fetch('/api/talent-pool');
+      const data = await resp.json();
+      this._renderTalentPool(data);
+      document.getElementById('talent-pool-modal').classList.remove('hidden');
+    } catch (e) {
+      console.error('Failed to load talent pool:', e);
+    }
+  }
+
+  closeTalentPool() {
+    document.getElementById('talent-pool-modal').classList.add('hidden');
+  }
+
+  _renderTalentPool(data) {
+    const badge = document.getElementById('talent-pool-source-badge');
+    badge.textContent = data.source === 'api' ? 'API' : '本地';
+    badge.className = 'talent-pool-badge ' + (data.source === 'api' ? 'api' : 'local');
+
+    const list = document.getElementById('talent-pool-list');
+    list.innerHTML = '';
+
+    if (!data.talents || data.talents.length === 0) {
+      list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">暂无人才</div>';
+      return;
+    }
+
+    for (const t of data.talents) {
+      const card = document.createElement('div');
+      card.className = 'talent-pool-card';
+      card.innerHTML = `
+        <div class="talent-name">${t.name || t.talent_id}</div>
+        <div class="talent-role">${t.role || ''}</div>
+        <div class="talent-skills">
+          ${(t.skills || []).map(s => `<span class="skill-tag">${s}</span>`).join('')}
+        </div>
+        <div class="talent-status">${t.status === 'purchased' ? '✓ 已购买' : '本地'}</div>
+      `;
+      list.appendChild(card);
+    }
   }
 }
 
