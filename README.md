@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="img/talent-market-icon.png" alt="OneManCompany" height="64" />
+  <img src="img/omc.png" alt="OneManCompany" />
 </p>
+
+---
 
 <h1 align="center">OneManCompany</h1>
 
