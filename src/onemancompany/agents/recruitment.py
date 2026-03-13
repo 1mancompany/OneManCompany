@@ -246,6 +246,7 @@ class TalentMarketClient:
             try:
                 parsed = json.loads(item.text)
             except (json.JSONDecodeError, AttributeError):
+                logger.debug("Skipping unparseable MCP content block")
                 continue
             if isinstance(parsed, dict):
                 return parsed
