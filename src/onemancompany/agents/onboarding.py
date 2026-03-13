@@ -11,6 +11,7 @@ import importlib.util
 import json as _json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -536,6 +537,20 @@ def resolve_talent_dir(talent_id: str) -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
+    """Clone a talent repo into talent_market/talents/{talent_id}/.
+
+    If the directory already exists, does a git pull instead.
+    Returns the local talent directory path.
+    """
+    target = _LEGACY_TALENTS_DIR / talent_id
+    if target.exists():
+        subprocess.run(["git", "-C", str(target), "pull"], check=True)
+    else:
+        subprocess.run(["git", "clone", repo_url, str(target)], check=True)
+    return target
 
 
 # ---------------------------------------------------------------------------
