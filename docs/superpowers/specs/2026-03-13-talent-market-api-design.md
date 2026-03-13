@@ -233,25 +233,52 @@ if provider == "talent_market":
 
 | File | Change |
 |------|--------|
-| `agents/recruitment.py` | Replace `_boss_session` with `TalentMarketClient` class. Update `search_candidates` tool. Track `session_id`. |
+| `agents/recruitment.py` | Replace `_boss_session` with `TalentMarketClient` class. Update `search_candidates` tool. Track `session_id`. Absorb `HireRequest`, `InterviewRequest`, `InterviewResponse` Pydantic models from deleted `boss_online.py`. |
 | `agents/onboarding.py` | Add `clone_talent_repo()`. No other changes. |
-| `api/routes.py` | Update `batch_hire_candidates` with purchase+clone. Add `GET /api/talent-pool`. Reconnect on key change. |
+| `api/routes.py` | Update `batch_hire_candidates` with purchase+clone. Add `GET /api/talent-pool`. Reconnect on key change. Update imports from `boss_online` → `recruitment`. |
 | `frontend/app.js` | HR modal "人才库" button. Talent pool modal render+open/close. |
 | `frontend/style.css` | Talent pool modal styles. |
 | `frontend/index.html` | Talent pool modal HTML skeleton. |
 | `main.py` | Rename `start_boss_online` → `start_talent_market` in lifespan. |
+| `talent_market/boss_online.py` | **Delete entirely.** |
+| `tests/unit/talent_market/test_boss_online.py` | **Delete entirely.** |
 
 ### 10. What Gets Deleted
 
 - `_boss_session`, `_boss_cleanup` module globals in `recruitment.py`
 - `_call_boss_online()` function
 - `start_boss_online()` / `stop_boss_online()` (replaced by `start_talent_market()` / `stop_talent_market()`)
-- `talent_market/boss_online.py` local MCP server — no longer needed (search is done by remote API or local fallback in `search_candidates` tool)
+- `talent_market/boss_online.py` — **entire file deleted**. The local MCP server, keyword search, and `_talent_to_candidate()` are replaced by `TalentMarketClient` (API) and `recruitment.py`'s `_talent_to_candidate()` (local fallback)
+- `tests/unit/talent_market/test_boss_online.py` — tests for deleted file
+- `recruitment.py`'s `_talent_to_candidate()` — consolidated: the single local-talent-to-candidate conversion lives here (already exists, stays)
 
-### 11. What Does NOT Change
+### 11. Pydantic Models Migration (SSOT)
+
+`boss_online.py` currently defines Pydantic models used by `routes.py`. These move to `agents/recruitment.py` (co-located with the tools that produce/consume them):
+
+| Model | Used by | Action |
+|-------|---------|--------|
+| `HireRequest` | `routes.py` `hire_candidate()` | Move to `recruitment.py` |
+| `InterviewRequest` | `routes.py` `interview_candidate()` | Move to `recruitment.py` |
+| `InterviewResponse` | `routes.py` `interview_candidate()` | Move to `recruitment.py` |
+| `CandidateProfile` | `recruitment.py` (local fallback) | Already partially duplicated in `_talent_to_candidate()` dict output — keep as dict, no Pydantic model needed |
+| `CandidateSearchRequest/Response` | `boss_online.py` only | Delete (unused outside deleted file) |
+| `CandidateShortlist` | `boss_online.py` only | Delete (unused outside deleted file) |
+| `HireResponse` | `boss_online.py` only | Delete (unused outside deleted file) |
+| `CandidateSkill`, `CandidateTool` | `CandidateProfile` | Delete (API returns its own format; local fallback uses plain dicts) |
+| `RoleType`, `SpriteType`, `SPRITES` | `boss_online.py` only | Delete |
+
+### 12. Local Talent Listing — Single Code Path
+
+`config.py` `list_available_talents()` and `load_talent_profile()` remain as the **sole** local talent reading functions. The `talent_market/boss_online.py` equivalents (`_load_all_talents()`, `_build_search_text()`, `_compute_relevance()`, `_tokenize()`) are deleted — they duplicate `config.py` functionality.
+
+The `search_candidates` tool's local fallback branch already uses `config.py`'s `list_available_talents()` + `load_talent_profile()`. This becomes the only local talent path.
+
+`GET /api/talent-pool` local fallback also uses `config.py` functions — no second scanning implementation.
+
+### 13. What Does NOT Change
 
 - `onboarding.py` `execute_hire()` — unchanged, still takes `talent_dir` parameter
-- `core/config.py` `TALENTS_DIR`, `list_available_talents()`, `load_talent_profile()` — unchanged, still reads local dir
-- `boss_online.py` Pydantic models (`HireRequest`, `CandidateProfile`, etc.) — kept for route type validation
+- `config.py` `TALENTS_DIR`, `list_available_talents()`, `load_talent_profile()` — unchanged, single source of truth for local talent reading
 - The candidate shortlist → CEO selection UI — unchanged
 - The interview flow — unchanged
