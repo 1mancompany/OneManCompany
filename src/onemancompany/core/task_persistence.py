@@ -40,13 +40,13 @@ def recover_schedule_from_trees(
     - PENDING nodes with deps resolved -> schedule_node()
     - HOLDING nodes -> leave as-is (watchdog will handle)
     """
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree, save_tree_async
 
     # 1. Scan all task_tree.yaml files under projects_dir
     if projects_dir.exists():
         for tree_path in projects_dir.rglob("task_tree.yaml"):
             try:
-                tree = TaskTree.load(tree_path)
+                tree = get_tree(tree_path)
             except Exception:
                 logger.warning("Skipping corrupt tree file: {}", tree_path)
                 continue
@@ -58,7 +58,7 @@ def recover_schedule_from_trees(
                     modified = True
 
             if modified:
-                tree.save(tree_path)
+                save_tree_async(tree_path)
 
             for node in tree._nodes.values():
                 if node.status == TaskPhase.PENDING.value and tree.all_deps_resolved(node.id):

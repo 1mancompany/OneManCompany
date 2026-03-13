@@ -71,7 +71,7 @@ def _push_adhoc_task(
     Returns the node_id.
     """
     from pathlib import Path
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import TaskTree, register_tree, save_tree_async
     from onemancompany.core.config import EMPLOYEES_DIR
     from onemancompany.core.vessel import employee_manager
 
@@ -87,7 +87,8 @@ def _push_adhoc_task(
     tasks_dir = EMPLOYEES_DIR / employee_id / "tasks"
     tasks_dir.mkdir(parents=True, exist_ok=True)
     tree_path = tasks_dir / f"{root.id}_tree.yaml"
-    tree.save(tree_path)
+    register_tree(tree_path, tree)
+    save_tree_async(tree_path)  # initial sync save to create the file
 
     employee_manager.schedule_node(employee_id, root.id, str(tree_path))
     employee_manager._schedule_next(employee_id)
@@ -528,8 +529,29 @@ async def ceo_submit_task(body: dict) -> dict:
         )
         # Initialize task tree: CEO node as root, EA as child
         try:
-            from onemancompany.core.task_tree import TaskTree
+            from onemancompany.core.task_tree import TaskTree, evict_tree
             from onemancompany.core.vessel import _save_project_tree
+            from onemancompany.core.agent_loop import employee_manager
+
+            tree_path = Path(pdir) / "task_tree.yaml"
+
+            # For new iterations on existing projects: archive old tree
+            if iter_id and tree_path.exists():
+                # Find previous iteration ID from project.yaml
+                from onemancompany.core.project_archive import load_named_project
+                meta = load_named_project(project_id) if project_id else {}
+                iters = meta.get("iterations", [])
+                if len(iters) >= 2:
+                    prev_iter = iters[-2]  # second to last is the previous
+                    archive_name = f"task_tree_{prev_iter}.yaml"
+                    archive_path = tree_path.parent / archive_name
+                    if not archive_path.exists():
+                        import shutil
+                        shutil.copy2(str(tree_path), str(archive_path))
+                        logger.info("Archived previous tree to {}", archive_name)
+                # Evict old tree from memory cache
+                evict_tree(tree_path)
+
             tree = TaskTree(project_id=ctx_id)
             # CEO root node — records original prompt
             ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
@@ -542,11 +564,9 @@ async def ceo_submit_task(body: dict) -> dict:
                 description=ea_task,
                 acceptance_criteria=[],
             )
-            tree_path = str(Path(pdir) / "task_tree.yaml")
             _save_project_tree(pdir, tree)
             # Schedule EA node for execution
-            from onemancompany.core.agent_loop import employee_manager
-            employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
+            employee_manager.schedule_node(EA_ID, ea_node.id, str(tree_path))
             employee_manager._schedule_next(EA_ID)
         except Exception as e:
             logger.error("Failed to initialize task tree: {}", e)
@@ -569,7 +589,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
 
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import get_project_dir, append_action
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import TaskTree, get_tree, save_tree_async
     from onemancompany.core.vessel import _save_project_tree
 
     instructions = body.get("instructions", "").strip()
@@ -594,7 +614,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     tree_path = Path(pdir) / "task_tree.yaml"
     previous_result = ""
     if tree_path.exists():
-        tree = TaskTree.load(tree_path, project_id=project_id)
+        tree = get_tree(tree_path, project_id=project_id)
         root = tree.get_node(tree.root_id)
         if root and root.result:
             previous_result = root.result
@@ -621,7 +641,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     # Append to existing tree (or create new if none exists)
     tree_path = Path(pdir) / "task_tree.yaml"
     if tree_path.exists():
-        tree = TaskTree.load(tree_path, project_id=project_id)
+        tree = get_tree(tree_path, project_id=project_id)
     else:
         tree = TaskTree(project_id=project_id)
 
@@ -632,50 +652,31 @@ async def task_followup(project_id: str, body: dict) -> dict:
     schedule_node_id = ""  # will be set to the EA node to schedule
 
     if tree.root_id:
-        # Start new branch — deactivates old nodes
-        tree.new_branch()
-
-        # Find the EA node (child of CEO root, or legacy root)
-        ea_node = tree.get_ea_node()
-        if ea_node:
-            # Forced reset for new branch — bypasses transition validation
-            ea_node.status = TaskPhase.PENDING.value
-            ea_node.result = ""
-            ea_node.branch = tree.current_branch
-            ea_node.branch_active = True
-            schedule_node_id = ea_node.id
-
-            # Add CEO follow-up as child of EA node
-            followup_node = tree.add_child(
-                parent_id=ea_node.id,
-                employee_id=CEO_ID,
-                description=instructions,
-                acceptance_criteria=[],
-            )
-            followup_node.node_type = "ceo_followup"
-            # CEO follow-up is pre-approved — bypasses transition validation
-            followup_node.status = TaskPhase.ACCEPTED.value
-            followup_node.branch = tree.current_branch
-            followup_node.branch_active = True
-        else:
-            # Fallback — create EA child under existing root
-            child = tree.add_child(
-                parent_id=tree.root_id,
-                employee_id=EA_ID,
-                description=instructions,
-                acceptance_criteria=[],
-            )
-            child.branch = tree.current_branch
-            child.branch_active = True
-            schedule_node_id = child.id
-
-        # Update CEO root status
+        # Add a new subtree from CEO root — old subtree stays intact
         root = tree.get_node(tree.root_id)
+
+        # Record the followup instruction as a CEO node under root
+        followup_node = tree.add_child(
+            parent_id=tree.root_id,
+            employee_id=CEO_ID,
+            description=instructions,
+            acceptance_criteria=[],
+        )
+        followup_node.node_type = "ceo_followup"
+        followup_node.status = TaskPhase.ACCEPTED.value
+
+        # Create a new EA node under the followup node for execution
+        ea_child = tree.add_child(
+            parent_id=followup_node.id,
+            employee_id=EA_ID,
+            description=followup_task,
+            acceptance_criteria=[],
+        )
+        schedule_node_id = ea_child.id
+
+        # Keep CEO root in PROCESSING while new subtree runs
         if root and root.node_type == "ceo_prompt":
-            # Branch restart — bypasses transition validation
             root.status = TaskPhase.PROCESSING.value
-            root.branch = tree.current_branch
-            root.branch_active = True
     else:
         # No root yet — create CEO root + EA child
         ceo_root = tree.create_root(employee_id=CEO_ID, description=instructions)
@@ -801,7 +802,7 @@ async def oneonone_chat(body: dict) -> dict:
         node_id = _push_adhoc_task(employee_id, task_desc)
         # Wait for the task to complete (poll tree node with timeout)
         import asyncio
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree
         from onemancompany.core.vessel import employee_manager as _em
         tree_path = ""
         for entry in _em._schedule.get(employee_id, []):
@@ -815,7 +816,7 @@ async def oneonone_chat(body: dict) -> dict:
             tp = Path(tree_path)
             if not tp.exists():
                 continue
-            tree = TaskTree.load(tp)
+            tree = get_tree(tp)
             node = tree.get_node(node_id)
             if node and node.status in ("completed", "failed", "finished", "accepted"):
                 if node.result:
@@ -1457,7 +1458,7 @@ async def get_employee_taskboard(employee_id: str) -> dict:
     from pathlib import Path
     from onemancompany.core.store import load_task_index, append_task_index_entry
     from onemancompany.core.vessel import employee_manager
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree
 
     # Merge disk index + in-memory schedule (for entries not yet indexed)
     index_entries = load_task_index(employee_id)
@@ -1481,7 +1482,7 @@ async def get_employee_taskboard(employee_id: str) -> dict:
         if not tp.exists():
             continue
         try:
-            tree = TaskTree.load(tp)
+            tree = get_tree(tp)
             node = tree.get_node(node_id)
             if node:
                 tasks.append(node.to_dict())
@@ -1513,7 +1514,7 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
         cancelled_node_ids: list of (node_id, tree_path) tuples.
     """
     from pathlib import Path
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree, save_tree_async
 
     # Group by tree_path for efficiency
     trees: dict[str, object] = {}
@@ -1523,7 +1524,7 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
         if tree_path not in trees:
             tp = Path(tree_path)
             if tp.exists():
-                trees[tree_path] = TaskTree.load(tp)
+                trees[tree_path] = get_tree(tp)
             else:
                 trees[tree_path] = None
         tree = trees[tree_path]
@@ -1544,7 +1545,7 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
     # Save modified trees
     for tree_path_str, tree in trees.items():
         if tree:
-            tree.save(Path(tree_path_str))
+            save_tree_async(Path(tree_path_str))
 
 
 @router.post("/api/task/{project_id}/abort")
@@ -1561,7 +1562,7 @@ async def abort_task(project_id: str) -> dict:
     # Cancel ALL non-terminal tree nodes (including waiting/pending ones not yet pushed to schedule)
     cancelled_tree_nodes = 0
     from onemancompany.core.project_archive import get_project_dir, load_project as _lp
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree, save_tree_async
     from pathlib import Path as _Path
     from datetime import datetime as _dt
 
@@ -1569,14 +1570,14 @@ async def abort_task(project_id: str) -> dict:
     if pdir:
         tree_path = _Path(pdir) / "task_tree.yaml"
         if tree_path.exists():
-            tree = TaskTree.load(tree_path, project_id=project_id)
+            tree = get_tree(tree_path, project_id=project_id)
             for node in tree._nodes.values():
                 if node.status not in ("accepted", "failed", "cancelled"):
                     # CEO abort — force status bypass for terminal override
                     node.status = TaskPhase.CANCELLED.value
                     node.result = "Cancelled by CEO (project aborted)"
                     cancelled_tree_nodes += 1
-            tree.save(tree_path)
+            save_tree_async(tree_path)
 
     # Trigger 4: CEO aborts → cancelled (via store for mark_dirty)
     from onemancompany.core import store as _store
@@ -1604,7 +1605,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     from pathlib import Path
 
     from onemancompany.core.agent_loop import employee_manager
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree, save_tree_async
 
     # Find the entry in the schedule
     entry_found = None
@@ -1621,7 +1622,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     if not tp.exists():
         return {"status": "error", "message": "Tree file not found"}
 
-    tree = TaskTree.load(tp)
+    tree = get_tree(tp)
     node = tree.get_node(task_id)
     if not node:
         return {"status": "error", "message": "Node not found in tree"}
@@ -1635,7 +1636,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     node.status = TaskPhase.CANCELLED.value
     node.completed_at = datetime.now().isoformat()
     node.result = "Cancelled by CEO"
-    tree.save(tp)
+    save_tree_async(tp)
 
     # Remove from schedule
     employee_manager.unschedule(employee_id, task_id)
@@ -2839,16 +2840,56 @@ async def continue_iteration(body: dict) -> dict:
     if not loop:
         return {"error": f"No agent loop for EA {EA_ID}"}
 
-    # Initialize a new task tree so the full dispatch chain is tracked
+    # Add a new subtree to the existing tree (don't overwrite)
     try:
-        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.task_tree import get_tree, save_tree_async, TaskTree
         from onemancompany.core.vessel import _save_project_tree
         from onemancompany.core.agent_loop import employee_manager
-        tree = TaskTree(project_id=ctx_id)
-        root = tree.create_root(employee_id=EA_ID, description=f"[续做] {task[:80]}")
-        tree_path = str(Path(project_dir) / "task_tree.yaml")
-        _save_project_tree(project_dir, tree)
-        employee_manager.schedule_node(EA_ID, root.id, tree_path)
+
+        tree_path = Path(project_dir) / "task_tree.yaml"
+        if tree_path.exists():
+            tree = get_tree(tree_path, project_id=ctx_id)
+            root = tree.get_node(tree.root_id)
+
+            # Add CEO "continue" node under root
+            continue_node = tree.add_child(
+                parent_id=tree.root_id,
+                employee_id=CEO_ID,
+                description=f"[续做] {feedback_text}",
+                acceptance_criteria=[],
+            )
+            continue_node.node_type = "ceo_followup"
+            continue_node.status = TaskPhase.ACCEPTED.value
+
+            # Add new EA child under the continue node
+            ea_child = tree.add_child(
+                parent_id=continue_node.id,
+                employee_id=EA_ID,
+                description=continuation_task,
+                acceptance_criteria=[],
+            )
+
+            # Keep CEO root in PROCESSING
+            if root and root.node_type == "ceo_prompt":
+                root.status = TaskPhase.PROCESSING.value
+
+            save_tree_async(tree_path)
+            employee_manager.schedule_node(EA_ID, ea_child.id, str(tree_path))
+        else:
+            # No tree yet — create fresh (shouldn't happen for continue)
+            tree = TaskTree(project_id=ctx_id)
+            ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
+            ceo_root.node_type = "ceo_prompt"
+            ceo_root.set_status(TaskPhase.PROCESSING)
+            ea_child = tree.add_child(
+                parent_id=ceo_root.id,
+                employee_id=EA_ID,
+                description=continuation_task,
+                acceptance_criteria=[],
+            )
+            _save_project_tree(project_dir, tree)
+            employee_manager.schedule_node(EA_ID, ea_child.id, str(tree_path))
+
         employee_manager._schedule_next(EA_ID)
     except Exception as e:
         logger.error("Failed to initialize continuation task tree: {}", e)
@@ -2911,7 +2952,7 @@ def _tree_summary(project_id: str) -> dict | None:
     from pathlib import Path
 
     from onemancompany.core.project_archive import get_project_dir
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree
 
     project_dir = get_project_dir(project_id)
     if not project_dir:
@@ -2919,7 +2960,7 @@ def _tree_summary(project_id: str) -> dict | None:
     path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         return None
-    tree = TaskTree.load(path, project_id=project_id)
+    tree = get_tree(path, project_id=project_id)
     nodes = list(tree._nodes.values())
     if not nodes:
         return None
@@ -3021,7 +3062,7 @@ def _load_project_tree_for_api(project_id: str):
     """Load TaskTree for a project, trying known project directories."""
     from pathlib import Path
 
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree
     from onemancompany.core.project_archive import get_project_dir
 
     project_dir = get_project_dir(project_id)
@@ -3030,7 +3071,7 @@ def _load_project_tree_for_api(project_id: str):
     path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         return None
-    return TaskTree.load(path, project_id=project_id)
+    return get_tree(path, project_id=project_id)
 
 
 def _has_avatar(employee_id: str) -> bool:
@@ -3697,12 +3738,12 @@ async def hire_candidate(body: HireRequest) -> dict:
 
     # Resume HR's HOLDING task so EA knows the hire is done
     from onemancompany.core.vessel import employee_manager as _em_hr
-    from onemancompany.core.task_tree import TaskTree as _TT_hr
+    from onemancompany.core.task_tree import get_tree as _get_tree_hr
     for entry in _em_hr._schedule.get(HR_ID, []):
         tp = Path(entry.tree_path)
         if not tp.exists():
             continue
-        tree = _TT_hr.load(tp)
+        tree = _get_tree_hr(tp)
         node = tree.get_node(entry.node_id)
         if node and node.status == "holding" and node.result and f"batch_id={body.batch_id}" in node.result:
             await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hired {candidate['name']} (ID: {emp.id})")
@@ -3895,18 +3936,32 @@ async def batch_hire_candidates(body: dict) -> dict:
 
     # Resume HR HOLDING task
     from onemancompany.core.vessel import employee_manager as _em_batch
-    from onemancompany.core.task_tree import TaskTree as _TT_batch
+    from onemancompany.core.task_tree import get_tree as _get_tree_batch
     for entry in _em_batch._schedule.get(HR_ID, []):
         tp = Path(entry.tree_path)
         if not tp.exists():
             continue
-        tree = _TT_batch.load(tp)
+        tree = _get_tree_batch(tp)
         node = tree.get_node(entry.node_id)
         if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
             await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
             break
 
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+
+    # Dispatch COO task to assign departments for new hires
+    hired_entries = [r for r in results if r["status"] == "hired"]
+    if hired_entries:
+        emp_lines = "\n".join(
+            f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}，角色: {next((s.get('role','') for s in selections if s.get('candidate_id') == r['candidate_id']), '')}"
+            for r in hired_entries
+        )
+        _push_adhoc_task(
+            COO_ID,
+            f"以下新员工刚入职，请为他们分配部门。使用 assign_department 工具逐个分配。\n"
+            f"可选部门: Engineering, Design, Analytics, Marketing\n\n"
+            f"{emp_lines}",
+        )
 
     return {"status": "ok", "count": len(hired_names), "results": results}
 
@@ -5035,8 +5090,8 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
         tree_path = proj_dir / "task_tree.yaml"
         if not tree_path.exists():
             continue
-        from onemancompany.core.task_tree import TaskTree
-        tree = TaskTree.load(tree_path)
+        from onemancompany.core.task_tree import get_tree
+        tree = get_tree(tree_path)
         for node in tree._nodes.values():
             if node.node_type != "ceo_request":
                 continue
@@ -5067,7 +5122,7 @@ def _find_ceo_node(node_id: str):
 
     Returns (node, tree, project_dir) or raises HTTPException(404).
     """
-    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.task_tree import get_tree
 
     projects_dir = COMPANY_DIR / "projects"
     if projects_dir.exists():
@@ -5075,7 +5130,7 @@ def _find_ceo_node(node_id: str):
             tree_path = proj_dir / "task_tree.yaml"
             if not tree_path.exists():
                 continue
-            tree = TaskTree.load(tree_path)
+            tree = get_tree(tree_path)
             node = tree.get_node(node_id)
             if node and node.node_type == "ceo_request":
                 return node, tree, str(proj_dir)
@@ -5106,7 +5161,8 @@ async def open_ceo_conversation(node_id: str):
     if node.status == TaskPhase.PENDING.value:
         transition(node.id, TaskPhase.PENDING, TaskPhase.PROCESSING)
         node.status = TaskPhase.PROCESSING.value
-        tree.save(Path(project_dir) / "task_tree.yaml")
+        from onemancompany.core.task_tree import save_tree_async
+        save_tree_async(Path(project_dir) / "task_tree.yaml")
 
     # Find the dispatching employee (parent node's employee)
     parent = tree.get_node(node.parent_id) if node.parent_id else None
@@ -5151,7 +5207,8 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         node.status = TaskPhase.COMPLETED.value
         transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
         node.status = TaskPhase.ACCEPTED.value
-        tree.save(Path(project_dir) / "task_tree.yaml")
+        from onemancompany.core.task_tree import save_tree_async
+        save_tree_async(Path(project_dir) / "task_tree.yaml")
         _trigger_dep_resolution(project_dir, tree, node)
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)

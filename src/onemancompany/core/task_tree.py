@@ -3,15 +3,24 @@
 Each project has one TaskTree persisted as task_tree.yaml.
 EA is the root node; children are dispatched subtasks.
 Results propagate upward through accept_child/reject_child.
+
+Tree Registry
+-------------
+Trees are cached in memory. All code should use ``get_tree(path)``
+instead of ``TaskTree.load(path)`` directly, and ``save_tree_async(path)``
+instead of ``tree.save(path)``.  This ensures a single in-memory object
+per tree file — no stale-read overwrites.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import yaml
+from loguru import logger
 
 from onemancompany.core.task_lifecycle import (
     TaskPhase, transition,
@@ -277,3 +286,68 @@ class TaskTree:
             tree._nodes[node.id] = node
         # task_id_map removed — ignored for backward compat with old tree files
         return tree
+
+
+# ---------------------------------------------------------------------------
+# Tree Registry — in-memory cache + async persistence
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, TaskTree] = {}
+_locks: dict[str, asyncio.Lock] = {}
+
+
+def _key(path: str | Path) -> str:
+    return str(Path(path).resolve())
+
+
+def get_tree(path: str | Path, project_id: str = "") -> TaskTree:
+    """Get tree from memory cache, loading from disk if not cached."""
+    key = _key(path)
+    if key not in _cache:
+        _cache[key] = TaskTree.load(Path(path), project_id=project_id)
+    return _cache[key]
+
+
+def register_tree(path: str | Path, tree: TaskTree) -> None:
+    """Register a newly created tree in the cache."""
+    _cache[_key(path)] = tree
+
+
+def get_tree_lock(path: str | Path) -> asyncio.Lock:
+    """Get per-tree asyncio.Lock for protecting read-modify-write sequences."""
+    key = _key(path)
+    if key not in _locks:
+        _locks[key] = asyncio.Lock()
+    return _locks[key]
+
+
+def save_tree_async(path: str | Path) -> None:
+    """Schedule async disk save of the cached tree.
+
+    Safe to call from both sync and async contexts.
+    If no event loop is running, saves synchronously.
+    """
+    key = _key(path)
+    tree = _cache.get(key)
+    if not tree:
+        return
+    _path = Path(path)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_do_save(tree, _path))
+    except RuntimeError:
+        tree.save(_path)
+
+
+def evict_tree(path: str | Path) -> None:
+    """Remove a tree from the cache (e.g. after project archive)."""
+    key = _key(path)
+    _cache.pop(key, None)
+    _locks.pop(key, None)
+
+
+async def _do_save(tree: TaskTree, path: Path) -> None:
+    try:
+        tree.save(path)
+    except Exception as e:
+        logger.error("Failed to save tree {}: {}", path, e)

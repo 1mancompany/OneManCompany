@@ -311,6 +311,28 @@ def _bridge_store_to_company_state(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_tree_cache():
+    """Clear tree registry cache between tests to prevent cross-test contamination."""
+    import onemancompany.core.task_tree as tt_mod
+
+    # Make save_tree_async synchronous in tests so disk reflects changes immediately
+    _orig_save_async = tt_mod.save_tree_async
+
+    def _sync_save(path):
+        key = tt_mod._key(path)
+        tree = tt_mod._cache.get(key)
+        if tree:
+            from pathlib import Path
+            tree.save(Path(path))
+
+    tt_mod.save_tree_async = _sync_save
+    yield
+    tt_mod._cache.clear()
+    tt_mod._locks.clear()
+    tt_mod.save_tree_async = _orig_save_async
+
+
+@pytest.fixture(autouse=True)
 def _isolate_disk_writes(tmp_path, monkeypatch):
     """Redirect disk-writing paths in vessel and task_persistence to tmp_path.
 

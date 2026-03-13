@@ -933,6 +933,87 @@ def deposit_company_knowledge(
     }
 
 
+@tool
+async def assign_department(employee_id: str, department: str) -> dict:
+    """Assign or change an employee's department.
+
+    Updates the employee's department, recalculates their desk position
+    based on the department zone, and adjusts tool permissions.
+
+    Args:
+        employee_id: The employee number (e.g. "00008").
+        department: Target department name (e.g. "Engineering", "Design",
+            "Analytics", "Marketing").
+
+    Returns:
+        dict with status, employee_id, department, desk_position.
+    """
+    from onemancompany.core import store as _store
+    from onemancompany.core.config import (
+        DEFAULT_TOOL_PERMISSIONS, DEFAULT_TOOL_PERMISSIONS_FALLBACK,
+        ROLE_DEPARTMENT_MAP,
+    )
+    from onemancompany.core.layout import compute_layout, get_next_desk_for_department
+
+    emp_data = _store.load_employee(employee_id)
+    if not emp_data:
+        return {"status": "error", "error": f"Employee {employee_id} not found"}
+
+    old_dept = emp_data.get("department", "General")
+    if old_dept == department:
+        return {
+            "status": "no_change",
+            "employee_id": employee_id,
+            "department": department,
+            "message": f"{emp_data.get('name', employee_id)} is already in {department}",
+        }
+
+    # Compute new desk position within the target department zone
+    is_remote = emp_data.get("remote", False)
+    if is_remote:
+        desk_pos = [-1, -1]
+    else:
+        desk_pos = list(get_next_desk_for_department(company_state, department))
+
+    # Update tool permissions for new department
+    new_tool_perms = list(DEFAULT_TOOL_PERMISSIONS.get(
+        department, DEFAULT_TOOL_PERMISSIONS_FALLBACK
+    ))
+
+    await _store.save_employee(employee_id, {
+        "department": department,
+        "desk_position": desk_pos,
+        "tool_permissions": new_tool_perms,
+    })
+
+    # Recompute office layout
+    compute_layout(company_state)
+
+    _append_activity({
+        "type": "department_changed",
+        "employee_id": employee_id,
+        "name": emp_data.get("name", employee_id),
+        "from_department": old_dept,
+        "to_department": department,
+    })
+
+    await event_bus.publish(CompanyEvent(
+        type="state_snapshot", payload={}, agent="COO",
+    ))
+
+    logger.info("Department assigned: {} → {} for {}",
+                old_dept, department, employee_id)
+
+    return {
+        "status": "ok",
+        "employee_id": employee_id,
+        "name": emp_data.get("name", ""),
+        "department": department,
+        "desk_position": desk_pos,
+        "previous_department": old_dept,
+    }
+
+
 def _register_coo_tools() -> None:
     from onemancompany.core.tool_registry import ToolMeta, tool_registry
 
@@ -942,6 +1023,7 @@ def _register_coo_tools() -> None:
         list_assets, list_meeting_rooms, book_meeting_room,
         release_meeting_room, add_meeting_room,
         request_hiring, deposit_company_knowledge,
+        assign_department,
     ]:
         tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["COO"]))
 

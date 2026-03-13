@@ -62,11 +62,27 @@ We didn't just borrow corporate vocabulary — we faithfully modeled how Fortune
 - **Knowledge base & SOPs** — company culture, direction docs, workflow definitions, shared prompts
 - **File change approvals** — employees propose edits, CEO reviews diffs and approves in batch
 - **Cost accounting** — per-project LLM token usage and USD cost tracking
-- **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior
+- **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior. Think "the boss wants to have a chat" — except here the chat actually works
 - **Company culture & direction** — injected into every employee's system prompt
 - **Hot reload & graceful restart** — because even AI companies need zero-downtime deployments
 
 Something missing? [Open an issue](https://github.com/CarbonKite/OneManCompany/issues) or build it yourself — that's the beauty of open source.
+
+### Why It's an OS, Not Just a Company
+
+You might wonder: why call it an "operating system" instead of "an AI company"?
+
+Because OneManCompany doesn't build **a** company — it lets you build **any** company. Three features make this possible:
+
+**1. Company Direction** — You write a vision statement: "We are a mobile game studio focused on casual puzzle games." Or "We are a manga production house specializing in sci-fi." This direction isn't decorative text — it's injected into every employee's reasoning, shaping how they interpret tasks, make decisions, and prioritize work. Change the direction, and the entire company pivots. Just like changing `/etc/hostname` changes what the machine thinks it is.
+
+**2. Company Culture** — You define principles: "Ship fast, iterate later." Or "Quality over speed, always." These aren't motivational posters on the wall — they're system prompts that govern every employee's behavior. An agent in a "move fast" culture will make different tradeoffs than one in a "measure twice" culture. Same Talents, same Vessels, completely different company personality.
+
+**3. Vessel + Talent** — The modular architecture that makes it all swappable. Need a game studio today and a dev agency tomorrow? Same OS, same founding team, different Talents from the marketplace. The Vessel Harness protocol ensures everything plugs in cleanly — execution backends, agent capabilities, tool integrations — all interchangeable without rewriting the system.
+
+An operating system provides the kernel, the process scheduler, and the device drivers. You decide what programs to run on it. OneManCompany provides the org structure, the task engine, and the agent infrastructure. **You decide what company to build on it.**
+
+Windows doesn't care if you're running Photoshop or Excel. OneManCompany doesn't care if you're building games or shipping SaaS.
 
 ---
 
@@ -367,7 +383,6 @@ flowchart LR
     E --> EM["EmployeeManager<br>register + dispatch"]
 ```
 
-Priority: talent's own `vessel.yaml` → legacy `manifest.yaml` (auto-converted) → system `default_vessel.yaml`
 
 ## Operating Modes
 

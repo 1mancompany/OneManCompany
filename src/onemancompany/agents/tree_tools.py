@@ -19,18 +19,20 @@ from onemancompany.core.task_tree import TaskTree
 # ---------------------------------------------------------------------------
 
 def _load_tree(project_dir: str) -> TaskTree:
-    """Load a TaskTree from {project_dir}/task_tree.yaml."""
+    """Get TaskTree from memory cache (loading from disk if needed)."""
+    from onemancompany.core.task_tree import get_tree
     path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         logger.warning("task_tree.yaml not found at %s", path)
         return TaskTree(project_id="")
-    return TaskTree.load(path)
+    return get_tree(path)
 
 
 def _save_tree(project_dir: str, tree: TaskTree) -> None:
-    """Save a TaskTree to {project_dir}/task_tree.yaml."""
+    """Schedule async save of the TaskTree."""
+    from onemancompany.core.task_tree import save_tree_async
     path = Path(project_dir) / "task_tree.yaml"
-    tree.save(path)
+    save_tree_async(path)
 
 
 def _get_current_node(tree: TaskTree, task_id: str):
