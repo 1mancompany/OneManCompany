@@ -187,9 +187,10 @@ CEO（你，唯一能喝咖啡的人）
 | 模式 | 说明 | 要求 |
 | --- | --- | --- |
 | **Company Hosted Agent** | OMC 自建 Agent，通过 OpenRouter 调用 LLM | OpenRouter API Key（设置向导中配置） |
-| **Claude Code** | 能力更强，更省 token 开销 | 需要 [Claude Pro/Max 订阅](https://claude.ai) |
+| **Claude Code** | 能力更强，更省 token 开销 | 需要安装 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max 订阅](https://claude.ai) |
+| **OpenClaw** | 开源替代，支持多种 LLM 后端 | 需要安装 [OpenClaw CLI](https://github.com/anthropics/openclaw) + 兼容的 LLM API Key |
 
-默认使用 Company Hosted Agent，无需额外订阅即可开始。
+默认使用 Company Hosted Agent，无需额外订阅即可开始。使用 Claude Code 或 OpenClaw 前需先安装对应 CLI，详见[执行模式文档](https://carbonkite.github.io/OneManCompany/docs/zh/guide/execution-modes/)。
 
 <details>
 <summary><b>macOS</b></summary>
@@ -271,13 +272,13 @@ open http://localhost:8000    # macOS
 
 ```bash
 # 重启服务器
-bash start.sh
+npx @carbonkite/onemancompany
 
 # 指定端口
-bash start.sh --port 8080
+npx @carbonkite/onemancompany --port 8080
 
 # 重新运行配置向导（修改 API Key 等）
-bash start.sh init
+npx @carbonkite/onemancompany init
 ```
 
 如果通过 npx 启动且服务正在运行，再次执行 `npx @carbonkite/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置向导 → 重新启动。

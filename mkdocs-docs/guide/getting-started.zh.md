@@ -78,10 +78,10 @@ cd OneManCompany && bash start.sh
 
 ```bash
 # 重新运行配置向导
-bash start.sh init
+npx @carbonkite/onemancompany init
 
 # 自定义端口
-bash start.sh --port 8080
+npx @carbonkite/onemancompany --port 8080
 ```
 
 ## 配置文件
