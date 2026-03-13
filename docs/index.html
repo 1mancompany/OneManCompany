@@ -604,5 +604,77 @@ layout: null
   </div>
 </footer>
 
+<script>
+// ── 8-bit Sound Engine (Web Audio API) ───────────────────────
+const SFX = (() => {
+  let ctx;
+  const getCtx = () => {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    return ctx;
+  };
+
+  function play(freq, type, duration, vol = 0.08) {
+    const c = getCtx();
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, c.currentTime);
+    gain.gain.setValueAtTime(vol, c.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(c.destination);
+    osc.start(c.currentTime);
+    osc.stop(c.currentTime + duration);
+  }
+
+  return {
+    // Short blip for hover
+    hover() { play(880, 'square', 0.06, 0.04); },
+    // Menu select beep
+    click() { play(660, 'square', 0.08, 0.06); play(990, 'square', 0.08, 0.06); },
+    // Coin / confirm
+    confirm() {
+      const c = getCtx();
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(988, c.currentTime);
+      osc.frequency.setValueAtTime(1319, c.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.07, c.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.2);
+      osc.connect(gain); gain.connect(c.destination);
+      osc.start(c.currentTime); osc.stop(c.currentTime + 0.2);
+    },
+    // Power-on boot sequence
+    boot() {
+      const notes = [262, 330, 392, 523, 659];
+      notes.forEach((f, i) => {
+        setTimeout(() => play(f, 'square', 0.12, 0.05), i * 80);
+      });
+    }
+  };
+})();
+
+// ── Attach sounds ────────────────────────────────────────────
+// Hover on interactive elements
+document.querySelectorAll('.btn, .feature-card, .build-item, .link-card, .step, nav .links a').forEach(el => {
+  el.addEventListener('mouseenter', SFX.hover);
+});
+
+// Click on buttons
+document.querySelectorAll('.btn-primary').forEach(el => {
+  el.addEventListener('click', SFX.confirm);
+});
+document.querySelectorAll('.btn-secondary, .link-card, nav .links a').forEach(el => {
+  el.addEventListener('click', SFX.click);
+});
+
+// Boot sound on first interaction (browsers require user gesture for audio)
+let booted = false;
+document.addEventListener('click', () => {
+  if (!booted) { booted = true; SFX.boot(); }
+}, { once: true });
+</script>
+
 </body>
 </html>
