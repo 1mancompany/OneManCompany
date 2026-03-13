@@ -649,7 +649,7 @@ const SFX = (() => {
     boot() {
       const notes = [262, 330, 392, 523, 659];
       notes.forEach((f, i) => {
-        setTimeout(() => play(f, 'square', 0.12, 0.05), i * 80);
+        setTimeout(() => play(f, 'square', 0.15, 0.08), i * 80);
       });
     }
   };
@@ -697,7 +697,7 @@ const BGM = (() => {
 
     // Master volume
     const master = ctx.createGain();
-    master.gain.value = 0.035;
+    master.gain.value = 0.07;
     master.connect(ctx.destination);
 
     // Bass layer — triangle wave
@@ -813,6 +813,22 @@ musicBtn.addEventListener('click', () => {
   SFX.click();
 });
 document.body.appendChild(musicBtn);
+
+// ── Music notice (top-left) ─────────────────────────────────
+const musicNotice = document.createElement('div');
+musicNotice.innerHTML = '♪ This page has background music (ON by default). Toggle: bottom-right button';
+Object.assign(musicNotice.style, {
+  position: 'fixed', top: '12px', left: '16px', zIndex: '999',
+  fontFamily: 'var(--pixel)', fontSize: '7px', lineHeight: '1.6',
+  color: 'var(--text-dim)', background: 'rgba(10,10,26,0.85)',
+  border: '1px solid var(--border)', padding: '6px 12px',
+  borderRadius: '2px', maxWidth: '340px',
+  transition: 'opacity .5s',
+});
+document.body.appendChild(musicNotice);
+// Fade out notice after 6 seconds
+setTimeout(() => { musicNotice.style.opacity = '0'; }, 6000);
+setTimeout(() => { musicNotice.remove(); }, 6600);
 
 // Auto-start music + boot sound on first interaction (browser requires user gesture)
 let booted = false;
