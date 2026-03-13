@@ -1786,43 +1786,6 @@ class TestProjectContextDetailLoopNone:
 # Coverage gap: line 1191 — routine_resolution in _full_cleanup
 # ---------------------------------------------------------------------------
 
-class TestFullCleanupRoutineResolution:
-    """Line 1191: event_bus.publish for routine resolution_ready in _full_cleanup."""
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel._store")
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_routine_resolution_published(self, mock_bus, mock_state, mock_store):
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-        mock_state.active_tasks = []
-        mock_store.load_all_employees.return_value = {}
-        mock_store.save_employee_runtime = AsyncMock()
-        mock_store.save_project_status = AsyncMock()
-
-        mgr = EmployeeManager()
-        node = TaskNode(id="t1", description="test", project_id="proj1")
-
-        mock_resolution = {"id": "res2", "summary": "Routine resolution"}
-
-        with patch("onemancompany.core.routine.run_post_task_routine", new_callable=AsyncMock):
-            with patch("onemancompany.core.resolutions.create_resolution", return_value=mock_resolution):
-                with patch("onemancompany.tools.sandbox.cleanup_sandbox", new_callable=AsyncMock):
-                    with patch("onemancompany.core.project_archive.complete_project"):
-                        with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
-                            with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
-                                await mgr._full_cleanup("emp01", node, False, "proj1", run_retrospective=True)
-
-        # Verify resolution_ready event was published
-        resolution_calls = [
-            c for c in mock_bus.publish.call_args_list
-            if c[0][0].type == "resolution_ready"
-        ]
-        assert len(resolution_calls) >= 1
-        assert resolution_calls[0][0][0].payload == mock_resolution
-
-
 # ---------------------------------------------------------------------------
 # Task tree child-completion callback
 # ---------------------------------------------------------------------------

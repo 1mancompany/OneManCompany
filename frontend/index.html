@@ -29,14 +29,6 @@
         <div id="task-panel-list"></div>
       </div>
 
-      <div class="collapsible-header" data-target="deferred-body">
-        <span class="collapse-arrow">&#9660;</span>
-        <h3 class="pixel-title">PENDING RESOLUTIONS</h3>
-      </div>
-      <div id="deferred-body" class="collapsible-body">
-        <div id="deferred-list"></div>
-      </div>
-
       <div class="collapsible-header" data-target="roster-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">TEAM ROSTER</h3>
@@ -69,21 +61,6 @@
           <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings">&#9881;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
           <span class="status-item" id="last-sync-time"></span>
-        </div>
-      </div>
-      <div id="settings-floating-panel" class="floating-panel hidden">
-        <div class="floating-panel-header">
-          <span>&#9881; SETTINGS</span>
-          <button class="floating-panel-close" onclick="document.getElementById('settings-floating-panel').classList.add('hidden')">&#10005;</button>
-        </div>
-        <div class="floating-panel-body">
-          <div class="settings-section-header" data-target="settings-api-body">
-            <span class="settings-collapse-arrow">&#9654;</span>
-            <span class="settings-section-title">&#128273; API Connections</span>
-          </div>
-          <div id="settings-api-body" class="settings-section-body">
-            <div id="api-settings-content"></div>
-          </div>
         </div>
       </div>
       <canvas id="office-canvas" width="640" height="480"></canvas>
@@ -147,6 +124,23 @@
         <div id="activity-log">
           <div id="log-entries"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Floating Panel (positioned via JS) -->
+  <div id="settings-floating-panel" class="floating-panel hidden">
+    <div class="floating-panel-header">
+      <span>&#9881; SETTINGS</span>
+      <button class="floating-panel-close" onclick="document.getElementById('settings-floating-panel').classList.add('hidden')">&#10005;</button>
+    </div>
+    <div class="floating-panel-body">
+      <div class="settings-section-header" data-target="settings-api-body">
+        <span class="settings-collapse-arrow">&#9654;</span>
+        <span class="settings-section-title">&#128273; API Connections</span>
+      </div>
+      <div id="settings-api-body" class="settings-section-body">
+        <div id="api-settings-content"></div>
       </div>
     </div>
   </div>
@@ -550,29 +544,6 @@
         <div id="project-detail" class="project-detail hidden">
           <div id="project-detail-content"></div>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Resolution Review Modal -->
-  <div id="resolution-modal" class="modal-overlay hidden">
-    <div class="modal-content resolution-modal-content">
-      <div class="modal-header">
-        <h3 class="pixel-title">&#128203; Resolution Review</h3>
-        <button id="resolution-close-btn" class="modal-close">&#10005;</button>
-      </div>
-      <div class="modal-body resolution-modal-body">
-        <div id="resolution-task-info" class="resolution-task-info"></div>
-        <div id="resolution-edits" class="resolution-edits"></div>
-      </div>
-      <div style="padding:0 12px 8px;">
-        <div style="font-size:7px;color:var(--accent,#4fc3f7);margin-bottom:3px;">CEO整改意见（选填）</div>
-        <textarea id="resolution-ceo-feedback" placeholder="写下整改意见后连同决策一起发送给员工..."
-          style="width:100%;min-height:36px;max-height:100px;background:var(--bg-input,#0d0d1a);border:1px solid #444;border-radius:3px;color:var(--text,#e0e0e0);font-family:var(--font-mono,monospace);font-size:7px;padding:4px;resize:vertical;box-sizing:border-box;"></textarea>
-      </div>
-      <div class="modal-footer">
-        <button id="resolution-submit-btn" class="pixel-btn">&#9989; Submit All Decisions</button>
-        <button id="resolution-cancel-btn" class="pixel-btn secondary">Cancel</button>
       </div>
     </div>
   </div>

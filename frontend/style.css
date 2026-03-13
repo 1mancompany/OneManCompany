@@ -230,10 +230,8 @@ body {
 
 /* ===== Floating Panel (Settings dropdown etc.) ===== */
 .floating-panel {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 100;
+  position: fixed;
+  z-index: 300;
   background: var(--bg-panel, #1a1a2e);
   border: 2px solid var(--pixel-cyan, #0ff);
   box-shadow: 0 4px 20px rgba(0, 255, 255, 0.2);

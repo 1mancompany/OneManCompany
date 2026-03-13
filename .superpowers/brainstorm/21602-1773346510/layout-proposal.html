@@ -1,0 +1,183 @@
+<h2>CEO Inbox: UI Layout Proposal</h2>
+<p class="subtitle">Settings moved to toolbar, Inbox replaces Settings position, TUI dialog in center</p>
+
+<div class="section">
+  <h3>Current vs Proposed Layout</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Current Layout</div>
+      <div class="mockup-body" style="font-family:monospace;font-size:11px;background:#1a1a2e;color:#ccc;padding:0;">
+        <div style="display:flex;height:400px;">
+          <!-- Left sidebar -->
+          <div style="width:25%;border-right:1px solid #333;padding:6px;font-size:10px;">
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">PROJECTS</div>
+            <div style="color:#666;margin-bottom:12px;">No projects</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">TASK QUEUE</div>
+            <div style="margin-bottom:12px;color:#666;">Empty</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">PENDING RESOLUTIONS</div>
+            <div style="margin-bottom:12px;color:#666;">No deferred edits</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">TEAM ROSTER</div>
+            <div style="color:#aaa;">CEO (You)<br>Sam HR<br>Alex COO<br>...</div>
+          </div>
+          <!-- Center: office -->
+          <div style="width:50%;position:relative;">
+            <div style="background:#14142a;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#0ff;font-size:10px;font-weight:bold;">🏢 ONE MAN COMPANY</span>
+              <span style="font-size:9px;">
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎓</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">📄</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎨</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎯</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">📊</span>
+              </span>
+            </div>
+            <div style="background:#2a2a3e;flex:1;height:calc(100% - 28px);display:flex;align-items:center;justify-content:center;color:#555;">
+              [Office Canvas]
+            </div>
+          </div>
+          <!-- Right sidebar -->
+          <div style="width:25%;border-left:1px solid #333;padding:6px;font-size:10px;">
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">CEO CONSOLE</div>
+            <div style="background:#222;padding:4px;margin-bottom:8px;">
+              <div style="color:#ff0;">YOU</div>
+              <textarea style="width:100%;background:#111;border:1px solid #333;color:#aaa;font-size:9px;margin-top:4px;" rows="2" disabled>Enter a task...</textarea>
+              <div style="margin-top:4px;">
+                <span style="background:#0a0;color:#000;padding:2px 6px;font-size:9px;">Submit Task</span>
+              </div>
+            </div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;background:#444;padding:2px 4px;border:1px dashed #f00;">
+              ⚙ SETTINGS ← to be moved
+            </div>
+            <div style="color:#666;margin-bottom:8px;font-size:9px;">API Connections...</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">ACTIVITY LOG</div>
+            <div style="color:#666;font-size:9px;">Events...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mockup">
+      <div class="mockup-header">Proposed Layout</div>
+      <div class="mockup-body" style="font-family:monospace;font-size:11px;background:#1a1a2e;color:#ccc;padding:0;">
+        <div style="display:flex;height:400px;">
+          <!-- Left sidebar -->
+          <div style="width:25%;border-right:1px solid #333;padding:6px;font-size:10px;">
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">PROJECTS</div>
+            <div style="color:#666;margin-bottom:12px;">No projects</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">TASK QUEUE</div>
+            <div style="margin-bottom:12px;color:#666;">Empty</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">PENDING RESOLUTIONS</div>
+            <div style="margin-bottom:12px;color:#666;">No deferred edits</div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">TEAM ROSTER</div>
+            <div style="color:#aaa;">CEO (You)<br>Sam HR<br>Alex COO<br>...</div>
+          </div>
+          <!-- Center: office -->
+          <div style="width:50%;position:relative;">
+            <div style="background:#14142a;padding:4px 8px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#0ff;font-size:10px;font-weight:bold;">🏢 ONE MAN COMPANY</span>
+              <span style="font-size:9px;">
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎓</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">📄</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎨</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">🎯</span>
+                <span style="background:#333;padding:1px 4px;margin:0 2px;">📊</span>
+                <span style="background:#555;padding:1px 4px;margin:0 2px;border:1px solid #0ff;color:#0ff;">⚙</span>
+              </span>
+            </div>
+            <div style="background:#2a2a3e;flex:1;height:calc(100% - 28px);display:flex;align-items:center;justify-content:center;color:#555;">
+              [Office Canvas]
+            </div>
+          </div>
+          <!-- Right sidebar -->
+          <div style="width:25%;border-left:1px solid #333;padding:6px;font-size:10px;">
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">CEO CONSOLE</div>
+            <div style="background:#222;padding:4px;margin-bottom:8px;">
+              <div style="color:#ff0;">YOU</div>
+              <textarea style="width:100%;background:#111;border:1px solid #333;color:#aaa;font-size:9px;margin-top:4px;" rows="2" disabled>Enter a task...</textarea>
+              <div style="margin-top:4px;">
+                <span style="background:#0a0;color:#000;padding:2px 6px;font-size:9px;">Submit Task</span>
+              </div>
+            </div>
+            <div style="color:#f80;font-weight:bold;margin-bottom:4px;background:#331a00;padding:4px;border:1px solid #f80;">
+              📥 CEO INBOX <span style="background:#f00;color:#fff;padding:0 4px;border-radius:8px;font-size:9px;">2</span>
+            </div>
+            <div style="font-size:9px;margin-bottom:4px;">
+              <div style="background:#222;padding:3px;margin-bottom:2px;border-left:2px solid #f80;cursor:pointer;">
+                ⏸ 墨魁: 需要确认技术方案
+              </div>
+              <div style="background:#222;padding:3px;margin-bottom:2px;border-left:2px solid #f80;cursor:pointer;">
+                ⏸ 铸客: 请审核代码变更
+              </div>
+            </div>
+            <div style="color:#0ff;font-weight:bold;margin-bottom:4px;">ACTIVITY LOG</div>
+            <div style="color:#666;font-size:9px;">Events...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>CEO Inbox Dialog (Click to Open)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Dialog: Real-time Chat with Employee</div>
+    <div class="mockup-body" style="font-family:monospace;font-size:11px;background:#0a0a1a;color:#ccc;padding:0;position:relative;">
+      <!-- Dimmed background -->
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,0.7);"></div>
+      <!-- Center modal -->
+      <div style="position:relative;margin:20px auto;width:85%;background:#1a1a2e;border:2px solid #0ff;padding:0;">
+        <!-- Header -->
+        <div style="background:#14142a;padding:6px 10px;display:flex;justify-content:space-between;border-bottom:1px solid #333;">
+          <span style="color:#0ff;font-weight:bold;">📥 来自 墨魁 的任务请求</span>
+          <span style="color:#666;cursor:pointer;">✕</span>
+        </div>
+        <!-- Task description -->
+        <div style="background:#111;padding:8px 10px;border-bottom:1px solid #222;font-size:10px;">
+          <div style="color:#888;">任务描述:</div>
+          <div style="color:#eee;margin-top:2px;">需要CEO确认：游戏引擎选用 Godot 还是 Unity，影响后续所有开发工作</div>
+        </div>
+        <!-- Chat area -->
+        <div style="padding:8px 10px;height:160px;overflow-y:auto;font-size:10px;">
+          <div style="margin-bottom:6px;">
+            <span style="color:#f0f;">墨魁:</span>
+            <span style="color:#ddd;">老板，两个方案都做了对比分析，Godot 开源免费但生态较小，Unity 商业授权但工具链成熟。您倾向哪个？</span>
+          </div>
+          <div style="margin-bottom:6px;">
+            <span style="color:#ff0;">CEO:</span>
+            <span style="color:#ddd;">我们的游戏复杂度如何？需要 3D 吗？</span>
+          </div>
+          <div style="margin-bottom:6px;">
+            <span style="color:#f0f;">墨魁:</span>
+            <span style="color:#ddd;">目前规划是 2D 像素风，不需要 3D。Godot 的 2D 支持其实比 Unity 更好。</span>
+          </div>
+        </div>
+        <!-- Input area -->
+        <div style="border-top:1px solid #333;padding:8px 10px;display:flex;gap:6px;align-items:center;">
+          <span style="color:#666;cursor:pointer;">📎</span>
+          <input style="flex:1;background:#111;border:1px solid #333;color:#eee;padding:4px 8px;font-size:10px;font-family:monospace;" placeholder="输入消息..." value="那就用 Godot，省下授权费" />
+          <span style="background:#0a0;color:#000;padding:3px 8px;font-size:10px;cursor:pointer;">发送</span>
+          <span style="background:#f80;color:#000;padding:3px 8px;font-size:10px;cursor:pointer;">完成</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Does this layout direction work?</h3>
+<div class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Looks good</h3>
+      <p>Settings to toolbar, Inbox in right sidebar, Chat dialog in center overlay</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Needs adjustment</h3>
+      <p>General direction is right but I have feedback on specifics</p>
+    </div>
+  </div>
+</div>
