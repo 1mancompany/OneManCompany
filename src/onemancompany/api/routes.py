@@ -1993,6 +1993,44 @@ def _get_local_talent_count() -> int:
         return 0
 
 
+@router.get("/api/talent-pool")
+async def get_talent_pool() -> dict:
+    """Return the talent pool — purchased talents (API) or local packages."""
+    from onemancompany.agents.recruitment import talent_market
+
+    if talent_market.connected:
+        try:
+            data = await talent_market.list_my_talents()
+            talents = []
+            for t in data.get("talents", []):
+                talents.append({
+                    "talent_id": t.get("talent_id", t.get("id", "")),
+                    "name": t.get("name", ""),
+                    "role": t.get("role", ""),
+                    "skills": t.get("skills", []),
+                    "status": "purchased",
+                    "purchased_at": t.get("purchased_at", ""),
+                })
+            return {"source": "api", "talents": talents}
+        except Exception as e:
+            logger.error("Failed to fetch talent pool from API: {}", e)
+            # Fall through to local
+
+    from onemancompany.core.config import list_available_talents, load_talent_profile
+    talents = []
+    for t in list_available_talents():
+        profile = load_talent_profile(t["id"])
+        if profile:
+            talents.append({
+                "talent_id": profile.get("id", t["id"]),
+                "name": profile.get("name", t["id"]),
+                "role": profile.get("role", ""),
+                "skills": profile.get("skills", []),
+                "status": "local",
+            })
+    return {"source": "local", "talents": talents}
+
+
 @router.get("/api/settings/api")
 async def get_api_settings() -> dict:
     """Return current global API configuration status."""
@@ -3817,6 +3855,36 @@ async def batch_hire_candidates(body: dict) -> dict:
     all_candidates = pending_candidates.get(batch_id, [])
     if not all_candidates:
         return {"error": "Batch not found"}
+
+    # --- Talent Market purchase + clone flow ---
+    from onemancompany.agents.recruitment import talent_market
+    session_id = _pending_project_ctx.get(batch_id, {}).get("session_id", "")
+    talent_ids = [s.get("candidate_id", "") for s in selections]
+
+    if talent_market.connected and talent_ids:
+        try:
+            purchase_result = await talent_market.hire(talent_ids, session_id=session_id)
+            if purchase_result.get("error"):
+                return {
+                    "error": purchase_result.get("error", "Purchase failed"),
+                    "balance": purchase_result.get("balance"),
+                    "required": purchase_result.get("required"),
+                    "shortfall": purchase_result.get("shortfall"),
+                }
+        except Exception as e:
+            logger.error("Talent Market purchase failed: {}", e)
+            return {"error": f"Purchase failed: {e}"}
+
+        # Onboard + clone each purchased talent
+        from onemancompany.agents.onboarding import clone_talent_repo
+        for tid in talent_ids:
+            try:
+                onboard_result = await talent_market.onboard(tid)
+                repo_url = onboard_result.get("repo_url", "")
+                if repo_url:
+                    await clone_talent_repo(repo_url, tid)
+            except Exception as e:
+                logger.error("Failed to onboard/clone talent {}: {}", tid, e)
 
     total = len(selections)
     results = []
