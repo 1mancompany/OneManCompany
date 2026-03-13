@@ -31,8 +31,15 @@ class TestEAAgentInit:
         from onemancompany.agents import ea_agent as ea_mod
         from onemancompany.agents import base as base_mod
         from onemancompany.core import config as config_mod
+        from onemancompany.core import tool_registry as tr_mod
 
         monkeypatch.setattr(base_mod, "make_llm", lambda eid: MagicMock())
+
+        fake_tool = MagicMock()
+        monkeypatch.setattr(
+            tr_mod.tool_registry, "get_proxied_tools_for",
+            lambda eid: [fake_tool],
+        )
 
         created_tools = []
 

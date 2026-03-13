@@ -6172,27 +6172,30 @@ class TestProjectFileTraversal:
 
 class TestAdminClearTasksDirect:
     async def test_clear_tasks_resets_status_direct(self):
-        """Line 197: direct call to ensure coverage of save_employee_runtime(status=idle)."""
+        """Direct call to ensure coverage of save_employee_runtime(status=idle)."""
         from onemancompany.api import routes as routes_mod
 
-        emp = _make_employee(id="00010")
-        emp.status = "working"
-        state = _make_state(employees={"00010": emp})
         bus = MagicMock()
         bus.publish = AsyncMock()
-
-        mock_task = TaskEntry(project_id="p1", task="t1", routed_to="COO")
 
         saved_runtime_calls = []
 
         async def fake_save_runtime(eid, **fields):
             saved_runtime_calls.append((eid, fields))
 
-        with patch.object(routes_mod, "company_state", state), \
-             patch.object(routes_mod, "event_bus", bus), \
-             patch("onemancompany.core.state.get_active_tasks", return_value=[mock_task]), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(iterdir=lambda: [])), \
-             patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):
+        # Mock employee_manager with one scheduled entry
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [MagicMock()]}
+        mock_em._running_tasks = {}
+
+        # Mock _store to return one employee
+        mock_store = MagicMock()
+        mock_store.load_all_employees = lambda: {"00010": MagicMock()}
+        mock_store.save_employee_runtime = AsyncMock(side_effect=fake_save_runtime)
+
+        with patch.object(routes_mod, "event_bus", bus), \
+             patch("onemancompany.api.routes._store", mock_store), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             result = await routes_mod.admin_clear_tasks()
 
         assert result["status"] == "cleared"
