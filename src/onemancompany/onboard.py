@@ -9,9 +9,11 @@ import json
 import shutil
 from pathlib import Path
 
+import httpx
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
+from rich.table import Table
 from rich.text import Text
 
 # ---------------------------------------------------------------------------
@@ -31,14 +33,8 @@ LOGO = r"""
   One Man Company
 """
 
-MODEL_PRESETS: list[tuple[str, str]] = [
-    ("moonshotai/kimi-k2.5", "Kimi K2.5 (default, cost-effective)"),
-    ("anthropic/claude-sonnet-4", "Claude Sonnet 4 (balanced)"),
-    ("anthropic/claude-opus-4", "Claude Opus 4 (most capable)"),
-    ("openai/gpt-4o", "GPT-4o"),
-    ("google/gemini-2.5-pro", "Gemini 2.5 Pro"),
-    ("deepseek/deepseek-chat-v3", "DeepSeek V3 (budget)"),
-]
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
+PAGE_SIZE = 15
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +53,153 @@ def _step_welcome(console: Console) -> None:
     )
 
 
+def _format_price(price_str: str | None) -> str:
+    """Format per-token price string to $/M tokens."""
+    if not price_str:
+        return "free"
+    try:
+        per_token = float(price_str)
+        per_million = per_token * 1_000_000
+        if per_million == 0:
+            return "free"
+        if per_million < 0.01:
+            return f"${per_million:.4f}/M"
+        return f"${per_million:.2f}/M"
+    except (ValueError, TypeError):
+        return "N/A"
+
+
+def _fetch_openrouter_models(console: Console) -> list[dict]:
+    """Fetch model list from OpenRouter API. Returns list of model dicts."""
+    with console.status("  Fetching models from OpenRouter..."):
+        try:
+            resp = httpx.get(OPENROUTER_MODELS_URL, timeout=15)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+        except Exception as e:
+            console.print(f"  [yellow]⚠[/yellow] Failed to fetch models: {e}")
+            return []
+
+    models = []
+    for m in data:
+        model_id = m.get("id", "")
+        pricing = m.get("pricing", {}) or {}
+        models.append({
+            "id": model_id,
+            "name": m.get("name", model_id),
+            "prompt_price": _format_price(pricing.get("prompt")),
+            "completion_price": _format_price(pricing.get("completion")),
+            "context": m.get("context_length", 0),
+        })
+
+    models.sort(key=lambda m: m["id"])
+    return models
+
+
+def _print_model_page(
+    console: Console,
+    models: list[dict],
+    page: int,
+    total_pages: int,
+    offset: int = 0,
+    search_term: str = "",
+) -> None:
+    """Print a page of models as a Rich table."""
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    table.add_column("#", style="cyan", width=5)
+    table.add_column("Model ID", min_width=35)
+    table.add_column("Name", min_width=20)
+    table.add_column("Prompt", justify="right", width=12)
+    table.add_column("Completion", justify="right", width=12)
+    table.add_column("Context", justify="right", width=10)
+
+    start = page * PAGE_SIZE
+    end = min(start + PAGE_SIZE, len(models))
+    for i in range(start, end):
+        m = models[i]
+        num = str(offset + i + 1)
+        ctx = f"{m['context'] // 1000}k" if m["context"] else "—"
+        table.add_row(num, m["id"], m["name"], m["prompt_price"], m["completion_price"], ctx)
+
+    title = f"  Models (page {page + 1}/{total_pages})"
+    if search_term:
+        title += f"  —  filter: [yellow]{search_term}[/yellow]"
+    console.print(title)
+    console.print(table)
+    console.print(
+        "  [dim]Enter [cyan]number[/cyan] to select  |  "
+        "type to [cyan]search[/cyan]  |  "
+        "[cyan]n[/cyan]ext  [cyan]p[/cyan]rev  "
+        "[cyan]a[/cyan]ll (reset filter)  "
+        "[cyan]c[/cyan]ustom model ID[/dim]\n"
+    )
+
+
+def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
+    """Interactive model selector with search and pagination."""
+    if not all_models:
+        # Fallback if API unavailable
+        console.print("  [yellow]Could not load model list.[/yellow]")
+        return Prompt.ask("  Enter model ID (e.g. anthropic/claude-sonnet-4)", console=console).strip()
+
+    filtered = all_models
+    search_term = ""
+    page = 0
+
+    while True:
+        total_pages = max(1, (len(filtered) + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = min(page, total_pages - 1)
+        _print_model_page(console, filtered, page, total_pages, search_term=search_term)
+
+        choice = Prompt.ask("  >", default="", console=console).strip()
+
+        if not choice:
+            continue
+
+        # Navigation commands
+        if choice.lower() == "n":
+            if page < total_pages - 1:
+                page += 1
+            else:
+                console.print("  [dim]Already on last page.[/dim]")
+            continue
+        if choice.lower() == "p":
+            if page > 0:
+                page -= 1
+            else:
+                console.print("  [dim]Already on first page.[/dim]")
+            continue
+        if choice.lower() == "a":
+            filtered = all_models
+            search_term = ""
+            page = 0
+            continue
+        if choice.lower() == "c":
+            return Prompt.ask("  Enter model ID", console=console).strip()
+
+        # Number selection
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(filtered):
+                selected = filtered[idx]
+                console.print(f"  [green]✔[/green] Selected: [bold]{selected['id']}[/bold]")
+                return selected["id"]
+            console.print(f"  [red]Invalid number. Range: 1-{len(filtered)}[/red]")
+            continue
+
+        # Treat as search term
+        search_term = choice.lower()
+        filtered = [
+            m for m in all_models
+            if search_term in m["id"].lower() or search_term in m["name"].lower()
+        ]
+        page = 0
+        if not filtered:
+            console.print(f"  [yellow]No models matching '{choice}'. Showing all.[/yellow]")
+            filtered = all_models
+            search_term = ""
+
+
 def _step_llm(console: Console) -> tuple[str, str]:
     console.rule("[bold]Step 1[/bold]  LLM Configuration")
     console.print()
@@ -70,26 +213,15 @@ def _step_llm(console: Console) -> tuple[str, str]:
         console.print("  [red]API key is required.[/red]")
         api_key = Prompt.ask("  OpenRouter API Key", password=True, console=console)
 
-    console.print("\n  Available models:")
-    for i, (model_id, desc) in enumerate(MODEL_PRESETS, 1):
-        console.print(f"    [cyan]{i}[/cyan]) {desc}")
-    console.print(f"    [cyan]{len(MODEL_PRESETS) + 1}[/cyan]) Custom (enter model ID)")
     console.print()
-
-    choice = Prompt.ask(
-        "  Select model",
-        default="1",
-        console=console,
+    all_models = _fetch_openrouter_models(console)
+    if all_models:
+        console.print(f"  [green]✔[/green] Found {len(all_models)} models")
+    console.print(
+        "  [dim]This sets the default model. Each employee can be assigned a"
+        " different model in their profile.[/dim]\n"
     )
-
-    try:
-        idx = int(choice) - 1
-        if 0 <= idx < len(MODEL_PRESETS):
-            model = MODEL_PRESETS[idx][0]
-        else:
-            model = Prompt.ask("  Enter model ID", console=console)
-    except ValueError:
-        model = choice  # treat as raw model ID
+    model = _select_model_interactive(console, all_models)
 
     return api_key.strip(), model
 
@@ -318,3 +450,7 @@ def main() -> None:
         console = Console()
         console.print("\n\n  [yellow]Cancelled.[/yellow]")
         raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

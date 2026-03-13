@@ -14,6 +14,13 @@ Tired of auto-generated AI agents that confidently produce nonsense? Memento-One
 
 [中文文档](README_zh.md)
 
+<p align="center">
+  <a href="https://carbonkites.com/talent-market">
+    <img src="img/talent-market-icon.svg" alt="Talent Market" height="28" style="vertical-align: middle;" />
+    <b>Talent Market</b>
+  </a>
+</p>
+
 ---
 
 ## Why Memento-OneManCompany?
@@ -293,6 +300,28 @@ If you use Memento-OneManCompany in your research or project, please cite it:
   license = {Apache-2.0}
 }
 ```
+
+---
+
+## Links
+
+<p>
+  <a href="https://carbonkites.com/talent-market">
+    <img src="img/talent-market-icon.svg" alt="Talent Market" height="28" style="vertical-align: middle;" />
+    <b>Talent Market</b>
+  </a>
+  &nbsp;—&nbsp;Community-verified AI employee marketplace
+</p>
+
+<!-- Add more links here, same format:
+<p>
+  <a href="https://your-url.com">
+    <img src="img/your-icon.svg" alt="Name" height="28" style="vertical-align: middle;" />
+    <b>Project Name</b>
+  </a>
+  &nbsp;—&nbsp;Short description
+</p>
+-->
 
 ---
 
