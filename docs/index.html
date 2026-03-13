@@ -573,7 +573,7 @@ const BGM = (() => {
 
 // ── Music toggle button ──────────────────────────────────────
 const musicBtn = document.createElement('button');
-musicBtn.innerHTML = '♪ OFF';
+musicBtn.innerHTML = '♪ ON';
 musicBtn.setAttribute('aria-label', 'Toggle background music');
 Object.assign(musicBtn.style, {
   position: 'fixed', bottom: '20px', right: '20px', zIndex: '999',
@@ -617,19 +617,21 @@ navEl.parentNode.insertBefore(musicNotice, navEl.nextSibling);
 setTimeout(() => { musicNotice.style.opacity = '0'; }, 6000);
 setTimeout(() => { musicNotice.remove(); }, 6600);
 
-// Auto-start music + boot sound on first interaction (browser requires user gesture)
+// Auto-start music on earliest possible user interaction (browser requires gesture)
 let booted = false;
-document.addEventListener('click', () => {
-  if (!booted) {
-    booted = true;
-    SFX.boot();
-    if (!BGM.isPlaying()) {
-      BGM.start();
-      musicBtn.innerHTML = '♪ ON';
-      musicBtn.style.color = 'var(--green)';
-    }
+function bootAudio() {
+  if (booted) return;
+  booted = true;
+  SFX.boot();
+  if (!BGM.isPlaying()) {
+    BGM.start();
+    musicBtn.innerHTML = '♪ ON';
+    musicBtn.style.color = 'var(--green)';
   }
-}, { once: true });
+}
+['click', 'touchstart', 'keydown', 'mousemove', 'scroll'].forEach(evt => {
+  document.addEventListener(evt, bootAudio, { once: true });
+});
 </script>
 
 </body>
