@@ -629,9 +629,9 @@ const SFX = (() => {
 
   return {
     // Short blip for hover
-    hover() { play(880, 'square', 0.06, 0.04); },
+    hover() { play(880, 'square', 0.06, 0.1); },
     // Menu select beep
-    click() { play(660, 'square', 0.08, 0.06); play(990, 'square', 0.08, 0.06); },
+    click() { play(660, 'square', 0.08, 0.12); play(990, 'square', 0.08, 0.12); },
     // Coin / confirm
     confirm() {
       const c = getCtx();
@@ -640,7 +640,7 @@ const SFX = (() => {
       osc.type = 'square';
       osc.frequency.setValueAtTime(988, c.currentTime);
       osc.frequency.setValueAtTime(1319, c.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.07, c.currentTime);
+      gain.gain.setValueAtTime(0.15, c.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.2);
       osc.connect(gain); gain.connect(c.destination);
       osc.start(c.currentTime); osc.stop(c.currentTime + 0.2);
