@@ -130,6 +130,9 @@ def _load_candidates_from_disk() -> None:
 # candidate_id -> full candidate dict (stashed from last search)
 _last_search_results: dict[str, dict] = {}
 
+# session_id from the most recent Talent Market search (used by hire_talents)
+_last_session_id: str = ""
+
 
 def _talent_to_candidate(talent: dict) -> dict:
     """Convert a talent profile.yaml dict into a CandidateProfile-compatible dict."""
@@ -329,6 +332,8 @@ async def search_candidates(job_description: str) -> dict:
     Returns:
         A role-grouped dict: {type, summary, roles: [{role, description, candidates}]}.
     """
+    global _last_session_id
+
     if talent_market.connected:
         try:
             grouped = await talent_market.search(job_description)
@@ -340,6 +345,8 @@ async def search_candidates(job_description: str) -> dict:
             grouped = _local_fallback_search(job_description)
     else:
         grouped = _local_fallback_search(job_description)
+
+    _last_session_id = grouped.get("session_id", "")
 
     # Stash ALL candidates from ALL roles so shortlist can look up by ID
     _last_search_results.clear()
@@ -426,6 +433,7 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
 
     batch_id = str(_uuid.uuid4())[:8]
     pending_candidates[batch_id] = all_candidates
+    _pending_project_ctx[batch_id] = {"session_id": _last_session_id}
     _persist_candidates()
 
     await event_bus.publish(CompanyEvent(

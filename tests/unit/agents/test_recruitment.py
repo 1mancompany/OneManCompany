@@ -412,6 +412,74 @@ class TestSearchCandidates:
 # pending_candidates
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# session_id tracking
+# ---------------------------------------------------------------------------
+
+class TestSessionIdTracking:
+    @pytest.mark.asyncio
+    async def test_session_id_stashed_from_search(self, monkeypatch):
+        """search_candidates stashes session_id from API response."""
+        from onemancompany.agents import recruitment
+
+        fake_result = {
+            "type": "individual",
+            "summary": "Test",
+            "session_id": "ses_abc123",
+            "roles": [{"role": "Dev", "description": "test", "candidates": [{"id": "c1"}]}],
+        }
+        monkeypatch.setattr(recruitment.talent_market, "_session", MagicMock())
+        recruitment.talent_market.search = AsyncMock(return_value=fake_result)
+
+        await recruitment.search_candidates.ainvoke({"job_description": "test"})
+        assert recruitment._last_session_id == "ses_abc123"
+
+    @pytest.mark.asyncio
+    async def test_session_id_cleared_on_local_fallback(self, monkeypatch):
+        """Local fallback clears session_id."""
+        from onemancompany.agents import recruitment
+        from onemancompany.core import config as config_mod
+
+        recruitment._last_session_id = "old_session"
+        monkeypatch.setattr(recruitment.talent_market, "_session", None)
+        monkeypatch.setattr(config_mod, "list_available_talents", lambda: [])
+
+        await recruitment.search_candidates.ainvoke({"job_description": "test"})
+        assert recruitment._last_session_id == ""
+
+    @pytest.mark.asyncio
+    async def test_session_id_stored_in_project_ctx(self, monkeypatch):
+        """submit_shortlist stores session_id in _pending_project_ctx."""
+        from onemancompany.agents import recruitment
+
+        recruitment._last_session_id = "ses_test123"
+        recruitment._last_search_results["c1"] = {"id": "c1", "name": "Test"}
+
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        monkeypatch.setattr("onemancompany.agents.recruitment.event_bus", mock_bus, raising=False)
+        with patch("onemancompany.core.events.event_bus", mock_bus):
+            await recruitment.submit_shortlist.ainvoke({
+                "jd": "test jd",
+                "candidate_ids": ["c1"],
+            })
+
+        # Find the batch_id that was created
+        batch_ids = list(recruitment.pending_candidates.keys())
+        assert len(batch_ids) >= 1
+        bid = batch_ids[-1]
+        assert recruitment._pending_project_ctx[bid]["session_id"] == "ses_test123"
+
+        # Cleanup
+        recruitment.pending_candidates.pop(bid, None)
+        recruitment._pending_project_ctx.pop(bid, None)
+        recruitment._last_search_results.clear()
+
+
+# ---------------------------------------------------------------------------
+# pending_candidates
+# ---------------------------------------------------------------------------
+
 class TestPendingCandidates:
     def test_store_and_retrieve(self):
         from onemancompany.agents.recruitment import pending_candidates
