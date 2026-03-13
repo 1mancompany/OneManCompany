@@ -1,0 +1,27 @@
+id: image_generation
+name: Image Generation
+description: >
+  Generate an image from a text requirement and save it to a local file path.
+  Uses OpenRouter with model google/gemini-3-pro-image-preview.
+added_by: CEO
+type: langchain_module
+sprite: desk_equipment
+allowed_users:
+  - "00009"
+env_vars:
+  - name: OPENROUTER_API_KEY
+    label: OpenRouter API Key
+    secret: true
+    placeholder: sk-or-v1-...
+  - name: OPENROUTER_BASE_URL
+    label: OpenRouter Base URL
+    secret: false
+    placeholder: https://openrouter.ai/api/v1
+  - name: OPENROUTER_APP_NAME
+    label: OpenRouter App Name
+    secret: false
+    placeholder: OneManCompany
+  - name: OPENROUTER_HTTP_REFERER
+    label: OpenRouter HTTP Referer
+    secret: false
+    placeholder: http://localhost:8000
