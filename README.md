@@ -148,6 +148,16 @@ Same Talent, different Vessels → different execution environments.
 | 🏢 **Smarter Organization** | Make the company run more efficiently | CEO experience, advanced task scheduling, multi-agent collaboration |
 | 🌐 **AI-Native Ecosystem** | Build a thriving open ecosystem | Talent Market expansion, third-party tools/APIs, community contributions |
 
+### Development Plan
+
+| Status | Item | Description |
+|--------|------|-------------|
+| 🚧 In Progress | **CSO (Chief Strategy Officer)** | Strategic planning agent — market research, competitive analysis, strategy recommendations |
+| 📋 Planned | **More visualization themes** | Not just pixel art — sci-fi / futuristic themes coming. Got a style in mind? [Tell us](https://github.com/CarbonKite/OneManCompany/issues) |
+| 📋 Planned | **More demos** | Production-grade showcases: AI game studio, AI manga production house, and more |
+
+This is a living plan — we update it regularly based on community feedback. [Request a feature](https://github.com/CarbonKite/OneManCompany/issues) or [contribute directly](https://github.com/CarbonKite/OneManCompany/pulls).
+
 ---
 
 ## Quick Start

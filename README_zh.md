@@ -148,6 +148,16 @@ CEO（你，唯一能喝咖啡的人）
 | 🏢 **更高效的组织** | 让公司运转更流畅 | CEO 体验优化、高级任务调度、多 Agent 协作 |
 | 🌐 **AI 原生生态** | 构建繁荣的开放生态 | 人才市场扩展、第三方工具/API、社区贡献 |
 
+### 开发计划
+
+| 状态 | 项目 | 说明 |
+|------|------|------|
+| 🚧 开发中 | **CSO（首席战略官）** | 战略规划 Agent——市场调研、竞品分析、战略建议 |
+| 📋 计划中 | **更多可视化主题** | 不只是像素风——未来科技风主题即将上线。想要什么风格？[告诉我们](https://github.com/CarbonKite/OneManCompany/issues) |
+| 📋 计划中 | **更多 Demo** | 产品级展示：AI 游戏工作室、AI 漫剧制作公司，以及更多 |
+
+这是一份动态计划——我们会根据社区反馈不定期更新。[提需求](https://github.com/CarbonKite/OneManCompany/issues) 或 [直接贡献代码](https://github.com/CarbonKite/OneManCompany/pulls)，都欢迎。
+
 ---
 
 ## 快速开始
