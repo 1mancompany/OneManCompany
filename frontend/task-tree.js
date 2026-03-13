@@ -167,7 +167,7 @@ class TaskTreeRenderer {
             .attr('rx', 8)
             .attr('class', d => {
                 const active = d.data.branch_active !== false;
-                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup';
+                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup' || d.data.node_type === 'ceo_request';
                 return `tree-node-card${active ? '' : ' tree-node-inactive'}${isCeo ? ' tree-node-ceo' : ''}`;
             });
 
@@ -179,7 +179,7 @@ class TaskTreeRenderer {
             .attr('height', this.nodeHeight)
             .attr('rx', 2)
             .attr('fill', d => {
-                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup';
+                const isCeo = d.data.node_type === 'ceo_prompt' || d.data.node_type === 'ceo_followup' || d.data.node_type === 'ceo_request';
                 return isCeo ? '#ffd700' : (TaskTreeRenderer.STATUS_COLORS[d.data.status] || '#666');
             });
 
@@ -375,10 +375,11 @@ class TaskTreeRenderer {
             : '';
 
         const info = node.employee_info || {};
-        const isCeo = node.node_type === 'ceo_prompt' || node.node_type === 'ceo_followup';
+        const isCeo = node.node_type === 'ceo_prompt' || node.node_type === 'ceo_followup' || node.node_type === 'ceo_request';
         const displayName = isCeo ? 'CEO' : (info.nickname || info.name || node.employee_id);
         const nodeTypeLabel = node.node_type === 'ceo_prompt' ? 'Original Prompt'
-            : node.node_type === 'ceo_followup' ? 'Follow-up' : '';
+            : node.node_type === 'ceo_followup' ? 'Follow-up'
+            : node.node_type === 'ceo_request' ? 'CEO Request' : '';
         const avatarHtml = info.avatar_url
             ? `<img src="${this._escapeHtml(info.avatar_url)}" class="tree-detail-avatar" />`
             : `<div class="tree-detail-avatar${isCeo ? ' tree-detail-avatar-ceo' : ''}">${isCeo ? 'CEO' : this._escapeHtml((node.employee_id || '').slice(-2))}</div>`;
