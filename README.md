@@ -110,13 +110,7 @@ You're not just using AI — you're leading a continuously growing, dynamically 
 
 ## Features
 
-| | |
-| --- | --- |
-| 🌳 **Task Tree** — Hierarchical breakdown with dependency tracking | 🔍 **CEO Review** — You approve at every level, nothing ships without you |
-| 🤝 **Multi-Agent Meetings** — Employees align autonomously when needed | 📊 **Performance Reviews** — Evaluate, PIP, promote, or fire underperformers |
-| 🧠 **1-on-1 Coaching** — Give guidance that permanently shapes behavior | 🏪 **Talent Market** — Hire community-verified AI employees in one click |
-| ⚡ **3 Execution Modes** — Company Hosted, Claude Code, or OpenClaw | 🔧 **Modular Skills** — Each employee's abilities are reusable building blocks |
-| 💰 **Cost Tracking** — Per-task token usage and budget visibility | 🔄 **Self-Evolution** — The more you use it, the smarter your team gets |
+🌳 **Task Tree** — Hierarchical breakdown with dependency tracking · 🔍 **CEO Review** — Nothing ships without your approval · 🤝 **Multi-Agent Meetings** — Employees align autonomously when needed · 📊 **Performance Reviews** — Evaluate, PIP, promote, or fire · 🧠 **1-on-1 Coaching** — Guidance that permanently shapes behavior · 🏪 **Talent Market** — Hire community-verified AI employees in one click · ⚡ **3 Execution Modes** — Company Hosted, Claude Code, or OpenClaw · 🔧 **Modular Skills** — Reusable building blocks per employee · 💰 **Cost Tracking** — Per-task token usage and budget visibility · 🔄 **Self-Evolution** — The more you use it, the smarter your team gets
 
 ---
 
