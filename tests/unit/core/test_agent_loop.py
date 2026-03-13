@@ -1364,12 +1364,16 @@ class TestEmployeeManagerWorkflowContext:
 
 class TestEmployeeManagerFullCleanup:
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_full_cleanup_runs_routine(self, mock_bus, mock_state):
+    async def test_full_cleanup_runs_routine(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
@@ -1384,12 +1388,16 @@ class TestEmployeeManagerFullCleanup:
                                 mock_routine.assert_called_once()
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_full_cleanup_routine_error(self, mock_bus, mock_state):
+    async def test_full_cleanup_routine_error(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
@@ -1406,14 +1414,18 @@ class TestEmployeeManagerFullCleanup:
                                     assert mock_bus.publish.call_count >= 1
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_full_cleanup_with_flush_result(self, mock_bus, mock_state):
+    async def test_full_cleanup_with_flush_result(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         emp = MagicMock()
         emp.level = 1
         mock_state.employees = {"emp01": emp}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
@@ -1429,12 +1441,16 @@ class TestEmployeeManagerFullCleanup:
                                 await mgr._full_cleanup("emp01", node, False, "proj1")
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_full_cleanup_agent_error_label(self, mock_bus, mock_state):
+    async def test_full_cleanup_agent_error_label(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="proj1", employee_id="emp01")
@@ -1450,12 +1466,16 @@ class TestEmployeeManagerFullCleanup:
                                 assert "with errors" in call_args[0][1]
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_full_cleanup_auto_project_skips_complete(self, mock_bus, mock_state):
+    async def test_full_cleanup_auto_project_skips_complete(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="_auto_12345", employee_id="emp01")
@@ -1770,12 +1790,16 @@ class TestFullCleanupRoutineResolution:
     """Line 1191: event_bus.publish for routine resolution_ready in _full_cleanup."""
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._store")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_routine_resolution_published(self, mock_bus, mock_state):
+    async def test_routine_resolution_published(self, mock_bus, mock_state, mock_store):
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
+        mock_store.load_all_employees.return_value = {}
+        mock_store.save_employee_runtime = AsyncMock()
+        mock_store.save_project_status = AsyncMock()
 
         mgr = EmployeeManager()
         node = TaskNode(id="t1", description="test", project_id="proj1")
