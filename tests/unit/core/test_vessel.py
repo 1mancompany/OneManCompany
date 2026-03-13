@@ -435,44 +435,8 @@ class TestCeoConfirmation:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_ceo_approve_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
-        """CEO approve should call _full_cleanup with run_retrospective=True for project tasks."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        tree, tree_path = self._make_tree_with_root(tmp_path)
-        root_node = tree.get_node(tree.root_id)
-        root_node.task_type = "project"
-        tree.save(tree_path)
-
-        entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))
-
-        em = EmployeeManager()
-        em.register("00100", MagicMock(spec=Launcher))
-
-        import onemancompany.agents.common_tools as ct
-
-        async def _auto_approve():
-            await asyncio.sleep(0.01)
-            ct.resolve_ceo_pending("00100", "proj_ceo", {"action": "approve", "message": ""})
-
-        with (
-            patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-        ):
-            approve_task = asyncio.create_task(_auto_approve())
-            await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
-            await approve_task
-
-        # Should call _full_cleanup with run_retrospective=True
-        mock_cleanup.assert_called_once()
-        call_kwargs = mock_cleanup.call_args
-        assert call_kwargs.kwargs.get("run_retrospective") is True
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_ceo_timeout_auto_approves(self, mock_bus, mock_state, tmp_path):
-        """If CEO doesn't respond in time, auto-approve and run cleanup."""
+    async def test_ceo_confirmation_auto_approves(self, mock_bus, mock_state, tmp_path):
+        """_request_ceo_confirmation should auto-approve and call _full_cleanup with retrospective."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
 
@@ -488,12 +452,10 @@ class TestCeoConfirmation:
 
         with (
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-            # Mock asyncio.wait_for to immediately raise TimeoutError
-            patch("onemancompany.core.vessel.asyncio.wait_for", side_effect=TimeoutError),
         ):
             await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
 
-        # Should auto-approve and call _full_cleanup with retrospective
+        # Should call _full_cleanup with run_retrospective=True (auto-approve, no blocking)
         mock_cleanup.assert_called_once()
         call_kwargs = mock_cleanup.call_args
         assert call_kwargs.kwargs.get("run_retrospective") is True

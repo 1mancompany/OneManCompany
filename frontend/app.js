@@ -319,15 +319,7 @@ class AppController {
       },
       'ceo_report': (p) => {
         const icon = p.action_required ? '🚨' : '📊';
-        if (p.action_required) {
-          this._showCeoReportDialog(p);
-        }
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
-      },
-      'ask_ceo': (p) => {
-        // Legacy — redirects to unified ceo_report dialog
-        this._showCeoReportDialog({...p, subject: p.question, report: p.context || p.question, action_required: true});
-        return { text: `❓ ${p.employee_name || p.employee_id} 请求CEO反馈: ${p.question}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'code_update_available': (p) => {
         this._showCodeUpdateBanner(p.count, p.changed_files);
@@ -1781,33 +1773,6 @@ class AppController {
 
   // ===== Code Update Banner =====
 
-  async _ceoRespond(payload, message, reviewAction) {
-    const body = {
-      employee_id: payload.employee_id || '',
-      project_id: payload.project_id || '',
-      subject: payload.subject || '',
-      message: message || '',
-      action: (message && reviewAction !== 'reject') ? 'revise' : (reviewAction === 'approve' ? 'approve' : 'reject'),
-    };
-
-    try {
-      const res = await fetch('/api/ceo/respond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.error) {
-        this.logEntry('SYSTEM', `CEO respond failed: ${data.error}`, 'system');
-        return;
-      }
-      const action = message ? 'CEO指示已发送' : 'CEO已批准';
-      this.logEntry('CEO', `${action}: ${this._escapeHtml(payload.subject || '')}`, 'ceo');
-    } catch (e) {
-      this.logEntry('SYSTEM', `Failed to send response: ${e.message}`, 'system');
-    }
-  }
-
   async _loadWorkspaceFiles(containerId, listUrl, title, fileBaseUrl, downloadUrl, isProject = false) {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -1854,54 +1819,6 @@ class AppController {
     if (bytes < 1024) return bytes + 'B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
     return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
-  }
-
-  _showCeoReportDialog(data) {
-    const empName = data.employee_name || data.employee_id;
-    const overlay = document.createElement('div');
-    overlay.className = 'ask-ceo-overlay';
-    overlay.innerHTML = `
-      <div class="ask-ceo-dialog">
-        <div class="ask-ceo-header">🚨 ${empName} 请求CEO审批: ${this._escHtml(data.subject)}</div>
-        <div class="ask-ceo-context">${this._renderMarkdown(data.report)}</div>
-        <textarea class="ask-ceo-input" placeholder="批示/修改意见..." rows="3"></textarea>
-        <div class="ask-ceo-actions">
-          <button class="pixel-btn ask-ceo-approve">✓ 批准</button>
-          <button class="pixel-btn ask-ceo-revise">✗ 修改</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const input = overlay.querySelector('.ask-ceo-input');
-    const approveBtn = overlay.querySelector('.ask-ceo-approve');
-    const reviseBtn = overlay.querySelector('.ask-ceo-revise');
-    input.focus();
-
-    const respond = (action) => {
-      const message = input.value.trim();
-      approveBtn.disabled = true;
-      reviseBtn.disabled = true;
-      fetch('/api/ceo/respond', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          employee_id: data.employee_id,
-          project_id: data.project_id || '',
-          action: action,
-          message: message || (action === 'approve' ? 'Approved' : 'Please revise'),
-        }),
-      })
-      .then(() => overlay.remove())
-      .catch(err => {
-        approveBtn.disabled = false;
-        reviseBtn.disabled = false;
-        console.error('ceo_report respond failed:', err);
-      });
-    };
-
-    approveBtn.addEventListener('click', () => respond('approve'));
-    reviseBtn.addEventListener('click', () => respond('revise'));
   }
 
   _showCodeUpdateBanner(count, files) {
@@ -3365,13 +3282,16 @@ class AppController {
           this.logEntry('CEO', `Resolution decided: ${approved} approved, ${rejected} rejected, ${deferred} deferred`, 'ceo');
           this._refreshDeferredPanel();
         }
-        // If CEO wrote feedback, send it to the employee
+        // If CEO wrote feedback, push it as a task to the employee via CEO task endpoint
         if (ceoFeedback && resolution.employee_id) {
-          this._ceoRespond({
-            employee_id: resolution.employee_id,
-            project_id: resolution.project_id || '',
-            subject: resolution.task || 'Resolution Review Feedback',
-          }, ceoFeedback, 'revise');
+          fetch('/api/ceo/task', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              task: `CEO Review 反馈:\n${ceoFeedback}`,
+              project_id: resolution.project_id || '',
+            }),
+          }).catch(err => console.error('Failed to send resolution feedback:', err));
         }
         this._closeResolutionModal();
       })

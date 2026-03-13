@@ -148,7 +148,6 @@ class TestEAPromptContents:
         assert "dispatch_child" in EA_SYSTEM_PROMPT
         assert "accept_child" in EA_SYSTEM_PROMPT
         assert "reject_child" in EA_SYSTEM_PROMPT
-        assert "report_to_ceo" in EA_SYSTEM_PROMPT
         # Old tools should NOT be present
         assert "dispatch_task" not in EA_SYSTEM_PROMPT
         assert "set_acceptance_criteria" not in EA_SYSTEM_PROMPT

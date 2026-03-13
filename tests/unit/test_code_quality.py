@@ -72,8 +72,6 @@ ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     # OAuth token refresh/revocation — best-effort, failure is non-fatal
     ("oauth", "Exception", 310, 330),
     ("oauth", "Exception", 405, 425),
-    # ContextVar lookups in ask_ceo — not set when called outside agent loop (Tuple except)
-    ("common_tools", None, 805, 825),
     # Path.relative_to raises ValueError when path is not relative — intentional flow control
     ("project_archive", "ValueError", 55, 65),
 ]
