@@ -78,10 +78,10 @@ cd OneManCompany && bash start.sh
 
 ```bash
 # Re-run setup wizard
-bash start.sh init
+npx @carbonkite/onemancompany init
 
 # Custom port
-bash start.sh --port 8080
+npx @carbonkite/onemancompany --port 8080
 ```
 
 ## Configuration Files

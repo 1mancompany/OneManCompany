@@ -167,9 +167,10 @@ Founding employees (EA, HR, COO, CSO) support two execution modes, switchable in
 | Mode | Description | Requirements |
 | --- | --- | --- |
 | **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup wizard) |
-| **Claude Code** | More capable, lower token cost | Requires [Claude Pro/Max subscription](https://claude.ai) |
+| **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
+| **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
 
-Defaults to Company Hosted Agent — no extra subscription needed to get started.
+Defaults to Company Hosted Agent — no extra subscription needed to get started. Install the corresponding CLI before using Claude Code or OpenClaw, see [Execution Modes docs](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) for details.
 
 <details>
 <summary><b>macOS</b></summary>
@@ -251,13 +252,13 @@ open http://localhost:8000    # macOS
 
 ```bash
 # Restart server
-bash start.sh
+npx @carbonkite/onemancompany
 
 # Custom port
-bash start.sh --port 8080
+npx @carbonkite/onemancompany --port 8080
 
 # Re-run setup wizard (change API keys, etc.)
-bash start.sh init
+npx @carbonkite/onemancompany init
 ```
 
 If you launched via npx and the service is already running, running `npx @carbonkite/onemancompany` again will ask whether to stop the current service and re-setup. Choose y to stop → re-run setup wizard → restart.
