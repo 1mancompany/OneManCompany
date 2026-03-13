@@ -253,6 +253,8 @@ bash start.sh init
 - [ ] More efficient AI collaboration (multi-agent handoff, parallel execution, conflict resolution)
 - [ ] More efficient company-hosted agent Vessel logic (smarter retry, context carryover, cost-aware scheduling)
 
+Contributions welcome — we encourage vibe-coding. AI contributors please follow the [vibe-coding-guide](vibe-coding-guide.md).
+
 This is a living plan — [request a feature](https://github.com/CarbonKite/OneManCompany/issues) or [contribute directly](https://github.com/CarbonKite/OneManCompany/pulls).
 
 ---

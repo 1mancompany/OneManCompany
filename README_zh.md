@@ -273,6 +273,8 @@ bash start.sh init
 - [ ] 更高效的 AI 协作（多 Agent 交接、并行执行、冲突处理）
 - [ ] 更高效的 Company-hosted Agent Vessel 逻辑（智能重试、上下文延续、成本感知调度）
 
+欢迎贡献代码，我们鼓励 vibe-coding。AI 贡献代码请遵照 [vibe-coding-guide](vibe-coding-guide.md)。
+
 这是一份动态计划——[提需求](https://github.com/CarbonKite/OneManCompany/issues) 或 [直接贡献代码](https://github.com/CarbonKite/OneManCompany/pulls)，都欢迎。
 
 ---
