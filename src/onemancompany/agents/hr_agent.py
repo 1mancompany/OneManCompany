@@ -160,6 +160,7 @@ class HRAgent(BaseAgentRunner):
                 if task_obj and task_obj.project_id:
                     for bid in new_batches:
                         _pending_project_ctx[bid] = {
+                            **_pending_project_ctx.get(bid, {}),  # preserve session_id
                             "project_id": task_obj.project_id,
                             "project_dir": task_obj.project_dir,
                         }
