@@ -345,9 +345,7 @@ layout: null
 <nav>
   <div class="container">
     <div class="logo">OneManCompany</div>
-    <div class="links">
-      <a href="https://carbonkites.com">Talent Market</a>
-    </div>
+    <div class="links"></div>
   </div>
 </nav>
 
@@ -369,14 +367,22 @@ layout: null
     </p>
     <div style="margin-top: 48px; text-align: center;">
       <div style="font-family: var(--pixel); font-size: clamp(14px, 2.5vw, 22px); color: var(--yellow); letter-spacing: 2px; margin-bottom: 16px; text-shadow: 2px 2px 0 rgba(255,230,0,.15);">
-        COMING SOON
+        "Agents, Assemble." — Coming Soon
       </div>
       <p style="color: var(--text-dim); font-size: 0.95rem; max-width: 480px; margin: 0 auto;">
-        We're assembling the founding team. Star us on GitHub to get notified.
+        The founding team is suiting up. Drop your email — we'll send a signal when HQ goes live.
       </p>
-      <div style="margin-top: 28px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
-        <a href="https://carbonkites.com" class="btn btn-primary">Talent Market</a>
-      </div>
+      <form id="notify-form" style="margin-top: 28px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; max-width: 440px; margin-left: auto; margin-right: auto;">
+        <input type="email" id="notify-email" placeholder="you@example.com" required
+          style="flex: 1; min-width: 200px; padding: 10px 14px; font-family: var(--body); font-size: 14px;
+          background: var(--bg); color: var(--text); border: 2px solid var(--border);
+          outline: none; transition: border-color .2s;"
+          onfocus="this.style.borderColor='var(--cyan)'" onblur="this.style.borderColor='var(--border)'" />
+        <button type="submit" class="btn btn-primary" style="white-space: nowrap;">Notify Me</button>
+      </form>
+      <p id="notify-msg" style="margin-top: 12px; font-family: var(--pixel); font-size: 8px; color: var(--green); display: none;">
+        ✓ You're on the list. We'll let you know when we launch.
+      </p>
     </div>
   </div>
 </section>
@@ -631,6 +637,34 @@ function bootAudio() {
 }
 ['click', 'touchstart', 'keydown', 'mousemove', 'scroll'].forEach(evt => {
   document.addEventListener(evt, bootAudio, { once: true });
+});
+
+// ── Email notification signup (Formspree) ────────────────────
+document.getElementById('notify-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('notify-email').value;
+  const msg = document.getElementById('notify-msg');
+  const form = e.target;
+  try {
+    const res = await fetch('https://formspree.io/f/xpqyldla', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (res.ok) {
+      form.style.display = 'none';
+      msg.style.display = 'block';
+      SFX.confirm();
+    } else {
+      msg.textContent = 'Something went wrong. Please try again.';
+      msg.style.color = 'var(--magenta)';
+      msg.style.display = 'block';
+    }
+  } catch {
+    msg.textContent = 'Network error. Please try again.';
+    msg.style.color = 'var(--magenta)';
+    msg.style.display = 'block';
+  }
 });
 </script>
 
