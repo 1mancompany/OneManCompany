@@ -280,6 +280,16 @@ bash start.sh --port 8080
 bash start.sh init
 ```
 
+如果通过 npx 启动且服务正在运行，再次执行 `npx @carbonkite/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置向导 → 重新启动。
+
+### 卸载
+
+```bash
+npx @carbonkite/onemancompany uninstall
+```
+
+这会停止正在运行的服务，并删除整个安装目录（包括 `.onemancompany/` 配置和所有公司数据）。需要确认后才会执行。
+
 ### 配置文件
 
 | 文件                         | 用途                                   |

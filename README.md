@@ -260,6 +260,16 @@ bash start.sh --port 8080
 bash start.sh init
 ```
 
+If you launched via npx and the service is already running, running `npx @carbonkite/onemancompany` again will ask whether to stop the current service and re-setup. Choose y to stop → re-run setup wizard → restart.
+
+### Uninstall
+
+```bash
+npx @carbonkite/onemancompany uninstall
+```
+
+This stops the running service and deletes the entire installation directory (including `.onemancompany/` config and all company data). Requires confirmation before proceeding.
+
 ### Configuration Files
 
 | File                         | Purpose                                |
