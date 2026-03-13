@@ -147,26 +147,31 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
 
 
 def _cancel_cron_tasks(employee_id: str, task_ids: list[str]) -> list[str]:
-    """Cancel pending/processing tasks spawned by a cron. Returns cancelled task IDs."""
-    from onemancompany.core.task_lifecycle import TaskPhase, transition
-    from onemancompany.core.vessel import employee_manager, persist_task, archive_task
+    """Cancel scheduled task nodes spawned by a cron. Returns cancelled node IDs."""
+    from pathlib import Path
+    from onemancompany.core.task_lifecycle import TaskPhase
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.vessel import employee_manager
 
     cancelled = []
-    board = employee_manager.boards.get(employee_id)
-    if not board:
-        return cancelled
-
     for task_id in task_ids:
-        t = board.get_task(task_id)
-        if t and t.status in (TaskPhase.PENDING, TaskPhase.PROCESSING):
-            transition(t.id, TaskPhase(t.status), TaskPhase.CANCELLED)
-            t.status = TaskPhase.CANCELLED
-            t.completed_at = datetime.now(timezone.utc).isoformat()
-            t.result = "Cancelled: cron stopped"
-            persist_task(employee_id, t)
-            archive_task(employee_id, t)
-            employee_manager._publish_task_update(employee_id, t)
-            cancelled.append(task_id)
+        # Search the employee's schedule for this node
+        for entry in employee_manager._schedule.get(employee_id, []):
+            if entry.node_id != task_id:
+                continue
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            tree = TaskTree.load(tp)
+            node = tree.get_node(task_id)
+            if node and node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
+                node.status = TaskPhase.CANCELLED.value
+                node.completed_at = datetime.now(timezone.utc).isoformat()
+                node.result = "Cancelled: cron stopped"
+                tree.save(tp)
+                employee_manager.unschedule(employee_id, task_id)
+                cancelled.append(task_id)
+            break
 
     # Cancel the running asyncio.Task if it was executing one of these tasks
     if cancelled and employee_id in employee_manager._running_tasks:

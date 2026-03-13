@@ -9,8 +9,6 @@ from onemancompany.core.vessel import (  # noqa: F401 — explicit re-exports fo
     _current_vessel,
     _current_task_id,
     ScheduleEntry,
-    AgentTask,
-    AgentTaskBoard,
     LaunchResult,
     TaskContext,
     Launcher,

@@ -83,7 +83,7 @@ class TestResolveDependenciesLogic:
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "accepted"
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
-        assert tree.all_deps_terminal(b.id)
+        assert tree.all_deps_resolved(b.id)
         assert not tree.has_failed_deps(b.id)
 
     def test_dep_failed_blocks_dependent(self):
@@ -100,7 +100,7 @@ class TestResolveDependenciesLogic:
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "failed"
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
-        assert tree.all_deps_terminal(b.id)
+        assert tree.all_deps_resolved(b.id)
 
     def test_partial_deps_still_waiting(self):
         tree = TaskTree(project_id="test")
@@ -109,4 +109,4 @@ class TestResolveDependenciesLogic:
         a.status = "accepted"
         c = tree.add_child(root.id, "e3", "task C", [])
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id, c.id])
-        assert not tree.all_deps_terminal(b.id)
+        assert not tree.all_deps_resolved(b.id)

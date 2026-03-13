@@ -7,7 +7,7 @@ import pytest
 from onemancompany.core.event_models import (
     AgentDonePayload,
     AgentLogPayload,
-    AgentTaskUpdatePayload,
+    TaskUpdatePayload,
     AgentThinkingPayload,
     CandidatesReadyPayload,
     CompanyCultureUpdatedPayload,
@@ -134,16 +134,16 @@ class TestAgentLogPayload:
 
 
 # ---------------------------------------------------------------------------
-# AgentTaskUpdatePayload
+# TaskUpdatePayload
 # ---------------------------------------------------------------------------
 
-class TestAgentTaskUpdatePayload:
+class TestTaskUpdatePayload:
     def test_defaults(self):
-        p = AgentTaskUpdatePayload()
+        p = TaskUpdatePayload()
         assert p.status == ""
 
     def test_custom(self):
-        p = AgentTaskUpdatePayload(employee_id="e1", task_id="t1", status="completed", summary="done")
+        p = TaskUpdatePayload(employee_id="e1", task_id="t1", status="completed", summary="done")
         assert p.status == "completed"
         assert p.summary == "done"
 

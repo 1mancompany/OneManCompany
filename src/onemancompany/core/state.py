@@ -8,6 +8,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
     STATUS_IDLE,
 )
+from loguru import logger
 from onemancompany.core.models import OverheadCosts
 
 
@@ -56,28 +57,43 @@ class TaskEntry:
 
 
 def get_active_tasks() -> list[TaskEntry]:
-    """Build active task list from persisted per-employee task YAML files.
+    """Build active task list from EmployeeManager._schedule + TaskTree nodes.
 
-    This replaces the old in-memory ``CompanyState.active_tasks`` list.
-    Tasks are read from ``employees/{id}/tasks/*.yaml`` on disk.
+    Reads scheduled nodes from the singleton EmployeeManager and loads
+    their tree files to build TaskEntry objects.
     """
-    from onemancompany.core.task_persistence import load_all_active_tasks
+    from pathlib import Path
+    from onemancompany.core.task_tree import TaskTree
 
     result: list[TaskEntry] = []
-    all_tasks = load_all_active_tasks(crash_recovery=False)
-    for employee_id, tasks in all_tasks.items():
-        for t in tasks:
-            result.append(TaskEntry(
-                project_id=t.project_id,
-                task=t.description,
-                task_type=t.task_type,
-                project_dir=t.project_dir,
-                current_owner=employee_id,
-                status=t.status.value if hasattr(t.status, "value") else str(t.status),
-                result=t.result or "",
-                created_at=t.created_at or "",
-                completed_at=t.completed_at or "",
-            ))
+    try:
+        from onemancompany.core.vessel import employee_manager
+    except Exception:
+        return result
+
+    for employee_id, entries in employee_manager._schedule.items():
+        for entry in entries:
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            try:
+                tree = TaskTree.load(tp)
+                node = tree.get_node(entry.node_id)
+                if not node:
+                    continue
+                result.append(TaskEntry(
+                    project_id=node.project_id,
+                    task=node.description,
+                    task_type=node.task_type,
+                    project_dir=node.project_dir,
+                    current_owner=employee_id,
+                    status=node.status,
+                    result=node.result or "",
+                    created_at=node.created_at or "",
+                    completed_at=node.completed_at or "",
+                ))
+            except Exception as e:
+                logger.warning("Failed to load task tree {}: {}", tree_path, e)
     return result
 
 

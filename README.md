@@ -511,6 +511,42 @@ bash start.sh init
 | **EventBus**                   | 所有状态变更 → async pub/sub → WebSocket → 前端实时更新                                         |
 | **Knowledge Deposit**          | COO 通过 `deposit_company_knowledge()` 将 workflow / SOP / culture / guidance 沉淀到公司知识库 |
 
+## Task Status System
+
+All tasks (AgentTask and TaskNode) share one unified status enum (`TaskPhase`):
+
+```
+pending → processing ⇄ holding → completed → accepted → finished
+              ↓                       ↓
+           failed ──(retry)──→ processing
+
+pending/holding → blocked (dependency failed)
+any non-terminal → cancelled
+```
+
+| Status | Meaning | Triggered By |
+|--------|---------|-------------|
+| `pending` | Created, waiting to start | Task creation |
+| `processing` | Agent actively executing | EmployeeManager starts execution |
+| `holding` | Waiting for child tasks / CEO response | `dispatch_child()` |
+| `completed` | Execution done, awaiting supervisor review | Agent submits result |
+| `accepted` | Supervisor approved (unblocks dependents) | `accept_child()` / auto for simple tasks |
+| `finished` | Archived after retrospective | EA retrospective / auto for simple tasks |
+| `failed` | Execution failed (retryable → processing) | Agent error |
+| `blocked` | Dependency failed, cannot proceed | Dependent task failed |
+| `cancelled` | Cancelled | CEO / supervisor |
+
+**Status categories:**
+- **Terminal** (never changes): `finished`, `cancelled`
+- **Unblocks dependents**: `accepted`, `finished`
+- **Active**: `pending`, `processing`, `holding`, `completed`
+- **Error** (recoverable): `failed`, `blocked`
+
+**Simple vs Project tasks** use the same status machine. The difference is auto-skip:
+- Simple: `completed` → auto `accepted` → auto `finished` (no review, no retrospective)
+- Project: `completed` → manual `accept_child()` → EA retrospective → `finished`
+
+**Enforcement:** All status changes go through `transition()` in `task_lifecycle.py`. Direct assignment is banned.
 
 ---
 

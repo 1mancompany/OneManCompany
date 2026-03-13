@@ -53,6 +53,42 @@ def _get_employee_manager():
     return employee_manager
 
 
+def _push_adhoc_task(
+    employee_id: str,
+    description: str,
+    project_id: str = "",
+    project_dir: str = "",
+) -> str:
+    """Create a system task tree with a single node and schedule it.
+
+    Used for ad-hoc tasks that don't belong to an existing project tree
+    (CEO responses, meeting bookings, HR reviews, CSO notifications, etc.).
+    Returns the node_id.
+    """
+    from pathlib import Path
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.config import EMPLOYEES_DIR
+    from onemancompany.core.vessel import employee_manager
+
+    # Create a one-node system tree under the employee's tasks directory
+    sys_project_id = project_id or f"_sys_{_uuid.uuid4().hex[:8]}"
+    tree = TaskTree(project_id=sys_project_id)
+    root = tree.create_root(employee_id=employee_id, description=description)
+    root.project_id = sys_project_id
+    if project_dir:
+        root.project_dir = project_dir
+
+    # Persist under employee's tasks dir
+    tasks_dir = EMPLOYEES_DIR / employee_id / "tasks"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    tree_path = tasks_dir / f"{root.id}_tree.yaml"
+    tree.save(tree_path)
+
+    employee_manager.schedule_node(employee_id, root.id, str(tree_path))
+    employee_manager._schedule_next(employee_id)
+    return root.id
+
+
 def _require_employee(employee_id: str) -> dict:
     """Get employee data from disk or raise 404."""
     data = _load_emp(employee_id)
@@ -156,17 +192,19 @@ async def admin_apply_code_update() -> dict:
 
 @router.post("/api/admin/clear-tasks")
 async def admin_clear_tasks() -> dict:
-    """Clear all stale active tasks and reset employee statuses to idle."""
-    from onemancompany.core.state import get_active_tasks
-    cleared = len(get_active_tasks())
-    # Archive all persisted tasks
-    from onemancompany.core.task_persistence import load_active_tasks, archive_task
-    from onemancompany.core.config import EMPLOYEES_DIR
-    for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
-        if not emp_dir.is_dir():
-            continue
-        for t in load_active_tasks(emp_dir.name):
-            archive_task(emp_dir.name, t)
+    """Clear all scheduled tasks from EmployeeManager and reset employee statuses to idle."""
+    from onemancompany.core.vessel import employee_manager
+
+    # Count and clear all scheduled entries
+    cleared = sum(len(entries) for entries in employee_manager._schedule.values())
+    employee_manager._schedule.clear()
+
+    # Cancel all running asyncio tasks
+    for emp_id, running in list(employee_manager._running_tasks.items()):
+        if not running.done():
+            running.cancel()
+    employee_manager._running_tasks.clear()
+
     all_emps = _store.load_all_employees()
     for eid in all_emps:
         await _store.save_employee_runtime(eid, status=STATUS_IDLE)
@@ -464,7 +502,7 @@ async def ceo_respond(body: dict) -> dict:
                 f"CEO已审阅通过，无修改意见。请继续执行后续步骤。\n"
                 f"如果有待发送的邮件、待执行的操作等，请立即执行。"
             )
-        handle.push_task(task_desc, project_id=project_id, project_dir=project_dir)
+        _push_adhoc_task(employee_id, task_desc, project_id=project_id, project_dir=project_dir)
 
     await event_bus.publish(CompanyEvent(
         type="ceo_response",
@@ -484,6 +522,7 @@ async def ceo_respond(body: dict) -> dict:
 @router.post("/api/ceo/task")
 async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent via persistent loop."""
+    from pathlib import Path
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import (
         create_iteration,
@@ -551,8 +590,6 @@ async def ceo_submit_task(body: dict) -> dict:
             f"任务: {task}{attach_info}\n\n"
             f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
         )
-        ea_agent_task = loop.push_task(ea_task, project_id=ctx_id, project_dir=pdir)
-
         # Initialize task tree: CEO node as root, EA as child
         try:
             from onemancompany.core.task_tree import TaskTree
@@ -566,11 +603,15 @@ async def ceo_submit_task(body: dict) -> dict:
             ea_node = tree.add_child(
                 parent_id=ceo_root.id,
                 employee_id=EA_ID,
-                description=task,
+                description=ea_task,
                 acceptance_criteria=[],
             )
-            tree.task_id_map[ea_agent_task.id] = ea_node.id
+            tree_path = str(Path(pdir) / "task_tree.yaml")
             _save_project_tree(pdir, tree)
+            # Schedule EA node for execution
+            from onemancompany.core.agent_loop import employee_manager
+            employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
+            employee_manager._schedule_next(EA_ID)
         except Exception as e:
             logger.error("Failed to initialize task tree: {}", e)
     else:
@@ -652,7 +693,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if not ea_loop:
         raise HTTPException(status_code=503, detail="EA agent not available")
 
-    ea_agent_task = ea_loop.push_task(followup_task, project_id=project_id, project_dir=pdir)
+    schedule_node_id = ""  # will be set to the EA node to schedule
 
     if tree.root_id:
         # Start new branch — deactivates old nodes
@@ -666,7 +707,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
             ea_node.result = ""
             ea_node.branch = tree.current_branch
             ea_node.branch_active = True
-            tree.task_id_map[ea_agent_task.id] = ea_node.id
+            schedule_node_id = ea_node.id
 
             # Add CEO follow-up as child of EA node
             followup_node = tree.add_child(
@@ -690,7 +731,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
             )
             child.branch = tree.current_branch
             child.branch_active = True
-            tree.task_id_map[ea_agent_task.id] = child.id
+            schedule_node_id = child.id
 
         # Update CEO root status
         root = tree.get_node(tree.root_id)
@@ -710,9 +751,16 @@ async def task_followup(project_id: str, body: dict) -> dict:
             description=instructions,
             acceptance_criteria=[],
         )
-        tree.task_id_map[ea_agent_task.id] = ea_child.id
+        schedule_node_id = ea_child.id
 
     _save_project_tree(pdir, tree)
+
+    # Schedule the EA node for execution
+    if schedule_node_id:
+        tree_path = str(Path(pdir) / "task_tree.yaml")
+        from onemancompany.core.agent_loop import employee_manager
+        employee_manager.schedule_node(EA_ID, schedule_node_id, tree_path)
+        employee_manager._schedule_next(EA_ID)
 
     # Update project.yaml status back to in_progress
     doc["status"] = "in_progress"
@@ -740,6 +788,7 @@ async def oneonone_chat(body: dict) -> dict:
 
     For normal employees (no agent loop), falls back to a plain LLM call.
     """
+    from pathlib import Path
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
@@ -813,26 +862,29 @@ async def oneonone_chat(body: dict) -> dict:
             f"CEO: {message}{attach_info}\n\n"
             f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
         )
-        agent_task = loop.push_task(task_desc)
-        # Wait for the task to complete (poll with timeout)
+        node_id = _push_adhoc_task(employee_id, task_desc)
+        # Wait for the task to complete (poll tree node with timeout)
         import asyncio
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import employee_manager as _em
+        tree_path = ""
+        for entry in _em._schedule.get(employee_id, []):
+            if entry.node_id == node_id:
+                tree_path = entry.tree_path
+                break
+        if not tree_path:
+            return {"response": "（任务已提交，正在处理中）"}
         for _ in range(120):  # up to 60 seconds
             await asyncio.sleep(0.5)
-            t = loop.board.get_task(agent_task.id)
-            if t and t.status in ("completed", "failed", "finished"):
-                break
-        # Extract the result from logs
-        t = loop.board.get_task(agent_task.id)
-        if t:
-            # Prefer the result field (set on task completion)
-            if t.result:
-                return {"response": str(t.result)}
-            # Fallback: find the last llm_output in logs
-            if t.logs:
-                for log_entry in reversed(t.logs):
-                    if log_entry.get("type") in ("llm_output", "result"):
-                        return {"response": str(log_entry["content"])}
-                return {"response": str(t.logs[-1].get("content", "（处理完成）"))}
+            tp = Path(tree_path)
+            if not tp.exists():
+                continue
+            tree = TaskTree.load(tp)
+            node = tree.get_node(node_id)
+            if node and node.status in ("completed", "failed", "finished", "accepted"):
+                if node.result:
+                    return {"response": str(node.result)}
+                return {"response": "（处理完成）"}
         return {"response": "（任务已提交，正在处理中）"}
 
     # --- Fallback: plain LLM for normal employees without agent loop ---
@@ -1023,7 +1075,7 @@ async def book_meeting(body: dict) -> dict:
     )
     loop = get_agent_loop(COO_ID)
     if loop:
-        loop.push_task(task)
+        _push_adhoc_task(COO_ID, task)
     else:
         logger.error("COO agent not registered in EmployeeManager — cannot process meeting request")
         return {"error": "COO agent not available"}
@@ -1224,7 +1276,7 @@ async def trigger_hr_review() -> dict:
             + "\n\nFor each reviewable employee, give a score of 3.25, 3.5, or 3.75.\n"
             "After the review, check for open positions and hire one new candidate."
         )
-        loop.push_task(review_task)
+        _push_adhoc_task(HR_ID, review_task)
     else:
         logger.error("HR agent not registered in EmployeeManager — cannot run review")
         return {"error": "HR agent not available"}
@@ -1460,66 +1512,82 @@ async def update_employee_okrs(employee_id: str, body: dict) -> dict:
 
 @router.get("/api/employee/{employee_id}/taskboard")
 async def get_employee_taskboard(employee_id: str) -> dict:
-    """Get an agent's task board (per-agent tasks, not company-level)."""
-    from onemancompany.core.agent_loop import get_agent_loop
+    """Get an agent's scheduled tasks from EmployeeManager._schedule."""
+    from pathlib import Path
+    from onemancompany.core.vessel import employee_manager
+    from onemancompany.core.task_tree import TaskTree
 
-    loop = get_agent_loop(employee_id)
-    if not loop:
-        return {"tasks": []}
-    return {"tasks": loop.board.to_dict()}
+    entries = employee_manager._schedule.get(employee_id, [])
+    tasks = []
+    for entry in entries:
+        tp = Path(entry.tree_path)
+        if not tp.exists():
+            continue
+        try:
+            tree = TaskTree.load(tp)
+            node = tree.get_node(entry.node_id)
+            if node:
+                tasks.append(node.to_dict())
+        except Exception as e:
+            logger.warning("Failed to load task tree {}: {}", entry.tree_path, e)
+    return {"tasks": tasks}
 
 
 @router.get("/api/employee/{employee_id}/logs")
 async def get_employee_logs(employee_id: str) -> dict:
     """Get execution logs for the agent's current (or most recent) task."""
-    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.vessel import employee_manager
 
-    loop = get_agent_loop(employee_id)
-    if not loop:
-        return {"logs": []}
-    # Return current task logs, or the last completed task's logs
-    if loop._current_task:
-        return {"logs": loop._current_task.logs[-50:]}
-    # Find most recent task with logs
-    for task in reversed(loop.board.tasks):
-        if task.logs:
-            return {"logs": task.logs[-50:]}
+    # Return log buffer for the currently running task, if any
+    running_entry = employee_manager._running_tasks.get(employee_id)
+    if running_entry:
+        # _task_logs keyed by node_id (set during _execute_task)
+        for entry in employee_manager._schedule.get(employee_id, []):
+            logs = employee_manager._task_logs.get(entry.node_id, [])
+            if logs:
+                return {"logs": logs[-50:]}
     return {"logs": []}
 
 
-async def _sync_tree_cancel(cancelled_tasks: list) -> None:
-    """Update task tree nodes for cancelled tasks."""
-    from onemancompany.core.vessel import _load_project_tree, _node_id_for_task
+async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
+    """Update task tree nodes for cancelled tasks.
 
-    # Group by project_dir for efficiency
+    Args:
+        cancelled_node_ids: list of (node_id, tree_path) tuples.
+    """
+    from pathlib import Path
+    from onemancompany.core.task_tree import TaskTree
+
+    # Group by tree_path for efficiency
     trees: dict[str, object] = {}
-    for task in cancelled_tasks:
-        if not task.project_dir:
+    for node_id, tree_path in cancelled_node_ids:
+        if not tree_path:
             continue
-        if task.project_dir not in trees:
-            trees[task.project_dir] = _load_project_tree(task.project_dir)
-        tree = trees[task.project_dir]
+        if tree_path not in trees:
+            tp = Path(tree_path)
+            if tp.exists():
+                trees[tree_path] = TaskTree.load(tp)
+            else:
+                trees[tree_path] = None
+        tree = trees[tree_path]
         if not tree:
             continue
-        node_id = _node_id_for_task(tree, task.id)
-        if node_id:
-            node = tree.get_node(node_id)
-            if node and node.status not in ("accepted", "failed", "cancelled"):
-                # CEO cancellation — force status bypass for terminal override
-                node.status = TaskPhase.CANCELLED.value
-                node.result = task.result or "Cancelled by CEO"
-                from onemancompany.core.events import CompanyEvent as _CE
-                await event_bus.publish(_CE(
-                    type="tree_update",
-                    payload={"project_id": tree.project_id, "event_type": "node_updated",
-                             "node_id": node_id, "data": {"status": "cancelled"}},
-                    agent="SYSTEM",
-                ))
+        node = tree.get_node(node_id)
+        if node and node.status not in ("accepted", "failed", "cancelled"):
+            # CEO cancellation — force status bypass for terminal override
+            node.status = TaskPhase.CANCELLED.value
+            node.result = "Cancelled by CEO"
+            from onemancompany.core.events import CompanyEvent as _CE
+            await event_bus.publish(_CE(
+                type="tree_update",
+                payload={"project_id": tree.project_id, "event_type": "node_updated",
+                         "node_id": node_id, "data": {"status": "cancelled"}},
+                agent="SYSTEM",
+            ))
     # Save modified trees
-    from pathlib import Path
-    for pdir, tree in trees.items():
+    for tree_path_str, tree in trees.items():
         if tree:
-            tree.save(Path(pdir) / "task_tree.yaml")
+            tree.save(Path(tree_path_str))
 
 
 @router.post("/api/task/{project_id}/abort")
@@ -1531,12 +1599,9 @@ async def abort_task(project_id: str) -> dict:
     """
     from onemancompany.core.agent_loop import employee_manager
 
-    cancelled_tasks = employee_manager.abort_project(project_id)
+    cancelled_count = employee_manager.abort_project(project_id)
 
-    # Update tree nodes for board tasks
-    await _sync_tree_cancel(cancelled_tasks)
-
-    # Cancel ALL non-terminal tree nodes (including waiting/pending ones not yet pushed to boards)
+    # Cancel ALL non-terminal tree nodes (including waiting/pending ones not yet pushed to schedule)
     cancelled_tree_nodes = 0
     from onemancompany.core.project_archive import get_project_dir, load_project as _lp
     from onemancompany.core.task_tree import TaskTree
@@ -1569,40 +1634,54 @@ async def abort_task(project_id: str) -> dict:
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
     )
 
-    return {"status": "ok", "cancelled": len(cancelled_tasks), "tree_nodes_cancelled": cancelled_tree_nodes}
+    return {"status": "ok", "cancelled": cancelled_count, "tree_nodes_cancelled": cancelled_tree_nodes}
 
 
 @router.post("/api/employee/{employee_id}/task/{task_id}/cancel")
 async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
-    """Cancel a specific task (or sub-task) on an agent's board."""
+    """Cancel a specific task node on an agent's schedule.
+
+    task_id here is the TaskNode ID (node_id).
+    """
     from datetime import datetime
+    from pathlib import Path
 
-    from onemancompany.core.agent_loop import employee_manager, get_agent_loop
+    from onemancompany.core.agent_loop import employee_manager
+    from onemancompany.core.task_tree import TaskTree
 
-    loop = get_agent_loop(employee_id)
-    if not loop:
-        return {"status": "error", "message": "Agent not found"}
+    # Find the entry in the schedule
+    entry_found = None
+    for entry in employee_manager._schedule.get(employee_id, []):
+        if entry.node_id == task_id:
+            entry_found = entry
+            break
 
-    task = loop.board.get_task(task_id)
-    if not task:
-        return {"status": "error", "message": "Task not found"}
+    if not entry_found:
+        return {"status": "error", "message": "Task not found in schedule"}
 
-    if task.status not in ("pending", "processing", "holding"):
-        return {"status": "error", "message": f"Task already {task.status}"}
+    # Load tree and node
+    tp = Path(entry_found.tree_path)
+    if not tp.exists():
+        return {"status": "error", "message": "Tree file not found"}
 
-    was_in_progress = task.status == "processing"
+    tree = TaskTree.load(tp)
+    node = tree.get_node(task_id)
+    if not node:
+        return {"status": "error", "message": "Node not found in tree"}
 
-    from onemancompany.core.task_persistence import persist_task, archive_task
+    if node.status not in ("pending", "processing", "holding"):
+        return {"status": "error", "message": f"Task already {node.status}"}
 
-    # Cancel target task
-    all_cancelled = [task]
-    task.status = "cancelled"
-    task.completed_at = datetime.now().isoformat()
-    task.result = "Cancelled by CEO"
-    persist_task(employee_id, task)
-    archive_task(employee_id, task)
-    employee_manager._log(employee_id, task, "cancelled", "CEO cancelled this task")
-    employee_manager._publish_task_update(employee_id, task)
+    was_in_progress = node.status == "processing"
+
+    # Force cancel — bypass transition validation
+    node.status = TaskPhase.CANCELLED.value
+    node.completed_at = datetime.now().isoformat()
+    node.result = "Cancelled by CEO"
+    tree.save(tp)
+
+    # Remove from schedule
+    employee_manager.unschedule(employee_id, task_id)
 
     # Stop any holding watchdog crons associated with this task
     from onemancompany.core.automation import stop_cron
@@ -1615,19 +1694,10 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
         if not running.done():
             running.cancel()
 
-    # Reset employee status if no more active tasks
-    board = employee_manager.boards.get(employee_id)
-    has_active = False
-    if board:
-        has_active = any(
-            t.status in ("pending", "processing", "holding")
-            for t in board.tasks
-        )
+    # Reset employee status if no more scheduled tasks
+    has_active = any(True for _ in employee_manager._schedule.get(employee_id, []))
     if not has_active:
         await _store.save_employee_runtime(employee_id, status=STATUS_IDLE, current_task_summary="")
-
-    # Update tree nodes for cancelled tasks
-    await _sync_tree_cancel(all_cancelled)
 
     # Broadcast state
     await event_bus.publish(
@@ -2774,6 +2844,7 @@ async def continue_iteration(body: dict) -> dict:
     Pushes a continuation task to the responsible officer (COO) with
     the original task, acceptance criteria, and last feedback.
     """
+    from pathlib import Path
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import (
         _resolve_and_load,
@@ -2842,16 +2913,17 @@ async def continue_iteration(body: dict) -> dict:
     if not loop:
         return {"error": f"No agent loop for EA {EA_ID}"}
 
-    ea_agent_task = loop.push_task(continuation_task, project_id=ctx_id, project_dir=project_dir)
-
     # Initialize a new task tree so the full dispatch chain is tracked
     try:
         from onemancompany.core.task_tree import TaskTree
         from onemancompany.core.vessel import _save_project_tree
+        from onemancompany.core.agent_loop import employee_manager
         tree = TaskTree(project_id=ctx_id)
         root = tree.create_root(employee_id=EA_ID, description=f"[续做] {task[:80]}")
-        tree.task_id_map[ea_agent_task.id] = root.id
+        tree_path = str(Path(project_dir) / "task_tree.yaml")
         _save_project_tree(project_dir, tree)
+        employee_manager.schedule_node(EA_ID, root.id, tree_path)
+        employee_manager._schedule_next(EA_ID)
     except Exception as e:
         logger.error("Failed to initialize continuation task tree: {}", e)
 
@@ -3077,7 +3149,7 @@ async def get_project_tree(project_id: str) -> dict:
         if n.depends_on:
             if n.status == "blocked":
                 d["dependency_status"] = "blocked"
-            elif tree.all_deps_terminal(n.id):
+            elif tree.all_deps_resolved(n.id):
                 d["dependency_status"] = "resolved"
             else:
                 d["dependency_status"] = "waiting"
@@ -3518,7 +3590,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
             f"原始招聘原因: {ctx.get('reason', '')}\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
-        coo_loop.push_task(followup, project_id=project_id, project_dir=project_dir)
+        _push_adhoc_task(COO_ID, followup, project_id=project_id, project_dir=project_dir)
         logger.info(f"[hire-ready] Pushed follow-up to COO for {emp_name} on project {project_id}")
     else:
         logger.warning(f"[hire-ready] No COO agent loop — cannot notify about {employee_id}")
@@ -3571,7 +3643,7 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
 
         hr_loop = get_agent_loop(HR_ID)
         if hr_loop:
-            hr_loop.push_task(jd)
+            _push_adhoc_task(HR_ID, jd)
         else:
             logger.warning("No agent loop for HR — hiring task dropped")
 
@@ -3606,6 +3678,7 @@ async def hire_candidate(body: HireRequest) -> dict:
     Executes the full hire flow in code — no LLM involved.
     Reads authoritative fields directly from the talent profile.
     """
+    from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire
 
@@ -3697,13 +3770,17 @@ async def hire_candidate(body: HireRequest) -> dict:
     _persist_candidates()
 
     # Resume HR's HOLDING task so EA knows the hire is done
-    from onemancompany.core.agent_loop import get_agent_loop
-    hr_loop = get_agent_loop(HR_ID)
-    if hr_loop:
-        for t in hr_loop.board.tasks:
-            if t.status == "holding" and t.result and f"batch_id={body.batch_id}" in t.result:
-                await hr_loop.resume_held_task(HR_ID, t.id, f"Hired {candidate['name']} (ID: {emp.id})")
-                break
+    from onemancompany.core.vessel import employee_manager as _em_hr
+    from onemancompany.core.task_tree import TaskTree as _TT_hr
+    for entry in _em_hr._schedule.get(HR_ID, []):
+        tp = Path(entry.tree_path)
+        if not tp.exists():
+            continue
+        tree = _TT_hr.load(tp)
+        node = tree.get_node(entry.node_id)
+        if node and node.status == "holding" and node.result and f"batch_id={body.batch_id}" in node.result:
+            await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hired {candidate['name']} (ID: {emp.id})")
+            break
 
     # Explicit state broadcast to ensure frontend updates
     await event_bus.publish(
@@ -3726,6 +3803,7 @@ async def batch_hire_candidates(body: dict) -> dict:
         batch_id: str
         selections: list of {candidate_id: str, role: str}
     """
+    from pathlib import Path
     from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
     from onemancompany.core.config import load_talent_profile
@@ -3860,13 +3938,17 @@ async def batch_hire_candidates(body: dict) -> dict:
     _persist_candidates()
 
     # Resume HR HOLDING task
-    from onemancompany.core.agent_loop import get_agent_loop
-    hr_loop = get_agent_loop(HR_ID)
-    if hr_loop:
-        for t in hr_loop.board.tasks:
-            if t.status == "holding" and t.result and f"batch_id={batch_id}" in t.result:
-                await hr_loop.resume_held_task(HR_ID, t.id, f"Batch hired: {', '.join(hired_names)}")
-                break
+    from onemancompany.core.vessel import employee_manager as _em_batch
+    from onemancompany.core.task_tree import TaskTree as _TT_batch
+    for entry in _em_batch._schedule.get(HR_ID, []):
+        tp = Path(entry.tree_path)
+        if not tp.exists():
+            continue
+        tree = _TT_batch.load(tp)
+        node = tree.get_node(entry.node_id)
+        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+            await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
+            break
 
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
@@ -4528,7 +4610,7 @@ async def sales_submit_task(body: dict) -> dict:
             f"Budget tokens: {body.get('budget_tokens', 0)}\n\n"
             f"Please review this contract using review_contract()."
         )
-        cso_loop.push_task(cso_notification)
+        _push_adhoc_task(CSO_ID, cso_notification)
 
     await event_bus.publish(
         CompanyEvent(

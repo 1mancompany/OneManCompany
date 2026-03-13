@@ -72,7 +72,7 @@ class TaskPhase(str, Enum):
 VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     TaskPhase.PENDING:    [TaskPhase.PROCESSING, TaskPhase.HOLDING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.PROCESSING: [TaskPhase.COMPLETED, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
-    TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
+    TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.COMPLETED, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.COMPLETED:  [TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.PENDING, TaskPhase.CANCELLED],
     TaskPhase.ACCEPTED:   [TaskPhase.FINISHED],
     TaskPhase.FINISHED:   [],
@@ -103,10 +103,6 @@ IN_LIFECYCLE = frozenset({TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOL
 
 # Terminal: absolutely final, no transitions out
 TERMINAL = frozenset({TaskPhase.FINISHED, TaskPhase.CANCELLED})
-
-# Backward-compat aliases (will be removed in subsequent tasks)
-ACTIVE_STATES = IN_LIFECYCLE
-TERMINAL_STATES = RESOLVED
 
 
 # ---------------------------------------------------------------------------

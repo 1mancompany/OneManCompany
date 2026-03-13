@@ -81,10 +81,6 @@ class TaskNode:
         return TaskPhase(self.status) in UNBLOCKS_DEPENDENTS
 
     @property
-    def is_terminal(self) -> bool:
-        return self.is_resolved
-
-    @property
     def is_ceo_node(self) -> bool:
         return self.node_type in ("ceo_prompt", "ceo_followup")
 
@@ -131,7 +127,6 @@ class TaskTree:
         self.project_id = project_id
         self.root_id: str = ""
         self._nodes: dict[str, TaskNode] = {}
-        self.task_id_map: dict[str, str] = {}  # AgentTask ID → TaskNode ID (snapshot-safe)
         self.current_branch: int = 0
 
     def create_root(self, employee_id: str, description: str) -> TaskNode:
@@ -227,9 +222,6 @@ class TaskTree:
             return True
         return all(c.is_done_executing for c in children)
 
-    def all_children_terminal(self, node_id: str) -> bool:
-        """Backward-compat alias for all_children_done."""
-        return self.all_children_done(node_id)
 
     def has_failed_children(self, node_id: str) -> bool:
         return any(c.status == "failed" for c in self.get_active_children(node_id))
@@ -249,9 +241,6 @@ class TaskTree:
                 return False
         return True
 
-    def all_deps_terminal(self, node_id: str) -> bool:
-        """Backward-compat alias for all_deps_resolved."""
-        return self.all_deps_resolved(node_id)
 
     def has_failed_deps(self, node_id: str) -> bool:
         """Check if any depends_on node will not deliver (failed/blocked/cancelled)."""
@@ -271,7 +260,6 @@ class TaskTree:
             "root_id": self.root_id,
             "current_branch": self.current_branch,
             "nodes": [n.to_dict() for n in self._nodes.values()],
-            "task_id_map": dict(self.task_id_map),
         }
         path.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
@@ -287,5 +275,5 @@ class TaskTree:
         for nd in data.get("nodes", []):
             node = TaskNode.from_dict(nd)
             tree._nodes[node.id] = node
-        tree.task_id_map = data.get("task_id_map", {})
+        # task_id_map removed — ignored for backward compat with old tree files
         return tree

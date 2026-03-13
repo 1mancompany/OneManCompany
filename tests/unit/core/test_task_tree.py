@@ -89,7 +89,7 @@ class TestTaskTree:
         c2 = tree.add_child(root.id, "00011", "B", [])
         c1.status = "accepted"
         c2.status = "accepted"
-        assert tree.all_children_terminal(root.id) is True
+        assert tree.all_children_done(root.id) is True
 
     def test_not_all_siblings_terminal(self):
         tree = TaskTree(project_id="proj1")
@@ -98,7 +98,7 @@ class TestTaskTree:
         c2 = tree.add_child(root.id, "00011", "B", [])
         c1.status = "accepted"
         c2.status = "processing"
-        assert tree.all_children_terminal(root.id) is False
+        assert tree.all_children_done(root.id) is False
 
     def test_has_failed_children(self):
         tree = TaskTree(project_id="proj1")
@@ -246,9 +246,9 @@ class TestTaskTreeBranching:
         c2 = tree.add_child(root.id, "00011", "B", [])
         c2.branch = tree.current_branch
         c2.branch_active = True
-        assert tree.all_children_terminal(root.id) is False
+        assert tree.all_children_done(root.id) is False
         c2.status = "accepted"
-        assert tree.all_children_terminal(root.id) is True
+        assert tree.all_children_done(root.id) is True
 
     def test_get_active_children(self):
         tree = TaskTree(project_id="proj1")
@@ -330,20 +330,20 @@ class TestTaskTreeDependencyHelpers:
         a = tree.add_child(root.id, "e1", "task A", [])
         assert tree.find_dependents(a.id) == []
 
-    def test_all_deps_terminal_true(self):
+    def test_all_deps_resolved_true(self):
         tree = TaskTree(project_id="test")
         root = tree.create_root(employee_id="ceo", description="root")
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "accepted"
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
-        assert tree.all_deps_terminal(b.id) is True
+        assert tree.all_deps_resolved(b.id) is True
 
-    def test_all_deps_terminal_false(self):
+    def test_all_deps_resolved_false(self):
         tree = TaskTree(project_id="test")
         root = tree.create_root(employee_id="ceo", description="root")
         a = tree.add_child(root.id, "e1", "task A", [])
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
-        assert tree.all_deps_terminal(b.id) is False
+        assert tree.all_deps_resolved(b.id) is False
 
     def test_has_failed_deps(self):
         tree = TaskTree(project_id="test")
