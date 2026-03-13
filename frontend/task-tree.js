@@ -341,9 +341,12 @@ class TaskTreeRenderer {
         }
         html += '</div>';
 
-        // 后续任务
+        // 后续任务 (includes both depends_on dependents and child nodes)
         const allNodes = this.treeData?.nodes || [];
-        const dependents = allNodes.filter(n => (n.depends_on || []).includes(node.id));
+        const dependents = allNodes.filter(n =>
+            (n.depends_on || []).includes(node.id) ||
+            n.parent_id === node.id
+        );
         html += '<div class="detail-section"><h4>后续任务</h4>';
         if (dependents.length > 0) {
             html += '<ul>';

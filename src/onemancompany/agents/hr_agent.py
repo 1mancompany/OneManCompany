@@ -156,7 +156,7 @@ class HRAgent(BaseAgentRunner):
             loop = _current_vessel.get()
             task_id = _current_task_id.get()
             if loop and task_id:
-                task_obj = loop.board.get_task(task_id)
+                task_obj = loop.get_task(task_id)
                 if task_obj and task_obj.project_id:
                     for bid in new_batches:
                         _pending_project_ctx[bid] = {

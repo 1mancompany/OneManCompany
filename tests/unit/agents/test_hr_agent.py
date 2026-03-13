@@ -1007,23 +1007,21 @@ class TestRunStreamedBatchStashing:
         agent.run = AsyncMock(return_value=shortlist_output)
 
         # Setup context vars for project stashing
-        from onemancompany.core.agent_loop import _current_loop, _current_task_id
+        from onemancompany.core.agent_loop import _current_vessel, _current_task_id
 
         mock_task = MagicMock()
         mock_task.project_id = "proj_123"
         mock_task.project_dir = "/tmp/proj"
-        mock_board = MagicMock()
-        mock_board.get_task.return_value = mock_task
         mock_loop = MagicMock()
-        mock_loop.board = mock_board
+        mock_loop.get_task.return_value = mock_task
 
-        token_loop = _current_loop.set(mock_loop)
+        token_loop = _current_vessel.set(mock_loop)
         token_task = _current_task_id.set("task_456")
 
         try:
             result = await agent.run_streamed("hire someone")
         finally:
-            _current_loop.reset(token_loop)
+            _current_vessel.reset(token_loop)
             _current_task_id.reset(token_task)
 
         # run_streamed prepends __HOLDING:batch_id=... when a new batch is created

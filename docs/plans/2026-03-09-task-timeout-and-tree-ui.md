@@ -1,7 +1,7 @@
 # Task Timeout + Tree UI Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-> **IMPORTANT:** Read `AI_CONTRIBUTING.md` before writing ANY code. Follow its rules exactly: systematic design, registry pattern, no silent exceptions, TDD, mock at importing module level, loguru logger, lazy imports for circular deps.
+> **IMPORTANT:** Read `vibe-coding-guide.md` before writing ANY code. Follow its rules exactly: systematic design, registry pattern, no silent exceptions, TDD, mock at importing module level, loguru logger, lazy imports for circular deps.
 
 **Goal:** Add robust task timeout with subprocess execution (cancel = kill process) and a family-tree-style task tree visualization as the project detail view.
 
@@ -11,7 +11,7 @@
 
 **Key reference files:**
 - Design doc: `docs/plans/2026-03-09-task-timeout-and-tree-ui-design.md`
-- Coding guide: `AI_CONTRIBUTING.md`
+- Coding guide: `vibe-coding-guide.md`
 - Vessel executors: `src/onemancompany/core/vessel.py` (Launcher:207, LangChainExecutor:231, ScriptExecutor:289, _execute_task:731)
 - Task tree: `src/onemancompany/core/task_tree.py` (TaskNode:20)
 - Tree tools: `src/onemancompany/agents/tree_tools.py` (dispatch_child:44)

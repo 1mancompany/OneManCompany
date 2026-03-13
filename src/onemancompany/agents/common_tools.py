@@ -702,7 +702,7 @@ def set_project_budget(budget_usd: float) -> dict:
     if not loop or not task_id:
         return {"status": "error", "message": "No agent loop context."}
 
-    task = loop.board.get_task(task_id)
+    task = loop.get_task(task_id)
     if not task:
         return {"status": "error", "message": "Current task not found."}
 
