@@ -807,6 +807,14 @@ class EmployeeManager:
                         self._publish_node_update(emp_id, node)
                         self.unschedule(emp_id, entry.node_id)
                         count += 1
+
+                        # Stop associated crons
+                        from onemancompany.core.automation import stop_cron as _stop_cron
+                        for cron_prefix in (f"reply_{entry.node_id}", f"holding_{entry.node_id}"):
+                            try:
+                                _stop_cron(emp_id, cron_prefix)
+                            except Exception as exc:
+                                logger.debug("Could not stop cron {}/{}: {}", emp_id, cron_prefix, exc)
                 except Exception as e:
                     logger.error("Failed to cancel node {} for project {}: {}", entry.node_id, project_id, e)
 
@@ -818,6 +826,74 @@ class EmployeeManager:
                     logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
 
         return count
+
+    def abort_employee(self, employee_id: str) -> int:
+        """Cancel all tasks for an employee. Returns count cancelled."""
+        from onemancompany.core.task_tree import get_tree, save_tree_async
+        from onemancompany.core.automation import stop_all_crons_for_employee
+
+        count = 0
+        _cancelable = {TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value}
+
+        # 1. Clear schedule and cancel nodes
+        entries = list(self._schedule.get(employee_id, []))
+        self._schedule[employee_id] = []
+
+        # 2. Clear deferred schedule
+        self._deferred_schedule.discard(employee_id)
+
+        # 3. Cancel running asyncio.Task
+        running = self._running_tasks.pop(employee_id, None)
+        if running and not running.done():
+            running.cancel()
+            logger.info("Cancelled running asyncio.Task for {}", employee_id)
+
+        # 4. Cancel non-terminal nodes in trees
+        seen_trees: set[str] = set()
+        for entry in entries:
+            try:
+                tree = get_tree(entry.tree_path)
+                node = tree.get_node(entry.node_id)
+                if node and node.status in _cancelable:
+                    node.status = TaskPhase.CANCELLED.value
+                    node.completed_at = datetime.now().isoformat()
+                    node.result = f"Cancelled: employee {employee_id} aborted"
+                    count += 1
+                    self._publish_node_update(employee_id, node)
+                seen_trees.add(entry.tree_path)
+            except Exception as e:
+                logger.error("Failed to cancel node {} for {}: {}", entry.node_id, employee_id, e)
+
+        for tp in seen_trees:
+            save_tree_async(tp)
+
+        # 5. Stop crons
+        stop_all_crons_for_employee(employee_id)
+
+        # 6. Reset status
+        if employee_id in company_state.employees:
+            company_state.employees[employee_id].status = STATUS_IDLE
+            company_state.employees[employee_id].current_task = None
+
+        return count
+
+    async def abort_all(self) -> int:
+        """Cancel all tasks for all employees. Returns total count cancelled."""
+        from onemancompany.core.automation import stop_all_automations
+        from onemancompany.core.claude_session import stop_all_daemons
+
+        total = 0
+        for emp_id in list(self._schedule.keys()):
+            total += self.abort_employee(emp_id)
+
+        # Also abort employees with running tasks but empty schedules
+        for emp_id in list(self._running_tasks.keys()):
+            total += self.abort_employee(emp_id)
+
+        await stop_all_automations()
+        await stop_all_daemons()
+
+        return total
 
     async def _run_task(self, employee_id: str, entry: ScheduleEntry) -> None:
         """Execute a task, then schedule the next one."""

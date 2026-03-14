@@ -1663,6 +1663,30 @@ async def abort_task(project_id: str) -> dict:
     return {"status": "ok", "cancelled": cancelled_count, "tree_nodes_cancelled": cancelled_tree_nodes}
 
 
+@router.post("/api/employee/{employee_id}/abort")
+async def abort_employee_tasks(employee_id: str) -> dict:
+    """Abort all tasks for a specific employee."""
+    from onemancompany.core.agent_loop import employee_manager
+
+    count = employee_manager.abort_employee(employee_id)
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+    return {"status": "ok", "cancelled": count, "employee_id": employee_id}
+
+
+@router.post("/api/abort-all")
+async def abort_all_tasks() -> dict:
+    """Abort all tasks for all employees. Panic button."""
+    from onemancompany.core.agent_loop import employee_manager
+
+    count = await employee_manager.abort_all()
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+    return {"status": "ok", "cancelled": count}
+
+
 @router.post("/api/employee/{employee_id}/task/{task_id}/cancel")
 async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     """Cancel a specific task node on an agent's schedule.
