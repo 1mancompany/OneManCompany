@@ -117,8 +117,10 @@ class TaskNode:
         if content_path.exists():
             data = yaml.safe_load(content_path.read_text(encoding="utf-8")) or {}
             # Use object.__setattr__ to avoid marking dirty
-            object.__setattr__(self, "description", data.get("description", ""))
+            desc = data.get("description", "")
+            object.__setattr__(self, "description", desc)
             object.__setattr__(self, "result", data.get("result", ""))
+            object.__setattr__(self, "_description_preview", (desc or "")[:200])
         self._content_loaded = True
 
     def set_status(self, target: TaskPhase) -> None:
@@ -176,11 +178,12 @@ class TaskNode:
         has_description = "description" in d
         has_result = "result" in d
         old_format = has_description or has_result
-        desc_value = d.pop("description", "")
-        result_value = d.pop("result", "")
-        preview_value = d.pop("description_preview", "")
+        desc_value = d.get("description", "")
+        result_value = d.get("result", "")
+        preview_value = d.get("description_preview", "")
 
-        filtered = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
+        _skip = {"description_preview"}
+        filtered = {k: v for k, v in d.items() if k in cls.__dataclass_fields__ and k not in _skip}
         if "status" in filtered:
             filtered["status"] = _STATUS_MIGRATION.get(filtered["status"], filtered["status"])
 
