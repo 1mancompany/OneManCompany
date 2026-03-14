@@ -363,7 +363,7 @@ def _bootstrap_data_dir() -> None:
 
     print(
         "\n  \033[1;33m⚠  .onemancompany/ not found.\033[0m\n\n"
-        "  Run the setup wizard first:\n\n"
+        "  Run the setup process first:\n\n"
         "    \033[1;36monemancompany-init\033[0m\n\n"
         "  Or:  python -m onemancompany.onboard\n"
     )
