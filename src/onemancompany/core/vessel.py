@@ -1506,13 +1506,13 @@ class EmployeeManager:
         # Skip if there's already a pending/processing review node for this parent
         # (prevents infinite review loop when review node itself completes)
         for child in children:
-            if child.employee_id == parent_node.employee_id and child.description.startswith("以下子任务"):
+            if child.node_type == "review":
                 if child.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
                     logger.debug("Review node {} already active for parent {} — skipping", child.id, parent_node.id)
                     return
 
         # If all children that need review are already accepted, auto-complete the parent
-        non_review_children = [c for c in children if c.employee_id != parent_node.employee_id or not c.description.startswith("以下子任务")]
+        non_review_children = [c for c in children if c.node_type != "review"]
         if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
             logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
             if parent_node.status == TaskPhase.HOLDING.value:
@@ -1564,6 +1564,56 @@ class EmployeeManager:
 
         review_prompt = "\n".join(lines)
 
+        # --- Circuit breaker: check review round count ---
+        from onemancompany.core.config import MAX_REVIEW_ROUNDS, CEO_ID
+        review_count = sum(
+            1 for c in children
+            if c.node_type == "review" and c.employee_id == parent_node.employee_id
+        )
+        if review_count >= MAX_REVIEW_ROUNDS:
+            logger.warning(
+                "Review circuit breaker: {} rounds for parent {} — escalating to CEO",
+                review_count, parent_node.id,
+            )
+            parent_node.set_status(TaskPhase.HOLDING)
+            save_tree_async(entry.tree_path)
+
+            # Build escalation summary
+            last_notes = ""
+            for sibling in reversed(children):
+                if sibling.acceptance_result and not sibling.acceptance_result.get("passed"):
+                    last_notes = sibling.acceptance_result.get("notes", "")
+                    break
+
+            escalation_desc = (
+                f"审核僵局: 任务 {parent_node.id} ({parent_node.description_preview}) "
+                f"已经过 {review_count} 轮审核未能收敛。\n"
+                f"最后一轮分歧: {last_notes[:300]}\n"
+                f"请介入处理：可以选择接受现有结果、取消任务、或给出具体指导。"
+            )
+            ceo_node = tree.add_child(
+                parent_id=parent_node.id,
+                employee_id=CEO_ID,
+                description=escalation_desc,
+                acceptance_criteria=[],
+            )
+            ceo_node.node_type = "ceo_request"
+            ceo_node.project_id = project_id
+            ceo_node.project_dir = project_dir
+            save_tree_async(entry.tree_path)
+
+            # Publish inbox event
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(event_bus.publish(CompanyEvent(
+                    type="ceo_inbox_updated",
+                    payload={"node_id": ceo_node.id, "description": escalation_desc},
+                    agent="SYSTEM",
+                )))
+            except RuntimeError:
+                logger.debug("No event loop for circuit breaker CEO escalation publish")
+            return
+
         # Create a review node in the tree and schedule it
         review_node = tree.add_child(
             parent_id=parent_node.id,
@@ -1571,6 +1621,7 @@ class EmployeeManager:
             description=review_prompt,
             acceptance_criteria=[],
         )
+        review_node.node_type = "review"
         review_node.task_type = "simple"
         review_node.project_id = project_id
         review_node.project_dir = project_dir

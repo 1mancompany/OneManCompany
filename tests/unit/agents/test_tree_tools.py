@@ -826,3 +826,104 @@ class TestRejectChildNoRetry:
             mock_save.assert_called_once()
         finally:
             _reset_context(tok_v, tok_t)
+
+
+# ---------------------------------------------------------------------------
+# dispatch_child circuit breaker tests
+# ---------------------------------------------------------------------------
+
+class TestDispatchChildLimits:
+    def test_max_children_exceeded(self):
+        from onemancompany.core.config import MAX_CHILDREN_PER_NODE
+        tree = TaskTree(project_id="test")
+        root = tree.create_root("e1", "Root")
+        for i in range(MAX_CHILDREN_PER_NODE):
+            tree.add_child(root.id, "e2", f"Child {i}", [])
+        assert len(tree.get_active_children(root.id)) >= MAX_CHILDREN_PER_NODE
+
+    def test_tree_depth_calculation(self):
+        tree = TaskTree(project_id="test")
+        root = tree.create_root("e1", "Root")
+        c1 = tree.add_child(root.id, "e2", "L1", [])
+        c2 = tree.add_child(c1.id, "e3", "L2", [])
+        c3 = tree.add_child(c2.id, "e4", "L3", [])
+        depth = 0
+        node = c3
+        while node.parent_id:
+            depth += 1
+            node = tree.get_node(node.parent_id)
+        assert depth == 3
+
+    def test_dispatch_child_rejects_over_max_children(self, tmp_path):
+        """dispatch_child returns error when parent has MAX_CHILDREN_PER_NODE active children."""
+        from onemancompany.core.config import MAX_CHILDREN_PER_NODE
+        from onemancompany.agents.tree_tools import dispatch_child
+        from onemancompany.core.task_tree import register_tree
+
+        tree = TaskTree(project_id="test")
+        root = tree.create_root("e1", "Root")
+        root.project_id = "test"
+        root.project_dir = str(tmp_path)
+        for i in range(MAX_CHILDREN_PER_NODE):
+            tree.add_child(root.id, "e2", f"Child {i}", [])
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        register_tree(path, tree)
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root.id)
+        try:
+            schedule = {"e1": [ScheduleEntry(node_id=root.id, tree_path=str(path))]}
+            em_mock = MagicMock()
+            em_mock._schedule = schedule
+            with patch("onemancompany.core.vessel.employee_manager", em_mock), \
+                 patch("onemancompany.core.store.load_employee", return_value={"id": "e2", "name": "Test"}):
+                result = dispatch_child.invoke({
+                    "employee_id": "e2",
+                    "description": "One too many",
+                    "acceptance_criteria": [],
+                })
+                assert result["status"] == "error"
+                assert str(MAX_CHILDREN_PER_NODE) in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_child_rejects_over_max_depth(self, tmp_path):
+        """dispatch_child returns error when tree depth would exceed MAX_TREE_DEPTH."""
+        from onemancompany.core.config import MAX_TREE_DEPTH
+        from onemancompany.agents.tree_tools import dispatch_child
+        from onemancompany.core.task_tree import register_tree
+
+        tree = TaskTree(project_id="test")
+        root = tree.create_root("e1", "Root")
+        root.project_id = "test"
+        root.project_dir = str(tmp_path)
+
+        # Build a chain to MAX_TREE_DEPTH - 1 depth
+        current = root
+        for i in range(MAX_TREE_DEPTH - 1):
+            current = tree.add_child(current.id, f"e{i+2}", f"Level {i+1}", [])
+            current.project_id = "test"
+            current.project_dir = str(tmp_path)
+
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        register_tree(path, tree)
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, current.id)
+        try:
+            schedule = {"e1": [ScheduleEntry(node_id=current.id, tree_path=str(path))]}
+            em_mock = MagicMock()
+            em_mock._schedule = schedule
+            with patch("onemancompany.core.vessel.employee_manager", em_mock), \
+                 patch("onemancompany.core.store.load_employee", return_value={"id": "e99", "name": "Test"}):
+                result = dispatch_child.invoke({
+                    "employee_id": "e99",
+                    "description": "Too deep",
+                    "acceptance_criteria": [],
+                })
+                assert result["status"] == "error"
+                assert str(MAX_TREE_DEPTH) in result["message"]
+        finally:
+            _reset_context(tok_v, tok_t)

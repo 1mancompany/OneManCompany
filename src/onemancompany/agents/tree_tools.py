@@ -171,6 +171,29 @@ def dispatch_child(
                 ),
             }
 
+    # --- Circuit breaker: children count limit ---
+    from onemancompany.core.config import MAX_CHILDREN_PER_NODE, MAX_TREE_DEPTH
+    active_children = tree.get_active_children(task_id)
+    if len(active_children) >= MAX_CHILDREN_PER_NODE:
+        return {
+            "status": "error",
+            "message": f"已达子任务上限 ({MAX_CHILDREN_PER_NODE})，请整合现有任务或向上汇报。",
+        }
+
+    # --- Circuit breaker: tree depth limit ---
+    depth = 0
+    walker = current_node
+    while walker.parent_id:
+        depth += 1
+        walker = tree.get_node(walker.parent_id)
+        if not walker:
+            break
+    if depth + 1 >= MAX_TREE_DEPTH:
+        return {
+            "status": "error",
+            "message": f"任务树已达最大深度 ({MAX_TREE_DEPTH})，无法继续下派，请直接完成或向上汇报。",
+        }
+
     # Normalize depends_on
     depends_on = depends_on or []
 
