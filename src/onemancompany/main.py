@@ -630,6 +630,7 @@ def run() -> None:
         "onemancompany.main:app",
         host=settings.host,
         port=settings.port,
+        loop="asyncio",
     )
 
 
