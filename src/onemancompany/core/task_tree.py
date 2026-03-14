@@ -96,7 +96,7 @@ class TaskNode:
     def description_preview(self) -> str:
         return self._description_preview
 
-    def save_content(self, project_dir: Path) -> None:
+    def save_content(self, project_dir: Path | str) -> None:
         """Write description/result to a separate content file."""
         if not self._content_dirty:
             return
@@ -109,7 +109,7 @@ class TaskNode:
         )
         self._content_dirty = False
 
-    def load_content(self, project_dir: Path) -> None:
+    def load_content(self, project_dir: Path | str) -> None:
         """Load description/result from content file (idempotent)."""
         if self._content_loaded:
             return

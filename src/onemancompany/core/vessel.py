@@ -855,6 +855,7 @@ class EmployeeManager:
                 tree = get_tree(entry.tree_path)
                 node = tree.get_node(entry.node_id)
                 if node and node.status in _cancelable:
+                    # Force status — may not follow normal transitions
                     node.status = TaskPhase.CANCELLED.value
                     node.completed_at = datetime.now().isoformat()
                     node.result = f"Cancelled: employee {employee_id} aborted"
