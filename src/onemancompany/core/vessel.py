@@ -931,10 +931,10 @@ class EmployeeManager:
         node.set_status(TaskPhase.PROCESSING)
         save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
-        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description}")
+        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
 
-        await _store.save_employee_runtime(employee_id, current_task_summary=node.description[:100])
+        await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
         # 2. Set contextvars
         loop_token = _current_vessel.set(vessel)
@@ -1737,8 +1737,8 @@ class EmployeeManager:
                     parent = tree.get_node(dep_node.parent_id)
                     if parent:
                         msg = (
-                            f"Task \"{dep_node.description}\" is BLOCKED because dependency "
-                            f"\"{completed_node.description}\" failed. Please handle via "
+                            f"Task \"{dep_node.description_preview}\" is BLOCKED because dependency "
+                            f"\"{completed_node.description_preview}\" failed. Please handle via "
                             f"reject_child (retry), unblock_child, or cancel_child."
                         )
                         notify_node = tree.add_child(
@@ -1794,17 +1794,19 @@ class EmployeeManager:
         This now auto-approves and runs cleanup immediately.
         """
         # Build completion summary from all children (skip CEO info nodes)
+        _pdir = node.project_dir or str(Path(entry.tree_path).parent)
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
-        lines = [f"项目完成汇报 — {node.description[:100]}", ""]
+        lines = [f"项目完成汇报 — {node.description_preview[:100]}", ""]
         for i, child in enumerate(children, 1):
             status_icon = "✓" if child.status == "accepted" else "●"
-            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description[:80]}")
+            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description_preview[:80]}")
+            child.load_content(_pdir)
             lines.append(f"  结果: {(child.result or '无')[:200]}")
             lines.append("")
         summary = "\n".join(lines)
 
         payload = {
-            "subject": f"项目完成确认: {node.description[:60]}",
+            "subject": f"项目完成确认: {node.description_preview[:60]}",
             "report": summary,
             "employee_id": employee_id,
             "project_id": project_id,
