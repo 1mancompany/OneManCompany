@@ -245,16 +245,31 @@ async def _start_code_watcher() -> None:
     FRONTEND_EXTENSIONS = {".js", ".css", ".html"}
     BACKEND_EXTENSIONS = {".py"}
 
+    # Build set of founding employee manifest paths to watch
+    from onemancompany.core.config import EMPLOYEES_DIR, EXEC_IDS, invalidate_manifest_cache
+    _founding_manifest_paths = {
+        str(EMPLOYEES_DIR / eid / "manifest.json") for eid in EXEC_IDS
+    }
+
     class _CodeChangeHandler(FileSystemEventHandler):
         def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
             self._loop = loop
             self._pending_frontend: asyncio.TimerHandle | None = None
             self._pending_backend: asyncio.TimerHandle | None = None
+            self._pending_manifest: asyncio.TimerHandle | None = None
             self._frontend_changes: set[str] = set()
             self._backend_changes: set[str] = set()
+            self._manifest_changes: set[str] = set()
 
         def _on_change(self, path: str) -> None:
             p = Path(path)
+            # Founding employee manifest.json — invalidate cache + graceful restart
+            if path in _founding_manifest_paths:
+                self._manifest_changes.add(path)
+                if self._pending_manifest:
+                    self._pending_manifest.cancel()
+                self._pending_manifest = self._loop.call_later(DEBOUNCE_SECONDS, self._handle_manifest)
+                return
             # Determine if frontend or backend
             frontend_dir_str = str(FRONTEND_DIR)
             if path.startswith(frontend_dir_str) and p.suffix in FRONTEND_EXTENSIONS:
@@ -283,6 +298,41 @@ async def _start_code_watcher() -> None:
                 )
             ))
             print(f"[code-watcher] {len(files)} frontend file(s) changed, notifying browser")
+
+        def _handle_manifest(self) -> None:
+            self._pending_manifest = None
+            files = sorted(self._manifest_changes)
+            self._manifest_changes.clear()
+            if not files:
+                return
+
+            # Invalidate manifest cache for changed employees
+            for f in files:
+                emp_id = Path(f).parent.name
+                invalidate_manifest_cache(emp_id)
+                print(f"[code-watcher] Invalidated manifest cache for {emp_id}")
+
+            # Notify and schedule graceful restart (same as backend changes)
+            asyncio.ensure_future(event_bus.publish(
+                CompanyEvent(
+                    type="code_update_available",
+                    payload={"changed_files": files, "count": len(files), "reason": "Founding employee manifest changed"},
+                    agent="SYSTEM",
+                )
+            ))
+            if employee_manager.is_idle():
+                print(f"[code-watcher] Founding manifest changed, restarting now (idle)")
+                asyncio.ensure_future(employee_manager._trigger_graceful_restart())
+            else:
+                employee_manager._restart_pending = True
+                print(f"[code-watcher] Founding manifest changed, restart deferred (tasks running)")
+                asyncio.ensure_future(event_bus.publish(
+                    CompanyEvent(
+                        type="backend_restart_scheduled",
+                        payload={"reason": "Founding employee config changed, waiting for tasks to complete", "immediate": False},
+                        agent="SYSTEM",
+                    )
+                ))
 
         def _handle_backend(self) -> None:
             self._pending_backend = None
@@ -331,12 +381,14 @@ async def _start_code_watcher() -> None:
 
     src_dir = str(PROJECT_ROOT / "src")
     frontend_dir = str(FRONTEND_DIR)
+    employees_dir = str(EMPLOYEES_DIR)
     observer.schedule(handler, src_dir, recursive=True)
     observer.schedule(handler, frontend_dir, recursive=True)
+    observer.schedule(handler, employees_dir, recursive=True)
 
     observer.daemon = True
     observer.start()
-    print(f"[code-watcher] Watching {src_dir} (backend) and {frontend_dir} (frontend)")
+    print(f"[code-watcher] Watching {src_dir} (backend), {frontend_dir} (frontend), and founding manifests")
 
     try:
         while True:
