@@ -205,7 +205,7 @@ ${green("Usage:")}
   npx @1mancompany/onemancompany              Start (runs in background)
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
-  npx @1mancompany/onemancompany init         Re-run setup wizard
+  npx @1mancompany/onemancompany init         Re-run setup process
   npx @1mancompany/onemancompany uninstall    Stop service and remove installation
   npx @1mancompany/onemancompany --port 8080  Custom port
   npx @1mancompany/onemancompany --dir ./my   Custom install directory
@@ -322,7 +322,7 @@ ${green("What gets installed automatically:")}
     );
     if (answer === "y" || answer === "yes") {
       stopService(installDir);
-      info("Re-running setup wizard...\n");
+      info("Re-running setup process...\n");
       const pythonBinCheck = isWindows
         ? path.join(installDir, ".venv", "Scripts", "python.exe")
         : path.join(installDir, ".venv", "bin", "python");
@@ -361,9 +361,9 @@ ${green("What gets installed automatically:")}
   const initComplete = fs.existsSync(path.join(installDir, ".onemancompany", ".env"))
     && fs.existsSync(path.join(installDir, ".onemancompany", "company", "human_resource", "employees"));
 
-  // Run setup wizard if needed
+  // Run setup process if needed
   if (passthrough[0] === "init" || !initComplete) {
-    info("Running setup wizard...\n");
+    info("Running setup process...\n");
     const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard"], {
       cwd: installDir,
       stdio: "inherit",

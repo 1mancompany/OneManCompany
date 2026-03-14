@@ -233,7 +233,7 @@ CEO（你，唯一能喝咖啡的人）
 
 | 模式 | 说明 | 要求 |
 | --- | --- | --- |
-| **Company Hosted Agent** | OMC 自建 Agent，通过 OpenRouter 调用 LLM | OpenRouter API Key（设置向导中配置） |
+| **Company Hosted Agent** | OMC 自建 Agent，通过 OpenRouter 调用 LLM | OpenRouter API Key（设置流程中配置） |
 | **Claude Code** | 能力更强，更省 token 开销 | 需要安装 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max 订阅](https://claude.ai) |
 | **OpenClaw** | 开源替代，支持多种 LLM 后端 | 需要安装 [OpenClaw CLI](https://github.com/anthropics/openclaw) + 兼容的 LLM API Key |
 
@@ -284,7 +284,7 @@ npx @1mancompany/onemancompany
 2. 通过 UV 安装 **Python 3.12**（隔离环境，不影响系统）
 3. 克隆仓库
 4. 创建虚拟环境并安装依赖
-5. 启动配置向导（API Key、人才市场等）
+5. 启动配置流程
 
 完成后打开 `http://localhost:8000`，恭喜你成为 CEO。
 
@@ -306,7 +306,7 @@ bash start.sh
 git clone https://github.com/1mancompany/OneManCompany.git
 cd OneManCompany
 
-# 2. 启动（自动安装 UV + Python，首次运行进入配置向导）
+# 2. 启动（自动安装 UV + Python，首次运行进入配置流程）
 bash start.sh
 
 # 3. 打开浏览器
@@ -324,11 +324,11 @@ npx @1mancompany/onemancompany
 # 指定端口
 npx @1mancompany/onemancompany --port 8080
 
-# 重新运行配置向导（修改 API Key 等）
+# 重新运行配置流程
 npx @1mancompany/onemancompany init
 ```
 
-如果通过 npx 启动且服务正在运行，再次执行 `npx @1mancompany/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置向导 → 重新启动。
+如果通过 npx 启动且服务正在运行，再次执行 `npx @1mancompany/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置流程 → 重新启动。
 
 ### 卸载
 
