@@ -92,6 +92,20 @@ npx @1mancompany/onemancompany
 
 ---
 
+## Demos
+
+<table>
+  <tr>
+    <td align="center">
+      <b>"Make me a game"</b><br><br>
+      <video src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" controls width="100%"></video>
+      <br><i>CEO gives one sentence — the team builds a complete game autonomously.</i>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## How It Works
 
 You open a browser. You see a pixel-art office. Your AI employees are at their desks, pretending to look busy.

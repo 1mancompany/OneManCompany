@@ -310,7 +310,9 @@ ${green("What gets installed automatically:")}
     info(`Directory ${installDir} exists (not a git repo) — using as-is`);
   } else {
     info(`Cloning OneManCompany into ${installDir}...`);
-    run(`git clone --depth 1 ${REPO_URL} "${installDir}"`);
+    // Skip LFS files (demo videos etc.) — not needed for running the app
+    const cloneEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
+    run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
 
   // ── Check if already running ─────────────────────────────────────────

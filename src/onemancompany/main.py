@@ -575,8 +575,9 @@ async def lifespan(app: FastAPI):
     if _crons_restored or _webhooks_restored:
         print(f"[startup] Restored {_crons_restored} cron(s), {_webhooks_restored} webhook(s)")
 
+    from onemancompany.core.config import settings as _settings
     print(f"🏢 One Man Company HQ is open!")
-    print(f"   Frontend: http://localhost:{app.state.port if hasattr(app.state, 'port') else 8000}")
+    print(f"   Frontend: http://localhost:{_settings.port}")
     yield
 
     # Stop agent loops

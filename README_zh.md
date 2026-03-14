@@ -181,6 +181,20 @@ OneManCompany 不止于内置能力——它面向全球 Agent 社区开放。
 
 ---
 
+## 演示
+
+<table>
+  <tr>
+    <td align="center">
+      <b>「做个游戏」</b><br><br>
+      <video src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" controls width="100%"></video>
+      <br><i>CEO 一句话 —— 团队自主完成整个游戏开发。</i>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 运作原理
 
 打开浏览器，你看到一间像素风办公室。你的 AI 员工正坐在工位上，假装很忙的样子。
