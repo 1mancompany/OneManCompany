@@ -152,69 +152,6 @@ class TestLoadEmployeeSkills:
         assert "Python" in result["python"]
 
 
-# ---------------------------------------------------------------------------
-# load_employee_guidance / save_employee_guidance
-# ---------------------------------------------------------------------------
-
-class TestEmployeeGuidance:
-    def test_load_missing_file(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        result = config_mod.load_employee_guidance("00010")
-        assert result == []
-
-    def test_load_with_list_data(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        emp_dir = tmp_path / "00010"
-        emp_dir.mkdir()
-        guidance_path = emp_dir / "guidance.yaml"
-        yaml.dump(["note1", "note2"], open(guidance_path, "w"))
-
-        result = config_mod.load_employee_guidance("00010")
-        assert result == ["note1", "note2"]
-
-    def test_load_with_non_list_data(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        emp_dir = tmp_path / "00010"
-        emp_dir.mkdir()
-        guidance_path = emp_dir / "guidance.yaml"
-        # Write a dict instead of list
-        yaml.dump({"key": "value"}, open(guidance_path, "w"))
-
-        result = config_mod.load_employee_guidance("00010")
-        assert result == []
-
-
-
-# ---------------------------------------------------------------------------
-# load_work_principles
-# ---------------------------------------------------------------------------
-
-class TestWorkPrinciples:
-    def test_load_missing_file(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        result = config_mod.load_work_principles("00010")
-        assert result == ""
-
-    def test_load_existing_file(self, tmp_path, monkeypatch):
-        import onemancompany.core.config as config_mod
-
-        monkeypatch.setattr(config_mod, "EMPLOYEES_DIR", tmp_path)
-        emp_dir = tmp_path / "00010"
-        emp_dir.mkdir()
-        (emp_dir / "work_principles.md").write_text("# Principles\n1. Be good")
-
-        result = config_mod.load_work_principles("00010")
-        assert "Be good" in result
-
-
 
 # ---------------------------------------------------------------------------
 # ensure_employee_dir

@@ -401,26 +401,6 @@ def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
-def load_employee_guidance(employee_id: str) -> list[str]:
-    """Load persisted guidance notes from employees/{id}/guidance.yaml."""
-    guidance_path = EMPLOYEES_DIR / employee_id / "guidance.yaml"
-    if not guidance_path.exists():
-        return []
-    with open(guidance_path) as f:
-        data = yaml.safe_load(f)
-    if isinstance(data, list):
-        return data
-    return []
-
-
-def load_work_principles(employee_id: str) -> str:
-    """Load work principles from employees/{id}/work_principles.md."""
-    path = EMPLOYEES_DIR / employee_id / "work_principles.md"
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
-
-
 def get_workspace_dir(employee_id: str) -> Path:
     """Return the private workspace directory for an employee."""
     return EMPLOYEES_DIR / employee_id / "workspace"

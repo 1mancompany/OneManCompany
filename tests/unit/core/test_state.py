@@ -167,22 +167,18 @@ class TestFlushPendingReload:
 # ---------------------------------------------------------------------------
 
 def _setup_reload_mocks(monkeypatch, config_mod, fresh_configs=None,
-                        ex_configs=None, guidance=None, principles="",
+                        ex_configs=None,
                         culture=None, direction=""):
     """Set up all common mocks needed by reload_all_from_disk tests."""
     if fresh_configs is None:
         fresh_configs = {}
     if ex_configs is None:
         ex_configs = {}
-    if guidance is None:
-        guidance = []
     if culture is None:
         culture = []
 
     monkeypatch.setattr(config_mod, "employee_configs", {})
     monkeypatch.setattr(config_mod, "load_employee_configs", MagicMock(return_value=fresh_configs))
-    monkeypatch.setattr(config_mod, "load_employee_guidance", MagicMock(return_value=guidance))
-    monkeypatch.setattr(config_mod, "load_work_principles", MagicMock(return_value=principles))
     monkeypatch.setattr(config_mod, "reload_app_config", MagicMock(return_value={}))
     monkeypatch.setattr(config_mod, "load_ex_employee_configs", MagicMock(return_value=ex_configs))
     monkeypatch.setattr(config_mod, "load_company_culture", MagicMock(return_value=culture))
