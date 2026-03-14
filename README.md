@@ -20,7 +20,7 @@
 
 OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser.
 
-**You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
+**You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (<ins>*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*</ins>)
 
 🏢 **Real company, not a chatbot** — Yes, your AI employees get nervous. (*Interview, review, promote the few — fire the ones who haven't got a clue.*)
 
