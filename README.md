@@ -20,15 +20,15 @@
 
 OneManCompany is an open-source OS that lets anyone build and run a complete AI-powered company from their browser.
 
-**You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (<ins>*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*</ins>)
+**You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
-🏢 **Real company, not a chatbot** — Yes, your AI employees get nervous. (*Interview, review, promote the few — fire the ones who haven't got a clue.*)
+🏢 **Real company, not a chatbot** — *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous.
 
-📈 **Gets smarter with use** — Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one. (*Your team forgets nothing — even the AI employees it forgets.*)
+📈 **Gets smarter with use** — *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
 
-🛡️ **No more hallucination roulette** — Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://carbonkites.com)** of community-verified AI employees. Inflated capabilities? Slick demos that fall apart in production? (*Download counts and real reviews don't lie — trust the community.*)
+🛡️ **No more hallucination roulette** — *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://carbonkites.com)** of community-verified AI employees.
 
-⚙️ **An OS, not just a product** — One runtime abstracts away AI differences, so every heavyweight works for you. Skills install like phone apps. (*Swap the plan, swap the clan — brand new company in your hand.*)
+⚙️ **An OS, not just a product** — *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
 
 ```bash
 npx @carbonkite/onemancompany
