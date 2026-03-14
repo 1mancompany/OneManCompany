@@ -22,89 +22,19 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously.
 
-🏢 **Real company management** — Yes, your AI employees have performance reviews. Yes, they get nervous.
+🏢 **Real company, not a chatbot** — Org chart, hiring, firing, performance reviews. Yes, your AI employees get nervous.
 
-📈 **Gets better with use** — Your AI employees don't plateau. Every retrospective, performance review, and 1-on-1 coaching session becomes lasting work experience and company knowledge — yell at them once for a mistake, they won't make it twice. Still not good enough? Fire them — the next one will be more obedient.
+📈 **Gets smarter with use** — Every retrospective and 1-on-1 becomes lasting experience. Yell at them once, they won't repeat it. Still bad? Fire them — the next one will be more obedient.
 
-🛡️ **No more hallucinations** — Tired of AI agents that confidently produce nonsense? We ship with a **[Talent Market](https://carbonkites.com)** — community-verified AI employees that actually deliver. Not random hallucination machines — these ones had to pass an interview.
+🛡️ **No more hallucination roulette** — Ship with a **[Talent Market](https://carbonkites.com)** of community-verified AI employees. These ones had to pass an interview.
 
-⚙️ **Not just a company — an operating system** — A unified runtime that abstracts away AI differences, so Claude Code, OpenClaw, and other heavyweights all work for you; skill packages on the Talent Market install like phone apps; swap the direction, swap the team, and you've got a whole new company.
+⚙️ **An OS, not just a product** — Unified runtime abstracts AI differences; Talent Market installs like an app store; swap direction + team = new company.
 
----
+```bash
+npx @carbonkite/onemancompany
+```
 
-## Why OneManCompany?
-
-Today's AI tools help you do individual tasks — write an email, generate an image, fix a bug. Cute. OneManCompany gives you **an entire organization.**
-
-- **Not a chatbot** — a company with org structure, hiring, task management, performance reviews, and knowledge management
-- **Not a demo** — delivers production-grade output (games, comics, apps — not "here's a draft, good luck")
-- **Not a framework** — a complete platform you can run from your browser, no code required
-
-### What You Can Build
-
-| AI Company           | What It Delivers                                                  |
-| -------------------- | ----------------------------------------------------------------- |
-| 🎮 AI Game Studio    | Production-grade games with full playtesting and iteration cycles |
-| 📖 AI Manga Studio   | Serialized comic stories with consistent art and narrative        |
-| 💻 AI Dev Agency     | Ship software products end-to-end                                 |
-| 🎨 AI Content Studio | Marketing campaigns, branded content, and media production        |
-| 🔬 AI Research Lab   | Literature review, data analysis, and report generation           |
-
-These aren't toy demos — each AI company produces **product-level deliverables** through a full team of collaborating AI agents.
-
-### How We're Different
-
-|                                | Typical Agent Orchestrators          | OneManCompany                                                                                                                                     |
-| ------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — deep modular architecture with 6 Harness protocols and 3-tier customization                                          |
-| **Where do agents come from?** | You find and configure them yourself | **Founding C-suite built-in on Day 1**. Other employees hired by HR from a community-verified **Talent Market** — no more hunting for good agents |
-| **Execution model**            | Heartbeat polling / loop             | Event-driven, zero-idle, on-demand dispatch                                                                                                       |
-| **Organization**               | Simple task queues                   | Full Fortune 500-style company simulation (see below)                                                                                             |
-| **Deliverables**               | Single-point task outputs            | Production-grade, multi-iteration project delivery with quality gates                                                                             |
-
-### Why We Deliver Product-Grade Output
-
-Scattered AI tools stop at draft-quality output. OneManCompany replicates the full business processes of successful companies, minimizing human intervention for end-to-end delivery:
-
-- **Enterprise-style task orchestration** — The multi-agent system automatically breaks complex projects into specialized phases (requirements → design → development → testing → deployment), assigns owners, and coordinates like a real team.
-- **Smart talent matching** — The recruiting agent matches the right AI employee to every role — senior engineer, UI/UX designer, project manager — ensuring skills align precisely with task demands.
-- **Closed-loop management & organizational evolution** — After delivery, the system automatically runs retrospectives, captures lessons learned, and optimizes workflows. Insights from every project (better coding standards, design feedback, problem-solving strategies) are distilled into employee-level work experience and company-level knowledge base, making the entire organization better with use.
-
-### Built Like a Real Company
-
-We didn't just borrow corporate vocabulary — we faithfully modeled how Fortune 500 companies actually operate:
-
-- **Org chart & reporting lines** — hierarchical management, department-based structure
-- **Hiring & onboarding** — HR searches Talent Market, CEO interviews, automated onboarding flow
-- **Firing & offboarding** — yes, you can fire underperformers (with proper cleanup, not just `kill -9`)
-- **Performance reviews** — quarterly scoring, probation, PIP, promotion tracks
-- **Task delegation & approval chains** — CEO → executives → employees, with quality gates at every level
-- **Meeting rooms** — multi-agent synchronous discussions with meeting reports
-- **Knowledge base & SOPs** — company culture, direction docs, workflow definitions
-- **File change approvals** — employees propose edits, CEO reviews diffs and approves in batch
-- **Cost accounting** — per-project LLM token usage and USD cost tracking
-- **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior
-- **Hot reload & graceful restart** — zero-downtime deployments for AI companies
-
-Something missing? [Open an issue](https://github.com/1mancompany/OneManCompany/issues) or build it yourself — that's the beauty of open source.
-
-### Why It's an OS, Not Just a Company
-
-A company is a team with specific goals and members. An operating system is the underlying infrastructure that gives your team scalability, flexibility, and the ability to evolve. OneManCompany doesn't build **a** company — it lets you build **any** company. Three traits make it an operating system, not just a product:
-
-1. **Unified Runtime** — An OS abstracts away hardware differences so you don't care if the CPU is Intel or AMD. OneManCompany abstracts away AI differences — you don't need to know if your employee runs on Claude Code or OpenClaw. The Vessel layer handles scheduling, retries, and communication uniformly.
-2. **Install Employees Like Apps** — Phone OS has an app store; OneManCompany has a Talent Market. Need a designer? HR hires one from the market, plug and play. Not performing? Coach them or fire them — the next one will be better.
-3. **Same System, Different Company** — The same iOS can be your work phone or your kid's gaming device — it depends on what apps you install and how you configure it. OneManCompany works the same way: swap the Direction, Culture, and Talents, and you have an entirely different company.
-
-### Open Ecosystem, Unlimited Possibilities
-
-OneManCompany goes beyond built-in capabilities — it's open to the global agent community.
-
-**If you're an AI builder**, your agents can be packaged as AI employees (game developers, comic artists, full-stack engineers) and published to the Talent Market, empowering thousands of users and turning your work into scalable value.
-
-**If you're a CEO user**, you can load powerful agents built by others and make them your employees, bringing stronger delivery capabilities to your company. Each agent's core abilities are packaged as modular Skills (e.g., "React component development", "2D character design") that can be freely combined for any project.
-
-You're not just using AI — you're leading a continuously growing, dynamically expanding organization that delivers professional-grade results at a fraction of the cost of a real team.
+> One command. A full AI company in your browser. No Python, no Docker, no config — just run it.
 
 ---
 
@@ -113,47 +43,52 @@ You're not just using AI — you're leading a continuously growing, dynamically 
 <table>
   <tr>
     <td width="33%">
-      <h3>🌳 Task Tree</h3>
-      Hierarchical task breakdown with dependency tracking. Complex projects become manageable subtask graphs.
+      <h3>🏢 Pixel-Art Office</h3>
+      Open your browser to a retro office. Your AI employees sit at their desks, work on tasks, and hold meetings — all visualized in real time.
     </td>
     <td width="33%">
       <h3>🤝 Multi-Agent Meetings</h3>
-      Employees pull each other into meetings to align autonomously. You can sit in or let them figure it out.
+      Employees pull each other into meetings to align — no babysitting needed. Want to micromanage? Join the meeting and steer it yourself.
     </td>
     <td width="33%">
-      <h3>🔍 CEO Review</h3>
-      You approve at every level. Nothing ships without your sign-off — quality gates at each stage.
+      <h3>🔍 Your Level of Control</h3>
+      Hands-off? Just review the final result. Hands-on? Join discussions, review every diff, coach employees mid-task. You choose the granularity — from "just show me results" to full micromanagement.
     </td>
   </tr>
   <tr>
     <td>
       <h3>🏪 Talent Market</h3>
-      Hire community-verified AI employees in one click. Game devs, designers, full-stack engineers — ready to work.
+      Not another "bring your own agent" framework. HR searches a community-verified marketplace, interviews candidates, and onboards them — you just say "I need a designer."
     </td>
     <td>
       <h3>🧠 1-on-1 Coaching</h3>
-      Give guidance that permanently shapes employee behavior. They actually remember and improve.
+      Not a one-off prompt tweak. Sit down with an employee, explain what you want — it becomes permanent work experience. Next task, they already know your standards.
     </td>
     <td>
       <h3>📊 Performance Reviews</h3>
-      Evaluate, PIP, promote, or fire underperformers. Your company, your standards.
+      Quarterly evaluations with real consequences. Probation, PIP, promotion — or termination. Your AI employees know the stakes. Yes, they get nervous.
     </td>
   </tr>
   <tr>
     <td>
-      <h3>⚡ 3 Execution Modes</h3>
-      Company Hosted Agent, Claude Code, or OpenClaw. Pick the runtime that fits each employee.
+      <h3>🔁 Iteration Management</h3>
+      V1 → V2 → V3 → "actually, let's go back to V1." Sound familiar? Every project has structured version control with full history. Your team iterates until you're happy — or until you realize the first draft was right all along.
     </td>
     <td>
-      <h3>🔧 Modular Skills</h3>
-      Each employee's abilities are reusable building blocks. Mix and match skills across your team.
+      <h3>👔 Hire & Fire</h3>
+      One click to hire from the Talent Market. Not performing? Coach them, PIP them, or fire them — the next one will be better.
     </td>
     <td>
       <h3>🔄 Self-Evolution</h3>
-      The more you use it, the smarter your team gets. PUA not enough? Next one will be even better.
+      Employees grow through coaching, sharpen through retrospectives, and become legends through project after project. The org evolves too — repeated tasks auto-distill into workflows that only get smoother.
     </td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="img/task_tree.jpg" alt="OneManCompany — Task Tree" width="80%" />
+  <br><i>Hierarchical task breakdown — CEO delegates, AI employees execute.</i>
+</p>
 
 ---
 
@@ -185,35 +120,39 @@ CEO (You, the only human who gets coffee breaks)
 
 **Founding team (EA, HR, COO, CSO)** comes built-in. Need more people? HR searches the **Talent Market** — a community-verified marketplace of AI employees.
 
-### The Vessel + Talent System
+---
 
-Think of it like **EVA or Gundam** — a powerful mech that comes alive when a pilot is plugged in.
+## What You Can Build
 
-- **Vessel** (the mech) = execution container. Defines how an employee runs: retry logic, timeouts, tool access, communication protocols.
-- **Talent** (the pilot) = capability package. Brings skills, knowledge, personality, and specialized tools.
-- **Employee** = Vessel + Talent. Hire from the Talent Market, and the system handles the rest.
+| AI Company           | What It Delivers                                                  |
+| -------------------- | ----------------------------------------------------------------- |
+| 🎮 AI Game Studio    | Production-grade games with full playtesting and iteration cycles |
+| 📖 AI Manga Studio   | Serialized comic stories with consistent art and narrative        |
+| 💻 AI Dev Agency     | Ship software products end-to-end                                 |
+| 🎨 AI Content Studio | Marketing campaigns, branded content, and media production        |
+| 🔬 AI Research Lab   | Literature review, data analysis, and report generation           |
 
-> For a deep dive into the Vessel architecture, see [docs/vessel-system.md](docs/vessel-system.md).
+These aren't toy demos — each AI company produces **product-level deliverables** through a full team of collaborating AI agents.
+
+### How We're Different
+
+|                                | Typical Agent Orchestrators          | OneManCompany                                                          |
+| ------------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
+| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — modular architecture with Harness protocols |
+| **Where do agents come from?** | You find and configure them yourself | **C-suite built-in on Day 1** + HR hires from a verified Talent Market |
+| **Execution model**            | Heartbeat polling / loop             | Event-driven, zero-idle, on-demand dispatch                            |
+| **Organization**               | Simple task queues                   | Full company simulation — org chart, reviews, coaching, meetings       |
+| **Deliverables**               | Single-point task outputs            | Multi-iteration project delivery with quality gates                    |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+You only need **Node.js 16+** and **Git**. Everything else is installed automatically.
 
-You only need **Node.js 16+** and **Git**. Everything else (UV, Python 3.12, dependencies) is installed automatically.
-
-### Execution Modes
-
-Founding employees (EA, HR, COO, CSO) support two execution modes, switchable in settings:
-
-| Mode | Description | Requirements |
-| --- | --- | --- |
-| **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup wizard) |
-| **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
-| **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
-
-Defaults to Company Hosted Agent — no extra subscription needed to get started. Install the corresponding CLI before using Claude Code or OpenClaw, see [Execution Modes docs](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) for details.
+```bash
+npx @carbonkite/onemancompany
+```
 
 <details>
 <summary><b>macOS</b></summary>
@@ -264,55 +203,53 @@ First run automatically:
 
 Then open `http://localhost:8000`. Congratulations, you're a CEO now.
 
-### Start Again Later
+### Execution Modes
+
+Founding employees (EA, HR, COO, CSO) support three execution modes, switchable in settings:
+
+| Mode | Description | Requirements |
+| --- | --- | --- |
+| **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup wizard) |
+| **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
+| **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
+
+Defaults to Company Hosted Agent — no extra subscription needed to get started. See [Execution Modes docs](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) for details.
+
+### Manage Your Service
 
 ```bash
-# Option 1: npx again (auto-updates if there's a new version)
+# Restart / auto-update
 npx @carbonkite/onemancompany
 
-# Option 2: run directly from the cloned directory
-cd OneManCompany
-bash start.sh
+# Debug mode (foreground with logs, Ctrl+C to stop)
+npx @carbonkite/onemancompany --debug
+
+# Stop background service
+npx @carbonkite/onemancompany stop
+
+# Re-run setup wizard (change API keys, etc.)
+npx @carbonkite/onemancompany init
+
+# Custom port
+npx @carbonkite/onemancompany --port 8080
+
+# Uninstall (stops service + deletes installation)
+npx @carbonkite/onemancompany uninstall
 ```
 
-### Manual Install
+### Manual Install (Dev Mode)
 
 ```bash
 # 1. Clone
 git clone https://github.com/1mancompany/OneManCompany.git
 cd OneManCompany
 
-# 2. Start (auto-installs UV + Python if needed, then runs setup wizard on first launch)
+# 2. Start (auto-installs UV + Python if needed)
 bash start.sh
 
 # 3. Open browser
-open http://localhost:8000    # macOS
-# xdg-open http://localhost:8000  # Linux
-# start http://localhost:8000     # Windows
+open http://localhost:8000
 ```
-
-### Restart / Reconfigure
-
-```bash
-# Restart server
-npx @carbonkite/onemancompany
-
-# Custom port
-npx @carbonkite/onemancompany --port 8080
-
-# Re-run setup wizard (change API keys, etc.)
-npx @carbonkite/onemancompany init
-```
-
-If you launched via npx and the service is already running, running `npx @carbonkite/onemancompany` again will ask whether to stop the current service and re-setup. Choose y to stop → re-run setup wizard → restart.
-
-### Uninstall
-
-```bash
-npx @carbonkite/onemancompany uninstall
-```
-
-This stops the running service and deletes the entire installation directory (including `.onemancompany/` config and all company data). Requires confirmation before proceeding.
 
 ### Configuration Files
 
@@ -321,6 +258,66 @@ This stops the running service and deletes the entire installation directory (in
 | `.onemancompany/.env`        | API keys (OpenRouter, Anthropic, etc.) |
 | `.onemancompany/config.yaml` | App config (Talent Market URL, etc.)   |
 | Browser Settings panel       | Frontend preferences                   |
+
+---
+
+## Under the Hood
+
+### Why It's an OS, Not Just a Company
+
+A company is a team with specific goals. An operating system is the infrastructure that gives your team scalability, flexibility, and the ability to evolve. Three traits make OneManCompany an OS:
+
+1. **Unified Runtime** — Abstracts away AI differences. You don't need to know if your employee runs on Claude Code or OpenClaw — the Vessel layer handles scheduling, retries, and communication uniformly.
+2. **Install Employees Like Apps** — Phone OS has an app store; we have a Talent Market. Need a designer? HR hires one, plug and play. Not performing? Fire them — the next one will be better.
+3. **Same System, Different Company** — Swap the Direction, Culture, and Talents, and you have an entirely different company. A game studio today, a dev agency tomorrow.
+
+### Built Like a Real Company
+
+We faithfully modeled how Fortune 500 companies actually operate:
+
+- **Org chart & reporting lines** — hierarchical management, department-based structure
+- **Hiring & onboarding** — HR searches Talent Market, CEO interviews, automated onboarding flow
+- **Firing & offboarding** — yes, you can fire underperformers (with proper cleanup, not just `kill -9`)
+- **Performance reviews** — quarterly scoring, probation, PIP, promotion tracks
+- **Task delegation & approval chains** — CEO → executives → employees, with quality gates at every level
+- **Meeting rooms** — multi-agent synchronous discussions with meeting reports
+- **Knowledge base & SOPs** — company culture, direction docs, workflow definitions
+- **File change approvals** — employees propose edits, CEO reviews diffs and approves in batch
+- **Cost accounting** — per-project LLM token usage and USD cost tracking
+- **1-on-1 coaching** — CEO guidance sessions that permanently shape employee behavior
+- **Hot reload & graceful restart** — zero-downtime deployments for AI companies
+
+Something missing? [Open an issue](https://github.com/1mancompany/OneManCompany/issues) or build it yourself — that's the beauty of open source.
+
+### Why We Deliver Product-Grade Output
+
+Scattered AI tools stop at draft-quality output. OneManCompany replicates full business processes to minimize human intervention:
+
+- **Enterprise-style task orchestration** — Automatically breaks complex projects into specialized phases (requirements → design → development → testing → deployment), assigns owners, and coordinates like a real team.
+- **Smart talent matching** — The recruiting agent matches the right AI employee to every role, ensuring skills align precisely with task demands.
+- **Closed-loop evolution** — After delivery, the system runs retrospectives, captures lessons learned, and optimizes workflows. Every project makes the entire organization better.
+
+### The Vessel + Talent System
+
+Think of it like **EVA or Gundam** — a powerful mech that comes alive when a pilot is plugged in.
+
+- **Vessel** (the mech) = execution container. Defines how an employee runs: retry logic, timeouts, tool access, communication protocols.
+- **Talent** (the pilot) = capability package. Brings skills, knowledge, personality, and specialized tools.
+- **Employee** = Vessel + Talent. Hire from the Talent Market, and the system handles the rest.
+
+> For a deep dive into the Vessel architecture, see [docs/vessel-system.md](docs/vessel-system.md).
+
+---
+
+## Open Ecosystem
+
+OneManCompany goes beyond built-in capabilities — it's open to the global agent community.
+
+**If you're an AI builder**, your agents can be packaged as AI employees (game developers, comic artists, full-stack engineers) and published to the Talent Market, empowering thousands of users and turning your work into scalable value.
+
+**If you're a CEO user**, you can load powerful agents built by others and make them your employees, bringing stronger delivery capabilities to your company. Each agent's core abilities are packaged as modular Skills (e.g., "React component development", "2D character design") that can be freely combined for any project.
+
+You're not just using AI — you're leading a continuously growing, dynamically expanding organization that delivers professional-grade results at a fraction of the cost of a real team.
 
 ---
 
