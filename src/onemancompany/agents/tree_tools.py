@@ -345,6 +345,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
             return {"status": "error", "message": f"No handle for employee {node.employee_id}, cannot push correction task."}
 
         # Reset to pending and re-schedule
+        node.load_content(project_dir)  # Ensure description is loaded before reading
         node.set_status(TaskPhase.PENDING)
         node.result = ""
         node.description = (

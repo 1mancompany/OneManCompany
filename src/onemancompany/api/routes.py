@@ -5208,7 +5208,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
-                "description": node.description,
+                "description": node.description_preview,
                 "from_employee_id": from_id,
                 "from_nickname": from_nickname,
                 "status": node.status,
@@ -5285,6 +5285,7 @@ async def open_ceo_conversation(node_id: str):
     asyncio.create_task(_run_conversation_loop(session, node, tree, project_dir))
 
     messages = load_messages(Path(project_dir) / "conversations", node_id)
+    node.load_content(project_dir)
     return {
         "status": "opened",
         "node_id": node_id,

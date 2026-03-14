@@ -352,7 +352,7 @@ class TaskTree:
         )
 
     @classmethod
-    def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = False) -> TaskTree:
+    def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = True) -> TaskTree:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         tree = cls(project_id=project_id or data.get("project_id", ""))
         tree.root_id = data.get("root_id", "")

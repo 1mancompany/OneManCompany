@@ -110,7 +110,7 @@ def _get_tree_lock(project_id: str) -> asyncio.Lock:
 # Dependency context builder
 # ---------------------------------------------------------------------------
 
-def _build_dependency_context(tree, node) -> str:
+def _build_dependency_context(tree, node, project_dir: str = "") -> str:
     """Build context string from resolved dependency results."""
     if not node.depends_on:
         return ""
@@ -120,6 +120,10 @@ def _build_dependency_context(tree, node) -> str:
         dep = tree.get_node(dep_id)
         if not dep or not dep.is_resolved:
             continue
+        # Load content for reading description/result
+        load_dir = dep.project_dir or project_dir
+        if load_dir:
+            dep.load_content(load_dir)
         result = dep.result or "(no result)"
         if len(result) > max_per_dep:
             result = "..." + result[-max_per_dep:]
@@ -128,6 +132,74 @@ def _build_dependency_context(tree, node) -> str:
     if not sections:
         return ""
     return "=== Dependency Results ===\n" + "\n\n".join(sections) + "\n=== End Dependencies ===\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Distance-based tree context builder
+# ---------------------------------------------------------------------------
+
+def _build_tree_context(tree, node, project_dir: str) -> str:
+    """Build distance-based tree context for an employee.
+
+    - Current node + parent: full content (load_content)
+    - Grandparent+: skeleton only (id + status + preview)
+    - Children needing review: full result
+    - Accepted children: skeleton only
+    """
+    parts: list[str] = []
+
+    # Walk up: ancestors
+    ancestors: list[tuple] = []  # (node, distance)
+    current = node
+    dist = 0
+    while current.parent_id:
+        parent = tree.get_node(current.parent_id)
+        if not parent:
+            break
+        dist += 1
+        ancestors.append((parent, dist))
+        current = parent
+
+    if ancestors:
+        parts.append("=== Task Chain (ancestors) ===")
+        for anc, d in reversed(ancestors):
+            if d <= 1:  # parent only
+                anc.load_content(project_dir)
+                parts.append(f"[Lv-{d}] {anc.id} ({anc.employee_id}) [{anc.status}]")
+                parts.append(f"  Description: {anc.description}")
+                if anc.result:
+                    parts.append(f"  Result: {anc.result}")
+            else:
+                parts.append(f"[Lv-{d}] {anc.id} ({anc.employee_id}) [{anc.status}]")
+                parts.append(f"  Preview: {anc.description_preview}")
+        parts.append("")
+
+    # Current node
+    node.load_content(project_dir)
+    parts.append(f"=== Current Task ({node.id}) ===")
+    parts.append(f"Description: {node.description}")
+    if node.result:
+        parts.append(f"Result: {node.result}")
+    parts.append("")
+
+    # Children
+    children = tree.get_active_children(node.id)
+    if children:
+        parts.append("=== Child Tasks ===")
+        for child in children:
+            if child.is_ceo_node:
+                continue
+            if child.status == "accepted":
+                parts.append(f"  [ACCEPTED] {child.id} ({child.employee_id}): {child.description_preview[:100]}")
+            elif child.is_done_executing:
+                child.load_content(project_dir)
+                parts.append(f"  [{child.status.upper()}] {child.id} ({child.employee_id}): {child.description}")
+                parts.append(f"    Result: {child.result}")
+            else:
+                parts.append(f"  [{child.status.upper()}] {child.id} ({child.employee_id}): {child.description_preview}")
+        parts.append("")
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +773,8 @@ class EmployeeManager:
                     tree = get_tree(entry.tree_path)
                     node = tree.get_node(entry.node_id)
                     if node and node.status == TaskPhase.HOLDING.value:
+                        load_dir = node.project_dir or str(Path(entry.tree_path).parent)
+                        node.load_content(load_dir)
                         meta = _parse_holding_metadata(node.result or "")
                         if meta:
                             self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
@@ -794,10 +868,15 @@ class EmployeeManager:
         agent_error = False
         try:
             # 4. Build task context with injections
-            task_with_ctx = node.description
+            _effective_dir = project_dir or str(Path(entry.tree_path).parent)
+            node.load_content(_effective_dir)
+
+            # Tree context includes current node description + ancestors + children
+            tree_ctx = _build_tree_context(tree, node, _effective_dir)
+            task_with_ctx = tree_ctx if tree_ctx else node.description
 
             # Inject dependency context if this node has depends_on
-            dep_ctx = _build_dependency_context(tree, node)
+            dep_ctx = _build_dependency_context(tree, node, _effective_dir)
             if dep_ctx:
                 task_with_ctx = dep_ctx + task_with_ctx
 
@@ -1445,6 +1524,7 @@ class EmployeeManager:
             return
 
         # Build review prompt for parent employee
+        project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         needs_review = []
         already_accepted = []
         for child in children:
@@ -1459,13 +1539,14 @@ class EmployeeManager:
         if already_accepted and needs_review:
             lines.append("以下子任务已通过验收，无需重复审核：")
             for child in already_accepted:
-                lines.append(f"  \u2713 ({child.employee_id}): {child.description[:80]}")
+                lines.append(f"  \u2713 ({child.employee_id}): {child.description_preview[:80]}")
             lines.append("")
 
         if needs_review:
             lines.append("以下子任务需要审核：")
             lines.append("")
             for i, child in enumerate(needs_review, 1):
+                child.load_content(project_dir)
                 criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
                 lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
                 lines.append(f"  验收标准: {criteria_str}")
@@ -1484,7 +1565,6 @@ class EmployeeManager:
         review_prompt = "\n".join(lines)
 
         # Create a review node in the tree and schedule it
-        project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         review_node = tree.add_child(
             parent_id=parent_node.id,
             employee_id=parent_node.employee_id,
