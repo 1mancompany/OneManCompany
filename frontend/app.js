@@ -2028,7 +2028,7 @@ class AppController {
     container.innerHTML = '<div style="color:var(--text-dim);font-size:6px;padding:4px;">Loading settings...</div>';
 
     try {
-      const empResp = await fetch(`/api/employee/${empId}`).then(r => r.json());
+      const empResp = await fetch(`/api/employee/${empId}?_t=${Date.now()}`).then(r => r.json());
       const manifest = empResp.manifest;
 
       if (empResp.hosting === 'self') {
@@ -2037,6 +2037,13 @@ class AppController {
         this._renderSelfHostedSection(empId, empResp, container);
       } else if (manifest && manifest.settings && manifest.settings.sections) {
         container.innerHTML = '';
+        // Founding employee notice
+        if (empResp.level >= 4) {
+          const notice = document.createElement('div');
+          notice.style.cssText = 'font-size:5px;color:var(--pixel-yellow);padding:2px 4px;margin-bottom:3px;opacity:0.7;';
+          notice.textContent = '⚠ Settings changes will trigger a server reload. Use when no tasks are running.';
+          container.appendChild(notice);
+        }
         for (const section of manifest.settings.sections) {
           const sectionEl = document.createElement('div');
           sectionEl.className = 'emp-settings-section';
@@ -2271,8 +2278,8 @@ class AppController {
         });
       }
       this.logEntry('CEO', `Settings saved for employee #${empId}`, 'ceo');
-      // Refresh to show updated status
-      this._loadModelOrApiKeySection(empId);
+      // Refresh to show updated settings (await to ensure re-render completes before finally block)
+      await this._loadModelOrApiKeySection(empId);
     } catch (err) {
       this.logEntry('SYSTEM', `Save failed: ${err.message}`, 'system');
     } finally {
