@@ -26,10 +26,12 @@ Task tree (`task_tree.yaml`) grows unbounded as projects run:
 
 **TaskNode changes:**
 
-- `to_dict()` no longer serializes `description` and `result`. These are written to `nodes/{id}.yaml` via a new `save_content(project_dir)` method.
+- `description` and `result` become **property descriptors** backed by private `_description` / `_result` fields. The setter auto-sets `_content_dirty = True`.
+- `to_dict()` no longer serializes `description` and `result`. Only `description_preview` (first 200 chars) is included in the skeleton.
 - `from_dict()` does not load description/result (lazy). They remain empty strings until explicitly loaded.
-- New `load_content(project_dir)` method reads `nodes/{id}.yaml` on demand.
-- Tree skeleton retains `description_preview: str` (first 200 chars) for inbox listings, logs, and other places that don't need full text.
+- New `load_content(project_dir)` method reads `nodes/{id}.yaml` on demand. Idempotent — if already loaded (`_content_loaded = True`), returns immediately.
+- New `save_content(project_dir)` method writes `nodes/{id}.yaml` only if `_content_dirty`. Resets dirty flag after write.
+- Content is cached on the node object after first `load_content()` — all coroutines sharing the same in-memory TaskNode see the same data.
 
 **`nodes/{node_id}.yaml` format:**
 
@@ -42,21 +44,31 @@ result: |
 
 **Backward compatibility:**
 
-- `TaskNode.from_dict()`: if the dict contains `result`/`description` (old format), load them normally.
-- On next `save()`, the tree writes skeleton-only; `save_content()` writes the node file. Gradual migration, no batch conversion needed.
-- `TaskTree.save(path)` calls `node.save_content(path.parent)` for every node before writing the skeleton.
+- `TaskNode.from_dict()`: if the dict contains `result`/`description` (old format), load them into `_description`/`_result` normally and mark `_content_dirty = True` so next save migrates to new format.
+- On next `save()`, the tree writes skeleton-only; dirty nodes get their content written to `nodes/`. Gradual migration, no batch conversion needed.
+- `TaskTree.save(path)` iterates nodes and calls `save_content(path.parent)` only for dirty nodes, then writes the skeleton YAML.
 - `TaskTree.load(path)` only loads skeleton. Callers that need full text call `node.load_content(path.parent)`.
 
-**Key callers that need updating:**
+**All sites that assign `node.result` or `node.description`:**
 
-| Caller | File | Action |
-|--------|------|--------|
-| `_build_dependency_context()` | vessel.py:113 | Call `load_content()` before reading `dep.result` |
-| Review prompt builder | vessel.py:1458-1484 | Call `load_content()` for children needing review |
-| `_post_task_cleanup` result assignment | vessel.py:881 | Call `save_content()` after setting `node.result` |
-| `tree_manager.py` event handling | tree_manager.py:116 | Call `save_content()` when result is updated |
-| CEO inbox scan | routes.py:5175 | Use `description_preview` instead of full description |
-| Task cancel/abort | routes.py, vessel.py | No change needed (only touches status, not content) |
+The property setter handles dirty-tracking automatically. No manual `save_content()` calls needed at these sites — the next `save_tree_async()` will flush dirty nodes.
+
+| Site | File | What it does |
+|------|------|--------------|
+| `_build_dependency_context()` | vessel.py:113 | Reads `dep.result` — must call `load_content()` first |
+| Review prompt builder | vessel.py:1458-1484 | Reads `child.result` / `child.description` — must call `load_content()` first |
+| Task execution result | vessel.py:881 | `node.result = launch_result.output` — setter marks dirty |
+| CancelledError handler | vessel.py:898 | `node.result = "Cancelled by CEO"` — setter marks dirty |
+| TimeoutError handler | vessel.py:905 | `node.result = str(te)` — setter marks dirty |
+| Generic error handler | vessel.py:912 | `node.result = f"Error: {e!s}"` — setter marks dirty |
+| Holding resume path | vessel.py:1037 | `node.result = result` — setter marks dirty |
+| Auto-complete parent | vessel.py:1442 | `parent_node.result = "All child tasks accepted."` — setter marks dirty |
+| TreeManager event | tree_manager.py:116 | `node.result = event.data.get(...)` — setter marks dirty |
+| `reject_child` reset | tree_tools.py:349-353 | `node.result = ""`, `node.description = ...` — setter marks dirty |
+| `cancel_child` | tree_tools.py:468 | `node.result = reason or "Cancelled by parent"` — setter marks dirty |
+| Project abort | routes.py:1643 | `node.result = "Cancelled by CEO (project aborted)"` — setter marks dirty |
+| Cron cancel | automation.py:170 | `node.result = "Cancelled: cron stopped"` — setter marks dirty |
+| CEO inbox scan | routes.py:5175 | Use `description_preview` from skeleton — no `load_content()` needed |
 
 ### 2. Employee Context Windowing
 
@@ -75,41 +87,83 @@ result: |
 
 **New function: `_build_tree_context(tree, node, project_dir) -> str`**
 
-- Replaces scattered context assembly across vessel.py.
-- Walks up 2 levels with full text, then skeleton only.
+- New functionality (not replacing existing scattered code — current context is built in a single block at vessel.py:796-820, but does not walk the tree).
+- Walks up 2 levels with full text (calls `load_content()`), then skeleton only for higher ancestors.
 - Walks down to children with review-aware truncation.
-- Single source of truth for tree context injection.
+- Injected alongside existing context (project identity, workspace, history, etc.).
 
 **New tool: `read_node_detail(node_id: str) -> str`**
 
 - Registered as a common tool for all employees (alongside `list_colleagues`, `pull_meeting`).
-- Implementation: loads `nodes/{node_id}.yaml` and returns formatted description + result + acceptance_criteria + status.
+- Implementation: derives `project_dir` from current task context (via `_current_vessel` / `_current_task_id` → look up `tree_path` from `employee_manager._schedule`), then loads `nodes/{node_id}.yaml`.
+- Returns formatted description + result + acceptance_criteria + status.
 - Allows employees to inspect any ancestor/sibling node on demand when the skeleton context isn't enough.
 - Added to `common_tools.py`.
 
-### 3. EA/COO Review Circuit Breaker
+### 3. Tree Growth Circuit Breaker (General)
 
-**Current:** Each review cycle creates a new review node under the parent. No limit on rounds.
+**Current:** No limits on tree growth. Review cycles, dispatch loops, and deep nesting can all cause unbounded expansion.
 
-**New: max review rounds with CEO escalation.**
+**New: three-layer protection, all with CEO escalation.**
+
+#### 3a. Review round limit
+
+**Problem:** Review cycles (reject → retry → new review node → reject …) create unlimited nodes.
 
 **Counting mechanism:**
 
-In `_post_task_cleanup` (vessel.py), before creating a review node, count existing review-type children under the same parent for the same employee. A "review round" = a completed task-type child of the parent with the same employee_id that was a review.
+- Introduce `node_type = "review"` to explicitly tag review nodes (replacing fragile string-prefix detection of `"以下子任务"`).
+- In `_full_cleanup` (vessel.py), before creating a review node, count children with `node_type == "review"` under the same parent.
 
-**Threshold behavior (configurable `max_review_rounds`, default 3):**
+**Threshold behavior (`max_review_rounds`, default 3):**
 
 - Rounds ≤ threshold: create review node as normal.
 - Rounds > threshold:
   1. Set parent node to `holding` status.
-  2. Call `dispatch_child("00001", ...)` to create a `ceo_request` node.
-  3. Message content: summary of the deadlock — which task, how many rounds, last round's disagreement point (last child's result + acceptance_result.notes).
-  4. CEO sees it in inbox, intervenes.
+  2. Create a `ceo_request` node (`dispatch_child("00001", ...)`).
+  3. Message: summary of deadlock — task description, round count, last disagreement (last child's `acceptance_result.notes`).
+  4. CEO sees it in inbox, intervenes via conversation.
 
-**Configuration:**
+**CEO intervention flow after escalation:**
 
-- `max_review_rounds: int = 3` in `config.py` task configuration section.
-- Not hardcoded in vessel.py logic.
+- CEO opens the inbox item, reads the deadlock summary.
+- CEO replies via conversation (e.g., "accept as-is" / "cancel this task" / specific guidance).
+- The conversation result is written to the `ceo_request` node's result.
+- Parent node transitions from `holding` back to `processing` and receives the CEO's guidance as context for the next action.
+
+#### 3b. Children count limit per parent
+
+**Problem:** An employee can `dispatch_child()` endlessly, creating unlimited siblings.
+
+**Mechanism:**
+
+- In `dispatch_child()` (tree_tools.py), before creating a child, count active children under the parent.
+- Threshold: `max_children_per_node`, default 10.
+- Exceeded: return error to the agent: "已达子任务上限 ({max})，请整合现有任务或向上汇报。" Agent must consolidate or escalate.
+
+#### 3c. Tree depth limit
+
+**Problem:** Nested delegation (A dispatches to B, B dispatches to C, C dispatches to D…) creates unbounded depth.
+
+**Mechanism:**
+
+- In `dispatch_child()` (tree_tools.py), walk up from current node to root, counting depth.
+- Threshold: `max_tree_depth`, default 6.
+- Exceeded: return error to the agent: "任务树已达最大深度 ({max})，无法继续下派，请直接完成或向上汇报。"
+
+#### Escalation target
+
+All escalations go directly to CEO (`employee_id = "00001"`). Company hierarchy is shallow (CEO → EA/COO → employees, max 3 layers), intermediate escalation adds no value.
+
+#### Configuration
+
+All thresholds in `config.py` task configuration section:
+
+```python
+max_review_rounds: int = 3
+max_children_per_node: int = 10
+max_tree_depth: int = 6
+```
 
 ### 4. Three-Granularity Resource Recovery
 
@@ -126,11 +180,12 @@ In `_post_task_cleanup` (vessel.py), before creating a review node, count existi
 #### `abort_employee(employee_id)`
 
 1. Clear `_schedule[employee_id]` (all queued tasks).
-2. Cancel `_running_tasks[employee_id]` (`asyncio.Task.cancel()`).
-3. Traverse all tree files where this employee has nodes → force `CANCELLED`.
-4. `stop_all_crons_for_employee(employee_id)`.
-5. Reset employee status to `IDLE`.
-6. Broadcast state snapshot.
+2. Clear `_deferred_schedule` for this employee.
+3. Cancel `_running_tasks[employee_id]` (`asyncio.Task.cancel()`).
+4. Traverse all tree files where this employee has **non-terminal** nodes (`pending`, `processing`, `holding`) → force `CANCELLED`. Do NOT touch `completed`/`accepted`/`finished` nodes — they may be part of active projects with valid dependency graphs.
+5. `stop_all_crons_for_employee(employee_id)`.
+6. Reset employee status to `IDLE`.
+7. Broadcast state snapshot.
 
 #### `abort_all()`
 
@@ -139,7 +194,7 @@ In `_post_task_cleanup` (vessel.py), before creating a review node, count existi
 3. `stop_all_daemons()` — kill all Claude CLI subprocesses.
 4. Broadcast state snapshot.
 
-**Semantics:** "Stop all work, company stays running." Server, WebSocket, frontend all remain up. Employees go IDLE. CEO can re-dispatch tasks immediately.
+**Semantics:** "Stop all work, company stays running." Server, WebSocket, frontend all remain up. Employees go IDLE. CEO can re-dispatch tasks immediately. Claude CLI daemons will auto-restart on next task dispatch (via `_get_or_start_daemon`).
 
 #### Harden existing `abort_project()`
 
@@ -155,14 +210,28 @@ In `_post_task_cleanup` (vessel.py), before creating a review node, count existi
 
 | File | Changes |
 |------|---------|
-| `core/task_tree.py` | TaskNode: add `description_preview`, `save_content()`, `load_content()`. Modify `to_dict()`/`from_dict()`. TaskTree.save() writes node files. |
-| `core/vessel.py` | New `_build_tree_context()`. Update `_post_task_cleanup` for circuit breaker. New `abort_employee()`, `abort_all()`. Update callers to use `load_content()`. |
-| `core/config.py` | Add `max_review_rounds` config. |
+| `core/task_tree.py` | TaskNode: property descriptors for `description`/`result`, `_content_dirty`/`_content_loaded` flags, `description_preview`, `save_content()`, `load_content()`. Add `node_type = "review"`. Modify `to_dict()`/`from_dict()`. `TaskTree.save()` flushes dirty node files. |
+| `core/vessel.py` | New `_build_tree_context()`. Update `_full_cleanup` for review circuit breaker. New `abort_employee()`, `abort_all()`. Add `load_content()` calls where `node.result`/`node.description` are read. |
+| `core/tree_manager.py` | Update `_save()` and event handlers to work with externalized content. |
+| `core/config.py` | Add `max_review_rounds`, `max_children_per_node`, `max_tree_depth` config. |
 | `agents/common_tools.py` | Add `read_node_detail()` tool. |
+| `agents/tree_tools.py` | Add depth/children count checks in `dispatch_child()`. |
 | `api/routes.py` | New endpoints: `POST /api/employee/{id}/abort`, `POST /api/abort-all`. Update inbox scan to use `description_preview`. |
-| `frontend/app.js` | Add "Stop All" button + confirmation dialog. |
-| `frontend/index.html` | Add button element in management panel. |
-| `tests/unit/core/test_task_tree.py` | Tests for externalized content, save/load roundtrip, backward compat migration. |
+| `frontend/app.js` | Add "Stop All" button + confirmation dialog. Per-employee abort button in employee detail panel. |
+| `frontend/index.html` | Add button elements. |
+
+## Testing
+
+| Area | Test file | Cases |
+|------|-----------|-------|
+| Content externalization | `test_task_tree.py` | save/load roundtrip, backward compat migration (old format → new), dirty tracking, `load_content` idempotency |
+| Context windowing | `test_task_tree.py` | `_build_tree_context` truncation at each distance level |
+| Circuit breaker — review | `test_vessel.py` (new) | Count review rounds, escalation trigger, CEO request node creation |
+| Circuit breaker — children | `test_tree_tools.py` | `dispatch_child` blocked at max children |
+| Circuit breaker — depth | `test_tree_tools.py` | `dispatch_child` blocked at max depth |
+| `abort_employee` | `test_vessel.py` (new) | Only non-terminal nodes cancelled, crons stopped, status reset |
+| `abort_all` | `test_vessel.py` (new) | All employees aborted, daemons stopped |
+| `read_node_detail` | `test_common_tools.py` | Loads content, handles missing node |
 
 ## Non-Goals
 
@@ -170,3 +239,4 @@ In `_post_task_cleanup` (vessel.py), before creating a review node, count existi
 - No changes to conversation storage (`conversations/{node_id}.yaml` already separated).
 - No changes to the task lifecycle state machine itself.
 - Server shutdown behavior unchanged.
+- Snapshot/restore system (`core/snapshot.py`) — may need future update if snapshot captures tree content, but not in scope for this change.
