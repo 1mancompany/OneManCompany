@@ -1899,7 +1899,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
             type="agent_done",
             payload={
                 "role": "CEO",
-                "summary": f"Switched {emp.name} to {hosting_label}. Restart required to take effect.",
+                "summary": f"Switched {emp['name']} to {hosting_label}. Restart required to take effect.",
             },
             agent="CEO",
         )

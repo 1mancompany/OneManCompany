@@ -573,14 +573,15 @@ class EmployeeManager:
 
     def schedule_node(self, employee_id: str, node_id: str, tree_path: str) -> None:
         """Add a node to the employee's schedule."""
+        # Always persist to task index for taskboard visibility
+        from onemancompany.core.store import append_task_index_entry
+        append_task_index_entry(employee_id, node_id, tree_path)
+
         if employee_id not in self.executors:
             logger.debug("Skipping schedule_node for {} (no executor, e.g. CEO)", employee_id)
             return
         entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
         self._schedule.setdefault(employee_id, []).append(entry)
-        # Persist to disk-based task index for taskboard queries
-        from onemancompany.core.store import append_task_index_entry
-        append_task_index_entry(employee_id, node_id, tree_path)
 
     def unschedule(self, employee_id: str, node_id: str) -> None:
         """Remove a completed/failed node from schedule."""
