@@ -31,7 +31,7 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 ⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 > One command. A full AI company in your browser. No Python, no Docker, no config — just run it.
@@ -151,7 +151,7 @@ These aren't toy demos — each AI company produces **product-level deliverables
 You only need **Node.js 16+** and **Git**. Everything else is installed automatically.
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 <details>
@@ -162,7 +162,7 @@ npx @carbonkite/onemancompany
 xcode-select --install
 
 # Launch (auto-installs UV + Python 3.12 + dependencies)
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -175,7 +175,7 @@ npx @carbonkite/onemancompany
 # Install Node.js: https://nodejs.org/
 
 # Launch (auto-installs UV + Python 3.12 + dependencies)
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -188,7 +188,7 @@ npx @carbonkite/onemancompany
 sudo apt update && sudo apt install -y git nodejs npm
 
 # Launch (auto-installs UV + Python 3.12 + dependencies)
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -219,22 +219,22 @@ Defaults to Company Hosted Agent — no extra subscription needed to get started
 
 ```bash
 # Restart / auto-update
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 
 # Debug mode (foreground with logs, Ctrl+C to stop)
-npx @carbonkite/onemancompany --debug
+npx @1mancompany/onemancompany --debug
 
 # Stop background service
-npx @carbonkite/onemancompany stop
+npx @1mancompany/onemancompany stop
 
 # Re-run setup wizard (change API keys, etc.)
-npx @carbonkite/onemancompany init
+npx @1mancompany/onemancompany init
 
 # Custom port
-npx @carbonkite/onemancompany --port 8080
+npx @1mancompany/onemancompany --port 8080
 
 # Uninstall (stops service + deletes installation)
-npx @carbonkite/onemancompany uninstall
+npx @1mancompany/onemancompany uninstall
 ```
 
 ### Manual Install (Dev Mode)
