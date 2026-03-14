@@ -347,7 +347,7 @@ ${green("What gets installed automatically:")}
   }
 
   info("Installing dependencies...");
-  runShell("uv pip install -e .", { cwd: installDir });
+  runShell(`uv pip install -e . -p "${path.join(venvDir, isWindows ? "Scripts/python.exe" : "bin/python")}"`, { cwd: installDir });
 
   // ── Launch (directly via Python, all platforms) ────────────────────────
   const pythonBin = isWindows
