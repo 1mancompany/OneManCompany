@@ -153,7 +153,7 @@ class TestResumeHeldTask:
         with patch("onemancompany.core.vessel.stop_cron"):
             result = await mgr.resume_held_task("00010", node_id, "Human said: looks good!")
         assert result is True
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(node_id)
         assert node.status == TaskPhase.COMPLETED.value
         assert node.result == "Human said: looks good!"
@@ -348,7 +348,7 @@ class TestHoldingIntegration:
 
         # 6. Verify final state
         assert ok is True
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(root.id)
         assert node.status == TaskPhase.COMPLETED.value
         assert node.result == "Human replied: All tests pass!"
@@ -388,6 +388,6 @@ class TestHoldingIntegration:
             ok = await mgr.resume_held_task("00010", root.id, "Reply from human after restart")
 
         assert ok is True
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(root.id)
         assert node.status == TaskPhase.COMPLETED.value

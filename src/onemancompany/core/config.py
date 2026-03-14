@@ -110,6 +110,13 @@ MAX_WORKFLOW_CONTEXT_LEN = 800
 MAX_DISCUSSION_SUMMARY_LEN = 500
 
 # ---------------------------------------------------------------------------
+# Tree growth limits (circuit breaker)
+# ---------------------------------------------------------------------------
+MAX_REVIEW_ROUNDS = 3       # Max review rounds per parent before CEO escalation
+MAX_CHILDREN_PER_NODE = 10  # Max active children per parent node
+MAX_TREE_DEPTH = 6          # Max nesting depth for dispatch_child
+
+# ---------------------------------------------------------------------------
 # Desk position grid layout (legacy — kept for compatibility)
 # ---------------------------------------------------------------------------
 DESK_GRID_COLS = 5
@@ -178,7 +185,6 @@ ENGINEERING_DEPT = "Engineering"
 DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
     "Engineering": [
         "bash", "use_tool",
-        "sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file",
     ],
     "Design": ["use_tool"],
     "Analytics": ["use_tool"],

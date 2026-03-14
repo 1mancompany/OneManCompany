@@ -283,7 +283,7 @@ class TestOnChildCompleteReviewPrompt:
         assert len(parent_entries) > 0
 
         # Load tree and check review node content
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         review_entry = parent_entries[0]
         review_node = reloaded.get_node(review_entry.node_id)
         prompt = review_node.description
@@ -329,7 +329,7 @@ class TestOnChildCompleteReviewPrompt:
         parent_entries = em._schedule.get("00100", [])
         assert len(parent_entries) > 0
 
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         review_node = reloaded.get_node(parent_entries[0].node_id)
         prompt = review_node.description
 
@@ -369,7 +369,7 @@ class TestOnChildCompleteReviewPrompt:
         parent_entries = em._schedule.get("00100", [])
         assert len(parent_entries) > 0
 
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         review_node = reloaded.get_node(parent_entries[0].node_id)
         prompt = review_node.description
 

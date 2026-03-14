@@ -492,7 +492,7 @@ class TestEmployeeManagerExecuteTask:
             await mgr._execute_task("emp01", entry)
 
         # Reload tree to check node status
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
         assert node.result == "Task done!"
@@ -520,7 +520,7 @@ class TestEmployeeManagerExecuteTask:
             with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
                 await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "failed"
         assert "Error" in node.result
@@ -546,7 +546,7 @@ class TestEmployeeManagerExecuteTask:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "failed"
         assert "No executor" in node.result
@@ -603,7 +603,7 @@ class TestEmployeeManagerExecuteTask:
             with patch("onemancompany.core.model_costs.get_model_cost", return_value={"input": 10.0, "output": 30.0}):
                 await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.model_used == "gpt-4"
         assert node.input_tokens == 1000
@@ -842,7 +842,7 @@ class TestEmployeeManagerGraphRecursionError:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "failed"
         # GraphRecursionError should NOT be retried — only 1 call
@@ -879,7 +879,7 @@ class TestEmployeeManagerHookFailures:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
 
@@ -908,7 +908,7 @@ class TestEmployeeManagerHookFailures:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
 
@@ -1073,7 +1073,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
                         with patch.object(mgr, "_on_child_complete", new_callable=AsyncMock):
                             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
 
@@ -1314,7 +1314,8 @@ class TestEmployeeManagerWorkflowContext:
         with patch("onemancompany.core.config.load_workflows", return_value={}):
             result = mgr._get_project_workflow_context("emp01", "proj1")
             assert "Self-Verification" in result
-            assert "sandbox_execute_code" in result
+            # Default verification (sandbox disabled) mentions code review
+            assert "code/software" in result
 
     @patch("onemancompany.core.vessel._store")
     def test_engineer_with_workflow_verification(self, mock_store):
@@ -1638,7 +1639,7 @@ class TestExecuteTaskOnLogCallback:
         with patch("onemancompany.core.resolutions.current_project_id", MagicMock()):
             await mgr._execute_task("emp01", entry)
 
-        tree = TaskTree.load(tree_path)
+        tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
         # Verify the on_log callback populated the task log buffer
@@ -1879,7 +1880,7 @@ class TestTaskTreeCallback:
         await mgr._on_child_complete("00010", entry, project_id="proj1")
 
         # Reload from disk to verify persistence
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         updated_child = reloaded.get_node(child.id)
         assert updated_child.result == "Work completed successfully"
         assert updated_child.input_tokens == 100
@@ -1992,7 +1993,7 @@ class TestTaskTimeout:
 
         await mgr._execute_task("00010", entry)
 
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(entry.node_id)
         assert node.status == TaskPhase.FAILED.value
         assert "Timeout" in (node.result or "")
@@ -2018,7 +2019,7 @@ class TestTaskTimeout:
         await mgr._execute_task("00010", entry)
 
         # Verify node was marked failed on disk
-        reloaded = TaskTree.load(tree_path)
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(entry.node_id)
         assert node.status == TaskPhase.FAILED.value
         assert "Timeout" in (node.result or "")

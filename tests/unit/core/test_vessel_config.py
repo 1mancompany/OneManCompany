@@ -50,7 +50,7 @@ class TestVesselConfigDefaults:
 
     def test_default_capabilities(self):
         cfg = VesselConfig()
-        assert cfg.capabilities.sandbox is True
+        assert cfg.capabilities.sandbox is False
         assert cfg.capabilities.file_upload is False
         assert cfg.capabilities.websocket is False
         assert cfg.capabilities.image_generation is False
@@ -70,7 +70,7 @@ class TestLoadVesselConfig:
     def test_nonexistent_dir_returns_default(self, tmp_path):
         cfg = load_vessel_config(tmp_path / "nonexistent")
         assert cfg.limits.max_retries == 3
-        assert cfg.capabilities.sandbox is True
+        assert cfg.capabilities.sandbox is False
 
     def test_load_from_vessel_yaml(self, tmp_path):
         vessel_dir = tmp_path / "vessel"
@@ -267,5 +267,5 @@ class TestLoadDefaultVesselConfig:
     def test_default_config_loads(self):
         cfg = _load_default_vessel_config()
         assert cfg.limits.max_retries == 3
-        assert cfg.capabilities.sandbox is True
+        assert cfg.capabilities.sandbox is False
         assert cfg.capabilities.file_upload is False

@@ -1738,3 +1738,83 @@ class TestUpdateProjectTeam:
         finally:
             _current_vessel.reset(tok_v)
             _current_task_id.reset(tok_t)
+
+
+# ---------------------------------------------------------------------------
+# read_node_detail tests
+# ---------------------------------------------------------------------------
+
+class TestReadNodeDetail:
+    def test_read_node_detail_returns_content(self, tmp_path):
+        from onemancompany.core.task_tree import TaskNode, TaskTree, register_tree
+        from onemancompany.agents.common_tools import read_node_detail
+        from onemancompany.core.agent_loop import _current_vessel, _current_task_id
+
+        tree = TaskTree(project_id="test")
+        root = tree.create_root("e1", "Root task description")
+        root.result = "Root result text"
+        root.project_dir = str(tmp_path)
+        root.acceptance_criteria = ["criterion1"]
+
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        register_tree(path, tree)
+
+        mock_vessel = MagicMock()
+        mock_vessel.employee_id = "e1"
+        mock_schedule = {"e1": [MagicMock(node_id="some_task", tree_path=str(path))]}
+
+        tok_v = _current_vessel.set(mock_vessel)
+        tok_t = _current_task_id.set("some_task")
+        try:
+            em_mock = MagicMock()
+            em_mock._schedule = mock_schedule
+            with patch.dict("sys.modules", {}), \
+                 patch("onemancompany.core.vessel.employee_manager", em_mock):
+                result = read_node_detail.invoke({"node_id": root.id})
+                assert result["status"] == "ok"
+                assert "Root task description" in result["description"]
+                assert "Root result text" in result["result"]
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)
+
+    def test_read_node_detail_missing_node(self, tmp_path):
+        from onemancompany.agents.common_tools import read_node_detail
+        from onemancompany.core.task_tree import TaskTree, register_tree
+        from onemancompany.core.agent_loop import _current_vessel, _current_task_id
+
+        tree = TaskTree(project_id="test")
+        tree.create_root("e1", "Root")
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+        register_tree(path, tree)
+
+        mock_vessel = MagicMock()
+        mock_vessel.employee_id = "e1"
+        mock_schedule = {"e1": [MagicMock(node_id="some_task", tree_path=str(path))]}
+
+        tok_v = _current_vessel.set(mock_vessel)
+        tok_t = _current_task_id.set("some_task")
+        try:
+            with patch("onemancompany.core.vessel.employee_manager") as em:
+                em._schedule = mock_schedule
+                result = read_node_detail.invoke({"node_id": "nonexistent"})
+                assert result["status"] == "error"
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)
+
+    def test_read_node_detail_no_context(self):
+        from onemancompany.agents.common_tools import read_node_detail
+        from onemancompany.core.agent_loop import _current_vessel, _current_task_id
+
+        tok_v = _current_vessel.set(None)
+        tok_t = _current_task_id.set(None)
+        try:
+            result = read_node_detail.invoke({"node_id": "anything"})
+            assert result["status"] == "error"
+            assert "No agent context" in result["message"]
+        finally:
+            _current_vessel.reset(tok_v)
+            _current_task_id.reset(tok_t)

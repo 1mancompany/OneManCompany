@@ -6507,7 +6507,8 @@ class TestProjectTreeEndpoint:
         assert root_node["employee_id"] == "00001"
         child_node = next(n for n in data["nodes"] if n["id"] == child.id)
         assert child_node["status"] == "completed"
-        assert child_node["result"] == "Done"
+        # result is externalized; skeleton has description_preview instead
+        assert child_node["description_preview"] == "Child task"
 
     @pytest.mark.asyncio
     async def test_get_project_tree_not_found(self):

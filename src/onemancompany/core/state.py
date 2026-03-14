@@ -81,6 +81,7 @@ def get_active_tasks() -> list[TaskEntry]:
                 node = tree.get_node(entry.node_id)
                 if not node:
                     continue
+                node.load_content(tp.parent)
                 result.append(TaskEntry(
                     project_id=node.project_id,
                     task=node.description,

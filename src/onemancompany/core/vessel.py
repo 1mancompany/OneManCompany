@@ -110,7 +110,7 @@ def _get_tree_lock(project_id: str) -> asyncio.Lock:
 # Dependency context builder
 # ---------------------------------------------------------------------------
 
-def _build_dependency_context(tree, node) -> str:
+def _build_dependency_context(tree, node, project_dir: str = "") -> str:
     """Build context string from resolved dependency results."""
     if not node.depends_on:
         return ""
@@ -120,6 +120,10 @@ def _build_dependency_context(tree, node) -> str:
         dep = tree.get_node(dep_id)
         if not dep or not dep.is_resolved:
             continue
+        # Load content for reading description/result
+        load_dir = dep.project_dir or project_dir
+        if load_dir:
+            dep.load_content(load_dir)
         result = dep.result or "(no result)"
         if len(result) > max_per_dep:
             result = "..." + result[-max_per_dep:]
@@ -128,6 +132,74 @@ def _build_dependency_context(tree, node) -> str:
     if not sections:
         return ""
     return "=== Dependency Results ===\n" + "\n\n".join(sections) + "\n=== End Dependencies ===\n\n"
+
+
+# ---------------------------------------------------------------------------
+# Distance-based tree context builder
+# ---------------------------------------------------------------------------
+
+def _build_tree_context(tree, node, project_dir: str) -> str:
+    """Build distance-based tree context for an employee.
+
+    - Current node + parent: full content (load_content)
+    - Grandparent+: skeleton only (id + status + preview)
+    - Children needing review: full result
+    - Accepted children: skeleton only
+    """
+    parts: list[str] = []
+
+    # Walk up: ancestors
+    ancestors: list[tuple] = []  # (node, distance)
+    current = node
+    dist = 0
+    while current.parent_id:
+        parent = tree.get_node(current.parent_id)
+        if not parent:
+            break
+        dist += 1
+        ancestors.append((parent, dist))
+        current = parent
+
+    if ancestors:
+        parts.append("=== Task Chain (ancestors) ===")
+        for anc, d in reversed(ancestors):
+            if d <= 1:  # parent only
+                anc.load_content(project_dir)
+                parts.append(f"[Lv-{d}] {anc.id} ({anc.employee_id}) [{anc.status}]")
+                parts.append(f"  Description: {anc.description}")
+                if anc.result:
+                    parts.append(f"  Result: {anc.result}")
+            else:
+                parts.append(f"[Lv-{d}] {anc.id} ({anc.employee_id}) [{anc.status}]")
+                parts.append(f"  Preview: {anc.description_preview}")
+        parts.append("")
+
+    # Current node
+    node.load_content(project_dir)
+    parts.append(f"=== Current Task ({node.id}) ===")
+    parts.append(f"Description: {node.description}")
+    if node.result:
+        parts.append(f"Result: {node.result}")
+    parts.append("")
+
+    # Children
+    children = tree.get_active_children(node.id)
+    if children:
+        parts.append("=== Child Tasks ===")
+        for child in children:
+            if child.is_ceo_node:
+                continue
+            if child.status == "accepted":
+                parts.append(f"  [ACCEPTED] {child.id} ({child.employee_id}): {child.description_preview[:100]}")
+            elif child.is_done_executing:
+                child.load_content(project_dir)
+                parts.append(f"  [{child.status.upper()}] {child.id} ({child.employee_id}): {child.description}")
+                parts.append(f"    Result: {child.result}")
+            else:
+                parts.append(f"  [{child.status.upper()}] {child.id} ({child.employee_id}): {child.description_preview}")
+        parts.append("")
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -701,6 +773,8 @@ class EmployeeManager:
                     tree = get_tree(entry.tree_path)
                     node = tree.get_node(entry.node_id)
                     if node and node.status == TaskPhase.HOLDING.value:
+                        load_dir = node.project_dir or str(Path(entry.tree_path).parent)
+                        node.load_content(load_dir)
                         meta = _parse_holding_metadata(node.result or "")
                         if meta:
                             self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
@@ -733,6 +807,14 @@ class EmployeeManager:
                         self._publish_node_update(emp_id, node)
                         self.unschedule(emp_id, entry.node_id)
                         count += 1
+
+                        # Stop associated crons
+                        from onemancompany.core.automation import stop_cron as _stop_cron
+                        for cron_prefix in (f"reply_{entry.node_id}", f"holding_{entry.node_id}"):
+                            try:
+                                _stop_cron(emp_id, cron_prefix)
+                            except Exception as exc:
+                                logger.debug("Could not stop cron {}/{}: {}", emp_id, cron_prefix, exc)
                 except Exception as e:
                     logger.error("Failed to cancel node {} for project {}: {}", entry.node_id, project_id, e)
 
@@ -744,6 +826,75 @@ class EmployeeManager:
                     logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
 
         return count
+
+    def abort_employee(self, employee_id: str) -> int:
+        """Cancel all tasks for an employee. Returns count cancelled."""
+        from onemancompany.core.task_tree import get_tree, save_tree_async
+        from onemancompany.core.automation import stop_all_crons_for_employee
+
+        count = 0
+        _cancelable = {TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value}
+
+        # 1. Clear schedule and cancel nodes
+        entries = list(self._schedule.get(employee_id, []))
+        self._schedule[employee_id] = []
+
+        # 2. Clear deferred schedule
+        self._deferred_schedule.discard(employee_id)
+
+        # 3. Cancel running asyncio.Task
+        running = self._running_tasks.pop(employee_id, None)
+        if running and not running.done():
+            running.cancel()
+            logger.info("Cancelled running asyncio.Task for {}", employee_id)
+
+        # 4. Cancel non-terminal nodes in trees
+        seen_trees: set[str] = set()
+        for entry in entries:
+            try:
+                tree = get_tree(entry.tree_path)
+                node = tree.get_node(entry.node_id)
+                if node and node.status in _cancelable:
+                    # Force status — may not follow normal transitions
+                    node.status = TaskPhase.CANCELLED.value
+                    node.completed_at = datetime.now().isoformat()
+                    node.result = f"Cancelled: employee {employee_id} aborted"
+                    count += 1
+                    self._publish_node_update(employee_id, node)
+                seen_trees.add(entry.tree_path)
+            except Exception as e:
+                logger.error("Failed to cancel node {} for {}: {}", entry.node_id, employee_id, e)
+
+        for tp in seen_trees:
+            save_tree_async(tp)
+
+        # 5. Stop crons
+        stop_all_crons_for_employee(employee_id)
+
+        # 6. Reset status
+        if employee_id in company_state.employees:
+            company_state.employees[employee_id].status = STATUS_IDLE
+            company_state.employees[employee_id].current_task = None
+
+        return count
+
+    async def abort_all(self) -> int:
+        """Cancel all tasks for all employees. Returns total count cancelled."""
+        from onemancompany.core.automation import stop_all_automations
+        from onemancompany.core.claude_session import stop_all_daemons
+
+        total = 0
+        for emp_id in list(self._schedule.keys()):
+            total += self.abort_employee(emp_id)
+
+        # Also abort employees with running tasks but empty schedules
+        for emp_id in list(self._running_tasks.keys()):
+            total += self.abort_employee(emp_id)
+
+        await stop_all_automations()
+        await stop_all_daemons()
+
+        return total
 
     async def _run_task(self, employee_id: str, entry: ScheduleEntry) -> None:
         """Execute a task, then schedule the next one."""
@@ -780,10 +931,10 @@ class EmployeeManager:
         node.set_status(TaskPhase.PROCESSING)
         save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
-        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description}")
+        self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
 
-        await _store.save_employee_runtime(employee_id, current_task_summary=node.description[:100])
+        await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
         # 2. Set contextvars
         loop_token = _current_vessel.set(vessel)
@@ -794,10 +945,15 @@ class EmployeeManager:
         agent_error = False
         try:
             # 4. Build task context with injections
-            task_with_ctx = node.description
+            _effective_dir = project_dir or str(Path(entry.tree_path).parent)
+            node.load_content(_effective_dir)
+
+            # Tree context includes current node description + ancestors + children
+            tree_ctx = _build_tree_context(tree, node, _effective_dir)
+            task_with_ctx = tree_ctx if tree_ctx else node.description
 
             # Inject dependency context if this node has depends_on
-            dep_ctx = _build_dependency_context(tree, node)
+            dep_ctx = _build_dependency_context(tree, node, _effective_dir)
             if dep_ctx:
                 task_with_ctx = dep_ctx + task_with_ctx
 
@@ -1034,6 +1190,7 @@ class EmployeeManager:
                 stop_cron(employee_id, f"reply_{task_id}")
                 stop_cron(employee_id, f"holding_{task_id}")
 
+                node.load_content(Path(entry.tree_path).parent)
                 node.result = result
                 node.set_status(TaskPhase.COMPLETED)
                 node.completed_at = datetime.now().isoformat()
@@ -1044,7 +1201,7 @@ class EmployeeManager:
 
                 self._append_history_from_node(employee_id, node)
                 summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed (resumed): {node.description[:100]} → {summary}")
+                _append_progress(employee_id, f"Completed (resumed): {node.description_preview[:100]} → {summary}")
 
                 if node.project_dir:
                     try:
@@ -1345,10 +1502,17 @@ class EmployeeManager:
                     break
 
         if not verification_instructions:
-            verification_instructions = (
-                "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
-                "  - For documents/reports: Proofread your output once before submitting.\n"
-            )
+            from onemancompany.tools.sandbox import is_sandbox_enabled as _sb_enabled
+            if _sb_enabled():
+                verification_instructions = (
+                    "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
+                    "  - For documents/reports: Proofread your output once before submitting.\n"
+                )
+            else:
+                verification_instructions = (
+                    "  - For code/software: Review your code carefully for errors.\n"
+                    "  - For documents/reports: Proofread your output once before submitting.\n"
+                )
 
         return (
             "[Self-Verification Before Completion]\n"
@@ -1427,13 +1591,13 @@ class EmployeeManager:
         # Skip if there's already a pending/processing review node for this parent
         # (prevents infinite review loop when review node itself completes)
         for child in children:
-            if child.employee_id == parent_node.employee_id and child.description.startswith("以下子任务"):
+            if child.node_type == "review":
                 if child.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
                     logger.debug("Review node {} already active for parent {} — skipping", child.id, parent_node.id)
                     return
 
         # If all children that need review are already accepted, auto-complete the parent
-        non_review_children = [c for c in children if c.employee_id != parent_node.employee_id or not c.description.startswith("以下子任务")]
+        non_review_children = [c for c in children if c.node_type != "review"]
         if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
             logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
             if parent_node.status == TaskPhase.HOLDING.value:
@@ -1445,6 +1609,7 @@ class EmployeeManager:
             return
 
         # Build review prompt for parent employee
+        project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         needs_review = []
         already_accepted = []
         for child in children:
@@ -1459,13 +1624,14 @@ class EmployeeManager:
         if already_accepted and needs_review:
             lines.append("以下子任务已通过验收，无需重复审核：")
             for child in already_accepted:
-                lines.append(f"  \u2713 ({child.employee_id}): {child.description[:80]}")
+                lines.append(f"  \u2713 ({child.employee_id}): {child.description_preview[:80]}")
             lines.append("")
 
         if needs_review:
             lines.append("以下子任务需要审核：")
             lines.append("")
             for i, child in enumerate(needs_review, 1):
+                child.load_content(project_dir)
                 criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
                 lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
                 lines.append(f"  验收标准: {criteria_str}")
@@ -1483,14 +1649,64 @@ class EmployeeManager:
 
         review_prompt = "\n".join(lines)
 
+        # --- Circuit breaker: check review round count ---
+        from onemancompany.core.config import MAX_REVIEW_ROUNDS, CEO_ID
+        review_count = sum(
+            1 for c in children
+            if c.node_type == "review" and c.employee_id == parent_node.employee_id
+        )
+        if review_count >= MAX_REVIEW_ROUNDS:
+            logger.warning(
+                "Review circuit breaker: {} rounds for parent {} — escalating to CEO",
+                review_count, parent_node.id,
+            )
+            parent_node.set_status(TaskPhase.HOLDING)
+            save_tree_async(entry.tree_path)
+
+            # Build escalation summary
+            last_notes = ""
+            for sibling in reversed(children):
+                if sibling.acceptance_result and not sibling.acceptance_result.get("passed"):
+                    last_notes = sibling.acceptance_result.get("notes", "")
+                    break
+
+            escalation_desc = (
+                f"审核僵局: 任务 {parent_node.id} ({parent_node.description_preview}) "
+                f"已经过 {review_count} 轮审核未能收敛。\n"
+                f"最后一轮分歧: {last_notes[:300]}\n"
+                f"请介入处理：可以选择接受现有结果、取消任务、或给出具体指导。"
+            )
+            ceo_node = tree.add_child(
+                parent_id=parent_node.id,
+                employee_id=CEO_ID,
+                description=escalation_desc,
+                acceptance_criteria=[],
+            )
+            ceo_node.node_type = "ceo_request"
+            ceo_node.project_id = project_id
+            ceo_node.project_dir = project_dir
+            save_tree_async(entry.tree_path)
+
+            # Publish inbox event
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(event_bus.publish(CompanyEvent(
+                    type="ceo_inbox_updated",
+                    payload={"node_id": ceo_node.id, "description": escalation_desc},
+                    agent="SYSTEM",
+                )))
+            except RuntimeError:
+                logger.debug("No event loop for circuit breaker CEO escalation publish")
+            return
+
         # Create a review node in the tree and schedule it
-        project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         review_node = tree.add_child(
             parent_id=parent_node.id,
             employee_id=parent_node.employee_id,
             description=review_prompt,
             acceptance_criteria=[],
         )
+        review_node.node_type = "review"
         review_node.task_type = "simple"
         review_node.project_id = project_id
         review_node.project_dir = project_dir
@@ -1529,8 +1745,8 @@ class EmployeeManager:
                     parent = tree.get_node(dep_node.parent_id)
                     if parent:
                         msg = (
-                            f"Task \"{dep_node.description}\" is BLOCKED because dependency "
-                            f"\"{completed_node.description}\" failed. Please handle via "
+                            f"Task \"{dep_node.description_preview}\" is BLOCKED because dependency "
+                            f"\"{completed_node.description_preview}\" failed. Please handle via "
                             f"reject_child (retry), unblock_child, or cancel_child."
                         )
                         notify_node = tree.add_child(
@@ -1586,17 +1802,19 @@ class EmployeeManager:
         This now auto-approves and runs cleanup immediately.
         """
         # Build completion summary from all children (skip CEO info nodes)
+        _pdir = node.project_dir or str(Path(entry.tree_path).parent)
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
-        lines = [f"项目完成汇报 — {node.description[:100]}", ""]
+        lines = [f"项目完成汇报 — {node.description_preview[:100]}", ""]
         for i, child in enumerate(children, 1):
             status_icon = "✓" if child.status == "accepted" else "●"
-            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description[:80]}")
+            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description_preview[:80]}")
+            child.load_content(_pdir)
             lines.append(f"  结果: {(child.result or '无')[:200]}")
             lines.append("")
         summary = "\n".join(lines)
 
         payload = {
-            "subject": f"项目完成确认: {node.description[:60]}",
+            "subject": f"项目完成确认: {node.description_preview[:60]}",
             "report": summary,
             "employee_id": employee_id,
             "project_id": project_id,
