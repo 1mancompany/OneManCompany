@@ -238,7 +238,8 @@ company/business/resolutions/
 sessions.json
 .superpowers/
 
-video/
+video/*
+!video/release/
 
 # Git worktrees
 .worktrees/
