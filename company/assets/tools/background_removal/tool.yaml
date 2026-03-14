@@ -1,0 +1,10 @@
+id: background_removal
+name: Background Removal
+description: >
+  Remove generated image background and export a transparent PNG.
+  Best for solid or near-solid backgrounds connected to image edges.
+added_by: CEO
+type: langchain_module
+sprite: desk_equipment
+allowed_users:
+  - "00009"
