@@ -663,8 +663,10 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
         root = tree.get_node(tree.root_id)
-        if root and root.result:
-            previous_result = root.result
+        if root:
+            root.load_content(tree_path.parent)
+            if root.result:
+                previous_result = root.result
 
     # Build follow-up task for EA
     context_parts = [
@@ -866,6 +868,7 @@ async def oneonone_chat(body: dict) -> dict:
             tree = get_tree(tp)
             node = tree.get_node(node_id)
             if node and node.status in ("completed", "failed", "finished", "accepted"):
+                node.load_content(tp.parent)
                 if node.result:
                     return {"response": str(node.result)}
                 return {"response": "（处理完成）"}
@@ -1658,6 +1661,30 @@ async def abort_task(project_id: str) -> dict:
     )
 
     return {"status": "ok", "cancelled": cancelled_count, "tree_nodes_cancelled": cancelled_tree_nodes}
+
+
+@router.post("/api/employee/{employee_id}/abort")
+async def abort_employee_tasks(employee_id: str) -> dict:
+    """Abort all tasks for a specific employee."""
+    from onemancompany.core.agent_loop import employee_manager
+
+    count = employee_manager.abort_employee(employee_id)
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+    return {"status": "ok", "cancelled": count, "employee_id": employee_id}
+
+
+@router.post("/api/abort-all")
+async def abort_all_tasks() -> dict:
+    """Abort all tasks for all employees. Panic button."""
+    from onemancompany.core.agent_loop import employee_manager
+
+    count = await employee_manager.abort_all()
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+    return {"status": "ok", "cancelled": count}
 
 
 @router.post("/api/employee/{employee_id}/task/{task_id}/cancel")
@@ -3050,12 +3077,14 @@ def _tree_summary(project_id: str) -> dict | None:
             active_nodes.append({
                 "id": n.id,
                 "employee_id": n.employee_id,
-                "description": n.description[:80],
+                "description": n.description_preview[:80],
                 "status": n.status,
             })
 
     # Root node result for completed tasks
     root_node = tree.get_node(tree.root_id)
+    if root_node:
+        root_node.load_content(path.parent)
     root_result = root_node.result if root_node else ""
 
     return {
@@ -5203,7 +5232,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
-                "description": node.description,
+                "description": node.description_preview,
                 "from_employee_id": from_id,
                 "from_nickname": from_nickname,
                 "status": node.status,
@@ -5280,6 +5309,7 @@ async def open_ceo_conversation(node_id: str):
     asyncio.create_task(_run_conversation_loop(session, node, tree, project_dir))
 
     messages = load_messages(Path(project_dir) / "conversations", node_id)
+    node.load_content(project_dir)
     return {
         "status": "opened",
         "node_id": node_id,

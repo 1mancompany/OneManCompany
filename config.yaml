@@ -7,7 +7,7 @@ hot_reload: true # Auto-reload config.yaml when modified (while system idle)
 
 tools:
   sandbox:
-    enabled: true # Set to true to activate sandbox module
+    enabled: false # Set to true to activate sandbox module (requires Docker + opensandbox)
     server_url: "http://localhost:8080" # opensandbox-server endpoint
     default_image: "opensandbox/code-interpreter:v1.0.1"
     timeout_seconds: 120 # max execution time per call

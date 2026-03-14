@@ -72,7 +72,7 @@ class CapabilitiesConfig:
     """能力声明 — vessel 支持的平台能力。"""
     file_upload: bool = False
     websocket: bool = False
-    sandbox: bool = True
+    sandbox: bool = False
     image_generation: bool = False
 
 
@@ -138,7 +138,7 @@ def _parse_vessel_dict(raw: dict) -> VesselConfig:
         capabilities=CapabilitiesConfig(
             file_upload=caps_raw.get("file_upload", False),
             websocket=caps_raw.get("websocket", False),
-            sandbox=caps_raw.get("sandbox", True),
+            sandbox=caps_raw.get("sandbox", False),
             image_generation=caps_raw.get("image_generation", False),
         ),
     )

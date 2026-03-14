@@ -41,7 +41,8 @@ class TestTaskNode:
         restored = TaskNode.from_dict(d)
         assert restored.id == node.id
         assert restored.employee_id == node.employee_id
-        assert restored.description == node.description
+        # Skeleton roundtrip: description excluded, preview preserved
+        assert restored.description_preview == node.description_preview
 
 
 class TestTaskTree:
@@ -125,6 +126,8 @@ class TestTaskTree:
         assert len(loaded.get_children(root.id)) == 1
         loaded_child = loaded.get_node(child.id)
         assert loaded_child.status == "completed"
+        # Content is lazy-loaded; load it explicitly
+        loaded_child.load_content(tmp_path)
         assert loaded_child.result == "Done"
         assert loaded_child.acceptance_criteria == ["Must work"]
 
@@ -438,3 +441,234 @@ class TestTaskNodeSSoT:
         d = {"employee_id": "e1", "description": "test", "status": "complete"}
         node = TaskNode.from_dict(d)
         assert node.status == "completed"
+
+
+class TestTaskNodeContentExternalization:
+    """Tests for lazy-loaded description/result with dirty tracking."""
+
+    def test_description_setter_marks_dirty(self):
+        node = TaskNode(employee_id="e1")
+        node.description = "hello"
+        assert node.description == "hello"
+        assert node._content_dirty is True
+
+    def test_result_setter_marks_dirty(self):
+        node = TaskNode(employee_id="e1")
+        node.result = "done"
+        assert node.result == "done"
+        assert node._content_dirty is True
+
+    def test_description_preview_truncated(self):
+        node = TaskNode(employee_id="e1")
+        node.description = "A" * 500
+        assert node.description_preview == "A" * 200
+
+    def test_description_preview_short_text(self):
+        node = TaskNode(employee_id="e1")
+        node.description = "short"
+        assert node.description_preview == "short"
+
+    def test_save_content_creates_file(self, tmp_path):
+        node = TaskNode(employee_id="e1")
+        node.description = "task desc"
+        node.result = "task result"
+        node.save_content(tmp_path)
+        content_path = tmp_path / "nodes" / f"{node.id}.yaml"
+        assert content_path.exists()
+        import yaml
+        data = yaml.safe_load(content_path.read_text())
+        assert data["description"] == "task desc"
+        assert data["result"] == "task result"
+
+    def test_save_content_skips_when_not_dirty(self, tmp_path):
+        node = TaskNode(employee_id="e1")
+        node._content_dirty = False
+        node.save_content(tmp_path)
+        content_path = tmp_path / "nodes" / f"{node.id}.yaml"
+        assert not content_path.exists()
+
+    def test_save_content_resets_dirty_flag(self, tmp_path):
+        node = TaskNode(employee_id="e1")
+        node.description = "x"
+        node.save_content(tmp_path)
+        assert node._content_dirty is False
+
+    def test_load_content_reads_file(self, tmp_path):
+        node = TaskNode(employee_id="e1", id="test123")
+        node.description = "original"
+        node.result = "original result"
+        node.save_content(tmp_path)
+        # Reset fields
+        object.__setattr__(node, "description", "")
+        object.__setattr__(node, "result", "")
+        node._content_loaded = False
+        node._content_dirty = False
+        node.load_content(tmp_path)
+        assert node.description == "original"
+        assert node.result == "original result"
+        assert node._content_loaded is True
+
+    def test_load_content_idempotent(self, tmp_path):
+        node = TaskNode(employee_id="e1", id="test123")
+        node.description = "original"
+        node.save_content(tmp_path)
+        node._content_loaded = False
+        node.load_content(tmp_path)
+        # Modify in-memory (use object.__setattr__ to avoid dirty tracking for test)
+        object.__setattr__(node, "description", "modified")
+        # Second load should NOT overwrite
+        node.load_content(tmp_path)
+        assert node.description == "modified"
+
+    def test_load_content_missing_file_is_noop(self, tmp_path):
+        node = TaskNode(employee_id="e1", id="missing123")
+        node.load_content(tmp_path)
+        assert node._content_loaded is True
+        assert node.description == ""
+
+    def test_to_dict_excludes_description_and_result(self):
+        node = TaskNode(employee_id="e1")
+        node.description = "big text"
+        node.result = "big result"
+        d = node.to_dict()
+        assert "description" not in d
+        assert "result" not in d
+        assert d["description_preview"] == "big text"
+
+    def test_from_dict_with_old_format_migrates(self):
+        """Backward compat: old YAML with inline description/result."""
+        d = {
+            "id": "old123",
+            "employee_id": "e1",
+            "description": "legacy desc",
+            "result": "legacy result",
+            "status": "completed",
+        }
+        node = TaskNode.from_dict(d)
+        assert node.description == "legacy desc"
+        assert node.result == "legacy result"
+        assert node._content_dirty is True
+        assert node._content_loaded is True
+
+    def test_from_dict_without_description_result(self):
+        """New format: no description/result in skeleton dict."""
+        d = {
+            "id": "new123",
+            "employee_id": "e1",
+            "description_preview": "preview text",
+            "status": "pending",
+        }
+        node = TaskNode.from_dict(d)
+        assert node.description == ""
+        assert node.result == ""
+        assert node._content_dirty is False
+        assert node.description_preview == "preview text"
+
+    def test_constructor_sets_dirty_for_nonempty_description(self):
+        """Nodes created with description via constructor should be dirty."""
+        node = TaskNode(employee_id="e1", description="new task")
+        assert node._content_dirty is True
+        assert node.description_preview == "new task"
+
+
+class TestTaskTreeContentExternalization:
+    def test_save_creates_node_content_files(self, tmp_path):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("e1", "Root description")
+        child = tree.add_child(root.id, "e2", "Child desc", ["criterion"])
+        child.result = "Child result"
+
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+
+        # Skeleton should NOT contain description/result
+        import yaml
+        skeleton = yaml.safe_load(path.read_text())
+        for nd in skeleton["nodes"]:
+            assert "description" not in nd
+            assert "result" not in nd
+            assert "description_preview" in nd
+
+        # Content files should exist
+        assert (tmp_path / "nodes" / f"{root.id}.yaml").exists()
+        assert (tmp_path / "nodes" / f"{child.id}.yaml").exists()
+
+    def test_load_skeleton_only(self, tmp_path):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("e1", "Root description with lots of text")
+        root.result = "Root result"
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+
+        loaded = TaskTree.load(path, skeleton_only=True)
+        loaded_root = loaded.get_node(root.id)
+        # Description/result should be empty (not loaded yet)
+        assert loaded_root.description == ""
+        assert loaded_root.result == ""
+        # Preview should be available
+        assert loaded_root.description_preview == "Root description with lots of text"
+
+    def test_load_then_load_content(self, tmp_path):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("e1", "Full description")
+        root.result = "Full result"
+        path = tmp_path / "task_tree.yaml"
+        tree.save(path)
+
+        loaded = TaskTree.load(path)
+        loaded_root = loaded.get_node(root.id)
+        loaded_root.load_content(tmp_path)
+        assert loaded_root.description == "Full description"
+        assert loaded_root.result == "Full result"
+
+    def test_backward_compat_old_format(self, tmp_path):
+        """Load a tree saved in old format (description/result inline)."""
+        import yaml
+        old_data = {
+            "project_id": "proj1",
+            "root_id": "old_root",
+            "current_branch": 0,
+            "nodes": [{
+                "id": "old_root",
+                "employee_id": "e1",
+                "description": "Legacy inline description",
+                "result": "Legacy inline result",
+                "status": "completed",
+                "parent_id": "",
+                "children_ids": [],
+                "acceptance_criteria": [],
+                "node_type": "task",
+                "task_type": "simple",
+                "model_used": "",
+                "project_dir": "",
+                "acceptance_result": None,
+                "project_id": "proj1",
+                "created_at": "2026-01-01",
+                "completed_at": "",
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "timeout_seconds": 3600,
+                "branch": 0,
+                "branch_active": True,
+                "depends_on": [],
+                "fail_strategy": "block",
+            }],
+        }
+        path = tmp_path / "task_tree.yaml"
+        path.write_text(yaml.dump(old_data, allow_unicode=True), encoding="utf-8")
+
+        loaded = TaskTree.load(path)
+        root = loaded.get_node("old_root")
+        # Old format: description/result loaded inline, marked dirty
+        assert root.description == "Legacy inline description"
+        assert root.result == "Legacy inline result"
+        assert root._content_dirty is True
+
+        # Save should migrate to new format
+        loaded.save(path)
+        skeleton = yaml.safe_load(path.read_text())
+        for nd in skeleton["nodes"]:
+            assert "description" not in nd
+            assert "result" not in nd
+        assert (tmp_path / "nodes" / "old_root.yaml").exists()

@@ -1020,6 +1020,23 @@ class AppController {
       e.target.value = '';
     });
 
+    // Abort all tasks (panic button)
+    document.getElementById('abort-all-toolbar-btn')?.addEventListener('click', async () => {
+        if (!confirm('确定要停止所有员工的所有任务吗？\nThis will cancel ALL running tasks for ALL employees.')) return;
+        try {
+            const resp = await fetch('/api/abort-all', { method: 'POST' });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                console.log('Abort all result:', data);
+            } else {
+                alert(data.detail || data.message || 'Failed to abort all tasks');
+            }
+        } catch (e) {
+            console.error('Abort all failed:', e);
+            alert('Failed to abort all tasks');
+        }
+    });
+
     // Ex-employee wall modal bindings
     document.getElementById('ex-employee-toolbar-btn').addEventListener('click', () => this.openExEmployeeWall());
     document.getElementById('ex-employee-close-btn').addEventListener('click', () => this.closeExEmployeeWall());

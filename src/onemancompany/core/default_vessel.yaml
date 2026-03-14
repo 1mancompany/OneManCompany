@@ -19,5 +19,5 @@ limits:
 capabilities:
   file_upload: false
   websocket: false
-  sandbox: true
+  sandbox: false
   image_generation: false

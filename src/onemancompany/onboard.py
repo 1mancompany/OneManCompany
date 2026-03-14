@@ -241,9 +241,61 @@ def _step_server(console: Console) -> tuple[str, int]:
     return host, port
 
 
+def _step_sandbox(console: Console) -> bool:
+    """Ask whether to install sandbox tools (Docker-based code execution)."""
+    console.print()
+    console.rule("[bold]Step 3[/bold]  Sandbox Tools")
+    console.print(
+        "\n  Sandbox provides isolated Docker containers for AI employees to\n"
+        "  execute code, run commands, and manage files safely.\n"
+    )
+    console.print(
+        "  [bold]Dependencies required:[/bold]\n"
+        "    • [cyan]Docker[/cyan] — must be installed and running\n"
+        "    • [cyan]opensandbox[/cyan] + [cyan]opensandbox-code-interpreter[/cyan] — Python packages\n"
+        "      Install via: [dim]uv pip install 'onemancompany[sandbox]'[/dim]\n"
+    )
+    install = Confirm.ask("  Install sandbox tools?", default=False, console=console)
+    if install:
+        console.print()
+        _install_sandbox_deps(console)
+    return install
+
+
+def _install_sandbox_deps(console: Console) -> None:
+    """Attempt to install sandbox optional dependencies via uv/pip."""
+    import subprocess
+    import sys
+
+    # Try uv first, fall back to pip
+    venv_python = sys.executable
+    cmds = [
+        [venv_python, "-m", "uv", "pip", "install", "onemancompany[sandbox]"],
+        [venv_python, "-m", "pip", "install", "onemancompany[sandbox]"],
+    ]
+    for cmd in cmds:
+        try:
+            with console.status("  Installing sandbox dependencies..."):
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=120,
+                )
+            if result.returncode == 0:
+                console.print("  [green]✔[/green] Sandbox dependencies installed")
+                return
+        except FileNotFoundError:
+            console.print(f"  [dim]{cmd[2]} not available, trying fallback...[/dim]")
+        except subprocess.TimeoutExpired:
+            console.print("  [yellow]⚠[/yellow] Installation timed out")
+
+    console.print(
+        "  [yellow]⚠[/yellow] Auto-install failed. Install manually:\n"
+        "    [dim]uv pip install 'onemancompany[sandbox]'[/dim]"
+    )
+
+
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    console.rule("[bold]Step 3[/bold]  Optional Configuration")
+    console.rule("[bold]Step 4[/bold]  Optional Configuration")
     console.print("  [dim]Press Enter to skip any key you don't have.[/dim]\n")
 
     extras: dict[str, str] = {}
@@ -274,9 +326,10 @@ def _step_execute(
     host: str,
     port: int,
     extras: dict[str, str],
+    sandbox_enabled: bool = False,
 ) -> None:
     console.print()
-    console.rule("[bold]Step 4[/bold]  Initializing")
+    console.rule("[bold]Step 5[/bold]  Initializing")
     console.print()
 
     # 1. Copy company/ template
@@ -333,13 +386,21 @@ def _step_execute(
     if src_config.exists() and not dst_config.exists():
         shutil.copy2(str(src_config), str(dst_config))
         console.print("  [green]\u2714[/green] config.yaml copied")
-    tm_key = extras.get("TALENT_MARKET_API_KEY", "")
-    if tm_key and dst_config.exists():
+    # Patch config.yaml with user choices
+    if dst_config.exists():
         import yaml
         cfg = yaml.safe_load(dst_config.read_text(encoding="utf-8")) or {}
-        cfg.setdefault("talent_market", {})["api_key"] = tm_key
+        # Sandbox toggle
+        cfg.setdefault("tools", {}).setdefault("sandbox", {})["enabled"] = sandbox_enabled
+        # Talent Market API key
+        tm_key = extras.get("TALENT_MARKET_API_KEY", "")
+        if tm_key:
+            cfg.setdefault("talent_market", {})["api_key"] = tm_key
         dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding="utf-8")
-        console.print("  [green]\u2714[/green] Talent Market API key saved")
+        if sandbox_enabled:
+            console.print("  [green]\u2714[/green] Sandbox tools enabled")
+        if tm_key:
+            console.print("  [green]\u2714[/green] Talent Market API key saved")
 
     # 4. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
@@ -438,8 +499,9 @@ def run_wizard() -> None:
 
     api_key, model = _step_llm(console)
     host, port = _step_server(console)
+    sandbox_enabled = _step_sandbox(console)
     extras = _step_optional(console)
-    _step_execute(console, api_key, model, host, port, extras)
+    _step_execute(console, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
     _step_done(console, host, port)
 
 

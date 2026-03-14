@@ -20,7 +20,7 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
 
-from onemancompany.tools.sandbox import SANDBOX_TOOLS
+from onemancompany.tools.sandbox import SANDBOX_TOOLS, is_sandbox_enabled
 
 # Context vars for sub-task support — set by Vessel during execution
 from onemancompany.core.agent_loop import _current_vessel, _current_task_id
@@ -956,6 +956,63 @@ def resume_held_task(task_id: str, result: str, employee_id: str = "") -> dict:
 
 
 @tool
+def read_node_detail(node_id: str) -> dict:
+    """Read the full details of a task node by ID.
+
+    Use this to inspect any task node's full description, result, and metadata
+    when the context summary isn't enough.
+
+    Args:
+        node_id: The TaskNode ID to read.
+
+    Returns:
+        Full node details including description, result, status, and criteria.
+    """
+    from onemancompany.core.vessel import employee_manager
+    from onemancompany.core.task_tree import get_tree
+    from pathlib import Path
+
+    vessel = _current_vessel.get()
+    task_id = _current_task_id.get()
+    if not vessel or not task_id:
+        return {"status": "error", "message": "No agent context."}
+
+    # Find tree_path from current task in schedule
+    tree_path = ""
+    for entries in employee_manager._schedule.values():
+        for e in entries:
+            if e.node_id == task_id:
+                tree_path = e.tree_path
+                break
+        if tree_path:
+            break
+
+    if not tree_path:
+        return {"status": "error", "message": "No project context."}
+
+    tree = get_tree(tree_path)
+    node = tree.get_node(node_id)
+    if not node:
+        return {"status": "error", "message": f"Node {node_id} not found."}
+
+    project_dir = str(Path(tree_path).parent)
+    node.load_content(project_dir)
+
+    return {
+        "status": "ok",
+        "id": node.id,
+        "employee_id": node.employee_id,
+        "description": node.description,
+        "result": node.result,
+        "status_phase": node.status,
+        "acceptance_criteria": node.acceptance_criteria,
+        "node_type": node.node_type,
+        "created_at": node.created_at,
+        "completed_at": node.completed_at,
+    }
+
+
+@tool
 def update_project_team(members: list[dict]) -> dict:
     """Update the team roster for the current project.
 
@@ -1023,6 +1080,7 @@ def _register_all_internal_tools() -> None:
         list_colleagues, read, ls, write, edit, pull_meeting,
         request_tool_access, load_skill,
         resume_held_task, update_project_team,
+        read_node_detail,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
@@ -1044,9 +1102,10 @@ def _register_all_internal_tools() -> None:
     for name, t in _gated.items():
         tool_registry.register(t, ToolMeta(name=name, category="gated"))
 
-    # Sandbox tools
-    for t in SANDBOX_TOOLS:
-        tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
+    # Sandbox tools — only register when sandbox is enabled
+    if is_sandbox_enabled():
+        for t in SANDBOX_TOOLS:
+            tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
 
 
 _register_all_internal_tools()
