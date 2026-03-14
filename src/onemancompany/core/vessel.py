@@ -93,20 +93,6 @@ def _save_project_tree(project_dir: str, tree):
 
 
 # ---------------------------------------------------------------------------
-# Tree locks — one asyncio.Lock per project to serialize tree mutations
-# ---------------------------------------------------------------------------
-
-_tree_locks: dict[str, asyncio.Lock] = {}
-
-
-def _get_tree_lock(project_id: str) -> asyncio.Lock:
-    """Return (or create) an asyncio.Lock for the given project."""
-    if project_id not in _tree_locks:
-        _tree_locks[project_id] = asyncio.Lock()
-    return _tree_locks[project_id]
-
-
-# ---------------------------------------------------------------------------
 # Dependency context builder
 # ---------------------------------------------------------------------------
 
@@ -1530,7 +1516,9 @@ class EmployeeManager:
 
     async def _on_child_complete(self, employee_id: str, entry: ScheduleEntry, project_id: str = "") -> None:
         """Update TaskTree node when a task completes, wake parent if all siblings done."""
-        async with _get_tree_lock(project_id):
+        from onemancompany.core.task_tree import get_tree_lock
+        lock = get_tree_lock(entry.tree_path)
+        with lock:
             await self._on_child_complete_inner(employee_id, entry, project_id)
 
     async def _on_child_complete_inner(self, employee_id: str, entry: ScheduleEntry, project_id: str = "") -> None:
@@ -1727,7 +1715,9 @@ class EmployeeManager:
         """Check if completing this node unlocks any dependent tasks."""
         project_id = completed_node.project_id or tree.project_id
         tree_path = str(Path(project_dir) / "task_tree.yaml")
-        async with _get_tree_lock(project_id):
+        from onemancompany.core.task_tree import get_tree_lock
+        lock = get_tree_lock(tree_path)
+        with lock:
             dependents = tree.find_dependents(completed_node.id)
             if not dependents:
                 return

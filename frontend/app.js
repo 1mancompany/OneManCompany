@@ -1571,7 +1571,7 @@ class AppController {
         html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${task.id}')">CANCEL</button>`;
       }
       html += `</div>`;
-      html += `<div class="emp-taskboard-desc">${this._escHtml(task.description.substring(0, 120))}</div>`;
+      html += `<div class="emp-taskboard-desc">${this._escHtml((task.description_preview || task.description || '').substring(0, 120))}</div>`;
       if (task.result) {
         html += `<div class="emp-taskboard-result">${this._escHtml(task.result.substring(0, 100))}</div>`;
       }
