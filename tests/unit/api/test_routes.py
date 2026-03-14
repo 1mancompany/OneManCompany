@@ -4817,8 +4817,6 @@ class TestRehireEmployee:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.load_employee_guidance", return_value="Be helpful"), \
-             patch("onemancompany.core.config.load_work_principles", return_value="Work hard"), \
              patch("onemancompany.core.config.move_ex_employee_back", return_value=True), \
              patch("onemancompany.core.layout.compute_layout"), \
              patch("onemancompany.core.layout.persist_all_desk_positions"), \
@@ -4867,8 +4865,6 @@ class TestRehireEmployee:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.load_employee_guidance", return_value=""), \
-             patch("onemancompany.core.config.load_work_principles", return_value=""), \
              patch("onemancompany.core.config.move_ex_employee_back", return_value=True), \
              patch("onemancompany.core.layout.compute_layout"), \
              patch("onemancompany.core.layout.persist_all_desk_positions"), \
@@ -4900,8 +4896,6 @@ class TestRehireEmployee:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.load_employee_guidance", return_value=""), \
-             patch("onemancompany.core.config.load_work_principles", return_value=""), \
              patch("onemancompany.core.config.move_ex_employee_back", return_value=True), \
              patch("onemancompany.core.layout.compute_layout"), \
              patch("onemancompany.core.layout.persist_all_desk_positions"), \
