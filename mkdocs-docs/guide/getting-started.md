@@ -7,7 +7,7 @@ This guide walks you through your first launch to completing your first task as 
 You only need **Node.js 16+** and **Git**. Everything else is installed automatically.
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 First run automatically:
@@ -67,7 +67,7 @@ Watch what happens:
 ## Starting Again
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 If there's a new version, it updates automatically. If the service is already running, you'll be asked whether to stop and re-setup.
@@ -76,16 +76,16 @@ If there's a new version, it updates automatically. If the service is already ru
 
 ```bash
 # Re-run setup wizard
-npx @carbonkite/onemancompany init
+npx @1mancompany/onemancompany init
 
 # Custom port
-npx @carbonkite/onemancompany --port 8080
+npx @1mancompany/onemancompany --port 8080
 ```
 
 ## Uninstall
 
 ```bash
-npx @carbonkite/onemancompany uninstall
+npx @1mancompany/onemancompany uninstall
 ```
 
 Stops the running service and deletes the entire installation directory. Requires confirmation.

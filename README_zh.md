@@ -247,7 +247,7 @@ CEO（你，唯一能喝咖啡的人）
 xcode-select --install
 
 # 启动（自动安装 UV + Python 3.12 + 依赖）
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -260,7 +260,7 @@ npx @carbonkite/onemancompany
 # 安装 Node.js: https://nodejs.org/
 
 # 启动（自动安装 UV + Python 3.12 + 依赖）
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -273,7 +273,7 @@ npx @carbonkite/onemancompany
 sudo apt update && sudo apt install -y git nodejs npm
 
 # 启动（自动安装 UV + Python 3.12 + 依赖）
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 </details>
@@ -292,7 +292,7 @@ npx @carbonkite/onemancompany
 
 ```bash
 # 方式 1：再跑 npx（有新版本会自动更新）
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 
 # 方式 2：直接进目录启动
 cd OneManCompany
@@ -319,21 +319,21 @@ open http://localhost:8000    # macOS
 
 ```bash
 # 重启服务器
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 
 # 指定端口
-npx @carbonkite/onemancompany --port 8080
+npx @1mancompany/onemancompany --port 8080
 
 # 重新运行配置向导（修改 API Key 等）
-npx @carbonkite/onemancompany init
+npx @1mancompany/onemancompany init
 ```
 
-如果通过 npx 启动且服务正在运行，再次执行 `npx @carbonkite/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置向导 → 重新启动。
+如果通过 npx 启动且服务正在运行，再次执行 `npx @1mancompany/onemancompany` 会提示是否停止当前服务并重新配置。选 y 将停服 → 重跑配置向导 → 重新启动。
 
 ### 卸载
 
 ```bash
-npx @carbonkite/onemancompany uninstall
+npx @1mancompany/onemancompany uninstall
 ```
 
 这会停止正在运行的服务，并删除整个安装目录（包括 `.onemancompany/` 配置和所有公司数据）。需要确认后才会执行。

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * OneManCompany CLI — npx @carbonkite/onemancompany
+ * OneManCompany CLI — npx @1mancompany/onemancompany
  *
  * Zero-prerequisites launcher. Automatically installs UV and Python if needed.
  * Works on Windows, macOS, and Linux.
@@ -202,13 +202,13 @@ async function main() {
 ${cyan("OneManCompany")} — The AI Operating System for One-Person Companies
 
 ${green("Usage:")}
-  npx @carbonkite/onemancompany              Start (runs in background)
-  npx @carbonkite/onemancompany --debug      Start with logs (Ctrl+C to stop)
-  npx @carbonkite/onemancompany stop         Stop background service
-  npx @carbonkite/onemancompany init         Re-run setup wizard
-  npx @carbonkite/onemancompany uninstall    Stop service and remove installation
-  npx @carbonkite/onemancompany --port 8080  Custom port
-  npx @carbonkite/onemancompany --dir ./my   Custom install directory
+  npx @1mancompany/onemancompany              Start (runs in background)
+  npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
+  npx @1mancompany/onemancompany stop         Stop background service
+  npx @1mancompany/onemancompany init         Re-run setup wizard
+  npx @1mancompany/onemancompany uninstall    Stop service and remove installation
+  npx @1mancompany/onemancompany --port 8080  Custom port
+  npx @1mancompany/onemancompany --dir ./my   Custom install directory
 
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
@@ -246,7 +246,7 @@ ${green("What gets installed automatically:")}
     info(`Removing ${installDir}...`);
     fs.rmSync(installDir, { recursive: true, force: true });
     info("OneManCompany has been uninstalled.");
-    console.log(dim(`  To reinstall: npx @carbonkite/onemancompany`));
+    console.log(dim(`  To reinstall: npx @1mancompany/onemancompany`));
     return;
   }
 
@@ -419,8 +419,8 @@ ${green("What gets installed automatically:")}
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);
-      console.log(`  ${dim("  Stop:")} npx @carbonkite/onemancompany stop`);
-      console.log(`  ${dim("  Debug:")} npx @carbonkite/onemancompany --debug`);
+      console.log(`  ${dim("  Stop:")} npx @1mancompany/onemancompany stop`);
+      console.log(`  ${dim("  Debug:")} npx @1mancompany/onemancompany --debug`);
       console.log();
     } else {
       removePidFile(installDir);

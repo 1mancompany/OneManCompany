@@ -7,7 +7,7 @@
 你只需要 **Node.js 16+** 和 **Git**，其余一切自动安装。
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 首次运行会自动完成以下步骤：
@@ -67,7 +67,7 @@ npx @carbonkite/onemancompany
 ## 再次启动
 
 ```bash
-npx @carbonkite/onemancompany
+npx @1mancompany/onemancompany
 ```
 
 有新版本会自动更新。如果服务已在运行，会提示是否停止并重新配置。
@@ -76,16 +76,16 @@ npx @carbonkite/onemancompany
 
 ```bash
 # 重新运行配置向导
-npx @carbonkite/onemancompany init
+npx @1mancompany/onemancompany init
 
 # 自定义端口
-npx @carbonkite/onemancompany --port 8080
+npx @1mancompany/onemancompany --port 8080
 ```
 
 ## 卸载
 
 ```bash
-npx @carbonkite/onemancompany uninstall
+npx @1mancompany/onemancompany uninstall
 ```
 
 停止正在运行的服务，并删除整个安装目录。需要确认后才会执行。
