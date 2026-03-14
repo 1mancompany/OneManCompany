@@ -237,3 +237,8 @@ company/business/resolutions/
 # Session state
 sessions.json
 .superpowers/
+
+video/
+
+# Git worktrees
+.worktrees/
