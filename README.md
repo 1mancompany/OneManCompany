@@ -199,7 +199,7 @@ First run automatically:
 2. Installs **Python 3.12** via UV (isolated, no system changes)
 3. Clones the repository
 4. Creates venv and installs dependencies
-5. Launches the setup wizard (API keys, Talent Market config)
+5. Launches the setup process
 
 Then open `http://localhost:8000`. Congratulations, you're a CEO now.
 
@@ -209,7 +209,7 @@ Founding employees (EA, HR, COO, CSO) support three execution modes, switchable 
 
 | Mode | Description | Requirements |
 | --- | --- | --- |
-| **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup wizard) |
+| **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup process) |
 | **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
 | **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
 
@@ -227,7 +227,7 @@ npx @1mancompany/onemancompany --debug
 # Stop background service
 npx @1mancompany/onemancompany stop
 
-# Re-run setup wizard (change API keys, etc.)
+# Re-run setup process
 npx @1mancompany/onemancompany init
 
 # Custom port
