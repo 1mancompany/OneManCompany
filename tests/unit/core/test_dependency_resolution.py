@@ -56,21 +56,21 @@ class TestBuildDependencyContext:
 
 class TestTreeLock:
     def test_get_tree_lock_returns_lock(self):
-        from onemancompany.core.vessel import _get_tree_lock
-        import asyncio
-        lock = _get_tree_lock("test_project")
-        assert isinstance(lock, asyncio.Lock)
+        from onemancompany.core.task_tree import get_tree_lock
+        import threading
+        lock = get_tree_lock("/tmp/test_project/tree.yaml")
+        assert isinstance(lock, threading.RLock().__class__)
 
-    def test_same_project_same_lock(self):
-        from onemancompany.core.vessel import _get_tree_lock
-        lock1 = _get_tree_lock("same_proj")
-        lock2 = _get_tree_lock("same_proj")
+    def test_same_path_same_lock(self):
+        from onemancompany.core.task_tree import get_tree_lock
+        lock1 = get_tree_lock("/tmp/same_proj/tree.yaml")
+        lock2 = get_tree_lock("/tmp/same_proj/tree.yaml")
         assert lock1 is lock2
 
-    def test_different_project_different_lock(self):
-        from onemancompany.core.vessel import _get_tree_lock
-        lock1 = _get_tree_lock("proj_a")
-        lock2 = _get_tree_lock("proj_b")
+    def test_different_path_different_lock(self):
+        from onemancompany.core.task_tree import get_tree_lock
+        lock1 = get_tree_lock("/tmp/proj_a/tree.yaml")
+        lock2 = get_tree_lock("/tmp/proj_b/tree.yaml")
         assert lock1 is not lock2
 
 

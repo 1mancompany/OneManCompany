@@ -14,6 +14,7 @@ per tree file — no stale-read overwrites.
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -337,14 +338,17 @@ class TaskTree:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Snapshot nodes to avoid "dictionary changed size during iteration"
+        # when async save runs concurrently with add_child modifications
+        nodes_snapshot = list(self._nodes.values())
         # Externalize dirty node content before writing skeleton
-        for node in self._nodes.values():
+        for node in nodes_snapshot:
             node.save_content(path.parent)
         data = {
             "project_id": self.project_id,
             "root_id": self.root_id,
             "current_branch": self.current_branch,
-            "nodes": [n.to_dict() for n in self._nodes.values()],
+            "nodes": [n.to_dict() for n in nodes_snapshot],
         }
         path.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
@@ -380,7 +384,8 @@ class TaskTree:
 # ---------------------------------------------------------------------------
 
 _cache: dict[str, TaskTree] = {}
-_locks: dict[str, asyncio.Lock] = {}
+_locks: dict[str, threading.RLock] = {}
+_locks_guard = threading.Lock()  # protects _locks dict itself
 
 
 def _key(path: str | Path) -> str:
@@ -400,12 +405,18 @@ def register_tree(path: str | Path, tree: TaskTree) -> None:
     _cache[_key(path)] = tree
 
 
-def get_tree_lock(path: str | Path) -> asyncio.Lock:
-    """Get per-tree asyncio.Lock for protecting read-modify-write sequences."""
+def get_tree_lock(path: str | Path) -> threading.RLock:
+    """Get per-tree RLock for protecting read-modify-write sequences.
+
+    Uses threading.RLock (not asyncio.Lock) so it works in both sync
+    (LangChain tool threads) and async contexts.  RLock is reentrant,
+    so nested calls (e.g. dispatch_child → _save_tree) won't deadlock.
+    """
     key = _key(path)
-    if key not in _locks:
-        _locks[key] = asyncio.Lock()
-    return _locks[key]
+    with _locks_guard:
+        if key not in _locks:
+            _locks[key] = threading.RLock()
+        return _locks[key]
 
 
 def save_tree_async(path: str | Path) -> None:
@@ -413,6 +424,7 @@ def save_tree_async(path: str | Path) -> None:
 
     Safe to call from both sync and async contexts.
     If no event loop is running, saves synchronously.
+    Acquires the tree lock to prevent concurrent mutation during save.
     """
     key = _key(path)
     tree = _cache.get(key)
@@ -423,18 +435,25 @@ def save_tree_async(path: str | Path) -> None:
         loop = asyncio.get_running_loop()
         loop.create_task(_do_save(tree, _path))
     except RuntimeError:
-        tree.save(_path)
+        lock = get_tree_lock(path)
+        with lock:
+            tree.save(_path)
 
 
 def evict_tree(path: str | Path) -> None:
     """Remove a tree from the cache (e.g. after project archive)."""
     key = _key(path)
     _cache.pop(key, None)
-    _locks.pop(key, None)
+    with _locks_guard:
+        _locks.pop(key, None)
 
 
 async def _do_save(tree: TaskTree, path: Path) -> None:
+    lock = get_tree_lock(path)
     try:
+        lock.acquire()
         tree.save(path)
     except Exception as e:
         logger.error("Failed to save tree {}: {}", path, e)
+    finally:
+        lock.release()
