@@ -234,7 +234,7 @@ npx @1mancompany/onemancompany init
 npx @1mancompany/onemancompany --port 8080
 
 # Uninstall (stops service + deletes installation)
-npx @1mancompany/onemancompany uninstall
+npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
 ### Manual Install (Dev Mode)
