@@ -1153,6 +1153,21 @@ class AppController {
     chat.innerHTML = '';
     this._addOneononeSystemMsg(`1-on-1 meeting with ${emp.name}${nn} started. Chat naturally — when done, click "End Meeting".`);
 
+    // Load previous 1-on-1 history from disk
+    const prevHistory = await fetch(`/api/employee/${empId}/oneonone`).then(r => r.json()).catch(() => []);
+    if (Array.isArray(prevHistory) && prevHistory.length > 0) {
+      const empName = emp.name || 'Employee';
+      for (const entry of prevHistory) {
+        if (entry.role === 'ceo') {
+          this._addOneononeBubble('CEO', entry.content, 'outgoing');
+        } else if (entry.role === 'employee') {
+          this._addOneononeBubble(empName, entry.content, 'incoming');
+        }
+      }
+      this._oneononeHistory = prevHistory;
+      this._addOneononeSystemMsg('── Previous conversation loaded ──');
+    }
+
     // Reset input
     const textarea = document.getElementById('oneonone-input');
     textarea.value = '';

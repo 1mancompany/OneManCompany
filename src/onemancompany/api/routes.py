@@ -139,7 +139,7 @@ def _push_adhoc_task(
 
     employee_manager.schedule_node(employee_id, root.id, str(tree_path))
     employee_manager._schedule_next(employee_id)
-    return root.id
+    return root.id, str(tree_path)
 
 
 def _require_employee(employee_id: str) -> dict:
@@ -768,11 +768,10 @@ async def task_followup(project_id: str, body: dict) -> dict:
 async def oneonone_chat(body: dict) -> dict:
     """Per-message 1-on-1 chat.
 
-    For founding employees with a registered agent loop, the CEO message is
-    pushed as a task to the agent's task board so the agent can use its tools
-    (e.g. HR can call search_candidates via Boss Online MCP).
+    All registered employees (regardless of executor type) go through
+    _push_adhoc_task so the agent can use its native tools and skills.
 
-    For normal employees (no agent loop), falls back to a plain LLM call.
+    For unregistered employees (no vessel), falls back to a plain LLM call.
     """
     from pathlib import Path
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -809,32 +808,9 @@ async def oneonone_chat(body: dict) -> dict:
             )
         )
 
-    # --- Self-hosted path: relay CEO message directly to Claude session ---
-    from onemancompany.core.config import employee_configs as _oneonone_cfgs
-    _oneonone_cfg = _oneonone_cfgs.get(employee_id)
-    if _oneonone_cfg and _oneonone_cfg.hosting == "self":
-        from onemancompany.core.claude_session import run_claude_session
+    # --- Unified agent path: all registered employees use their native executor ---
+    response_text: str | None = None
 
-        # First message: give minimal context. Subsequent: just relay CEO's words.
-        # Session memory handles the rest — let the employee be themselves.
-        if not history:
-            prompt = (
-                f"你正在和公司CEO进行1-1会议。CEO对你说：\n\n{message}{attach_info}"
-            )
-        else:
-            prompt = f"CEO: {message}{attach_info}"
-
-        output = await run_claude_session(
-            employee_id, "1-1",
-            prompt=prompt,
-            work_dir="",
-            max_turns=10,
-            timeout=120,
-        )
-        text = output["output"] if isinstance(output, dict) else output
-        return {"response": text}
-
-    # --- Agent path: founding employees with a registered agent loop ---
     loop = get_agent_loop(employee_id)
     if loop:
         context = ""
@@ -848,18 +824,10 @@ async def oneonone_chat(body: dict) -> dict:
             f"CEO: {message}{attach_info}\n\n"
             f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
         )
-        node_id = _push_adhoc_task(employee_id, task_desc)
+        node_id, tree_path = _push_adhoc_task(employee_id, task_desc)
         # Wait for the task to complete (poll tree node with timeout)
         import asyncio
         from onemancompany.core.task_tree import get_tree
-        from onemancompany.core.vessel import employee_manager as _em
-        tree_path = ""
-        for entry in _em._schedule.get(employee_id, []):
-            if entry.node_id == node_id:
-                tree_path = entry.tree_path
-                break
-        if not tree_path:
-            return {"response": "（任务已提交，正在处理中）"}
         for _ in range(120):  # up to 60 seconds
             await asyncio.sleep(0.5)
             tp = Path(tree_path)
@@ -869,57 +837,63 @@ async def oneonone_chat(body: dict) -> dict:
             node = tree.get_node(node_id)
             if node and node.status in ("completed", "failed", "finished", "accepted"):
                 node.load_content(tp.parent)
-                if node.result:
-                    return {"response": str(node.result)}
-                return {"response": "（处理完成）"}
-        return {"response": "（任务已提交，正在处理中）"}
+                response_text = str(node.result) if node.result else "（处理完成）"
+                break
+        if response_text is None:
+            response_text = "（任务已提交，正在处理中）"
+    else:
+        # --- Fallback: plain LLM for employees without a vessel ---
+        from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
 
-    # --- Fallback: plain LLM for normal employees without agent loop ---
-    from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
+        skills_list = emp_data.get("skills", [])
+        skills_str = ", ".join(skills_list) if skills_list else "general"
+        persona_section = get_employee_talent_persona(employee_id)
+        work_principles = emp_data.get("work_principles", "")
+        principles_section = f"\nYour work principles:\n{work_principles}" if work_principles else ""
+        culture_items = _store.load_culture()
+        culture_section = ""
+        if culture_items:
+            rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
+            culture_section = f"\nCompany culture:\n{rules}"
 
-    skills_list = emp_data.get("skills", [])
-    skills_str = ", ".join(skills_list) if skills_list else "general"
-    persona_section = get_employee_talent_persona(employee_id)
-    work_principles = emp_data.get("work_principles", "")
-    principles_section = f"\nYour work principles:\n{work_principles}" if work_principles else ""
-    culture_items = _store.load_culture()
-    culture_section = ""
-    if culture_items:
-        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
-        culture_section = f"\nCompany culture:\n{rules}"
+        skills_section = get_employee_skills_prompt(employee_id)
+        tools_section = get_employee_tools_prompt(employee_id)
 
-    skills_section = get_employee_skills_prompt(employee_id)
-    tools_section = get_employee_tools_prompt(employee_id)
-
-    system_prompt = (
-        f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), a {emp_data.get('role', '')} in {emp_data.get('department', '')}. "
-        f"Skills: {skills_str}. "
-        f"You are in a private 1-on-1 meeting with the CEO. "
-        f"Respond naturally, 2-4 sentences. Be yourself — share thoughts honestly."
-        f"{persona_section}{principles_section}{culture_section}"
-        f"{skills_section}{tools_section}"
-    )
-
-    # Convert history to LangChain messages
-    messages = [SystemMessage(content=system_prompt)]
-    for entry in history:
-        if entry.get("role") == "ceo":
-            messages.append(HumanMessage(content=entry["content"]))
-        elif entry.get("role") == "employee":
-            messages.append(AIMessage(content=entry["content"]))
-    messages.append(HumanMessage(content=message))
-
-    llm = make_llm(employee_id)
-    result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
-
-    content = result.content
-    # Normalize content — some models return list of content blocks
-    if isinstance(content, list):
-        content = "\n".join(
-            c.get("text", str(c)) if isinstance(c, dict) else str(c)
-            for c in content
+        system_prompt = (
+            f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), a {emp_data.get('role', '')} in {emp_data.get('department', '')}. "
+            f"Skills: {skills_str}. "
+            f"You are in a private 1-on-1 meeting with the CEO. "
+            f"Respond naturally, 2-4 sentences. Be yourself — share thoughts honestly."
+            f"{persona_section}{principles_section}{culture_section}"
+            f"{skills_section}{tools_section}"
         )
-    return {"response": content or ""}
+
+        # Convert history to LangChain messages
+        messages = [SystemMessage(content=system_prompt)]
+        for entry in history:
+            if entry.get("role") == "ceo":
+                messages.append(HumanMessage(content=entry["content"]))
+            elif entry.get("role") == "employee":
+                messages.append(AIMessage(content=entry["content"]))
+        messages.append(HumanMessage(content=message))
+
+        llm = make_llm(employee_id)
+        result = await _llm_invoke_with_retry(llm, messages, category="oneonone", employee_id=employee_id)
+
+        content = result.content
+        # Normalize content — some models return list of content blocks
+        if isinstance(content, list):
+            content = "\n".join(
+                c.get("text", str(c)) if isinstance(c, dict) else str(c)
+                for c in content
+            )
+        response_text = content or ""
+
+    # Persist both CEO message and employee reply to disk
+    await _store.append_oneonone(employee_id, {"role": "ceo", "content": message})
+    await _store.append_oneonone(employee_id, {"role": "employee", "content": response_text})
+
+    return {"response": response_text}
 
 
 @router.post("/api/oneonone/end")

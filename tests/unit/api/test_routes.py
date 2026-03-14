@@ -2427,7 +2427,7 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
              patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
@@ -2468,7 +2468,7 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
              patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
@@ -2508,7 +2508,7 @@ class TestOneOnOneChatAgentLoop:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
              patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
@@ -2563,12 +2563,16 @@ class TestOneOnOneChatAgentLoop:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/oneonone/chat — self-hosted path
+# POST /api/oneonone/chat — self-hosted goes through unified agent path
 # ---------------------------------------------------------------------------
 
 
 class TestOneOnOneChatSelfHosted:
-    async def test_chat_self_hosted_first_message(self):
+    async def test_chat_self_hosted_uses_agent_path(self, tmp_path):
+        """Self-hosted employees now go through _push_adhoc_task like all others."""
+        from onemancompany.core.task_tree import TaskTree
+        from onemancompany.core.vessel import ScheduleEntry
+
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
@@ -2576,11 +2580,27 @@ class TestOneOnOneChatSelfHosted:
         mock_cfg = MagicMock()
         mock_cfg.hosting = "self"
 
+        # Create a tree on disk with a completed node
+        tree = TaskTree("_sys_chat")
+        root = tree.create_root("00010", "chat task")
+        root.status = "completed"
+        root.result = "Self-hosted reply via agent path"
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+
+        mock_em = MagicMock()
+        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
+
+        mock_loop = MagicMock()
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock, return_value="Self-hosted reply"):
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))) as mock_push, \
+             patch("onemancompany.core.vessel.employee_manager", mock_em), \
+             patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2590,31 +2610,8 @@ class TestOneOnOneChatSelfHosted:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "Self-hosted reply"
-
-    async def test_chat_self_hosted_subsequent_message(self):
-        emp = _make_employee(id="00010")
-        state = _make_state(employees={"00010": emp})
-        bus = EventBus()
-
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "self"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.core.claude_session.run_claude_session", new_callable=AsyncMock, return_value="Follow-up reply"):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/oneonone/chat", json={
-                    "employee_id": "00010",
-                    "message": "More info",
-                    "history": [{"role": "ceo", "content": "Hello"}],
-                })
-
-        assert resp.status_code == 200
-        assert resp.json()["response"] == "Follow-up reply"
+        assert resp.json()["response"] == "Self-hosted reply via agent path"
+        mock_push.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -3997,7 +3994,7 @@ class TestSalesSubmitWithCSO:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value="n1") as mock_push:
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=("n1", "/tmp/tree.yaml")) as mock_push:
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/sales/submit", json={
@@ -5742,7 +5739,7 @@ class TestOneOnOneChatAgentLoopHistory:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
              patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
@@ -5794,7 +5791,7 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=root.id), \
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
              patch("onemancompany.core.vessel.employee_manager", mock_em), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             app = _make_test_app()
@@ -6259,7 +6256,7 @@ class TestDispatchHiringToHR:
 
         with patch("onemancompany.api.routes.event_bus", mock_bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value="n1") as mock_push:
+             patch("onemancompany.api.routes._push_adhoc_task", return_value=("n1", "/tmp/tree.yaml")) as mock_push:
             from onemancompany.api.routes import decide_hiring_request
             result = await decide_hiring_request(req_id, {"approved": True})
 
