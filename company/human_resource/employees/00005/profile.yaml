@@ -5,7 +5,7 @@ desk_position:
 - 15
 - 0
 employee_number: '00005'
-hosting: self
+hosting: company
 level: 4
 llm_model: openai/gpt-5.2
 name: Morgan CSO
