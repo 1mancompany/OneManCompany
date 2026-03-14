@@ -333,7 +333,7 @@ npx @1mancompany/onemancompany init
 ### 卸载
 
 ```bash
-npx @1mancompany/onemancompany uninstall
+npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
 这会停止正在运行的服务，并删除整个安装目录（包括 `.onemancompany/` 配置和所有公司数据）。需要确认后才会执行。
