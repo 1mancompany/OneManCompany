@@ -20,7 +20,7 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
 
-from onemancompany.tools.sandbox import SANDBOX_TOOLS
+from onemancompany.tools.sandbox import SANDBOX_TOOLS, is_sandbox_enabled
 
 # Context vars for sub-task support — set by Vessel during execution
 from onemancompany.core.agent_loop import _current_vessel, _current_task_id
@@ -1102,9 +1102,10 @@ def _register_all_internal_tools() -> None:
     for name, t in _gated.items():
         tool_registry.register(t, ToolMeta(name=name, category="gated"))
 
-    # Sandbox tools
-    for t in SANDBOX_TOOLS:
-        tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
+    # Sandbox tools — only register when sandbox is enabled
+    if is_sandbox_enabled():
+        for t in SANDBOX_TOOLS:
+            tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
 
 
 _register_all_internal_tools()

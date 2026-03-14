@@ -1501,10 +1501,17 @@ class EmployeeManager:
                     break
 
         if not verification_instructions:
-            verification_instructions = (
-                "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
-                "  - For documents/reports: Proofread your output once before submitting.\n"
-            )
+            from onemancompany.tools.sandbox import is_sandbox_enabled as _sb_enabled
+            if _sb_enabled():
+                verification_instructions = (
+                    "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
+                    "  - For documents/reports: Proofread your output once before submitting.\n"
+                )
+            else:
+                verification_instructions = (
+                    "  - For code/software: Review your code carefully for errors.\n"
+                    "  - For documents/reports: Proofread your output once before submitting.\n"
+                )
 
         return (
             "[Self-Verification Before Completion]\n"

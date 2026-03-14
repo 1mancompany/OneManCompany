@@ -1314,7 +1314,8 @@ class TestEmployeeManagerWorkflowContext:
         with patch("onemancompany.core.config.load_workflows", return_value={}):
             result = mgr._get_project_workflow_context("emp01", "proj1")
             assert "Self-Verification" in result
-            assert "sandbox_execute_code" in result
+            # Default verification (sandbox disabled) mentions code review
+            assert "code/software" in result
 
     @patch("onemancompany.core.vessel._store")
     def test_engineer_with_workflow_verification(self, mock_store):

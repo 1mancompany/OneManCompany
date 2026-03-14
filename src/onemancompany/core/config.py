@@ -185,7 +185,6 @@ ENGINEERING_DEPT = "Engineering"
 DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
     "Engineering": [
         "bash", "use_tool",
-        "sandbox_execute_code", "sandbox_run_command", "sandbox_write_file", "sandbox_read_file",
     ],
     "Design": ["use_tool"],
     "Analytics": ["use_tool"],
