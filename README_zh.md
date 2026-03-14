@@ -187,7 +187,7 @@ OneManCompany 不止于内置能力——它面向全球 Agent 社区开放。
   <tr>
     <td align="center">
       <b>「做个游戏」</b><br><br>
-      <video src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" controls width="100%"></video>
+      <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" alt="做个游戏" width="100%">
       <br><i>CEO 一句话 —— 团队自主完成整个游戏开发。</i>
     </td>
   </tr>

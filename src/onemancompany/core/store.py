@@ -154,7 +154,11 @@ def load_employee_guidance(emp_id: str) -> list[str]:
     """Read guidance.yaml for an employee. Returns list of guidance notes."""
     path = EMPLOYEES_DIR / emp_id / "guidance.yaml"
     data = _read_yaml(path)
-    return data.get("notes", []) if data else []
+    if not data:
+        return []
+    if isinstance(data, list):
+        return data
+    return data.get("notes", []) if isinstance(data, dict) else []
 
 
 def load_employee_work_principles(emp_id: str) -> str:

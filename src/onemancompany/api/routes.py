@@ -773,11 +773,9 @@ async def oneonone_chat(body: dict) -> dict:
 
     For unregistered employees (no vessel), falls back to a plain LLM call.
     """
-    from pathlib import Path
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
-    from onemancompany.core.agent_loop import get_agent_loop
 
     employee_id = body.get("employee_id", "")
     message = body.get("message", "")
@@ -808,11 +806,13 @@ async def oneonone_chat(body: dict) -> dict:
             )
         )
 
-    # --- Unified agent path: all registered employees use their native executor ---
+    # --- Unified agent path: directly invoke executor (bypass task queue) ---
     response_text: str | None = None
 
-    loop = get_agent_loop(employee_id)
-    if loop:
+    from onemancompany.core.vessel import employee_manager, TaskContext
+
+    executor = employee_manager.executors.get(employee_id)
+    if executor:
         context = ""
         if history:
             context = "以下是你和CEO的对话历史:\n" + "\n".join(
@@ -824,23 +824,13 @@ async def oneonone_chat(body: dict) -> dict:
             f"CEO: {message}{attach_info}\n\n"
             f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
         )
-        node_id, tree_path = _push_adhoc_task(employee_id, task_desc)
-        # Wait for the task to complete (poll tree node with timeout)
-        import asyncio
-        from onemancompany.core.task_tree import get_tree
-        for _ in range(120):  # up to 60 seconds
-            await asyncio.sleep(0.5)
-            tp = Path(tree_path)
-            if not tp.exists():
-                continue
-            tree = get_tree(tp)
-            node = tree.get_node(node_id)
-            if node and node.status in ("completed", "failed", "finished", "accepted"):
-                node.load_content(tp.parent)
-                response_text = str(node.result) if node.result else "（处理完成）"
-                break
-        if response_text is None:
-            response_text = "（任务已提交，正在处理中）"
+        try:
+            ctx = TaskContext(employee_id=employee_id)
+            result = await executor.execute(task_desc, ctx)
+            response_text = result.output or "（处理完成）"
+        except Exception as exc:
+            logger.error("1-on-1 direct execute failed for {}: {}", employee_id, exc)
+            response_text = f"（执行出错: {exc}）"
     else:
         # --- Fallback: plain LLM for employees without a vessel ---
         from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona

@@ -98,7 +98,7 @@ npx @1mancompany/onemancompany
   <tr>
     <td align="center">
       <b>"Make me a game"</b><br><br>
-      <video src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" controls width="100%"></video>
+      <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" alt="Make me a game" width="100%">
       <br><i>CEO gives one sentence — the team builds a complete game autonomously.</i>
     </td>
   </tr>

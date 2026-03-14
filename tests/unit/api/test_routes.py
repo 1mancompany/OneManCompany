@@ -2399,37 +2399,24 @@ class TestUploadFile:
 
 
 class TestOneOnOneChatAgentLoop:
-    async def test_chat_via_agent_loop(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
+    async def test_chat_direct_executor(self, tmp_path):
+        """1-on-1 directly invokes executor, bypassing task queue."""
+        from onemancompany.core.vessel import LaunchResult
 
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        # Create a tree on disk with a completed node
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "completed"
-        root.result = "Agent response here"
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.return_value = LaunchResult(output="Agent response here")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "company"
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2439,38 +2426,26 @@ class TestOneOnOneChatAgentLoop:
 
         assert resp.status_code == 200
         assert resp.json()["response"] == "Agent response here"
+        mock_executor.execute.assert_awaited_once()
 
-    async def test_chat_via_agent_loop_no_result(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
+    async def test_chat_direct_executor_empty_output(self, tmp_path):
+        """Empty executor output returns fallback message."""
+        from onemancompany.core.vessel import LaunchResult
 
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        # Create a tree on disk with a completed node but no result
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "completed"
-        root.result = ""
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.return_value = LaunchResult(output="")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "company"
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2481,36 +2456,22 @@ class TestOneOnOneChatAgentLoop:
         assert resp.status_code == 200
         assert resp.json()["response"] == "（处理完成）"
 
-    async def test_chat_via_agent_loop_timeout(self, tmp_path):
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
-
+    async def test_chat_direct_executor_error(self, tmp_path):
+        """Executor error returns error message instead of crashing."""
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        # Create a tree on disk with a still-processing node (never completes)
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "processing"
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.side_effect = RuntimeError("LLM timeout")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "company"
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2519,7 +2480,7 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "（任务已提交，正在处理中）"
+        assert "执行出错" in resp.json()["response"]
 
     async def test_chat_first_message_marks_listening(self):
         emp = _make_employee(id="00010")
@@ -2568,39 +2529,24 @@ class TestOneOnOneChatAgentLoop:
 
 
 class TestOneOnOneChatSelfHosted:
-    async def test_chat_self_hosted_uses_agent_path(self, tmp_path):
-        """Self-hosted employees now go through _push_adhoc_task like all others."""
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
+    async def test_chat_self_hosted_direct_executor(self, tmp_path):
+        """Self-hosted employees also use direct executor invocation."""
+        from onemancompany.core.vessel import LaunchResult
 
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "self"
-
-        # Create a tree on disk with a completed node
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "completed"
-        root.result = "Self-hosted reply via agent path"
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.return_value = LaunchResult(output="Self-hosted reply via executor")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))) as mock_push, \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -2610,8 +2556,8 @@ class TestOneOnOneChatSelfHosted:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "Self-hosted reply via agent path"
-        mock_push.assert_called_once()
+        assert resp.json()["response"] == "Self-hosted reply via executor"
+        mock_executor.execute.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -5712,36 +5658,23 @@ class TestOneOnOneEndWithUpdate:
 
 class TestOneOnOneChatAgentLoopHistory:
     async def test_chat_agent_loop_with_history(self, tmp_path):
-        """Covers agent loop chat with conversation history."""
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
+        """Covers direct executor chat with conversation history."""
+        from onemancompany.core.vessel import LaunchResult
 
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "completed"
-        root.result = "Got your history"
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.return_value = LaunchResult(output="Got your history")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "company"
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
@@ -5755,6 +5688,9 @@ class TestOneOnOneChatAgentLoopHistory:
 
         assert resp.status_code == 200
         assert resp.json()["response"] == "Got your history"
+        # Verify history was included in the task description
+        call_args = mock_executor.execute.call_args[0][0]
+        assert "Start the project" in call_args
 
 
 # ---------------------------------------------------------------------------
@@ -5764,36 +5700,23 @@ class TestOneOnOneChatAgentLoopHistory:
 
 class TestOneOnOneChatAgentLoopLogsNoResult:
     async def test_chat_completed_no_result(self, tmp_path):
-        """Covers completed node with no result — returns fallback message."""
-        from onemancompany.core.task_tree import TaskTree
-        from onemancompany.core.vessel import ScheduleEntry
+        """Covers executor returning empty output — returns fallback message."""
+        from onemancompany.core.vessel import LaunchResult
 
         emp = _make_employee(id="00010")
         state = _make_state(employees={"00010": emp})
         bus = EventBus()
 
-        tree = TaskTree("_sys_chat")
-        root = tree.create_root("00010", "chat task")
-        root.status = "completed"
-        root.result = ""
-        tree_path = tmp_path / "tree.yaml"
-        tree.save(tree_path)
+        mock_executor = AsyncMock()
+        mock_executor.execute.return_value = LaunchResult(output="")
 
         mock_em = MagicMock()
-        mock_em._schedule = {"00010": [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]}
-
-        mock_loop = MagicMock()
-        mock_cfg = MagicMock()
-        mock_cfg.hosting = "company"
+        mock_em.executors = {"00010": mock_executor}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=(root.id, str(tree_path))), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em), \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/oneonone/chat", json={
