@@ -1190,6 +1190,7 @@ class EmployeeManager:
                 stop_cron(employee_id, f"reply_{task_id}")
                 stop_cron(employee_id, f"holding_{task_id}")
 
+                node.load_content(Path(entry.tree_path).parent)
                 node.result = result
                 node.set_status(TaskPhase.COMPLETED)
                 node.completed_at = datetime.now().isoformat()
@@ -1200,7 +1201,7 @@ class EmployeeManager:
 
                 self._append_history_from_node(employee_id, node)
                 summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed (resumed): {node.description[:100]} → {summary}")
+                _append_progress(employee_id, f"Completed (resumed): {node.description_preview[:100]} → {summary}")
 
                 if node.project_dir:
                     try:
