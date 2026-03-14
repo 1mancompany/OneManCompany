@@ -3,7 +3,7 @@
   "name": "COO Manager",
   "version": "1.0.0",
   "role": "COO",
-  "hosting": "self",
+  "hosting": "company",
   "settings": {
     "sections": [
       {

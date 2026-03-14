@@ -218,8 +218,9 @@ def _step_llm(console: Console) -> tuple[str, str]:
     if all_models:
         console.print(f"  [green]✔[/green] Found {len(all_models)} models")
     console.print(
-        "  [dim]This sets the default model. Each employee can be assigned a"
-        " different model in their profile.[/dim]\n"
+        "  [dim]This only sets the [bold]default[/bold] model, used for company-level features\n"
+        "  (e.g. polishing company direction, generating nicknames).\n"
+        "  Each employee can use a different LLM — configurable on the web UI.[/dim]\n"
     )
     model = _select_model_interactive(console, all_models)
 

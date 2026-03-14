@@ -3,7 +3,7 @@
   "name": "Chief Sales Officer",
   "version": "1.0.0",
   "role": "CSO",
-  "hosting": "self",
+  "hosting": "company",
   "settings": {
     "sections": [
       {
