@@ -663,8 +663,10 @@ async def task_followup(project_id: str, body: dict) -> dict:
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
         root = tree.get_node(tree.root_id)
-        if root and root.result:
-            previous_result = root.result
+        if root:
+            root.load_content(tree_path.parent)
+            if root.result:
+                previous_result = root.result
 
     # Build follow-up task for EA
     context_parts = [
@@ -866,6 +868,7 @@ async def oneonone_chat(body: dict) -> dict:
             tree = get_tree(tp)
             node = tree.get_node(node_id)
             if node and node.status in ("completed", "failed", "finished", "accepted"):
+                node.load_content(tp.parent)
                 if node.result:
                     return {"response": str(node.result)}
                 return {"response": "（处理完成）"}
@@ -3050,12 +3053,14 @@ def _tree_summary(project_id: str) -> dict | None:
             active_nodes.append({
                 "id": n.id,
                 "employee_id": n.employee_id,
-                "description": n.description[:80],
+                "description": n.description_preview[:80],
                 "status": n.status,
             })
 
     # Root node result for completed tasks
     root_node = tree.get_node(tree.root_id)
+    if root_node:
+        root_node.load_content(path.parent)
     root_result = root_node.result if root_node else ""
 
     return {

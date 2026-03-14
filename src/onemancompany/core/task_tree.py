@@ -41,7 +41,7 @@ class TaskNode:
     employee_id: str = ""
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
-    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request"
+    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request" | "review"
 
     task_type: str = "simple"         # "simple" | "project"
     model_used: str = ""              # which LLM executed
@@ -65,11 +65,61 @@ class TaskNode:
     depends_on: list[str] = field(default_factory=list)
     fail_strategy: str = "block"  # "block" | "continue"
 
+    # --- Content externalization tracking (not part of equality/repr) ---
+    _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
+    _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
+    _description_preview: str = field(default="", init=False, repr=False, compare=False)
+
     def __post_init__(self) -> None:
         if not self.id:
             self.id = uuid.uuid4().hex[:12]
         if not self.created_at:
             self.created_at = datetime.now().isoformat()
+        if self.description:
+            self._description_preview = self.description[:200]
+
+    def __setattr__(self, name: str, value) -> None:
+        super().__setattr__(name, value)
+        if name == "description":
+            try:
+                super().__setattr__("_content_dirty", True)
+                super().__setattr__("_description_preview", (value or "")[:200])
+            except AttributeError:
+                return  # During __init__ before _content_dirty exists
+        elif name == "result":
+            try:
+                super().__setattr__("_content_dirty", True)
+            except AttributeError:
+                return  # During __init__ before _content_dirty exists
+
+    @property
+    def description_preview(self) -> str:
+        return self._description_preview
+
+    def save_content(self, project_dir: Path) -> None:
+        """Write description/result to a separate content file."""
+        if not self._content_dirty:
+            return
+        nodes_dir = Path(project_dir) / "nodes"
+        nodes_dir.mkdir(parents=True, exist_ok=True)
+        content = {"description": self.description, "result": self.result}
+        (nodes_dir / f"{self.id}.yaml").write_text(
+            yaml.dump(content, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        self._content_dirty = False
+
+    def load_content(self, project_dir: Path) -> None:
+        """Load description/result from content file (idempotent)."""
+        if self._content_loaded:
+            return
+        content_path = Path(project_dir) / "nodes" / f"{self.id}.yaml"
+        if content_path.exists():
+            data = yaml.safe_load(content_path.read_text(encoding="utf-8")) or {}
+            # Use object.__setattr__ to avoid marking dirty
+            object.__setattr__(self, "description", data.get("description", ""))
+            object.__setattr__(self, "result", data.get("result", ""))
+        self._content_loaded = True
 
     def set_status(self, target: TaskPhase) -> None:
         """Validated status transition. Raises TaskTransitionError if invalid."""
@@ -99,14 +149,13 @@ class TaskNode:
             "parent_id": self.parent_id,
             "children_ids": list(self.children_ids),
             "employee_id": self.employee_id,
-            "description": self.description,
+            "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
             "node_type": self.node_type,
             "task_type": self.task_type,
             "model_used": self.model_used,
             "project_dir": self.project_dir,
             "status": self.status,
-            "result": self.result,
             "acceptance_result": self.acceptance_result,
             "project_id": self.project_id,
             "created_at": self.created_at,
@@ -123,10 +172,31 @@ class TaskNode:
 
     @classmethod
     def from_dict(cls, d: dict) -> TaskNode:
+        # Extract content fields before filtering to dataclass fields
+        has_description = "description" in d
+        has_result = "result" in d
+        old_format = has_description or has_result
+        desc_value = d.pop("description", "")
+        result_value = d.pop("result", "")
+        preview_value = d.pop("description_preview", "")
+
         filtered = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         if "status" in filtered:
             filtered["status"] = _STATUS_MIGRATION.get(filtered["status"], filtered["status"])
-        return cls(**filtered)
+
+        if old_format:
+            # Old format: description/result inline — set them on the node
+            filtered["description"] = desc_value
+            filtered["result"] = result_value
+            node = cls(**filtered)
+            node._content_dirty = True
+            node._content_loaded = True
+        else:
+            # New format: skeleton only, content loaded lazily
+            node = cls(**filtered)
+            node._content_dirty = False
+            object.__setattr__(node, "_description_preview", preview_value)
+        return node
 
 
 class TaskTree:
@@ -264,6 +334,9 @@ class TaskTree:
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Externalize dirty node content before writing skeleton
+        for node in self._nodes.values():
+            node.save_content(path.parent)
         data = {
             "project_id": self.project_id,
             "root_id": self.root_id,
@@ -276,16 +349,27 @@ class TaskTree:
         )
 
     @classmethod
-    def load(cls, path: Path, project_id: str = "") -> TaskTree:
+    def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = False) -> TaskTree:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         tree = cls(project_id=project_id or data.get("project_id", ""))
         tree.root_id = data.get("root_id", "")
         tree.current_branch = data.get("current_branch", 0)
+        tree._source_dir = path.parent
         for nd in data.get("nodes", []):
             node = TaskNode.from_dict(nd)
             tree._nodes[node.id] = node
         # task_id_map removed — ignored for backward compat with old tree files
+        if not skeleton_only:
+            tree.load_all_content()
         return tree
+
+    def load_all_content(self, project_dir: Path | None = None) -> None:
+        """Load content for all nodes from their content files."""
+        pdir = project_dir or getattr(self, "_source_dir", None)
+        if not pdir:
+            return
+        for node in self._nodes.values():
+            node.load_content(pdir)
 
 
 # ---------------------------------------------------------------------------
