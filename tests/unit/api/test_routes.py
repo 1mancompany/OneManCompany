@@ -6719,3 +6719,196 @@ class TestGetActivityLog:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 50
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/employee/{id}/hosting — hosting mode switch manifest updates
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateEmployeeHostingManifest:
+    """Verify that switching hosting mode correctly updates manifest sections."""
+
+    def _self_hosted_manifest(self) -> dict:
+        return {
+            "id": "test",
+            "hosting": "self",
+            "settings": {
+                "sections": [
+                    {
+                        "id": "connection",
+                        "title": "Connection",
+                        "fields": [{"key": "sessions", "type": "readonly", "label": "Sessions", "value_from": "api:sessions"}],
+                    },
+                    {
+                        "id": "hosting",
+                        "title": "Hosting Mode",
+                        "fields": [{"key": "hosting", "type": "select", "label": "Hosting", "options": []}],
+                    },
+                ],
+            },
+        }
+
+    def _company_hosted_manifest(self) -> dict:
+        return {
+            "id": "test",
+            "hosting": "company",
+            "settings": {
+                "sections": [
+                    {
+                        "id": "hosting",
+                        "title": "Hosting Mode",
+                        "fields": [{"key": "hosting", "type": "select", "label": "Hosting", "options": []}],
+                    },
+                    {
+                        "id": "llm",
+                        "title": "LLM Configuration",
+                        "fields": [{"key": "llm_model", "type": "select", "label": "Model", "options_from": "api:models"}],
+                    },
+                ],
+            },
+        }
+
+    async def test_switch_self_to_company_removes_connection_adds_llm(self, tmp_path):
+        """Switching from self → company should remove connection section, add llm section."""
+        import json as _json
+        from onemancompany.core.config import EmployeeConfig
+
+        manifest_path = tmp_path / "manifest.json"
+        manifest_path.write_text(_json.dumps(self._self_hosted_manifest()), encoding="utf-8")
+
+        emp = _make_employee(id="00010")
+        state = _make_state(employees={"00010": emp})
+        cfg = EmployeeConfig(name="Test", role="Engineer", skills=["py"], hosting="self")
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.api.routes._load_emp", return_value=_emp_to_dict(emp)), \
+             patch("onemancompany.core.config.employee_configs", {"00010": cfg}), \
+             patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path.parent), \
+             patch("onemancompany.api.routes._store") as mock_store, \
+             patch("onemancompany.core.config.invalidate_manifest_cache"):
+            # Make EMPLOYEES_DIR / employee_id point to tmp_path
+            # We need manifest at EMPLOYEES_DIR / "00010" / "manifest.json"
+            emp_dir = tmp_path.parent / "00010"
+            emp_dir.mkdir(exist_ok=True)
+            emp_manifest = emp_dir / "manifest.json"
+            emp_manifest.write_text(_json.dumps(self._self_hosted_manifest()), encoding="utf-8")
+
+            mock_store.save_employee = AsyncMock()
+
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.put("/api/employee/00010/hosting", json={"hosting": "company"})
+
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["status"] == "updated"
+        assert result["hosting"] == "company"
+
+        updated = _json.loads(emp_manifest.read_text(encoding="utf-8"))
+        section_ids = [s["id"] for s in updated["settings"]["sections"]]
+        assert "connection" not in section_ids, "connection section should be removed for company-hosted"
+        assert "llm" in section_ids, "llm section should be added for company-hosted"
+        assert updated["hosting"] == "company"
+
+    async def test_switch_company_to_self_removes_llm_adds_connection(self, tmp_path):
+        """Switching from company → self should remove llm section, add connection section."""
+        import json as _json
+        from onemancompany.core.config import EmployeeConfig
+
+        emp = _make_employee(id="00010")
+        state = _make_state(employees={"00010": emp})
+        cfg = EmployeeConfig(name="Test", role="Engineer", skills=["py"], hosting="company")
+
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir(exist_ok=True)
+        emp_manifest = emp_dir / "manifest.json"
+        emp_manifest.write_text(_json.dumps(self._company_hosted_manifest()), encoding="utf-8")
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.api.routes._load_emp", return_value=_emp_to_dict(emp)), \
+             patch("onemancompany.core.config.employee_configs", {"00010": cfg}), \
+             patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
+             patch("onemancompany.api.routes._store") as mock_store, \
+             patch("onemancompany.core.config.invalidate_manifest_cache"):
+            mock_store.save_employee = AsyncMock()
+
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.put("/api/employee/00010/hosting", json={"hosting": "self"})
+
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["status"] == "updated"
+
+        updated = _json.loads(emp_manifest.read_text(encoding="utf-8"))
+        section_ids = [s["id"] for s in updated["settings"]["sections"]]
+        assert "connection" in section_ids, "connection section should be added for self-hosted"
+        assert "llm" not in section_ids, "llm section should be removed for self-hosted"
+        assert updated["hosting"] == "self"
+
+    async def test_switch_same_mode_returns_unchanged(self):
+        """Switching to the same mode should return unchanged."""
+        from onemancompany.core.config import EmployeeConfig
+
+        emp = _make_employee(id="00010")
+        state = _make_state(employees={"00010": emp})
+        cfg = EmployeeConfig(name="Test", role="Engineer", skills=["py"], hosting="company")
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.api.routes._load_emp", return_value=_emp_to_dict(emp)), \
+             patch("onemancompany.core.config.employee_configs", {"00010": cfg}):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.put("/api/employee/00010/hosting", json={"hosting": "company"})
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "unchanged"
+
+    async def test_roundtrip_self_company_self_restores_sections(self, tmp_path):
+        """Full roundtrip: self → company → self should restore original section structure."""
+        import json as _json
+        from onemancompany.core.config import EmployeeConfig
+
+        emp = _make_employee(id="00010")
+        state = _make_state(employees={"00010": emp})
+        cfg = EmployeeConfig(name="Test", role="Engineer", skills=["py"], hosting="self")
+
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir(exist_ok=True)
+        emp_manifest = emp_dir / "manifest.json"
+        emp_manifest.write_text(_json.dumps(self._self_hosted_manifest()), encoding="utf-8")
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.api.routes._load_emp", return_value=_emp_to_dict(emp)), \
+             patch("onemancompany.core.config.employee_configs", {"00010": cfg}), \
+             patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
+             patch("onemancompany.api.routes._store") as mock_store, \
+             patch("onemancompany.core.config.invalidate_manifest_cache"):
+            mock_store.save_employee = AsyncMock()
+
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                # self → company
+                resp1 = await c.put("/api/employee/00010/hosting", json={"hosting": "company"})
+                assert resp1.status_code == 200
+                cfg.hosting = "company"  # simulate in-memory update
+
+                mid = _json.loads(emp_manifest.read_text(encoding="utf-8"))
+                mid_ids = [s["id"] for s in mid["settings"]["sections"]]
+                assert "connection" not in mid_ids
+                assert "llm" in mid_ids
+
+                # company → self
+                resp2 = await c.put("/api/employee/00010/hosting", json={"hosting": "self"})
+                assert resp2.status_code == 200
+
+        final = _json.loads(emp_manifest.read_text(encoding="utf-8"))
+        final_ids = [s["id"] for s in final["settings"]["sections"]]
+        assert "connection" in final_ids, "connection should be restored on switch back to self"
+        assert "llm" not in final_ids, "llm should be removed on switch back to self"
+        assert final["hosting"] == "self"
