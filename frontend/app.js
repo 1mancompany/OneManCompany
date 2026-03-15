@@ -3296,6 +3296,7 @@ class AppController {
 
   closeProjectWall() {
     document.getElementById('project-modal').classList.add('hidden');
+    if (this._treeRenderer) this._treeRenderer.stopAutoRefresh();
   }
 
   loadProjectList() {
