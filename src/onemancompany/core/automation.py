@@ -19,6 +19,7 @@ import yaml
 from loguru import logger
 
 from onemancompany.core.config import EMPLOYEES_DIR
+from onemancompany.core.interval import parse_interval as _parse_interval
 
 
 # ---------------------------------------------------------------------------
@@ -53,23 +54,6 @@ def _save_automations(employee_id: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 _cron_tasks: dict[str, asyncio.Task] = {}  # key = "employee_id:cron_name"
-
-
-def _parse_interval(interval_str: str) -> int | None:
-    """Parse interval string like '5m', '1h', '30s', '1d' to seconds."""
-    interval_str = interval_str.strip().lower()
-    if not interval_str:
-        return None
-    unit = interval_str[-1]
-    try:
-        value = int(interval_str[:-1])
-    except ValueError:
-        return None
-    multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    mult = multipliers.get(unit)
-    if mult is None:
-        return None
-    return value * mult
 
 
 async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, task_description: str) -> None:

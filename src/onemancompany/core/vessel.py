@@ -2214,6 +2214,79 @@ async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunn
 
 
 # ---------------------------------------------------------------------------
+# Review reminder — scan for nodes stuck at "completed" awaiting review
+# ---------------------------------------------------------------------------
+
+# Threshold in seconds before a completed node triggers a reminder
+REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
+
+def scan_overdue_reviews() -> list[dict]:
+    """Scan all active project trees for nodes stuck at 'completed' past threshold.
+
+    Returns list of dicts with info about each overdue node:
+      {node_id, employee_id, reviewer_id, description, completed_at, waiting_seconds, project_id}
+    """
+    from onemancompany.core.config import PROJECTS_DIR
+    from onemancompany.core.task_tree import TaskTree
+
+    overdue: list[dict] = []
+    if not PROJECTS_DIR.exists():
+        return overdue
+
+    now = datetime.now()
+
+    for project_dir in sorted(PROJECTS_DIR.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        tree_path = project_dir / "task_tree.yaml"
+        if not tree_path.exists():
+            continue
+        try:
+            tree = TaskTree.load(tree_path)
+        except Exception:
+            logger.debug("Failed to load task tree at {}", tree_path)
+            continue
+
+        for node in tree.all_nodes():
+            if node.status != "completed":
+                continue
+            # Skip system nodes (review/ceo_request auto-finish)
+            if node.node_type in ("review", "ceo_request"):
+                continue
+            if not node.completed_at:
+                continue
+
+            try:
+                completed_dt = datetime.fromisoformat(node.completed_at)
+            except (ValueError, TypeError):
+                logger.debug("Invalid completed_at '{}' on node {}", node.completed_at, node.id)
+                continue
+
+            elapsed = (now - completed_dt).total_seconds()
+            if elapsed < REVIEW_REMINDER_THRESHOLD_SECONDS:
+                continue
+
+            # Find the reviewer (parent node's employee)
+            reviewer_id = ""
+            if node.parent_id:
+                parent = tree.get_node(node.parent_id)
+                if parent:
+                    reviewer_id = parent.employee_id
+
+            overdue.append({
+                "node_id": node.id,
+                "employee_id": node.employee_id,
+                "reviewer_id": reviewer_id,
+                "description": (node.description or "")[:200],
+                "completed_at": node.completed_at,
+                "waiting_seconds": int(elapsed),
+                "project_id": node.project_id or project_dir.name,
+            })
+
+    return overdue
+
+
+# ---------------------------------------------------------------------------
 # Backward-compat aliases (old names → new names)
 # ---------------------------------------------------------------------------
 EmployeeHandle = Vessel
