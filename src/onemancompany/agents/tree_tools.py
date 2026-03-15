@@ -318,6 +318,19 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         if not node:
             return {"status": "error", "message": f"Node {node_id} not found."}
 
+        # Idempotent: already accepted → return success without re-transitioning
+        if node.status == TaskPhase.ACCEPTED:
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
+        if node.status == TaskPhase.FINISHED:
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
+
+        # Only completed tasks can be accepted
+        if node.status != TaskPhase.COMPLETED:
+            return {
+                "status": "error",
+                "message": f"Cannot accept node {node_id}: current status is '{node.status.value}', must be 'completed' first.",
+            }
+
         node.set_status(TaskPhase.ACCEPTED)
         node.acceptance_result = {"passed": True, "notes": notes}
         _save_tree(project_dir, tree)

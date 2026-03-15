@@ -545,8 +545,14 @@ def load_assets() -> tuple[dict, dict]:
     if ROOMS_DIR.exists():
         for f in sorted(ROOMS_DIR.iterdir()):
             if f.suffix == ".yaml" and f.is_file():
+                # Skip chat history files (e.g., *_chat.yaml)
+                if f.stem.endswith("_chat"):
+                    continue
                 with open(f) as fh:
                     data = yaml.safe_load(fh) or {}
+                if not isinstance(data, dict):
+                    logger.warning("Skipping malformed room file {}: expected dict, got {}", f.name, type(data).__name__)
+                    continue
                 meeting_rooms[f.stem] = data
     return tools, meeting_rooms
 
