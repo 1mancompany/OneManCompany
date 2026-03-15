@@ -1697,7 +1697,7 @@ class TestUpdateProjectTeam:
         project_yaml = tmp_path / "project.yaml"
         project_yaml.write_text(yaml.dump({
             "task": "Build app",
-            "team": [{"employee_id": "00003", "role": "项目负责人", "joined_at": "2026-03-11T10:00:00"}],
+            "team": [{"employee_id": "00003", "role": "Project Lead", "joined_at": "2026-03-11T10:00:00"}],
         }))
 
         task = MagicMock()

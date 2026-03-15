@@ -1,14 +1,14 @@
-# 变更日志 (Changelog)
+# Changelog
 
-**文件路径**: company/sales/playbooks/external_comms/changelog.md
-本项目采用 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/) 进行版本管理。
+**File path**: company/sales/playbooks/external_comms/changelog.md
+This project follows [Semantic Versioning 2.0.0](https://semver.org/) for version management.
 
 ## [v1.0.0] - 2026-03-02
-### Added (新增)
-- 新增《对外可引用的标准话术库》(external_comms_playbook.md)。
-- 包含线索/需求收集、合同/范围确认、执行过程周报SOP、风险阈值触发升级、交付/验收/结算、复盘与二次销售共六大模块的标准模板。
-- 引入变量占位符规范（如 `{client_name}`, `{project_name}` 等）。
-- 确立法务免责声明、适用边界及更新流程。
+### Added
+- Added the "Standard External Communications Playbook" (external_comms_playbook.md).
+- Includes standard templates across six major modules: Lead/Requirement Collection, Contract/Scope Confirmation, Execution Progress Weekly Report SOP, Risk Threshold Escalation, Delivery/Acceptance/Settlement, and Retrospective & Upselling.
+- Introduced variable placeholder standards (e.g., `{client_name}`, `{project_name}`, etc.).
+- Established legal disclaimers, applicability boundaries, and update procedures.
 
-**变更人**: Pat (EA)
-**原因**: 固化CSO对外沟通SOP并对外可引用，提供标准化的话术支持。
+**Changed by**: Pat (EA)
+**Reason**: Formalize the CSO's external communication SOP into a referenceable playbook with standardized messaging support.

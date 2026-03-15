@@ -1,22 +1,22 @@
-"""Talent Package Specification — 人才包规范定义
+"""Talent Package Specification
 
-定义一个 talent 包需要包含哪些目录、文件以及各字段的含义。
-平台按此规范加载 talent 并驱动招聘、onboarding 和运行时行为。
+Defines the directories, files, and field semantics required for a talent package.
+The platform loads talents according to this spec to drive hiring, onboarding, and runtime behavior.
 
-目录结构:
+Directory structure:
     talents/{talent_id}/
-    ├── profile.yaml          # 必须 — 身份 + 招聘信息
-    ├── manifest.json         # 可选 — 前端设置 UI + 能力声明
-    ├── launch.sh             # 可选 — 自托管员工的启动脚本
-    ├── run_worker.py         # 可选 — 远程员工的 worker 入口
-    ├── skills/               # 可选 — 技能 Markdown 文件
-    │   ├── *.md              # 每个文件描述一项技能，内容注入员工 prompt
-    ├── tools/                # 可选 — 工具声明与自定义工具
-    │   ├── manifest.yaml     # 工具清单（builtin_tools + custom_tools）
-    │   └── *.py              # 自定义 LangChain @tool 实现
-    └── functions/            # 可选 — talent 自带的函数实现
-        ├── manifest.yaml     # 声明每个函数的元信息（name, description, scope）
-        └── {name}.py         # LangChain @tool 实现（一个 .py 可导出多个 @tool）
+    ├── profile.yaml          # Required — identity + hiring info
+    ├── manifest.json         # Optional — frontend settings UI + capability declaration
+    ├── launch.sh             # Optional — launch script for self-hosted employees
+    ├── run_worker.py         # Optional — worker entry point for remote employees
+    ├── skills/               # Optional — skill Markdown files
+    │   ├── *.md              # Each file describes a skill, content injected into employee prompt
+    ├── tools/                # Optional — tool declarations and custom tools
+    │   ├── manifest.yaml     # Tool manifest (builtin_tools + custom_tools)
+    │   └── *.py              # Custom LangChain @tool implementations
+    └── functions/            # Optional — talent-provided function implementations
+        ├── manifest.yaml     # Declares each function's metadata (name, description, scope)
+        └── {name}.py         # LangChain @tool implementation (one .py can export multiple @tools)
 """
 
 from __future__ import annotations
@@ -31,59 +31,59 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 class HostingMode(str, Enum):
-    """员工运行模式。"""
-    COMPANY = "company"     # 公司托管：平台内部 LangChain agent loop
-    SELF = "self"           # 自托管：员工自带运行环境（如 Claude Code CLI）
-    REMOTE = "remote"       # 远程：通过 HTTP 轮询接收任务
+    """Employee hosting mode."""
+    COMPANY = "company"     # Company-hosted: platform-internal LangChain agent loop
+    SELF = "self"           # Self-hosted: employee brings own runtime (e.g. Claude Code CLI)
+    REMOTE = "remote"       # Remote: receives tasks via HTTP polling
 
 
 class AuthMethod(str, Enum):
-    """认证方式。"""
-    API_KEY = "api_key"     # 使用 API key 调用 LLM
-    OAUTH = "oauth"         # OAuth PKCE 登录（如 Anthropic OAuth）
-    CLI = "cli"             # 使用本机已登录的 CLI 凭证
-    NONE = "none"           # 无需认证（免费模型或自带凭证）
+    """Authentication method."""
+    API_KEY = "api_key"     # Use API key to call LLM
+    OAUTH = "oauth"         # OAuth PKCE login (e.g. Anthropic OAuth)
+    CLI = "cli"             # Use locally logged-in CLI credentials
+    NONE = "none"           # No authentication needed (free models or self-provided credentials)
 
 
 class SettingFieldType(str, Enum):
-    """manifest.json settings 中支持的字段类型。
+    """Supported field types in manifest.json settings.
 
-    前端根据 type 动态渲染对应的 UI 控件。
+    The frontend dynamically renders the corresponding UI control based on type.
     """
-    TEXT = "text"                 # 单行文本输入
-    SECRET = "secret"            # 密码输入（掩码显示）
-    NUMBER = "number"            # 数字输入（支持 min/max/step）
-    SELECT = "select"            # 单选下拉
-    MULTI_SELECT = "multi_select"  # 多选下拉
-    TOGGLE = "toggle"            # 开关（布尔值）
-    TEXTAREA = "textarea"        # 多行文本
-    OAUTH_BUTTON = "oauth_button"  # OAuth 登录按钮（触发 PKCE 流程）
-    COLOR = "color"              # 颜色选择器
-    FILE = "file"                # 文件上传
-    READONLY = "readonly"        # 只读显示（value_from 指定数据源）
+    TEXT = "text"                 # Single-line text input
+    SECRET = "secret"            # Password input (masked display)
+    NUMBER = "number"            # Number input (supports min/max/step)
+    SELECT = "select"            # Single-select dropdown
+    MULTI_SELECT = "multi_select"  # Multi-select dropdown
+    TOGGLE = "toggle"            # Toggle switch (boolean)
+    TEXTAREA = "textarea"        # Multi-line text
+    OAUTH_BUTTON = "oauth_button"  # OAuth login button (triggers PKCE flow)
+    COLOR = "color"              # Color picker
+    FILE = "file"                # File upload
+    READONLY = "readonly"        # Read-only display (value_from specifies data source)
 
 
 # ---------------------------------------------------------------------------
-# manifest.json 数据结构
+# manifest.json data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class SettingField:
-    """manifest.json 中一个设置字段的定义。
+    """Definition of a single setting field in manifest.json.
 
     Attributes:
-        key:          字段标识符，对应 profile.yaml 中的键名
-        type:         字段类型，决定前端渲染方式
-        label:        前端显示的标签文字
-        default:      默认值（可选）
-        required:     是否必填
-        min:          数字类型的最小值
-        max:          数字类型的最大值
-        step:         数字类型的步长
-        options:      select/multi_select 的选项列表
-        options_from: 动态选项数据源（如 "api:models"）
-        provider:     OAuth provider 标识（如 "anthropic"）
-        value_from:   readonly 字段的数据源（如 "api:sessions"）
+        key:          Field identifier, corresponds to key name in profile.yaml
+        type:         Field type, determines frontend rendering
+        label:        Label text displayed in frontend
+        default:      Default value (optional)
+        required:     Whether the field is required
+        min:          Minimum value for number type
+        max:          Maximum value for number type
+        step:         Step size for number type
+        options:      Option list for select/multi_select
+        options_from: Dynamic options data source (e.g. "api:models")
+        provider:     OAuth provider identifier (e.g. "anthropic")
+        value_from:   Data source for readonly fields (e.g. "api:sessions")
     """
     key: str
     type: SettingFieldType
@@ -101,12 +101,12 @@ class SettingField:
 
 @dataclass
 class SettingSection:
-    """manifest.json 中一个设置分组。
+    """A settings group in manifest.json.
 
     Attributes:
-        id:     分组标识符（如 "connection", "session"）
-        title:  前端显示的分组标题
-        fields: 该分组下的字段列表
+        id:     Group identifier (e.g. "connection", "session")
+        title:  Group title displayed in frontend
+        fields: List of fields in this group
     """
     id: str
     title: str
@@ -115,12 +115,12 @@ class SettingSection:
 
 @dataclass
 class ManifestPrompts:
-    """manifest.json 中的 prompt 文件声明。
+    """Prompt file declarations in manifest.json.
 
     Attributes:
-        system: 系统 prompt 文件路径（相对 talent 目录），覆盖默认系统 prompt
-        role:   角色 prompt 文件路径，覆盖默认角色描述
-        skills: 技能文件 glob 模式列表（如 ["skills/*.md"]）
+        system: System prompt file path (relative to talent directory), overrides default system prompt
+        role:   Role prompt file path, overrides default role description
+        skills: Skill file glob pattern list (e.g. ["skills/*.md"])
     """
     system: str = ""
     role: str = ""
@@ -129,11 +129,11 @@ class ManifestPrompts:
 
 @dataclass
 class ManifestTools:
-    """manifest.json 中的工具声明。
+    """Tool declarations in manifest.json.
 
     Attributes:
-        builtin: 平台内置工具名列表（在 SANDBOX_TOOLS/COMMON_TOOLS 中注册）
-        custom:  自定义工具文件路径列表（相对 talent 目录的 .py 文件）
+        builtin: List of platform built-in tool names (registered in SANDBOX_TOOLS/COMMON_TOOLS)
+        custom:  List of custom tool file paths (.py files relative to talent directory)
     """
     builtin: list[str] = field(default_factory=list)
     custom: list[str] = field(default_factory=list)
@@ -141,21 +141,21 @@ class ManifestTools:
 
 @dataclass
 class TalentManifest:
-    """manifest.json 完整结构 — 驱动前端设置 UI 和能力声明。
+    """Complete manifest.json structure — drives frontend settings UI and capability declarations.
 
-    manifest.json 是可选文件。如果 talent 没有提供 manifest.json，
-    平台将使用 profile.yaml 中的信息降级渲染默认设置 UI。
+    manifest.json is an optional file. If a talent does not provide manifest.json,
+    the platform will use information from profile.yaml to render a default settings UI.
 
     Attributes:
-        id:                     talent 唯一标识符
-        name:                   talent 显示名称
-        version:                版本号（语义化版本）
-        role:                   角色类型（Engineer, Designer, QA 等）
-        hosting:                运行模式
-        settings:               设置分组列表，驱动前端动态 UI
-        prompts:                prompt 文件声明
-        tools:                  工具声明
-        platform_capabilities:  平台能力需求列表（如 file_upload, websocket）
+        id:                     Talent unique identifier
+        name:                   Talent display name
+        version:                Version number (semantic versioning)
+        role:                   Role type (Engineer, Designer, QA, etc.)
+        hosting:                Hosting mode
+        settings:               Settings section list, drives frontend dynamic UI
+        prompts:                Prompt file declarations
+        tools:                  Tool declarations
+        platform_capabilities:  Platform capability requirements list (e.g. file_upload, websocket)
     """
     id: str
     name: str
@@ -169,34 +169,34 @@ class TalentManifest:
 
 
 # ---------------------------------------------------------------------------
-# profile.yaml 数据结构
+# profile.yaml data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class TalentProfile:
-    """profile.yaml 完整结构 — talent 的身份和招聘信息。
+    """Complete profile.yaml structure — talent identity and hiring information.
 
-    profile.yaml 是必须文件，平台通过它识别 talent 并展示给 HR。
+    profile.yaml is a required file. The platform uses it to identify talents and display them to HR.
 
     Attributes:
-        id:                     talent 唯一标识符（与目录名一致）
-        name:                   显示名称（如 "Coding Talent"）
-        description:            talent 描述文字，HR 招聘时展示
-        role:                   角色类型，决定入职后的部门分配
-                                (Engineer → 技术研发部, Designer → 设计部, etc.)
-        remote:                 是否远程工作（True = 不分配工位）
-        hosting:                运行模式（默认 "company"）
-        auth_method:            认证方式（默认 "api_key"）
-        api_provider:           LLM API 提供商（"openrouter", "anthropic" 等）
-        llm_model:              默认 LLM 模型标识符
-        temperature:            默认推理温度
-        image_model:            图像生成模型标识符（可选，Designer 等角色使用）
-        hiring_fee:             招聘费用（虚拟货币，HR 评估用）
-        salary_per_1m_tokens:   每百万 token 薪酬（0 表示自动按模型计算）
-        skills:                 技能标识符列表，对应 skills/ 下的 .md 文件
-        tools:                  工具名列表（声明此 talent 使用的工具）
-        personality_tags:       性格标签列表（HR 匹配用）
-        system_prompt_template: 系统 prompt 模板（注入员工 agent 的基础指令）
+        id:                     Talent unique identifier (matches directory name)
+        name:                   Display name (e.g. "Coding Talent")
+        description:            Talent description text, shown during HR recruitment
+        role:                   Role type, determines post-onboarding department assignment
+                                (Engineer -> R&D Dept, Designer -> Design Dept, etc.)
+        remote:                 Whether remote work (True = no desk assigned)
+        hosting:                Hosting mode (default "company")
+        auth_method:            Authentication method (default "api_key")
+        api_provider:           LLM API provider ("openrouter", "anthropic", etc.)
+        llm_model:              Default LLM model identifier
+        temperature:            Default inference temperature
+        image_model:            Image generation model identifier (optional, used by Designer roles)
+        hiring_fee:             Hiring fee (virtual currency, for HR evaluation)
+        salary_per_1m_tokens:   Salary per million tokens (0 means auto-calculate by model)
+        skills:                 Skill identifier list, corresponds to .md files under skills/
+        tools:                  Tool name list (declares tools this talent uses)
+        personality_tags:       Personality tag list (for HR matching)
+        system_prompt_template: System prompt template (base instructions injected into employee agent)
     """
     id: str
     name: str
@@ -218,36 +218,36 @@ class TalentProfile:
 
 
 # ---------------------------------------------------------------------------
-# tools/manifest.yaml 数据结构
+# tools/manifest.yaml data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ToolsManifest:
-    """tools/manifest.yaml 完整结构 — 工具清单声明。
+    """Complete tools/manifest.yaml structure — tool manifest declaration.
 
-    声明此 talent 使用的内置工具和自定义工具。
-    内置工具名引用 COMMON_TOOLS 或 SANDBOX_TOOLS 中注册的工具。
-    自定义工具指向同目录下的 .py 文件，每个文件导出一个 LangChain @tool。
+    Declares the built-in and custom tools used by this talent.
+    Built-in tool names reference tools registered in COMMON_TOOLS or SANDBOX_TOOLS.
+    Custom tools point to .py files in the same directory, each exporting a LangChain @tool.
 
     Attributes:
-        builtin_tools:  内置工具名列表
-                        常见值: sandbox_execute_code, sandbox_run_command,
+        builtin_tools:  List of built-in tool names
+                        Common values: sandbox_execute_code, sandbox_run_command,
                         sandbox_write_file, sandbox_read_file, web_search,
                         generate_image
-        custom_tools:   自定义工具模块名列表（不含 .py 后缀）
-                        每个名字对应 tools/{name}.py 中导出的 @tool 函数
+        custom_tools:   List of custom tool module names (without .py suffix)
+                        Each name corresponds to a @tool function exported in tools/{name}.py
     """
     builtin_tools: list[str] = field(default_factory=list)
     custom_tools: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# functions/manifest.yaml 数据结构
+# functions/manifest.yaml data structures
 # ---------------------------------------------------------------------------
 
 @dataclass
 class AgentPromptSection:
-    """agent/manifest.yaml 中的一个 prompt section 覆盖。"""
+    """A prompt section override in agent/manifest.yaml."""
     name: str
     file: str = ""
     priority: int = 50
@@ -255,7 +255,7 @@ class AgentPromptSection:
 
 @dataclass
 class AgentManifest:
-    """agent/manifest.yaml — talent agent loop 定制声明。"""
+    """agent/manifest.yaml — talent agent loop customization declaration."""
     runner_module: str = ""
     runner_class: str = ""
     hooks_module: str = ""
@@ -266,10 +266,10 @@ class AgentManifest:
 
 @dataclass
 class VesselManifest:
-    """vessel/vessel.yaml — talent 自带的躯壳 DNA 声明。
+    """vessel/vessel.yaml — talent-provided vessel DNA declaration.
 
-    当 talent 包含 vessel/ 目录时，使用此结构替代 AgentManifest。
-    字段对应 VesselConfig 的各个子配置。
+    When a talent includes a vessel/ directory, this structure is used instead of AgentManifest.
+    Fields correspond to sub-configurations of VesselConfig.
     """
     runner: dict = field(default_factory=dict)
     hooks: dict = field(default_factory=dict)
@@ -281,7 +281,7 @@ class VesselManifest:
 
 @dataclass
 class FunctionDeclaration:
-    """functions/manifest.yaml 中的单个函数声明。"""
+    """A single function declaration in functions/manifest.yaml."""
     name: str
     description: str = ""
     scope: str = "personal"  # "company" | "personal"
@@ -289,52 +289,52 @@ class FunctionDeclaration:
 
 @dataclass
 class FunctionsManifest:
-    """functions/manifest.yaml — talent 自带函数声明。"""
+    """functions/manifest.yaml — talent-provided function declarations."""
     functions: list[FunctionDeclaration] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# 完整 talent 包
+# Complete talent package
 # ---------------------------------------------------------------------------
 
 @dataclass
 class TalentPackage:
-    """一个完整的 talent 包，聚合所有组成部分。
+    """A complete talent package, aggregating all components.
 
-    文件系统布局:
+    Filesystem layout:
         talents/{id}/
-        ├── profile.yaml          # → self.profile (必须)
-        ├── manifest.json         # → self.manifest (可选)
-        ├── launch.sh             # → self.has_launch_script (可选, self-hosted)
-        ├── run_worker.py         # → (可选, remote)
+        ├── profile.yaml          # -> self.profile (required)
+        ├── manifest.json         # -> self.manifest (optional)
+        ├── launch.sh             # -> self.has_launch_script (optional, self-hosted)
+        ├── run_worker.py         # -> (optional, remote)
         ├── skills/
-        │   └── *.md              # → self.skill_files
+        │   └── *.md              # -> self.skill_files
         ├── tools/
-        │   ├── manifest.yaml     # → self.tools_manifest (可选)
-        │   └── *.py              # → 自定义工具实现
-        └── functions/            # → self.functions_manifest (可选)
-            ├── manifest.yaml     # 声明每个函数的元信息
-            └── {name}.py         # LangChain @tool 实现
+        │   ├── manifest.yaml     # -> self.tools_manifest (optional)
+        │   └── *.py              # -> custom tool implementations
+        └── functions/            # -> self.functions_manifest (optional)
+            ├── manifest.yaml     # Declares each function's metadata
+            └── {name}.py         # LangChain @tool implementation
 
-    入职流程 (onboarding.py):
-        1. HR 从 talent market 浏览可用 talent
-        2. CEO 确认招聘 → execute_hire()
-        3. 分配工号、部门、工位
-        4. 从 talent 目录复制 skills/ 和 tools/ 到员工目录
-        5. 自托管员工额外复制 launch.sh 和 connection.json
-        6. 生成花名、工作原则
-        7. 注册到 EmployeeManager
+    Onboarding flow (onboarding.py):
+        1. HR browses available talents from talent market
+        2. CEO confirms hiring -> execute_hire()
+        3. Assign employee ID, department, desk
+        4. Copy skills/ and tools/ from talent directory to employee directory
+        5. Self-hosted employees additionally get launch.sh and connection.json
+        6. Generate nickname, work principles
+        7. Register with EmployeeManager
 
-    运行时行为按 hosting 不同:
-        - company: 平台内 LangChain agent，由 LangChainExecutor 执行
-        - self:    独立进程（如 Claude Code CLI），由 ScriptExecutor 启动
-        - remote:  外部 worker 通过 HTTP 轮询任务队列
+    Runtime behavior varies by hosting mode:
+        - company: In-platform LangChain agent, executed by LangChainExecutor
+        - self:    Independent process (e.g. Claude Code CLI), launched by ScriptExecutor
+        - remote:  External worker polls task queue via HTTP
     """
     profile: TalentProfile
     manifest: TalentManifest | None = None
     tools_manifest: ToolsManifest | None = None
     functions_manifest: FunctionsManifest | None = None
     vessel_manifest: VesselManifest | None = None
-    agent_manifest: AgentManifest | None = None  # 保留向后兼容
+    agent_manifest: AgentManifest | None = None  # Kept for backward compatibility
     skill_files: list[str] = field(default_factory=list)
     has_launch_script: bool = False

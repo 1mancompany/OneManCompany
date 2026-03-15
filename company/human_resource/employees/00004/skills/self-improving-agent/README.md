@@ -89,10 +89,10 @@ After ANY skill completes:
 
 ### Manual
 ```
-"自我进化"
+"self-evolve"
 "self-improve"
-"分析今天的经验"
-"总结这次教训"
+"analyze today's experiences"
+"summarize the lessons learned"
 ```
 
 ## Example Learning

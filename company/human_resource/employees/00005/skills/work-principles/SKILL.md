@@ -1,7 +1,7 @@
 ---
 name: work-principles
 autoload: true
-description: 个人工作原则与行为准则，CEO 指导形成。
+description: Personal work principles and behavioral guidelines, shaped by CEO guidance.
 ---
 
 # Work Principles — Chief Sales Officer (CSO)

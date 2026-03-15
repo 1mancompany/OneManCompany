@@ -1,7 +1,7 @@
-# 会议室 A — 默认会议室设备
-name: "会议室A"
+# Meeting Room A — default meeting room setup
+name: "Meeting Room A"
 type: "meeting_room"
-description: "可容纳6人的标准会议室，配备投影仪和白板。"
+description: "A standard meeting room seating 6 people, equipped with a projector and whiteboard."
 capacity: 6
 position: [1, 8]
 sprite: "meeting_room"

@@ -1,13 +1,13 @@
-"""Vessel — 员工躯壳执行系统 (on-demand task dispatch).
+"""Vessel — Employee execution system (on-demand task dispatch).
 
-Vessel(躯壳) + Talent(灵魂) = Employee(员工)。
-EmployeeManager 管理躯壳与灵魂结合后的完整员工。
+Vessel + Talent = Employee.
+EmployeeManager manages the complete employee after combining vessel and talent.
 
 Key concepts:
-- Vessel: 员工执行容器（原 EmployeeHandle）
-- *Executor / Launcher: 执行后端
-- VesselConfig: 躯壳 DNA（vessel.yaml）
-- VesselHarness protocols: 套接件标准（解耦公司系统交互）
+- Vessel: Employee execution container (formerly EmployeeHandle)
+- *Executor / Launcher: Execution backend
+- VesselConfig: Vessel DNA (vessel.yaml)
+- VesselHarness protocols: Adapter standards (decoupling company system interactions)
 
 Design:
   No persistent while-loop per employee — tasks execute on-demand.
@@ -1160,14 +1160,14 @@ class EmployeeManager:
             cron_name = f"holding_{task_id}"
             holding_since = created_at or datetime.now().isoformat()
             task_desc = (
-                f"[holding_check] 你有一个 HOLDING 任务 (task_id={task_id}) 等待外部条件完成。"
-                f" 元数据: {meta_summary}。开始等待时间: {holding_since}。"
-                f"\n\n请按以下流程处理："
-                f"\n1. 检查该条件是否已满足。如果已完成，调用 resume_held_task(task_id='{task_id}', result='条件已满足: <具体结果>')。"
-                f"\n2. 如果等待已超过 10 分钟但未超过 30 分钟，尝试换一种方式推进（重新发送请求、换联系方式、尝试替代方案等）。"
-                f"\n3. 如果等待已超过 30 分钟，上报给上级（用 dispatch_child 或直接在结果中说明情况），"
-                f"并调用 resume_held_task(task_id='{task_id}', result='超时上报: <等待原因和已尝试的方法>') 结束等待。"
-                f"\n4. 如果尚未超时且条件未满足，无需操作。"
+                f"[holding_check] You have a HOLDING task (task_id={task_id}) waiting for an external condition to be met."
+                f" Metadata: {meta_summary}. Waiting since: {holding_since}."
+                f"\n\nPlease follow this procedure:"
+                f"\n1. Check if the condition has been met. If completed, call resume_held_task(task_id='{task_id}', result='Condition met: <specific result>')."
+                f"\n2. If waiting for more than 10 minutes but less than 30 minutes, try a different approach (resend request, use alternative contact, try alternative solutions, etc.)."
+                f"\n3. If waiting for more than 30 minutes, escalate to supervisor (use dispatch_child or describe the situation in the result),"
+                f" and call resume_held_task(task_id='{task_id}', result='Timeout escalation: <reason for waiting and methods already tried>') to end the wait."
+                f"\n4. If not yet timed out and condition not met, no action needed."
             )
 
         result = _start_cron(employee_id, cron_name, interval, task_desc)
@@ -1323,7 +1323,7 @@ class EmployeeManager:
                 proj = load_named_project(slug)
                 proj_name = proj.get("name", slug) if proj else slug
                 _, bare_iter = _split_qualified_iter(project_id)
-                parts.append(f"⚙ 当前项目: {proj_name} ({bare_iter})")
+                parts.append(f"⚙ Current project: {proj_name} ({bare_iter})")
                 parts.append(f"  Project ID: {project_id}")
         elif _is_v1(project_id):
             # v1 timestamped project — load task from project.yaml
@@ -1331,14 +1331,14 @@ class EmployeeManager:
             for p in list_projects():
                 if p.get("project_id") == project_id:
                     task_summary = (p.get("task") or "")[:80]
-                    parts.append(f"⚙ 当前任务: {task_summary}")
+                    parts.append(f"⚙ Current task: {task_summary}")
                     parts.append(f"  Project ID: {project_id}")
                     break
         else:
             proj = load_named_project(project_id)
             if proj:
                 proj_name = proj.get("name", project_id)
-                parts.append(f"⚙ 当前项目: {proj_name}")
+                parts.append(f"⚙ Current project: {proj_name}")
                 parts.append(f"  Project ID: {project_id}")
 
         if not parts:
@@ -1491,13 +1491,13 @@ class EmployeeManager:
             return (
                 "[Manager Execution Guide]\n"
                 "As a manager receiving a project task:\n"
-                "  1. list_colleagues() 了解所有可用团队成员及其技能。\n"
-                "  2. 充分利用团队：PM可做项目管理/调研/文档，Engineer做开发，各司其职。\n"
-                "  3. dispatch_child() 给最合适的员工，附上清晰指令和验收标准。\n"
-                "  4. 复杂项目用 dispatch_child() 分发多个子任务（并行执行）。\n"
-                "  5. 如果没有合适员工，dispatch 给 HR 招聘。\n"
-                "  6. 你可以在任何阶段拉人加入项目（不仅限于初始分工），包括验收、整改、诊断等。\n"
-                "  7. 只在没人能做的情况下才自己动手。\n"
+                "  1. list_colleagues() to understand all available team members and their skills.\n"
+                "  2. Leverage the team fully: PM handles project management/research/docs, Engineer handles development, each to their strengths.\n"
+                "  3. dispatch_child() to the most suitable employee with clear instructions and acceptance criteria.\n"
+                "  4. For complex projects, use dispatch_child() to distribute multiple subtasks (parallel execution).\n"
+                "  5. If no suitable employee exists, dispatch to HR for hiring.\n"
+                "  6. You can bring people into the project at any stage (not just initial assignment), including review, remediation, diagnosis, etc.\n"
+                "  7. Only do the work yourself when nobody else can.\n"
                 "Do NOT loop or re-analyze — dispatch quickly and move on."
             )
 
@@ -1512,7 +1512,7 @@ class EmployeeManager:
                     for inst in step.instructions:
                         if any(kw in inst.lower() for kw in [
                             "verification", "verify", "build and run",
-                            "test", "do not report", "验证", "验收",
+                            "test", "do not report", "validate", "acceptance",
                         ]):
                             verification_instructions += f"  - {inst}\n"
                     break
@@ -1642,30 +1642,30 @@ class EmployeeManager:
 
         lines = []
         if already_accepted and needs_review:
-            lines.append("以下子任务已通过验收，无需重复审核：")
+            lines.append("The following subtasks have passed review and do not need re-review:")
             for child in already_accepted:
                 lines.append(f"  \u2713 ({child.employee_id}): {child.description_preview[:80]}")
             lines.append("")
 
         if needs_review:
-            lines.append("以下子任务需要审核：")
+            lines.append("The following subtasks need review:")
             lines.append("")
             for i, child in enumerate(needs_review, 1):
                 child.load_content(project_dir)
-                criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "无"
-                lines.append(f"子任务 {i} ({child.employee_id}): {child.description}")
-                lines.append(f"  验收标准: {criteria_str}")
-                lines.append(f"  执行结果: \"{child.result}\"")
-                lines.append(f"  状态: {child.status}")
+                criteria_str = ", ".join(child.acceptance_criteria) if child.acceptance_criteria else "None"
+                lines.append(f"Subtask {i} ({child.employee_id}): {child.description}")
+                lines.append(f"  Acceptance criteria: {criteria_str}")
+                lines.append(f"  Execution result: \"{child.result}\"")
+                lines.append(f"  Status: {child.status}")
                 if child.acceptance_result and not child.acceptance_result.get("passed"):
-                    lines.append(f"  \u26a0 此任务曾被拒绝: {child.acceptance_result.get('notes', '')}")
+                    lines.append(f"  \u26a0 This task was previously rejected: {child.acceptance_result.get('notes', '')}")
                 lines.append("")
         else:
-            lines.append("所有子任务已通过验收。")
+            lines.append("All subtasks have passed review.")
 
-        lines.append("请对未验收的子任务调用 accept_child(node_id, notes) 或 reject_child(node_id, reason)。")
-        lines.append("如需追加任务，调用 dispatch_child()。")
-        lines.append("全部处理完毕后，你的任务将自动完成并向上汇报。")
+        lines.append("Please call accept_child(node_id, notes) or reject_child(node_id, reason) for unreviewed subtasks.")
+        lines.append("If additional tasks are needed, call dispatch_child().")
+        lines.append("Once all are handled, your task will auto-complete and report upward.")
 
         review_prompt = "\n".join(lines)
 
@@ -1691,10 +1691,10 @@ class EmployeeManager:
                     break
 
             escalation_desc = (
-                f"审核僵局: 任务 {parent_node.id} ({parent_node.description_preview}) "
-                f"已经过 {review_count} 轮审核未能收敛。\n"
-                f"最后一轮分歧: {last_notes[:300]}\n"
-                f"请介入处理：可以选择接受现有结果、取消任务、或给出具体指导。"
+                f"Review deadlock: Task {parent_node.id} ({parent_node.description_preview}) "
+                f"has gone through {review_count} review rounds without convergence.\n"
+                f"Last round disagreement: {last_notes[:300]}\n"
+                f"Please intervene: you can accept the current result, cancel the task, or provide specific guidance."
             )
             ceo_node = tree.add_child(
                 parent_id=parent_node.id,
@@ -1851,17 +1851,17 @@ class EmployeeManager:
         # Build completion summary from all children (skip CEO info nodes)
         _pdir = node.project_dir or str(Path(entry.tree_path).parent)
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
-        lines = [f"项目完成汇报 — {node.description_preview[:100]}", ""]
+        lines = [f"Project Completion Report — {node.description_preview[:100]}", ""]
         for i, child in enumerate(children, 1):
             status_icon = "✓" if child.status == "accepted" else "●"
-            lines.append(f"{status_icon} 子任务 {i} ({child.employee_id}): {child.description_preview[:80]}")
+            lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.description_preview[:80]}")
             child.load_content(_pdir)
-            lines.append(f"  结果: {(child.result or '无')[:200]}")
+            lines.append(f"  Result: {(child.result or 'None')[:200]}")
             lines.append("")
         summary = "\n".join(lines)
 
         payload = {
-            "subject": f"项目完成确认: {node.description_preview[:60]}",
+            "subject": f"Project Completion Confirmation: {node.description_preview[:60]}",
             "report": summary,
             "employee_id": employee_id,
             "project_id": project_id,

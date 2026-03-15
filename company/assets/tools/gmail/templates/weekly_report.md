@@ -1,31 +1,31 @@
 ---
-name: 周报
-description: 每周工作汇报邮件
+name: Weekly Report
+description: Weekly work report email
 variables:
   - name: recipient
-    label: 收件人
+    label: Recipient
   - name: week_number
-    label: 周数
+    label: Week Number
   - name: accomplishments
-    label: 本周完成
+    label: This Week's Accomplishments
   - name: next_week_plan
-    label: 下周计划
+    label: Next Week's Plan
   - name: blockers
-    label: 阻塞项
-    default: 无
+    label: Blockers
+    default: None
 ---
 
-Subject: 周报 — 第{{week_number}}周工作汇报
+Subject: Weekly Report — Week {{week_number}} Work Summary
 
 Hi {{recipient}},
 
-## 本周完成
+## This Week's Accomplishments
 {{accomplishments}}
 
-## 下周计划
+## Next Week's Plan
 {{next_week_plan}}
 
-## 阻塞项
+## Blockers
 {{blockers}}
 
 Best regards

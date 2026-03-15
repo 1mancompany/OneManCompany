@@ -10,8 +10,8 @@ Markdown format expected (by convention used in business/workflows/):
     # Workflow Title
 
     - **Flow ID**: some_id
-    - **Owner**: HR (知心姐)
-    - **Collaborators**: COO (铁面侠), all project members
+    - **Owner**: HR
+    - **Collaborators**: COO, all project members
     - **Trigger**: ...
 
     ---

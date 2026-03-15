@@ -1,6 +1,6 @@
 id: project_room_3
-name: 项目会议室3
+name: Project Meeting Room 3
 capacity: 30
-description: 可容纳30人的项目会议室，用于项目总结会和复盘。
+description: A project meeting room seating 30 people, used for project wrap-up meetings and retrospectives.
 type: room
 status: inactive

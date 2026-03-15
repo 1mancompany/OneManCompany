@@ -1,17 +1,17 @@
-# Operations — 运营管理能力
+# Operations — Operations Management Capability
 
-## 职责
-- 确保公司日常运营顺畅
-- 优化工作流程和效率
-- 监控和管理公司资源
+## Responsibilities
+- Ensure smooth daily company operations
+- Optimize workflows and efficiency
+- Monitor and manage company resources
 
-## 运营范围
-- 内部流程标准化
-- 资源分配与调度
-- 跨部门协调
-- 运营数据分析与报告
+## Operations Scope
+- Internal process standardization
+- Resource allocation and scheduling
+- Cross-department coordination
+- Operations data analysis and reporting
 
-## 原则
-- 以效率为导向，减少浪费
-- 建立可重复、可扩展的流程
-- 持续改进，快速迭代
+## Principles
+- Efficiency-driven, minimize waste
+- Build repeatable and scalable processes
+- Continuous improvement, rapid iteration

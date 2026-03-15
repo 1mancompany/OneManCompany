@@ -507,7 +507,7 @@ class AppController {
   }
 
   async _cancelTask(projectId) {
-    if (!confirm('确定要取消这个任务吗？')) return;
+    if (!confirm('Are you sure you want to cancel this task?')) return;
     try {
       const resp = await fetch(`/api/task/${projectId}/abort`, { method: 'POST' });
       const data = await resp.json();
@@ -935,7 +935,7 @@ class AppController {
 
     // Abort all tasks (panic button)
     document.getElementById('abort-all-toolbar-btn')?.addEventListener('click', async () => {
-        if (!confirm('确定要停止所有员工的所有任务吗？\nThis will cancel ALL running tasks for ALL employees.')) return;
+        if (!confirm('Are you sure you want to stop all tasks for all employees?\nThis will cancel ALL running tasks for ALL employees.')) return;
         try {
             const resp = await fetch('/api/abort-all', { method: 'POST' });
             const data = await resp.json();
@@ -1393,7 +1393,7 @@ class AppController {
       talentPoolBtn = document.createElement('button');
       talentPoolBtn.id = 'emp-talent-pool-btn';
       talentPoolBtn.className = 'pixel-btn emp-fire-btn';
-      talentPoolBtn.textContent = '📋 人才库';
+      talentPoolBtn.textContent = '📋 Talent Pool';
       talentPoolBtn.style.marginRight = '8px';
       const fireBtn2 = document.getElementById('emp-fire-btn');
       fireBtn2.parentNode.insertBefore(talentPoolBtn, fireBtn2);
@@ -1848,8 +1848,8 @@ class AppController {
       const title = document.getElementById('ceo-conv-title');
       const desc = document.getElementById('ceo-conv-desc');
 
-      const nickname = data.employee_nickname || data.employee_id || '员工';
-      title.textContent = `📥 来自 ${nickname} 的任务请求`;
+      const nickname = data.employee_nickname || data.employee_id || 'Employee';
+      title.textContent = `📥 Task Request from ${nickname}`;
       if (data.description) {
         desc.textContent = data.description;
         desc.classList.remove('hidden');
@@ -1923,7 +1923,7 @@ class AppController {
 
   async _completeCeoConversation() {
     if (!this._currentConvNodeId) return;
-    if (!confirm('确认完成此对话？')) return;
+    if (!confirm('Confirm completing this conversation?')) return;
     try {
       await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/complete`, { method: 'POST' });
       this._closeCeoConversation();
@@ -3970,18 +3970,18 @@ class AppController {
           <div class="api-card-header api-card-toggle" data-target="api-tm-body">
             <span class="api-status-dot ${tm.connected ? 'online' : (tm.mode === 'local' ? 'online' : 'offline')}"></span>
             <span class="api-card-title">Talent Market</span>
-            <span class="api-card-status">${tm.connected ? '☁️ 云端' : (tm.local_talent_count > 0 ? '💾 本地 (' + tm.local_talent_count + ')' : '⚠️ 未连接')}</span>
+            <span class="api-card-status">${tm.connected ? '☁️ Cloud' : (tm.local_talent_count > 0 ? '💾 Local (' + tm.local_talent_count + ')' : '⚠️ Not Connected')}</span>
             <span class="api-card-arrow">&#9660;</span>
           </div>
           <div id="api-tm-body" class="api-card-body collapsed">
             <div class="tm-status-info" style="font-size:6.5px;margin-bottom:4px;color:var(--text-dim);">
               ${tm.connected
-                ? '✅ 已连接云端 Talent Market'
+                ? '✅ Connected to Cloud Talent Market'
                 : tm.api_key_set
-                  ? '❌ 云端连接失败，使用本地 Talent Market'
-                  : '未配置 API Key，使用本地 Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
+                  ? '❌ Cloud connection failed, using Local Talent Market'
+                  : 'API Key not configured, using Local Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
             </div>
-            <label class="api-field-label">API Key (配置后使用云端服务)</label>
+            <label class="api-field-label">API Key (configure to use cloud service)</label>
             <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
             <div class="api-card-actions">
               <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>
@@ -4377,7 +4377,7 @@ class AppController {
     btn.disabled = true;
     btn.textContent = '⏳ Sending...';
 
-    const task = `CEO写了一段公司方向的草稿，请帮忙润色和丰富成一个完整的企业定位描述，保留核心意思，补充战略愿景、目标市场、核心竞争力等维度。润色完成后，使用 save_company_direction 工具保存。\n\n草稿内容:\n${draft}`;
+    const task = `The CEO has drafted a company direction statement. Please polish and expand it into a complete corporate positioning description, preserving the core message while adding strategic vision, target market, core competencies, and other dimensions. Once polished, use the save_company_direction tool to save.\n\nDraft content:\n${draft}`;
 
     fetch('/api/ceo/task', {
       method: 'POST',
@@ -5211,10 +5211,10 @@ class AppController {
           }
         }
 
-        // Tab bar — "详情" + "任务树" fixed + dynamic plugin tabs
+        // Tab bar — "Detail" + "Task Tree" fixed + dynamic plugin tabs
         const plugins = window.pluginLoader.getPlugins();
-        let tabBarHtml = `<div class="project-tabs"><button class="project-tab active" data-tab="detail">详情</button>`;
-        tabBarHtml += `<button class="project-tab" data-tab="task-tree">\uD83C\uDF33 任务树</button>`;
+        let tabBarHtml = `<div class="project-tabs"><button class="project-tab active" data-tab="detail">Detail</button>`;
+        tabBarHtml += `<button class="project-tab" data-tab="task-tree">\uD83C\uDF33 Task Tree</button>`;
         for (const p of plugins) {
           tabBarHtml += `<button class="project-tab" data-tab="plugin-${p.id}">${p.icon ? p.icon + ' ' : ''}${p.name}</button>`;
         }
@@ -5228,7 +5228,7 @@ class AppController {
         // Acceptance criteria
         const criteria = doc.acceptance_criteria || [];
         if (criteria.length > 0) {
-          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">验收标准 (${criteria.length})</div>`;
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Acceptance Criteria (${criteria.length})</div>`;
           const ar = doc.acceptance_result;
           for (let i = 0; i < criteria.length; i++) {
             const icon = ar ? (ar.accepted ? '\u2705' : '\u274C') : '\u2B1C';
@@ -5236,34 +5236,34 @@ class AppController {
           }
           if (ar) {
             const arIcon = ar.accepted ? '\u2705' : '\u274C';
-            const arLabel = ar.accepted ? '通过' : '未通过';
+            const arLabel = ar.accepted ? 'Passed' : 'Failed';
             const arNotes = ar.notes ? ` — ${this._escHtml(ar.notes.substring(0, 200))}${ar.notes.length > 200 ? '...' : ''}` : '';
-            detailHtml += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} 验收结果: ${arLabel}${arNotes}</div>`;
+            detailHtml += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} Acceptance Result: ${arLabel}${arNotes}</div>`;
           }
           const ear = doc.ea_review_result;
           if (ear) {
             const earIcon = ear.approved ? '\u2705' : '\u274C';
-            const earLabel = ear.approved ? '通过' : '驳回';
+            const earLabel = ear.approved ? 'Approved' : 'Rejected';
             const earNotes = ear.notes ? ` — ${this._escHtml(ear.notes.substring(0, 200))}${ear.notes.length > 200 ? '...' : ''}` : '';
-            detailHtml += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA审核: ${earIcon} ${earLabel}${earNotes}</div>`;
+            detailHtml += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA Review: ${earIcon} ${earLabel}${earNotes}</div>`;
           }
         }
 
         if (doc.status !== 'completed') {
           detailHtml += `<div style="margin:8px 0;display:flex;gap:6px;">`;
-          detailHtml += `<button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 继续当前轮次</button>`;
-          detailHtml += `<button class="pixel-btn" id="stop-iter-btn" style="font-size:6px;padding:4px 10px;background:var(--pixel-red);color:#000;">■ 停止所有任务</button>`;
+          detailHtml += `<button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 Continue Current Iteration</button>`;
+          detailHtml += `<button class="pixel-btn" id="stop-iter-btn" style="font-size:6px;padding:4px 10px;background:var(--pixel-red);color:#000;">■ Stop All Tasks</button>`;
           detailHtml += `</div>`;
         }
 
         // Follow-up button (always available)
         detailHtml += `<div class="task-followup-section">
-          <button class="pixel-btn" id="followup-btn" style="font-size:6px;padding:4px 10px;">+ 追加任务</button>
+          <button class="pixel-btn" id="followup-btn" style="font-size:6px;padding:4px 10px;">+ Follow-up Task</button>
           <div id="followup-input-area" class="hidden" style="margin-top:6px;">
-            <textarea id="followup-instructions" class="followup-textarea" placeholder="输入追加指示..." rows="3"></textarea>
+            <textarea id="followup-instructions" class="followup-textarea" placeholder="Enter follow-up instructions..." rows="3"></textarea>
             <div style="margin-top:4px;display:flex;gap:4px;">
-              <button class="pixel-btn" id="followup-submit" style="font-size:6px;padding:3px 8px;">发送</button>
-              <button class="pixel-btn secondary" id="followup-cancel" style="font-size:6px;padding:3px 8px;">取消</button>
+              <button class="pixel-btn" id="followup-submit" style="font-size:6px;padding:3px 8px;">Send</button>
+              <button class="pixel-btn secondary" id="followup-cancel" style="font-size:6px;padding:3px 8px;">Cancel</button>
             </div>
           </div>
         </div>`;
@@ -5282,7 +5282,7 @@ class AppController {
         }
 
         if (taskResult) {
-          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">任务汇报</div>`;
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Task Report</div>`;
           detailHtml += `<div class="task-result-report md-rendered">${this._renderMarkdown(taskResult)}</div>`;
         } else if (doc.output) {
           detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
@@ -5428,16 +5428,16 @@ class AppController {
         const stopBtn = document.getElementById('stop-iter-btn');
         if (stopBtn) {
           stopBtn.addEventListener('click', () => {
-            if (!confirm('确定停止该轮次所有执行中的任务？')) return;
+            if (!confirm('Are you sure you want to stop all running tasks in this iteration?')) return;
             stopBtn.disabled = true;
-            stopBtn.textContent = '⏳ 停止中...';
+            stopBtn.textContent = '⏳ Stopping...';
             fetch(`/api/task/${encodeURIComponent(iterationId)}/abort`, { method: 'POST' })
               .then(r => r.json())
               .then(data => {
-                stopBtn.textContent = `■ 已停止 (${data.cancelled || 0})`;
+                stopBtn.textContent = `■ Stopped (${data.cancelled || 0})`;
                 this._loadIterationDetail(projectId, iterationId);
               })
-              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ 停止所有任务'; });
+              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ Stop All Tasks'; });
           });
         }
 
@@ -5469,7 +5469,7 @@ class AppController {
 
   _continueIteration(projectId, iterationId) {
     const btn = document.getElementById('continue-iter-btn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ 提交中...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Submitting...'; }
 
     fetch('/api/projects/continue', {
       method: 'POST',
@@ -5479,23 +5479,23 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('CEO', `继续失败: ${data.error}`, 'error');
-          if (btn) { btn.disabled = false; btn.textContent = '▶ 继续当前轮次'; }
+          this.logEntry('CEO', `Continue failed: ${data.error}`, 'error');
+          if (btn) { btn.disabled = false; btn.textContent = '▶ Continue Current Iteration'; }
         } else {
-          this.logEntry('CEO', `已继续轮次 ${iterationId}，任务已推送给 ${data.routed_to}`, 'ceo');
+          this.logEntry('CEO', `Continued iteration ${iterationId}, tasks routed to ${data.routed_to}`, 'ceo');
           const modal = document.getElementById('project-modal');
           if (modal) modal.classList.add('hidden');
         }
       })
       .catch(err => {
-        this.logEntry('CEO', `继续失败: ${err.message}`, 'error');
-        if (btn) { btn.disabled = false; btn.textContent = '▶ 继续当前轮次'; }
+        this.logEntry('CEO', `Continue failed: ${err.message}`, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '▶ Continue Current Iteration'; }
       });
   }
 
   _submitFollowup(projectId, instructions) {
     const submitBtn = document.getElementById('followup-submit');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ 提交中...'; }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ Submitting...'; }
 
     fetch(`/api/task/${encodeURIComponent(projectId)}/followup`, {
       method: 'POST',
@@ -5505,17 +5505,17 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         if (data.error) {
-          this.logEntry('CEO', `追加任务失败: ${data.error}`, 'error');
-          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '发送'; }
+          this.logEntry('CEO', `Follow-up task failed: ${data.error}`, 'error');
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send'; }
         } else {
-          this.logEntry('CEO', `已追加指示，任务已推送给EA`, 'ceo');
+          this.logEntry('CEO', `Follow-up instructions added, tasks routed to EA`, 'ceo');
           const modal = document.getElementById('project-modal');
           if (modal) modal.classList.add('hidden');
         }
       })
       .catch(err => {
-        this.logEntry('CEO', `追加任务失败: ${err.message}`, 'error');
-        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '发送'; }
+        this.logEntry('CEO', `Follow-up task failed: ${err.message}`, 'error');
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send'; }
       });
   }
 
@@ -5650,14 +5650,14 @@ class AppController {
 
   _renderTalentPool(data) {
     const badge = document.getElementById('talent-pool-source-badge');
-    badge.textContent = data.source === 'api' ? 'API' : '本地';
+    badge.textContent = data.source === 'api' ? 'API' : 'Local';
     badge.className = 'talent-pool-badge ' + (data.source === 'api' ? 'api' : 'local');
 
     const list = document.getElementById('talent-pool-list');
     list.innerHTML = '';
 
     if (!data.talents || data.talents.length === 0) {
-      list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">暂无人才</div>';
+      list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">No talents available</div>';
       return;
     }
 
@@ -5670,7 +5670,7 @@ class AppController {
         <div class="talent-skills">
           ${(t.skills || []).map(s => `<span class="skill-tag">${s}</span>`).join('')}
         </div>
-        <div class="talent-status">${t.status === 'purchased' ? '✓ 已购买' : '本地'}</div>
+        <div class="talent-status">${t.status === 'purchased' ? '✓ Purchased' : 'Local'}</div>
       `;
       list.appendChild(card);
     }

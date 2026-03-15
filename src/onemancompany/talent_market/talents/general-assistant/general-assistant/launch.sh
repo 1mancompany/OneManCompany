@@ -5,7 +5,7 @@
 # Usage:
 #   ./launch.sh [max_iterations]
 #   ./launch.sh 20              # run up to 20 iterations
-#   TASK="研究这个项目" ./launch.sh   # pass task via env var
+#   TASK="Research this project" ./launch.sh   # pass task via env var
 
 set -e
 

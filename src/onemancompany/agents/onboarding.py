@@ -905,7 +905,7 @@ async def execute_hire(
     if not wp_file.exists():
         wp_file.write_text(
             f"---\nname: work-principles\nautoload: true\n"
-            f"description: 个人工作原则与行为准则。\n---\n\n"
+            f"description: Personal work principles and code of conduct.\n---\n\n"
             f"# {name} ({nickname}) Work Principles\n\n"
             f"**Department**: {department}\n"
             f"**Title**: {make_title(1, role)}\n"

@@ -359,8 +359,8 @@ class TaskTreeRenderer {
     _renderDependencies(node) {
         let html = '';
 
-        // 前置任务
-        html += '<div class="detail-section"><h4>前置任务</h4>';
+        // Prerequisites
+        html += '<div class="detail-section"><h4>Prerequisites</h4>';
         if (node.depends_on && node.depends_on.length > 0) {
             html += '<ul>';
             node.depends_on.forEach(depId => {
@@ -373,17 +373,17 @@ class TaskTreeRenderer {
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">无</p>';
+            html += '<p style="color:#888;margin:4px 0">None</p>';
         }
         html += '</div>';
 
-        // 后续任务 (includes both depends_on dependents and child nodes)
+        // Downstream tasks (includes both depends_on dependents and child nodes)
         const allNodes = this.treeData?.nodes || [];
         const dependents = allNodes.filter(n =>
             (n.depends_on || []).includes(node.id) ||
             n.parent_id === node.id
         );
-        html += '<div class="detail-section"><h4>后续任务</h4>';
+        html += '<div class="detail-section"><h4>Downstream Tasks</h4>';
         if (dependents.length > 0) {
             html += '<ul>';
             dependents.forEach(dep => {
@@ -393,7 +393,7 @@ class TaskTreeRenderer {
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">无</p>';
+            html += '<p style="color:#888;margin:4px 0">None</p>';
         }
         html += '</div>';
 

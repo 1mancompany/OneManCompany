@@ -44,7 +44,7 @@ Before approving any contract:
 - [ ] We have (or can hire) the right people
 - [ ] Timeline is reasonable
 
-## Child Task Review (子任务验收)
+## Child Task Review
 When all your dispatched children complete, the system wakes you with a review prompt:
 1. Read actual deliverables — don't just trust result summaries.
 2. Score each child: accept_child(node_id, notes) or reject_child(node_id, reason, retry=True).

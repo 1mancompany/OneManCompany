@@ -17,7 +17,7 @@ function renderKanban(container, data, ctx) {
     phaseHtml += '</div>';
   }
 
-  const statusLabels = { pending: '待开始', in_progress: '进行中', completed: '已完成' };
+  const statusLabels = { pending: 'Pending', in_progress: 'In Progress', completed: 'Completed' };
   let boardHtml = '<div class="kanban-board">';
   for (const status of ['pending', 'in_progress', 'completed']) {
     const cards = columns[status] || [];

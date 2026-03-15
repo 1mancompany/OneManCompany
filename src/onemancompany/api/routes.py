@@ -471,12 +471,12 @@ async def ceo_qa(body: dict) -> dict:
             except Exception:
                 content_blocks.append({
                     "type": "text",
-                    "text": f"\n[附件: {att.get('filename', 'file')} (路径: {att_path})]",
+                    "text": f"\n[Attachment: {att.get('filename', 'file')} (path: {att_path})]",
                 })
         elif att_path:
             content_blocks.append({
                 "type": "text",
-                "text": f"\n[附件: {att.get('filename', 'file')} (保存在 {att_path})]",
+                "text": f"\n[Attachment: {att.get('filename', 'file')} (saved at {att_path})]",
             })
 
     # Use multimodal content if there are image attachments, plain text otherwise
@@ -487,7 +487,7 @@ async def ceo_qa(body: dict) -> dict:
 
     llm = make_llm()
     result = await tracked_ainvoke(llm, [
-        SystemMessage(content="你是 CEO 的 AI 助理，简洁回答问题。"),
+        SystemMessage(content="You are the CEO's AI assistant. Answer questions concisely."),
         human_msg,
     ], category="qa")
     answer = result.content
@@ -560,14 +560,14 @@ async def ceo_submit_task(body: dict) -> dict:
     # Build attachment info string
     attach_info = ""
     if attachments:
-        lines = [f"- 附件: {a.get('filename', 'file')} (保存在 {a.get('path', '')})" for a in attachments]
-        attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
+        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
+        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
 
     loop = get_agent_loop(EA_ID)
     if loop:
         ea_task = (
-            f"CEO下发了新任务，请分析并分派给合适的负责人:\n\n"
-            f"任务: {task}{attach_info}\n\n"
+            f"CEO has assigned a new task. Please analyze and dispatch to the appropriate owner:\n\n"
+            f"Task: {task}{attach_info}\n\n"
             f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
         )
         # Initialize task tree: CEO node as root, EA as child
@@ -666,19 +666,19 @@ async def task_followup(project_id: str, body: dict) -> dict:
 
     # Build follow-up task for EA
     context_parts = [
-        f"CEO对已完成的任务追加了新指示:\n",
-        f"原始任务: {original_task}\n",
+        f"CEO has added follow-up instructions to a completed task:\n",
+        f"Original task: {original_task}\n",
     ]
     if previous_result:
         # Truncate very long results
         prev = previous_result[:2000]
         if len(previous_result) > 2000:
             prev += "...(truncated)"
-        context_parts.append(f"上次任务结果:\n{prev}\n")
-    context_parts.append(f"CEO追加指示: {instructions}\n")
+        context_parts.append(f"Previous task result:\n{prev}\n")
+    context_parts.append(f"CEO follow-up instructions: {instructions}\n")
     context_parts.append(
-        f"\n请根据CEO的追加指示和之前的任务上下文继续执行。"
-        f"如需分派子任务，使用 dispatch_child()。\n\n"
+        f"\nPlease continue execution based on the CEO's follow-up instructions and previous task context."
+        f" Use dispatch_child() if subtasks are needed.\n\n"
         f"[Project ID: {project_id}] [Project workspace: {pdir}]"
     )
     followup_task = "\n".join(context_parts)
@@ -751,7 +751,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     _save_resolved(_ver, _key, doc)
 
     # Log the follow-up
-    append_action(project_id, "ceo", "追加指示", instructions[:200])
+    append_action(project_id, "ceo", "follow-up instructions", instructions[:200])
 
     await event_bus.publish(
         CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
@@ -788,8 +788,8 @@ async def oneonone_chat(body: dict) -> dict:
     # Build attachment info string for prompt injection
     attach_info = ""
     if attachments:
-        lines = [f"- 附件: {a.get('filename', 'file')} (保存在 {a.get('path', '')})" for a in attachments]
-        attach_info = "\n\nCEO附带了以下文件:\n" + "\n".join(lines)
+        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
+        attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
 
     # On first message (empty history), mark employee as in meeting
     if not history and emp_data:
@@ -811,22 +811,22 @@ async def oneonone_chat(body: dict) -> dict:
     if executor:
         context = ""
         if history:
-            context = "以下是你和CEO的对话历史:\n" + "\n".join(
-                f"{'CEO' if e.get('role') == 'ceo' else '你'}: {e['content']}"
+            context = "Here is the conversation history with CEO:\n" + "\n".join(
+                f"{'CEO' if e.get('role') == 'ceo' else 'You'}: {e['content']}"
                 for e in history
             ) + "\n\n"
         task_desc = (
-            f"[1-on-1 Meeting] CEO对你说:\n{context}"
+            f"[1-on-1 Meeting] CEO says to you:\n{context}"
             f"CEO: {message}{attach_info}\n\n"
-            f"请回应CEO。如果CEO要求你执行某项操作（如招聘、搜索候选人等），请使用你的工具来完成。"
+            f"Please respond to the CEO. If the CEO asks you to perform an action (e.g., hiring, searching candidates), use your tools to complete it."
         )
         try:
             ctx = TaskContext(employee_id=employee_id)
             result = await executor.execute(task_desc, ctx)
-            response_text = result.output or "（处理完成）"
+            response_text = result.output or "(Processing complete)"
         except Exception as exc:
             logger.error("1-on-1 direct execute failed for {}: {}", employee_id, exc)
-            response_text = f"（执行出错: {exc}）"
+            response_text = f"(Execution error: {exc})"
     else:
         # --- Fallback: plain LLM for employees without a vessel ---
         from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
@@ -1217,7 +1217,7 @@ async def trigger_hr_review() -> dict:
             cqt = edata.get("current_quarter_tasks", 0)
             elevel = edata.get("level", 1)
             info = (
-                f"- {edata.get('name', '')} (花名: {edata.get('nickname', '')}, ID: {eid}, "
+                f"- {edata.get('name', '')} (nickname: {edata.get('nickname', '')}, ID: {eid}, "
                 f"Title: {edata.get('title', '')}, Lv.{elevel} {LEVEL_NAMES.get(elevel, '')}, "
                 f"Q tasks: {cqt}/3, "
                 f"Performance history: [{hist_str}])"
@@ -2893,18 +2893,18 @@ async def continue_iteration(body: dict) -> dict:
     # Build feedback summary from last round
     feedback_lines = []
     if acceptance_result:
-        status = "通过" if acceptance_result.get("accepted") else "未通过"
-        feedback_lines.append(f"上次验收结果: {status}")
+        status = "Passed" if acceptance_result.get("accepted") else "Failed"
+        feedback_lines.append(f"Last acceptance result: {status}")
         if acceptance_result.get("notes"):
-            feedback_lines.append(f"验收备注: {acceptance_result['notes']}")
+            feedback_lines.append(f"Acceptance notes: {acceptance_result['notes']}")
     if ea_review_result:
-        status = "通过" if ea_review_result.get("approved") else "驳回"
-        feedback_lines.append(f"EA审核: {status}")
+        status = "Approved" if ea_review_result.get("approved") else "Rejected"
+        feedback_lines.append(f"EA review: {status}")
         if ea_review_result.get("notes"):
-            feedback_lines.append(f"EA备注: {ea_review_result['notes']}")
-    feedback_text = "\n".join(feedback_lines) if feedback_lines else "（无上轮反馈）"
+            feedback_lines.append(f"EA notes: {ea_review_result['notes']}")
+    feedback_text = "\n".join(feedback_lines) if feedback_lines else "(No feedback from previous round)"
 
-    criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria)) if criteria else "（未设置验收标准）"
+    criteria_text = "\n".join(f"  {i+1}. {c}" for i, c in enumerate(criteria)) if criteria else "(No acceptance criteria set)"
 
     # Reset acceptance/EA results for re-evaluation
     doc["acceptance_result"] = None
@@ -2918,11 +2918,11 @@ async def continue_iteration(body: dict) -> dict:
     # Build continuation task description — route to EA like initial task flow
     ctx_id = f"{project_id}/{iteration_id}" if project_id and not iteration_id.startswith(project_id) else iteration_id
     continuation_task = (
-        f"CEO要求继续推进当前轮次（不创建新迭代）\n\n"
-        f"原始任务: {task}\n\n"
-        f"验收标准:\n{criteria_text}\n\n"
-        f"上轮反馈:\n{feedback_text}\n\n"
-        f"请根据以上信息分析未完成或需改进的部分，然后分派给合适的负责人执行。\n\n"
+        f"CEO requests to continue the current iteration (no new iteration)\n\n"
+        f"Original task: {task}\n\n"
+        f"Acceptance criteria:\n{criteria_text}\n\n"
+        f"Previous feedback:\n{feedback_text}\n\n"
+        f"Please analyze the incomplete or improvable parts based on the above, then dispatch to the appropriate owner.\n\n"
         f"[Project ID: {ctx_id}] [Project workspace: {project_dir}]"
     )
 
@@ -2946,7 +2946,7 @@ async def continue_iteration(body: dict) -> dict:
             continue_node = tree.add_child(
                 parent_id=tree.root_id,
                 employee_id=CEO_ID,
-                description=f"[续做] {feedback_text}",
+                description=f"[Continue] {feedback_text}",
                 acceptance_criteria=[],
             )
             continue_node.node_type = "ceo_followup"
@@ -3011,6 +3011,55 @@ def _build_plugin_context(dispatches: list[dict], project_id: str, project_statu
     return {"employees": employees, "project_id": project_id, "project_status": project_status}
 
 
+def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
+    """Convert task tree nodes into dispatch-like dicts for plugin transforms."""
+    from pathlib import Path
+    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.task_tree import get_tree
+
+    project_dir = get_project_dir(project_id)
+    if not project_dir:
+        return []
+    path = Path(project_dir) / "task_tree.yaml"
+    if not path.exists():
+        return []
+    tree = get_tree(path, project_id=project_id)
+    nodes = list(tree._nodes.values())
+
+    # Map TaskPhase statuses to kanban-compatible statuses
+    status_map = {
+        "pending": "pending",
+        "processing": "in_progress",
+        "holding": "in_progress",
+        "completed": "completed",
+        "accepted": "completed",
+        "finished": "completed",
+        "failed": "completed",
+        "blocked": "pending",
+        "cancelled": "completed",
+    }
+
+    dispatches = []
+    for node in nodes:
+        # Skip system nodes (ceo_prompt, ceo_followup) — they aren't real tasks
+        if node.node_type in ("ceo_prompt", "ceo_followup"):
+            continue
+        dispatches.append({
+            "dispatch_id": node.id,
+            "employee_id": node.employee_id,
+            "description": node.description,
+            "status": status_map.get(node.status, "pending"),
+            "phase": 1,  # flat for now
+            "dispatched_at": node.created_at,
+            "completed_at": node.completed_at or None,
+            "task_type": node.node_type,
+            "depends_on": node.depends_on,
+            "estimated_duration_min": 0,
+            "scheduled_start": None,
+        })
+    return dispatches
+
+
 @router.get("/api/projects/{project_id}/board")
 async def get_project_board(project_id: str) -> dict:
     """Get kanban board data — backward-compatible wrapper over plugin transformers."""
@@ -3021,7 +3070,7 @@ async def get_project_board(project_id: str) -> dict:
     if not doc:
         raise HTTPException(404, "Project not found")
 
-    dispatches = doc.get("dispatches", [])
+    dispatches = _tree_nodes_to_dispatches(project_id) or doc.get("dispatches", [])
     ctx = _build_plugin_context(dispatches, project_id, doc.get("status", ""))
 
     # Delegate to plugin transformers
@@ -3338,7 +3387,7 @@ async def get_project_plugin_data(project_id: str, plugin_id: str) -> dict:
     if not doc:
         raise HTTPException(404, "Project not found")
 
-    dispatches = doc.get("dispatches", [])
+    dispatches = _tree_nodes_to_dispatches(project_id) or doc.get("dispatches", [])
     ctx = _build_plugin_context(dispatches, project_id, doc.get("status", ""))
 
     return plugin_registry.transform(plugin_id, dispatches, ctx)
@@ -3668,7 +3717,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
         holding_meta = _parse_holding_metadata(node.result)
         if holding_meta and holding_meta.get("hire_id") == hire_id:
             import asyncio
-            resume_result = f"招聘完成: {emp_name} (#{employee_id}) 已入职（{role}）。请继续项目执行。"
+            resume_result = f"Hiring complete: {emp_name} (#{employee_id}) has onboarded ({role}). Please continue project execution."
             main_loop = getattr(employee_manager, "_event_loop", None)
             if main_loop and main_loop.is_running():
                 main_loop.call_soon_threadsafe(
@@ -3682,10 +3731,10 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     if not resumed:
         # No matching HOLDING task — push as adhoc notification
         followup = (
-            f"新员工就绪通知\n\n"
-            f"员工 {emp_name} (#{employee_id}) 已入职并准备就绪（{role}）。\n"
-            f"请将项目相关任务 dispatch_child() 给该员工执行。\n\n"
-            f"原始招聘原因: {ctx.get('reason', '')}\n"
+            f"New employee ready notification\n\n"
+            f"Employee {emp_name} (#{employee_id}) has onboarded and is ready ({role}).\n"
+            f"Please dispatch project tasks to this employee using dispatch_child().\n\n"
+            f"Original hiring reason: {ctx.get('reason', '')}\n"
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
         _push_adhoc_task(COO_ID, followup, project_id=project_id, project_dir=project_dir)
@@ -3825,7 +3874,7 @@ async def _do_hire_single(
         ctx = _pending_project_ctx.pop(batch_id, {})
         pid = ctx.get("project_id", "")
         if pid:
-            append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
+            append_action(pid, HR_ID, "onboarding complete", f"{candidate['name']} has onboarded, employee ID {emp.id}")
             complete_project(pid, f"Hired {candidate['name']}")
 
         pending_candidates.pop(batch_id, None)
@@ -4066,7 +4115,7 @@ async def _do_batch_hire(
         pid = ctx.get("project_id", "")
         hired_names = [r["name"] for r in results if r["status"] == "hired"]
         if pid and hired_names:
-            append_action(pid, HR_ID, "批量入职完成", f"{', '.join(hired_names)} 已入职")
+            append_action(pid, HR_ID, "batch onboarding complete", f"{', '.join(hired_names)} have onboarded")
             complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
 
         pending_candidates.pop(batch_id, None)
@@ -4098,9 +4147,9 @@ async def _do_batch_hire(
                 )
                 _push_adhoc_task(
                     COO_ID,
-                    f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
-                    f"可选部门: Engineering, Design, Analytics, Marketing\n"
-                    f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
+                    f"The following new employees have just onboarded. Please assign departments and roles to each using assign_department(employee_id, department, role).\n"
+                    f"Available departments: Engineering, Design, Analytics, Marketing\n"
+                    f"Determine the role based on the employee's name and skills (e.g., Engineer, Designer, PM, QA Engineer, etc.).\n\n"
                     f"{emp_lines}",
                 )
 

@@ -1,5 +1,5 @@
-# 代码工程化标准规范
-为了提高项目后续的可维护性与扩展性，所有前端/客户端的开发任务必须遵循以下工程化标准：
-1. **文件拆分**：主动将结构（HTML）、样式（CSS）和逻辑（JavaScript）拆分为独立的物理文件（如 `index.html`, `style.css`, `main.js`），严禁将所有代码堆砌在单一文件中。
-2. **模块化**：逻辑代码应根据功能模块进行拆分，保持低耦合。
-3. **路径规范**：所有产出物必须严格保存在当前迭代的 `workspace` 目录下，禁止使用旧有或错误的绝对路径。
+# Code Engineering Standards
+To improve project maintainability and extensibility, all frontend/client development tasks must follow these engineering standards:
+1. **File Separation**: Proactively separate structure (HTML), styling (CSS), and logic (JavaScript) into independent physical files (e.g., `index.html`, `style.css`, `main.js`). Consolidating all code into a single file is strictly prohibited.
+2. **Modularity**: Logic code should be split by functional modules, maintaining low coupling.
+3. **Path Standards**: All deliverables must be strictly saved in the current iteration's `workspace` directory. Using outdated or incorrect absolute paths is prohibited.

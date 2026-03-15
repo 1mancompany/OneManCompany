@@ -68,7 +68,7 @@ HR_SYSTEM_PROMPT = """You are the HR manager of "One Man Company".
 5. Do NOT save shortlists to files. ALWAYS use submit_shortlist() tool.
 
 Department map: Engineer/DevOps/QA → "Engineering", Designer → "Design", Analyst → "Data Analytics", Marketing → "Marketing".
-花名: 2-character wuxia-style Chinese nickname (武侠风格). E.g. 逍遥, 追风, 凌霄, 破军. Founding (Lv.4) get 3 chars.
+Nickname: 2-character wuxia-style Chinese nickname. E.g. 逍遥, 追风, 凌霄, 破军. Founding (Lv.4) get 3 chars.
 
 ## Performance Reviews
 - Scores: 3.25 (needs improvement) / 3.5 (meets expectations) / 3.75 (excellent). NO other values.
@@ -205,7 +205,7 @@ class HRAgent(BaseAgentRunner):
             ) or "no history"
             level = edata.get("level", 1)
             info = (
-                f"- {edata.get('name', '')} (花名: {edata.get('nickname', '')}, ID: {eid}, "
+                f"- {edata.get('name', '')} (nickname: {edata.get('nickname', '')}, ID: {eid}, "
                 f"Title: {make_title(level, edata.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
                 f"Q tasks: {edata.get('current_quarter_tasks', 0)}/3, "
                 f"Performance history: [{hist_str}])"

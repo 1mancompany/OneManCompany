@@ -1,16 +1,16 @@
-"""Vessel DNA — vessel.yaml 配置定义与加载。
+"""Vessel DNA — vessel.yaml configuration definition and loading.
 
-VesselConfig 定义了一个员工躯壳(vessel)的完整 DNA：
-- runner: 神经系统配置（如何连接执行后端）
-- hooks: 生命周期钩子
-- context: 上下文注入配置
-- limits: 执行限制
-- capabilities: 能力声明
+VesselConfig defines the complete DNA of an employee vessel:
+- runner: Neural system configuration (how to connect to the execution backend)
+- hooks: Lifecycle hooks
+- context: Context injection configuration
+- limits: Execution limits
+- capabilities: Capability declarations
 
-加载优先级:
+Loading priority:
   1. emp_dir/vessel/vessel.yaml
-  2. emp_dir/agent/manifest.yaml (向后兼容，自动转换)
-  3. src/onemancompany/core/default_vessel.yaml (默认 DNA)
+  2. emp_dir/agent/manifest.yaml (backward compatible, auto-converted)
+  3. src/onemancompany/core/default_vessel.yaml (default DNA)
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ import yaml
 
 @dataclass
 class RunnerConfig:
-    """神经系统配置 — 定义如何连接执行后端。"""
+    """Neural system configuration — defines how to connect to the execution backend."""
     module: str = ""
     class_name: str = ""
 
 
 @dataclass
 class HooksConfig:
-    """生命周期钩子 — 任务前后的回调。"""
+    """Lifecycle hooks — pre/post-task callbacks."""
     module: str = ""
     pre_task: str = ""
     post_task: str = ""
@@ -43,7 +43,7 @@ class HooksConfig:
 
 @dataclass
 class PromptSection:
-    """Prompt 注入片段。"""
+    """Prompt injection fragment."""
     name: str
     file: str = ""
     priority: int = 50
@@ -51,7 +51,7 @@ class PromptSection:
 
 @dataclass
 class ContextConfig:
-    """上下文注入配置。"""
+    """Context injection configuration."""
     prompt_sections: list[PromptSection] = field(default_factory=list)
     inject_progress_log: bool = True
     inject_task_history: bool = True
@@ -59,7 +59,7 @@ class ContextConfig:
 
 @dataclass
 class LimitsConfig:
-    """执行限制。"""
+    """Execution limits."""
     max_retries: int = 3
     retry_delays: list[int] = field(default_factory=lambda: [5, 15, 30])
     max_subtask_iterations: int = 3
@@ -69,7 +69,7 @@ class LimitsConfig:
 
 @dataclass
 class CapabilitiesConfig:
-    """能力声明 — vessel 支持的平台能力。"""
+    """Capability declarations — platform capabilities supported by the vessel."""
     file_upload: bool = False
     websocket: bool = False
     sandbox: bool = False
@@ -78,7 +78,7 @@ class CapabilitiesConfig:
 
 @dataclass
 class VesselConfig:
-    """vessel.yaml 完整结构 — 员工躯壳的 DNA。"""
+    """vessel.yaml full structure — the DNA of an employee vessel."""
     runner: RunnerConfig = field(default_factory=RunnerConfig)
     hooks: HooksConfig = field(default_factory=HooksConfig)
     context: ContextConfig = field(default_factory=ContextConfig)

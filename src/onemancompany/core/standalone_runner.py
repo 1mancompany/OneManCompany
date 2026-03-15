@@ -6,8 +6,8 @@ Runs a LangChain ReAct agent with skills loaded from the local skills/ folder �
 no dependency on the OneManCompany backend.
 
 Usage:
-    python run.py "分析一下这个项目的架构"
-    echo "写个方案" | python run.py
+    python run.py "Analyze the architecture of this project"
+    echo "Write a proposal" | python run.py
     python run.py  # interactive mode
 """
 

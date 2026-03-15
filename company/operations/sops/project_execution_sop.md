@@ -1,51 +1,51 @@
-# 项目执行标准作业程序 (Project Execution SOP)
+# Project Execution Standard Operating Procedure (SOP)
 
-## 1. 概述
-为规范化对外沟通，确保公司对外传递的信息一致、专业，所有项目执行过程中的对外沟通（包括启动、汇报、交付等环节）必须严格遵循《对外可引用的标准话术库》。
+## 1. Overview
+To standardize external communications and ensure the company delivers consistent, professional messaging, all external communications during project execution (including kickoff, reporting, delivery, etc.) must strictly follow the "Standard External Communications Playbook."
 
-**标准话术库引用路径**：`company/sales/playbooks/external_comms/external_comms_playbook.md`
+**Playbook reference path**: `company/sales/playbooks/external_comms/external_comms_playbook.md`
 
-## 2. 标准邮件与沟通模板
+## 2. Standard Email and Communication Templates
 
-### 2.1 项目启动邮件模板 (Kickoff Email)
-**规范**：在项目启动时，必须使用标准话术库中的“公司介绍”与“项目启动声明”模块。
-**模板**：
-> 尊敬的 [客户名称] 团队：
-> 您好！感谢您选择 One Man Company。
-> [引用：话术库 - 公司核心价值/愿景]
-> 我们非常荣幸能与您共同开启 [项目名称] 项目。为了确保项目顺利推进，我们将严格按照约定的时间表和质量标准执行。
-> [引用：话术库 - 合作承诺]
-> 期待我们在接下来的合作中取得卓越成果！
+### 2.1 Project Kickoff Email Template
+**Standard**: When kicking off a project, you must use the "Company Introduction" and "Project Kickoff Statement" modules from the playbook.
+**Template**:
+> Dear [Client Name] Team,
+> Thank you for choosing One Man Company.
+> [Reference: Playbook - Core Values/Vision]
+> We are honored to embark on the [Project Name] project with you. To ensure smooth progress, we will strictly adhere to the agreed timeline and quality standards.
+> [Reference: Playbook - Partnership Commitment]
+> We look forward to achieving outstanding results in our collaboration!
 
-### 2.2 项目周报模板 (Weekly Report)
-**规范**：在汇报进度和延期/风险时，必须使用标准话术库中的“进度汇报”与“风险沟通”模块。
-**模板**：
-> 尊敬的 [客户名称] 团队：
-> 本周 [项目名称] 项目进展如下：
-> 1. 已完成：...
-> 2. 下周计划：...
-> [如遇风险/延期，引用：话术库 - 风险应对与延期说明]
-> [引用：话术库 - 专业服务承诺]
+### 2.2 Weekly Project Report Template
+**Standard**: When reporting progress and risks/delays, you must use the "Progress Report" and "Risk Communication" modules from the playbook.
+**Template**:
+> Dear [Client Name] Team,
+> This week's progress on the [Project Name] project is as follows:
+> 1. Completed: ...
+> 2. Next week's plan: ...
+> [If risks/delays encountered, reference: Playbook - Risk Response and Delay Explanation]
+> [Reference: Playbook - Professional Service Commitment]
 
-### 2.3 项目交付邮件模板 (Delivery Email)
-**规范**：在项目交付时，必须使用标准话术库中的“交付验收”与“后续支持”模块。
-**模板**：
-> 尊敬的 [客户名称] 团队：
-> 很高兴地通知您，[项目名称] 的所有交付物已按标准完成。
-> [引用：话术库 - 交付质量声明]
-> 请您安排时间进行验收测试。如有任何问题，我们的技术团队将随时待命。
-> [引用：话术库 - 售后与技术支持]
+### 2.3 Project Delivery Email Template
+**Standard**: When delivering a project, you must use the "Delivery Acceptance" and "Post-Delivery Support" modules from the playbook.
+**Template**:
+> Dear [Client Name] Team,
+> We are pleased to inform you that all deliverables for [Project Name] have been completed to standard.
+> [Reference: Playbook - Delivery Quality Statement]
+> Please arrange time for acceptance testing. If you have any questions, our technical team is standing by.
+> [Reference: Playbook - After-Sales and Technical Support]
 
-## 3. 生产看板与项目群固定公告规范
+## 3. Production Kanban and Project Group Pinned Announcement Standards
 
-### 3.1 跨节点任务进度看板公告
-在所有生产看板的“全局说明”或“置顶公告”区，必须固定添加以下链接与声明：
-> **【重要】对外沟通规范**
-> 所有涉及客户的节点流转说明、对外备注及交付物说明，请务必参考并使用标准话术：
-> 🔗 [《对外可引用的标准话术库》](company/sales/playbooks/external_comms/external_comms_playbook.md)
+### 3.1 Cross-Node Task Progress Kanban Announcement
+In the "Global Notes" or "Pinned Announcement" section of all production kanban boards, the following link and statement must be permanently posted:
+> **[IMPORTANT] External Communication Standards**
+> For all client-facing node transition notes, external remarks, and deliverable descriptions, please reference and use the standard playbook:
+> [Standard External Communications Playbook](company/sales/playbooks/external_comms/external_comms_playbook.md)
 
-### 3.2 项目群置顶公告
-在所有客户沟通群（微信/Slack/钉钉等）的内部置顶公告中，必须包含：
-> **内部纪律提醒**：
-> 群内所有对外答疑、进度同步及风险反馈，请统一使用标准话术。严禁未经审核的随意承诺。
-> 话术库链接：`company/sales/playbooks/external_comms/external_comms_playbook.md`
+### 3.2 Project Group Pinned Announcement
+In the internal pinned announcements of all client communication groups (WeChat/Slack/DingTalk, etc.), the following must be included:
+> **Internal Discipline Reminder**:
+> All external Q&A, progress updates, and risk feedback in this group must use the standard playbook. Unauthorized ad-hoc commitments are strictly prohibited.
+> Playbook link: `company/sales/playbooks/external_comms/external_comms_playbook.md`

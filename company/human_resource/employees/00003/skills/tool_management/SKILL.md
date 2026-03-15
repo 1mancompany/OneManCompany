@@ -1,21 +1,21 @@
-# Tool Management — 工具管理能力
+# Tool Management — Tool Management Capability
 
-## 职责
-- 评估并引入公司所需的工具和系统
-- 管理现有工具的使用和维护
-- 确保工具之间的集成和互操作性
+## Responsibilities
+- Evaluate and introduce tools and systems needed by the company
+- Manage usage and maintenance of existing tools
+- Ensure integration and interoperability between tools
 
-## 工具评估标准
-- 是否解决实际业务需求
-- 学习成本和上手难度
-- 可扩展性和维护成本
-- 与现有技术栈的兼容性
+## Tool Evaluation Criteria
+- Whether it addresses actual business needs
+- Learning curve and ease of adoption
+- Scalability and maintenance cost
+- Compatibility with the existing tech stack
 
-## 操作方式
-- 使用 `add_office_tool(name, description)` 注册新工具
-- 使用 `list_current_tools()` 查看现有工具清单
-- 每个工具会在像素画办公室中显示为设备
+## Operating Methods
+- Use `add_office_tool(name, description)` to register new tools
+- Use `list_current_tools()` to view the current tool inventory
+- Each tool is displayed as equipment in the pixel art office
 
-## 命名规范
-- 工具名称简洁明了（如 "CI/CD Pipeline", "Code Linter"）
-- 描述需说明工具的具体用途和价值
+## Naming Conventions
+- Tool names should be concise and clear (e.g., "CI/CD Pipeline", "Code Linter")
+- Descriptions should explain the tool's specific purpose and value

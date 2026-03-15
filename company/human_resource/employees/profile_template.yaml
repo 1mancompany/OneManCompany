@@ -1,4 +1,4 @@
-# 员工档案
+# Employee Profile
 
 name: "{name}"
 nickname: "{nickname}"
@@ -10,43 +10,43 @@ role: "{role}"
 desk_position: [{desk_x}, {desk_y}]
 sprite: "{sprite}"
 
-# LLM 配置
+# LLM Configuration
 llm_model: "{llm_model}"
 temperature: {temperature}
 
-# 薪酬 (美元/1M tokens)
+# Compensation (USD/1M tokens)
 salary_per_1m_tokens: {salary_per_1m_tokens}
 
-# 绩效记录
+# Performance Records
 current_quarter_tasks: {current_quarter_tasks}
 performance_history:
 {performance_history}
 
-# skills 列表 — 每项对应 skills/ 目录下的同名文件
+# Skills list — each item corresponds to a same-named directory under skills/
 skills:
 {skills}
 
-# 权限列表 — 控制员工对工具和资源的访问权
-# company_file_access: 公司项目文件读写
-# web_search: 网络搜索
-# backend_code_maintenance: 后端代码维护（可访问 src/ 目录）
+# Permissions list — controls employee access to tools and resources
+# company_file_access: Read/write company project files
+# web_search: Web search
+# backend_code_maintenance: Backend code maintenance (access to src/ directory)
 permissions:
 {permissions}
 
-# 工具权限 — 该员工可使用的 LangChain 工具列表
-# 不在列表中的工具需向 COO 申请授权
+# Tool permissions — list of LangChain tools this employee can use
+# Tools not on the list require authorization from the COO
 tool_permissions:
 {tool_permissions}
 
-# API 配置 — openrouter (默认) 或 anthropic
+# API Configuration — openrouter (default) or anthropic
 api_provider: "{api_provider}"
 api_key: "{api_key}"
 
-# 住宿方式 — company (员工宿舍，由公司启动 agent loop) 或 self (自带住宿，本地单独启动进程如 Claude Code)
+# Hosting mode — company (company-hosted, agent loop started by company) or self (self-hosted, process started locally e.g. Claude Code)
 hosting: "{hosting}"
-# 认证方式 — api_key (填入密钥) 或 oauth (弹出链接交互式登录)
+# Auth method — api_key (enter key) or oauth (pop up link for interactive login)
 auth_method: "{auth_method}"
 
-# HR 管理
+# HR Management
 probation: {probation}
 onboarding_completed: {onboarding_completed}
