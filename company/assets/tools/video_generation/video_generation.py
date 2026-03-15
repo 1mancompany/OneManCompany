@@ -1,4 +1,4 @@
-"""Video generation tool via fal.ai + Bytedance Seedance 2.0.
+"""Video generation tool via fal.ai + Bytedance Seedance 1.5 Pro.
 
 Three-step workflow:
 1. video_submit(prompt) → returns status_url + response_url
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-_MODEL_ID = "fal-ai/bytedance/seedance/v2/text-to-video"
+_MODEL_ID = "fal-ai/bytedance/seedance/v1.5/pro/text-to-video"
 _QUEUE_BASE = "https://queue.fal.run"
 _USER_AGENT = "OneManCompany-VideoGeneration/1.0"
 

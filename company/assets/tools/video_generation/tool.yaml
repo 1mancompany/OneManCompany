@@ -1,7 +1,7 @@
 id: video_generation
 name: Video Generation
 description: >
-  Generate videos from text prompts (Bytedance Seedance 2.0 via fal.ai).
+  Generate videos from text prompts (Bytedance Seedance 1.5 Pro via fal.ai).
   USE THIS whenever a task involves creating video content, promotional videos, demos, or animations.
   Workflow: call video_submit → create a cron task to call video_check_status every 30s →
   when COMPLETED, call video_download to save the file. Do NOT block-wait.
