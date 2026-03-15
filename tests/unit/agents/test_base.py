@@ -744,37 +744,33 @@ class TestEmployeeAgent:
         assert "凌霄" in prompt
         assert "Engineer" in prompt
 
-    def test_unauthorized_tools_section(self, monkeypatch):
+    def test_unauthorized_tools_section_always_empty(self, monkeypatch):
+        """All company tools are now available to all employees — no gated concept."""
         self._setup(monkeypatch, emp_id="00010", tool_permissions=[])
 
         from onemancompany.agents.base import EmployeeAgent
         agent = EmployeeAgent("00010")
 
-        # Should have some unauthorized tools listed
         section = agent._get_unauthorized_tools_section()
-        if agent._unauthorized_tool_names:
-            assert "Restricted Tools" in section
+        assert section == ""
 
-    def test_gated_tools_included_when_permitted(self, monkeypatch):
-        self._setup(monkeypatch, emp_id="00010", tool_permissions=["read_file"])
+    def test_all_tools_included_for_employee(self, monkeypatch):
+        """All tools (formerly gated or not) are available to every employee."""
+        self._setup(monkeypatch, emp_id="00010", tool_permissions=[])
 
         from onemancompany.core import tool_registry as tr_mod
         from onemancompany.core.tool_registry import ToolMeta
 
-        # Override the mock registry from _setup to return read_file as authorized
         mock_tool = MagicMock()
-        mock_tool.name = "read_file"
+        mock_tool.name = "bash"
         mock_registry = MagicMock()
         mock_registry.get_proxied_tools_for = MagicMock(return_value=[mock_tool])
-        mock_registry.all_tool_names = MagicMock(return_value=["read_file"])
-        mock_registry.get_meta = MagicMock(return_value=ToolMeta(name="read_file", category="gated"))
         monkeypatch.setattr(tr_mod, "tool_registry", mock_registry)
 
         from onemancompany.agents.base import EmployeeAgent
         agent = EmployeeAgent("00010")
 
-        assert "read_file" in agent._authorized_tool_names
-        assert "read_file" not in agent._unauthorized_tool_names
+        assert "bash" in agent._authorized_tool_names
 
     @pytest.mark.asyncio
     async def test_run(self, monkeypatch):

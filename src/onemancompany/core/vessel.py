@@ -1080,6 +1080,11 @@ class EmployeeManager:
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)
+                # Auto-skip simple tasks: completed → accepted → finished
+                # so dependency resolution treats them as resolved.
+                if node.task_type == "simple":
+                    node.set_status(TaskPhase.ACCEPTED)
+                    node.set_status(TaskPhase.FINISHED)
                 save_tree_async(entry.tree_path)
 
         if node.status != TaskPhase.HOLDING.value:
@@ -1090,7 +1095,7 @@ class EmployeeManager:
             self._publish_node_update(employee_id, node)
 
             # Record to history + progress
-            if node.status == TaskPhase.COMPLETED.value:
+            if node.status in (TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value):
                 self._append_history_from_node(employee_id, node)
                 summary = (node.result or "")[:200]
                 _append_progress(employee_id, f"Completed: {node.description[:100]} → {summary}")
@@ -1111,6 +1116,10 @@ class EmployeeManager:
                     await self._on_child_complete(employee_id, entry, project_id=project_id)
                 except Exception as e:
                     logger.error("Task tree callback failed for {}: {}", employee_id, e)
+
+                # Trigger dependency resolution for nodes waiting on this one
+                tree = get_tree(entry.tree_path)
+                _trigger_dep_resolution(project_dir, tree, node)
 
             # Post-task cleanup (cost, resolution, etc.)
             if project_id:
@@ -1748,12 +1757,34 @@ class EmployeeManager:
 
             dirty = False
             to_schedule: list[str] = []  # employee_ids to schedule
+            cascade_cancelled: list = []  # nodes that were cascade-cancelled
 
             for dep_node in dependents:
                 if dep_node.status != "pending":
                     continue
 
                 if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
+                    # Check if the dep was cancelled — cascade cancel instead of blocking
+                    cancelled_deps = [
+                        d for d_id in dep_node.depends_on
+                        if (d := tree.get_node(d_id)) and d.status == TaskPhase.CANCELLED.value
+                    ]
+                    if cancelled_deps:
+                        # Cascade cancel: dep was cancelled, so this node should be too
+                        dep_node.set_status(TaskPhase.CANCELLED)
+                        dep_node.result = (
+                            f"Cascade cancelled: dependency "
+                            f"\"{cancelled_deps[0].description_preview[:80]}\" was cancelled"
+                        )
+                        dep_node.completed_at = datetime.now().isoformat()
+                        dirty = True
+                        cascade_cancelled.append(dep_node)
+                        logger.info(
+                            "Cascade-cancelled {} because dep {} was cancelled",
+                            dep_node.id, cancelled_deps[0].id,
+                        )
+                        continue
+
                     dep_node.set_status(TaskPhase.BLOCKED)
                     dirty = True
                     # Notify parent about blocked task
@@ -1787,9 +1818,13 @@ class EmployeeManager:
             if dirty:
                 _save_project_tree(project_dir, tree)
 
+            # Recursively resolve dependents of cascade-cancelled nodes
+            for cancelled_node in cascade_cancelled:
+                await self._resolve_dependencies(tree, cancelled_node, project_dir)
+
             # Check if all tree nodes are now terminal or blocked → project failed
             all_stuck = all(
-                n.status in ("blocked", "failed", "cancelled", "accepted")
+                n.status in ("blocked", "failed", "cancelled", "accepted", "finished")
                 for n in tree._nodes.values()
                 if n.id != tree.root_id
             )

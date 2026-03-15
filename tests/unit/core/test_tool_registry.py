@@ -173,24 +173,16 @@ class TestGetToolsFor:
         assert "list_colleagues" in tool_names
 
     @patch("onemancompany.core.state.company_state")
-    def test_gated_tools_with_permission(self, mock_state):
-        reg = self._build_registry()
-        emp = _make_employee("00010", role="Engineer", tool_permissions=["bash"])
-        mock_state.employees = {"00010": emp}
-
-        tools = reg.get_tools_for("00010")
-        tool_names = [t.name for t in tools]
-        assert "bash" in tool_names
-
-    @patch("onemancompany.core.state.company_state")
-    def test_gated_tools_without_permission(self, mock_state):
+    def test_gated_tools_always_included(self, mock_state):
+        """Gated category now treated same as base — always included."""
         reg = self._build_registry()
         emp = _make_employee("00010", role="Designer", tool_permissions=[])
         mock_state.employees = {"00010": emp}
 
         tools = reg.get_tools_for("00010")
         tool_names = [t.name for t in tools]
-        assert "bash" not in tool_names
+        # bash is registered as "gated" in _build_registry but now always allowed
+        assert "bash" in tool_names
 
     @patch("onemancompany.core.state.company_state")
     def test_role_tools_matching_role(self, mock_state):

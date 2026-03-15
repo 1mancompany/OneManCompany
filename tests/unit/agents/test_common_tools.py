@@ -673,13 +673,14 @@ class TestToolCategorization:
             assert meta is not None, f"{name} not registered"
             assert meta.category == "base", f"{name} should be base, got {meta.category}"
 
-    def test_gated_tools_registered(self):
+    def test_formerly_gated_tools_now_base(self):
+        """All company tools are now base — no gated category."""
         from onemancompany.core.tool_registry import tool_registry
 
-        for name in ("use_tool", "manage_tool_access"):
+        for name in ("use_tool", "bash", "set_cron"):
             meta = tool_registry.get_meta(name)
             assert meta is not None, f"{name} not registered"
-            assert meta.category == "gated", f"{name} should be gated, got {meta.category}"
+            assert meta.category == "base", f"{name} should be base, got {meta.category}"
 
     def test_get_tools_for_returns_tools(self, monkeypatch):
         from onemancompany.core import state as state_mod, store as store_mod

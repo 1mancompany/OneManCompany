@@ -1086,9 +1086,13 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
-        request_tool_access, load_skill,
+        load_skill,
         resume_held_task, update_project_team,
         read_node_detail,
+        # Formerly gated — now available to all employees
+        bash, use_tool, set_project_budget,
+        set_cron, stop_cron_job, setup_webhook, remove_webhook,
+        list_automations,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
@@ -1096,24 +1100,10 @@ def _register_all_internal_tools() -> None:
     # Tree tools self-register on import
     from onemancompany.agents import tree_tools as _tt  # noqa: F401
 
-    _gated = {
-        "bash": bash,
-        "use_tool": use_tool,
-        "set_project_budget": set_project_budget,
-        "manage_tool_access": manage_tool_access,
-        "set_cron": set_cron,
-        "stop_cron_job": stop_cron_job,
-        "setup_webhook": setup_webhook,
-        "remove_webhook": remove_webhook,
-        "list_automations": list_automations,
-    }
-    for name, t in _gated.items():
-        tool_registry.register(t, ToolMeta(name=name, category="gated"))
-
-    # Sandbox tools — only register when sandbox is enabled
+    # Sandbox tools — available to all when sandbox is enabled
     if is_sandbox_enabled():
         for t in SANDBOX_TOOLS:
-            tool_registry.register(t, ToolMeta(name=t.name, category="gated"))
+            tool_registry.register(t, ToolMeta(name=t.name, category="base"))
 
 
 _register_all_internal_tools()

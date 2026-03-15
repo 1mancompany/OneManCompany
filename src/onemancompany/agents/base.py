@@ -765,15 +765,7 @@ class EmployeeAgent(BaseAgentRunner):
         self.role = emp_data.get("role", "Employee")
 
         proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
-
-        # Track which gated tools are authorized/unauthorized (for prompt injection)
-        authorized = {t.name for t in proxied_tools}
         self._authorized_tool_names: list[str] = [t.name for t in proxied_tools]
-        self._unauthorized_tool_names: list[str] = []
-        for name in tool_registry.all_tool_names():
-            meta = tool_registry.get_meta(name)
-            if meta and meta.category == "gated" and name not in authorized:
-                self._unauthorized_tool_names.append(name)
 
         self._agent = create_react_agent(
             model=make_llm(employee_id),
@@ -847,15 +839,8 @@ class EmployeeAgent(BaseAgentRunner):
         return pb.build()
 
     def _get_unauthorized_tools_section(self) -> str:
-        """Show tools the employee doesn't have permission for."""
-        if not self._unauthorized_tool_names:
-            return ""
-        names = ", ".join(self._unauthorized_tool_names)
-        return (
-            f"\n\n## Restricted Tools (need COO approval)\n"
-            f"The following tools exist but you don't have permission: {names}\n"
-            f"If you need any of these, call request_tool_access(tool_name, reason, employee_id) to request access from COO.\n"
-        )
+        """No longer needed — all company tools are available to all employees."""
+        return ""
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)

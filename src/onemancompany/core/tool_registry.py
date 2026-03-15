@@ -100,11 +100,8 @@ class ToolRegistry:
         """Check whether an employee is allowed to use a tool based on its category."""
         category = meta.category
 
-        if category == "base":
+        if category in ("base", "gated"):
             return True
-
-        if category == "gated":
-            return meta.name in (emp_data.get("tool_permissions") or [])
 
         if category == "role":
             if meta.allowed_roles is None:
