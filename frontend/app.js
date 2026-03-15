@@ -326,6 +326,15 @@ class AppController {
         const icon = p.action_required ? '🚨' : '📊';
         return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
+      'review_reminder': (p) => {
+        const nodes = p.overdue_nodes || [];
+        if (!nodes.length) return null;
+        const summaries = nodes.map(n => {
+          const mins = Math.round(n.waiting_seconds / 60);
+          return `${n.employee_id}: ${(n.description || '').substring(0, 60)} (${mins}m)`;
+        });
+        return { text: `⏰ ${nodes.length} task(s) awaiting review:\n${summaries.join('\n')}`, cls: 'ceo', agent: 'SYSTEM' };
+      },
       'code_update_available': (p) => {
         this._showCodeUpdateBanner(p.count, p.changed_files);
         return null;
@@ -1092,6 +1101,7 @@ class AppController {
             this._settingsLoaded = true;
             this._renderApiSettings();
           }
+          this._renderSystemCrons();  // Always refresh cron status
         }
       });
       document.addEventListener('click', (e) => {
@@ -4337,6 +4347,81 @@ class AppController {
       }
     } catch (e) {
       if (resultEl) { resultEl.textContent = 'ERR'; resultEl.className = 'api-test-result fail'; }
+    }
+  }
+
+  // ===== System Crons Settings =====
+  async _renderSystemCrons() {
+    const container = document.getElementById('system-crons-content');
+    if (!container) return;
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:6px;">Loading...</div>';
+    try {
+      const resp = await fetch('/api/system/crons');
+      const crons = await resp.json();
+
+      if (!crons.length) {
+        container.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:6px;">No system crons registered.</div>';
+        return;
+      }
+
+      let html = '<table class="pixel-table" style="width:100%;font-size:6.5px;"><thead><tr>';
+      html += '<th>Name</th><th>Interval</th><th>Description</th><th>Runs</th><th>Status</th><th></th>';
+      html += '</tr></thead><tbody>';
+
+      for (const c of crons) {
+        const statusDot = c.running
+          ? '<span class="api-status-dot online"></span>'
+          : '<span class="api-status-dot offline"></span>';
+        const btnLabel = c.running ? 'Stop' : 'Start';
+        const btnAction = c.running ? 'stop' : 'start';
+        html += '<tr>' +
+          '<td>' + this._escHtml(c.name) + '</td>' +
+          '<td><input type="text" class="cron-interval-input" id="cron-interval-' + c.name + '"' +
+          ' value="' + this._escHtml(c.interval) + '" style="width:36px;font-size:6px;text-align:center;" /></td>' +
+          '<td>' + this._escHtml(c.description) + '</td>' +
+          '<td>' + (c.run_count != null ? c.run_count : '-') + '</td>' +
+          '<td>' + statusDot + '</td>' +
+          '<td>' +
+            '<button class="pixel-btn small" onclick="app._toggleSystemCron(\'' + c.name + '\', \'' + btnAction + '\')">' + btnLabel + '</button> ' +
+            '<button class="pixel-btn small" onclick="app._updateCronInterval(\'' + c.name + '\')">Set</button>' +
+          '</td>' +
+        '</tr>';
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = '<div style="color:var(--pixel-red);font-size:7px;padding:6px;">Error: ' + e.message + '</div>';
+    }
+  }
+
+  async _toggleSystemCron(name, action) {
+    try {
+      await fetch('/api/system/crons/' + name + '/' + action, { method: 'POST' });
+      this._renderSystemCrons();
+    } catch (e) {
+      console.error('Toggle system cron failed:', e);
+    }
+  }
+
+  async _updateCronInterval(name) {
+    const input = document.getElementById('cron-interval-' + name);
+    if (!input) return;
+    const interval = input.value.trim();
+    if (!interval) return;
+    try {
+      const resp = await fetch('/api/system/crons/' + name, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interval: interval }),
+      });
+      const result = await resp.json();
+      if (result.status === 'error') {
+        alert(result.message);
+      } else {
+        this._renderSystemCrons();
+      }
+    } catch (e) {
+      console.error('Update cron interval failed:', e);
     }
   }
 
