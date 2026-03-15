@@ -124,7 +124,7 @@ class TestSetupHoldingWatchdog:
 # ---------------------------------------------------------------------------
 
 class TestResumeHeldTask:
-    """Test resume_held_task transitions HOLDING → COMPLETE via tree-on-disk."""
+    """Test resume_held_task transitions HOLDING → FINISHED (simple) via tree-on-disk."""
 
     @pytest.fixture
     def holding_tree(self, tmp_path):
@@ -155,7 +155,8 @@ class TestResumeHeldTask:
         assert result is True
         reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(node_id)
-        assert node.status == TaskPhase.COMPLETED.value
+        # Simple tasks auto-skip: completed → accepted → finished
+        assert node.status == TaskPhase.FINISHED.value
         assert node.result == "Human said: looks good!"
 
     @pytest.mark.asyncio
@@ -350,7 +351,8 @@ class TestHoldingIntegration:
         assert ok is True
         reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(root.id)
-        assert node.status == TaskPhase.COMPLETED.value
+        # Simple tasks auto-skip: completed → accepted → finished
+        assert node.status == TaskPhase.FINISHED.value
         assert node.result == "Human replied: All tests pass!"
         assert node.completed_at != ""
 
@@ -390,4 +392,4 @@ class TestHoldingIntegration:
         assert ok is True
         reloaded = TaskTree.load(tree_path, skeleton_only=False)
         node = reloaded.get_node(root.id)
-        assert node.status == TaskPhase.COMPLETED.value
+        assert node.status == TaskPhase.FINISHED.value

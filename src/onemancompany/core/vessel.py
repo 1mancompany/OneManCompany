@@ -1191,9 +1191,17 @@ class EmployeeManager:
                 node.result = result
                 node.set_status(TaskPhase.COMPLETED)
                 node.completed_at = datetime.now().isoformat()
+
+                # Auto-accept simple tasks (completed → accepted → finished)
+                # so that dependency resolution treats them as resolved.
+                if node.task_type == "simple":
+                    node.set_status(TaskPhase.ACCEPTED)
+                    node.set_status(TaskPhase.FINISHED)
+
                 save_tree_async(entry.tree_path)
 
-                self._log_node(employee_id, task_id, "resumed", f"HOLDING → COMPLETE with result: {result[:200]}")
+                final_status = node.status
+                self._log_node(employee_id, task_id, "resumed", f"HOLDING → {final_status} with result: {result[:200]}")
                 self._publish_node_update(employee_id, node)
 
                 self._append_history_from_node(employee_id, node)
@@ -1207,6 +1215,10 @@ class EmployeeManager:
                         raise
                     except Exception as e:
                         logger.error("Task tree callback failed for {}: {}", employee_id, e)
+
+                    # Trigger dependency resolution for nodes waiting on this one
+                    tree = get_tree(entry.tree_path)
+                    _trigger_dep_resolution(node.project_dir, tree, node)
 
                 self.unschedule(employee_id, task_id)
                 self._schedule_next(employee_id)
