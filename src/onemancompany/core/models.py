@@ -113,15 +113,6 @@ class OverheadCosts(BaseModel):
     def total_tokens(self) -> int:
         return self.total_input_tokens + self.total_output_tokens
 
-    def to_legacy_dict(self) -> dict:
-        """Return dict matching the old overhead_costs format for backward compat."""
-        return {
-            "total_cost_usd": self.total_cost_usd,
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
-            "by_category": dict(self.by_category),
-        }
-
 
 # ---------------------------------------------------------------------------
 # Agent execution result

@@ -1312,8 +1312,8 @@ class EmployeeManager:
     def _build_project_identity(self, project_id: str) -> str:
         """Build a prominent project identity header for task context."""
         from onemancompany.core.project_archive import (
-            _is_v1, _is_iteration, _find_project_for_iteration,
-            _split_qualified_iter, load_named_project, load_iteration,
+            _is_iteration, _find_project_for_iteration,
+            _split_qualified_iter, load_named_project,
         )
 
         parts: list[str] = []
@@ -1325,15 +1325,6 @@ class EmployeeManager:
                 _, bare_iter = _split_qualified_iter(project_id)
                 parts.append(f"⚙ Current project: {proj_name} ({bare_iter})")
                 parts.append(f"  Project ID: {project_id}")
-        elif _is_v1(project_id):
-            # v1 timestamped project — load task from project.yaml
-            from onemancompany.core.project_archive import list_projects
-            for p in list_projects():
-                if p.get("project_id") == project_id:
-                    task_summary = (p.get("task") or "")[:80]
-                    parts.append(f"⚙ Current task: {task_summary}")
-                    parts.append(f"  Project ID: {project_id}")
-                    break
         else:
             proj = load_named_project(project_id)
             if proj:
@@ -1350,7 +1341,7 @@ class EmployeeManager:
 
     def _get_project_history_context(self, project_id: str) -> str:
         from onemancompany.core.project_archive import (
-            _is_v1, _is_iteration, _find_project_for_iteration,
+            _is_iteration, _find_project_for_iteration,
             _split_qualified_iter,
             load_named_project, load_iteration, list_project_files,
         )
@@ -1364,8 +1355,6 @@ class EmployeeManager:
             slug = found
             _, bare_iter = _split_qualified_iter(project_id)
             current_iter = bare_iter
-        elif _is_v1(project_id) or project_id.startswith("_auto_"):
-            return ""
 
         proj = load_named_project(slug)
         if not proj:

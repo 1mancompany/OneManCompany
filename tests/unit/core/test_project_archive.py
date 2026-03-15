@@ -57,16 +57,10 @@ class TestSlugify:
 
 
 # ---------------------------------------------------------------------------
-# _is_v1 / _is_iteration
+# _is_iteration
 # ---------------------------------------------------------------------------
 
 class TestVersionDetection:
-    def test_v1_timestamp_id(self):
-        assert pa._is_v1("20240101_120000_abcdef") is True
-
-    def test_v1_rejects_slug(self):
-        assert pa._is_v1("my-project") is False
-
     def test_iteration_id(self):
         assert pa._is_iteration("iter_001") is True
         assert pa._is_iteration("iter_0001") is True
@@ -74,37 +68,9 @@ class TestVersionDetection:
     def test_iteration_rejects_slug(self):
         assert pa._is_iteration("my-project") is False
 
-    def test_iteration_rejects_v1(self):
+    def test_iteration_rejects_timestamp(self):
         assert pa._is_iteration("20240101_120000_abcdef") is False
 
-
-# ---------------------------------------------------------------------------
-# create_project (v1)
-# ---------------------------------------------------------------------------
-
-class TestCreateProjectV1:
-    def test_creates_directory_and_yaml(self, tmp_path):
-        pid = pa.create_project("Build widget", "COO")
-        proj_dir = tmp_path / pid
-        assert proj_dir.exists()
-        assert (proj_dir / "project.yaml").exists()
-
-    def test_project_yaml_has_required_fields(self, tmp_path):
-        pid = pa.create_project("Build widget", "COO", participants=["00005"])
-        doc = pa.load_project(pid)
-        assert doc is not None
-        assert doc["task"] == "Build widget"
-        assert doc["routed_to"] == "COO"
-        assert doc["status"] == "in_progress"
-        assert doc["current_owner"] == "coo"
-        assert "00005" in doc["participants"]
-
-    def test_project_has_cost_structure(self, tmp_path):
-        pid = pa.create_project("Test", "HR")
-        doc = pa.load_project(pid)
-        assert "cost" in doc
-        assert doc["cost"]["actual_cost_usd"] == 0.0
-        assert doc["cost"]["token_usage"]["total"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -217,15 +183,11 @@ class TestLoadAndList:
     def test_list_named_projects_empty(self, tmp_path):
         assert pa.list_named_projects() == []
 
-    def test_list_projects_mixed_v1_v2(self, tmp_path):
-        pa.create_project("Legacy task", "HR")
+    def test_list_projects_v2_only(self, tmp_path):
         pa.create_named_project("Named")
         projects = pa.list_projects()
-        assert len(projects) == 2
-        named_projs = [p for p in projects if p.get("is_named")]
-        legacy_projs = [p for p in projects if not p.get("is_named")]
-        assert len(named_projs) == 1
-        assert len(legacy_projs) == 1
+        assert len(projects) == 1
+        assert projects[0].get("is_named") is True
 
 
 # ---------------------------------------------------------------------------
@@ -233,14 +195,6 @@ class TestLoadAndList:
 # ---------------------------------------------------------------------------
 
 class TestAppendAction:
-    def test_appends_to_v1_project(self, tmp_path):
-        pid = pa.create_project("Test", "COO")
-        pa.append_action(pid, "00005", "code_commit", "Fixed bug")
-        doc = pa.load_project(pid)
-        assert len(doc["timeline"]) == 1
-        assert doc["timeline"][0]["action"] == "code_commit"
-        assert doc["current_owner"] == "00005"
-
     def test_appends_to_v2_iteration(self, tmp_path):
         slug = pa.create_named_project("V2 Test")
         iter_id = pa.create_iteration(slug, "task", "COO")
@@ -250,7 +204,7 @@ class TestAppendAction:
 
     def test_noop_on_missing_project(self, tmp_path):
         # Should not raise
-        pa.append_action("nonexistent_20240101_120000_abcdef", "00005", "test", "")
+        pa.append_action("nonexistent-slug", "00005", "test", "")
 
 
 # ---------------------------------------------------------------------------
@@ -258,14 +212,6 @@ class TestAppendAction:
 # ---------------------------------------------------------------------------
 
 class TestCompleteProject:
-    def test_completes_v1_project(self, tmp_path):
-        pid = pa.create_project("Test", "HR")
-        pa.complete_project(pid, output="All done")
-        doc = pa.load_project(pid)
-        assert doc["status"] == "completed"
-        assert doc["output"] == "All done"
-        assert doc["completed_at"] is not None
-
     def test_completes_v2_latest_iteration(self, tmp_path):
         slug = pa.create_named_project("Complete V2")
         iter_id = pa.create_iteration(slug, "task", "COO")
@@ -275,7 +221,7 @@ class TestCompleteProject:
         assert doc["status"] == "completed"
 
     def test_noop_on_missing_project(self, tmp_path):
-        pa.complete_project("fake_20240101_120000_abcdef")  # should not raise
+        pa.complete_project("nonexistent-slug")  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -300,37 +246,42 @@ class TestArchiveProject:
 
 class TestProjectFiles:
     def test_save_and_list_text_file(self, tmp_path):
-        pid = pa.create_project("Files test", "COO")
-        result = pa.save_project_file(pid, "hello.txt", "Hello world")
+        slug = pa.create_named_project("Files test")
+        pa.create_iteration(slug, "task", "COO")
+        result = pa.save_project_file(slug, "hello.txt", "Hello world")
         assert result["status"] == "ok"
-        files = pa.list_project_files(pid)
+        files = pa.list_project_files(slug)
         assert "hello.txt" in files
 
     def test_save_bytes_file(self, tmp_path):
-        pid = pa.create_project("Bytes test", "COO")
-        result = pa.save_project_file(pid, "data.bin", b"\x00\x01\x02")
+        slug = pa.create_named_project("Bytes test")
+        pa.create_iteration(slug, "task", "COO")
+        result = pa.save_project_file(slug, "data.bin", b"\x00\x01\x02")
         assert result["status"] == "ok"
 
     def test_save_nested_file(self, tmp_path):
-        pid = pa.create_project("Nested", "COO")
-        result = pa.save_project_file(pid, "sub/dir/file.py", "print('hi')")
+        slug = pa.create_named_project("Nested")
+        pa.create_iteration(slug, "task", "COO")
+        result = pa.save_project_file(slug, "sub/dir/file.py", "print('hi')")
         assert result["status"] == "ok"
-        files = pa.list_project_files(pid)
+        files = pa.list_project_files(slug)
         assert any("file.py" in f for f in files)
 
     def test_path_traversal_rejected(self, tmp_path):
-        pid = pa.create_project("Traversal", "COO")
-        result = pa.save_project_file(pid, "../../etc/passwd", "evil")
+        slug = pa.create_named_project("Traversal")
+        pa.create_iteration(slug, "task", "COO")
+        result = pa.save_project_file(slug, "../../etc/passwd", "evil")
         assert result["status"] == "error"
 
     def test_list_empty_project(self, tmp_path):
-        pid = pa.create_project("Empty", "COO")
-        files = pa.list_project_files(pid)
+        slug = pa.create_named_project("Empty")
+        pa.create_iteration(slug, "task", "COO")
+        files = pa.list_project_files(slug)
         # project.yaml is excluded from list
         assert "project.yaml" not in files
 
     def test_list_files_nonexistent_project(self, tmp_path):
-        files = pa.list_project_files("does_not_exist_20240101_120000_aaa111")
+        files = pa.list_project_files("does_not_exist")
         assert files == []
 
 
@@ -339,11 +290,6 @@ class TestProjectFiles:
 # ---------------------------------------------------------------------------
 
 class TestGetProjectDir:
-    def test_v1_project_dir(self, tmp_path):
-        pid = pa.create_project("Dir test", "COO")
-        d = pa.get_project_dir(pid)
-        assert Path(d).exists()
-
     def test_v2_named_project_workspace(self, tmp_path):
         slug = pa.create_named_project("WS Test")
         ws = pa.get_project_workspace(slug)
@@ -365,25 +311,28 @@ class TestGetProjectDir:
 
 class TestAcceptanceAndCriteria:
     def test_set_acceptance_criteria(self, tmp_path):
-        pid = pa.create_project("AC Test", "COO")
-        pa.set_acceptance_criteria(pid, ["Test passes", "No bugs"], "00005")
-        doc = pa.load_project(pid)
+        slug = pa.create_named_project("AC Test")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        pa.set_acceptance_criteria(slug, ["Test passes", "No bugs"], "00005")
+        doc = pa.load_project(slug)
         assert doc["acceptance_criteria"] == ["Test passes", "No bugs"]
         assert doc["responsible_officer"] == "00005"
 
     def test_set_project_budget(self, tmp_path):
-        pid = pa.create_project("Budget", "COO")
-        pa.set_project_budget(pid, 1.5)
-        doc = pa.load_project(pid)
+        slug = pa.create_named_project("Budget")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        pa.set_project_budget(slug, 1.5)
+        doc = pa.load_project(slug)
         assert doc["cost"]["budget_estimate_usd"] == 1.5
 
 
 class TestRecordProjectCost:
     def test_accumulates_cost(self, tmp_path):
-        pid = pa.create_project("Cost", "COO")
-        pa.record_project_cost(pid, "00005", "gpt-4", 100, 50, 0.01)
-        pa.record_project_cost(pid, "00006", "gpt-4", 200, 100, 0.02)
-        doc = pa.load_project(pid)
+        slug = pa.create_named_project("Cost")
+        iter_id = pa.create_iteration(slug, "task", "COO")
+        pa.record_project_cost(slug, "00005", "gpt-4", 100, 50, 0.01)
+        pa.record_project_cost(slug, "00006", "gpt-4", 200, 100, 0.02)
+        doc = pa.load_project(slug)
         cost = doc["cost"]
         assert cost["actual_cost_usd"] == pytest.approx(0.03)
         assert cost["token_usage"]["input"] == 300
@@ -392,7 +341,7 @@ class TestRecordProjectCost:
         assert len(cost["breakdown"]) == 2
 
     def test_noop_on_missing_project(self, tmp_path):
-        pa.record_project_cost("fake_20240101_120000_aaa111", "00005", "m", 0, 0, 0.0)
+        pa.record_project_cost("nonexistent-slug", "00005", "m", 0, 0, 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -400,13 +349,6 @@ class TestRecordProjectCost:
 # ---------------------------------------------------------------------------
 
 class TestResolveAndLoad:
-    def test_v1_project(self, tmp_path):
-        pid = pa.create_project("V1", "COO")
-        version, doc, key = pa._resolve_and_load(pid)
-        assert version == "v1"
-        assert doc is not None
-        assert key == pid
-
     def test_v2_slug(self, tmp_path):
         slug = pa.create_named_project("V2 Resolve")
         pa.create_iteration(slug, "task", "COO")
@@ -423,15 +365,9 @@ class TestResolveAndLoad:
         assert doc is not None
         assert iter_id in key
 
-    def test_auto_prefix(self, tmp_path):
-        # _auto_ prefix is treated as v1
-        version, doc, key = pa._resolve_and_load("_auto_test")
-        assert version == "v1"
-        assert doc is None
-
     def test_nonexistent_slug(self, tmp_path):
         version, doc, key = pa._resolve_and_load("nonexistent-slug")
-        # Falls through to v1 fallback
+        assert version == "v2"
         assert doc is None
 
 
@@ -465,19 +401,6 @@ class TestGetCostSummary:
             assert summary["by_department"] == {}
             assert summary["recent_projects"] == []
 
-    def test_v1_project_cost_aggregated(self, tmp_path):
-        pid = pa.create_project("Cost Agg", "COO")
-        pa.record_project_cost(pid, "00005", "gpt-4", 100, 50, 0.01)
-
-        mock_emp = MagicMock()
-        mock_emp.department = "Engineering"
-
-        with patch("onemancompany.core.state.company_state") as mock_state:
-            mock_state.employees = {"00005": mock_emp}
-            mock_state.ex_employees = {}
-            summary = pa.get_cost_summary()
-            assert summary["total"]["cost_usd"] == pytest.approx(0.01)
-            assert "Engineering" in summary["by_department"]
 
 
 # ---------------------------------------------------------------------------
@@ -523,13 +446,14 @@ class TestListNamedProjectsEdgeCases:
         projects = pa.list_named_projects()
         assert projects == []
 
-    def test_skips_v1_projects_in_named_list(self, tmp_path):
-        """Line 313: v1 project (no 'iterations' key) excluded from named list."""
-        pid = pa.create_project("Legacy", "COO")
+    def test_skips_non_v2_projects_in_named_list(self, tmp_path):
+        """Projects without 'iterations' key excluded from named list."""
+        proj_dir = tmp_path / "legacy-proj"
+        proj_dir.mkdir()
+        _write_yaml(proj_dir / "project.yaml", {"name": "Legacy", "status": "completed"})
         projects = pa.list_named_projects()
-        # The v1 project should not appear
         project_ids = [p["project_id"] for p in projects]
-        assert pid not in project_ids
+        assert "legacy-proj" not in project_ids
 
 
 # ---------------------------------------------------------------------------
@@ -619,17 +543,6 @@ class TestListProjectsEdgeCases:
         v2_proj = [p for p in named if p["name"] == "V2 List"][0]
         assert v2_proj["iteration_count"] >= 1
 
-    def test_v1_project_in_list(self, tmp_path):
-        """Line 588: v1 project listed correctly."""
-        pid = pa.create_project("V1 List", "HR")
-        pa.record_project_cost(pid, "00005", "gpt-4", 50, 25, 0.005)
-
-        projects = pa.list_projects()
-        v1_projs = [p for p in projects if not p.get("is_named")]
-        assert len(v1_projs) >= 1
-        found = [p for p in v1_projs if p["project_id"] == pid]
-        assert len(found) == 1
-        assert found[0]["cost_usd"] == pytest.approx(0.005)
 
 
 # ---------------------------------------------------------------------------
@@ -675,11 +588,11 @@ class TestGetCostSummaryV2:
 class TestNoopOnMissing:
     def test_set_acceptance_criteria_missing(self, tmp_path):
         """Noop when project not found."""
-        pa.set_acceptance_criteria("nonexistent_20240101_120000_aaa111", ["c1"], "00005")
+        pa.set_acceptance_criteria("nonexistent-slug", ["c1"], "00005")
 
     def test_set_project_budget_missing(self, tmp_path):
         """Noop when project not found."""
-        pa.set_project_budget("nonexistent_20240101_120000_aaa111", 1.0)
+        pa.set_project_budget("nonexistent-slug", 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -706,10 +619,6 @@ class TestResolveWorkspace:
         d = pa.get_project_dir(iter_id)
         assert "workspace" in d
 
-    def test_auto_prefix_project_dir(self, tmp_path):
-        """_auto_ prefix treated as v1."""
-        d = pa.get_project_dir("_auto_test")
-        assert "_auto_test" in d
 
 
 # ---------------------------------------------------------------------------

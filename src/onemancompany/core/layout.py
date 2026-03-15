@@ -12,7 +12,6 @@ from onemancompany.core.config import (
     CEO_ID,
     COO_ID,
     CSO_ID,
-    DEPT_CN_TO_EN,
     DEPT_COLORS,
     DEPT_DESK_ROWS,
     DEPT_DESK_SPACING_X,
@@ -64,12 +63,6 @@ def compute_layout(company_state) -> dict:
     from onemancompany.core.store import load_all_employees
 
     employees = load_all_employees()
-
-    # Migrate any legacy Chinese department names to English
-    for emp_id, emp_data in employees.items():
-        dept = emp_data.get("department", "")
-        if dept in DEPT_CN_TO_EN:
-            emp_data["department"] = DEPT_CN_TO_EN[dept]
 
     # Separate executives from department employees
     # Use lightweight dicts with the fields layout needs

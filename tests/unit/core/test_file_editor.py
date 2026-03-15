@@ -78,7 +78,7 @@ class TestResolvePath:
 class TestProposeEdit:
     def test_propose_valid_edit(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             # Create a file to edit
             target = tmp_path / "test.md"
             target.write_text("original content", encoding="utf-8")
@@ -90,7 +90,7 @@ class TestProposeEdit:
 
     def test_propose_edit_stores_in_pending(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             target = tmp_path / "test.md"
             target.write_text("old", encoding="utf-8")
 
@@ -102,7 +102,7 @@ class TestProposeEdit:
 
     def test_propose_new_file(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             result = propose_edit("new_file.md", "content", "create", "00002")
             assert result["status"] == "pending_approval"
             edit_id = result["edit_id"]
@@ -121,7 +121,7 @@ class TestProposeEdit:
 class TestExecuteEdit:
     def test_execute_existing_file(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent), \
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent), \
              patch("onemancompany.core.state.request_reload"):
             target = tmp_path / "test.md"
             target.write_text("original", encoding="utf-8")
@@ -142,7 +142,7 @@ class TestExecuteEdit:
 
     def test_execute_new_file(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent), \
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent), \
              patch("onemancompany.core.state.request_reload"):
             result = propose_edit("newdir/new.md", "hello", "create", "00002")
             edit_id = result["edit_id"]
@@ -159,7 +159,7 @@ class TestExecuteEdit:
 
     def test_execute_removes_from_pending(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent), \
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent), \
              patch("onemancompany.core.state.request_reload"):
             target = tmp_path / "test.md"
             target.write_text("old", encoding="utf-8")
@@ -179,7 +179,7 @@ class TestExecuteEdit:
 class TestRejectEdit:
     def test_reject_existing_edit(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             target = tmp_path / "test.md"
             target.write_text("content", encoding="utf-8")
 
@@ -205,7 +205,7 @@ class TestListPendingEdits:
 
     def test_lists_all_pending(self, tmp_path):
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             (tmp_path / "a.md").write_text("a", encoding="utf-8")
             (tmp_path / "b.md").write_text("b", encoding="utf-8")
 
@@ -232,7 +232,7 @@ class TestProposeEditEdgeCases:
     def test_unable_to_read_original_file(self, tmp_path):
         """Line 77-78: When existing file can't be read, old_content = '(unable to read...)'."""
         with patch.object(file_editor, "COMPANY_DIR", tmp_path), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path.parent):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path.parent):
             target = tmp_path / "unreadable.md"
             target.write_text("original", encoding="utf-8")
 
@@ -256,9 +256,9 @@ class TestProposeEditEdgeCases:
 
     def test_relative_path_outside_company_dir_shows_absolute(self, tmp_path):
         """Lines 85-86: When resolved path not under COMPANY_DIR, rel_path is absolute."""
-        from onemancompany.core.config import PROJECT_ROOT
+        from onemancompany.core.config import SOURCE_ROOT
         with patch.object(file_editor, "COMPANY_DIR", tmp_path / "company"), \
-             patch.object(file_editor, "PROJECT_ROOT", tmp_path):
+             patch.object(file_editor, "SOURCE_ROOT", tmp_path):
             # Set up with backend_code_maintenance permission for src/ access
             src_dir = tmp_path / "src" / "onemancompany"
             src_dir.mkdir(parents=True)

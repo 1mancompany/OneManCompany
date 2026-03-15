@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, migrate_legacy_tool, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
@@ -244,23 +244,6 @@ def _load_assets_from_disk() -> None:
     Legacy flat YAML files are auto-migrated to folder-based format on first load.
     """
     tools_data, rooms_data = load_assets()
-
-    # First pass: migrate any legacy flat YAML tools to folder-based format
-    used_slugs: set[str] = set()
-    # Collect existing folder names so we don't collide
-    if TOOLS_DIR.exists():
-        for entry in TOOLS_DIR.iterdir():
-            if entry.is_dir():
-                used_slugs.add(entry.name)
-
-    legacy_items = [(tid, d) for tid, d in tools_data.items() if d.get("_legacy")]
-    for tool_id, data in legacy_items:
-        folder_name, _ = migrate_legacy_tool(tool_id, data, used_slugs)
-        # Update entry in-place for loading below
-        data.pop("_legacy", None)
-        data["_folder_name"] = folder_name
-        data["_files"] = []
-        data["id"] = tool_id
 
     count = 0
     for tool_id, data in tools_data.items():

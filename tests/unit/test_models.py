@@ -78,14 +78,6 @@ class TestOverheadCosts:
         assert "agent_task" in costs.by_category
         assert costs.by_category["agent_task"]["cost_usd"] == 0.012
 
-    def test_to_legacy_dict(self, sample_cost_record):
-        costs = OverheadCosts()
-        costs.add(sample_cost_record)
-        d = costs.to_legacy_dict()
-        assert d["total_cost_usd"] == 0.012
-        assert d["total_input_tokens"] == 1000
-        assert "by_category" in d
-
     def test_empty(self):
         costs = OverheadCosts()
         assert costs.total_cost_usd == 0.0

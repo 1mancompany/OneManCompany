@@ -232,54 +232,6 @@ class TestPersistAllDeskPositions:
 
 
 # ---------------------------------------------------------------------------
-# Chinese department migration
-# ---------------------------------------------------------------------------
-
-class TestChineseDepartmentMigration:
-    def test_migrates_chinese_department_names(self, monkeypatch):
-        """Line 67: DEPT_CN_TO_EN migration in compute_layout."""
-        from unittest.mock import patch as _patch
-        from onemancompany.core.layout import compute_layout
-        from onemancompany.core import state as state_mod
-
-        cs = CompanyState()
-        cs.employees["00010"] = _make_emp("00010", "技术研发部")
-        monkeypatch.setattr(state_mod, "company_state", cs)
-
-        persisted = {}
-        def capture_persist(updates):
-            persisted.update(updates)
-
-        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
-            layout = compute_layout(cs)
-
-        # The zone should use the English department name
-        zone_depts = {z["department"] for z in layout["zones"]}
-        assert "Engineering" in zone_depts
-        # Employee should have been placed in the Engineering zone
-        assert "00010" in persisted
-
-    def test_does_not_change_english_department(self, monkeypatch):
-        from unittest.mock import patch as _patch
-        from onemancompany.core.layout import compute_layout
-        from onemancompany.core import state as state_mod
-
-        cs = CompanyState()
-        cs.employees["00010"] = _make_emp("00010", "Engineering")
-        monkeypatch.setattr(state_mod, "company_state", cs)
-
-        persisted = {}
-        def capture_persist(updates):
-            persisted.update(updates)
-
-        with _patch("onemancompany.core.layout._persist_positions", side_effect=capture_persist):
-            layout = compute_layout(cs)
-
-        zone_depts = {z["department"] for z in layout["zones"]}
-        assert "Engineering" in zone_depts
-
-
-# ---------------------------------------------------------------------------
 # Remote employees excluded from layout
 # ---------------------------------------------------------------------------
 

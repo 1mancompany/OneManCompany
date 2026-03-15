@@ -249,7 +249,7 @@ async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -
         timeout_seconds: Max execution time in seconds (default 30, max 120).
     """
     import subprocess
-    from onemancompany.core.config import PROJECT_ROOT
+    from onemancompany.core.config import SOURCE_ROOT
 
     timeout_seconds = min(timeout_seconds, 120)
 
@@ -262,7 +262,7 @@ async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -
                 capture_output=True,
                 text=True,
                 timeout=timeout_seconds,
-                cwd=str(PROJECT_ROOT),
+                cwd=str(SOURCE_ROOT),
             ),
         )
         return {

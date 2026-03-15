@@ -191,7 +191,7 @@ async def _start_code_watcher() -> None:
     from watchdog.observers import Observer
     from watchdog.events import FileSystemEventHandler
 
-    from onemancompany.core.config import PROJECT_ROOT
+    from onemancompany.core.config import SOURCE_ROOT
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.vessel import employee_manager
 
@@ -333,7 +333,7 @@ async def _start_code_watcher() -> None:
     handler = _CodeChangeHandler(loop)
     observer = Observer()
 
-    src_dir = str(PROJECT_ROOT / "src")
+    src_dir = str(SOURCE_ROOT / "src")
     frontend_dir = str(FRONTEND_DIR)
     employees_dir = str(EMPLOYEES_DIR)
     observer.schedule(handler, src_dir, recursive=True)
@@ -438,8 +438,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Talent Market connection failed (configure in Settings): {}", e)
 
-    # Migrate existing employees from agent/ to vessel/ directory structure
-    from onemancompany.core.vessel_config import migrate_agent_to_vessel, load_vessel_config
+    from onemancompany.core.vessel_config import load_vessel_config
     from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
 
     # Founding employees — hosting-aware registration
@@ -458,10 +457,6 @@ async def lifespan(app: FastAPI):
         else:
             register_agent(_fid, _agent_cls(), config=_f_vessel)
         _registered_founding.add(_fid)
-    for _emp_dir in (_EMPLOYEES_DIR.iterdir() if _EMPLOYEES_DIR.exists() else []):
-        if _emp_dir.is_dir():
-            if migrate_agent_to_vessel(_emp_dir):
-                print(f"[startup] Migrated {_emp_dir.name} agent/ → vessel/")
 
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent

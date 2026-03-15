@@ -881,7 +881,7 @@ class TestRun:
         mock_settings.port = 9000
 
         monkeypatch.setattr("onemancompany.core.config.settings", mock_settings)
-        monkeypatch.setattr("onemancompany.core.config.PROJECT_ROOT", Path("/fake/root"))
+        monkeypatch.setattr("onemancompany.core.config.SOURCE_ROOT", Path("/fake/root"))
 
         mock_uvicorn_run = MagicMock()
         monkeypatch.setattr(main_mod, "uvicorn", MagicMock(run=mock_uvicorn_run))

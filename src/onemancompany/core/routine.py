@@ -1488,13 +1488,13 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         # PHASE 1: Review Meeting
         await _publish("routine_phase", {"phase": "Phase 1", "message": "Review meeting begins — employee self-evaluation"})
         await _chat(room.id, "HR", "HR", "The review meeting has officially begun. Please proceed with self-evaluations in turn.")
-        phase1_result = await _run_phase1_legacy(task_summary, participants, workflow_doc, room.id)
+        phase1_result = await _run_review_phase1(task_summary, participants, workflow_doc, room.id)
         meeting_doc["phase1"] = phase1_result
 
         # PHASE 2: Operations Review
         await _publish("routine_phase", {"phase": "Phase 2", "message": "Operations review — COO producing report"})
         await _chat(room.id, "HR", "HR", "Phase 2 begins. COO, please report on operations.")
-        phase2_result = await _run_phase2_legacy(
+        phase2_result = await _run_review_phase2(
             task_summary, participants, phase1_result, workflow_doc, room.id
         )
         meeting_doc["phase2"] = phase2_result
@@ -1531,10 +1531,10 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
 
 
-async def _run_phase1_legacy(
+async def _run_review_phase1(
     task_summary: str, participants: list[str], workflow_doc: str = "", room_id: str = ""
 ) -> dict:
-    """Legacy Phase 1: Employee self-evaluation, senior reviews junior, HR summarizes."""
+    """Phase 1: Employee self-evaluation, senior reviews junior, HR summarizes."""
     llm = make_llm(HR_ID)
     result: dict = {"self_evaluations": [], "senior_reviews": [], "hr_summary": []}
 
@@ -1680,14 +1680,14 @@ async def _run_phase1_legacy(
     return result
 
 
-async def _run_phase2_legacy(
+async def _run_review_phase2(
     task_summary: str,
     participants: list[str],
     phase1: dict,
     workflow_doc: str = "",
     room_id: str = "",
 ) -> dict:
-    """Legacy Phase 2: COO report, employee feedback, action items for CEO."""
+    """Phase 2: COO report, employee feedback, action items for CEO."""
     llm = make_llm(COO_ID)
     result: dict = {"coo_report": "", "employee_feedback": [], "action_items": []}
 

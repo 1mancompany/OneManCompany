@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, PROJECT_ROOT
+from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, SOURCE_ROOT
 from onemancompany.core.events import CompanyEvent, event_bus
 
 # Backup subfolder name (created alongside the modified file)
@@ -28,9 +28,9 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
     try:
         p = Path(file_path)
         if not p.is_absolute():
-            # Paths starting with "src/" resolve relative to PROJECT_ROOT
+            # Paths starting with "src/" resolve relative to SOURCE_ROOT
             if file_path.startswith("src/"):
-                p = PROJECT_ROOT / p
+                p = SOURCE_ROOT / p
             else:
                 # Strip leading "company/" if present — COMPANY_DIR already
                 # points to the company/ directory, so "company/foo" would
@@ -48,7 +48,7 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
 
         # backend_code_maintenance allows access to src/
         if permissions and "backend_code_maintenance" in permissions:
-            src_dir = (PROJECT_ROOT / "src").resolve()
+            src_dir = (SOURCE_ROOT / "src").resolve()
             if str(p).startswith(str(src_dir)):
                 return p
 

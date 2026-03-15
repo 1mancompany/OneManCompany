@@ -1,11 +1,9 @@
 """Project Archive — project record and workspace system.
 
-Supports two project formats:
-  v1 (legacy): One-shot projects with timestamp-based IDs under projects/{timestamp_id}/
-  v2 (named):  Persistent named projects with multiple iterations:
-    projects/{slug}/project.yaml    — project metadata
-    projects/{slug}/workspace/      — shared workspace for all iterations
-    projects/{slug}/iterations/     — per-iteration YAML files
+Named projects with multiple iterations:
+  projects/{slug}/project.yaml    — project metadata
+  projects/{slug}/workspace/      — shared workspace for all iterations
+  projects/{slug}/iterations/     — per-iteration YAML files
 
 Employees can save artifacts to their project workspace via save_project_file().
 """
@@ -27,8 +25,6 @@ from onemancompany.core.config import PROJECTS_DIR
 _project_locks: dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
 
-# Regex to detect v1 timestamp-based project IDs
-_V1_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]+$")
 # Regex to detect iteration IDs
 _ITER_RE = re.compile(r"^iter_\d{3,}$")
 
@@ -74,22 +70,6 @@ def _rebase_project_dir(stored_path: str) -> Path:
     return p
 
 
-def _project_dir(project_id: str) -> Path:
-    """Return the directory path for a given project."""
-    return PROJECTS_DIR / project_id
-
-
-def _project_yaml(project_id: str) -> Path:
-    """Return the project.yaml path for a given project."""
-    return _project_dir(project_id) / "project.yaml"
-
-
-def _ensure_project_dir(project_id: str) -> Path:
-    """Ensure the project directory exists and return it."""
-    d = _project_dir(project_id)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
 
 def _slugify(name: str) -> str:
     """Convert a project name to a filesystem-safe slug."""
@@ -97,14 +77,6 @@ def _slugify(name: str) -> str:
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = slug.strip("-")
     return slug or f"project-{uuid.uuid4().hex[:6]}"
-
-
-# ─────────────────────────────────────────────
-# v1 / v2 detection and bridge
-# ─────────────────────────────────────────────
-
-def _is_v1(pid: str) -> bool:
-    return bool(_V1_RE.match(pid))
 
 
 def _is_iteration(pid: str) -> bool:
@@ -163,16 +135,10 @@ def _resolve_and_load(pid: str) -> tuple[str, dict | None, str]:
     """Resolve a pid and load the right document.
 
     Returns (version, doc, resolved_key) where:
-      version = "v1" | "v2"
-      doc = the loaded YAML dict (project.yaml for v1, iteration yaml for v2)
-      resolved_key = the key to use for saving:
-        v1: project_id (timestamp)
-        v2: "project_slug/iter_id" as a tuple marker
+      version = "v2"
+      doc = the loaded YAML dict (iteration yaml for v2)
+      resolved_key = "project_slug/iter_id" as a tuple marker
     """
-    if _is_v1(pid) or pid.startswith("_auto_"):
-        doc = _load_v1_project(pid)
-        return ("v1", doc, pid)
-
     if _is_iteration(pid):
         slug = _find_project_for_iteration(pid)
         _, bare_id = _split_qualified_iter(pid)
@@ -190,31 +156,15 @@ def _resolve_and_load(pid: str) -> tuple[str, dict | None, str]:
             doc = load_iteration(pid, latest)
             return ("v2", doc, f"{pid}/{latest}")
         return ("v2", proj, pid)
-    return ("v1", None, "")
+    return ("v2", None, "")
 
 
 def _save_resolved(version: str, resolved_key: str, doc: dict) -> None:
     """Save doc back based on resolved version and key."""
-    if version == "v1":
-        _save_project(resolved_key, doc)
-    else:
-        # resolved_key = "slug/iter_id"
-        parts = resolved_key.split("/", 1)
-        if len(parts) == 2:
-            _save_iteration(parts[0], parts[1], doc)
-
-
-# ─────────────────────────────────────────────
-# v1 legacy functions (internal)
-# ─────────────────────────────────────────────
-
-def _load_v1_project(project_id: str) -> dict | None:
-    path = _project_yaml(project_id)
-    if not path.exists():
-        return None
-    lock = _get_project_lock(project_id)
-    with lock, open(path) as f:
-        return yaml.safe_load(f) or {}
+    # resolved_key = "slug/iter_id"
+    parts = resolved_key.split("/", 1)
+    if len(parts) == 2:
+        _save_iteration(parts[0], parts[1], doc)
 
 
 # ─────────────────────────────────────────────
@@ -461,43 +411,8 @@ def get_project_workspace(project_id: str) -> str:
 
 
 # ─────────────────────────────────────────────
-# Public API (v1-compatible, bridged for v2)
+# Public API
 # ─────────────────────────────────────────────
-
-def create_project(task: str, routed_to: str, participants: list[str] | None = None) -> str:
-    """Create a new v1 project record. Returns the project_id."""
-    project_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
-    project_dir = _ensure_project_dir(project_id)
-    doc = {
-        "project_id": project_id,
-        "project_dir": str(project_dir),
-        "task": task,
-        "routed_to": routed_to,
-        "participants": participants or [],
-        "current_owner": routed_to.lower(),
-        "status": "in_progress",
-        "created_at": datetime.now().isoformat(),
-        "completed_at": None,
-        "timeline": [],
-        "output": None,
-        "acceptance_criteria": [],
-        "responsible_officer": "",
-        "dispatches": [],
-        "acceptance_result": None,
-        "ea_review_result": None,
-        "cost": {
-            "budget_estimate_usd": 0.0,
-            "actual_cost_usd": 0.0,
-            "token_usage": {"input": 0, "output": 0, "total": 0},
-            "breakdown": [],
-        },
-    }
-    _save_project(project_id, doc)
-    # Trigger 1: dispatch → in_progress — notify sync tick
-    from onemancompany.core.store import mark_dirty
-    mark_dirty("task_queue")
-    return project_id
-
 
 def append_action(project_id: str, employee_id: str, action: str, detail: str = "") -> None:
     """Append an action entry to the project timeline and update current_owner."""
@@ -553,7 +468,6 @@ def _resolve_workspace(project_id: str) -> Path:
 
     - v2 project slug: latest iteration's per-iteration workspace (via get_project_workspace)
     - v2 iteration ID: that iteration's project_dir from its YAML
-    - v1 / _auto_: the project directory itself
 
     Supports qualified iteration IDs like "first-game/iter_002".
     """
@@ -570,18 +484,14 @@ def _resolve_workspace(project_id: str) -> Path:
             ws = PROJECTS_DIR / slug / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
             return ws
-    if not _is_v1(project_id) and not project_id.startswith("_auto_"):
-        # Named project slug — use get_project_workspace (latest iteration aware)
-        return Path(get_project_workspace(project_id))
-    return _project_dir(project_id)
+    return Path(get_project_workspace(project_id))
 
 
 def get_project_dir(project_id: str) -> str:
     """Return the absolute path of a project's workspace directory.
 
-    v1: returns projects/{timestamp_id}
-    v2 iteration: returns that iteration's workspace
-    v2 slug: returns latest iteration's workspace (or shared workspace/)
+    iteration: returns that iteration's workspace
+    slug: returns latest iteration's workspace (or shared workspace/)
     """
     ws = _resolve_workspace(project_id)
     ws.mkdir(parents=True, exist_ok=True)
@@ -631,7 +541,7 @@ def _safe_file_count(project_id: str) -> int:
 
 
 def list_projects() -> list[dict]:
-    """List all projects (v1 + v2 summary)."""
+    """List all projects (v2 summary)."""
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     projects = []
     for d in sorted(PROJECTS_DIR.iterdir(), reverse=True):
@@ -647,59 +557,41 @@ def list_projects() -> list[dict]:
             logger.warning("Failed to load %s: %s", yaml_path, _e)
             continue
 
-        if "iterations" in doc:
-            # v2 named project — summarize from latest iteration
-            iterations = doc.get("iterations", [])
-            latest_task = ""
-            latest_status = doc.get("status", "active")
-            latest_owner = ""
-            total_cost = 0.0
-            if iterations:
-                latest_iter = load_iteration(d.name, iterations[-1])
-                if latest_iter:
-                    latest_task = latest_iter.get("task", "")
-                    latest_status = latest_iter.get("status", latest_status)
-                    latest_owner = latest_iter.get("current_owner", "")
-                # Aggregate cost across all iterations
-                for iter_id in iterations:
-                    iter_doc = load_iteration(d.name, iter_id)
-                    if iter_doc:
-                        total_cost += iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
-            projects.append({
-                "project_id": doc.get("project_id", d.name),
-                "task": latest_task or doc.get("name", ""),
-                "status": latest_status,
-                "routed_to": "",
-                "current_owner": latest_owner,
-                "created_at": doc.get("created_at", ""),
-                "completed_at": doc.get("archived_at"),
-                "participant_count": 0,
-                "action_count": 0,
-                "file_count": _safe_file_count(d.name),
-                "is_named": True,
-                "name": doc.get("name", d.name),
-                "iteration_count": len(iterations),
-                "cost_usd": round(total_cost, 4),
-            })
-        else:
-            # v1 legacy project
-            v1_cost = doc.get("cost", {}).get("actual_cost_usd", 0.0)
-            projects.append({
-                "project_id": doc.get("project_id", d.name),
-                "task": doc.get("task", ""),
-                "task_type": doc.get("task_type", "simple"),
-                "status": doc.get("status", "unknown"),
-                "routed_to": doc.get("routed_to", ""),
-                "current_owner": doc.get("current_owner", ""),
-                "created_at": doc.get("created_at", ""),
-                "completed_at": doc.get("completed_at"),
-                "project_dir": doc.get("project_dir", str(d)),
-                "participant_count": len(doc.get("participants", [])),
-                "action_count": len(doc.get("timeline", [])),
-                "file_count": _safe_file_count(d.name),
-                "is_named": False,
-                "cost_usd": round(v1_cost, 4),
-            })
+        if "iterations" not in doc:
+            continue
+
+        iterations = doc.get("iterations", [])
+        latest_task = ""
+        latest_status = doc.get("status", "active")
+        latest_owner = ""
+        total_cost = 0.0
+        if iterations:
+            latest_iter = load_iteration(d.name, iterations[-1])
+            if latest_iter:
+                latest_task = latest_iter.get("task", "")
+                latest_status = latest_iter.get("status", latest_status)
+                latest_owner = latest_iter.get("current_owner", "")
+            # Aggregate cost across all iterations
+            for iter_id in iterations:
+                iter_doc = load_iteration(d.name, iter_id)
+                if iter_doc:
+                    total_cost += iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
+        projects.append({
+            "project_id": doc.get("project_id", d.name),
+            "task": latest_task or doc.get("name", ""),
+            "status": latest_status,
+            "routed_to": "",
+            "current_owner": latest_owner,
+            "created_at": doc.get("created_at", ""),
+            "completed_at": doc.get("archived_at"),
+            "participant_count": 0,
+            "action_count": 0,
+            "file_count": _safe_file_count(d.name),
+            "is_named": True,
+            "name": doc.get("name", d.name),
+            "iteration_count": len(iterations),
+            "cost_usd": round(total_cost, 4),
+        })
     return projects
 
 
@@ -782,79 +674,44 @@ def get_cost_summary() -> dict:
             logger.warning("Failed to load %s: %s", yaml_path, _e)
             continue
 
-        # For v2 projects, aggregate cost from iterations
-        if "iterations" in doc:
-            for iter_id in doc.get("iterations", []):
-                iter_doc = load_iteration(d.name, iter_id)
-                if not iter_doc:
-                    continue
-                cost = iter_doc.get("cost", {})
-                proj_cost = cost.get("actual_cost_usd", 0.0)
-                tokens = cost.get("token_usage", {})
-                proj_input = tokens.get("input", 0)
-                proj_output = tokens.get("output", 0)
-                total_cost += proj_cost
-                total_input += proj_input
-                total_output += proj_output
-                for entry in cost.get("breakdown", []):
-                    eid = entry.get("employee_id", "")
-                    from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
-                    _emp_d = _load_emp(eid)
-                    if not _emp_d:
-                        _ex = _load_ex()
-                        _emp_d = _ex.get(eid, {})
-                    dept = _emp_d.get("department", "Unknown")
-                    if dept not in dept_costs:
-                        dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
-                    dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)
-                    dept_costs[dept]["input"] += entry.get("input_tokens", 0)
-                    dept_costs[dept]["output"] += entry.get("output_tokens", 0)
-            if len(recent_projects) < 10:
-                recent_projects.append({
-                    "project_id": doc.get("project_id", d.name),
-                    "task": doc.get("name", "")[:60],
-                    "cost_usd": total_cost,
-                    "input_tokens": total_input,
-                    "output_tokens": total_output,
-                    "total_tokens": total_input + total_output,
-                    "status": doc.get("status", "active"),
-                })
+        if "iterations" not in doc:
             continue
 
-        # v1 project
-        cost = doc.get("cost", {})
-        proj_cost = cost.get("actual_cost_usd", 0.0)
-        tokens = cost.get("token_usage", {})
-        proj_input = tokens.get("input", 0)
-        proj_output = tokens.get("output", 0)
-
-        total_cost += proj_cost
-        total_input += proj_input
-        total_output += proj_output
-
-        # Per-department breakdown from cost.breakdown[]
-        for entry in cost.get("breakdown", []):
-            eid = entry.get("employee_id", "")
-            from onemancompany.core.store import load_employee as _load_emp2, load_ex_employees as _load_ex2
-            emp_data = _load_emp2(eid)
-            if not emp_data:
-                emp_data = _load_ex2().get(eid)
-            dept = emp_data.get("department", "Unknown") if emp_data else "Unknown"
-            if dept not in dept_costs:
-                dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
-            dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)
-            dept_costs[dept]["input"] += entry.get("input_tokens", 0)
-            dept_costs[dept]["output"] += entry.get("output_tokens", 0)
-
+        # Aggregate cost from iterations
+        for iter_id in doc.get("iterations", []):
+            iter_doc = load_iteration(d.name, iter_id)
+            if not iter_doc:
+                continue
+            cost = iter_doc.get("cost", {})
+            proj_cost = cost.get("actual_cost_usd", 0.0)
+            tokens = cost.get("token_usage", {})
+            proj_input = tokens.get("input", 0)
+            proj_output = tokens.get("output", 0)
+            total_cost += proj_cost
+            total_input += proj_input
+            total_output += proj_output
+            for entry in cost.get("breakdown", []):
+                eid = entry.get("employee_id", "")
+                from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
+                _emp_d = _load_emp(eid)
+                if not _emp_d:
+                    _ex = _load_ex()
+                    _emp_d = _ex.get(eid, {})
+                dept = _emp_d.get("department", "Unknown")
+                if dept not in dept_costs:
+                    dept_costs[dept] = {"cost_usd": 0.0, "input": 0, "output": 0}
+                dept_costs[dept]["cost_usd"] += entry.get("cost_usd", 0.0)
+                dept_costs[dept]["input"] += entry.get("input_tokens", 0)
+                dept_costs[dept]["output"] += entry.get("output_tokens", 0)
         if len(recent_projects) < 10:
             recent_projects.append({
                 "project_id": doc.get("project_id", d.name),
-                "task": (doc.get("task", ""))[:60],
-                "cost_usd": proj_cost,
-                "input_tokens": proj_input,
-                "output_tokens": proj_output,
-                "total_tokens": proj_input + proj_output,
-                "status": doc.get("status", "unknown"),
+                "task": doc.get("name", "")[:60],
+                "cost_usd": total_cost,
+                "input_tokens": total_input,
+                "output_tokens": total_output,
+                "total_tokens": total_input + total_output,
+                "status": doc.get("status", "active"),
             })
 
     return {
@@ -877,9 +734,3 @@ def get_cost_summary() -> dict:
     }
 
 
-def _save_project(project_id: str, doc: dict) -> None:
-    _ensure_project_dir(project_id)
-    path = _project_yaml(project_id)
-    lock = _get_project_lock(project_id)
-    with lock, open(path, "w") as f:
-        yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)

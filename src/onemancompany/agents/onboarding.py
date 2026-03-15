@@ -447,13 +447,12 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
 
     Search order:
       1. talent_dir/vessel/vessel.yaml → direct copy
-      2. talent_dir/agent/manifest.yaml → convert to vessel.yaml
-      3. Neither exists → use src/onemancompany/core/default_vessel.yaml
+      2. Neither exists → use src/onemancompany/core/default_vessel.yaml
 
     Also copies vessel/ subdirectories (prompt_sections/, runner .py, hooks .py).
     """
     from onemancompany.core.vessel_config import (
-        _convert_legacy_manifest, _load_default_vessel_config,
+        _load_default_vessel_config,
         save_vessel_config,
     )
 
@@ -491,23 +490,7 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
                         shutil.copy2(str(py_src), str(py_dst))
         return
 
-    # 2. talent has agent/manifest.yaml → convert
-    talent_manifest = talent_dir / "agent" / "manifest.yaml"
-    if talent_manifest.exists():
-        with open(talent_manifest) as f:
-            manifest = yaml.safe_load(f) or {}
-        config = _convert_legacy_manifest(manifest)
-        save_vessel_config(emp_path, config)
-
-        # Copy prompt_sections from agent/
-        agent_ps = talent_dir / "agent" / "prompt_sections"
-        if agent_ps.exists() and agent_ps.is_dir():
-            ps_dst = vessel_dir / "prompt_sections"
-            if not ps_dst.exists():
-                shutil.copytree(str(agent_ps), str(ps_dst))
-        return
-
-    # 3. Use default
+    # 2. Use default
     config = _load_default_vessel_config()
     save_vessel_config(emp_path, config)
 
@@ -520,8 +503,7 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
 # Talent directory resolution
 # ---------------------------------------------------------------------------
 
-# Legacy fallback: local talent_market package (will be removed once all
-# hiring flows fetch talent data via Talent Market API/MCP)
+# Local talent store: cloned remote talents + offline library + local talent development workspace
 from onemancompany.core.config import TALENTS_RUNTIME_DIR as _TALENTS_CLONE_DIR, TALENTS_DIR as _BUILTIN_TALENTS_DIR
 
 

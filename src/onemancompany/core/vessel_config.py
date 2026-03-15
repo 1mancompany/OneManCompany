@@ -9,13 +9,11 @@ VesselConfig defines the complete DNA of an employee vessel:
 
 Loading priority:
   1. emp_dir/vessel/vessel.yaml
-  2. emp_dir/agent/manifest.yaml (backward compatible, auto-converted)
-  3. src/onemancompany/core/default_vessel.yaml (default DNA)
+  2. src/onemancompany/core/default_vessel.yaml (default DNA)
 """
 
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -158,8 +156,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
 
     Search order:
       1. emp_dir/vessel/vessel.yaml
-      2. emp_dir/agent/manifest.yaml (legacy, auto-converted)
-      3. default_vessel.yaml (built-in default)
+      2. default_vessel.yaml (built-in default)
     """
     # 1. vessel/vessel.yaml
     vessel_yaml = emp_dir / "vessel" / "vessel.yaml"
@@ -171,17 +168,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
         except yaml.YAMLError:
             return _load_default_vessel_config()
 
-    # 2. agent/manifest.yaml (legacy fallback)
-    manifest_yaml = emp_dir / "agent" / "manifest.yaml"
-    if manifest_yaml.exists():
-        try:
-            with open(manifest_yaml) as f:
-                manifest = yaml.safe_load(f) or {}
-            return _convert_legacy_manifest(manifest)
-        except yaml.YAMLError:
-            return _load_default_vessel_config()
-
-    # 3. Default
+    # 2. Default
     return _load_default_vessel_config()
 
 
@@ -227,88 +214,3 @@ def save_vessel_config(emp_dir: Path, config: VesselConfig) -> None:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 
-def _convert_legacy_manifest(manifest: dict) -> VesselConfig:
-    """Convert an agent/manifest.yaml dict to VesselConfig."""
-    runner_cfg = manifest.get("runner", {}) or {}
-    hooks_cfg = manifest.get("hooks", {}) or {}
-    prompt_sections_raw = manifest.get("prompt_sections", []) or []
-
-    prompt_sections = [
-        PromptSection(
-            name=ps.get("name", ""),
-            file=ps.get("file", ""),
-            priority=ps.get("priority", 50),
-        )
-        for ps in prompt_sections_raw
-    ]
-
-    return VesselConfig(
-        runner=RunnerConfig(
-            module=runner_cfg.get("module", ""),
-            class_name=runner_cfg.get("class", "") or runner_cfg.get("class_name", ""),
-        ),
-        hooks=HooksConfig(
-            module=hooks_cfg.get("module", ""),
-            pre_task=hooks_cfg.get("pre_task", ""),
-            post_task=hooks_cfg.get("post_task", ""),
-        ),
-        context=ContextConfig(
-            prompt_sections=prompt_sections,
-        ),
-    )
-
-
-def migrate_agent_to_vessel(emp_dir: Path) -> bool:
-    """Migrate agent/ directory to vessel/ for an employee.
-
-    - Converts agent/manifest.yaml → vessel/vessel.yaml
-    - Copies prompt_sections/, runner .py, hooks .py to vessel/
-    - Keeps agent/ directory intact for backward compatibility
-
-    Returns True if migration was performed, False if already migrated or no agent/ exists.
-    """
-    vessel_dir = emp_dir / "vessel"
-    agent_dir = emp_dir / "agent"
-
-    # Already migrated
-    if (vessel_dir / "vessel.yaml").exists():
-        return False
-
-    # No agent config to migrate
-    manifest_path = agent_dir / "manifest.yaml"
-    if not manifest_path.exists():
-        return False
-
-    # Convert manifest
-    with open(manifest_path) as f:
-        manifest = yaml.safe_load(f) or {}
-
-    config = _convert_legacy_manifest(manifest)
-    save_vessel_config(emp_dir, config)
-
-    # Copy prompt_sections/
-    agent_ps = agent_dir / "prompt_sections"
-    if agent_ps.exists() and agent_ps.is_dir():
-        vessel_ps = vessel_dir / "prompt_sections"
-        if not vessel_ps.exists():
-            shutil.copytree(str(agent_ps), str(vessel_ps))
-
-    # Copy runner .py if declared
-    runner_mod = manifest.get("runner", {}).get("module", "")
-    if runner_mod:
-        runner_py = agent_dir / f"{runner_mod}.py"
-        if runner_py.exists():
-            dst = vessel_dir / f"{runner_mod}.py"
-            if not dst.exists():
-                shutil.copy2(str(runner_py), str(dst))
-
-    # Copy hooks .py if declared
-    hooks_mod = manifest.get("hooks", {}).get("module", "")
-    if hooks_mod:
-        hooks_py = agent_dir / f"{hooks_mod}.py"
-        if hooks_py.exists():
-            dst = vessel_dir / f"{hooks_mod}.py"
-            if not dst.exists():
-                shutil.copy2(str(hooks_py), str(dst))
-
-    return True

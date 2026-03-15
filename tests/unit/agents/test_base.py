@@ -613,16 +613,16 @@ class TestBaseAgentRunner:
         from onemancompany.agents import base as base_mod
         from onemancompany.agents.base import BaseAgentRunner
 
-        # Create agent manifest
-        agent_dir = tmp_path / "emp" / "00010" / "agent"
-        agent_dir.mkdir(parents=True)
+        # Create vessel config with prompt sections
+        vessel_dir = tmp_path / "emp" / "00010" / "vessel"
+        vessel_dir.mkdir(parents=True)
 
-        manifest = {"prompt_sections": [
+        vessel_cfg = {"context": {"prompt_sections": [
             {"name": "custom", "file": "custom.md", "priority": 25},
-        ]}
+        ]}}
         import yaml
-        (agent_dir / "manifest.yaml").write_text(yaml.dump(manifest))
-        (agent_dir / "custom.md").write_text("Custom section content")
+        (vessel_dir / "vessel.yaml").write_text(yaml.dump(vessel_cfg))
+        (vessel_dir / "custom.md").write_text("Custom section content")
 
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
 

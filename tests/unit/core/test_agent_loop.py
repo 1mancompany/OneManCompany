@@ -1193,17 +1193,10 @@ class TestEmployeeManagerCompressHistory:
 # ---------------------------------------------------------------------------
 
 class TestEmployeeManagerProjectHistoryContext:
-    def test_returns_empty_for_v1_project(self):
-        mgr = EmployeeManager()
-        with patch("onemancompany.core.project_archive._is_v1", return_value=True):
-            with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-                result = mgr._get_project_history_context("20240101_120000_abc")
-                assert result == ""
-
     def test_returns_empty_for_auto_project(self):
         mgr = EmployeeManager()
-        with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-            with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
+        with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
+            with patch("onemancompany.core.project_archive.load_named_project", return_value=None):
                 result = mgr._get_project_history_context("_auto_12345")
                 assert result == ""
 
@@ -1217,31 +1210,28 @@ class TestEmployeeManagerProjectHistoryContext:
     def test_returns_empty_for_missing_project(self):
         mgr = EmployeeManager()
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value=None):
-                    result = mgr._get_project_history_context("my-project")
-                    assert result == ""
+            with patch("onemancompany.core.project_archive.load_named_project", return_value=None):
+                result = mgr._get_project_history_context("my-project")
+                assert result == ""
 
     def test_returns_empty_no_iterations_no_files(self):
         mgr = EmployeeManager()
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": [], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        result = mgr._get_project_history_context("my-project")
-                        assert result == ""
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": [], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    result = mgr._get_project_history_context("my-project")
+                    assert result == ""
 
     def test_returns_context_with_iterations(self):
         mgr = EmployeeManager()
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001"], "name": "Test Project", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        with patch("onemancompany.core.project_archive.load_iteration", return_value={
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001"], "name": "Test Project", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    with patch("onemancompany.core.project_archive.load_iteration", return_value={
                             "iteration_id": "iter_001", "status": "completed",
                             "task": "Build widget", "output": "Widget built",
                             "timeline": [{"time": "2024-01-01T12:00:00", "employee_id": "emp01", "action": "started", "detail": "Begin"}],
@@ -1257,15 +1247,14 @@ class TestEmployeeManagerProjectHistoryContext:
     def test_returns_context_with_files(self):
         mgr = EmployeeManager()
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": [], "name": "Test Project", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=["file1.py", "file2.txt"]):
-                        with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/workspace"):
-                            result = mgr._get_project_history_context("my-project")
-                            assert "Workspace files" in result
-                            assert "file1.py" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": [], "name": "Test Project", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=["file1.py", "file2.txt"]):
+                    with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/workspace"):
+                        result = mgr._get_project_history_context("my-project")
+                        assert "Workspace files" in result
+                        assert "file1.py" in result
 
     def test_handles_iteration_project_id(self):
         mgr = EmployeeManager()
@@ -1551,57 +1540,54 @@ class TestEmployeeManagerProjectContextTimeline:
             for i in range(25)
         ]
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001"], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        with patch("onemancompany.core.project_archive.load_iteration", return_value={
-                            "iteration_id": "iter_001", "status": "completed",
-                            "task": "Build it", "output": "",
-                            "timeline": timeline,
-                            "cost": {"actual_cost_usd": 0.0, "budget_estimate_usd": 0.0, "token_usage": {}},
-                        }):
-                            result = mgr._get_project_history_context("my-project")
-                            assert "omitted" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001"], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    with patch("onemancompany.core.project_archive.load_iteration", return_value={
+                        "iteration_id": "iter_001", "status": "completed",
+                        "task": "Build it", "output": "",
+                        "timeline": timeline,
+                        "cost": {"actual_cost_usd": 0.0, "budget_estimate_usd": 0.0, "token_usage": {}},
+                    }):
+                        result = mgr._get_project_history_context("my-project")
+                        assert "omitted" in result
 
     def test_context_with_many_files(self):
         """When there are many workspace files, only max files are shown."""
         mgr = EmployeeManager()
         many_files = [f"file_{i}.py" for i in range(40)]
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": [], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=many_files):
-                        with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/ws"):
-                            result = mgr._get_project_history_context("my-project")
-                            assert "and" in result and "more" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": [], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=many_files):
+                    with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/ws"):
+                        result = mgr._get_project_history_context("my-project")
+                        assert "and" in result and "more" in result
 
     def test_context_with_budget_spending(self):
         """When iterations have cost data, budget info should appear."""
         mgr = EmployeeManager()
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        def load_iter(slug, iter_id):
-                            return {
-                                "iteration_id": iter_id, "status": "completed",
-                                "task": "Build", "output": "Done output text",
-                                "timeline": [],
-                                "cost": {"actual_cost_usd": 0.05, "budget_estimate_usd": 2.0,
-                                         "token_usage": {"input": 1000, "output": 500}},
-                            }
-                        with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
-                            result = mgr._get_project_history_context("my-project")
-                            assert "Budget" in result
-                            assert "Spent" in result
-                            assert "Cost" in result
-                            assert "Tokens" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    def load_iter(slug, iter_id):
+                        return {
+                            "iteration_id": iter_id, "status": "completed",
+                            "task": "Build", "output": "Done output text",
+                            "timeline": [],
+                            "cost": {"actual_cost_usd": 0.05, "budget_estimate_usd": 2.0,
+                                     "token_usage": {"input": 1000, "output": 500}},
+                        }
+                    with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
+                        result = mgr._get_project_history_context("my-project")
+                        assert "Budget" in result
+                        assert "Spent" in result
+                        assert "Cost" in result
+                        assert "Tokens" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1698,15 +1684,14 @@ class TestProjectContextLoadIterationNone:
             }
 
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
-                            result = mgr._get_project_history_context("my-project")
-                            # iter_001 was skipped (None), iter_002 should be present
-                            assert "iter_002" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
+                        result = mgr._get_project_history_context("my-project")
+                        # iter_001 was skipped (None), iter_002 should be present
+                        assert "iter_002" in result
 
 
 # ---------------------------------------------------------------------------
@@ -1728,16 +1713,15 @@ class TestProjectContextSpentNoBudget:
             }
 
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001"], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
-                            result = mgr._get_project_history_context("my-project")
-                            # Budget is 0, but spent > 0, so we get "Spent: $X" without "Budget:"
-                            assert "Spent:" in result
-                            assert "Budget:" not in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001"], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
+                        result = mgr._get_project_history_context("my-project")
+                        # Budget is 0, but spent > 0, so we get "Spent: $X" without "Budget:"
+                        assert "Spent:" in result
+                        assert "Budget:" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -1768,15 +1752,14 @@ class TestProjectContextDetailLoopNone:
                 return None  # triggers line 942 continue in detail loop
 
         with patch("onemancompany.core.project_archive._is_iteration", return_value=False):
-            with patch("onemancompany.core.project_archive._is_v1", return_value=False):
-                with patch("onemancompany.core.project_archive.load_named_project", return_value={
-                    "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
-                }):
-                    with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
-                        with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
-                            result = mgr._get_project_history_context("my-project")
-                            # Should not crash, returns whatever context is available
-                            assert "Project Context" in result
+            with patch("onemancompany.core.project_archive.load_named_project", return_value={
+                "iterations": ["iter_001", "iter_002"], "name": "Test", "status": "active"
+            }):
+                with patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+                    with patch("onemancompany.core.project_archive.load_iteration", side_effect=load_iter):
+                        result = mgr._get_project_history_context("my-project")
+                        # Should not crash, returns whatever context is available
+                        assert "Project Context" in result
 
 
 # ---------------------------------------------------------------------------

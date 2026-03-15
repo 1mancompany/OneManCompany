@@ -15,8 +15,6 @@ SOURCE_ROOT = Path(__file__).parent.parent.parent.parent
 # This allows the package to be installed anywhere while data stays portable.
 DATA_ROOT = Path.cwd() / ".onemancompany"
 
-# Legacy alias — code that needs the repo root for src/ or frontend/
-PROJECT_ROOT = SOURCE_ROOT
 
 COMPANY_DIR = DATA_ROOT / "company"
 
@@ -117,15 +115,6 @@ MAX_CHILDREN_PER_NODE = 10  # Max active children per parent node
 MAX_TREE_DEPTH = 6          # Max nesting depth for dispatch_child
 
 # ---------------------------------------------------------------------------
-# Desk position grid layout (legacy — kept for compatibility)
-# ---------------------------------------------------------------------------
-DESK_GRID_COLS = 5
-DESK_START_X = 2
-DESK_START_Y = 2
-DESK_SPACING_X = 3
-DESK_SPACING_Y = 3
-
-# ---------------------------------------------------------------------------
 # Department-based office layout
 # ---------------------------------------------------------------------------
 EXEC_ROW_GY = 0          # grid-Y for executive row
@@ -152,17 +141,6 @@ DEPT_COLORS: dict[str, tuple[str, str, str]] = {
     "Analytics":   ("#1a3a2e", "#163626", "#44cc88"),   # green tones
     "Marketing":   ("#3a2a1a", "#362616", "#cc8844"),   # orange tones
     "General":     ("#2a2a2a", "#262626", "#888888"),   # gray tones
-}
-
-# Legacy Chinese → English department mapping (for migrating old profiles)
-DEPT_CN_TO_EN: dict[str, str] = {
-    "技术研发部": "Engineering",
-    "设计部": "Design",
-    "数据分析部": "Analytics",
-    "市场营销部": "Marketing",
-    "综合部": "General",
-    "人力资源部": "HR",
-    "运营管理部": "Operations",
 }
 
 # Executive row floor colors
@@ -567,42 +545,6 @@ def load_assets() -> tuple[dict, dict]:
                     continue
                 meeting_rooms[f.stem] = data
     return tools, meeting_rooms
-
-
-def migrate_legacy_tool(tool_id: str, data: dict, used_slugs: set[str] | None = None) -> tuple[str, str]:
-    """Migrate a flat assets/tools/{uuid}.yaml to assets/tools/{slug}/tool.yaml.
-
-    Returns (folder_name, new_tool_id) after migration.
-    Handles slug collisions by appending the UUID suffix.
-    """
-    import shutil
-
-    if used_slugs is None:
-        used_slugs = set()
-
-    name = data.get("name", tool_id)
-    slug = slugify_tool_name(name)
-
-    # Handle collision
-    if slug in used_slugs:
-        slug = f"{slug}_{tool_id}"
-    used_slugs.add(slug)
-
-    folder = TOOLS_DIR / slug
-    folder.mkdir(parents=True, exist_ok=True)
-
-    # Write tool.yaml with id field
-    tool_data = {k: v for k, v in data.items() if not k.startswith("_")}
-    tool_data["id"] = tool_id
-    with open(folder / "tool.yaml", "w") as f:
-        yaml.dump(tool_data, f, allow_unicode=True, default_flow_style=False)
-
-    # Remove old flat file
-    old_path = TOOLS_DIR / f"{tool_id}.yaml"
-    if old_path.exists():
-        old_path.unlink()
-
-    return slug, tool_id
 
 
 def load_workflows() -> dict[str, str]:

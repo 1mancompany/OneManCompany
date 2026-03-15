@@ -1104,13 +1104,13 @@ class TestCreateAgentRunner:
         from onemancompany.agents.base import BaseAgentRunner
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        manifest = agent_dir / "manifest.yaml"
-        manifest.write_text("runner:\n  module: custom_runner\n  class: CustomRunner\n")
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        vessel_yaml = vessel_dir / "vessel.yaml"
+        vessel_yaml.write_text("runner:\n  module: custom_runner\n  class_name: CustomRunner\n")
 
         # Create a Python file with a valid runner class
-        runner_py = agent_dir / "custom_runner.py"
+        runner_py = vessel_dir / "custom_runner.py"
         runner_py.write_text(
             "from onemancompany.agents.base import BaseAgentRunner\n"
             "class CustomRunner(BaseAgentRunner):\n"
@@ -1127,11 +1127,11 @@ class TestCreateAgentRunner:
         from onemancompany.agents import onboarding
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        manifest = agent_dir / "manifest.yaml"
-        manifest.write_text("runner:\n  module: bad_runner\n  class: Missing\n")
-        (agent_dir / "bad_runner.py").write_text("raise ImportError('broken')\n")
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        vessel_yaml = vessel_dir / "vessel.yaml"
+        vessel_yaml.write_text("runner:\n  module: bad_runner\n  class_name: Missing\n")
+        (vessel_dir / "bad_runner.py").write_text("raise ImportError('broken')\n")
 
         mock_employee_agent = MagicMock()
         with patch("onemancompany.agents.base.EmployeeAgent", return_value=mock_employee_agent):
@@ -1158,9 +1158,9 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text("runner:\n  module: x\n")
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text("runner:\n  module: x\n")
 
         hooks = _load_hooks_from_config(emp_dir)
         assert hooks == {}
@@ -1169,9 +1169,9 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text("hooks:\n  pre_task: fn\n")
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text("hooks:\n  pre_task: fn\n")
 
         hooks = _load_hooks_from_config(emp_dir)
         assert hooks == {}
@@ -1180,9 +1180,9 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text("hooks:\n  module: missing\n  pre_task: fn\n")
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text("hooks:\n  module: missing\n  pre_task: fn\n")
 
         hooks = _load_hooks_from_config(emp_dir)
         assert hooks == {}
@@ -1191,12 +1191,12 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text(
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text(
             "hooks:\n  module: my_hooks\n  pre_task: before\n  post_task: after\n"
         )
-        (agent_dir / "my_hooks.py").write_text(
+        (vessel_dir / "my_hooks.py").write_text(
             "def before(task): pass\n"
             "def after(task): pass\n"
         )
@@ -1211,12 +1211,12 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text(
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text(
             "hooks:\n  module: my_hooks\n  pre_task: not_a_fn\n"
         )
-        (agent_dir / "my_hooks.py").write_text("not_a_fn = 42\n")
+        (vessel_dir / "my_hooks.py").write_text("not_a_fn = 42\n")
 
         hooks = _load_hooks_from_config(emp_dir)
         assert "pre_task" not in hooks
@@ -1225,12 +1225,12 @@ class TestLoadHooksFromConfig:
         from onemancompany.agents.onboarding import _load_hooks_from_config
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text(
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text(
             "hooks:\n  module: broken_hooks\n  pre_task: fn\n"
         )
-        (agent_dir / "broken_hooks.py").write_text("raise RuntimeError('broken')\n")
+        (vessel_dir / "broken_hooks.py").write_text("raise RuntimeError('broken')\n")
 
         hooks = _load_hooks_from_config(emp_dir)
         assert hooks == {}
@@ -1254,12 +1254,12 @@ class TestRegisterEmployeeHooks:
         from onemancompany.agents import onboarding
 
         emp_dir = tmp_path / "emp"
-        agent_dir = emp_dir / "agent"
-        agent_dir.mkdir(parents=True)
-        (agent_dir / "manifest.yaml").write_text(
+        vessel_dir = emp_dir / "vessel"
+        vessel_dir.mkdir(parents=True)
+        (vessel_dir / "vessel.yaml").write_text(
             "hooks:\n  module: my_hooks\n  pre_task: before\n"
         )
-        (agent_dir / "my_hooks.py").write_text("def before(task): pass\n")
+        (vessel_dir / "my_hooks.py").write_text("def before(task): pass\n")
 
         mock_em = MagicMock()
         with patch("onemancompany.core.agent_loop.employee_manager", mock_em):
