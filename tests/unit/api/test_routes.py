@@ -1910,7 +1910,7 @@ class TestListNamedProjects:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.project_archive.list_named_projects", return_value=[{"id": "p1"}]):
+             patch("onemancompany.core.project_archive.list_projects", return_value=[{"id": "p1"}]):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/named")
@@ -2978,7 +2978,7 @@ class TestListNamedProjects:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.project_archive.list_named_projects", return_value=[{"id": "p1"}]):
+             patch("onemancompany.core.project_archive.list_projects", return_value=[{"id": "p1"}]):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/named")

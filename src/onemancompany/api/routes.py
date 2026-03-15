@@ -2726,9 +2726,9 @@ async def create_project_endpoint(body: dict) -> dict:
 
 @router.get("/api/projects/named")
 async def list_named_projects_endpoint() -> dict:
-    """List all named projects (v2)."""
-    from onemancompany.core.project_archive import list_named_projects
-    return {"projects": list_named_projects()}
+    """List all projects (v1 + v2)."""
+    from onemancompany.core.project_archive import list_projects
+    return {"projects": list_projects()}
 
 
 @router.get("/api/projects/named/{project_id}")

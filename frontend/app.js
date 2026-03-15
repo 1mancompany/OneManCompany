@@ -5436,11 +5436,15 @@ class AppController {
         panel.innerHTML = '';
         for (const p of projects) {
           const card = document.createElement('div');
-          const isActive = p.status === 'active';
+          const isActive = p.status === 'active' || p.status === 'in_progress';
           card.className = `project-panel-card ${isActive ? 'active' : 'archived'}`;
+          const displayName = p.name || p.task || p.project_id;
+          const meta = p.iteration_count != null
+            ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
+            : p.status;
           card.innerHTML = `
-            <div class="project-panel-name">${this._escHtml(p.name)}</div>
-            <div class="project-panel-meta">${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}</div>
+            <div class="project-panel-name">${this._escHtml(displayName)}</div>
+            <div class="project-panel-meta">${meta}</div>
           `;
           card.style.cursor = 'pointer';
           card.addEventListener('click', () => this._openProjectDetail(p.project_id));
