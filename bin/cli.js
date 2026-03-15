@@ -415,7 +415,7 @@ ${green("What gets installed automatically:")}
 
     // Wait for server to fully initialize before showing "ready" message
     // (frontend may be unresponsive if opened too early)
-    await new Promise((r) => setTimeout(r, 10000));
+    await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
       console.log(green("  ✓ OneManCompany is running!"));
