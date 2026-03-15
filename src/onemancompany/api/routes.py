@@ -1599,7 +1599,7 @@ async def abort_task(project_id: str) -> dict:
         tree_path = _Path(pdir) / "task_tree.yaml"
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=project_id)
-            for node in tree._nodes.values():
+            for node in tree.all_nodes():
                 if node.status not in ("accepted", "failed", "cancelled"):
                     # CEO abort — force status bypass for terminal override
                     node.status = TaskPhase.CANCELLED.value
@@ -3024,7 +3024,7 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
     if not path.exists():
         return []
     tree = get_tree(path, project_id=project_id)
-    nodes = list(tree._nodes.values())
+    nodes = tree.all_nodes()
 
     # Map TaskPhase statuses to kanban-compatible statuses
     status_map = {
@@ -3101,7 +3101,7 @@ def _tree_summary(project_id: str) -> dict | None:
     if not path.exists():
         return None
     tree = get_tree(path, project_id=project_id)
-    nodes = list(tree._nodes.values())
+    nodes = tree.all_nodes()
     if not nodes:
         return None
 
@@ -3237,7 +3237,7 @@ async def get_project_tree(project_id: str) -> dict:
 
     # Build employee info lookup
     employee_info: dict[str, dict] = {}
-    for node in tree._nodes.values():
+    for node in tree.all_nodes():
         eid = node.employee_id
         if eid and eid not in employee_info:
             if eid == CEO_ID:
@@ -3258,7 +3258,7 @@ async def get_project_tree(project_id: str) -> dict:
                     }
 
     nodes = []
-    for n in tree._nodes.values():
+    for n in tree.all_nodes():
         d = n.to_dict()
         d["description"] = n.description or n.description_preview or ""
         d["result"] = n.result or ""
@@ -5285,7 +5285,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
     # Recursively find all task_tree.yaml files under projects/
     for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
         tree = get_tree(tree_path)
-        for node in tree._nodes.values():
+        for node in tree.all_nodes():
             if node.node_type != "ceo_request":
                 continue
             if TaskPhase(node.status) in (TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.CANCELLED):
