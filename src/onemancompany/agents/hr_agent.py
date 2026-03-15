@@ -54,6 +54,7 @@ from onemancompany.core.config import (
 )
 from onemancompany.core import store as _store
 from onemancompany.core.layout import compute_layout
+from onemancompany.core.routine import run_performance_meeting
 from onemancompany.core.state import LEVEL_NAMES, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
@@ -312,6 +313,13 @@ class HRAgent(BaseAgentRunner):
                             {"id": emp_id, "score": score,
                              "history": perf_history},
                         )
+
+                        # Run performance feedback meeting
+                        feedback = review.get("feedback", "")
+                        try:
+                            await run_performance_meeting(emp_id, score, feedback)
+                        except Exception as e:
+                            logger.warning("Performance meeting failed for %s: %s", emp_id, e)
 
                         # PIP logic
                         pip = emp_data.get("pip")

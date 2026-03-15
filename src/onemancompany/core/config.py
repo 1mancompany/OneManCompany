@@ -79,7 +79,7 @@ SCORE_EXCELLENT = 3.75
 QUARTERS_FOR_PROMOTION = 3                     # consecutive excellent quarters
 MAX_PERFORMANCE_HISTORY = 3                    # quarters of history to keep
 PROBATION_TASKS = 2                            # tasks to complete during probation
-PIP_DEADLINE_QUARTERS = 1                      # quarters to resolve a PIP
+# PIP deadline enforced by auto-triggered review: employee hits TASKS_PER_QUARTER → HR review fires automatically
 
 # ---------------------------------------------------------------------------
 # Employee status

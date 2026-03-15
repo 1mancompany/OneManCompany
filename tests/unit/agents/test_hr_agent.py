@@ -1209,3 +1209,67 @@ class TestCheckPromotionsEdgeCases:
 
         assert emp.level == MAX_NORMAL_LEVEL
         assert len(activity_entries) == 0  # no promotion recorded
+
+
+# ---------------------------------------------------------------------------
+# HRAgent._apply_results — performance meeting called on review
+# ---------------------------------------------------------------------------
+
+class TestPerformanceMeetingOnReview:
+    def _setup(self, monkeypatch, emp):
+        from onemancompany.agents import hr_agent
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        cs.employees[emp.id] = emp
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(hr_agent, "company_state", cs)
+
+        agent = MagicMock()
+        agent._publish = AsyncMock()
+        agent.__class__ = hr_agent.HRAgent
+        return cs, agent
+
+    @pytest.mark.asyncio
+    async def test_performance_meeting_called_on_review(self, monkeypatch):
+        """Performance meeting should be called after each review."""
+        from onemancompany.agents import hr_agent
+
+        emp = _make_emp("00010", current_quarter_tasks=3)
+        cs, agent = self._setup(monkeypatch, emp)
+
+        output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.5, "feedback": "Good work"}]}\n```'
+        with patch("onemancompany.agents.hr_agent.run_performance_meeting", new_callable=AsyncMock) as mock_meeting:
+            await hr_agent.HRAgent._apply_results(agent, output)
+
+        mock_meeting.assert_called_once_with("00010", 3.5, "Good work")
+
+    @pytest.mark.asyncio
+    async def test_performance_meeting_called_on_pip_start(self, monkeypatch):
+        """Performance meeting should be called when PIP starts."""
+        from onemancompany.agents import hr_agent
+
+        emp = _make_emp("00010", current_quarter_tasks=3)
+        cs, agent = self._setup(monkeypatch, emp)
+
+        output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.25, "feedback": "Needs improvement"}]}\n```'
+        with patch("onemancompany.agents.hr_agent.run_performance_meeting", new_callable=AsyncMock) as mock_meeting:
+            await hr_agent.HRAgent._apply_results(agent, output)
+
+        mock_meeting.assert_called_once_with("00010", 3.25, "Needs improvement")
+        assert emp.pip is not None
+
+    @pytest.mark.asyncio
+    async def test_performance_meeting_exception_does_not_block(self, monkeypatch):
+        """If performance meeting fails, review should still complete."""
+        from onemancompany.agents import hr_agent
+
+        emp = _make_emp("00010", current_quarter_tasks=3)
+        cs, agent = self._setup(monkeypatch, emp)
+
+        output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.5, "feedback": "OK"}]}\n```'
+        with patch("onemancompany.agents.hr_agent.run_performance_meeting", new_callable=AsyncMock, side_effect=Exception("meeting fail")):
+            await hr_agent.HRAgent._apply_results(agent, output)
+
+        # Review should still be recorded despite meeting failure
+        assert emp.performance_history[-1]["score"] == 3.5

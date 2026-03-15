@@ -34,6 +34,7 @@ from onemancompany.core.config import (
     MEETING_REPORTS_DIR,
     STATUS_IDLE,
     STATUS_IN_MEETING,
+    TASKS_PER_QUARTER,
     load_workflows,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -962,6 +963,40 @@ async def _run_workflow(workflow: WorkflowDefinition, ctx: StepContext) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Auto-trigger HR review when employee hits TASKS_PER_QUARTER
+# ---------------------------------------------------------------------------
+
+def _auto_trigger_hr_review(employee_id: str) -> None:
+    """Push an HR review task when an employee reaches the quarterly task threshold."""
+    try:
+        from onemancompany.api.routes import _push_adhoc_task
+        emp_data = load_employee(employee_id)
+        if not emp_data:
+            return
+        from onemancompany.core.state import LEVEL_NAMES, make_title
+        perf = emp_data.get("performance_history", [])
+        hist_str = ", ".join(
+            f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
+        ) or "no history"
+        level = emp_data.get("level", 1)
+        info = (
+            f"- {emp_data.get('name', '')} (nickname: {emp_data.get('nickname', '')}, ID: {employee_id}, "
+            f"Title: {make_title(level, emp_data.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
+            f"Q tasks: {emp_data.get('current_quarter_tasks', 0)}/3, "
+            f"Performance history: [{hist_str}])"
+        )
+        review_task = (
+            f"Run a performance review for employee {employee_id} who has completed {TASKS_PER_QUARTER} tasks this quarter.\n\n"
+            f"Employee ready for review:\n{info}\n\n"
+            f"Give a score of 3.25, 3.5, or 3.75 based on their work quality."
+        )
+        _push_adhoc_task(HR_ID, review_task)
+        logger.info("Auto-triggered HR review for employee {}", employee_id)
+    except Exception as e:
+        logger.warning("Failed to auto-trigger HR review for {}: {}", employee_id, e)
+
+
+# ---------------------------------------------------------------------------
 # Public API — run_post_task_routine (refactored to be workflow-driven)
 # ---------------------------------------------------------------------------
 
@@ -1010,6 +1045,9 @@ async def run_post_task_routine(
                 "current_quarter_tasks": new_count,
                 "performance_history": perf_history,
             })
+            # Auto-trigger HR review when employee hits the quarterly threshold
+            if new_count >= TASKS_PER_QUARTER:
+                _auto_trigger_hr_review(pid)
 
     # Retrospective meeting requires 2+ people — solo tasks skip the meeting
     if len(participants) < 2:
