@@ -112,9 +112,13 @@ class ToolRegistry:
             return emp_data.get("role", "") in meta.allowed_roles
 
         if category == "asset":
-            if meta.allowed_users is None:
+            if meta.allowed_users is None and meta.allowed_roles is None:
                 return True
-            return employee_id in meta.allowed_users
+            if meta.allowed_users and employee_id in meta.allowed_users:
+                return True
+            if meta.allowed_roles and emp_data.get("role", "") in meta.allowed_roles:
+                return True
+            return False
 
         logger.warning("Unknown tool category %r for tool %s", category, meta.name)
         return False
@@ -177,10 +181,11 @@ class ToolRegistry:
                 logger.warning("Failed to import asset tool %s: %s", folder_name, exc)
                 continue
 
-            # Extract allowed_users from tool.yaml
+            # Extract allowed_users and allowed_roles from tool.yaml
             allowed_users = tool_conf.get("allowed_users")
+            allowed_roles = tool_conf.get("allowed_roles")
             # If key is present but value is empty list or null, treat as restricted-to-nobody
-            # If key is absent, allowed_users stays None (unrestricted)
+            # If key is absent, stays None (unrestricted)
 
             for attr_name in dir(mod):
                 attr = getattr(mod, attr_name)
@@ -189,6 +194,7 @@ class ToolRegistry:
                         name=attr.name,
                         category="asset",
                         allowed_users=allowed_users,
+                        allowed_roles=allowed_roles,
                         source="asset",
                     )
                     self.register(attr, meta)

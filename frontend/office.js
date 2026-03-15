@@ -75,6 +75,7 @@ class OfficeRenderer {
     this.animFrame = 0;
     this.hoverTile = null;
     this.particles = [];
+    this._avatarImages = {};  // Cache for employee avatar images
 
     // Handle high-DPI displays
     this._setupHiDPI();
@@ -216,8 +217,21 @@ class OfficeRenderer {
       this._spawnParticles(gx * TILE + 16, (gy + 3) * TILE, PALETTE.led1, 12);
     }
 
-    // Preload tool icons
+    // Preload tool icons and avatars
     this._preloadToolIcons();
+    this._preloadAvatars();
+  }
+
+  _preloadAvatars() {
+    for (const emp of (this.state.employees || [])) {
+      if (emp.id && !(emp.id in this._avatarImages)) {
+        const img = new Image();
+        img.src = `/api/employees/${emp.id}/avatar`;
+        img.onload = () => { this._avatarImages[emp.id] = img; };
+        img.onerror = () => { this._avatarImages[emp.id] = null; };
+        this._avatarImages[emp.id] = undefined;  // loading sentinel
+      }
+    }
   }
 
   _preloadToolIcons() {
@@ -594,24 +608,34 @@ class OfficeRenderer {
     // Body
     this._rect(bx + 4, by + 16, 16, 14, shirtColor);
 
-    // Head
-    this._rect(bx + 6, by + 6, 12, 12, PALETTE.skin[skinIdx]);
-
-    // Hair
-    this._rect(bx + 5, by + 4, 14, 5, PALETTE.hair[hairIdx]);
-
-    // Eyes
-    const blinkPhase = (this.animFrame + hash * 7) % 120;
-    if (blinkPhase > 3) {
-      this._rect(bx + 8, by + 10, 3, 3, '#111');
-      this._rect(bx + 14, by + 10, 3, 3, '#111');
-      // Eye highlights
-      this._rect(bx + 9, by + 10, 1, 1, '#fff');
-      this._rect(bx + 15, by + 10, 1, 1, '#fff');
+    // Head — use avatar if loaded, otherwise pixel face
+    const avatarImg = this._avatarImages?.[data.id];
+    if (avatarImg) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(bx + 12, by + 11, 7, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(avatarImg, bx + 5, by + 4, 14, 14);
+      ctx.restore();
     } else {
-      // Blink
-      this._rect(bx + 8, by + 11, 3, 1, '#111');
-      this._rect(bx + 14, by + 11, 3, 1, '#111');
+      this._rect(bx + 6, by + 6, 12, 12, PALETTE.skin[skinIdx]);
+
+      // Hair
+      this._rect(bx + 5, by + 4, 14, 5, PALETTE.hair[hairIdx]);
+
+      // Eyes
+      const blinkPhase = (this.animFrame + hash * 7) % 120;
+      if (blinkPhase > 3) {
+        this._rect(bx + 8, by + 10, 3, 3, '#111');
+        this._rect(bx + 14, by + 10, 3, 3, '#111');
+        // Eye highlights
+        this._rect(bx + 9, by + 10, 1, 1, '#fff');
+        this._rect(bx + 15, by + 10, 1, 1, '#fff');
+      } else {
+        // Blink
+        this._rect(bx + 8, by + 11, 3, 1, '#111');
+        this._rect(bx + 14, by + 11, 3, 1, '#111');
+      }
     }
 
     // CEO crown

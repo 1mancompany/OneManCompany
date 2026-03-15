@@ -3144,6 +3144,7 @@ async def get_project_tree(project_id: str) -> dict:
     tree = _load_project_tree_for_api(project_id)
     if tree is None:
         raise HTTPException(status_code=404, detail="Task tree not found")
+    tree.load_all_content()
 
     # Build employee info lookup
     employee_info: dict[str, dict] = {}
@@ -3170,6 +3171,8 @@ async def get_project_tree(project_id: str) -> dict:
     nodes = []
     for n in tree._nodes.values():
         d = n.to_dict()
+        d["description"] = n.description or n.description_preview or ""
+        d["result"] = n.result or ""
         # Compute dependency_status
         if n.depends_on:
             if n.status == "blocked":
@@ -3205,12 +3208,21 @@ async def upload_avatar(employee_id: str, request: Request) -> dict:
 
 @router.get("/api/employees/{employee_id}/avatar")
 async def get_avatar(employee_id: str):
-    """Serve an employee's avatar image."""
-    from onemancompany.core.config import EMPLOYEES_DIR
+    """Serve an employee's avatar image, falling back to default piggy."""
+    from onemancompany.core.config import EMPLOYEES_DIR, COMPANY_DIR
     avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
     if not avatar_path.exists():
-        raise HTTPException(status_code=404, detail="No avatar")
-    return FileResponse(avatar_path, media_type="image/png")
+        avatar_path = EMPLOYEES_DIR / employee_id / "avatar.jpg"
+    if not avatar_path.exists():
+        avatar_path = EMPLOYEES_DIR / employee_id / "avatar.jpeg"
+    if avatar_path.exists():
+        media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
+        return FileResponse(avatar_path, media_type=media)
+    # Fallback to default avatar
+    default = COMPANY_DIR / "human_resource" / "piggy.jpg"
+    if default.exists():
+        return FileResponse(default, media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="No avatar")
 
 
 @router.get("/api/employees/{employee_id}/projects")
@@ -4037,19 +4049,21 @@ async def batch_hire_candidates(body: dict) -> dict:
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
     # Dispatch COO task to assign departments and roles for new hires
-    hired_entries = [r for r in results if r["status"] == "hired"]
-    if hired_entries:
-        emp_lines = "\n".join(
-            f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}"
-            for r in hired_entries
-        )
-        _push_adhoc_task(
-            COO_ID,
-            f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
-            f"可选部门: Engineering, Design, Analytics, Marketing\n"
-            f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
-            f"{emp_lines}",
-        )
+    # Skip if COO already received a project-specific notification via _notify_coo_hire_ready
+    if not coo_ctx.get("project_id"):
+        hired_entries = [r for r in results if r["status"] == "hired"]
+        if hired_entries:
+            emp_lines = "\n".join(
+                f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}"
+                for r in hired_entries
+            )
+            _push_adhoc_task(
+                COO_ID,
+                f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
+                f"可选部门: Engineering, Design, Analytics, Marketing\n"
+                f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
+                f"{emp_lines}",
+            )
 
     return {"status": "ok", "count": len(hired_names), "results": results}
 

@@ -449,9 +449,10 @@ body {
 }
 
 .roster-avatar {
-  width: 24px;
-  height: 24px;
-  image-rendering: pixelated;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
 }
 
 .roster-info {
@@ -4194,6 +4195,7 @@ body {
     display: flex;
     height: 100%;
     gap: 0;
+    position: relative;
 }
 
 .project-tree-canvas {
@@ -4321,11 +4323,15 @@ body {
 /* Detail Drawer — only visible when a node is clicked */
 .project-tree-drawer {
     width: 280px;
-    flex-shrink: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
     overflow-y: auto;
     padding: 16px;
     background: #111;
     border-left: 1px solid var(--pixel-green-dim, #1a3a2a);
+    z-index: 10;
 }
 
 .project-tree-drawer.hidden {

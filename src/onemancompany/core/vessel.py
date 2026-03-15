@@ -200,7 +200,17 @@ def _trigger_dep_resolution(project_dir: str, tree, node) -> None:
             employee_manager._resolve_dependencies(tree, node, project_dir)
         )
     except RuntimeError:
-        logger.warning("No running event loop, skipping dep resolution for {}", node.id)
+        # Called from sync tool context (e.g. accept_child) — no event loop.
+        # Use the main loop via call_soon_threadsafe, same pattern as _schedule_next.
+        main_loop = getattr(employee_manager, "_event_loop", None)
+        if main_loop and not main_loop.is_closed():
+            main_loop.call_soon_threadsafe(
+                main_loop.create_task,
+                employee_manager._resolve_dependencies(tree, node, project_dir),
+            )
+            logger.info("Scheduled dep resolution for {} via call_soon_threadsafe", node.id)
+        else:
+            logger.warning("No event loop available for dep resolution of {}", node.id)
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -1589,6 +1599,8 @@ class EmployeeManager:
         non_review_children = [c for c in children if c.node_type != "review"]
         if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
             logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
+            if parent_node.status == TaskPhase.COMPLETED.value:
+                return  # Already completed (e.g. from a previous review cycle)
             if parent_node.status == TaskPhase.HOLDING.value:
                 parent_node.set_status(TaskPhase.PROCESSING)
             parent_node.set_status(TaskPhase.COMPLETED)

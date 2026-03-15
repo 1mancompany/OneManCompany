@@ -624,6 +624,8 @@ class AppController {
     const ceoCard = document.createElement('div');
     ceoCard.className = 'roster-card';
     ceoCard.innerHTML = `
+      <img class="roster-avatar" src="/api/employees/00001/avatar"
+           onerror="this.style.display='none'" />
       <div class="roster-info">
         <div class="roster-name" style="color: #ffd700;">👑 CEO (You)</div>
         <div class="roster-role"><span class="roster-empnum">#00001</span> Chief Executive Officer</div>
@@ -674,11 +676,14 @@ class AppController {
       const latestScore = hist.length > 0 ? hist[hist.length - 1].score : '-';
       const scoreClass = latestScore === 3.75 ? ' high' : latestScore === 3.25 ? ' low' : '';
       const qTasks = emp.current_quarter_tasks || 0;
+      const levelPrefix = emp.level ? `L${emp.level} ` : '';
       card.innerHTML = `
+        <img class="roster-avatar" src="/api/employees/${emp.id}/avatar"
+             onerror="this.style.display='none'" />
         <div class="roster-info">
-          <div class="roster-name">${roleIcon} ${emp.name} ${nn}${guidanceBadge}${remoteBadge}${probationBadge}${pipBadge}</div>
-          <div class="roster-role"><span class="roster-empnum">${empNum}</span> ${title} — ${(emp.skills || []).slice(0, 3).join(', ')}</div>
-          <div class="roster-quarter">Q Tasks: ${qTasks}/3</div>
+          <div class="roster-name">${roleIcon} ${levelPrefix}${emp.name} ${nn}${guidanceBadge}${remoteBadge}${probationBadge}${pipBadge}</div>
+          <div class="roster-role"><span class="roster-empnum">${empNum}</span> ${title}</div>
+          <div class="roster-quarter">${(emp.skills || []).slice(0, 3).join(', ') || `Q Tasks: ${qTasks}/3`}</div>
           ${listeningBadge}
         </div>
         <div class="roster-score${scoreClass}">${latestScore}</div>
