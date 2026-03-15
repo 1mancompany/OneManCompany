@@ -2417,8 +2417,7 @@ class AppController {
       <div style="display:flex;align-items:center;gap:4px;">
         <span style="font-size:6px;color:var(--pixel-yellow);min-width:45px;">Provider</span>
         <select id="emp-detail-provider" class="emp-model-select" style="flex:1;">
-          <option value="openrouter"${currentProvider === 'openrouter' ? ' selected' : ''}>OpenRouter</option>
-          <option value="anthropic"${currentProvider === 'anthropic' ? ' selected' : ''}>Anthropic</option>
+          <option value="">Loading...</option>
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
@@ -2431,29 +2430,49 @@ class AppController {
     `;
     container.appendChild(section);
 
+    // Populate provider dropdown from API
+    fetch('/api/auth/providers')
+      .then(r => r.json())
+      .then(groups => {
+        const providerSelect = document.getElementById('emp-detail-provider');
+        if (!providerSelect) return;
+        providerSelect.innerHTML = groups
+          .map(g => `<option value="${g.group_id}"${g.group_id === currentProvider ? ' selected' : ''}>${g.label}</option>`)
+          .join('');
+      });
+
     // Provider change handler
-    document.getElementById('emp-detail-provider').addEventListener('change', (e) => {
+    document.getElementById('emp-detail-provider').addEventListener('change', async (e) => {
       const provider = e.target.value;
       const saveBtn = document.getElementById('emp-model-save-btn');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Switching...';
-      fetch(`/api/employee/${empId}/provider`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_provider: provider }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) {
-            this.logEntry('SYSTEM', `Provider switch failed: ${data.error}`, 'system');
-          } else {
-            this.logEntry('CEO', `Switched to ${provider}`, 'ceo');
-            // Reload settings to reflect new provider
-            this._loadModelOrApiKeySection(empId);
-          }
-        })
-        .catch(err => this.logEntry('SYSTEM', `Switch failed: ${err.message}`, 'system'))
-        .finally(() => { saveBtn.disabled = false; saveBtn.textContent = 'Save'; });
+
+      try {
+        // For now, just apply the provider change (API key can be set separately)
+        const resp = await fetch('/api/auth/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scope: 'employee',
+            employee_id: empId,
+            choice: `${provider}-api-key`,
+            api_key: '',
+          }),
+        });
+        const data = await resp.json();
+        if (data.error) {
+          this.logEntry('SYSTEM', `Provider switch failed: ${data.error}`, 'system');
+        } else {
+          this.logEntry('CEO', `Switched to ${provider}`, 'ceo');
+          this._loadModelOrApiKeySection(empId);
+        }
+      } catch (err) {
+        this.logEntry('SYSTEM', `Switch failed: ${err.message}`, 'system');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
     });
 
     this._loadModelDropdown(empId, empData);
@@ -4075,62 +4094,46 @@ class AppController {
     const container = document.getElementById('api-settings-content');
     container.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:6px;">Loading...</div>';
     try {
-      const resp = await fetch('/api/settings/api');
-      const data = await resp.json();
-      const or = data.openrouter || {};
-      const ant = data.anthropic || {};
-      const tm = data.talent_market || {};
+      const [settingsResp, groupsResp] = await Promise.all([
+        fetch('/api/settings/api'),
+        fetch('/api/auth/providers'),
+      ]);
+      const settings = await settingsResp.json();
+      const groups = await groupsResp.json();
+      const tm = settings.talent_market || {};
 
-      // Fetch models for dropdown
-      let modelOptions = '';
-      let modelList = [];
-      try {
-        const mResp = await fetch('/api/models');
-        const mData = await mResp.json();
-        modelList = mData.models || [];
-      } catch { modelList = []; }
-      for (const m of modelList) {
-        const sel = m.id === or.default_model ? ' selected' : '';
-        modelOptions += `<option value="${m.id}"${sel}>${m.name || m.id}</option>`;
-      }
-      if (!modelOptions) {
-        modelOptions = `<option value="${or.default_model || ''}" selected>${or.default_model || '(none)'}</option>`;
-      }
+      let html = '';
+      // Dynamic LLM provider cards
+      for (const group of groups) {
+        const providerId = group.group_id;
+        const bodyId = `api-${providerId}-body`;
+        // Check if this provider has a key set from settings
+        const providerSettings = settings[providerId] || {};
+        const isConfigured = providerSettings.api_key_set || false;
 
-      container.innerHTML = `
-        <div class="api-provider-card">
-          <div class="api-card-header api-card-toggle" data-target="api-or-body">
-            <span class="api-status-dot ${or.api_key_set ? 'online' : 'offline'}"></span>
-            <span class="api-card-title">OpenRouter</span>
-            <span class="api-card-arrow">&#9660;</span>
-          </div>
-          <div id="api-or-body" class="api-card-body collapsed">
-            <label class="api-field-label">API Key</label>
-            <input type="password" id="api-or-key" class="api-key-input" placeholder="${or.api_key_set ? or.api_key_preview : 'sk-or-...'}" />
-            <label class="api-field-label">Base URL</label>
-            <input type="text" id="api-or-url" class="api-key-input" value="${this._escHtml(or.base_url || '')}" />
-            <label class="api-field-label">Default Model</label>
-            <select id="api-or-model" class="api-key-input">${modelOptions}</select>
-            <div class="api-card-actions">
-              <button class="pixel-btn small api-test-btn" onclick="app._testApiConnection('openrouter')">Test</button>
-              <button class="pixel-btn small" onclick="app._saveApiSettings('openrouter')">Save</button>
-              <span id="api-or-result" class="api-test-result"></span>
+        html += `
+          <div class="api-provider-card">
+            <div class="api-card-header api-card-toggle" data-target="${bodyId}">
+              <span class="api-status-dot ${isConfigured ? 'online' : 'offline'}"></span>
+              <span class="api-card-title">${group.label}</span>
+              <span class="api-card-hint" style="font-size:5.5px;color:var(--text-dim);margin-left:4px;">${group.hint}</span>
+              <span class="api-card-arrow">&#9660;</span>
+            </div>
+            <div id="${bodyId}" class="api-card-body collapsed">
+              <label class="api-field-label">API Key</label>
+              <input type="password" id="api-${providerId}-key" class="api-key-input" placeholder="${isConfigured ? '••••••••' : 'Enter API key...'}" />
+              <div class="api-card-actions">
+                <button class="pixel-btn small api-test-btn" onclick="app._testProviderKey('${providerId}')">Test</button>
+                <button class="pixel-btn small" onclick="app._saveProviderKey('${providerId}')">Save</button>
+                <span id="api-${providerId}-result" class="api-test-result"></span>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="api-provider-card">
-          <div class="api-card-header api-card-toggle" data-target="api-ant-body">
-            <span class="api-status-dot ${ant.api_key_set ? 'online' : 'offline'}"></span>
-            <span class="api-card-title">Anthropic</span>
-            <span class="api-card-arrow">&#9660;</span>
-          </div>
-          <div id="api-ant-body" class="api-card-body collapsed">
-            <div class="api-card-actions">
-              <button class="pixel-btn small" onclick="app._startCompanyOAuth()">OAuth Login</button>
-              <span class="api-field-label" style="margin-left:4px;">${ant.api_key_set ? '&#9989; Connected' : '&#10060; Not connected'}</span>
-            </div>
-          </div>
-        </div>
+        `;
+      }
+
+      // Talent Market card (unchanged)
+      html += `
         <div class="api-provider-card">
           <div class="api-card-header api-card-toggle" data-target="api-tm-body">
             <span class="api-status-dot ${tm.connected ? 'online' : (tm.mode === 'local' ? 'online' : 'offline')}"></span>
@@ -4155,6 +4158,8 @@ class AppController {
           </div>
         </div>
       `;
+
+      container.innerHTML = html;
       // Bind toggle for provider cards
       container.querySelectorAll('.api-card-toggle').forEach(hdr => {
         hdr.addEventListener('click', () => {
@@ -4171,59 +4176,86 @@ class AppController {
   }
 
   async _saveApiSettings(provider) {
-    const body = { provider };
-    if (provider === 'openrouter') {
-      const key = document.getElementById('api-or-key').value.trim();
-      const url = document.getElementById('api-or-url').value.trim();
-      const model = document.getElementById('api-or-model').value;
-      if (key) body.api_key = key;
-      if (url) body.base_url = url;
-      if (model) body.default_model = model;
-    } else if (provider === 'talent_market') {
-      body.mode = 'remote';
+    if (provider === 'talent_market') {
+      const body = { provider, mode: 'remote' };
       const key = document.getElementById('api-tm-key').value.trim();
       if (key) body.api_key = key;
-    } else {
-      const key = document.getElementById('api-ant-key').value.trim();
-      if (key) body.api_key = key;
-    }
-    try {
-      const resp = await fetch('/api/settings/api', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
-      if (data.status === 'updated') {
-        this._settingsLoaded = false;
-        this._renderApiSettings();
+      try {
+        const resp = await fetch('/api/settings/api', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (data.status === 'updated') {
+          this._settingsLoaded = false;
+          this._renderApiSettings();
+        }
+      } catch (e) {
+        console.error('Save API settings error:', e);
       }
-    } catch (e) {
-      console.error('Save API settings error:', e);
     }
   }
 
-  async _testApiConnection(provider) {
-    const resultEl = document.getElementById(provider === 'openrouter' ? 'api-or-result' : 'api-ant-result');
-    resultEl.textContent = '...';
-    resultEl.className = 'api-test-result';
+  async _saveProviderKey(providerId) {
+    const keyInput = document.getElementById(`api-${providerId}-key`);
+    const resultEl = document.getElementById(`api-${providerId}-result`);
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+    if (!apiKey) { if (resultEl) { resultEl.textContent = 'No key'; resultEl.className = 'api-test-result fail'; } return; }
+
     try {
-      const resp = await fetch('/api/settings/api/test', {
+      const resp = await fetch('/api/auth/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider }),
+        body: JSON.stringify({
+          scope: 'company',
+          choice: `${providerId}-api-key`,
+          api_key: apiKey,
+        }),
+      });
+      const data = await resp.json();
+      if (data.status === 'applied') {
+        if (resultEl) { resultEl.textContent = 'Saved'; resultEl.className = 'api-test-result success'; }
+        this._settingsLoaded = false;
+        this._renderApiSettings();
+      } else {
+        if (resultEl) { resultEl.textContent = data.error || 'Error'; resultEl.className = 'api-test-result fail'; }
+      }
+    } catch (e) {
+      if (resultEl) { resultEl.textContent = 'Error'; resultEl.className = 'api-test-result fail'; }
+    }
+  }
+
+  async _testProviderKey(providerId) {
+    const keyInput = document.getElementById(`api-${providerId}-key`);
+    const resultEl = document.getElementById(`api-${providerId}-result`);
+    if (resultEl) { resultEl.textContent = '...'; resultEl.className = 'api-test-result'; }
+
+    // Get the API key from input or use existing
+    const apiKey = keyInput ? keyInput.value.trim() : '';
+    if (!apiKey) {
+      if (resultEl) { resultEl.textContent = 'No key'; resultEl.className = 'api-test-result fail'; }
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: providerId,
+          api_key: apiKey,
+          model: 'test',  // minimal model name for probe
+        }),
       });
       const data = await resp.json();
       if (data.ok) {
-        resultEl.textContent = 'OK';
-        resultEl.classList.add('success');
+        if (resultEl) { resultEl.textContent = 'OK'; resultEl.className = 'api-test-result success'; }
       } else {
-        resultEl.textContent = 'FAIL';
-        resultEl.classList.add('fail');
+        if (resultEl) { resultEl.textContent = 'FAIL'; resultEl.className = 'api-test-result fail'; }
       }
     } catch (e) {
-      resultEl.textContent = 'ERR';
-      resultEl.classList.add('fail');
+      if (resultEl) { resultEl.textContent = 'ERR'; resultEl.className = 'api-test-result fail'; }
     }
   }
 
