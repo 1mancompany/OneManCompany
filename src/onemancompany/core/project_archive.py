@@ -221,6 +221,31 @@ def _load_v1_project(project_id: str) -> dict | None:
 # v2 Named Project CRUD
 # ─────────────────────────────────────────────
 
+def _auto_project_name(task: str) -> str:
+    """Generate a short project name from a task description.
+
+    Takes the first line, truncates to ~50 chars on a word boundary.
+    """
+    first_line = task.strip().split("\n")[0].strip()
+    if len(first_line) <= 50:
+        return first_line or "Untitled Project"
+    # Truncate at word boundary
+    truncated = first_line[:50].rsplit(" ", 1)[0]
+    return truncated or first_line[:50]
+
+
+def create_project_from_task(task: str, routed_to: str = "pending",
+                             participants: list[str] | None = None) -> tuple[str, str]:
+    """Create a v2 named project + first iteration from a task description.
+
+    Returns (project_id, iteration_id).
+    """
+    name = _auto_project_name(task)
+    project_id = create_named_project(name)
+    iter_id = create_iteration(project_id, task, routed_to)
+    return project_id, iter_id
+
+
 def create_named_project(name: str) -> str:
     """Create a persistent named project. Returns the project_id (slug)."""
     slug = _slugify(name)

@@ -559,8 +559,7 @@ async def ceo_submit_task(body: dict) -> dict:
     from onemancompany.core.project_archive import (
         create_iteration,
         create_named_project,
-        create_project,
-        get_project_dir,
+        create_project_from_task,
         get_project_workspace,
     )
 
@@ -575,22 +574,19 @@ async def ceo_submit_task(body: dict) -> dict:
     company_state.ceo_tasks.append(task)
     await _store.append_activity({"type": "ceo_task", "task": task})
 
-    iter_id = ""
     if project_id:
         # Continue an existing named project with a new iteration
         iter_id = create_iteration(project_id, task, "pending")
-        pdir = get_project_workspace(project_id)
         pid = project_id
     elif project_name:
         # Create a new named project + first iteration
-        project_id = create_named_project(project_name)
-        iter_id = create_iteration(project_id, task, "pending")
-        pdir = get_project_workspace(project_id)
-        pid = project_id
+        pid = create_named_project(project_name)
+        iter_id = create_iteration(pid, task, "pending")
     else:
-        # No project association — legacy one-shot project
-        pid = create_project(task, "pending", list(_load_all().keys()))
-        pdir = get_project_dir(pid)
+        # Auto-create named project from task description
+        pid, iter_id = create_project_from_task(task, "pending")
+
+    pdir = get_project_workspace(pid)
 
     await event_bus.publish(
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
