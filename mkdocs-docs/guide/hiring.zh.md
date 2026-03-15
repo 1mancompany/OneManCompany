@@ -4,7 +4,7 @@
 
 ## Talent Market
 
-[Talent Market](https://carbonkites.com) 是一个社区共建的 AI 员工包生态系统。每个 Talent 包含：
+[Talent Market](https://one-man-company.com) 是一个社区共建的 AI 员工包生态系统。每个 Talent 包含：
 
 - **技能** — 专业能力（React 开发、2D 美术、数据分析）
 - **知识** — 领域专长和最佳实践

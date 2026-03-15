@@ -413,8 +413,9 @@ ${green("What gets installed automatically:")}
     writePidFile(installDir, child.pid);
     child.unref();
 
-    // Wait a moment to check it didn't crash immediately
-    await new Promise((r) => setTimeout(r, 1500));
+    // Wait for server to fully initialize before showing "ready" message
+    // (frontend may be unresponsive if opened too early)
+    await new Promise((r) => setTimeout(r, 10000));
     if (isProcessRunning(child.pid)) {
       console.log();
       console.log(green("  ✓ OneManCompany is running!"));

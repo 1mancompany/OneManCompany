@@ -9,7 +9,7 @@
 <p align="center"><b>The AI Operating System for One-Person Companies</b></p>
 
 <p align="center">
-  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://carbonkites.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
+  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.
@@ -26,7 +26,7 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 📈 **Gets smarter with use**: *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
 
-🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://carbonkites.com)** of community-verified AI employees.
+🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://one-man-company.com)** of community-verified AI employees.
 
 ⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
 
@@ -419,7 +419,7 @@ If you use OneManCompany in your research or project, please cite it:
 
 ## Links
 
-**[Talent Market](https://carbonkites.com)** — Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
+**[Talent Market](https://one-man-company.com)** — Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
 
 **[Talent Template](https://github.com/1mancompany/talent-template)** — Template repo for building your own Talents
 

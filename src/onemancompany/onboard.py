@@ -358,15 +358,18 @@ def _step_optional(console: Console) -> dict[str, str]:
     if key.strip():
         extras["ANTHROPIC_API_KEY"] = key.strip()
 
-    key = Prompt.ask("  FastSkills MCP Key", default="", password=True, console=console)
+    console.print(
+        "  Get your SkillMarket API key at [link=https://one-man-company.com]https://one-man-company.com[/link]"
+    )
+    key = Prompt.ask("  SkillMarket API Key", default="", password=True, console=console)
     if key.strip():
         extras["SKILLSMP_API_KEY"] = key.strip()
 
     console.print(
         "  [bold yellow]★ Recommended[/bold yellow] Talent Market — hire community-verified AI employees\n"
-        "    Register at [link=https://carbonkites.com]https://carbonkites.com[/link] to get your API key"
+        "    Register at [link=https://one-man-company.com]https://one-man-company.com[/link] to get your API key"
     )
-    key = Prompt.ask("  Talent Market API Key", default="", password=True, console=console)
+    key = Prompt.ask("  Talent Market API Key (one-man-company.com)", default="", password=True, console=console)
     if key.strip():
         extras["TALENT_MARKET_API_KEY"] = key.strip()
 

@@ -4202,6 +4202,20 @@ class AppController {
         const providerSettings = settings[providerId] || {};
         const isConfigured = providerSettings.api_key_set || false;
 
+        // Anthropic: show Setup Token (OAuth) as primary, API Key as fallback
+        const hasSetupToken = group.choices && group.choices.some(c => c.auth_method === 'setup_token' && c.available);
+        const oauthSection = hasSetupToken ? `
+              <div style="margin-bottom:6px;">
+                <label class="api-field-label">Setup Token (Recommended)</label>
+                <div class="api-card-actions">
+                  <button class="pixel-btn small" onclick="app._startCompanyOAuth()">Authorize with Anthropic</button>
+                  <span id="api-${providerId}-oauth-result" class="api-test-result"></span>
+                </div>
+              </div>
+              <div style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px;">
+                <label class="api-field-label" style="font-size:5.5px;color:var(--text-dim);">Or use API Key directly</label>
+              </div>` : '';
+
         html += `
           <div class="api-provider-card">
             <div class="api-card-header api-card-toggle" data-target="${bodyId}">
@@ -4211,6 +4225,7 @@ class AppController {
               <span class="api-card-arrow">&#9660;</span>
             </div>
             <div id="${bodyId}" class="api-card-body collapsed">
+              ${oauthSection}
               <label class="api-field-label">API Key</label>
               <input type="password" id="api-${providerId}-key" class="api-key-input" placeholder="${isConfigured ? '••••••••' : 'Enter API key...'}" />
               <div class="api-card-actions">

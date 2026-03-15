@@ -4,7 +4,7 @@ Need more people? HR searches the Talent Market — a community-verified marketp
 
 ## The Talent Market
 
-The [Talent Market](https://carbonkites.com) is a community-built ecosystem of AI employee packages. Each Talent brings:
+The [Talent Market](https://one-man-company.com) is a community-built ecosystem of AI employee packages. Each Talent brings:
 
 - **Skills** — Specialized capabilities (React development, 2D art, data analysis)
 - **Knowledge** — Domain expertise and best practices

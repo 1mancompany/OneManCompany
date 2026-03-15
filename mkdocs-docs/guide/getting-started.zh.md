@@ -25,10 +25,10 @@ npx @1mancompany/onemancompany
 1. **OpenRouter API Key** — 必填。通过 LLM 驱动你的 AI 员工。前往 [openrouter.ai](https://openrouter.ai) 获取
 2. **默认模型** — 浏览并选择可用模型。每位员工之后可以单独分配不同的模型
 3. **服务器配置** — 主机和端口（默认：`0.0.0.0:8000`）
-4. **可选密钥** — Anthropic API key、FastSkills MCP key、Talent Market API key。没有的可以按 Enter 跳过
+4. **可选密钥** — Anthropic API key、SkillMarket API key、Talent Market API key。没有的可以按 Enter 跳过
 
 !!! tip "推荐注册 Talent Market"
-    在 [carbonkites.com](https://carbonkites.com) 注册以获取 Talent Market API key，这样你就可以雇佣社区验证过的 AI 员工。
+    在 [one-man-company.com](https://one-man-company.com) 注册以获取 Talent Market API key，这样你就可以雇佣社区验证过的 AI 员工。
 
 ## 你的第一次会话
 
