@@ -166,10 +166,10 @@ def dispatch_child(
                 return {
                     "status": "error",
                     "message": (
-                        f"EA不能直接分派任务给 {employee_id}。"
-                        f"请改为 dispatch_child 给对应O-level负责人: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID})。"
-                        f"提示：开发/设计/运营任务请dispatch给{suggestion}，由其组织团队执行。"
-                        f"请立即用正确的employee_id重新调用dispatch_child。"
+                        f"EA cannot directly dispatch tasks to {employee_id}. "
+                        f"Please dispatch_child to the corresponding O-level executive instead: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID}). "
+                        f"Hint: for development/design/operations tasks, dispatch to {suggestion} to organize team execution. "
+                        f"Please immediately re-call dispatch_child with the correct employee_id."
                     ),
                 }
 
@@ -179,7 +179,7 @@ def dispatch_child(
         if len(active_children) >= MAX_CHILDREN_PER_NODE:
             return {
                 "status": "error",
-                "message": f"已达子任务上限 ({MAX_CHILDREN_PER_NODE})，请整合现有任务或向上汇报。",
+                "message": f"Child task limit reached ({MAX_CHILDREN_PER_NODE}). Please consolidate existing tasks or escalate.",
             }
 
         # --- Circuit breaker: tree depth limit ---
@@ -193,7 +193,7 @@ def dispatch_child(
         if depth + 1 >= MAX_TREE_DEPTH:
             return {
                 "status": "error",
-                "message": f"任务树已达最大深度 ({MAX_TREE_DEPTH})，无法继续下派，请直接完成或向上汇报。",
+                "message": f"Task tree has reached maximum depth ({MAX_TREE_DEPTH}). Cannot dispatch further. Please complete directly or escalate.",
             }
 
         # Normalize depends_on
@@ -379,9 +379,9 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
             node.set_status(TaskPhase.PENDING)
             node.result = ""
             node.description = (
-                f"修正任务: {node.description}\n\n"
-                f"拒绝原因: {reason}\n\n"
-                f"验收标准:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
+                f"Correction task: {node.description}\n\n"
+                f"Rejection reason: {reason}\n\n"
+                f"Acceptance criteria:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
             )
             _save_tree(project_dir, tree)
 

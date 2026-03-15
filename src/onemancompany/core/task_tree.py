@@ -241,6 +241,10 @@ class TaskTree:
         self._nodes[child.id] = child
         return child
 
+    def all_nodes(self) -> list[TaskNode]:
+        """Return all nodes in the tree."""
+        return list(self._nodes.values())
+
     def get_node(self, node_id: str) -> TaskNode | None:
         return self._nodes.get(node_id)
 

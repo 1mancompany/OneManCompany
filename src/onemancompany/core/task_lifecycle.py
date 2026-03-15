@@ -130,15 +130,15 @@ Every task in the system follows this state machine:
 
 | State | Meaning |
 |-------|---------|
-| pending | 已创建，等待处理 |
-| processing | 正在被某员工执行 |
-| holding | 等待子任务完成或外部输入 |
-| completed | 员工完成执行，等待上级审核 |
-| accepted | 上级审核通过 |
-| finished | 全部完成，已归档 |
-| failed | 执行失败或审核驳回 |
-| blocked | 依赖任务失败，无法继续 |
-| cancelled | 已取消 |
+| pending | Created, waiting to be processed |
+| processing | Actively being executed by an employee |
+| holding | Waiting for subtasks to complete or external input |
+| completed | Employee finished execution, awaiting supervisor review |
+| accepted | Supervisor approved the deliverable |
+| finished | Fully done, archived |
+| failed | Execution failed or supervisor rejected |
+| blocked | Dependency task failed, cannot proceed |
+| cancelled | Cancelled |
 
 State flow:
   pending → processing → completed → accepted → finished
@@ -151,8 +151,8 @@ Key distinctions:
 - Only accepted/finished unblock downstream dependent tasks
 
 Task tree model:
-- 父任务通过 dispatch_child() 分发子任务给员工
-- 子任务完成后，系统自动唤醒父任务进行审核
-- 父任务通过 accept_child() / reject_child() 审核每个子任务
-- 全部子任务通过 → 父任务自动完成并向上汇报
+- Parent tasks dispatch subtasks to employees via dispatch_child()
+- When a subtask completes, the system automatically wakes the parent task for review
+- Parent tasks review each subtask via accept_child() / reject_child()
+- All subtasks accepted → parent task auto-completes and reports upward
 """

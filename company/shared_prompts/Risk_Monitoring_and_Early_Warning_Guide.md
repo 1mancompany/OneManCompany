@@ -1,60 +1,60 @@
-# 项目风险监控与预警操作指南（面向EA及管理人员）
+# Project Risk Monitoring and Early Warning Operations Guide (For EA and Management)
 
-## 一、 目标与适用范围
-本指南旨在帮助EA（Executive Assistant）及相关管理人员（如COO、CSO等）在项目跟进与验收环节，快速、准确地审查错误日志，识别工程师的系统性报错及技术卡点，并建立有效的预警与阻碍清除机制，防止项目因技术问题陷入死循环或停滞。
-适用范围：所有软件开发、迭代交付及涉及代码产出的项目验收流程。
+## 1. Objectives and Scope
+This guide aims to help the EA (Executive Assistant) and relevant management personnel (such as COO, CSO, etc.) quickly and accurately review error logs during project follow-up and acceptance, identify engineers' systematic errors and technical blockers, and establish effective early warning and blocker removal mechanisms to prevent projects from falling into infinite loops or stagnation due to technical issues.
+Applicable scope: All software development, iterative delivery, and project acceptance processes involving code output.
 
-## 二、 核心审查环节与操作步骤
+## 2. Core Review Steps and Operating Procedures
 
-### 1. 验收前的基础审查（防微杜渐）
-在工程师提交交付物（如提出验收请求或更新项目状态为 `completed`）时，管理人员需进行第一道审查。
-*   **核对交付物清单与路径：**
-    *   **操作：** 检查实际交付文件是否存放在项目规定的 `workspace` 目录下。
-    *   **预警信号：** 文件存放在旧目录、临时目录（如 `/tmp`）或默认根目录。
-    *   **应对：** 立即驳回，并明确指出正确的存放路径。
-*   **审查输出信息完整性：**
-    *   **操作：** 检查任务输出（`output`）和详细日志（`detail`）是否被截断（如以奇怪的字符结尾或句子未完成）。
-    *   **预警信号：** 文本截断，表明系统在生成日志时可能遇到了长度限制（Token超限）或内部错误。
-    *   **应对：** 要求提交人（或工程师）补充完整信息，并核查是否触发了Token限制（如 `Error code: 402`）。
+### 1. Pre-Acceptance Basic Review (Prevention)
+When an engineer submits deliverables (e.g., submits an acceptance request or updates project status to `completed`), management must perform the first round of review.
+*   **Verify deliverable list and paths:**
+    *   **Action:** Check whether actual deliverable files are stored in the project's designated `workspace` directory.
+    *   **Warning signal:** Files stored in old directories, temporary directories (e.g., `/tmp`), or default root directories.
+    *   **Response:** Immediately reject and clearly indicate the correct storage path.
+*   **Review output information completeness:**
+    *   **Action:** Check whether task output (`output`) and detailed logs (`detail`) are truncated (e.g., ending with strange characters or incomplete sentences).
+    *   **Warning signal:** Text truncation indicates the system may have encountered length limits (token exceeded) or internal errors during log generation.
+    *   **Response:** Require the submitter (or engineer) to provide complete information and check whether token limits were triggered (e.g., `Error code: 402`).
 
-### 2. 错误日志深度审查（识别系统性问题）
-当项目被驳回或工程师反馈遇到问题时，需深入审查日志。
-*   **操作：** 查看项目时间线（`timeline`）或任务执行日志，重点关注 `Error`、`Exception`、`Failed` 等关键字。
-*   **常见系统性报错及预警信号：**
-    *   **递归失败/死循环：**
-        *   **信号：** 同一个任务或子任务被反复派发（如连续多次派发相同的“文件路径错误”整改任务），且工程师的回复雷同或陷入“修改-失败-再修改-再失败”的循环。
-        *   **示例：** `iter_002` 项目中，EA反复驳回路径错误，工程师反复说明已迁移，但元数据（如 `status`）未更新导致循环。
-    *   **构建/依赖连环失败：**
-        *   **信号：** 日志中频繁出现 `ModuleNotFoundError`、`ImportError`、`Build failed`，且在一次修复后紧接着出现另一个依赖报错。
-    *   **运行崩溃（Runtime Crash）：**
-        *   **信号：** 日志中出现 `Segmentation fault`、`Out of memory`、`Connection refused` 等严重系统级错误。
-    *   **资源/权限受限：**
-        *   **信号：** 出现 `Error code: 402`（费用/Token不足）、`Permission denied`（无权访问文件或目录）。
+### 2. Deep Error Log Review (Identifying Systematic Issues)
+When a project is rejected or an engineer reports encountering issues, logs must be thoroughly reviewed.
+*   **Action:** Review the project timeline (`timeline`) or task execution logs, focusing on keywords like `Error`, `Exception`, `Failed`.
+*   **Common systematic errors and warning signals:**
+    *   **Recursion failure/infinite loop:**
+        *   **Signal:** The same task or subtask is dispatched repeatedly (e.g., the same "file path error" remediation task dispatched multiple times), and the engineer's responses are identical or fall into a "fix-fail-fix again-fail again" cycle.
+        *   **Example:** In the `iter_002` project, EA repeatedly rejected path errors, the engineer repeatedly claimed migration was done, but metadata (e.g., `status`) was not updated, causing a loop.
+    *   **Build/dependency cascading failures:**
+        *   **Signal:** Logs frequently show `ModuleNotFoundError`, `ImportError`, `Build failed`, and fixing one issue immediately triggers another dependency error.
+    *   **Runtime crash:**
+        *   **Signal:** Logs show `Segmentation fault`, `Out of memory`, `Connection refused`, or other severe system-level errors.
+    *   **Resource/permission restrictions:**
+        *   **Signal:** `Error code: 402` (insufficient funds/tokens), `Permission denied` (no access to files or directories).
 
-### 3. 技术卡点识别与阻碍清除
-*   **识别卡点：** 当上述预警信号出现超过 **2次**，或导致项目停滞超过预期时间（如半天），即认定为“技术卡点”。
-*   **阻碍清除机制：**
-    1.  **暂停自动流转：** 立即停止自动化派发任务，防止机器循环消耗资源。
-    2.  **人工介入诊断：** 管理人员（如COO）需亲自介入，不仅看工程师的“自评”或“回复”，必须深入查看底层配置文件（如 `project.yaml`、`iterations.yaml`）和实际文件系统。
-    3.  **寻找根本原因（Root Cause）：** 区分是“文件真的没放对”还是“系统元数据未更新”（如 `status: in_progress` 导致不断重试）。
-    4.  **强制干预：** 允许或授权工程师修改系统元数据（在确保实际工作已完成的前提下），或由管理人员手动更新状态以打破循环。
+### 3. Technical Blocker Identification and Removal
+*   **Identifying blockers:** When the above warning signals appear more than **2 times**, or cause the project to stagnate beyond the expected duration (e.g., half a day), it is classified as a "technical blocker."
+*   **Blocker removal mechanism:**
+    1.  **Pause automatic flow:** Immediately stop automated task dispatch to prevent machine loops from consuming resources.
+    2.  **Manual intervention and diagnosis:** Management (e.g., COO) must personally intervene, not just reviewing the engineer's "self-assessment" or "response" but delving into underlying configuration files (e.g., `project.yaml`, `iterations.yaml`) and the actual file system.
+    3.  **Find the root cause:** Distinguish between "files genuinely misplaced" vs. "system metadata not updated" (e.g., `status: in_progress` causing continuous retries).
+    4.  **Forced intervention:** Allow or authorize the engineer to modify system metadata (provided actual work is confirmed complete), or have management manually update the status to break the loop.
 
-## 三、 预警分级与升级路径
+## 3. Warning Level Classification and Escalation Path
 
-| 预警级别 | 触发条件 | 响应动作 | 升级路径 |
+| Warning Level | Trigger Condition | Response Action | Escalation Path |
 | :--- | :--- | :--- | :--- |
-| **低（L1）** | 单次交付物路径错误、偶发编译报错、日志轻微截断。 | 在任务评论中指出问题，要求工程师整改。 | 若同一问题重复2次，升级为中级。 |
-| **中（L2）** | 任务陷入死循环（如重复派发3次以上）、频繁依赖报错、Token受限（如402错误）。 | 暂停自动流转，管理人员人工介入审查日志，定位卡点。 | 若卡点涉及底层系统配置或长时间无法解决，升级为高级。 |
-| **高（L3）** | 系统性崩溃、严重权限问题、项目因技术卡点完全停滞。 | 立即通报CEO，召开紧急技术会议，可能需要修改底层框架或追加预算。 | 记录入重大风险库，事后复盘。 |
+| **Low (L1)** | Single deliverable path error, occasional compilation error, minor log truncation. | Point out the issue in task comments, require engineer to remediate. | If the same issue repeats 2 times, escalate to Medium. |
+| **Medium (L2)** | Task falls into infinite loop (e.g., dispatched 3+ times), frequent dependency errors, token restrictions (e.g., 402 error). | Pause automatic flow, management manually reviews logs, locates blocker. | If blocker involves underlying system configuration or cannot be resolved for an extended period, escalate to High. |
+| **High (L3)** | Systematic crash, severe permission issues, project completely stalled due to technical blocker. | Immediately notify CEO, convene emergency technical meeting, may need to modify underlying framework or add budget. | Record in critical risk registry, conduct post-mortem review. |
 
-## 四、 案例复盘：愤怒的小鸟（iter_002）死循环事件
-*   **现象：** EA反复驳回项目，理由是文件存放路径错误；工程师多次回复已迁移文件，但任务仍不断被重新派发。
-*   **审查盲区：** EA和COO仅依赖表面的路径检查逻辑，未深入核查项目元数据（`project.yaml` 或 `iterations.yaml`）。
-*   **根本原因：** 实际文件已迁移至正确目录，但驱动验收循环的底层 YAML 文件中，`status` 仍为 `in_progress`，`output` 为空，导致系统判定任务未完成。
-*   **正确操作：** 在发现重复派发（预警信号：递归失败）后，管理人员应立即介入，核实文件系统发现文件已就位后，检查 YAML 配置，并授权工程师更新 `status: completed` 和 `output`，从而打破循环。
+## 4. Case Review: Angry Birds (iter_002) Infinite Loop Incident
+*   **Symptom:** EA repeatedly rejected the project, citing incorrect file storage paths; the engineer replied multiple times that files had been migrated, but the task kept being re-dispatched.
+*   **Review blind spot:** EA and COO relied solely on surface-level path checking logic without deeply verifying project metadata (`project.yaml` or `iterations.yaml`).
+*   **Root cause:** Files had actually been migrated to the correct directory, but in the underlying YAML file driving the acceptance loop, `status` remained `in_progress` and `output` was empty, causing the system to determine the task was incomplete.
+*   **Correct action:** After discovering repeated dispatch (warning signal: recursion failure), management should have immediately intervened, verified the file system to find files were in place, checked the YAML configuration, and authorized the engineer to update `status: completed` and `output` to break the loop.
 
-## 五、 归档与执行要求
-1.  本指南自发布之日起生效，所有新项目验收必须严格遵循本指南进行基础审查和日志深度审查。
-2.  EA（Pat）需在每次验收前，明确执行“防截断”和“防死循环”检查。
-3.  COO（Alex）及其他管理人员需对L2及以上预警负首要介入责任。
-4.  本培训记录及指南文件将归档至公司共享知识库或项目管理规范目录，作为后续考核依据。
+## 5. Archiving and Enforcement Requirements
+1.  This guide takes effect from the date of publication. All new project acceptances must strictly follow this guide for basic review and deep log review.
+2.  EA (Pat) must explicitly perform "anti-truncation" and "anti-infinite-loop" checks before each acceptance.
+3.  COO (Alex) and other management personnel bear primary responsibility for intervening on L2 and above warnings.
+4.  This training record and guide document will be archived in the company's shared knowledge base or project management standards directory as a basis for future evaluations.

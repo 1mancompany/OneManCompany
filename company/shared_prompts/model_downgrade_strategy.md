@@ -1,3 +1,3 @@
-# 模型降级调度策略
+# Model Downgrade Scheduling Strategy
 
-针对单一文件写入、基础HTML框架搭建等简单子任务，应调度更低成本的轻量级模型执行（如指定使用基础模型而非高级推理模型），以优化资源利用率并降低运营成本。
+For simple subtasks such as single-file writes and basic HTML framework scaffolding, a lower-cost lightweight model should be scheduled for execution (e.g., specifying a basic model instead of an advanced reasoning model) to optimize resource utilization and reduce operational costs.

@@ -138,7 +138,7 @@ class ConversationSession:
                 try:
                     summary = await _build_agent_and_invoke(
                         self.employee_id,
-                        "请用一段话总结这次对话的结果，作为任务完成报告。",
+                        "Please summarize the result of this conversation in one paragraph as a task completion report.",
                         history,
                     )
                 except Exception as e:

@@ -1,6 +1,6 @@
 id: general-assistant
 name: General AI Assistant
-description: 通用AI助手，具备文件操作和Shell命令能力，适合研究、写作、代码分析等日常任务。
+description: General-purpose AI assistant with file operations and shell command capabilities. Suitable for research, writing, code analysis, and everyday tasks.
 role: Assistant
 agent_family: omctalent
 remote: false

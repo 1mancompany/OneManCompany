@@ -518,7 +518,7 @@ async def pull_meeting(
             ]
 
             if not willing:
-                await _chat(room.id, "会议系统", "system", "所有人已表达完毕，会议结束。")
+                await _chat(room.id, "Meeting System", "system", "All participants have finished speaking. Meeting concluded.")
                 break
 
             # Token grab — sort by timestamp, fastest wins
@@ -545,7 +545,7 @@ async def pull_meeting(
             })
         else:
             # max_rounds reached
-            await _chat(room.id, "会议系统", "system", "会议已达最大轮次，自动结束。")
+            await _chat(room.id, "Meeting System", "system", "Meeting has reached the maximum number of rounds. Auto-concluded.")
 
         # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(

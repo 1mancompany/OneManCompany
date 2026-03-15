@@ -73,7 +73,7 @@ class HireRequest(BaseModel):
     """Request to hire a candidate from a shortlist batch."""
     batch_id: str = Field(description="Batch ID from the shortlist")
     candidate_id: str = Field(description="ID of the selected candidate")
-    nickname: str = Field(default="", description="Optional 花名")
+    nickname: str = Field(default="", description="Optional nickname")
 
 
 class InterviewRequest(BaseModel):

@@ -668,9 +668,9 @@ class BaseAgentRunner:
         if not direction:
             return ""
         return (
-            f"\n\n## Company Direction (公司战略方向)\n"
+            f"\n\n## Company Direction\n"
             f"{direction}\n"
-            f"所有工作应围绕公司方向展开，确保产出与公司战略一致。\n"
+            f"All work should align with the company direction, ensuring output is consistent with company strategy.\n"
         )
 
     def _get_soul_section(self) -> str:
@@ -804,7 +804,7 @@ class EmployeeAgent(BaseAgentRunner):
                       .replace("{level}", str(emp_level)))
         else:
             header = (
-                f"You are {emp_name} (花名: {emp_nickname}), "
+                f"You are {emp_name} (nickname: {emp_nickname}), "
                 f"a {emp_role} in {emp_dept} (Lv.{emp_level}).\n"
                 f"Follow instructions from your managers, complete tasks thoroughly, "
                 f"and collaborate with colleagues when needed.\n"

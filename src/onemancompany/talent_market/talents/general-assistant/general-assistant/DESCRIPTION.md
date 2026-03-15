@@ -1,6 +1,6 @@
 # General AI Assistant
 
-通用 AI 助手 / General-purpose AI Assistant
+General-purpose AI Assistant
 
 ## Overview
 

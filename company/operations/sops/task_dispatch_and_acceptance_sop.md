@@ -1,20 +1,20 @@
-# 任务分派与验收标准操作流程 (SOP)
+# Task Dispatch and Acceptance Standard Operating Procedure (SOP)
 
-## 1. 任务分派规范
-- 必须在任务描述中明确指定工作区的**绝对路径**。
-- 明确说明文件保存的目录结构要求。
-- **工具使用要求**：任务描述中若涉及可通过系统工具完成的操作（如邮件、日历、文件保存），须明确要求执行人调用对应工具产出实质性产物，不接受纯文本描述替代。
+## 1. Task Dispatch Standards
+- The task description must clearly specify the **absolute path** of the workspace.
+- Clearly state the directory structure requirements for file storage.
+- **Tool usage requirements**: If the task description involves operations that can be completed using system tools (e.g., email, calendar, file saving), the assignee must be explicitly required to invoke the corresponding tool and produce tangible artifacts. Pure text descriptions are not accepted as substitutes.
 
-## 2. 项目验收规范
-- **禁止云验收**：必须通过读取真实文件或执行命令行（如 `ls` / `pwd`）核对交付物。
-- **交叉验证**：强制要求附带文件树结构或物理运行日志进行验证。
-- 必须核实每个验收标准是否在指定路径下真实落盘且可运行。
-- **工具产物验证**：涉及系统工具操作的任务，验收时须确认工具已被实际调用并产出真实产物（如邮件草稿ID、日历事件链接、文件路径），纯文本展示不视为完成。
+## 2. Project Acceptance Standards
+- **No cloud-based acceptance**: Deliverables must be verified by reading actual files or executing command-line operations (e.g., `ls` / `pwd`).
+- **Cross-validation**: File tree structures or physical execution logs must be attached for verification.
+- Each acceptance criterion must be verified as actually persisted and executable at the specified path.
+- **Tool artifact verification**: For tasks involving system tool operations, acceptance must confirm that the tool was actually invoked and produced real artifacts (e.g., email draft ID, calendar event link, file path). Pure text displays are not considered complete.
 
-## 3. 系统级验证凭证要求
-任务下发阶段须明确要求执行者在交付时提供以下至少一项系统级凭证：
-- **API响应回执**：工具调用返回的ID、状态码或确认信息（如 Gmail Draft ID、Calendar Event ID）
-- **草稿/预览链接**：系统生成的可访问链接（如邮件草稿链接、文档预览URL）
-- **系统状态快照**：工具执行后的状态截图或日志片段（如文件列表、命令输出）
+## 3. System-Level Verification Credential Requirements
+During the task dispatch phase, assignees must be explicitly required to provide at least one of the following system-level credentials upon delivery:
+- **API response receipt**: ID, status code, or confirmation returned by the tool call (e.g., Gmail Draft ID, Calendar Event ID)
+- **Draft/preview link**: A system-generated accessible link (e.g., email draft link, document preview URL)
+- **System state snapshot**: Screenshot or log fragment of the tool state after execution (e.g., file listing, command output)
 
-验收方在收到交付时，须核验上述凭证的真实性，不接受无凭证的口头/文本声明。
+The reviewer must verify the authenticity of the above credentials upon receipt of deliverables. Verbal/text claims without credentials are not accepted.

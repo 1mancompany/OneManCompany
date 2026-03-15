@@ -1,62 +1,62 @@
-# 《反云验收与实事求是交付规范》专项培训材料 v1
+# Anti-Cloud Acceptance and Evidence-Based Delivery Standards — Training Material v1
 
-## 1. 培训材料：PPT大纲与讲义
+## 1. Training Material: Slide Outline and Lecture Notes
 
-### 第一部分：核心价值观重塑（实事求是）
-- **痛点直击**：什么是“云验收”？（即不打开文件、不真实运行，仅凭汇报或臆想直接通过验收的敷衍行为）。
-- **严重后果**：导致虚假交付、技术卡点被掩盖、项目严重停滞。
-- **核心要求**：必须进行“物理验证”，所见即所得。
+### Part 1: Core Values Reinforcement (Evidence-Based Approach)
+- **Pain Point**: What is "cloud acceptance"? (i.e., the negligent practice of passing acceptance without opening files or actually running them, based solely on reports or assumptions.)
+- **Severe Consequences**: Leads to false deliveries, concealed technical blockers, and severe project stagnation.
+- **Core Requirement**: "Physical verification" must be performed — what you see is what you get.
 
-### 第二部分：“验收证据清单”与违规红线
-**验收证据清单（每次验收必须留存）**：
-1. **工作区真实路径**：确认产出文件真实存在于项目 workspace 中，而非虚假路径。
-2. **运行截图/录屏**：必须提供代码/产品的真实运行画面。
-3. **关键日志**：提供无报错的运行日志截图或文本。
-4. **版本号与变更记录**：明确当前验收的交付物版本。
+### Part 2: "Acceptance Evidence Checklist" and Violation Red Lines
+**Acceptance Evidence Checklist (must be retained for every acceptance)**:
+1. **Actual workspace path**: Confirm output files actually exist in the project workspace, not at a fabricated path.
+2. **Runtime screenshot/recording**: Must provide actual runtime visuals of the code/product.
+3. **Key logs**: Provide screenshot or text of error-free runtime logs.
+4. **Version number and change records**: Clearly identify the deliverable version being accepted.
 
-**违规红线（触犯即淘汰）**：
-- ❌ 编造虚假的工作区路径或文件链接。
-- ❌ 未经本地或沙盒真实运行验证，直接通过项目验收。
-- ❌ 对明显的系统性报错（如递归超限）视而不见，强行通过。
+**Violation Red Lines (violation means elimination)**:
+- Fabricating false workspace paths or file links.
+- Passing project acceptance without actual local or sandbox runtime verification.
+- Ignoring obvious systematic errors (e.g., recursion limit exceeded) and forcing acceptance.
 
-### 第三部分：案例演练
-**场景**：工程师汇报已完成“愤怒的小鸟”游戏开发，并附上路径 `/Users/fake_path/index.html`，但无运行截图。
-**演练动作**：
-1. **错误做法**：直接回复“验收通过，干得好”。
-2. **正确做法**：
-   - 检查路径：发现路径不在项目标准 workspace 内，判定为路径造假。
-   - 要求出示运行截图和日志。
-   - 驳回验收，并触发违规警告程序。
+### Part 3: Case Exercise
+**Scenario**: An engineer reports completing "Angry Birds" game development and provides the path `/Users/fake_path/index.html`, but no runtime screenshot.
+**Exercise Actions**:
+1. **Wrong approach**: Reply "acceptance passed, great job."
+2. **Correct approach**:
+   - Check path: Discover the path is not in the project's standard workspace, determine path fabrication.
+   - Request runtime screenshots and logs.
+   - Reject acceptance and trigger the violation warning procedure.
 
-### 第四部分：测验题（节选）
-1. （单选）当工程师提交验收申请但未附带运行截图时，你应该？
-   A. 相信他的技术，直接通过
-   B. 驳回，要求提供“验收证据清单”中的所有项
-   C. 自己帮他写代码
-   *答案：B*
-2. （判断）只要代码没有语法错误，就可以不运行直接验收通过。（错）
+### Part 4: Quiz Questions (Excerpts)
+1. (Multiple choice) When an engineer submits an acceptance request without runtime screenshots, you should:
+   A. Trust their technical skills and pass directly
+   B. Reject and require all items from the "Acceptance Evidence Checklist"
+   C. Write the code for them yourself
+   *Answer: B*
+2. (True/False) As long as code has no syntax errors, it can pass acceptance without being run. (False)
 
-### 第五部分：签到表模板
-| 姓名 | 部门 | 职务 | 签到时间 | 签名确认（承诺坚守实事求是原则） |
-|------|------|------|----------|----------------------------------|
-|      |      |      |          |                                  |
+### Part 5: Sign-In Sheet Template
+| Name | Department | Title | Sign-In Time | Signature Confirmation (pledge to uphold evidence-based principles) |
+|------|-----------|-------|-------------|---------------------------------------------------------------------|
+|      |           |       |             |                                                                     |
 
 ---
 
-## 2. 培训执行记录
+## 2. Training Execution Record
 
-- **培训主题**：反云验收与实事求是交付规范
-- **培训时间**：2026-03-05 14:00
-- **参训名单**：
-  - Alex COO (00003) - 运营/项目交付
-  - Pat EA (00004) - 总裁办/质量复核
-  - Morgan CSO (00005) - 销售/客户交付界定
-  - Claude PM (00012) - 工程研发
-- **考核成绩**：
-  - Alex COO: 100分（合格）
-  - Pat EA: 100分（合格）
-  - Morgan CSO: 100分（合格）
-  - Claude PM: 100分（合格）
-- **整改与后续行动项**：
-  1. 所有管理层在后续验收中强制启用“验收证据清单”校验。
-  2. 将此文档作为新入职员工（尤其是管理岗）的必修培训材料。
+- **Training Topic**: Anti-Cloud Acceptance and Evidence-Based Delivery Standards
+- **Training Time**: 2026-03-05 14:00
+- **Attendee List**:
+  - Alex COO (00003) - Operations/Project Delivery
+  - Pat EA (00004) - CEO Office/Quality Review
+  - Morgan CSO (00005) - Sales/Client Delivery Definition
+  - Claude PM (00012) - Engineering R&D
+- **Assessment Scores**:
+  - Alex COO: 100 (Pass)
+  - Pat EA: 100 (Pass)
+  - Morgan CSO: 100 (Pass)
+  - Claude PM: 100 (Pass)
+- **Remediation and Follow-Up Actions**:
+  1. All management must enforce the "Acceptance Evidence Checklist" verification in all subsequent acceptances.
+  2. This document will serve as mandatory training material for all new hires (especially management positions).

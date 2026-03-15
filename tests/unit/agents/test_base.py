@@ -859,7 +859,7 @@ class TestEmployeeAgent:
         # Set up employees dir with role.md
         emp_dir = tmp_path / "emp" / "00010" / "prompts"
         emp_dir.mkdir(parents=True)
-        (emp_dir / "role.md").write_text("You are {name} (花名: {nickname}), Lv.{level}")
+        (emp_dir / "role.md").write_text("You are {name} (nickname: {nickname}), Lv.{level}")
 
         monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
         monkeypatch.setattr(base_mod, "SHARED_PROMPTS_DIR", Path("/nonexistent"))

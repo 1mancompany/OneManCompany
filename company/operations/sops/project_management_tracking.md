@@ -1,8 +1,8 @@
-# 项目管理追踪机制 SOP
+# Project Management Tracking SOP
 
-为严格监控各开发节点的执行效率与成本，杜绝因未按指令执行导致的返工重做，特制定本机制：
+To strictly monitor execution efficiency and costs at each development node, and to eliminate rework caused by failure to follow instructions, this mechanism is established:
 
-1. **节点预算与预期**：在项目分发前，必须明确设定每个开发节点的Token预算与时间预期。
-2. **实时监控**：定期使用PM工具（如 pm_get_project_status 和 pm_check_stale_dispatches）监控各项目的执行效率和成本消耗情况。
-3. **偏差预警与上报**：对于成本超支或执行时间过长的任务，系统需触发预警，并及时向管理层上报。
-4. **实事求是**：所有节点数据必须真实记录，严禁瞒报漏报，确保项目成本结算的绝对准确。
+1. **Node Budget and Expectations**: Before project distribution, the token budget and time expectations for each development node must be clearly defined.
+2. **Real-Time Monitoring**: Regularly use PM tools (such as pm_get_project_status and pm_check_stale_dispatches) to monitor execution efficiency and cost consumption across projects.
+3. **Deviation Alerts and Escalation**: For tasks with cost overruns or excessive execution time, the system must trigger alerts and promptly escalate to management.
+4. **Truthful Reporting**: All node data must be recorded accurately. Concealing or omitting data is strictly prohibited to ensure absolute accuracy in project cost settlement.

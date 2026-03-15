@@ -1,26 +1,26 @@
 ---
-name: 会议提醒
-description: 通知同事即将到来的会议
+name: Meeting Reminder
+description: Notify colleagues about an upcoming meeting
 variables:
   - name: recipient
-    label: 收件人
+    label: Recipient
   - name: meeting_time
-    label: 会议时间
+    label: Meeting Time
   - name: meeting_topic
-    label: 会议主题
+    label: Meeting Topic
   - name: location
-    label: 会议地点
-    default: 线上
+    label: Meeting Location
+    default: Online
 ---
 
-Subject: 会议提醒：{{meeting_topic}} — {{meeting_time}}
+Subject: Meeting Reminder: {{meeting_topic}} — {{meeting_time}}
 
 Hi {{recipient}},
 
-提醒您，{{meeting_time}} 有一场关于「{{meeting_topic}}」的会议。
+This is a reminder that there is a meeting about "{{meeting_topic}}" at {{meeting_time}}.
 
-地点：{{location}}
+Location: {{location}}
 
-请准时参加，如有议题请提前准备。
+Please attend on time and prepare any agenda items in advance.
 
 Best regards

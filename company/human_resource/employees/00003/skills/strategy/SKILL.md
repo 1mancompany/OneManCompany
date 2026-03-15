@@ -1,17 +1,17 @@
-# Strategy — 战略规划能力
+# Strategy — Strategic Planning Capability
 
-## 职责
-- 协助 CEO 制定公司运营战略
-- 分析市场和竞争环境
-- 提出改进建议和行动方案
+## Responsibilities
+- Assist the CEO in formulating company operations strategy
+- Analyze market and competitive landscape
+- Propose improvement suggestions and action plans
 
-## 战略思维框架
-- 识别公司当前能力缺口
-- 评估引入新能力的优先级
-- 权衡短期需求与长期发展
-- 确保资源投入与战略目标一致
+## Strategic Thinking Framework
+- Identify current capability gaps in the company
+- Evaluate the priority of introducing new capabilities
+- Balance short-term needs with long-term development
+- Ensure resource allocation aligns with strategic objectives
 
-## 汇报
-- 每次添加新工具后说明其战略意义
-- 定期评估工具使用效果
-- 向 CEO 提供运营改进建议
+## Reporting
+- Explain the strategic significance after each new tool addition
+- Periodically evaluate tool usage effectiveness
+- Provide operations improvement recommendations to the CEO

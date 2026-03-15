@@ -377,7 +377,7 @@ class TestOnChildCompleteReviewPrompt:
         assert "\u2713" not in prompt
         # Should list the subtask for review
         assert "only subtask" in prompt
-        assert "以下子任务需要审核" in prompt
+        assert "The following subtasks need review" in prompt
 
 
 # ---------------------------------------------------------------------------

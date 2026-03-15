@@ -61,7 +61,7 @@ def _format_workflow_context(step: WorkflowStep) -> str:
     if not step.instructions:
         return ""
     lines = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
-    return f"\n\n【本阶段工作流要求】\n{lines}\n请按以上要求执行。\n"
+    return f"\n\n[Workflow Requirements for This Phase]\n{lines}\nPlease execute according to the above requirements.\n"
 
 
 def _parse_json_array(text: str, fallback: list | None = None) -> list:
@@ -169,7 +169,7 @@ class StepContext:
         """Extract only the actions performed by a specific employee."""
         timeline = self.project_record.get("timeline", [])
         if not timeline:
-            return "（项目记录中没有你的任何行动记录）"
+            return "(No action records found for you in the project log)"
         lines = []
         for entry in timeline:
             if entry.get("employee_id") == emp_id:
@@ -177,7 +177,7 @@ class StepContext:
                 detail = entry.get("detail", "")[:200]
                 lines.append(f"- {action}: {detail}")
         if not lines:
-            return "（项目记录中没有你的任何行动记录）"
+            return "(No action records found for you in the project log)"
         return "\n".join(lines)
 
 
@@ -211,7 +211,7 @@ async def _handle_meeting_prep(step: WorkflowStep, ctx: StepContext) -> dict:
     # so if we reach here during dynamic execution, just acknowledge it.
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": "会议室已准备就绪，参会人员已通知"
+        "message": "Meeting room is ready, participants have been notified"
     })
     return {"status": "prepared"}
 
@@ -222,14 +222,14 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
     workflow_ctx = _format_workflow_context(step)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "员工自评开始"})
-    await _chat(ctx.room_id, "HR", "HR", f"{step.title}开始，请各位同事依次进行自评。")
+    await _publish("routine_phase", {"phase": step.title, "message": "Employee self-evaluation started"})
+    await _chat(ctx.room_id, "HR", "HR", f"{step.title} has begun. Please proceed with self-evaluations in turn.")
 
     # Format project timeline for context
     timeline_ctx = ""
     timeline_text = ctx.format_project_timeline()
     if timeline_text:
-        timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
+        timeline_ctx = f"\n\n[Project Log]\n{timeline_text}\n"
 
     for emp_id in ctx.participants:
         emp_data = load_employee(emp_id)
@@ -239,7 +239,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
         if work_principles:
-            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+            principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -255,25 +255,25 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         emp_role = emp_data.get("role", "")
 
         prompt = (
-            f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_dept}，"
-            f"级别: Lv.{emp_level}，角色: {emp_role}）。\n"
+            f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
+            f"level: Lv.{emp_level}, role: {emp_role}).\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
             f"{culture_ctx}"
-            f"刚刚完成的任务概要: {ctx.task_summary}\n"
+            f"Recently completed task summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
-            f"【你在本项目中的实际行动记录】\n{my_actions}\n\n"
-            f"⚠️ 重要规则：你只能基于上面的「实际行动记录」来进行自评。\n"
-            f"- 记录里有什么就说什么，没做过的事绝对不能提\n"
-            f"- 如果记录显示你没有任何贡献，就老实说「我在本项目中没有实质贡献」\n"
-            f"- 禁止空话套话（如「积极配合」「全力支持」「高效协作」），只说具体做了什么\n"
-            f"- 禁止编造、夸大、美化自己的工作内容\n\n"
-            f"请据实自评（2-3句话），包括:\n"
-            f"- 你具体做了什么（必须能在行动记录中找到对应条目）\n"
-            f"- 效果如何\n"
-            f"- 有没有出错或可以改进的地方\n"
-            f"请用中文回答。{workflow_ctx}"
+            f"[Your Actual Action Records in This Project]\n{my_actions}\n\n"
+            f"Important rules: You must only self-evaluate based on the 'Actual Action Records' above.\n"
+            f"- Only mention what is in the records; never mention things you did not do\n"
+            f"- If the records show you made no contributions, honestly say 'I made no substantial contribution to this project'\n"
+            f"- No empty platitudes (e.g., 'actively cooperated', 'fully supported', 'efficiently collaborated'); only state specifics\n"
+            f"- Do not fabricate, exaggerate, or embellish your work\n\n"
+            f"Please provide an honest self-evaluation (2-3 sentences), including:\n"
+            f"- What you specifically did (must correspond to entries in the action records)\n"
+            f"- What the results were\n"
+            f"- Whether there were any mistakes or areas for improvement\n"
+            f"{workflow_ctx}"
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
@@ -287,7 +287,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         display = emp_nickname or emp_name
         await _chat(ctx.room_id, display, emp_role, eval_text)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "员工自评完成"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Employee self-evaluation completed"})
     return {"self_evaluations": ctx.self_evaluations}
 
 
@@ -295,7 +295,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
     """Higher-level employees review lower-level employees' work."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "高级员工开始互评"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Senior employees begin peer review"})
 
     # Load participant data from store and sort by level
     participant_data: list[tuple[str, dict]] = []
@@ -315,7 +315,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
             f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
             + next(
                 (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == jid),
-                "无自评",
+                "No self-evaluation",
             )
             for jid, jd in juniors
         )
@@ -325,24 +325,24 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         timeline_ctx = ""
         timeline_text = ctx.format_project_timeline()
         if timeline_text:
-            timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
+            timeline_ctx = f"\n\n[Project Log]\n{timeline_text}\n"
 
         culture_ctx = ctx.format_company_culture()
 
         prompt = (
-            f"你是 {senior_data.get('name', '')}（花名: {senior_data.get('nickname', '')}，Lv.{senior_level}，{senior_data.get('role', '')}）。\n"
+            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
             f"{culture_ctx}"
-            f"任务概要: {ctx.task_summary}\n"
+            f"Task summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
-            f"以下是低级别同事的自评:\n{junior_info}\n\n"
-            f"⚠️ 重要规则：你的评价必须严格基于项目记录中的事实。\n"
-            f"- 只评价项目记录中有实际行动的员工的具体表现\n"
-            f"- 如果某人在记录中没有实质贡献，直接指出「该同事在本项目中未见实质贡献」\n"
-            f"- 如果某人的自评与项目记录不符（夸大、编造），必须指出\n"
-            f"- 禁止使用空话套话（如「表现积极」「值得肯定」），只说具体事实\n\n"
-            f"请根据项目记录对每位低级别同事的工作进行简要评价（每人1-2句），重点关注:\n"
-            f"- 实际做了什么（对照项目记录）\n- 工作效果\n- 自评是否属实\n"
-            f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
+            f"Below are the self-evaluations from junior colleagues:\n{junior_info}\n\n"
+            f"Important rules: Your review must be strictly based on facts from the project log.\n"
+            f"- Only evaluate the specific performance of employees who have actual actions in the project log\n"
+            f"- If someone has no substantial contribution in the log, directly state 'This colleague made no substantial contribution to this project'\n"
+            f"- If someone's self-evaluation does not match the project log (exaggerated, fabricated), you must point it out\n"
+            f"- No empty platitudes (e.g., 'performed actively', 'commendable'); only state specific facts\n\n"
+            f"Please provide a brief review for each junior colleague (1-2 sentences each), focusing on:\n"
+            f"- What they actually did (cross-reference with project log)\n- Work effectiveness\n- Whether their self-evaluation is accurate\n"
+            f"Please respond in JSON array format: [{{'name': '...', 'review': '...'}}]"
             f"{workflow_ctx}"
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior_id)
@@ -359,9 +359,9 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(ctx.room_id, display, senior_data.get("role", ""), f"[互评] {review_summary}")
+        await _chat(ctx.room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
 
-    await _publish("routine_phase", {"phase": step.title, "message": "互评完成"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Peer review completed"})
     return {"senior_reviews": ctx.senior_reviews}
 
 
@@ -369,16 +369,16 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     """HR summarizes improvement points per employee."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "HR正在总结改进点"})
+    await _publish("routine_phase", {"phase": step.title, "message": "HR is summarizing improvement points"})
 
     workflow_ctx = _format_workflow_context(step)
 
     all_evals = "\n".join(
-        f"[{se['name']}(Lv.{se['level']})] 自评: {se['evaluation']}"
+        f"[{se['name']}(Lv.{se['level']})] Self-eval: {se['evaluation']}"
         for se in ctx.self_evaluations
     )
     all_reviews = "\n".join(
-        f"[{sr['reviewer']}评价] " + "; ".join(
+        f"[{sr['reviewer']} review] " + "; ".join(
             f"{r.get('name','')}: {r.get('review','')}" for r in sr["reviews"]
         )
         for sr in ctx.senior_reviews
@@ -387,24 +387,24 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     timeline_ctx = ""
     timeline_text = ctx.format_project_timeline()
     if timeline_text:
-        timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
+        timeline_ctx = f"\n\n[Project Log]\n{timeline_text}\n"
 
     culture_ctx = ctx.format_company_culture()
 
     hr_prompt = (
-        f"你是 HR 经理，负责总结本次评审会。\n"
+        f"You are the HR manager, responsible for summarizing this review meeting.\n"
         f"{culture_ctx}"
-        f"任务概要: {ctx.task_summary}\n"
+        f"Task summary: {ctx.task_summary}\n"
         f"{timeline_ctx}\n"
-        f"员工自评:\n{all_evals}\n\n"
-        f"高级员工互评:\n{all_reviews}\n\n"
-        f"⚠️ 重要规则：总结必须基于项目记录中的客观事实。\n"
-        f"- 对照项目记录检查每位员工的自评是否属实\n"
-        f"- 如果有人自评与记录不符（夸大、编造），在改进点中明确指出「自评不实」\n"
-        f"- 改进建议必须具体、可操作，禁止空话套话\n\n"
-        f"请根据项目记录和评审内容，为每位员工总结需要改进的具体要点（每人1-3条），"
-        f"并以JSON数组格式回答:\n"
-        f'[{{"employee": "...", "improvements": ["改进点1", "改进点2"]}}]'
+        f"Employee self-evaluations:\n{all_evals}\n\n"
+        f"Senior employee peer reviews:\n{all_reviews}\n\n"
+        f"Important rules: The summary must be based on objective facts from the project log.\n"
+        f"- Cross-check each employee's self-evaluation against the project log\n"
+        f"- If someone's self-evaluation does not match the log (exaggerated, fabricated), clearly note 'inaccurate self-evaluation' in the improvement points\n"
+        f"- Improvement suggestions must be specific and actionable; no empty platitudes\n\n"
+        f"Based on the project log and review content, summarize specific improvement points for each employee (1-3 items per person), "
+        f"and respond in JSON array format:\n"
+        f'[{{"employee": "...", "improvements": ["improvement 1", "improvement 2"]}}]'
         f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
@@ -419,11 +419,11 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
         f"{it.get('employee','')}: {', '.join(it.get('improvements',[]))[:60]}"
         for it in improvements
     )
-    await _chat(ctx.room_id, "HR", "HR", f"[总结] {hr_msg}")
+    await _chat(ctx.room_id, "HR", "HR", f"[Summary] {hr_msg}")
 
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": "HR评审会总结完成"
+        "message": "HR review meeting summary completed"
     })
     return {"hr_summary": improvements}
 
@@ -432,7 +432,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO produces a company operations report."""
     llm = make_llm(COO_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO正在出具运营报告"})
+    await _publish("routine_phase", {"phase": step.title, "message": "COO is producing operations report"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -443,7 +443,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     timeline_ctx = ""
     timeline_text = ctx.format_project_timeline()
     if timeline_text:
-        timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
+        timeline_ctx = f"\n\n[Project Log]\n{timeline_text}\n"
 
     culture_ctx = ctx.format_company_culture()
 
@@ -456,34 +456,34 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
             actual = cost_data.get("actual_cost_usd", 0)
             tokens = cost_data.get("token_usage", {})
             breakdown = cost_data.get("breakdown", [])
-            cost_lines = [f"预算: ${budget:.4f}, 实际: ${actual:.4f}"]
-            cost_lines.append(f"Token用量: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
+            cost_lines = [f"Budget: ${budget:.4f}, Actual: ${actual:.4f}"]
+            cost_lines.append(f"Token usage: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
             for entry in breakdown:
                 emp_data = load_employee(entry.get("employee_id", ""))
                 name = emp_data.get("name", entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
                 cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
-            cost_ctx = "\n\n项目开销数据:\n" + "\n".join(cost_lines) + "\n"
+            cost_ctx = "\n\nProject cost data:\n" + "\n".join(cost_lines) + "\n"
 
     coo_prompt = (
-        f"你是 COO，负责出具公司运营情况报告。\n"
+        f"You are the COO, responsible for producing a company operations report.\n"
         f"{culture_ctx}"
-        f"刚完成的任务: {ctx.task_summary}\n"
+        f"Recently completed task: {ctx.task_summary}\n"
         f"{timeline_ctx}"
         f"{cost_ctx}"
-        f"公司现有员工 {emp_count} 人，设备 {tool_count} 件，会议室 {room_count} 间。\n\n"
-        f"⚠️ 重要规则：报告必须严格基于项目记录中的客观事实。\n"
-        f"- 只陈述项目记录中有据可查的情况，不编造、不美化\n"
-        f"- 禁止空话套话，用具体数据和事实说话\n\n"
-        f"请根据项目记录简要总结公司当前运营状况（3-5句话），包括:\n"
-        f"- 项目完成情况（谁做了什么，效果如何）\n- 资源利用率\n- 潜在风险\n"
-        f"- 项目开销分析（如有数据），评估是否超出预算\n"
-        f"请用中文回答。{workflow_ctx}"
+        f"The company currently has {emp_count} employees, {tool_count} pieces of equipment, and {room_count} meeting rooms.\n\n"
+        f"Important rules: The report must be strictly based on objective facts from the project log.\n"
+        f"- Only state situations that are verifiable in the project log; do not fabricate or embellish\n"
+        f"- No empty platitudes; use specific data and facts\n\n"
+        f"Based on the project log, briefly summarize the current company operations (3-5 sentences), including:\n"
+        f"- Project completion status (who did what, how effective)\n- Resource utilization\n- Potential risks\n"
+        f"- Project cost analysis (if data available), assess whether budget was exceeded\n"
+        f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, coo_prompt, category="routine", employee_id=COO_ID)
     ctx.coo_report = resp.content
     await _chat(ctx.room_id, "COO", "COO", ctx.coo_report)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO报告完成"})
+    await _publish("routine_phase", {"phase": step.title, "message": "COO report completed"})
     return {"coo_report": ctx.coo_report}
 
 
@@ -493,14 +493,14 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
 
     project_id = ctx.project_record.get("id", "") or ctx.project_record.get("project_id", "")
     if not project_id:
-        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 无项目ID，跳过资产沉淀环节。")
+        await _chat(ctx.room_id, "COO", "COO", "[Asset Consolidation] No project ID, skipping asset consolidation.")
         return {"asset_suggestions": []}
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO正在审视项目产物"})
+    await _publish("routine_phase", {"phase": step.title, "message": "COO is reviewing project deliverables"})
 
     files = list_project_files(project_id)
     if not files:
-        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 项目工作区无文件，跳过。")
+        await _chat(ctx.room_id, "COO", "COO", "[Asset Consolidation] No files in project workspace, skipping.")
         return {"asset_suggestions": []}
 
     project_dir = get_project_dir(project_id)
@@ -510,19 +510,19 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
 
     llm = make_llm(COO_ID)
     prompt = (
-        f"你是 COO，负责审视项目产物并判断哪些值得沉淀为公司资产。\n\n"
-        f"项目概要: {ctx.task_summary}\n"
-        f"项目工作区: {project_dir}\n\n"
-        f"项目文件列表:\n{file_list_text}\n\n"
-        f"请审视以上文件，判断哪些值得注册为公司资产（工具、模板、参考代码等）。\n"
-        f"评判标准:\n"
-        f"- 具有复用价值（其他项目可以用到）\n"
-        f"- 是可独立运行的工具、脚本、模板\n"
-        f"- 不是临时文件、日志、配置文件\n\n"
-        f"如果没有值得沉淀的文件，返回空数组 []。\n"
-        f"否则以JSON数组格式返回建议:\n"
-        f'[{{"name": "资产名称", "description": "简要描述用途", "files": ["file1.py", "file2.md"]}}]\n'
-        f"只返回JSON数组，不要其他内容。{workflow_ctx}"
+        f"You are the COO, responsible for reviewing project deliverables and determining which are worth preserving as company assets.\n\n"
+        f"Project summary: {ctx.task_summary}\n"
+        f"Project workspace: {project_dir}\n\n"
+        f"Project file list:\n{file_list_text}\n\n"
+        f"Please review the above files and determine which are worth registering as company assets (tools, templates, reference code, etc.).\n"
+        f"Evaluation criteria:\n"
+        f"- Has reuse value (can be used by other projects)\n"
+        f"- Is a standalone tool, script, or template\n"
+        f"- Is not a temporary file, log, or configuration file\n\n"
+        f"If no files are worth preserving, return an empty array [].\n"
+        f"Otherwise, return suggestions in JSON array format:\n"
+        f'[{{"name": "asset name", "description": "brief description of purpose", "files": ["file1.py", "file2.md"]}}]\n'
+        f"Only return the JSON array, no other content.{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=COO_ID)
     raw = resp.content
@@ -533,11 +533,11 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
 
     if suggestions:
         names = ", ".join(s.get("name", "?") for s in suggestions)
-        await _chat(ctx.room_id, "COO", "COO", f"[资产沉淀建议] {names}")
+        await _chat(ctx.room_id, "COO", "COO", f"[Asset Consolidation Suggestions] {names}")
     else:
-        await _chat(ctx.room_id, "COO", "COO", "[资产沉淀] 本次项目无需沉淀资产。")
+        await _chat(ctx.room_id, "COO", "COO", "[Asset Consolidation] No assets to preserve from this project.")
 
-    await _publish("routine_phase", {"phase": step.title, "message": "资产沉淀审视完成"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Asset consolidation review completed"})
     return {"asset_suggestions": suggestions}
 
 
@@ -545,7 +545,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
     """Employee open discussion — everyone speaks freely."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "员工自由发言开始"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Employee open floor started"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -557,7 +557,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
         if work_principles:
-            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+            principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -565,7 +565,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         timeline_ctx = ""
         timeline_text = ctx.format_project_timeline()
         if timeline_text:
-            timeline_ctx = f"\n\n【项目记录】\n{timeline_text}\n"
+            timeline_ctx = f"\n\n[Project Log]\n{timeline_text}\n"
 
         my_actions = ctx.get_employee_actions(emp_id)
 
@@ -578,24 +578,24 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         emp_level = emp_data.get("level", 1)
 
         prompt = (
-            f"你是 {emp_name}（{emp_nickname}，部门: {emp_dept}，"
-            f"{emp_role}，Lv.{emp_level}）。\n"
+            f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
+            f"{emp_role}, Lv.{emp_level}).\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
             f"{culture_ctx}"
-            f"任务概要: {ctx.task_summary}\n"
+            f"Task summary: {ctx.task_summary}\n"
             f"{timeline_ctx}"
-            f"【你在本项目中的实际行动记录】\n{my_actions}\n\n"
-            f"⚠️ 重要规则：发言必须基于你的实际行动记录，不能编故事。\n"
-            f"- 只能谈你实际经历过的、记录中有据可查的事情\n"
-            f"- 禁止空话套话，禁止编造困难或夸大贡献\n\n"
-            f"现在是会议的自由发言环节，你可以根据自己的实际经历提出:\n"
-            f"- 工作中实际遇到的困难\n"
-            f"- 缺少什么工具或设备\n"
-            f"- 需要什么样的人才\n"
-            f"- 任何其他建议\n"
-            f"请用中文简要发言（2-3句话）。{workflow_ctx}"
+            f"[Your Actual Action Records in This Project]\n{my_actions}\n\n"
+            f"Important rules: Your remarks must be based on your actual action records; do not make up stories.\n"
+            f"- Only discuss things you actually experienced and that are verifiable in the records\n"
+            f"- No empty platitudes; do not fabricate difficulties or exaggerate contributions\n\n"
+            f"This is the open floor session of the meeting. Based on your actual experience, you may raise:\n"
+            f"- Actual difficulties encountered during work\n"
+            f"- Missing tools or equipment\n"
+            f"- What kind of talent is needed\n"
+            f"- Any other suggestions\n"
+            f"Please speak briefly (2-3 sentences).{workflow_ctx}"
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         feedback_content = resp.content
@@ -607,7 +607,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         display = emp_nickname or emp_name
         await _chat(ctx.room_id, display, emp_role, feedback_content)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "发言结束"})
+    await _publish("routine_phase", {"phase": step.title, "message": "Open floor concluded"})
     return {"employee_feedback": ctx.employee_feedback}
 
 
@@ -615,7 +615,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO + HR summarize action items from the meeting."""
     llm = make_llm(COO_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO和HR正在整理行动计划"})
+    await _publish("routine_phase", {"phase": step.title, "message": "COO and HR are compiling the action plan"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -628,13 +628,13 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     )
 
     action_prompt = (
-        f"你同时代表 COO 和 HR 整理会议行动计划。\n\n"
-        f"COO运营报告: {ctx.coo_report}\n\n"
-        f"员工发言:\n{feedback_text}\n\n"
-        f"评审改进建议:\n{phase1_improvements}\n\n"
-        f"请整理成具体的行动计划（action items），每项标明由谁负责（HR/COO），"
-        f"以JSON数组格式回答:\n"
-        f'[{{"source": "HR/COO", "description": "具体行动", "priority": "high/medium/low"}}]'
+        f"You represent both COO and HR in compiling the meeting action plan.\n\n"
+        f"COO operations report: {ctx.coo_report}\n\n"
+        f"Employee remarks:\n{feedback_text}\n\n"
+        f"Review improvement suggestions:\n{phase1_improvements}\n\n"
+        f"Please compile into specific action items, each indicating who is responsible (HR/COO), "
+        f"and respond in JSON array format:\n"
+        f'[{{"source": "HR/COO", "description": "specific action", "priority": "high/medium/low"}}]'
         f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
@@ -653,7 +653,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
             action_items.append({
                 "type": "asset_consolidation",
                 "source": "COO",
-                "description": f"沉淀项目资产: {suggestion.get('name', '')} — {suggestion.get('description', '')}",
+                "description": f"Consolidate project asset: {suggestion.get('name', '')} — {suggestion.get('description', '')}",
                 "priority": "medium",
                 "name": suggestion.get("name", ""),
                 "asset_description": suggestion.get("description", ""),
@@ -667,7 +667,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
         f"[{a.get('source','')}] {a.get('description','')[:50]}"
         for a in action_items[:5]
     )
-    await _chat(ctx.room_id, "COO+HR", "COO", f"[行动计划] {actions_msg}")
+    await _chat(ctx.room_id, "COO+HR", "COO", f"[Action Plan] {actions_msg}")
 
     return {"action_items": action_items}
 
@@ -679,9 +679,9 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
     if not ctx.action_items:
         await _publish("routine_phase", {
             "phase": step.title,
-            "message": "无待审批行动计划，跳过EA审批环节"
+            "message": "No action items pending approval, skipping EA approval"
         })
-        await _chat(ctx.room_id, "EA", "EA", "本次会议无需审批的行动计划。")
+        await _chat(ctx.room_id, "EA", "EA", "No action items requiring approval in this meeting.")
         return {"status": "no_actions", "approved": [], "rejected": [], "skipped_duplicates": []}
 
     # Dedup: filter out items already proposed in past meetings
@@ -690,24 +690,24 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
     if dup_items:
         dup_descs = "; ".join(d.get("description", "")[:40] for d in dup_items)
         await _chat(ctx.room_id, "EA", "EA",
-                    f"[去重] 跳过 {len(dup_items)} 项已提出过的改进: {dup_descs}")
+                    f"[Dedup] Skipping {len(dup_items)} previously proposed improvements: {dup_descs}")
         await _publish("routine_phase", {
             "phase": step.title,
-            "message": f"去重跳过 {len(dup_items)} 项重复改进"
+            "message": f"Dedup skipped {len(dup_items)} duplicate improvements"
         })
 
     # Recurring items (proposed 2+ times before) — escalate to CEO
     if recurring_items:
         recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
         await _chat(ctx.room_id, "EA", "EA",
-                    f"[警告] 以下 {len(recurring_items)} 项改进已多次提出但未能解决，需CEO关注:\n{recurring_descs}")
+                    f"[Warning] The following {len(recurring_items)} improvements have been proposed multiple times without resolution, requiring CEO attention:\n{recurring_descs}")
         await _publish("recurring_action_items", {
             "items": [r.get("description", "") for r in recurring_items],
-            "message": f"{len(recurring_items)} 项改进反复出现，可能无法通过常规方式解决，请CEO决策",
+            "message": f"{len(recurring_items)} improvements keep recurring and may not be resolvable through normal means; CEO decision needed",
         })
 
     if not unique_items:
-        await _chat(ctx.room_id, "EA", "EA", "所有改进项均已在之前会议中提出过，无新行动计划。")
+        await _chat(ctx.room_id, "EA", "EA", "All improvement items have been proposed in previous meetings; no new action plans.")
         return {
             "status": "all_duplicates",
             "approved": [],
@@ -722,39 +722,39 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
     llm = make_llm(EA_ID)
 
     items_text = "\n".join(
-        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (优先级: {a.get('priority', '')})"
+        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (priority: {a.get('priority', '')})"
         for i, a in enumerate(unique_items)
     )
 
     workflow_ctx = _format_workflow_context(step)
 
     prompt = (
-        "你是EA（行政助理），代表CEO严格审核会议行动计划。\n\n"
-        "⚠️ 审批核心原则：改进项不是越多越好，而是越精越关键越好。\n"
-        "CEO最关注的是提高组织效率，一切不直接服务于此目标的行动都应被否决。\n\n"
-        f"会议概要: {ctx.task_summary}\n\n"
-        f"COO运营报告: {ctx.coo_report}\n\n"
-        f"待审核行动计划:\n{items_text}\n\n"
-        "严格审核标准（必须全部满足才能批准）:\n"
-        "1. 具体可执行：有明确的执行步骤，不是空话套话（如「加强管理」「提高效率」「优化流程」等空泛表述一律否决）\n"
-        "2. 直接相关：必须与本次项目的实际问题直接相关，不是泛泛而谈的通用建议\n"
-        "3. 可衡量效果：执行后能明确看到效果，有判断成功/失败的标准\n"
-        "4. 投入产出合理：改进带来的收益必须大于执行成本\n"
-        "5. 无重复矛盾：不与其他行动项重复或矛盾\n\n"
-        "应该否决的典型例子:\n"
-        "- 「加强代码审查流程」→ 太空泛，怎么加强？具体做什么？\n"
-        "- 「提升团队协作能力」→ 假大空，没有实际行动\n"
-        "- 「优化项目管理机制」→ 形式主义，不解决具体问题\n"
-        "- 与本项目无关的通用改进建议\n\n"
-        "请严格审核，宁可少批不可多批。以JSON格式返回你的决定:\n"
-        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "审核说明"}\n'
-        "approved_indices 是你批准的行动编号（0-based），rejected_indices 是你否决的。\n"
-        f"只返回JSON，不要其他内容。{workflow_ctx}"
+        "You are the EA (Executive Assistant), strictly reviewing meeting action plans on behalf of the CEO.\n\n"
+        "Core approval principle: Fewer, more precise and critical improvements are better than many.\n"
+        "The CEO's top priority is improving organizational efficiency; any action that does not directly serve this goal should be rejected.\n\n"
+        f"Meeting summary: {ctx.task_summary}\n\n"
+        f"COO operations report: {ctx.coo_report}\n\n"
+        f"Action plans pending review:\n{items_text}\n\n"
+        "Strict review criteria (ALL must be met for approval):\n"
+        "1. Specifically actionable: Has clear execution steps, not vague platitudes (e.g., 'strengthen management', 'improve efficiency', 'optimize processes' — reject all such vague statements)\n"
+        "2. Directly relevant: Must be directly related to actual issues in this project, not generic advice\n"
+        "3. Measurable results: Can clearly see results after execution, with criteria for judging success/failure\n"
+        "4. Reasonable ROI: Benefits from improvement must outweigh execution costs\n"
+        "5. No duplication or contradiction: Must not duplicate or contradict other action items\n\n"
+        "Typical examples that should be rejected:\n"
+        "- 'Strengthen code review process' — too vague, how to strengthen? What specifically to do?\n"
+        "- 'Improve team collaboration capability' — empty rhetoric, no concrete action\n"
+        "- 'Optimize project management mechanism' — bureaucratic, doesn't solve specific problems\n"
+        "- Generic improvement suggestions unrelated to this project\n\n"
+        "Review strictly; better to approve fewer than too many. Return your decision in JSON format:\n"
+        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "review notes"}\n'
+        "approved_indices are the action numbers you approve (0-based), rejected_indices are the ones you reject.\n"
+        f"Only return JSON, no other content.{workflow_ctx}"
     )
 
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": "EA正在审核行动计划"
+        "message": "EA is reviewing the action plan"
     })
 
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=EA_ID)
@@ -774,22 +774,22 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
         else:
             # If EA can't produce JSON, approve all by default
             approved_indices = list(range(len(ctx.action_items)))
-            ea_reason = "EA未返回有效JSON，默认全部批准"
+            ea_reason = "EA did not return valid JSON, defaulting to approve all"
     except json.JSONDecodeError:
         approved_indices = list(range(len(ctx.action_items)))
-        ea_reason = "EA返回格式错误，默认全部批准"
+        ea_reason = "EA returned invalid format, defaulting to approve all"
 
     approved = [ctx.action_items[i] for i in approved_indices if i < len(ctx.action_items)]
     rejected = [ctx.action_items[i] for i in rejected_indices if i < len(ctx.action_items)]
 
     # Chat announcement
     await _chat(ctx.room_id, "EA", "EA",
-                f"[审批结果] 批准 {len(approved)} 项，否决 {len(rejected)} 项。{ea_reason}")
+                f"[Approval Result] Approved {len(approved)} items, rejected {len(rejected)} items. {ea_reason}")
 
     if not approved:
         await _publish("routine_phase", {
             "phase": step.title,
-            "message": "EA未批准任何行动计划"
+            "message": "EA did not approve any action plans"
         })
         return {"status": "none_approved", "approved": [], "rejected": rejected, "reason": ea_reason}
 
@@ -814,8 +814,8 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
 
     if asset_results:
         await _publish("routine_phase", {
-            "phase": "资产沉淀",
-            "message": f"已注册 {len(asset_results)} 项公司资产"
+            "phase": "Asset Consolidation",
+            "message": f"Registered {len(asset_results)} company assets"
         })
 
     # 2. Push remaining actions to COO for dispatch
@@ -826,21 +826,21 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
             action_lines.append(f"- [{source}] {a['description']}")
 
         coo_task = (
-            "EA已批准以下行动计划。请按source字段分配执行：\n"
-            "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
-            "- source=COO的行动：由你自己执行\n\n"
-            "行动计划:\n" + "\n".join(action_lines)
+            "EA has approved the following action plan. Please assign execution based on the source field:\n"
+            "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+            "- source=COO actions: Execute yourself\n\n"
+            "Action plan:\n" + "\n".join(action_lines)
         )
 
         coo_loop = get_agent_loop(COO_ID)
         if coo_loop:
             coo_loop.push_task(coo_task)
             await _chat(ctx.room_id, "EA", "EA",
-                        f"已推送 {len(remaining_actions)} 项批准行动到COO任务板")
+                        f"Pushed {len(remaining_actions)} approved actions to COO task board")
 
     await _publish("routine_phase", {
         "phase": step.title,
-        "message": f"EA审批完成：批准 {len(approved)} 项，否决 {len(rejected)} 项"
+        "message": f"EA approval completed: approved {len(approved)} items, rejected {len(rejected)} items"
     })
 
     return {
@@ -864,18 +864,18 @@ async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
     step_instructions = "\n".join(f"  {i+1}. {inst}" for i, inst in enumerate(step.instructions))
 
     prompt = (
-        f"你是公司会议主持人。当前正在执行工作流步骤:\n\n"
-        f"步骤: {step.title}\n"
-        f"负责人: {step.owner}\n"
-        f"具体要求:\n{step_instructions}\n"
-        f"预期产出: {step.output_description}\n\n"
-        f"任务背景: {ctx.task_summary}\n\n"
-        f"请简要总结本步骤的执行要点（2-3句话），用中文回答。"
+        f"You are the company meeting facilitator. Currently executing a workflow step:\n\n"
+        f"Step: {step.title}\n"
+        f"Responsible: {step.owner}\n"
+        f"Specific requirements:\n{step_instructions}\n"
+        f"Expected output: {step.output_description}\n\n"
+        f"Task background: {ctx.task_summary}\n\n"
+        f"Please briefly summarize the key execution points for this step (2-3 sentences)."
     )
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=HR_ID)
 
     await _publish("routine_phase", {"phase": step.title, "message": resp.content[:200]})
-    await _chat(ctx.room_id, step.owner or "主持人", "HR", resp.content)
+    await _chat(ctx.room_id, step.owner or "Facilitator", "HR", resp.content)
 
     return {"generic_output": resp.content}
 
@@ -951,7 +951,7 @@ async def _run_workflow(workflow: WorkflowDefinition, ctx: StepContext) -> dict:
 
         await _publish("routine_phase", {
             "phase": step.title,
-            "message": f"开始执行: {step.title}"
+            "message": f"Starting execution: {step.title}"
         })
 
         result = await handler(step, ctx)
@@ -1046,7 +1046,7 @@ async def run_post_task_routine(
     }
 
     # ===== Book a meeting room (always the first operational step) =====
-    await _publish("routine_phase", {"phase": "准备", "message": "HR 正在向 COO 申请会议室..."})
+    await _publish("routine_phase", {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
 
     room = None
     for r in company_state.meeting_rooms.values():
@@ -1065,8 +1065,8 @@ async def run_post_task_routine(
 
     if not room:
         await _publish("routine_phase", {
-            "phase": "准备",
-            "message": "没有空闲会议室，会议延期。员工们继续完善当前工作。"
+            "phase": "Preparation",
+            "message": "No available meeting rooms. Meeting postponed. Employees continue with current work."
         })
         return
 
@@ -1102,7 +1102,7 @@ async def run_post_task_routine(
 
             await _publish("routine_phase", {
                 "phase": step.title,
-                "message": f"开始执行: {step.title}"
+                "message": f"Starting execution: {step.title}"
             })
 
             result = await handler(step, ctx)
@@ -1140,13 +1140,13 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get("id", ""), "自评", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ev.get("id", ""), "self-evaluation", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
-                append_action(project_id, rv.get("reviewer_id", ""), "高级评审", rv.get("review", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, rv.get("reviewer_id", ""), "senior review", rv.get("review", "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:
-                append_action(project_id, COO_ID, "运营报告", ctx.coo_report[:MAX_SUMMARY_LEN])
+                append_action(project_id, COO_ID, "operations report", ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
-                append_action(project_id, ai.get("source", ""), "改进项", ai.get("description", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ai.get("source", ""), "improvement item", ai.get("description", "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room
@@ -1279,55 +1279,55 @@ async def _ea_auto_approve_actions(
     if dup_items:
         dup_descs = "; ".join(d.get("description", "")[:40] for d in dup_items)
         await _chat(room_id, "EA", "EA",
-                    f"[去重] 跳过 {len(dup_items)} 项已提出过的改进: {dup_descs}")
+                    f"[Dedup] Skipping {len(dup_items)} previously proposed improvements: {dup_descs}")
 
     if recurring_items:
         recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
         await _chat(room_id, "EA", "EA",
-                    f"[警告] 以下 {len(recurring_items)} 项改进已多次提出但未能解决，需CEO关注:\n{recurring_descs}")
+                    f"[Warning] The following {len(recurring_items)} improvements have been proposed multiple times without resolution, requiring CEO attention:\n{recurring_descs}")
         await _publish("recurring_action_items", {
             "items": [r.get("description", "") for r in recurring_items],
-            "message": f"{len(recurring_items)} 项改进反复出现，可能无法通过常规方式解决，请CEO决策",
+            "message": f"{len(recurring_items)} improvements keep recurring and may not be resolvable through normal means; CEO decision needed",
         })
 
     if not unique_items:
-        await _chat(room_id, "EA", "EA", "所有改进项均已在之前会议中提出过，无新行动计划。")
-        return {"approved": [], "rejected_count": 0, "skipped_duplicates": len(dup_items), "reason": "全部为重复项"}
+        await _chat(room_id, "EA", "EA", "All improvement items have been proposed in previous meetings; no new action plans.")
+        return {"approved": [], "rejected_count": 0, "skipped_duplicates": len(dup_items), "reason": "All are duplicates"}
 
     action_items = unique_items
 
     llm = make_llm(EA_ID)
 
     items_text = "\n".join(
-        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (优先级: {a.get('priority', '')})"
+        f"  {i+1}. [{a.get('source', '')}] {a.get('description', '')} (priority: {a.get('priority', '')})"
         for i, a in enumerate(action_items)
     )
 
     prompt = (
-        "你是EA（行政助理），代表CEO严格审核会议行动计划。\n\n"
-        "⚠️ 审批核心原则：改进项不是越多越好，而是越精越关键越好。\n"
-        "CEO最关注的是提高组织效率，一切不直接服务于此目标的行动都应被否决。\n\n"
-        f"会议概要: {task_summary}\n\n"
-        f"COO运营报告: {coo_report}\n\n"
-        f"待审核行动计划:\n{items_text}\n\n"
-        "严格审核标准（必须全部满足才能批准）:\n"
-        "1. 具体可执行：有明确的执行步骤，不是空话套话（如「加强管理」「提高效率」「优化流程」等空泛表述一律否决）\n"
-        "2. 直接相关：必须与本次项目的实际问题直接相关，不是泛泛而谈的通用建议\n"
-        "3. 可衡量效果：执行后能明确看到效果，有判断成功/失败的标准\n"
-        "4. 投入产出合理：改进带来的收益必须大于执行成本\n"
-        "5. 无重复矛盾：不与其他行动项重复或矛盾\n\n"
-        "应该否决的典型例子:\n"
-        "- 「加强代码审查流程」→ 太空泛，怎么加强？具体做什么？\n"
-        "- 「提升团队协作能力」→ 假大空，没有实际行动\n"
-        "- 「优化项目管理机制」→ 形式主义，不解决具体问题\n"
-        "- 与本项目无关的通用改进建议\n\n"
-        "请严格审核，宁可少批不可多批。以JSON格式返回你的决定:\n"
-        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "审核说明"}\n'
-        "approved_indices 是你批准的行动编号（0-based），rejected_indices 是你否决的。\n"
-        "只返回JSON，不要其他内容。"
+        "You are the EA (Executive Assistant), strictly reviewing meeting action plans on behalf of the CEO.\n\n"
+        "Core approval principle: Fewer, more precise and critical improvements are better than many.\n"
+        "The CEO's top priority is improving organizational efficiency; any action that does not directly serve this goal should be rejected.\n\n"
+        f"Meeting summary: {task_summary}\n\n"
+        f"COO operations report: {coo_report}\n\n"
+        f"Action plans pending review:\n{items_text}\n\n"
+        "Strict review criteria (ALL must be met for approval):\n"
+        "1. Specifically actionable: Has clear execution steps, not vague platitudes (e.g., 'strengthen management', 'improve efficiency', 'optimize processes' — reject all such vague statements)\n"
+        "2. Directly relevant: Must be directly related to actual issues in this project, not generic advice\n"
+        "3. Measurable results: Can clearly see results after execution, with criteria for judging success/failure\n"
+        "4. Reasonable ROI: Benefits from improvement must outweigh execution costs\n"
+        "5. No duplication or contradiction: Must not duplicate or contradict other action items\n\n"
+        "Typical examples that should be rejected:\n"
+        "- 'Strengthen code review process' — too vague, how to strengthen? What specifically to do?\n"
+        "- 'Improve team collaboration capability' — empty rhetoric, no concrete action\n"
+        "- 'Optimize project management mechanism' — bureaucratic, doesn't solve specific problems\n"
+        "- Generic improvement suggestions unrelated to this project\n\n"
+        "Review strictly; better to approve fewer than too many. Return your decision in JSON format:\n"
+        '{"approved_indices": [0, 1, ...], "rejected_indices": [2, ...], "reason": "review notes"}\n'
+        "approved_indices are the action numbers you approve (0-based), rejected_indices are the ones you reject.\n"
+        "Only return JSON, no other content."
     )
 
-    await _publish("routine_phase", {"phase": "EA审批", "message": "EA正在审核行动计划"})
+    await _publish("routine_phase", {"phase": "EA Approval", "message": "EA is reviewing the action plan"})
 
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=EA_ID)
     raw = resp.content
@@ -1344,15 +1344,15 @@ async def _ea_auto_approve_actions(
             ea_reason = decision.get("reason", "")
         else:
             approved_indices = list(range(len(action_items)))
-            ea_reason = "EA未返回有效JSON，默认全部批准"
+            ea_reason = "EA did not return valid JSON, defaulting to approve all"
     except json.JSONDecodeError:
         approved_indices = list(range(len(action_items)))
-        ea_reason = "EA返回格式错误，默认全部批准"
+        ea_reason = "EA returned invalid format, defaulting to approve all"
 
     approved = [action_items[i] for i in approved_indices if i < len(action_items)]
 
     await _chat(room_id, "EA", "EA",
-                f"[审批结果] 批准 {len(approved)} 项，否决 {len(rejected_indices)} 项。{ea_reason}")
+                f"[Approval Result] Approved {len(approved)} items, rejected {len(rejected_indices)} items. {ea_reason}")
 
     if approved:
         # Execute: push remaining (non-asset) actions to COO
@@ -1372,18 +1372,18 @@ async def _ea_auto_approve_actions(
         if remaining:
             action_lines = [f"- [{a.get('source', 'COO')}] {a['description']}" for a in remaining]
             coo_task = (
-                "EA已批准以下行动计划。请按source字段分配执行：\n"
-                "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
-                "- source=COO的行动：由你自己执行\n\n"
-                "行动计划:\n" + "\n".join(action_lines)
+                "EA has approved the following action plan. Please assign execution based on the source field:\n"
+                "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+                "- source=COO actions: Execute yourself\n\n"
+                "Action plan:\n" + "\n".join(action_lines)
             )
             coo_loop = get_agent_loop(COO_ID)
             if coo_loop:
                 coo_loop.push_task(coo_task)
 
     await _publish("routine_phase", {
-        "phase": "EA审批",
-        "message": f"EA审批完成：批准 {len(approved)} 项，否决 {len(rejected_indices)} 项"
+        "phase": "EA Approval",
+        "message": f"EA approval completed: approved {len(approved)} items, rejected {len(rejected_indices)} items"
     })
 
     return {
@@ -1414,7 +1414,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
     }
 
     # Book a meeting room
-    await _publish("routine_phase", {"phase": "准备", "message": "HR 正在向 COO 申请会议室..."})
+    await _publish("routine_phase", {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
 
     room = None
     for r in company_state.meeting_rooms.values():
@@ -1433,8 +1433,8 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
 
     if not room:
         await _publish("routine_phase", {
-            "phase": "准备",
-            "message": "没有空闲会议室，会议延期。员工们继续完善当前工作。"
+            "phase": "Preparation",
+            "message": "No available meeting rooms. Meeting postponed. Employees continue with current work."
         })
         return
 
@@ -1447,14 +1447,14 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
 
     try:
         # PHASE 1: Review Meeting
-        await _publish("routine_phase", {"phase": "第一阶段", "message": "评审会开始 — 员工自评"})
-        await _chat(room.id, "HR", "HR", "评审会正式开始，请各位同事依次进行自评。")
+        await _publish("routine_phase", {"phase": "Phase 1", "message": "Review meeting begins — employee self-evaluation"})
+        await _chat(room.id, "HR", "HR", "The review meeting has officially begun. Please proceed with self-evaluations in turn.")
         phase1_result = await _run_phase1_legacy(task_summary, participants, workflow_doc, room.id)
         meeting_doc["phase1"] = phase1_result
 
         # PHASE 2: Operations Review
-        await _publish("routine_phase", {"phase": "第二阶段", "message": "运营复盘 — COO出具报告"})
-        await _chat(room.id, "HR", "HR", "第二阶段开始，请COO汇报运营情况。")
+        await _publish("routine_phase", {"phase": "Phase 2", "message": "Operations review — COO producing report"})
+        await _chat(room.id, "HR", "HR", "Phase 2 begins. COO, please report on operations.")
         phase2_result = await _run_phase2_legacy(
             task_summary, participants, phase1_result, workflow_doc, room.id
         )
@@ -1501,7 +1501,7 @@ async def _run_phase1_legacy(
 
     workflow_ctx = ""
     if workflow_doc:
-        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\n请按照以上工作流规范执行。\n"
+        workflow_ctx = f"\n\n[Reference Workflow]\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\nPlease execute according to the above workflow specification.\n"
 
     # Step 1: Employee self-evaluations
     for emp_id in participants:
@@ -1512,7 +1512,7 @@ async def _run_phase1_legacy(
         work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
         if work_principles:
-            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+            principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -1524,17 +1524,17 @@ async def _run_phase1_legacy(
         emp_role = emp_data.get("role", "")
 
         prompt = (
-            f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_dept}，"
-            f"级别: Lv.{emp_level}，角色: {emp_role}）。\n"
+            f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
+            f"level: Lv.{emp_level}, role: {emp_role}).\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
-            f"刚刚完成的任务概要: {task_summary}\n\n"
-            f"请对自己在这项任务中的表现进行简要自评（2-3句话），包括:\n"
-            f"- 你的贡献是什么\n"
-            f"- 效率如何\n"
-            f"- 有没有出错或可以改进的地方\n"
-            f"请用中文回答。{workflow_ctx}"
+            f"Recently completed task summary: {task_summary}\n\n"
+            f"Please briefly self-evaluate your performance on this task (2-3 sentences), including:\n"
+            f"- What your contribution was\n"
+            f"- How efficient you were\n"
+            f"- Whether there were any mistakes or areas for improvement\n"
+            f"{workflow_ctx}"
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
@@ -1548,7 +1548,7 @@ async def _run_phase1_legacy(
         display = emp_nickname or emp_name
         await _chat(room_id, display, emp_role, eval_text)
 
-    await _publish("routine_phase", {"phase": "第一阶段", "message": "员工自评完成，高级员工开始互评"})
+    await _publish("routine_phase", {"phase": "Phase 1", "message": "Employee self-evaluation complete, senior employees begin peer review"})
 
     # Step 2: Senior employees review junior employees
     participant_data: list[tuple[str, dict]] = []
@@ -1568,18 +1568,18 @@ async def _run_phase1_legacy(
             f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
             + next(
                 (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == jid),
-                "无自评",
+                "No self-evaluation",
             )
             for jid, jd in juniors
         )
 
         prompt = (
-            f"你是 {senior_data.get('name', '')}（花名: {senior_data.get('nickname', '')}，Lv.{senior_level}，{senior_data.get('role', '')}）。\n"
-            f"任务概要: {task_summary}\n\n"
-            f"以下是低级别同事的自评:\n{junior_info}\n\n"
-            f"请对每位低级别同事的工作进行简要评价（每人1-2句），重点关注:\n"
-            f"- 工作效率\n- 工作效果\n- 是否有失误\n"
-            f"请用中文以JSON数组格式回答: [{{'name': '...', 'review': '...'}}]"
+            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
+            f"Task summary: {task_summary}\n\n"
+            f"Below are the self-evaluations from junior colleagues:\n{junior_info}\n\n"
+            f"Please provide a brief review for each junior colleague (1-2 sentences each), focusing on:\n"
+            f"- Work efficiency\n- Work effectiveness\n- Whether there were any mistakes\n"
+            f"Please respond in JSON array format: [{{'name': '...', 'review': '...'}}]"
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=senior_id)
         review_text = resp.content
@@ -1595,30 +1595,30 @@ async def _run_phase1_legacy(
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(room_id, display, senior_data.get("role", ""), f"[互评] {review_summary}")
+        await _chat(room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
 
-    await _publish("routine_phase", {"phase": "第一阶段", "message": "互评完成，HR总结改进点"})
+    await _publish("routine_phase", {"phase": "Phase 1", "message": "Peer review complete, HR summarizing improvement points"})
 
     # Step 3: HR summarizes improvement points
     all_evals = "\n".join(
-        f"[{se['name']}(Lv.{se['level']})] 自评: {se['evaluation']}"
+        f"[{se['name']}(Lv.{se['level']})] Self-eval: {se['evaluation']}"
         for se in result["self_evaluations"]
     )
     all_reviews = "\n".join(
-        f"[{sr['reviewer']}评价] " + "; ".join(
+        f"[{sr['reviewer']} review] " + "; ".join(
             f"{r.get('name','')}: {r.get('review','')}" for r in sr["reviews"]
         )
         for sr in result["senior_reviews"]
     )
 
     hr_prompt = (
-        f"你是 HR 经理，负责总结本次评审会。\n"
-        f"任务概要: {task_summary}\n\n"
-        f"员工自评:\n{all_evals}\n\n"
-        f"高级员工互评:\n{all_reviews}\n\n"
-        f"请为每位员工总结需要改进的具体要点（每人1-3条），"
-        f"并以JSON数组格式回答:\n"
-        f'[{{"employee": "...", "improvements": ["改进点1", "改进点2"]}}]'
+        f"You are the HR manager, responsible for summarizing this review meeting.\n"
+        f"Task summary: {task_summary}\n\n"
+        f"Employee self-evaluations:\n{all_evals}\n\n"
+        f"Senior employee peer reviews:\n{all_reviews}\n\n"
+        f"Please summarize specific improvement points for each employee (1-3 items per person), "
+        f"and respond in JSON array format:\n"
+        f'[{{"employee": "...", "improvements": ["improvement 1", "improvement 2"]}}]'
         f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, hr_prompt, category="routine", employee_id=HR_ID)
@@ -1632,11 +1632,11 @@ async def _run_phase1_legacy(
         f"{it.get('employee','')}: {', '.join(it.get('improvements',[]))[:60]}"
         for it in improvements
     )
-    await _chat(room_id, "HR", "HR", f"[总结] {hr_msg}")
+    await _chat(room_id, "HR", "HR", f"[Summary] {hr_msg}")
 
     await _publish("routine_phase", {
-        "phase": "第一阶段",
-        "message": "HR评审会总结完成，第一阶段结束"
+        "phase": "Phase 1",
+        "message": "HR review meeting summary completed, Phase 1 ends"
     })
     return result
 
@@ -1654,7 +1654,7 @@ async def _run_phase2_legacy(
 
     workflow_ctx = ""
     if workflow_doc:
-        workflow_ctx = f"\n\n【参考工作流】\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\n请按照以上工作流规范执行。\n"
+        workflow_ctx = f"\n\n[Reference Workflow]\n{workflow_doc[:MAX_WORKFLOW_CONTEXT_LEN]}\nPlease execute according to the above workflow specification.\n"
 
     # Step 1: COO operations report
     emp_count = len(load_all_employees())
@@ -1662,18 +1662,18 @@ async def _run_phase2_legacy(
     room_count = len(_store.load_rooms())
 
     coo_prompt = (
-        f"你是 COO，负责出具公司运营情况报告。\n"
-        f"刚完成的任务: {task_summary}\n"
-        f"公司现有员工 {emp_count} 人，设备 {tool_count} 件，会议室 {room_count} 间。\n\n"
-        f"请简要总结公司当前运营状况（3-5句话），包括:\n"
-        f"- 项目完成情况\n- 资源利用率\n- 潜在风险\n"
-        f"请用中文回答。{workflow_ctx}"
+        f"You are the COO, responsible for producing a company operations report.\n"
+        f"Recently completed task: {task_summary}\n"
+        f"The company currently has {emp_count} employees, {tool_count} pieces of equipment, and {room_count} meeting rooms.\n\n"
+        f"Please briefly summarize the current company operations (3-5 sentences), including:\n"
+        f"- Project completion status\n- Resource utilization\n- Potential risks\n"
+        f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, coo_prompt, category="routine", employee_id=COO_ID)
     result["coo_report"] = resp.content
     await _chat(room_id, "COO", "COO", result["coo_report"])
 
-    await _publish("routine_phase", {"phase": "第二阶段", "message": "COO报告完成，员工自由发言"})
+    await _publish("routine_phase", {"phase": "Phase 2", "message": "COO report complete, employee open floor"})
 
     # Step 2: Employee open floor
     for emp_id in participants:
@@ -1684,7 +1684,7 @@ async def _run_phase2_legacy(
         work_principles = emp_data.get("work_principles", "")
         principles_ctx = ""
         if work_principles:
-            principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+            principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
@@ -1696,18 +1696,18 @@ async def _run_phase2_legacy(
         emp_level = emp_data.get("level", 1)
 
         prompt = (
-            f"你是 {emp_name}（{emp_nickname}，部门: {emp_dept}，"
-            f"{emp_role}，Lv.{emp_level}）。\n"
+            f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
+            f"{emp_role}, Lv.{emp_level}).\n"
             f"{principles_ctx}"
             f"{skills_ctx}"
             f"{tools_ctx}"
-            f"任务概要: {task_summary}\n"
-            f"现在是会议的自由发言环节，你可以提出:\n"
-            f"- 工作中遇到的困难\n"
-            f"- 缺少什么工具或设备\n"
-            f"- 需要什么样的人才\n"
-            f"- 任何其他建议\n"
-            f"请用中文简要发言（2-3句话）。"
+            f"Task summary: {task_summary}\n"
+            f"This is the open floor session of the meeting. You may raise:\n"
+            f"- Difficulties encountered during work\n"
+            f"- Missing tools or equipment\n"
+            f"- What kind of talent is needed\n"
+            f"- Any other suggestions\n"
+            f"Please speak briefly (2-3 sentences)."
         )
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         feedback_content = resp.content
@@ -1719,7 +1719,7 @@ async def _run_phase2_legacy(
         display = emp_nickname or emp_name
         await _chat(room_id, display, emp_role, feedback_content)
 
-    await _publish("routine_phase", {"phase": "第二阶段", "message": "发言结束，COO和HR整理行动计划"})
+    await _publish("routine_phase", {"phase": "Phase 2", "message": "Open floor concluded, COO and HR compiling action plan"})
 
     # Step 3: COO + HR summarize action items
     feedback_text = "\n".join(
@@ -1731,13 +1731,13 @@ async def _run_phase2_legacy(
     )
 
     action_prompt = (
-        f"你同时代表 COO 和 HR 整理会议行动计划。\n\n"
-        f"COO运营报告: {result['coo_report']}\n\n"
-        f"员工发言:\n{feedback_text}\n\n"
-        f"第一阶段改进建议:\n{phase1_improvements}\n\n"
-        f"请整理成具体的行动计划（action items），每项标明由谁负责（HR/COO），"
-        f"以JSON数组格式回答:\n"
-        f'[{{"source": "HR/COO", "description": "具体行动", "priority": "high/medium/low"}}]'
+        f"You represent both COO and HR in compiling the meeting action plan.\n\n"
+        f"COO operations report: {result['coo_report']}\n\n"
+        f"Employee remarks:\n{feedback_text}\n\n"
+        f"Phase 1 improvement suggestions:\n{phase1_improvements}\n\n"
+        f"Please compile into specific action items, each indicating who is responsible (HR/COO), "
+        f"and respond in JSON array format:\n"
+        f'[{{"source": "HR/COO", "description": "specific action", "priority": "high/medium/low"}}]'
         f"{workflow_ctx}"
     )
     resp = await tracked_ainvoke(llm, action_prompt, category="routine", employee_id=COO_ID)
@@ -1753,7 +1753,7 @@ async def _run_phase2_legacy(
         f"[{a.get('source','')}] {a.get('description','')[:50]}"
         for a in action_items[:5]
     )
-    await _chat(room_id, "COO+HR", "COO", f"[行动计划] {actions_msg}")
+    await _chat(room_id, "COO+HR", "COO", f"[Action Plan] {actions_msg}")
 
     return result
 
@@ -1764,18 +1764,18 @@ async def _run_phase2_legacy(
 
 def _build_summary(doc: dict) -> str:
     """Build a human-readable summary of the meeting report."""
-    lines = [f"会议报告 — {doc['timestamp'][:10]}"]
-    lines.append(f"任务: {doc['task_summary'][:100]}")
+    lines = [f"Meeting Report — {doc['timestamp'][:10]}"]
+    lines.append(f"Task: {doc['task_summary'][:100]}")
     lines.append("")
 
     # If workflow-driven, include step names
     if doc.get("workflow"):
-        lines.append(f"工作流: {doc['workflow']}")
+        lines.append(f"Workflow: {doc['workflow']}")
         lines.append("")
 
     # Phase 1 summary
     if doc.get("phase1", {}).get("hr_summary"):
-        lines.append("【评审会】")
+        lines.append("[Review Meeting]")
         for item in doc["phase1"]["hr_summary"]:
             emp = item.get("employee", "?")
             imps = ", ".join(item.get("improvements", []))
@@ -1784,12 +1784,12 @@ def _build_summary(doc: dict) -> str:
 
     # Phase 2 summary
     if doc.get("phase2", {}).get("coo_report"):
-        lines.append("【运营复盘】")
-        lines.append(f"  COO报告: {doc['phase2']['coo_report'][:200]}")
+        lines.append("[Operations Review]")
+        lines.append(f"  COO Report: {doc['phase2']['coo_report'][:200]}")
         lines.append("")
 
     if doc.get("phase2", {}).get("employee_feedback"):
-        lines.append("  员工发言:")
+        lines.append("  Employee Remarks:")
         for f in doc["phase2"]["employee_feedback"]:
             lines.append(f"    {f['name']}: {f['feedback'][:80]}")
         lines.append("")
@@ -1797,10 +1797,10 @@ def _build_summary(doc: dict) -> str:
     # Asset consolidation suggestions
     asset_suggestions = doc.get("asset_suggestions") or doc.get("phase2", {}).get("asset_suggestions", [])
     if asset_suggestions:
-        lines.append("【资产沉淀建议】")
+        lines.append("[Asset Consolidation Suggestions]")
         for s in asset_suggestions:
             files = ", ".join(s.get("files", []))
-            lines.append(f"  {s.get('name', '?')}: {s.get('description', '')} (文件: {files})")
+            lines.append(f"  {s.get('name', '?')}: {s.get('description', '')} (files: {files})")
         lines.append("")
 
     return "\n".join(lines)
@@ -1837,8 +1837,8 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
         return "No actions to execute."
 
     await _publish("routine_phase", {
-        "phase": "执行",
-        "message": f"CEO批准了 {len(approved)} 项改进，HR和COO开始执行"
+        "phase": "Execution",
+        "message": f"CEO approved {len(approved)} improvements, HR and COO begin execution"
     })
 
     # Execute asset consolidation actions directly (no LLM needed)
@@ -1861,13 +1861,13 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
 
     if asset_results:
         await _publish("routine_phase", {
-            "phase": "资产沉淀",
-            "message": f"已注册 {len(asset_results)} 项公司资产"
+            "phase": "Asset Consolidation",
+            "message": f"Registered {len(asset_results)} company assets"
         })
 
     if not remaining_actions:
-        summary = f"已执行 {len(asset_results)} 项资产沉淀，无其他行动计划"
-        await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
+        summary = f"Executed {len(asset_results)} asset consolidations, no other action plans"
+        await _publish("routine_phase", {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
         doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
         _save_report(doc["id"], doc)
         return summary
@@ -1890,23 +1890,23 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
         action_lines.append(f"- [{source}] {a['description']}")
 
     coo_task = (
-        "CEO已批准以下行动计划。请按source字段分配执行：\n"
-        "- source=HR的行动：使用dispatch_child()分派给HR（employee_id='00002'）\n"
-        "- source=COO的行动：由你自己执行\n\n"
-        "行动计划:\n" + "\n".join(action_lines)
+        "CEO has approved the following action plan. Please assign execution based on the source field:\n"
+        "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+        "- source=COO actions: Execute yourself\n\n"
+        "Action plan:\n" + "\n".join(action_lines)
     )
 
     coo_loop = get_agent_loop(COO_ID)
     if coo_loop:
         coo_loop.push_task(coo_task)
-        summary = f"已推送 {len(remaining_actions)} 项批准行动到COO任务板"
+        summary = f"Pushed {len(remaining_actions)} approved actions to COO task board"
     else:
         summary = "COO agent loop not found"
 
     if asset_results:
-        summary += f"，已注册 {len(asset_results)} 项公司资产"
+        summary += f", registered {len(asset_results)} company assets"
 
-    await _publish("routine_phase", {"phase": "执行完毕", "message": summary[:MAX_SUMMARY_LEN]})
+    await _publish("routine_phase", {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
 
     doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
     _save_report(doc["id"], doc)
@@ -1948,8 +1948,8 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
 
     if not room:
         await _publish("routine_phase", {
-            "phase": "全员大会",
-            "message": "没有可用的大会议厅，全员大会延期。"
+            "phase": "All-Hands Meeting",
+            "message": "No large meeting hall available. All-hands meeting postponed."
         })
         return
 
@@ -1962,13 +1962,13 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
 
     try:
         await _publish("routine_phase", {
-            "phase": "全员大会",
-            "message": f"CEO在{room.name}召集全员大会"
+            "phase": "All-Hands Meeting",
+            "message": f"CEO convened an all-hands meeting in {room.name}"
         })
 
         await _publish("routine_phase", {
-            "phase": "全员大会",
-            "message": f"CEO发布指示: {ceo_message[:100]}"
+            "phase": "All-Hands Meeting",
+            "message": f"CEO issued directive: {ceo_message[:100]}"
         })
         await _chat(room.id, "CEO", "CEO", ceo_message)
 
@@ -1978,7 +1978,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             work_principles = emp_data.get("work_principles", "")
             principles_ctx = ""
             if work_principles:
-                principles_ctx = f"\n你的工作准则:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
+                principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
 
             skills_ctx = get_employee_skills_prompt(emp_id)
             tools_ctx = get_employee_tools_prompt(emp_id)
@@ -1987,15 +1987,15 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             emp_nickname = emp_data.get("nickname", "")
 
             prompt = (
-                f"你是 {emp_name}（花名: {emp_nickname}，部门: {emp_data.get('department', '')}，"
-                f"Lv.{emp_data.get('level', 1)}，{emp_data.get('role', '')}）。\n"
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
+                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
                 f"{principles_ctx}"
                 f"{skills_ctx}"
                 f"{tools_ctx}"
-                f"CEO刚在全员大会上发表了以下指示:\n\n"
+                f"The CEO just delivered the following directive at the all-hands meeting:\n\n"
                 f'"{ceo_message}"\n\n'
-                f"请用1-2句中文总结你从这次大会中领悟到的会议精神，"
-                f"以及你打算如何在今后的工作中落实。"
+                f"Please summarize in 1-2 sentences what you took away from this meeting "
+                f"and how you plan to implement it in your future work."
             )
             resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
             summary_text = resp.content
@@ -2011,8 +2011,8 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             })
 
         await _publish("routine_phase", {
-            "phase": "全员大会",
-            "message": f"全员大会结束，{len(all_emps)}名员工已吸收会议精神"
+            "phase": "All-Hands Meeting",
+            "message": f"All-hands meeting concluded, {len(all_emps)} employees have absorbed the meeting directives"
         })
 
         report_id = str(uuid.uuid4())[:8]

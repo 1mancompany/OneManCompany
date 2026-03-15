@@ -1,25 +1,25 @@
 # Talent Development Guide for AI Coders
 
-> 给 AI Coder（Claude、GPT 等）的 talent 开发完整指南。
-> 读完此文档后，你应该能独立完成一个 talent 包的创建。
+> A complete talent development guide for AI Coders (Claude, GPT, etc.).
+> After reading this document, you should be able to independently create a talent package.
 
 ---
 
-## Quick Start — 最小可用 Talent
+## Quick Start — Minimum Viable Talent
 
 ```
 talents/my_talent/
-├── profile.yaml        # 必须
-├── launch.sh           # 推荐（company-hosted 执行入口）
+├── profile.yaml        # Required
+├── launch.sh           # Recommended (company-hosted execution entry point)
 └── skills/
-    └── core_skill.md   # 至少一个
+    └── core_skill.md   # At least one
 ```
 
 ```yaml
 # profile.yaml
 id: my_talent
 name: My Talent Name
-description: 一句话描述这个 talent 的能力。
+description: One-line description of this talent's capabilities.
 role: Engineer                    # Engineer / Designer / Manager / QA / ...
 remote: false
 hosting: company                  # company / self / remote
@@ -30,246 +30,246 @@ temperature: 0.7
 hiring_fee: 0.50
 salary_per_1m_tokens: 0
 skills:
-  - core_skill                    # 对应 skills/core_skill.md
+  - core_skill                    # Corresponds to skills/core_skill.md
 tools: []
 personality_tags:
   - efficient
 system_prompt_template: >
-  You specialize in [领域]. [工作方式]. [决策风格].
+  You specialize in [domain]. [Work style]. [Decision-making approach].
 ```
 
-这就够了。平台会在入职时自动补全缺失的配置。
+That's all you need. The platform will auto-fill missing configuration on onboarding.
 
 ---
 
-## 目录结构（完整版）
+## Directory Structure (Full Version)
 
 ```
 talents/{talent_id}/
-├── profile.yaml              # 必须 — 身份、模型、技能、工具
-├── launch.sh                 # 推荐 — 任务执行脚本
-├── manifest.json             # 可选 — 前端设置 UI（OAuth、参数调整）
-├── CLAUDE.md                 # 可选 — Claude CLI 项目指令
-├── skills/                   # 推荐 — 技能知识库
-│   └── *.md                  # 每个文件 = 一项技能，内容注入 system prompt
-├── tools/                    # 可选 — 工具声明
-│   ├── manifest.yaml         # 工具清单
-│   └── *.py                  # 自定义 LangChain @tool
-├── functions/                # 可选 — 贡献给公司的工具
+├── profile.yaml              # Required — identity, model, skills, tools
+├── launch.sh                 # Recommended — task execution script
+├── manifest.json             # Optional — frontend settings UI (OAuth, parameter tuning)
+├── CLAUDE.md                 # Optional — Claude CLI project instructions
+├── skills/                   # Recommended — skill knowledge base
+│   └── *.md                  # Each file = one skill, content injected into system prompt
+├── tools/                    # Optional — tool declarations
+│   ├── manifest.yaml         # Tool manifest
+│   └── *.py                  # Custom LangChain @tool
+├── functions/                # Optional — tools contributed to the company
 │   ├── manifest.yaml
 │   └── *.py
-└── vessel/                   # 可选 — 高级 agent 配置
+└── vessel/                   # Optional — advanced agent configuration
     ├── vessel.yaml
     └── prompt_sections/*.md
 ```
 
 ---
 
-## profile.yaml 字段详解
+## profile.yaml Field Reference
 
-### 身份字段
+### Identity Fields
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `id` | str | 是 | 唯一标识符，与目录名一致 |
-| `name` | str | 是 | 显示名称 |
-| `description` | str | 是 | 招聘时展示给 CEO 的描述 |
-| `role` | str | 是 | 角色类型，决定入职部门 |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | str | Yes | Unique identifier, matches directory name |
+| `name` | str | Yes | Display name |
+| `description` | str | Yes | Description shown to CEO during recruitment |
+| `role` | str | Yes | Role type, determines onboarding department |
 
-`role` 与部门的映射关系：
+Role-to-department mapping:
 
-| role | 部门 |
-|------|------|
-| Engineer | 技术研发部 |
-| Designer | 设计创意部 |
-| Manager | 运营管理部 |
-| QA | 质量保障部 |
-| 其它 | 综合事务部 |
+| role | Department |
+|------|------------|
+| Engineer | R&D Department |
+| Designer | Creative Design Department |
+| Manager | Operations Management Department |
+| QA | Quality Assurance Department |
+| Other | General Affairs Department |
 
-### 模型字段
+### Model Fields
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `api_provider` | str | LLM 提供商：`openrouter`, `anthropic`, `openai` |
-| `llm_model` | str | 模型 ID（如 `claude-sonnet-4-20250514`） |
-| `temperature` | float | 推理温度 0–2 |
-| `image_model` | str | 图像生成模型（Designer 专用，可选） |
+| Field | Type | Description |
+|-------|------|-------------|
+| `api_provider` | str | LLM provider: `openrouter`, `anthropic`, `openai` |
+| `llm_model` | str | Model ID (e.g. `claude-sonnet-4-20250514`) |
+| `temperature` | float | Inference temperature 0-2 |
+| `image_model` | str | Image generation model (Designer-only, optional) |
 
-### 部署字段
+### Deployment Fields
 
-| 字段 | 说明 |
-|------|------|
-| `hosting: company` | 平台托管 — 通过 `SubprocessExecutor` 运行 `launch.sh` |
-| `hosting: self` | 自托管 — Claude CLI 独立进程 |
-| `hosting: remote` | 远程 — 外部 worker 通过 HTTP 轮询 |
-| `auth_method: api_key` | 使用 API key 调用 LLM |
-| `auth_method: cli` | 使用本机 CLI 凭证 |
-| `auth_method: oauth` | OAuth PKCE 登录 |
-| `auth_method: none` | 无需认证 |
+| Field | Description |
+|-------|-------------|
+| `hosting: company` | Platform-hosted — runs `launch.sh` via `SubprocessExecutor` |
+| `hosting: self` | Self-hosted — Claude CLI independent process |
+| `hosting: remote` | Remote — external worker via HTTP polling |
+| `auth_method: api_key` | Use API key to call LLM |
+| `auth_method: cli` | Use locally logged-in CLI credentials |
+| `auth_method: oauth` | OAuth PKCE login |
+| `auth_method: none` | No authentication needed |
 
-### 能力字段
+### Capability Fields
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `skills` | list | 技能 ID 列表，对应 `skills/*.md` 文件名 |
-| `tools` | list | 可用工具名列表 |
-| `personality_tags` | list | 性格标签（HR 匹配用） |
-| `system_prompt_template` | str | 灵魂 prompt — 定义 talent 怎么思考 |
+| Field | Type | Description |
+|-------|------|-------------|
+| `skills` | list | Skill ID list, corresponds to `skills/*.md` filenames |
+| `tools` | list | Available tool name list |
+| `personality_tags` | list | Personality tags (for HR matching) |
+| `system_prompt_template` | str | Soul prompt — defines how the talent thinks |
 
 ---
 
-## system_prompt_template 写法
+## system_prompt_template Writing Guide
 
-这是 talent 的**核心人格定义**。它被注入到 prompt 的第 12 优先级（Identity 之后，Skills 之前）。
+This is the talent's **core personality definition**. It is injected at prompt priority 12 (after Identity, before Skills).
 
-### Prompt 分层
+### Prompt Layering
 
 ```
-Priority 10: Identity        — "You are 小明, Manager in 产品部"（系统生成）
-Priority 12: Talent Persona  — ← system_prompt_template 在这里
-Priority 30: Skills           — skills/*.md 的全部内容
-Priority 35: Tools            — 已授权工具列表
-Priority 50: Work Principles  — CEO 1-on-1 后的个人工作准则
-Priority 70: Context          — 当前时间、团队状态
+Priority 10: Identity        — "You are Xiao Ming, Manager in Product Dept" (system-generated)
+Priority 12: Talent Persona  — <- system_prompt_template goes here
+Priority 30: Skills           — Full content of skills/*.md
+Priority 35: Tools            — Authorized tool list
+Priority 50: Work Principles  — Personal work principles after CEO 1-on-1
+Priority 70: Context          — Current time, team status
 ```
 
-### 规则
+### Rules
 
-1. **不要写身份信息** — Identity 层已提供 name/role/department
-2. **写能力定位** — 这个 talent 擅长什么、怎么工作
-3. **写行为指引** — 如何使用 skills、如何做决策
-4. **保持简洁** — 2-5 句话，不超过一段
-5. **用第二人称** — "You" 或 "你" 开头
+1. **Do not include identity info** — Identity layer already provides name/role/department
+2. **State capability focus** — What this talent excels at, how it works
+3. **Provide behavioral guidance** — How to use skills, how to make decisions
+4. **Keep it concise** — 2-5 sentences, no more than one paragraph
+5. **Use second person** — Start with "You"
 
-### 示例
+### Examples
 
 ```yaml
-# ✅ 好的写法
+# Good example
 system_prompt_template: >
   You specialize in full-stack development with deep expertise in Python,
   TypeScript, and cloud infrastructure. Write production-ready code with
   tests. Prefer simple, maintainable solutions over clever abstractions.
   Always verify assumptions by reading existing code before proposing changes.
 
-# ✅ 好的写法
+# Good example
 system_prompt_template: >
   You are equipped with 46 professional PM frameworks. Use your skills
   library to select the right tool for each challenge. Ground analysis
   in frameworks, not generic advice.
 
-# ❌ 不好的写法 — 重复 identity
+# Bad example — repeats identity
 system_prompt_template: >
   You are a senior engineer named Alice in the Engineering Department.
 
-# ❌ 不好的写法 — 太模糊
+# Bad example — too vague
 system_prompt_template: >
   You are a helpful assistant. Be professional and do your best.
 ```
 
 ---
 
-## Skills 编写
+## Skills Writing Guide
 
-### 文件约定
+### File Convention
 
-- 路径：`skills/{skill_id}.md`
-- `skill_id` 必须出现在 `profile.yaml` 的 `skills` 列表中
-- 内容直接注入 system prompt，所以是**声明式知识**，不是可执行代码
+- Path: `skills/{skill_id}.md`
+- `skill_id` must appear in the `skills` list in `profile.yaml`
+- Content is directly injected into the system prompt, so it should be **declarative knowledge**, not executable code
 
-### 结构模板
+### Structure Template
 
 ```markdown
 # Skill Name
 
 ## Purpose
-一句话说明：这个技能做什么、什么时候用。
+One-line description: what this skill does and when to use it.
 
 ## Key Concepts
-核心框架、定义、思维模型。
-- 用列表或表格
-- 定义可能混淆的术语
-- 包含"不是什么"（anti-patterns）
+Core frameworks, definitions, mental models.
+- Use lists or tables
+- Define potentially confusing terms
+- Include "what it's NOT" (anti-patterns)
 
 ## Application
-具体场景的分步指导。
-- 写成 agent 可以直接执行的指令
-- 序列操作用编号步骤
-- 标注决策点和分支逻辑
+Step-by-step guidance for specific scenarios.
+- Write as instructions the agent can directly execute
+- Use numbered steps for sequential operations
+- Mark decision points and branching logic
 
 ## Examples
-真实案例展示技能的应用。
-- 展示"好"和"不好"的对比
-- 具体而非泛化
+Real cases demonstrating the skill's application.
+- Show "good" vs "bad" comparisons
+- Be specific, not generic
 
 ## Common Pitfalls
-常见错误及其后果。
-- 命名失败模式
-- 说明后果
-- 给出纠正方法
+Common mistakes and their consequences.
+- Name failure patterns
+- Explain consequences
+- Provide correction methods
 ```
 
-### 要点
+### Key Points
 
-- **简洁** — Agent 的 context window 有限，每个 skill 不要超过 500 行
-- **可操作** — 写成指令，不是教科书
-- **自包含** — 不要假设 agent 有外部知识
+- **Concise** — Agent's context window is limited, keep each skill under 500 lines
+- **Actionable** — Write as instructions, not a textbook
+- **Self-contained** — Do not assume the agent has external knowledge
 
 ---
 
-## launch.sh 编写
+## launch.sh Writing Guide
 
-### Company-Hosted（前台模式）
+### Company-Hosted (Foreground Mode)
 
-平台通过 `SubprocessExecutor` 调用，每个任务一个进程：
+The platform invokes via `SubprocessExecutor`, one process per task:
 
 ```
 bash launch.sh <employee_dir>
 ```
 
-**环境变量（自动注入）：**
+**Environment variables (auto-injected):**
 
-| 变量 | 说明 |
-|------|------|
-| `OMC_EMPLOYEE_ID` | 员工 ID |
-| `OMC_TASK_ID` | 任务 ID |
-| `OMC_PROJECT_ID` | 项目 ID |
-| `OMC_PROJECT_DIR` | 项目工作目录 |
-| `OMC_TASK_DESCRIPTION` | 完整任务描述 |
-| `OMC_SERVER_URL` | 后端 URL |
-| `OMC_MAX_ITERATIONS` | 最大 agent 迭代数（默认 20） |
+| Variable | Description |
+|----------|-------------|
+| `OMC_EMPLOYEE_ID` | Employee ID |
+| `OMC_TASK_ID` | Task ID |
+| `OMC_PROJECT_ID` | Project ID |
+| `OMC_PROJECT_DIR` | Project working directory |
+| `OMC_TASK_DESCRIPTION` | Full task description |
+| `OMC_SERVER_URL` | Backend URL |
+| `OMC_MAX_ITERATIONS` | Max agent iteration count (default 20) |
 
-**输出约定：**
-- `stdout` → 仅一行 JSON（结果）
-- `stderr` → 日志
-- `exit 0` → 成功，非零 → 失败
+**Output convention:**
+- `stdout` -> Single line of JSON only (result)
+- `stderr` -> Logs
+- `exit 0` -> Success, non-zero -> Failure
 
 ```json
-{"output": "任务结果", "model": "model-id", "input_tokens": 100, "output_tokens": 50}
+{"output": "Task result", "model": "model-id", "input_tokens": 100, "output_tokens": 50}
 ```
 
-**超时/取消：** 平台管理。SIGTERM → 30s → SIGKILL。用 `trap cleanup EXIT` 响应。
+**Timeout/cancellation:** Platform-managed. SIGTERM -> 30s -> SIGKILL. Respond with `trap cleanup EXIT`.
 
-**模板：** 参考 `company/assets/tools/launch_template.sh`
+**Template:** Reference `company/assets/tools/launch_template.sh`
 
-### Self-Hosted（后台模式）
+### Self-Hosted (Background Mode)
 
-入职时复制到员工目录，手动启动：
+Copied to employee directory on onboarding, manually started:
 
 ```bash
 #!/usr/bin/env bash
 EMPLOYEE_DIR="${1:?Usage: launch.sh <employee_dir>}"
-# ... 启动 worker ...
+# ... start worker ...
 nohup "$PYTHON" "$WORKER_SCRIPT" "$EMPLOYEE_DIR" > "$LOG_FILE" 2>&1 &
 echo $! > "$EMPLOYEE_DIR/worker.pid"
 ```
 
 ---
 
-## Tools 开发
+## Tools Development
 
-### 使用平台内置工具
+### Using Platform Built-in Tools
 
-在 `profile.yaml` 的 `tools` 列表中声明即可：
+Just declare them in the `tools` list in `profile.yaml`:
 
 ```yaml
 tools:
@@ -277,9 +277,9 @@ tools:
   - sandbox_run_command
 ```
 
-### 自定义 LangChain 工具
+### Custom LangChain Tools
 
-1. 创建 `tools/manifest.yaml`：
+1. Create `tools/manifest.yaml`:
 ```yaml
 builtin_tools:
   - sandbox_execute_code
@@ -287,48 +287,48 @@ custom_tools:
   - my_analyzer
 ```
 
-2. 创建 `tools/my_analyzer.py`：
+2. Create `tools/my_analyzer.py`:
 ```python
 from langchain_core.tools import tool
 
 @tool
 def my_analyzer(code: str) -> str:
     """Analyze code quality and return suggestions."""
-    # 实现逻辑
+    # Implementation logic
     return f"Analysis: {len(code)} chars, looks good."
 ```
 
-### 贡献公司级工具（functions/）
+### Contributing Company-Level Tools (functions/)
 
-如果你的工具应该**共享给其它员工**：
+If your tool should be **shared with other employees**:
 
-1. 创建 `functions/manifest.yaml`：
+1. Create `functions/manifest.yaml`:
 ```yaml
 functions:
   - name: "shared_tool"
     description: "A tool everyone can use"
-    scope: "company"        # "company" = 全公司, "personal" = 仅自己
+    scope: "company"        # "company" = company-wide, "personal" = self only
 ```
 
-2. 创建 `functions/shared_tool.py`（同上格式）
+2. Create `functions/shared_tool.py` (same format as above)
 
-入职时自动安装到 `company/assets/tools/shared_tool/`。
+Automatically installed to `company/assets/tools/shared_tool/` on onboarding.
 
 ---
 
-## manifest.json — 前端设置 UI
+## manifest.json — Frontend Settings UI
 
-只在需要自定义设置界面时创建。支持的字段类型：
+Only create when you need a custom settings interface. Supported field types:
 
-| type | 渲染 | 场景 |
-|------|------|------|
-| `text` | 单行输入 | 模型名、URL |
-| `secret` | 密码输入 | API key |
-| `number` | 数字输入 | 温度、超时 |
-| `select` | 下拉选择 | 模型列表 |
-| `toggle` | 开关 | 开启/关闭功能 |
-| `oauth_button` | OAuth 按钮 | 第三方登录 |
-| `readonly` | 只读显示 | 状态信息 |
+| type | Renders | Use Case |
+|------|---------|----------|
+| `text` | Single-line input | Model name, URL |
+| `secret` | Password input | API key |
+| `number` | Number input | Temperature, timeout |
+| `select` | Dropdown select | Model list |
+| `toggle` | Toggle switch | Enable/disable features |
+| `oauth_button` | OAuth button | Third-party login |
+| `readonly` | Read-only display | Status info |
 
 ```json
 {
@@ -352,102 +352,102 @@ functions:
 
 ---
 
-## vessel.yaml — 高级 Agent 配置
+## vessel.yaml — Advanced Agent Configuration
 
-只在需要自定义 agent 行为时创建：
+Only create when you need to customize agent behavior:
 
 ```yaml
 # vessel/vessel.yaml
 runner:
-  module: ""                    # 自定义 runner 模块（vessel/ 下的 .py）
-  class_name: ""                # BaseAgentRunner 子类名
+  module: ""                    # Custom runner module (.py under vessel/)
+  class_name: ""                # BaseAgentRunner subclass name
 hooks:
-  module: ""                    # 钩子模块
-  pre_task: ""                  # 任务开始前回调
-  post_task: ""                 # 任务完成后回调
+  module: ""                    # Hooks module
+  pre_task: ""                  # Pre-task callback
+  post_task: ""                 # Post-task callback
 context:
-  prompt_sections:              # 额外 prompt 注入
+  prompt_sections:              # Additional prompt injection
     - file: prompt_sections/guide.md
       name: guide
-      priority: 40              # 10-80，越小越靠前
-  inject_progress_log: true     # 注入历史进度日志
-  inject_task_history: true     # 注入任务历史
+      priority: 40              # 10-80, lower = earlier in prompt
+  inject_progress_log: true     # Inject historical progress log
+  inject_task_history: true     # Inject task history
 limits:
   max_retries: 3
-  task_timeout_seconds: 600     # 默认超时
+  task_timeout_seconds: 600     # Default timeout
 ```
 
 ---
 
-## 入职时发生了什么
+## What Happens During Onboarding
 
-当 CEO 批准招聘后，`onboarding.py` 按以下顺序执行：
+When the CEO approves hiring, `onboarding.py` executes the following steps in order:
 
 ```
-1. 分配员工号（如 00042）
-2. 创建员工目录 company/human_resource/employees/00042/
-3. 复制 skills/*.md → 员工目录/skills/
-4. 复制 manifest.json、CLAUDE.md（如果存在）
-5. 复制 launch.sh、heartbeat.sh（如果存在，chmod +x）
-6. 复制 vessel/ 或 agent/ 配置
-7. 注册工具权限（tools/manifest.yaml 中的 custom_tools）
-8. 安装 functions/（复制到公司中心工具目录）
-9. 生成花名（武侠风格中文昵称）
-10. 写入 work_principles.md（初始工作准则）
-11. 写入 system_prompt_template → prompts/talent_persona.md
-12. 注册到 EmployeeManager（开始接受任务）
+1. Assign employee ID (e.g. 00042)
+2. Create employee directory company/human_resource/employees/00042/
+3. Copy skills/*.md -> employee directory/skills/
+4. Copy manifest.json, CLAUDE.md (if they exist)
+5. Copy launch.sh, heartbeat.sh (if they exist, chmod +x)
+6. Copy vessel/ or agent/ configuration
+7. Register tool permissions (custom_tools from tools/manifest.yaml)
+8. Install functions/ (copy to company central tools directory)
+9. Generate nickname (martial arts style Chinese nickname)
+10. Write work_principles.md (initial work principles)
+11. Write system_prompt_template -> prompts/talent_persona.md
+12. Register with EmployeeManager (start accepting tasks)
 ```
 
-**关键：** 入职后 talent 目录不再被引用。所有运行时文件在员工目录中。
+**Key:** After onboarding, the talent directory is no longer referenced. All runtime files are in the employee directory.
 
 ---
 
-## 三种 Hosting 模式对比
+## Three Hosting Mode Comparison
 
 | | Company | Self-Hosted | Remote |
 |---|---|---|---|
-| **执行方式** | `SubprocessExecutor` 前台 | Claude CLI 子进程 | 外部 HTTP 轮询 |
-| **任务传递** | 环境变量 | CLI 参数 | HTTP API |
-| **结果返回** | stdout JSON | CLI 输出 | HTTP POST |
-| **超时/取消** | 平台 SIGTERM→SIGKILL | 平台管理 | worker 自管 |
-| **launch.sh** | 前台模式（推荐） | 后台模式 | 不需要 |
-| **skills 复制** | 是 | 是 | 否 |
-| **tools 复制** | 是 | 是 | 否 |
-| **典型场景** | OpenRouter/OpenAI 员工 | Claude Code 员工 | GPU 集群推理节点 |
+| **Execution** | `SubprocessExecutor` foreground | Claude CLI subprocess | External HTTP polling |
+| **Task delivery** | Environment variables | CLI arguments | HTTP API |
+| **Result return** | stdout JSON | CLI output | HTTP POST |
+| **Timeout/cancellation** | Platform SIGTERM->SIGKILL | Platform-managed | Worker self-managed |
+| **launch.sh** | Foreground mode (recommended) | Background mode | Not needed |
+| **skills copied** | Yes | Yes | No |
+| **tools copied** | Yes | Yes | No |
+| **Typical use case** | OpenRouter/OpenAI employees | Claude Code employees | GPU cluster inference nodes |
 
 ---
 
-## MCP 工具访问
+## MCP Tool Access
 
-Company-hosted 员工可通过 MCP stdio 协议访问公司工具：
+Company-hosted employees can access company tools via MCP stdio protocol:
 
 ```bash
-# 在 launch.sh 中启动 MCP server
+# Start MCP server in launch.sh
 PROJECT_ROOT="$(cd "$EMPLOYEE_DIR/../../../.." && pwd)"
 PYTHON="${PROJECT_ROOT}/.venv/bin/python"
 
 coproc MCP_PROC {
     exec "$PYTHON" -m onemancompany.tools.mcp.server 2>/dev/null
 }
-# 通过 JSON-RPC 2.0 与 MCP server 交互
+# Communicate with MCP server via JSON-RPC 2.0
 ```
 
-可用工具（取决于权限）：
-- `dispatch_child` — 派发子任务
-- `accept_child` / `reject_child` — 验收/驳回子任务
-- `list_colleagues` — 列出同事
-- `pull_meeting` — 拉人对齐
+Available tools (depends on permissions):
+- `dispatch_child` — Dispatch child tasks
+- `accept_child` / `reject_child` — Accept/reject child tasks
+- `list_colleagues` — List colleagues
+- `pull_meeting` — Pull people into alignment meeting
 
 ---
 
-## Checklist — 发布前检查
+## Checklist — Pre-Release Check
 
-- [ ] `profile.yaml` 有 `id`, `name`, `role`, `skills` 字段
-- [ ] `skills/` 下每个 `profile.yaml` 列出的 skill 都有对应 `.md` 文件
-- [ ] `system_prompt_template` 不重复 identity 信息，2-5 句话
-- [ ] `launch.sh`（如果有）以 `set -euo pipefail` 开头
-- [ ] `launch.sh` 日志写 stderr，结果 JSON 写 stdout
-- [ ] `tools/` 下的 `.py` 文件都有 `@tool` 装饰器
-- [ ] `manifest.json`（如果有）的 `id` 与 `profile.yaml` 的 `id` 一致
-- [ ] 没有硬编码路径（使用 `$1` 和环境变量）
-- [ ] 没有遗留的测试数据或占位符
+- [ ] `profile.yaml` has `id`, `name`, `role`, `skills` fields
+- [ ] Every skill listed in `profile.yaml` has a corresponding `.md` file under `skills/`
+- [ ] `system_prompt_template` does not repeat identity info, 2-5 sentences
+- [ ] `launch.sh` (if present) starts with `set -euo pipefail`
+- [ ] `launch.sh` writes logs to stderr, result JSON to stdout
+- [ ] `.py` files under `tools/` all have `@tool` decorators
+- [ ] `manifest.json` (if present) has `id` matching `profile.yaml`'s `id`
+- [ ] No hardcoded paths (use `$1` and environment variables)
+- [ ] No leftover test data or placeholders

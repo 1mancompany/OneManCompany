@@ -1,168 +1,168 @@
-# 对外可引用的标准话术库 (External Communications Playbook)
+# Standard External Communications Playbook
 
-**文件路径**: company/sales/playbooks/external_comms/external_comms_playbook.md
-**版本号**: v1.0.0 (初版)
+**File path**: company/sales/playbooks/external_comms/external_comms_playbook.md
+**Version**: v1.0.0 (Initial Release)
 
-## 适用边界与法务免责声明
-- **适用边界**: 本话术库适用于One Man Company所有对外商务沟通、客户需求收集、项目执行同步及交付结算环节。
-- **不适用场景**: 涉及核心机密、未经授权的法务承诺、严重危机公关事件等，需经由CEO及法务专员单独审核，不可直接套用本模板。
-- **法务免责声明**: 本话术库仅供内部员工沟通参考使用。在未签署正式商业合同前，任何涉及排期、预算、承诺的沟通均不具备法律约束力。
+## Applicability Boundaries and Legal Disclaimer
+- **Applicability**: This playbook applies to all external business communications, client requirement collection, project execution updates, and delivery settlement processes at One Man Company.
+- **Not applicable**: Scenarios involving core secrets, unauthorized legal commitments, or serious crisis PR events require separate review by the CEO and legal specialists and may not directly use these templates.
+- **Legal disclaimer**: This playbook is for internal employee communication reference only. Prior to signing a formal business contract, any communications involving scheduling, budgets, or commitments are not legally binding.
 
-## 更新流程
-1. 任何员工发现话术需优化，可向 CSO 提交修改建议。
-2. CSO 审核通过后，更新本 playbook 文件。
-3. 同步在 `changelog.md` 中记录版本号、日期、变更内容及变更人。
+## Update Process
+1. Any employee who identifies messaging that needs improvement may submit a modification request to the CSO.
+2. After CSO review and approval, this playbook file is updated.
+3. The version number, date, changes, and change author are recorded in `changelog.md`.
 
-## 变量占位符说明
-- `{client_name}`: 客户名称/对接人称呼
-- `{project_name}`: 项目名称
-- `{due_date}`: 预期完成/交付日期
-- `{scope_items}`: 需求范围/交付物清单
-- `{risk_level}`: 风险等级 (P1/P2/P3)
-- `{budget}`: 预算金额
-- `{meeting_time}`: 会议时间
-
----
-
-## 目录
-1. [A. 线索/需求收集](#a-线索需求收集)
-2. [B. 合同/范围确认](#b-合同范围确认)
-3. [C. 执行过程周报SOP](#c-执行过程周报sop)
-4. [D. 风险阈值触发升级](#d-风险阈值触发升级)
-5. [E. 交付/验收/结算](#e-交付验收结算)
-6. [F. 复盘与二次销售](#f-复盘与二次销售)
+## Variable Placeholder Reference
+- `{client_name}`: Client name/contact person
+- `{project_name}`: Project name
+- `{due_date}`: Expected completion/delivery date
+- `{scope_items}`: Scope of requirements/deliverable list
+- `{risk_level}`: Risk level (P1/P2/P3)
+- `{budget}`: Budget amount
+- `{meeting_time}`: Meeting time
 
 ---
 
-## A. 线索/需求收集
-
-### 1. 一页式任务模板索取话术
-**【适用场景】**: 初次接触客户，需要对方提供明确的需求背景和目标。
-**【模板】**:
-尊敬的 {client_name}，您好！
-感谢您对我们团队的信任。为了更高效地评估您的需求并提供精准的方案，能否请您协助填写附件中的《一页式需求沟通表》？（主要包含项目背景、核心目标、预期时间和预算范围）。
-期待您的回复，收到后我们将尽快安排内部评估并与您对齐。
-
-### 2. 信息不全回填话术
-**【适用场景】**: 客户提供的需求信息缺失关键要素。
-**【模板】**:
-{client_name}，您好！
-感谢您提供的需求信息。经初步评估，我们在 {scope_items} 方面还需要进一步明确细节，以便为您提供准确的排期和报价。您看本周 {meeting_time} 是否方便简短开个会，或者您直接在这里补充一下？
-
-### 3. 跟进节奏话术
-**【适用场景】**: 发送方案或报价后，跟进客户反馈。
-**【模板】**:
-{client_name}，您好！
-前两天发给您的 {project_name} 方案不知您是否已经审阅？如果有任何疑问或需要调整的地方，随时沟通。期待您的反馈！
+## Table of Contents
+1. [A. Lead/Requirement Collection](#a-leadrequirement-collection)
+2. [B. Contract/Scope Confirmation](#b-contractscope-confirmation)
+3. [C. Execution Progress Weekly Report SOP](#c-execution-progress-weekly-report-sop)
+4. [D. Risk Threshold Escalation](#d-risk-threshold-escalation)
+5. [E. Delivery/Acceptance/Settlement](#e-deliveryacceptancesettlement)
+6. [F. Retrospective & Upselling](#f-retrospective--upselling)
 
 ---
 
-## B. 合同/范围确认
+## A. Lead/Requirement Collection
 
-### 1. 两级门禁通知（合同评审→入产）
-**【适用场景】**: 内部合同评审通过，通知客户项目正式启动。
-**【模板】**:
-{client_name}，您好！
-好消息，关于 {project_name} 的合同我们内部已完成评审并盖章生效。项目已正式进入生产阶段。我们将按照约定的 {due_date} 推进交付，后续会有专属的项目群为您同步进度。
+### 1. One-Page Task Template Request Script
+**[Applicable Scenario]**: First contact with a client, need them to provide clear requirement background and objectives.
+**[Template]**:
+Dear {client_name},
+Thank you for your trust in our team. To more efficiently evaluate your needs and provide a precise solution, could you please help us fill out the attached "One-Page Requirement Communication Form"? (Mainly covering project background, core objectives, expected timeline, and budget range.)
+We look forward to your reply. Upon receipt, we will arrange an internal assessment and align with you as soon as possible.
 
-### 2. 范围变更单话术
-**【适用场景】**: 客户提出新增需求，超出原合同范围。
-**【模板】**:
-{client_name}，您好！
-关于您提到的新增 {scope_items} 需求，我们内部进行了评估。由于该需求超出了原定合同范围，我们整理了一份《范围变更确认单》。新增部分预计会增加 {budget} 预算，并可能导致交付期顺延至 {due_date}。请您确认是否推进此变更？
+### 2. Incomplete Information Follow-Up Script
+**[Applicable Scenario]**: Client-provided requirement information is missing key elements.
+**[Template]**:
+Dear {client_name},
+Thank you for providing the requirement information. After preliminary assessment, we need further clarification on {scope_items} to provide you with accurate scheduling and pricing. Would {meeting_time} this week work for a brief meeting, or would you prefer to supplement the details here directly?
 
-### 3. 预算/排期调整话术
-**【适用场景】**: 因客观原因需要调整预算或排期。
-**【模板】**:
-{client_name}，您好！
-在推进 {project_name} 过程中，由于 {risk_level} 相关的不可抗力/依赖项延迟，我们需要对原计划进行微调。新的预期交付时间更新为 {due_date}。我们将全力保障最终交付质量，感谢您的理解与支持。
-
----
-
-## C. 执行过程周报SOP
-
-### 1. 周报邮件完整版
-**【适用场景】**: 每周向客户发送正式项目进度报告。
-**【模板】**:
-**主题**: 【项目周报】{project_name} - 进度同步
-
-尊敬的 {client_name}，您好！
-以下是 {project_name} 本周的执行进展，请查阅：
-- **本周完成**: {scope_items}
-- **当前进度/风险**: 整体进度正常 / 存在 {risk_level} 风险（说明风险及应对措施）
-- **下周计划**: 预计下周完成 {scope_items}
-- **需您配合**: 需要您在 {due_date} 前确认/提供 xxx，以便我们顺利推进。
-
-如有任何问题，请随时联系。
-
-### 2. IM精简版模板
-**【适用场景】**: 微信/飞书/钉钉等即时通讯工具上的日常同步。
-**【模板】**:
-Hi {client_name}，同步下 {project_name} 进度：本周已搞定 {scope_items}；下周重点推进 {scope_items}。目前一切顺利，唯一需要您帮忙的是在 {due_date} 前给到 xxx 的确认。周末愉快！
+### 3. Follow-Up Cadence Script
+**[Applicable Scenario]**: Following up on client feedback after sending a proposal or quote.
+**[Template]**:
+Dear {client_name},
+Have you had a chance to review the {project_name} proposal we sent a couple of days ago? If you have any questions or need adjustments, please feel free to reach out anytime. Looking forward to your feedback!
 
 ---
 
-## D. 风险阈值触发升级
+## B. Contract/Scope Confirmation
 
-**风险分级定义**:
-- **P1 (致命风险)**: 严重影响项目交付、导致违约或重大经济损失。
-- **P2 (高危风险)**: 进度严重滞后或核心功能受阻，需协调额外资源。
-- **P3 (一般风险)**: 小范围延期或非核心功能问题，内部可消化。
+### 1. Two-Gate Notification (Contract Review -> Production)
+**[Applicable Scenario]**: Internal contract review passed, notifying client of official project kickoff.
+**[Template]**:
+Dear {client_name},
+Great news — the contract for {project_name} has completed our internal review and is now signed and effective. The project has officially entered the production phase. We will proceed with delivery per the agreed {due_date}, and a dedicated project channel will be set up to keep you updated on progress.
 
-### 1. 升级通知模板（对客户）
-**【适用场景】**: 发生 P1/P2 级别风险，需向客户预警。
-**【模板】**:
-{client_name}，您好！
-非常抱歉地通知您，在 {project_name} 推进中我们遇到了 {risk_level} 级别的阻碍（详述问题）。目前我们已启动应急预案，预计在 {due_date} 前给出修复方案。我们会保持高频同步，确保将影响降到最低。
+### 2. Scope Change Request Script
+**[Applicable Scenario]**: Client requests additional requirements beyond the original contract scope.
+**[Template]**:
+Dear {client_name},
+Regarding the additional {scope_items} requirements you mentioned, we have conducted an internal assessment. Since these requirements exceed the original contract scope, we have prepared a "Scope Change Confirmation Form." The additions are estimated to increase the budget by {budget} and may extend the delivery date to {due_date}. Please confirm whether you would like to proceed with this change.
 
-### 2. 升级通知模板（对内部）
-**【适用场景】**: 内部向上级或跨部门升级风险。
-**【模板】**:
-【风险升级】{project_name} 触发 {risk_level} 风险。
-- **风险描述**: xxx
-- **当前影响**: xxx
-- **需协助事项**: 需要 COO/CEO 介入协调 xxx 资源。
-
----
-
-## E. 交付/验收/结算
-
-### 1. 交付通知
-**【适用场景】**: 提交最终交付物。
-**【模板】**:
-{client_name}，您好！
-很高兴地通知您，{project_name} 的所有约定内容 {scope_items} 均已开发并内测完毕。现已将交付物发送给您，请查收。
-
-### 2. 验收提醒
-**【适用场景】**: 交付后提醒客户验收。
-**【模板】**:
-{client_name}，您好！
-距离我们提交 {project_name} 交付物已过去几天，不知您和团队体验如何？如果符合预期，麻烦您在 {due_date} 前签署一下《验收确认单》；如果有修改意见，也请随时反馈。
-
-### 3. 结算催收（友好版）
-**【适用场景】**: 验收通过后，提醒付款。
-**【模板】**:
-{client_name}，您好！
-{project_name} 已顺利验收，感谢合作中的支持。我们已开具发票并寄出，麻烦您跟进下财务流程，按合同约定于 {due_date} 前结清尾款 {budget}。谢谢！
-
-### 4. 结算催收（升级版）
-**【适用场景】**: 逾期未付款。
-**【模板】**:
-尊敬的 {client_name}，您好！
-关于 {project_name} 的尾款 {budget}，目前已超出合同约定的付款期限。为避免影响后续的维护支持服务，还请您帮忙加急催办一下财务付款流程。感谢您的配合。
+### 3. Budget/Schedule Adjustment Script
+**[Applicable Scenario]**: Budget or schedule adjustments needed due to objective circumstances.
+**[Template]**:
+Dear {client_name},
+During the progress of {project_name}, due to {risk_level}-related force majeure/dependency delays, we need to make minor adjustments to the original plan. The new expected delivery date has been updated to {due_date}. We will do our utmost to ensure final delivery quality. Thank you for your understanding and support.
 
 ---
 
-## F. 复盘与二次销售
+## C. Execution Progress Weekly Report SOP
 
-### 1. 交付后回访/复盘会议邀约
-**【适用场景】**: 项目结束后，邀约客户复盘。
-**【模板】**:
-{client_name}，您好！
-{project_name} 已经顺利落地一段时间了，希望能和您约个 {meeting_time} 的简短复盘会，听听您对我们这次服务的真实反馈，以便我们持续改进。
+### 1. Full Weekly Report Email
+**[Applicable Scenario]**: Sending formal weekly project progress report to client.
+**[Template]**:
+**Subject**: [Weekly Project Report] {project_name} - Progress Update
 
-### 2. 转介绍/追加需求引导模板
-**【适用场景】**: 客户满意度高，挖掘新商机。
-**【模板】**:
-{client_name}，您好！
-很高兴这次 {project_name} 能帮到您的业务。如果您身边有朋友或合作伙伴也有类似的需求，欢迎推荐给我们。另外，关于您上次提到的 {scope_items} 新想法，我们内部做了个初步方案，您看什么时候有空交流一下？
+Dear {client_name},
+Below is this week's execution progress for {project_name}. Please review:
+- **Completed this week**: {scope_items}
+- **Current progress/risks**: Overall progress is on track / There is a {risk_level} risk (describe risk and mitigation measures)
+- **Next week's plan**: Expected to complete {scope_items} next week
+- **Action needed from you**: We need your confirmation/provision of xxx by {due_date} to proceed smoothly.
+
+Please feel free to reach out if you have any questions.
+
+### 2. IM Brief Version Template
+**[Applicable Scenario]**: Daily updates via instant messaging tools (WeChat/Lark/DingTalk, etc.).
+**[Template]**:
+Hi {client_name}, quick update on {project_name}: completed {scope_items} this week; next week we'll focus on {scope_items}. Everything is on track — the only thing we need from you is confirmation on xxx by {due_date}. Have a great weekend!
+
+---
+
+## D. Risk Threshold Escalation
+
+**Risk Level Definitions**:
+- **P1 (Critical Risk)**: Severely impacts project delivery, may cause contract breach or significant financial loss.
+- **P2 (High Risk)**: Significant progress delay or core functionality blocked, requires additional resource coordination.
+- **P3 (General Risk)**: Minor delays or non-core functionality issues, can be absorbed internally.
+
+### 1. Escalation Notification Template (To Client)
+**[Applicable Scenario]**: P1/P2 level risk occurs, need to alert the client.
+**[Template]**:
+Dear {client_name},
+We regret to inform you that during the progress of {project_name}, we have encountered a {risk_level}-level blocker (describe issue in detail). We have activated our contingency plan and expect to provide a resolution by {due_date}. We will maintain frequent updates to minimize the impact.
+
+### 2. Escalation Notification Template (Internal)
+**[Applicable Scenario]**: Internal escalation to superiors or cross-department risk reporting.
+**[Template]**:
+[Risk Escalation] {project_name} has triggered a {risk_level} risk.
+- **Risk description**: xxx
+- **Current impact**: xxx
+- **Assistance needed**: COO/CEO intervention needed to coordinate xxx resources.
+
+---
+
+## E. Delivery/Acceptance/Settlement
+
+### 1. Delivery Notification
+**[Applicable Scenario]**: Submitting final deliverables.
+**[Template]**:
+Dear {client_name},
+We are pleased to inform you that all agreed-upon deliverables for {project_name} — {scope_items} — have been developed and internally tested. The deliverables have now been sent to you. Please review.
+
+### 2. Acceptance Reminder
+**[Applicable Scenario]**: Reminding client to accept deliverables after delivery.
+**[Template]**:
+Dear {client_name},
+It has been a few days since we submitted the {project_name} deliverables. How has your team's experience been? If everything meets expectations, please sign the "Acceptance Confirmation Form" by {due_date}. If you have any feedback or modifications, please let us know anytime.
+
+### 3. Settlement Collection (Friendly Version)
+**[Applicable Scenario]**: Reminding of payment after acceptance is passed.
+**[Template]**:
+Dear {client_name},
+{project_name} has been successfully accepted. Thank you for your support throughout the collaboration. We have issued and mailed the invoice. Please follow up with your finance department to settle the remaining balance of {budget} by {due_date} per the contract terms. Thank you!
+
+### 4. Settlement Collection (Escalated Version)
+**[Applicable Scenario]**: Overdue payment.
+**[Template]**:
+Dear {client_name},
+Regarding the remaining balance of {budget} for {project_name}, the payment has exceeded the contractual payment deadline. To avoid affecting ongoing maintenance and support services, we kindly ask you to expedite the finance payment process. Thank you for your cooperation.
+
+---
+
+## F. Retrospective & Upselling
+
+### 1. Post-Delivery Follow-Up/Retrospective Meeting Invitation
+**[Applicable Scenario]**: Inviting client for a retrospective after project completion.
+**[Template]**:
+Dear {client_name},
+{project_name} has been live for a while now. We'd love to schedule a brief retrospective meeting at {meeting_time} to hear your honest feedback on our service so we can continue to improve.
+
+### 2. Referral/Upsell Guidance Template
+**[Applicable Scenario]**: High client satisfaction, exploring new opportunities.
+**[Template]**:
+Dear {client_name},
+We're glad that {project_name} was able to help your business. If you have friends or partners with similar needs, we'd welcome a referral. Additionally, regarding the {scope_items} idea you mentioned last time, we've put together a preliminary proposal internally. When would be a good time to discuss it?

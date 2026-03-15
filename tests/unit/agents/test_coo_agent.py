@@ -774,7 +774,7 @@ class TestCOOAgent:
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
         assert "COO" in prompt
-        assert "管理者" in prompt
+        assert "manager" in prompt
 
     def test_build_prompt_contains_dynamic_context(self, monkeypatch):
         agent = self._make_agent(monkeypatch)

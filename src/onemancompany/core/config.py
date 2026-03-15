@@ -174,7 +174,7 @@ EXEC_FLOOR_COLORS = ("#2a2a20", "#26261e")  # gold tones
 HR_KEYWORDS = [
     "hire", "recruit", "employee", "staff", "review", "performance",
     "fire", "dismiss", "terminate",
-    "招聘", "员工", "评价", "评估", "花名", "晋升", "开除", "解雇", "辞退",
+    "promotion", "nickname", "evaluation", "assessment",
 ]
 
 ENGINEERING_DEPT = "Engineering"
@@ -195,7 +195,7 @@ DEFAULT_TOOL_PERMISSIONS_FALLBACK: list[str] = []
 
 SALES_KEYWORDS = [
     "sales", "sell", "client", "customer", "contract", "deal", "revenue",
-    "销售", "客户", "合同", "订单", "营收", "商务", "签约",
+    "order", "business", "signing",
 ]
 
 # Inquiry routing table: list of (keywords, role, employee_id).
@@ -244,7 +244,7 @@ class EmployeeConfig(BaseModel):
     onboarding_completed: bool = False  # set True after onboarding routine
     api_provider: str = "openrouter"  # "openrouter" | "anthropic"
     api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
-    hosting: str = "company"  # "company" = 员工宿舍 (server manages agent loop) | "self" = 自带住宿 (external process, e.g. Claude Code)
+    hosting: str = "company"  # "company" = company-hosted (server manages agent loop) | "self" = self-hosted (external process, e.g. Claude Code)
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
     oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
 

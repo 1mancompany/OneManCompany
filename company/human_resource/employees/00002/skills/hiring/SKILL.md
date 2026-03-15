@@ -1,53 +1,53 @@
-# Hiring — 招聘能力
+# Hiring — Recruitment Capability
 
-## 职责
-- 根据公司需求识别和招聘合适的 AI 员工
-- 评估候选人的技能匹配度和文化契合度
-- 为新员工分配部门、职称和花名
+## Responsibilities
+- Identify and recruit suitable AI employees based on company needs
+- Evaluate candidates' skill fit and cultural alignment
+- Assign department, title, and nickname to new employees
 
-## 招聘流程
-1. 调用 `list_open_positions()` 了解当前空缺岗位
-2. 调用 `generate_candidate(role_hint)` 生成匹配的候选人
-3. 评估候选人技能是否满足岗位需求
-4. 根据职位表分配部门和职称
-5. 分配两字中文花名
-6. 确认录用并通知 CEO
+## Recruitment Process
+1. Call `list_open_positions()` to view current open positions
+2. Call `generate_candidate(role_hint)` to generate matching candidates
+3. Evaluate whether candidate skills meet position requirements
+4. Assign department and title according to the position table
+5. Assign a two-character Chinese nickname
+6. Confirm hiring and notify the CEO
 
-## 职位表（必须严格执行）
+## Position Table (must be strictly followed)
 
-### 部门与角色对应表
+### Department and Role Mapping
 
-| 角色 (Role) | 部门 | 职称后缀 |
-|-------------|------|----------|
-| Engineer | 技术研发部 | 工程师 |
-| DevOps | 技术研发部 | 工程师 |
-| QA | 技术研发部 | 工程师 |
-| Designer | 设计部 | 设计师 |
-| Analyst | 数据分析部 | 研究员 |
-| Marketing | 市场营销部 | 营销专员 |
+| Role | Department | Title Suffix |
+|------|-----------|--------------|
+| Engineer | R&D | Engineer |
+| DevOps | R&D | Engineer |
+| QA | R&D | Engineer |
+| Designer | Design | Designer |
+| Analyst | Data Analytics | Researcher |
+| Marketing | Marketing | Marketing Specialist |
 
-### 职级体系
+### Level System
 
-所有新入职员工一律从 Lv.1（初级）开始，不得跳级录用。
+All new hires start at Lv.1 (Junior); skipping levels during hiring is not allowed.
 
-| 级别 | 前缀 | 说明 |
-|------|------|------|
-| Lv.1 | 初级 | 新入职员工默认级别 |
-| Lv.2 | 中级 | 需通过绩效晋升获得（连续3季度3.75） |
-| Lv.3 | 高级 | 普通员工最高级别 |
+| Level | Prefix | Description |
+|-------|--------|-------------|
+| Lv.1 | Junior | Default level for new hires |
+| Lv.2 | Mid-level | Requires performance-based promotion (3.75 for 3 consecutive quarters) |
+| Lv.3 | Senior | Highest level for regular employees |
 
-### 职称生成规则
+### Title Generation Rules
 
-**职称 = 级别前缀 + 角色职称后缀**
+**Title = Level Prefix + Role Title Suffix**
 
-示例：
-- Lv.1 Engineer → 初级工程师
-- Lv.2 Analyst → 中级研究员
-- Lv.3 Designer → 高级设计师
-- Lv.1 Marketing → 初级营销专员
+Examples:
+- Lv.1 Engineer → Junior Engineer
+- Lv.2 Analyst → Mid-level Researcher
+- Lv.3 Designer → Senior Designer
+- Lv.1 Marketing → Junior Marketing Specialist
 
-## 招聘要求
-- 优先招聘高优先级岗位
-- 确保团队技能多样性
-- 花名必须为两个中文字，创意且与角色相关
-- 每次招聘后向 CEO 汇报录用详情
+## Recruitment Requirements
+- Prioritize high-priority positions
+- Ensure team skill diversity
+- Nicknames must be two Chinese characters, creative and role-relevant
+- Report hiring details to the CEO after each recruitment

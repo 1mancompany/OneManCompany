@@ -1,8 +1,8 @@
-"""VesselHarness — 套接件协议定义。
+"""VesselHarness — Adapter protocol definitions.
 
-每个 Protocol 定义一类套接件标准，EmployeeManager 内部实现默认版本。
-套接件将 Vessel 与公司系统解耦，使执行、任务管理、事件、存储、
-上下文注入、生命周期钩子各自可独立替换。
+Each Protocol defines a category of adapter standards; EmployeeManager implements default versions internally.
+Adapters decouple the Vessel from company systems, allowing execution, task management, events, storage,
+context injection, and lifecycle hooks to be independently replaceable.
 """
 
 from __future__ import annotations
@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Execution Harness — Launcher 协议的 vessel 版本
+# Execution Harness — Vessel version of the Launcher protocol
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class ExecutionHarness(Protocol):
-    """执行套接件 — 定义如何执行单个任务迭代。"""
+    """Execution adapter — defines how to execute a single task iteration."""
 
     async def execute(
         self,
@@ -34,12 +34,12 @@ class ExecutionHarness(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Task Harness — 任务队列管理
+# Task Harness — Task queue management
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class TaskHarness(Protocol):
-    """任务套接件 — 任务队列管理。"""
+    """Task adapter — task queue management."""
 
     def schedule_node(
         self, employee_id: str, node_id: str, tree_path: str,
@@ -53,12 +53,12 @@ class TaskHarness(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Event Harness — 事件发布
+# Event Harness — Event publishing
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class EventHarness(Protocol):
-    """事件套接件 — 事件发布。"""
+    """Event adapter — event publishing."""
 
     async def publish_log(
         self, emp_id: str, node_id: str, log_type: str, content: str,
@@ -72,12 +72,12 @@ class EventHarness(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Storage Harness — 持久化
+# Storage Harness — Persistence
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class StorageHarness(Protocol):
-    """存储套接件 — 持久化。"""
+    """Storage adapter — persistence."""
 
     def append_progress(self, emp_id: str, entry: str) -> None: ...
 
@@ -89,12 +89,12 @@ class StorageHarness(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Context Harness — prompt/context 注入
+# Context Harness — prompt/context injection
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class ContextHarness(Protocol):
-    """上下文套接件 — prompt/context 注入。"""
+    """Context adapter — prompt/context injection."""
 
     def build_task_context(
         self, emp_id: str, node_id: str, tree_path: str, config: "VesselConfig",
@@ -106,12 +106,12 @@ class ContextHarness(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Lifecycle Harness — 钩子调用
+# Lifecycle Harness — Hook invocation
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
 class LifecycleHarness(Protocol):
-    """生命周期套接件 — 钩子调用。"""
+    """Lifecycle adapter — hook invocation."""
 
     def call_pre_task(
         self, emp_id: str, task_text: str, ctx: "TaskContext",

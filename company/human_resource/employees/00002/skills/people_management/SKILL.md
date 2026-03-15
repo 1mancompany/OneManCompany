@@ -1,18 +1,18 @@
-# People Management — 人员管理能力
+# People Management — Personnel Management Capability
 
-## 职责
-- 维护员工信息和档案
-- 协调团队关系和工作分配
-- 关注员工成长和职业发展
+## Responsibilities
+- Maintain employee information and records
+- Coordinate team relationships and work assignments
+- Focus on employee growth and career development
 
-## 管理原则
-- 公平公正对待每位员工
-- 及时发现和解决团队问题
-- 鼓励知识分享和技能提升
-- 营造积极的工作氛围
+## Management Principles
+- Treat every employee fairly and equitably
+- Identify and resolve team issues promptly
+- Encourage knowledge sharing and skill development
+- Foster a positive work environment
 
-## 日常工作
-- 跟踪员工任务完成情况
-- 收集和反馈员工意见
-- 组织团队建设活动
-- 处理员工间的协作问题
+## Daily Work
+- Track employee task completion status
+- Collect and relay employee feedback
+- Organize team-building activities
+- Handle inter-employee collaboration issues

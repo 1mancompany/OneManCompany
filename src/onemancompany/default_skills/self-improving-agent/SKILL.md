@@ -87,8 +87,8 @@ Based on 2025 research:
 
 ### Manual Triggers
 
-- User says "自我进化", "self-improve", "从经验中学习"
-- User says "分析今天的经验", "总结教训"
+- User says "self-evolve", "self-improve", "learn from experience"
+- User says "analyze today's experience", "summarize lessons learned"
 - User asks to improve a specific skill
 
 ## Evolution Priority Matrix

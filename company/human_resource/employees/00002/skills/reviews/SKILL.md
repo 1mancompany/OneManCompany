@@ -1,50 +1,50 @@
-# Reviews — 绩效评估能力
+# Reviews — Performance Review Capability
 
-## 职责
-- 每个季度（3个任务完成后）对员工进行绩效评估
-- 给出三档绩效评分
-- 提供建设性反馈以帮助员工改进
-- 根据绩效历史判断是否晋升
+## Responsibilities
+- Conduct performance reviews for employees each quarter (after 3 tasks completed)
+- Assign one of three performance tiers
+- Provide constructive feedback to help employees improve
+- Determine promotions based on performance history
 
-## 绩效评分制度（必须严格执行）
+## Performance Scoring System (must be strictly followed)
 
-只有三个档位，不允许使用其他分数：
+Only three tiers are allowed; no other scores may be used:
 
-| 分数 | 档位 | 含义 |
-|------|------|------|
-| 3.25 | 待改进 | 未达到岗位基本要求，需要改进 |
-| 3.50 | 合格 | 达到岗位要求，表现稳定 |
-| 3.75 | 优秀 | 超出预期，表现突出 |
+| Score | Tier | Meaning |
+|-------|------|---------|
+| 3.25 | Needs Improvement | Did not meet basic role requirements, improvement needed |
+| 3.50 | Satisfactory | Met role requirements, stable performance |
+| 3.75 | Excellent | Exceeded expectations, outstanding performance |
 
-## 评估周期
-- 每个季度 = 3个任务
-- 员工完成3个任务后方可进行当季评估
-- 保留过去3个季度的绩效记录
+## Review Cycle
+- One quarter = 3 tasks
+- Employees can only be reviewed for the current quarter after completing 3 tasks
+- Retain performance records from the past 3 quarters
 
-## 评估维度
-- 任务完成质量和效率
-- 团队协作与沟通
-- 技能成长与学习能力
-- 对公司目标的贡献度
+## Review Dimensions
+- Task completion quality and efficiency
+- Teamwork and communication
+- Skill growth and learning ability
+- Contribution to company objectives
 
-## 晋升制度（必须严格执行）
+## Promotion System (must be strictly followed)
 
-**晋升条件**: 连续3个季度绩效均为 3.75（优秀）→ 自动晋升一级
+**Promotion criteria**: 3 consecutive quarters of 3.75 (Excellent) → automatic promotion by one level
 
-**普通员工职级上限**: Lv.3（高级）
+**Regular employee level cap**: Lv.3 (Senior)
 
-| 级别 | 前缀 | 示例职称 |
-|------|------|----------|
-| Lv.1 | 初级 | 初级工程师、初级研究员、初级营销专员 |
-| Lv.2 | 中级 | 中级工程师、中级研究员、中级营销专员 |
-| Lv.3 | 高级 | 高级工程师、高级研究员、高级营销专员 |
-| Lv.4 | 创始 | 创始员工（不可通过晋升获得） |
-| Lv.5 | CEO  | CEO（不可通过晋升获得） |
+| Level | Prefix | Example Titles |
+|-------|--------|---------------|
+| Lv.1 | Junior | Junior Engineer, Junior Researcher, Junior Marketing Specialist |
+| Lv.2 | Mid-level | Mid-level Engineer, Mid-level Researcher, Mid-level Marketing Specialist |
+| Lv.3 | Senior | Senior Engineer, Senior Researcher, Senior Marketing Specialist |
+| Lv.4 | Founding | Founding employee (cannot be achieved through promotion) |
+| Lv.5 | CEO | CEO (cannot be achieved through promotion) |
 
-**注意**: Lv.4（创始）和 Lv.5（CEO）不参与绩效晋升体系。
+**Note**: Lv.4 (Founding) and Lv.5 (CEO) are not part of the performance promotion system.
 
-## 输出格式
-评估结果必须包含 JSON 格式：
+## Output Format
+Review results must include JSON format:
 ```json
 {"action": "review", "reviews": [{"id": "employee_id", "score": 3.5, "feedback": "..."}]}
 ```

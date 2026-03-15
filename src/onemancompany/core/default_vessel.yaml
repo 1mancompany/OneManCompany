@@ -1,4 +1,4 @@
-# Default Vessel DNA — 当 talent 不带 vessel 配置时使用
+# Default Vessel DNA — used when a talent does not include vessel configuration
 runner:
   module: ""
   class_name: ""

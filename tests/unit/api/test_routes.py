@@ -42,7 +42,7 @@ def _make_employee(
     name: str = "Test Dev",
     nickname: str = "测试",
     role: str = "Engineer",
-    department: str = "技术研发部",
+    department: str = "R&D Department",
     level: int = 1,
     skills: list[str] | None = None,
 ) -> Employee:
@@ -2454,7 +2454,7 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "（处理完成）"
+        assert resp.json()["response"] == "(Processing complete)"
 
     async def test_chat_direct_executor_error(self, tmp_path):
         """Executor error returns error message instead of crashing."""
@@ -2480,7 +2480,7 @@ class TestOneOnOneChatAgentLoop:
                 })
 
         assert resp.status_code == 200
-        assert "执行出错" in resp.json()["response"]
+        assert "Execution error" in resp.json()["response"]
 
     async def test_chat_first_message_marks_listening(self):
         emp = _make_employee(id="00010")
@@ -4059,7 +4059,7 @@ class TestStartInquiry:
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_talent_persona", return_value=""):
             from onemancompany.api.routes import _start_inquiry
-            result = await _start_inquiry("招聘一个新的工程师")
+            result = await _start_inquiry("Hire a new engineer")
 
         assert result["task_type"] == "inquiry"
         assert result["agent_role"] == "HR"
@@ -4749,7 +4749,7 @@ class TestRehireEmployee:
         ex_emp.id = "00010"
         ex_emp.name = "Test Employee"
         ex_emp.nickname = "TestNick"
-        ex_emp.department = "技术研发部"
+        ex_emp.department = "R&D Department"
         ex_emp.role = "Engineer"
         ex_emp.skills = ["Python"]
         ex_emp.sprite = "employee_default"
@@ -4797,7 +4797,7 @@ class TestRehireEmployee:
         ex_emp.id = "00010"
         ex_emp.name = "Remote Worker"
         ex_emp.nickname = "RemoteNick"
-        ex_emp.department = "技术研发部"
+        ex_emp.department = "R&D Department"
         ex_emp.role = "Remote Dev"
         ex_emp.skills = []
         ex_emp.sprite = "employee_default"
@@ -4825,7 +4825,7 @@ class TestRehireEmployee:
         ex_emp.id = "00010"
         ex_emp.name = "Self Hosted"
         ex_emp.nickname = "SelfNick"
-        ex_emp.department = "技术研发部"
+        ex_emp.department = "R&D Department"
         ex_emp.role = "Self Dev"
         ex_emp.skills = []
         ex_emp.sprite = "employee_default"
@@ -5722,7 +5722,7 @@ class TestOneOnOneChatAgentLoopLogsNoResult:
                 })
 
         assert resp.status_code == 200
-        assert resp.json()["response"] == "（处理完成）"
+        assert resp.json()["response"] == "(Processing complete)"
 
 
 # ---------------------------------------------------------------------------
