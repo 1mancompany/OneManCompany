@@ -554,6 +554,7 @@ class EmployeeManager:
         self.task_histories: dict[str, list[dict]] = {}
         self._history_summaries: dict[str, str] = {}
         self._running_tasks: dict[str, asyncio.Task] = {}
+        self._current_entries: dict[str, ScheduleEntry] = {}  # currently executing entry per employee
         self._system_tasks: dict[str, asyncio.Task] = {}  # system operation tracking
         self._deferred_schedule: set[str] = set()
         self._hooks: dict[str, dict[str, Callable]] = {}
@@ -895,9 +896,11 @@ class EmployeeManager:
 
     async def _run_task(self, employee_id: str, entry: ScheduleEntry) -> None:
         """Execute a task, then schedule the next one."""
+        self._current_entries[employee_id] = entry
         try:
             await self._execute_task(employee_id, entry)
         finally:
+            self._current_entries.pop(employee_id, None)
             self._running_tasks.pop(employee_id, None)
             self._schedule_next(employee_id)
             if self._restart_pending and self.is_idle():

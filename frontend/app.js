@@ -3038,11 +3038,15 @@ class AppController {
 
     this.logEntry('CEO', `Batch hiring ${selections.length} candidate(s)...`, 'ceo');
 
+    // Mark as hired so closeCandidateModal won't dismiss
+    this._batchHired = true;
+
     // Show onboarding progress modal
     this._showOnboardingProgress(selections);
 
     // Close candidate modal
     this.closeCandidateModal();
+    this._batchHired = false;
 
     fetch('/api/candidates/batch-hire', {
       method: 'POST',
@@ -3203,9 +3207,23 @@ class AppController {
   }
 
   closeCandidateModal() {
-    document.getElementById('candidate-modal').classList.add('hidden');
+    const modal = document.getElementById('candidate-modal');
+    const wasVisible = !modal.classList.contains('hidden');
+    modal.classList.add('hidden');
+
+    // If modal was visible and no candidates were hired, dismiss the shortlist
+    if (wasVisible && this._candidateBatchId && (!this._batchHired)) {
+      fetch('/api/candidates/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_id: this._candidateBatchId }),
+      }).catch(() => {});
+      this.logEntry('CEO', '🚫 Shortlist dismissed — this recruitment round is cancelled.', 'ceo');
+    }
+
     this._interviewingCandidate = null;
     this._selectedCandidates = new Map();
+    this._candidateBatchId = null;
   }
 
   hireCandidate(candidate) {

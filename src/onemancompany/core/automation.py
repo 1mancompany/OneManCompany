@@ -66,10 +66,10 @@ async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, ta
             await asyncio.sleep(interval_seconds)
             loop = get_agent_loop(employee_id)
             if loop:
-                agent_task = loop.push_task(f"[cron:{cron_name}] {task_description}")
+                task_id = loop.push_task(f"[cron:{cron_name}] {task_description}")
                 # Record dispatched task ID
-                _record_dispatched_task(employee_id, cron_name, agent_task.id)
-                logger.debug(f"[cron] Dispatched '{cron_name}' to {employee_id}, task_id={agent_task.id}")
+                _record_dispatched_task(employee_id, cron_name, task_id)
+                logger.debug(f"[cron] Dispatched '{cron_name}' to {employee_id}, task_id={task_id}")
             else:
                 logger.warning(f"[cron] Employee {employee_id} not found, skipping '{cron_name}'")
     except asyncio.CancelledError:

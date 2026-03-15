@@ -1735,15 +1735,20 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     from onemancompany.core.agent_loop import employee_manager
     from onemancompany.core.task_tree import get_tree, save_tree_async
 
-    # Find the entry in the schedule
+    # Find the entry in the schedule OR check if it's the currently running task
     entry_found = None
     for entry in employee_manager._schedule.get(employee_id, []):
         if entry.node_id == task_id:
             entry_found = entry
             break
 
+    # Also check the running task's entry (running tasks are popped from schedule)
+    running_entry = employee_manager._current_entries.get(employee_id)
+    if not entry_found and running_entry and running_entry.node_id == task_id:
+        entry_found = running_entry
+
     if not entry_found:
-        return {"status": "error", "message": "Task not found in schedule"}
+        return {"status": "error", "message": "Task not found in schedule or running tasks"}
 
     # Load tree and node
     tp = Path(entry_found.tree_path)
@@ -3869,6 +3874,25 @@ async def _do_hire_single(
                      "message": str(e)},
             agent="HR",
         ))
+
+
+@router.post("/api/candidates/dismiss")
+async def dismiss_shortlist(body: dict) -> dict:
+    """CEO dismissed the shortlist — cancel this recruitment round."""
+    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx
+
+    batch_id = body.get("batch_id", "")
+    if batch_id and batch_id in pending_candidates:
+        pending_candidates.pop(batch_id, None)
+        _pending_project_ctx.pop(batch_id, None)
+
+    await event_bus.publish(CompanyEvent(
+        type="activity",
+        payload={"text": "CEO dismissed the shortlist — this recruitment round is cancelled.", "cls": "ceo"},
+        agent="CEO",
+    ))
+
+    return {"status": "ok", "message": "Shortlist dismissed"}
 
 
 @router.post("/api/candidates/batch-hire")

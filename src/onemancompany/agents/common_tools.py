@@ -1032,14 +1032,14 @@ def update_project_team(members: list[dict]) -> dict:
     Returns:
         Confirmation with count of added members.
     """
-    from onemancompany.core.vessel import _current_vessel, _current_task_id
+    from onemancompany.core.agent_loop import _current_vessel, _current_task_id
 
     vessel = _current_vessel.get()
     task_id = _current_task_id.get()
     if not vessel or not task_id:
         return {"status": "error", "message": "No agent context."}
 
-    task = vessel.board.get_task(task_id)
+    task = vessel.get_task(task_id)
     if not task or not task.project_dir:
         return {"status": "error", "message": "No project directory in current task."}
 
