@@ -6,5 +6,3 @@ description: >
 added_by: CEO
 type: langchain_module
 sprite: desk_equipment
-allowed_users:
-  - "00009"

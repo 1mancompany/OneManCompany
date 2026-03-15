@@ -6,8 +6,6 @@ description: >
 added_by: CEO
 type: langchain_module
 sprite: desk_equipment
-allowed_users:
-  - "00009"
 env_vars:
   - name: OPENROUTER_API_KEY
     label: OpenRouter API Key
