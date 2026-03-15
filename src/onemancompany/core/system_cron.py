@@ -188,3 +188,49 @@ class SystemCronManager:
 
 
 system_cron_manager = SystemCronManager()
+
+
+# ---------------------------------------------------------------------------
+# Handler implementations
+# ---------------------------------------------------------------------------
+
+REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
+
+
+@system_cron("heartbeat", interval="1m", description="员工 API 连接检测")
+async def heartbeat_check() -> list | None:
+    from onemancompany.core.heartbeat import run_heartbeat_cycle
+    from onemancompany.core.events import CompanyEvent
+
+    changed = await run_heartbeat_cycle()
+    if changed:
+        return [CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")]
+    return None
+
+
+@system_cron("review_reminder", interval="5m", description="审批超时提醒")
+async def review_reminder_check() -> list | None:
+    from onemancompany.core.vessel import scan_overdue_reviews
+    from onemancompany.core.events import CompanyEvent
+
+    overdue = scan_overdue_reviews()
+    if overdue:
+        return [CompanyEvent(
+            type="review_reminder",
+            payload={"overdue_nodes": overdue},
+            agent="REVIEW_REMINDER",
+        )]
+    return None
+
+
+@system_cron("config_reload", interval="30s", description="磁盘配置定期重载")
+async def config_reload_check() -> list | None:
+    from onemancompany.core.state import is_idle, reload_all_from_disk
+
+    if is_idle():
+        result = reload_all_from_disk()
+        updated = result.get("employees_updated", [])
+        added = result.get("employees_added", [])
+        if updated or added:
+            logger.info("[config_reload] {} updated, {} added", len(updated), len(added))
+    return None

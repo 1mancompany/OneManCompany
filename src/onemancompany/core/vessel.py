@@ -2217,10 +2217,7 @@ async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunn
 # Review reminder — scan for nodes stuck at "completed" awaiting review
 # ---------------------------------------------------------------------------
 
-# Threshold in seconds before a completed node triggers a reminder
-REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
-
-def scan_overdue_reviews() -> list[dict]:
+def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
     """Scan all active project trees for nodes stuck at 'completed' past threshold.
 
     Returns list of dicts with info about each overdue node:
@@ -2263,7 +2260,7 @@ def scan_overdue_reviews() -> list[dict]:
                 continue
 
             elapsed = (now - completed_dt).total_seconds()
-            if elapsed < REVIEW_REMINDER_THRESHOLD_SECONDS:
+            if elapsed < threshold_seconds:
                 continue
 
             # Find the reviewer (parent node's employee)

@@ -160,3 +160,65 @@ async def test_handler_error_does_not_crash_loop():
     await mgr.stop_all()
 
     assert call_count >= 2
+
+
+# --- Handler tests ---
+
+@pytest.mark.asyncio
+async def test_heartbeat_handler_returns_event_on_change():
+    with patch("onemancompany.core.heartbeat.run_heartbeat_cycle", new_callable=AsyncMock) as mock_hb:
+        mock_hb.return_value = ["emp_001"]
+        from onemancompany.core.system_cron import heartbeat_check
+        events = await heartbeat_check()
+        assert events is not None
+        assert len(events) == 1
+        assert events[0].type == "state_snapshot"
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_handler_returns_none_when_no_change():
+    with patch("onemancompany.core.heartbeat.run_heartbeat_cycle", new_callable=AsyncMock) as mock_hb:
+        mock_hb.return_value = []
+        from onemancompany.core.system_cron import heartbeat_check
+        events = await heartbeat_check()
+        assert events is None
+
+
+@pytest.mark.asyncio
+async def test_review_reminder_handler():
+    fake_overdue = [{"node_id": "n1", "employee_id": "e1", "waiting_seconds": 600}]
+    with patch("onemancompany.core.vessel.scan_overdue_reviews", return_value=fake_overdue):
+        from onemancompany.core.system_cron import review_reminder_check
+        events = await review_reminder_check()
+        assert events is not None
+        assert events[0].type == "review_reminder"
+        assert events[0].payload["overdue_nodes"] == fake_overdue
+
+
+@pytest.mark.asyncio
+async def test_review_reminder_handler_nothing_overdue():
+    with patch("onemancompany.core.vessel.scan_overdue_reviews", return_value=[]):
+        from onemancompany.core.system_cron import review_reminder_check
+        events = await review_reminder_check()
+        assert events is None
+
+
+@pytest.mark.asyncio
+async def test_config_reload_handler_when_idle():
+    with patch("onemancompany.core.state.is_idle", return_value=True), \
+         patch("onemancompany.core.state.reload_all_from_disk") as mock_reload:
+        mock_reload.return_value = {"employees_updated": [], "employees_added": []}
+        from onemancompany.core.system_cron import config_reload_check
+        events = await config_reload_check()
+        assert events is None
+        mock_reload.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_config_reload_handler_when_busy():
+    with patch("onemancompany.core.state.is_idle", return_value=False), \
+         patch("onemancompany.core.state.reload_all_from_disk") as mock_reload:
+        from onemancompany.core.system_cron import config_reload_check
+        events = await config_reload_check()
+        assert events is None
+        mock_reload.assert_not_called()
