@@ -40,6 +40,9 @@ class AuthChoiceOption:
     value: str          # e.g. "openai-api-key", "anthropic-oauth"
     label: str          # e.g. "API Key"
     hint: str = ""      # e.g. "Paste your sk-... key"
+    provider: str = ""  # explicit provider key, e.g. "openai", "google"
+    auth_method: str = "api_key"  # "api_key" | "oauth" | "setup_token" | "codex"
+    available: bool = True  # False = "Coming Soon" (Phase 2 OAuth)
 
 @dataclass
 class AuthChoiceGroup:
@@ -50,45 +53,45 @@ class AuthChoiceGroup:
 
 AUTH_CHOICE_GROUPS: list[AuthChoiceGroup] = [
     AuthChoiceGroup("openai", "OpenAI", "Codex OAuth + API key", [
-        AuthChoiceOption("openai-codex", "Codex OAuth"),
-        AuthChoiceOption("openai-api-key", "API Key"),
+        AuthChoiceOption("openai-codex", "Codex OAuth", provider="openai", auth_method="codex", available=False),
+        AuthChoiceOption("openai-api-key", "API Key", provider="openai", auth_method="api_key"),
     ]),
     AuthChoiceGroup("anthropic", "Anthropic", "OAuth + API key", [
-        AuthChoiceOption("anthropic-oauth", "OAuth (setup-token)"),
-        AuthChoiceOption("anthropic-api-key", "API Key"),
+        AuthChoiceOption("anthropic-setup-token", "OAuth (setup-token)", provider="anthropic", auth_method="setup_token"),
+        AuthChoiceOption("anthropic-api-key", "API Key", provider="anthropic", auth_method="api_key"),
     ]),
     AuthChoiceGroup("kimi", "Moonshot AI (Kimi)", "API key", [
-        AuthChoiceOption("kimi-api-key", "API Key"),
+        AuthChoiceOption("kimi-api-key", "API Key", provider="kimi", auth_method="api_key"),
     ]),
     AuthChoiceGroup("deepseek", "DeepSeek", "API key", [
-        AuthChoiceOption("deepseek-api-key", "API Key"),
+        AuthChoiceOption("deepseek-api-key", "API Key", provider="deepseek", auth_method="api_key"),
     ]),
     AuthChoiceGroup("qwen", "Qwen", "OAuth + API key", [
-        AuthChoiceOption("qwen-oauth", "OAuth"),
-        AuthChoiceOption("qwen-api-key", "API Key"),
+        AuthChoiceOption("qwen-oauth", "OAuth", provider="qwen", auth_method="oauth", available=False),
+        AuthChoiceOption("qwen-api-key", "API Key", provider="qwen", auth_method="api_key"),
     ]),
     AuthChoiceGroup("zhipu", "ZhiPu (GLM)", "API key", [
-        AuthChoiceOption("zhipu-api-key", "API Key"),
+        AuthChoiceOption("zhipu-api-key", "API Key", provider="zhipu", auth_method="api_key"),
     ]),
     AuthChoiceGroup("groq", "Groq", "API key", [
-        AuthChoiceOption("groq-api-key", "API Key"),
+        AuthChoiceOption("groq-api-key", "API Key", provider="groq", auth_method="api_key"),
     ]),
     AuthChoiceGroup("together", "Together AI", "API key", [
-        AuthChoiceOption("together-api-key", "API Key"),
+        AuthChoiceOption("together-api-key", "API Key", provider="together", auth_method="api_key"),
     ]),
     AuthChoiceGroup("openrouter", "OpenRouter", "API key", [
-        AuthChoiceOption("openrouter-api-key", "API Key"),
+        AuthChoiceOption("openrouter-api-key", "API Key", provider="openrouter", auth_method="api_key"),
     ]),
     AuthChoiceGroup("google", "Google Gemini", "OAuth + API key", [
-        AuthChoiceOption("google-gemini-oauth", "Gemini CLI OAuth"),
-        AuthChoiceOption("google-gemini-api-key", "API Key"),
+        AuthChoiceOption("google-gemini-oauth", "Gemini CLI OAuth", provider="google", auth_method="oauth", available=False),
+        AuthChoiceOption("google-gemini-api-key", "API Key", provider="google", auth_method="api_key"),
     ]),
     AuthChoiceGroup("minimax", "MiniMax", "OAuth + API key", [
-        AuthChoiceOption("minimax-oauth", "OAuth"),
-        AuthChoiceOption("minimax-api-key", "API Key"),
+        AuthChoiceOption("minimax-oauth", "OAuth", provider="minimax", auth_method="oauth", available=False),
+        AuthChoiceOption("minimax-api-key", "API Key", provider="minimax", auth_method="api_key"),
     ]),
     AuthChoiceGroup("custom", "Custom Provider", "Any OpenAI/Anthropic compatible endpoint", [
-        AuthChoiceOption("custom-api-key", "Custom API Key"),
+        AuthChoiceOption("custom-api-key", "Custom API Key", provider="custom", auth_method="api_key"),
     ]),
 ]
 ```
@@ -96,13 +99,49 @@ AUTH_CHOICE_GROUPS: list[AuthChoiceGroup] = [
 ### resolve_auth_choice()
 
 ```python
-def resolve_auth_choice(choice_value: str) -> tuple[str, str]:
-    """Parse 'openai-api-key' → ('openai', 'api_key'), 'anthropic-oauth' → ('anthropic', 'oauth')."""
+def resolve_auth_choice(choice_value: str) -> AuthChoiceOption | None:
+    """Look up an AuthChoiceOption by its value string.
+
+    Uses the explicit `provider` and `auth_method` fields on the option —
+    no string parsing needed.
+    """
+    for group in AUTH_CHOICE_GROUPS:
+        for option in group.choices:
+            if option.value == choice_value:
+                return option
+    return None
 ```
 
-### PROVIDER_REGISTRY (unchanged)
+### PROVIDER_REGISTRY (extended)
 
-Existing `ProviderConfig` in `config.py` — no modifications needed. New providers (google, minimax) added to the registry with their connection parameters.
+Existing `ProviderConfig` in `config.py` stays as-is. New entries added for `google` and `minimax`:
+
+```python
+# New entries in PROVIDER_REGISTRY
+"google": ProviderConfig(
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+    chat_class="openai",
+    env_key="google_api_key",
+    health_url="https://generativelanguage.googleapis.com/v1beta/models",
+),
+"minimax": ProviderConfig(
+    base_url="https://api.minimax.chat/v1",
+    chat_class="openai",
+    env_key="minimax_api_key",
+    health_url="https://api.minimax.chat/v1/models",
+),
+```
+
+New `Settings` fields: `google_api_key: str = ""`, `minimax_api_key: str = ""`.
+
+### Custom Provider
+
+The `custom` group requires additional fields in the verify/apply requests:
+
+- `base_url` (required) — user-provided endpoint URL
+- `chat_class` — auto-detected ("openai" or "anthropic") by probing both endpoints, or user-selected
+
+Custom providers are stored as dynamic entries in `PROVIDER_REGISTRY` at runtime (keyed by normalized URL, e.g. `custom-api-example-com`), following openclaw's `resolveCustomProviderId()` pattern.
 
 ## API Endpoints
 
@@ -134,9 +173,12 @@ Request:
   "provider": "deepseek",
   "auth_method": "api_key",
   "api_key": "sk-...",
-  "model": "deepseek-chat"
+  "model": "deepseek-chat",
+  "base_url": ""
 }
 ```
+
+`base_url` is optional — only used for `custom` provider. For known providers, looked up from `PROVIDER_REGISTRY`.
 
 Response:
 ```json
@@ -152,15 +194,28 @@ Implementation: calls shared `_probe_chat()` function — sends `messages=[{"rol
 Request:
 ```json
 // Company-level
-{"scope": "company", "choice": "openai-api-key", "api_key": "sk-..."}
+{"scope": "company", "choice": "openai-api-key", "api_key": "sk-...", "model": "gpt-4o"}
 
 // Employee-level
-{"scope": "employee", "employee_id": "00010", "choice": "deepseek-api-key", "api_key": "sk-..."}
+{"scope": "employee", "employee_id": "00010", "choice": "deepseek-api-key", "api_key": "sk-...", "model": "deepseek-chat"}
+
+// Custom provider
+{"scope": "company", "choice": "custom-api-key", "api_key": "sk-...", "model": "my-model", "base_url": "https://api.example.com/v1", "chat_class": "openai"}
 ```
 
+`model` is optional — if omitted, keeps existing model setting.
+`base_url` and `chat_class` are required only for `custom` provider.
+
 Actions:
-- Company: writes key to Settings (env_key from PROVIDER_REGISTRY), sets as default provider
-- Employee: writes to employee profile.yaml (api_provider, api_key, auth_method), rebuilds agent
+- Company: writes key to Settings (env_key from PROVIDER_REGISTRY), optionally sets default provider/model
+- Employee: writes to employee profile.yaml (api_provider, api_key, auth_method, llm_model), rebuilds agent
+
+Error responses:
+```json
+{"error": "Employee not found", "code": "not_found"}
+{"error": "Unknown provider", "code": "invalid_provider"}
+{"error": "Choice not available (OAuth coming soon)", "code": "not_available"}
+```
 
 ### Deleted Endpoints
 
@@ -212,17 +267,23 @@ Anthropic "OAuth" is actually a setup-token paste (not true OAuth), can be imple
 
 ### auth_apply dispatch
 
+Dispatch uses the `auth_method` field from `AuthChoiceOption`, not the `value` string:
+
 ```python
 # auth_apply/__init__.py
 APPLY_HANDLERS: dict[str, Callable] = {
     # Phase 1
-    "api_key": apply_api_key,
+    "api_key": apply_api_key,         # all *-api-key choices route here
+    "setup_token": apply_setup_token, # anthropic setup-token
     # Phase 2
-    "openai-codex": apply_openai_codex,
-    "google-gemini-oauth": apply_google_gemini_oauth,
-    "qwen-oauth": apply_qwen_oauth,
-    "minimax-oauth": apply_minimax_oauth,
+    "codex": apply_openai_codex,
+    "oauth": apply_oauth,             # google, qwen, minimax OAuth flows
 }
+
+async def apply_auth_choice(choice_value: str, scope: str, **kwargs):
+    option = resolve_auth_choice(choice_value)
+    handler = APPLY_HANDLERS.get(option.auth_method)
+    return await handler(option.provider, scope, **kwargs)
 ```
 
 ## API Key Priority (Employee Level)
@@ -262,7 +323,7 @@ src/onemancompany/core/
     google_gemini.py        # Phase 2
     qwen_portal.py          # Phase 2
     minimax_oauth.py        # Phase 2
-  config.py                # UNCHANGED: PROVIDER_REGISTRY stays as-is
+  config.py                # MODIFIED: add google/minimax to PROVIDER_REGISTRY + Settings fields
   heartbeat.py             # MODIFIED: replace old checks with _probe_chat()
 
 src/onemancompany/api/
@@ -281,8 +342,10 @@ frontend/
 
 ## Testing Strategy
 
-- Unit tests for `auth_choices.py`: resolve function, startup validation
+- Unit tests for `auth_choices.py`: resolve function, startup validator (group_id ↔ PROVIDER_REGISTRY consistency)
 - Unit tests for `auth_verify.py`: mock chat responses for success/failure/timeout
 - Unit tests for `auth_apply/api_key.py`: company-level and employee-level apply
-- Integration tests for new API endpoints
+- Unit tests for `auth_apply/__init__.py`: dispatch routing (auth_method → handler)
+- Integration tests for new API endpoints (verify, apply, providers list)
+- Integration tests for heartbeat with new `_probe_chat()`
 - Frontend: manual testing of four-step flow
