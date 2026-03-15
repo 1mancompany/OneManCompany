@@ -3882,15 +3882,36 @@ async def dismiss_shortlist(body: dict) -> dict:
     from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx
 
     batch_id = body.get("batch_id", "")
-    if batch_id and batch_id in pending_candidates:
-        pending_candidates.pop(batch_id, None)
-        _pending_project_ctx.pop(batch_id, None)
+    if not batch_id:
+        return {"status": "error", "message": "batch_id required"}
+
+    # Clean up pending data
+    pending_candidates.pop(batch_id, None)
+    _pending_project_ctx.pop(batch_id, None)
+
+    from onemancompany.agents.recruitment import _persist_candidates
+    _persist_candidates()
+
+    # Resume HR's HOLDING task so it doesn't hang forever
+    from onemancompany.core.vessel import employee_manager as _em
+    from onemancompany.core.task_tree import get_tree as _get_tree
+    dismiss_reason = "CEO认为这次招聘是不需要的或者错误的，已取消本轮招聘"
+    for entry in _em._schedule.get(HR_ID, []):
+        tp = Path(entry.tree_path)
+        if not tp.exists():
+            continue
+        tree = _get_tree(tp)
+        node = tree.get_node(entry.node_id)
+        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+            await _em.resume_held_task(HR_ID, entry.node_id, dismiss_reason)
+            break
 
     await event_bus.publish(CompanyEvent(
         type="activity",
         payload={"text": "CEO dismissed the shortlist — this recruitment round is cancelled.", "cls": "ceo"},
         agent="CEO",
     ))
+    await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
     return {"status": "ok", "message": "Shortlist dismissed"}
 

@@ -1055,6 +1055,9 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "cancelled", "Task cancelled")
+            save_tree_async(entry.tree_path)
+            self._publish_node_update(employee_id, node)
+            raise
         except TimeoutError as te:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
