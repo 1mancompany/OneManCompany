@@ -445,6 +445,12 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.tool_registry import tool_registry
     tool_registry.load_asset_tools()
 
+    # Validate AUTH_CHOICE_GROUPS ↔ PROVIDER_REGISTRY consistency
+    from onemancompany.core.auth_choices import validate_registry_consistency
+    _auth_warnings = validate_registry_consistency()
+    for _w in _auth_warnings:
+        logger.warning("Auth config: {}", _w)
+
     # Discover and load view plugins
     from onemancompany.core.plugin_registry import plugin_registry
     plugin_registry.discover_and_load()
