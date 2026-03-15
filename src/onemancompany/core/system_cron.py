@@ -19,7 +19,7 @@ manages lifecycle. Wire it in main.py lifespan:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Coroutine, Literal, TypedDict
 
@@ -100,10 +100,11 @@ class SystemCronManager:
 
     async def stop_all(self) -> None:
         """Stop all running system crons."""
+        tasks_to_await = list(self._tasks.values())
         for name in list(self._tasks.keys()):
             self.stop(name)
-        if self._tasks:
-            await asyncio.gather(*self._tasks.values(), return_exceptions=True)
+        if tasks_to_await:
+            await asyncio.gather(*tasks_to_await, return_exceptions=True)
         self._tasks.clear()
         logger.info("All system crons stopped")
 
@@ -213,7 +214,7 @@ async def review_reminder_check() -> list | None:
     from onemancompany.core.vessel import scan_overdue_reviews
     from onemancompany.core.events import CompanyEvent
 
-    overdue = scan_overdue_reviews()
+    overdue = scan_overdue_reviews(threshold_seconds=REVIEW_REMINDER_THRESHOLD_SECONDS)
     if overdue:
         return [CompanyEvent(
             type="review_reminder",

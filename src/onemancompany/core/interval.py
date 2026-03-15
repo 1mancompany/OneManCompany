@@ -24,4 +24,7 @@ def parse_interval(interval_str: str | None) -> int | None:
     mult = multipliers.get(unit)
     if mult is None:
         return None
-    return value * mult
+    result = value * mult
+    if result <= 0:
+        return None
+    return result
