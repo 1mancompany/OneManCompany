@@ -2083,6 +2083,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
 # ---------------------------------------------------------------------------
 
 _active_ceo_meeting: dict | None = None
+_ceo_meeting_cancel: asyncio.Event | None = None  # set by new CEO message to cancel current round
 
 
 async def start_ceo_meeting(meeting_type: str) -> dict:
@@ -2095,7 +2096,11 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
     if not all_emps:
         return {"error": "No employees available"}
 
-    all_emp_ids = list(all_emps.keys())
+    # Exclude founding members (CEO, HR, COO, EA, CSO) — only regular employees attend
+    from onemancompany.core.config import FOUNDING_IDS
+    all_emp_ids = [eid for eid in all_emps if eid not in FOUNDING_IDS]
+    if not all_emp_ids:
+        return {"error": "No non-founding employees available"}
     room_participants = [CEO_ID] + all_emp_ids
 
     # Book largest available room
@@ -2150,9 +2155,14 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
 
 async def ceo_meeting_chat(message: str) -> dict:
     """CEO sends a message in the active meeting. Returns employee responses."""
-    global _active_ceo_meeting
+    global _active_ceo_meeting, _ceo_meeting_cancel
     if not _active_ceo_meeting:
         return {"error": "No active CEO meeting"}
+
+    # Cancel any ongoing token-grab round — CEO message takes priority
+    if _ceo_meeting_cancel:
+        _ceo_meeting_cancel.set()
+    _ceo_meeting_cancel = asyncio.Event()
 
     meeting = _active_ceo_meeting
     room_id = meeting["room_id"]
@@ -2212,7 +2222,9 @@ async def ceo_meeting_chat(message: str) -> dict:
             })
 
     elif meeting["type"] == "discussion":
-        # Discussion: token-grab rounds until no one wants to speak
+        # Discussion: true token-grab — all employees race concurrently,
+        # first "YES" wins the token, all other evaluations are cancelled.
+        # After the winner speaks, a new round starts.
         from onemancompany.agents.common_tools import _build_evaluate_prompt, _build_speech_prompt
 
         speakers = [
@@ -2221,44 +2233,75 @@ async def ceo_meeting_chat(message: str) -> dict:
             if eid in all_emps
         ]
 
-        loop = asyncio.get_running_loop()
         last_speaker_id = ""
         max_rounds = 10
 
+        cancel_event = _ceo_meeting_cancel
+
         for _round in range(max_rounds):
-            async def _evaluate(eid_and_data: tuple[str, dict]):
-                eid, edata = eid_and_data
-                prompt = _build_evaluate_prompt(edata, eid, "CEO Meeting", "", meeting["chat_history"])
-                llm = make_llm(eid)
-                t0 = loop.time()
-                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
-                t1 = loop.time()
-                first_line = resp.content.strip().split("\n")[0].upper()[:20]
-                wants = "YES" in first_line
-                return (eid, edata, wants, t1)
-
-            results = await asyncio.gather(
-                *[_evaluate(e) for e in speakers],
-                return_exceptions=True,
-            )
-
-            willing = [
-                (eid, edata, ts)
-                for r in results
-                if not isinstance(r, Exception)
-                for eid, edata, wants, ts in [r]
-                if wants
-            ]
-
-            if not willing:
+            # Check if CEO sent a new message (cancels this round)
+            if cancel_event and cancel_event.is_set():
                 break
 
-            # Token grab — fastest wins, no consecutive same speaker
-            willing.sort(key=lambda x: x[2])
-            winner_id, winner_data, _ = willing[0]
-            if winner_id == last_speaker_id and len(willing) > 1:
-                winner_id, winner_data, _ = willing[1]
+            # --- Token grab race: first YES wins, cancel the rest ---
+            winner_id = ""
+            winner_data: dict = {}
+            pending_tasks: list[asyncio.Task] = []
 
+            # Event signals that a winner has been found
+            token_grabbed = asyncio.Event()
+
+            async def _race_evaluate(eid: str, edata: dict):
+                """Evaluate if employee wants to speak. Sets token_grabbed on YES."""
+                prompt = _build_evaluate_prompt(edata, eid, "CEO Meeting", "", meeting["chat_history"])
+                llm = make_llm(eid)
+                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
+                first_line = resp.content.strip().split("\n")[0].upper()[:20]
+                if "YES" in first_line:
+                    return (eid, edata, True)
+                return (eid, edata, False)
+
+            # Launch all evaluations as tasks
+            for eid, edata in speakers:
+                if eid == last_speaker_id:
+                    continue  # skip consecutive same speaker
+                t = asyncio.create_task(_race_evaluate(eid, edata))
+                pending_tasks.append(t)
+
+            if not pending_tasks:
+                break
+
+            # Wait for first YES — cancel remaining tasks
+            found_winner = False
+            for coro in asyncio.as_completed(pending_tasks):
+                try:
+                    eid, edata, wants = await coro
+                except asyncio.CancelledError:
+                    logger.trace("token-grab task cancelled (expected)")
+                    continue
+                except Exception as exc:
+                    logger.warning("token-grab evaluation failed: {}", exc)
+                    continue
+                if wants and not found_winner:
+                    winner_id = eid
+                    winner_data = edata
+                    found_winner = True
+                    # Cancel all remaining tasks
+                    for t in pending_tasks:
+                        if not t.done():
+                            t.cancel()
+                    break
+
+            # Suppress CancelledError from cancelled tasks
+            for t in pending_tasks:
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+            if not found_winner:
+                break
+
+            # --- Winner speaks ---
             speech_prompt = _build_speech_prompt(winner_data, winner_id, "CEO Meeting", "", meeting["chat_history"])
             resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
             last_speaker_id = winner_id
@@ -2279,7 +2322,10 @@ async def ceo_meeting_chat(message: str) -> dict:
 
 async def end_ceo_meeting() -> dict:
     """End CEO meeting. EA summarizes action points, saves guidance, creates project if needed."""
-    global _active_ceo_meeting
+    global _active_ceo_meeting, _ceo_meeting_cancel
+    # Cancel any ongoing token-grab
+    if _ceo_meeting_cancel:
+        _ceo_meeting_cancel.set()
     if not _active_ceo_meeting:
         return {"error": "No active CEO meeting"}
 
@@ -2410,6 +2456,7 @@ async def end_ceo_meeting() -> dict:
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
 
     _active_ceo_meeting = None
+    _ceo_meeting_cancel = None
 
     return {
         "status": "ended",
