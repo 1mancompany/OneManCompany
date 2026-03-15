@@ -92,7 +92,6 @@ def dispatch_child(
     acceptance_criteria: list[str],
     timeout_seconds: int = 3600,
     depends_on: list[str] | None = None,
-    fail_strategy: str = "block",
 ) -> dict:
     """Dispatch a child task to an employee with acceptance criteria.
 
@@ -109,7 +108,6 @@ def dispatch_child(
         acceptance_criteria: List of measurable criteria the result must meet
         timeout_seconds: Max seconds allowed for the child task (default 3600)
         depends_on: List of TaskNode IDs that must complete before this child starts
-        fail_strategy: "block" (default) or "continue" — what to do if a dependency fails
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
 
@@ -217,7 +215,6 @@ def dispatch_child(
             acceptance_criteria=acceptance_criteria,
             timeout_seconds=timeout_seconds,
             depends_on=depends_on,
-            fail_strategy=fail_strategy,
         )
         child.project_id = current_node.project_id
         child.project_dir = project_dir
@@ -514,6 +511,51 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
         return {"status": "cancelled", "node_id": node_id}
 
 
+@tool
+def set_project_name(name: str) -> dict:
+    """Set the display name for the current project.
+
+    Call this when you first receive a new CEO task to give it a descriptive name.
+
+    Args:
+        name: Short project name (2-6 words)
+    """
+    from onemancompany.core.vessel import _current_task_id
+
+    task_id = _current_task_id.get()
+    if not task_id:
+        return {"status": "error", "message": "No agent context."}
+
+    from onemancompany.core.vessel import employee_manager
+    project_dir = ""
+    tree_path_str = ""
+    for entries in employee_manager._schedule.values():
+        for e in entries:
+            if e.node_id == task_id:
+                project_dir = str(Path(e.tree_path).parent)
+                tree_path_str = e.tree_path
+                break
+        if tree_path_str:
+            break
+
+    if not project_dir:
+        return {"status": "error", "message": "No project context."}
+
+    # Update project.yaml name field
+    project_yaml = Path(project_dir) / "project.yaml"
+    if project_yaml.exists():
+        import yaml
+        data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+        data["name"] = name.strip()
+        project_yaml.write_text(
+            yaml.dump(data, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        return {"status": "ok", "name": name.strip()}
+
+    return {"status": "error", "message": "Project file not found."}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -525,3 +567,4 @@ tool_registry.register(accept_child, ToolMeta(name="accept_child", category="bas
 tool_registry.register(reject_child, ToolMeta(name="reject_child", category="base"))
 tool_registry.register(unblock_child, ToolMeta(name="unblock_child", category="base"))
 tool_registry.register(cancel_child, ToolMeta(name="cancel_child", category="base"))
+tool_registry.register(set_project_name, ToolMeta(name="set_project_name", category="base"))

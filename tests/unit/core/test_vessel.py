@@ -442,7 +442,6 @@ class TestCeoConfirmation:
 
         tree, tree_path = self._make_tree_with_root(tmp_path)
         root_node = tree.get_node(tree.root_id)
-        root_node.task_type = "project"
         tree.save(tree_path)
 
         entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))

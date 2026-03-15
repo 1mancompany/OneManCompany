@@ -25,7 +25,6 @@ class TaskEntry:
     project_id: str        # v1 = timestamp ID, v2 = project slug
     task: str
     routed_to: str = ""    # "HR", "COO", "EA", etc.
-    task_type: str = "simple"  # "simple" or "project"
     iteration_id: str = ""  # v2 = iter_XXX, v1 = empty
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
@@ -45,7 +44,6 @@ class TaskEntry:
             "project_id": self.project_id,
             "iteration_id": self.iteration_id,
             "task": self.task,
-            "task_type": self.task_type,
             "routed_to": self.routed_to,
             "project_dir": self.project_dir,
             "current_owner": self.current_owner,
@@ -85,7 +83,6 @@ def get_active_tasks() -> list[TaskEntry]:
                 result.append(TaskEntry(
                     project_id=node.project_id,
                     task=node.description,
-                    task_type=node.task_type,
                     project_dir=node.project_dir,
                     current_owner=employee_id,
                     status=node.status,

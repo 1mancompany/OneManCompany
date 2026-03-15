@@ -831,8 +831,10 @@ def request_hiring(
     }
     pending_hiring_requests[hire_id] = req
 
-    # Auto-approved — directly push JD to HR and queue COO context.
+    # Auto-approved — dispatch HR child via project tree (if in tree context),
+    # otherwise fallback to adhoc task.
     from onemancompany.core.vessel import employee_manager
+    from onemancompany.core.config import HR_ID
 
     skills_str = ", ".join(desired_skills or [])
     jd = f"招聘 {role}"
@@ -842,23 +844,31 @@ def request_hiring(
         jd += f"（技能要求: {skills_str}）"
     jd += f"\n原因: {reason}"
 
-    from onemancompany.core.agent_loop import get_agent_loop
-    from onemancompany.core.config import HR_ID
-    hr_loop = get_agent_loop(HR_ID)
-    if hr_loop:
-        from onemancompany.api.routes import _push_adhoc_task, _pending_coo_hire_queue
-        _push_adhoc_task(HR_ID, jd)
-        _pending_coo_hire_queue.append({
-            "hire_id": hire_id,
-            "role": role,
-            "department": department,
-            "project_id": project_id,
-            "project_dir": project_dir,
-            "reason": reason,
-        })
-        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR task queued", hire_id, role)
+    # Try dispatch_child to keep hiring in the project tree
+    from onemancompany.agents.tree_tools import dispatch_child
+    result = dispatch_child.invoke({
+        "employee_id": HR_ID,
+        "description": jd,
+        "acceptance_criteria": [f"成功招聘 {role}", "新员工完成入职配置"],
+    })
+
+    if result.get("status") in ("dispatched", "dispatched_waiting"):
+        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR child node in tree", hire_id, role)
     else:
-        logger.warning("No agent loop for HR — hiring task for {} dropped", role)
+        # No tree context — fallback to adhoc task
+        from onemancompany.api.routes import _push_adhoc_task
+        _push_adhoc_task(HR_ID, jd)
+        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR adhoc task (no tree ctx)", hire_id, role)
+
+    from onemancompany.api.routes import _pending_coo_hire_queue
+    _pending_coo_hire_queue.append({
+        "hire_id": hire_id,
+        "role": role,
+        "department": department,
+        "project_id": project_id,
+        "project_dir": project_dir,
+        "reason": reason,
+    })
 
     # Publish event for frontend notification (informational, no approval needed)
     coro = event_bus.publish(CompanyEvent(

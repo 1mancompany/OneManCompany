@@ -478,116 +478,29 @@ class AppController {
     panel.innerHTML = '';
     for (const t of tasks) {
       const card = document.createElement('div');
-      const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
       card.className = `task-card ${t.status}`;
 
-      // Status icon
       const statusMap = {
-        pending: ['⏳', 'Pending'],
         processing: ['🔄', 'Processing'],
-        completed: ['✅', 'Completed'],
-        finished: ['🏁', 'Finished'],
-        failed: ['❌', 'Failed'],
-        cancelled: ['🚫', 'Cancelled'],
         holding: ['⏸️', 'Holding'],
       };
-      const [icon, label] = statusMap[t.status] || ['⏳', t.status];
+      const [icon, label] = statusMap[t.status] || ['🔄', t.status];
 
-      // Owner — resolve from tree root node for better display
-      let ownerLabel = '';
-      if (!isTerminal) {
-        // For active tasks, show current owner
-        const ownerEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === t.current_owner);
-        ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
-        // Don't show "pending" as owner
-        if (t.current_owner === 'pending' || !ownerLabel) {
-          ownerLabel = t.routed_to || '';
-        }
-      } else if (t.tree) {
-        // For completed tasks, show executor from tree root
-        const rootNode = t.tree.active_nodes?.[0];
-        if (rootNode) {
-          const rootEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === rootNode.employee_id);
-          ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
-        }
-      }
-
-      // Task description (the original CEO instruction)
-      const taskText = this._escHtml(t.task.substring(0, 80)) + (t.task.length > 80 ? '...' : '');
-
-      // Result from tree root node for completed tasks
-      let resultHtml = '';
-      if (isTerminal && t.tree) {
-        // Get result from tree root node
-        const rootNode = t.tree.root_result;
-        if (rootNode) {
-          // Show first meaningful line of the result
-          const firstLine = rootNode.split('\n').find(l => l.trim()) || '';
-          const summary = firstLine.substring(0, 120);
-          resultHtml = `<div class="task-card-result">${this._escHtml(summary)}${firstLine.length > 120 ? '...' : ''}</div>`;
-        }
-      }
-
-      // Tree progress — only for active multi-node trees
-      let treeHtml = '';
-      if (!isTerminal && t.tree) {
-        const tr = t.tree;
-        const childCount = tr.total - 1;
-        if (childCount > 0) {
-          const done = tr.terminal;
-          const pct = Math.round((done / childCount) * 100);
-          treeHtml = `<div class="task-card-tree">
-            <div class="task-tree-progress"><div class="task-tree-bar" style="width:${pct}%"></div></div>
-            <span class="task-tree-label">${done}/${childCount} subtasks</span>
-          </div>`;
-        }
-        // Show active worker nodes
-        if (tr.active_nodes && tr.active_nodes.length > 0) {
-          const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
-            const nEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === n.employee_id);
-            const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
-            const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
-            return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
-          }).join('');
-          const extra = tr.active_nodes.length > 3 ? `<div style="color:var(--text-dim);font-size:5px;">+${tr.active_nodes.length - 3} more</div>` : '';
-          treeHtml += `<div class="task-tree-nodes">${nodesHtml}${extra}</div>`;
-        }
-      }
-
-      // Completed time
-      let timeHtml = '';
-      if (isTerminal && t.completed_at) {
-        const completedTime = t.completed_at.substring(11, 19);
-        timeHtml = `<span class="task-card-time">${completedTime}</span>`;
-      }
-
-      // Cancel button for active tasks
-      const cancelBtn = !isTerminal && t.project_id
-        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="取消任务">✕</button>`
-        : '';
+      const empName = t.employee_name || t.employee_id;
+      const desc = t.description || '';
+      const taskText = this._escHtml(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '');
 
       card.innerHTML = `
         <div class="task-card-header">
           <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${cancelBtn}</span>
+          <span class="task-card-meta">${this._escHtml(empName)}</span>
         </div>
         <div class="task-card-text">${taskText}</div>
-        ${resultHtml}
-        ${treeHtml}
       `;
 
-      // Bind cancel button
-      const btn = card.querySelector('.task-cancel-btn');
-      if (btn) {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._cancelTask(btn.dataset.projectId);
-        });
-      }
-
-      if (t.project_id && !t.project_id.startsWith('_auto_')) {
+      if (t.project_id) {
         card.style.cursor = 'pointer';
-        card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
+        card.addEventListener('click', () => this._openTaskInBoard(t.project_id, t.node_id));
       }
       panel.appendChild(card);
     }
@@ -781,20 +694,6 @@ class AppController {
       }
     });
 
-    // Project selector toggle
-    const projectSelect = document.getElementById('project-select');
-    const newProjectName = document.getElementById('new-project-name');
-    if (projectSelect && newProjectName) {
-      projectSelect.addEventListener('change', () => {
-        if (projectSelect.value === '__new__') {
-          newProjectName.classList.remove('hidden');
-          newProjectName.focus();
-        } else {
-          newProjectName.classList.add('hidden');
-          newProjectName.value = '';
-        }
-      });
-    }
     // Load active projects into selector on startup
     this.loadActiveProjects();
 
@@ -5069,12 +4968,6 @@ class AppController {
     // Read project selector
     const projectSelect = document.getElementById('project-select');
     const projectId = projectSelect ? projectSelect.value : '';
-    let projectName = '';
-    if (projectId === '__new__') {
-      const nameInput = document.getElementById('new-project-name');
-      projectName = nameInput ? nameInput.value.trim() : '';
-      if (!projectName) { alert('Enter project name'); return; }
-    }
 
     // Save to input history
     if (this._inputHistory[this._inputHistory.length - 1] !== task) {
@@ -5121,8 +5014,7 @@ class AppController {
     }
 
     const reqBody = { task, attachments };
-    if (projectId && projectId !== '__new__') reqBody.project_id = projectId;
-    if (projectName) reqBody.project_name = projectName;
+    if (projectId) reqBody.project_id = projectId;
 
     fetch('/api/ceo/task', {
       method: 'POST',
@@ -5149,8 +5041,6 @@ class AppController {
     input.value = '';
     // Reset project selector
     if (projectSelect) projectSelect.value = '';
-    const newNameInput = document.getElementById('new-project-name');
-    if (newNameInput) { newNameInput.value = ''; newNameInput.classList.add('hidden'); }
   }
 
   // ===== Projects Panel =====
@@ -5182,7 +5072,7 @@ class AppController {
       .catch(() => {});
   }
 
-  _openTaskInBoard(projectId) {
+  _openTaskInBoard(projectId, nodeId) {
     // Open project modal and load iteration detail directly (with task tree tab)
     const modal = document.getElementById('project-modal');
     const listEl = document.getElementById('project-list');
@@ -5195,7 +5085,7 @@ class AppController {
     contentEl.innerHTML = `<div id="project-iter-detail" style="width:100%;height:100%;overflow-y:auto;">
       <div style="color:var(--text-dim);font-size:6px;">Loading...</div>
     </div>`;
-    this._loadIterationDetail(projectId, projectId);
+    this._loadIterationDetail(projectId, projectId, nodeId);
   }
 
   _openProjectDetail(projectId) {
@@ -5213,7 +5103,7 @@ class AppController {
 
         const totalCost = proj.total_cost_usd || 0;
         let headerHtml = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-          <span style="color:var(--pixel-cyan);font-size:8px;">${this._escHtml(proj.name || projectId)}</span>
+          <span class="project-name-editable" data-project-id="${this._escHtml(projectId)}" title="Click to rename" style="color:var(--pixel-cyan);font-size:8px;cursor:pointer;border-bottom:1px dashed var(--text-dim);">${this._escHtml(proj.name || projectId)}</span>
           <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
           ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
         </div>`;
@@ -5253,6 +5143,40 @@ class AppController {
             this._loadIterationDetail(card.dataset.projectId, card.dataset.iterId);
           });
         });
+
+        // Bind click-to-edit on project name
+        const nameEl = contentEl.querySelector('.project-name-editable');
+        if (nameEl) {
+          nameEl.addEventListener('click', () => {
+            const pid = nameEl.dataset.projectId;
+            const current = nameEl.textContent;
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = current;
+            input.style.cssText = 'font-size:8px;color:var(--pixel-cyan);background:var(--bg-dark);border:1px solid var(--pixel-cyan);padding:1px 4px;width:160px;';
+            const save = () => {
+              const newName = input.value.trim();
+              if (newName && newName !== current) {
+                fetch(`/api/projects/${encodeURIComponent(pid)}/name`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: newName }),
+                }).then(r => r.json()).then(d => {
+                  if (d.status === 'ok') {
+                    nameEl.textContent = newName;
+                    this.loadActiveProjects();
+                  }
+                }).catch(() => {});
+              }
+              input.replaceWith(nameEl);
+            };
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') input.replaceWith(nameEl); });
+            nameEl.replaceWith(input);
+            input.focus();
+            input.select();
+          });
+        }
 
         // Auto-select first iteration
         if (iters.length > 0) {

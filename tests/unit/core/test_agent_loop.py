@@ -494,7 +494,8 @@ class TestEmployeeManagerExecuteTask:
         # Reload tree to check node status
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
-        assert node.status == "finished"
+        # Regular task nodes stop at "completed" (no auto-skip to finished)
+        assert node.status == "completed"
         assert node.result == "Task done!"
         assert node.completed_at != ""
         launcher.execute.assert_called_once()
@@ -881,7 +882,7 @@ class TestEmployeeManagerHookFailures:
 
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
-        assert node.status == "finished"
+        assert node.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -910,7 +911,7 @@ class TestEmployeeManagerHookFailures:
 
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
-        assert node.status == "finished"
+        assert node.status == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -1075,7 +1076,7 @@ class TestEmployeeManagerExecuteTaskWithProject:
 
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
-        assert node.status == "finished"
+        assert node.status == "completed"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -1641,7 +1642,7 @@ class TestExecuteTaskOnLogCallback:
 
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
-        assert node.status == "finished"
+        assert node.status == "completed"
         # Verify the on_log callback populated the task log buffer
         logs = mgr._task_logs.get(entry.node_id, [])
         log_types = [lg["type"] for lg in logs]

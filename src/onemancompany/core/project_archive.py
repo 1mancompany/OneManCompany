@@ -439,19 +439,14 @@ def get_project_workspace(project_id: str) -> str:
 # Public API (v1-compatible, bridged for v2)
 # ─────────────────────────────────────────────
 
-def create_project(task: str, routed_to: str, participants: list[str] | None = None, task_type: str = "simple") -> str:
-    """Create a new v1 project record. Returns the project_id.
-
-    Args:
-        task_type: "simple" or "project" — determines lifecycle complexity.
-    """
+def create_project(task: str, routed_to: str, participants: list[str] | None = None) -> str:
+    """Create a new v1 project record. Returns the project_id."""
     project_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     project_dir = _ensure_project_dir(project_id)
     doc = {
         "project_id": project_id,
         "project_dir": str(project_dir),
         "task": task,
-        "task_type": task_type,
         "routed_to": routed_to,
         "participants": participants or [],
         "current_owner": routed_to.lower(),

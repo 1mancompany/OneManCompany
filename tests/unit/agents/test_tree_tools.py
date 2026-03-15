@@ -578,7 +578,7 @@ class TestUnblockChild:
         dep = tree.add_child(root_id, "e1", "dep task", [])
         dep.status = "failed"
         child = tree.add_child(root_id, "e2", "blocked task", [],
-                               depends_on=[dep.id], fail_strategy="block")
+                               depends_on=[dep.id])
         child.status = "blocked"
 
         vessel = _make_vessel_and_task()

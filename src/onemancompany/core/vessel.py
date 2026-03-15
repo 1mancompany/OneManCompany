@@ -1080,9 +1080,8 @@ class EmployeeManager:
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)
-                # Auto-skip simple tasks: completed → accepted → finished
-                # so dependency resolution treats them as resolved.
-                if node.task_type == "simple":
+                # System nodes auto-skip review: they don't need to be reviewed themselves
+                if node.node_type in ("review", "ceo_request"):
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
                 save_tree_async(entry.tree_path)
@@ -1201,9 +1200,8 @@ class EmployeeManager:
                 node.set_status(TaskPhase.COMPLETED)
                 node.completed_at = datetime.now().isoformat()
 
-                # Auto-accept simple tasks (completed → accepted → finished)
-                # so that dependency resolution treats them as resolved.
-                if node.task_type == "simple":
+                # System nodes auto-skip review
+                if node.node_type in ("review", "ceo_request"):
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
 
@@ -1729,7 +1727,6 @@ class EmployeeManager:
             acceptance_criteria=[],
         )
         review_node.node_type = "review"
-        review_node.task_type = "simple"
         review_node.project_id = project_id
         review_node.project_dir = project_dir
         save_tree_async(entry.tree_path)
@@ -1763,7 +1760,7 @@ class EmployeeManager:
                 if dep_node.status != "pending":
                     continue
 
-                if tree.has_failed_deps(dep_node.id) and dep_node.fail_strategy == "block":
+                if tree.has_failed_deps(dep_node.id):
                     # Check if the dep was cancelled — cascade cancel instead of blocking
                     cancelled_deps = [
                         d for d_id in dep_node.depends_on
@@ -1876,11 +1873,11 @@ class EmployeeManager:
         await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
 
         # Auto-approve: proceed directly with cleanup
-        is_project = node.task_type == "project"
+        is_system_node = node.node_type in ("review", "ceo_request", "ceo_prompt")
         await self._full_cleanup(
             employee_id, node, agent_error=False,
             project_id=project_id,
-            run_retrospective=is_project,
+            run_retrospective=not is_system_node,
         )
 
     async def _full_cleanup(

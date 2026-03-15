@@ -44,7 +44,6 @@ class TaskNode:
     acceptance_criteria: list[str] = field(default_factory=list)
     node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request" | "review"
 
-    task_type: str = "simple"         # "simple" | "project"
     model_used: str = ""              # which LLM executed
     project_dir: str = ""             # workspace path
 
@@ -64,7 +63,6 @@ class TaskNode:
     branch_active: bool = True
 
     depends_on: list[str] = field(default_factory=list)
-    fail_strategy: str = "block"  # "block" | "continue"
 
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
@@ -155,7 +153,6 @@ class TaskNode:
             "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
             "node_type": self.node_type,
-            "task_type": self.task_type,
             "model_used": self.model_used,
             "project_dir": self.project_dir,
             "status": self.status,
@@ -170,7 +167,6 @@ class TaskNode:
             "branch": self.branch,
             "branch_active": self.branch_active,
             "depends_on": list(self.depends_on),
-            "fail_strategy": self.fail_strategy,
         }
 
     @classmethod
@@ -230,7 +226,6 @@ class TaskTree:
         acceptance_criteria: list[str],
         timeout_seconds: int = 3600,
         depends_on: list[str] | None = None,
-        fail_strategy: str = "block",
     ) -> TaskNode:
         parent = self._nodes[parent_id]
         child = TaskNode(
@@ -241,7 +236,6 @@ class TaskTree:
             project_id=self.project_id,
             timeout_seconds=timeout_seconds,
             depends_on=depends_on or [],
-            fail_strategy=fail_strategy,
         )
         parent.children_ids.append(child.id)
         self._nodes[child.id] = child

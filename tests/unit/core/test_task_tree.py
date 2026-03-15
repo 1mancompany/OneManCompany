@@ -190,31 +190,26 @@ class TestTaskNodeDependency:
     def test_default_depends_on_empty(self):
         node = TaskNode()
         assert node.depends_on == []
-        assert node.fail_strategy == "block"
 
     def test_depends_on_set(self):
-        node = TaskNode(depends_on=["abc", "def"], fail_strategy="continue")
+        node = TaskNode(depends_on=["abc", "def"])
         assert node.depends_on == ["abc", "def"]
-        assert node.fail_strategy == "continue"
 
     def test_to_dict_includes_depends_on(self):
-        node = TaskNode(depends_on=["abc"], fail_strategy="continue")
+        node = TaskNode(depends_on=["abc"])
         d = node.to_dict()
         assert d["depends_on"] == ["abc"]
-        assert d["fail_strategy"] == "continue"
 
     def test_from_dict_loads_depends_on(self):
         d = {"id": "x", "depends_on": ["a", "b"], "fail_strategy": "continue"}
         node = TaskNode.from_dict(d)
         assert node.depends_on == ["a", "b"]
-        assert node.fail_strategy == "continue"
 
     def test_from_dict_without_depends_on_defaults(self):
         """Backward compat: old YAML without depends_on loads fine."""
         d = {"id": "x", "status": "pending"}
         node = TaskNode.from_dict(d)
         assert node.depends_on == []
-        assert node.fail_strategy == "block"
 
 
 class TestTaskTreeBranching:
@@ -307,14 +302,6 @@ class TestTaskTreeDependencyHelpers:
         a = tree.add_child(root.id, "e1", "task A", [])
         b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
         assert b.depends_on == [a.id]
-        assert b.fail_strategy == "block"
-
-    def test_add_child_with_fail_strategy(self):
-        tree = TaskTree(project_id="test")
-        root = tree.create_root(employee_id="ceo", description="root")
-        a = tree.add_child(root.id, "e1", "task A", [])
-        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
-        assert b.fail_strategy == "continue"
 
     def test_find_dependents(self):
         tree = TaskTree(project_id="test")
@@ -360,13 +347,12 @@ class TestTaskTreeDependencyHelpers:
         tree = TaskTree(project_id="test")
         root = tree.create_root(employee_id="ceo", description="root")
         a = tree.add_child(root.id, "e1", "task A", [])
-        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
         path = tmp_path / "tree.yaml"
         tree.save(path)
         loaded = TaskTree.load(path)
         lb = loaded.get_node(b.id)
         assert lb.depends_on == [a.id]
-        assert lb.fail_strategy == "continue"
 
 
 class TestTaskNodeSSoT:
@@ -400,16 +386,14 @@ class TestTaskNodeSSoT:
         assert node2.unblocks_dependents is False
 
     def test_node_new_fields_in_dict(self):
-        node = TaskNode(employee_id="e1", description="test", task_type="project", model_used="gpt-4", project_dir="/tmp/proj")
+        node = TaskNode(employee_id="e1", description="test", model_used="gpt-4", project_dir="/tmp/proj")
         d = node.to_dict()
-        assert d["task_type"] == "project"
         assert d["model_used"] == "gpt-4"
         assert d["project_dir"] == "/tmp/proj"
 
     def test_node_from_dict_new_fields(self):
         d = {"employee_id": "e1", "description": "test", "task_type": "project", "model_used": "gpt-4", "project_dir": "/p"}
         node = TaskNode.from_dict(d)
-        assert node.task_type == "project"
         assert node.model_used == "gpt-4"
 
     def test_tree_all_children_done(self):

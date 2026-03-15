@@ -354,7 +354,14 @@ def get_employee_tools_prompt(employee_id: str) -> str:
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
         "NEVER use Gmail/email for internal task routing or employee coordination.\n"
-        "- **CEO communication**: Use dispatch_child(\"00001\", description) to escalate issues to CEO.\n"
+        "- **CEO escalation**: Use dispatch_child(\"00001\", description) to request CEO help. "
+        "Escalate when:\n"
+        "  - You need to purchase something (API keys, SaaS subscriptions, domains, etc.)\n"
+        "  - You need actions outside the system (manual approval, signing contracts, legal compliance)\n"
+        "  - You need external accounts or access permissions created\n"
+        "  - The task exceeds your capabilities and cannot be delegated to another employee\n"
+        "  - The task involves external commitments or brand representation\n"
+        "  - You are blocked and no available tool or colleague can unblock you\n"
         "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
         "(clients, vendors, partners, third parties)."
     )

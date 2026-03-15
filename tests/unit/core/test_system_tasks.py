@@ -10,7 +10,6 @@ def test_create_system_node():
     tree = SystemTaskTree("emp1")
     node = tree.create_system_node("emp1", "[cron:daily] Run report")
     assert node.node_type == "system"
-    assert node.task_type == "simple"
     assert node.employee_id == "emp1"
     assert node.status == "pending"
 

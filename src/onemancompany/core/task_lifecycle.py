@@ -1,10 +1,6 @@
-"""Task lifecycle state machine — unified task states and type classification.
+"""Task lifecycle state machine — unified task states.
 
-Two orthogonal dimensions:
-  - TaskType: project vs simple — determines whether retrospective runs
-  - TaskPhase: the project/task lifecycle state machine
-
-State flow (both SIMPLE and PROJECT):
+State flow:
   pending → processing → (holding →)* completed → accepted → finished
 
 Task tree model:
@@ -19,29 +15,13 @@ from enum import Enum
 
 
 # ---------------------------------------------------------------------------
-# Task type — determines lifecycle complexity
-# ---------------------------------------------------------------------------
-
-class TaskType(str, Enum):
-    """Task classification — determines whether acceptance/retrospective applies.
-
-    SIMPLE: single-action tasks (send email, look up info, etc.)
-             No retrospective, no acceptance criteria needed.
-    PROJECT: multi-step deliverable tasks (build feature, write report, etc.)
-             Full lifecycle: acceptance → EA review → optional retrospective.
-    """
-    SIMPLE = "simple"
-    PROJECT = "project"
-
-
-# ---------------------------------------------------------------------------
 # Task phase — unified state machine
 # ---------------------------------------------------------------------------
 
 class TaskPhase(str, Enum):
     """Task lifecycle phases — explicit, no ambiguity.
 
-    Core states (both SIMPLE and PROJECT):
+    Core states:
       PENDING     — created, not yet being worked on
       PROCESSING  — actively being worked on by an employee
       HOLDING     — paused, waiting for sub-tasks or external input
@@ -139,49 +119,6 @@ def can_transition(current: TaskPhase, target: TaskPhase) -> bool:
 def get_valid_targets(current: TaskPhase) -> list[TaskPhase]:
     """Return all valid target phases from the current phase."""
     return list(VALID_TRANSITIONS.get(current, []))
-
-
-# ---------------------------------------------------------------------------
-# Task type classification
-# ---------------------------------------------------------------------------
-
-# Keywords that suggest a project-level task (checked against CEO's task description)
-_PROJECT_KEYWORDS = {
-    "项目", "开发", "构建", "build", "develop", "implement", "设计", "design",
-    "重构", "refactor", "迁移", "migrate", "系统", "system", "架构", "architecture",
-    "feature", "功能", "模块", "module", "平台", "platform", "产品", "product",
-}
-
-# Keywords that suggest a simple task
-_SIMPLE_KEYWORDS = {
-    "发送", "send", "查询", "query", "look up", "查看", "check", "告诉", "tell",
-    "回复", "reply", "转发", "forward", "提醒", "remind", "通知", "notify",
-    "搜索", "search", "列出", "list",
-}
-
-
-def classify_task_type(task_description: str) -> TaskType:
-    """Classify a task as PROJECT or SIMPLE based on description.
-
-    This is the default heuristic. EA can override via set_acceptance_criteria
-    (setting criteria implies PROJECT) or explicitly.
-    """
-    desc_lower = task_description.lower()
-
-    # If acceptance criteria are set, it's always PROJECT (handled elsewhere)
-
-    # Check for project keywords
-    for kw in _PROJECT_KEYWORDS:
-        if kw in desc_lower:
-            return TaskType.PROJECT
-
-    # Check for simple keywords
-    for kw in _SIMPLE_KEYWORDS:
-        if kw in desc_lower:
-            return TaskType.SIMPLE
-
-    # Default: simple (conservative — retrospective only when clearly needed)
-    return TaskType.SIMPLE
 
 
 # ---------------------------------------------------------------------------

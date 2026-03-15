@@ -47,7 +47,7 @@ class TestBuildDependencyContext:
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "failed"
         a.result = "Error: something broke"
-        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
 
         context = _build_dependency_context(tree, b)
         assert "failed" in context
@@ -91,16 +91,17 @@ class TestResolveDependenciesLogic:
         root = tree.create_root(employee_id="ceo", description="root")
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "failed"
-        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="block")
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
         assert tree.has_failed_deps(b.id)
 
-    def test_dep_failed_continue_unlocks(self):
+    def test_dep_failed_always_blocks(self):
+        """Failed dependency always blocks the dependent (no continue strategy)."""
         tree = TaskTree(project_id="test")
         root = tree.create_root(employee_id="ceo", description="root")
         a = tree.add_child(root.id, "e1", "task A", [])
         a.status = "failed"
-        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id], fail_strategy="continue")
-        assert tree.all_deps_resolved(b.id)
+        b = tree.add_child(root.id, "e2", "task B", [], depends_on=[a.id])
+        assert tree.has_failed_deps(b.id)
 
     def test_partial_deps_still_waiting(self):
         tree = TaskTree(project_id="test")

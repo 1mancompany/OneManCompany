@@ -29,7 +29,6 @@ class SystemTaskTree:
             employee_id=employee_id,
             description=description,
             node_type="system",
-            task_type="simple",
         )
         self._nodes[node.id] = node
         return node
