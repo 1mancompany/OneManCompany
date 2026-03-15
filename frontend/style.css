@@ -1933,23 +1933,76 @@ body {
   box-shadow: 0 0 12px rgba(0, 255, 136, 0.4);
 }
 
-/* ===== Onboarding Progress Modal ===== */
-.onboarding-progress-content {
-  max-width: 480px;
-  max-height: 70vh;
-  border-color: var(--pixel-cyan);
-  box-shadow: 0 0 30px rgba(0, 221, 255, 0.15);
+/* ===== Onboarding Progress Toast (non-blocking) ===== */
+.onboarding-toast {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 260px;
+  max-height: 300px;
+  background: var(--bg-panel);
+  border: 1px solid var(--pixel-cyan);
+  box-shadow: 0 0 20px rgba(0, 221, 255, 0.2);
+  z-index: 900;
+  font-family: var(--font-pixel);
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.onboarding-toast.hidden {
+  display: none;
+}
+
+.onboarding-toast.collapsed {
+  max-height: 24px;
+}
+
+.onboarding-toast-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  gap: 4px;
+}
+
+.onboarding-toast-title {
+  font-size: 7px;
+  color: var(--pixel-cyan);
+  flex: 1;
+}
+
+.onboarding-toast-toggle,
+.onboarding-toast-close {
+  background: none;
+  border: none;
+  color: var(--pixel-gray);
+  font-size: 7px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.onboarding-toast-toggle:hover,
+.onboarding-toast-close:hover {
+  color: var(--pixel-white);
+}
+
+.onboarding-toast-body {
+  padding: 6px;
+  overflow-y: auto;
+  max-height: 260px;
 }
 
 .onboarding-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .onboarding-item {
   border: 1px solid var(--border);
-  padding: 6px 8px;
+  padding: 4px 6px;
   background: var(--bg-dark);
   transition: border-color 0.3s;
 }
@@ -1966,11 +2019,11 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
 }
 
 .onboarding-item-name {
-  font-size: 7px;
+  font-size: 6px;
   color: var(--pixel-white);
 }
 
@@ -1989,14 +2042,14 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px 4px;
-  font-size: 4.5px;
+  padding: 1px 3px;
+  font-size: 4px;
   flex: 1;
 }
 
 .step-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -2045,26 +2098,10 @@ body {
 }
 
 .onboarding-item-message {
-  font-size: 5px;
+  font-size: 4.5px;
   color: var(--text-dim);
-  margin-top: 3px;
-  min-height: 8px;
-}
-
-.onboarding-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 8px;
-  border-top: 1px solid var(--border);
-}
-
-.onboarding-actions.hidden {
-  display: none;
-}
-
-.onboarding-actions .pixel-btn {
-  font-size: 7px;
-  padding: 4px 14px;
+  margin-top: 2px;
+  min-height: 6px;
 }
 
 /* ===== Interview Chatbot Modal ===== */

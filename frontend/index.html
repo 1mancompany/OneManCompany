@@ -462,18 +462,15 @@
     </div>
   </div>
 
-  <!-- Onboarding Progress Modal -->
-  <div id="onboarding-progress-modal" class="modal-overlay hidden">
-    <div class="modal-content onboarding-progress-content">
-      <div class="modal-header">
-        <h3 class="pixel-title">&#128640; Onboarding Sequence</h3>
-      </div>
-      <div class="modal-body" style="padding:8px;overflow-y:auto;">
-        <div id="onboarding-progress-list" class="onboarding-list"></div>
-      </div>
-      <div id="onboarding-progress-actions" class="onboarding-actions hidden">
-        <button id="onboarding-done-btn" class="pixel-btn">CLOSE</button>
-      </div>
+  <!-- Onboarding Progress Toast (non-blocking, bottom-right corner) -->
+  <div id="onboarding-progress-modal" class="onboarding-toast hidden">
+    <div class="onboarding-toast-header">
+      <span class="onboarding-toast-title">&#128640; Onboarding</span>
+      <button id="onboarding-toggle-btn" class="onboarding-toast-toggle">&#9660;</button>
+      <button id="onboarding-done-btn" class="onboarding-toast-close hidden">&#10005;</button>
+    </div>
+    <div id="onboarding-toast-body" class="onboarding-toast-body">
+      <div id="onboarding-progress-list" class="onboarding-list"></div>
     </div>
   </div>
 

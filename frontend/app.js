@@ -965,7 +965,17 @@ class AppController {
     });
     document.getElementById('candidate-batch-hire-btn').addEventListener('click', () => this.batchHireCandidates());
     document.getElementById('onboarding-done-btn').addEventListener('click', () => {
-      document.getElementById('onboarding-progress-modal').classList.add('hidden');
+      const toast = document.getElementById('onboarding-progress-modal');
+      toast.classList.add('hidden');
+      this._onboardingItems = null;
+      document.getElementById('onboarding-progress-list').innerHTML = '';
+      document.getElementById('onboarding-done-btn').classList.add('hidden');
+    });
+    document.getElementById('onboarding-toggle-btn').addEventListener('click', () => {
+      const toast = document.getElementById('onboarding-progress-modal');
+      toast.classList.toggle('collapsed');
+      const btn = document.getElementById('onboarding-toggle-btn');
+      btn.textContent = toast.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
     });
 
     // Talent pool modal bindings
@@ -2873,9 +2883,7 @@ class AppController {
         if (data.error) {
           this.logEntry('SYSTEM', `Batch hire failed: ${data.error}`, 'system');
         } else {
-          const hired = data.results ? data.results.filter(r => r.status === 'hired') : [];
-          this.logEntry('CEO', `🎉 Batch hire complete: ${hired.length} hired`, 'ceo');
-          this.bootstrap();
+          this.logEntry('CEO', `⏳ Onboarding ${data.count || selections.length} candidate(s) in background...`, 'ceo');
         }
       })
       .catch(err => {
@@ -2886,10 +2894,10 @@ class AppController {
   _showOnboardingProgress(selections) {
     const modal = document.getElementById('onboarding-progress-modal');
     const list = document.getElementById('onboarding-progress-list');
-    const actionsEl = document.getElementById('onboarding-progress-actions');
 
     list.innerHTML = '';
-    actionsEl.classList.add('hidden');
+    document.getElementById('onboarding-done-btn').classList.add('hidden');
+    modal.classList.remove('collapsed');
     this._onboardingItems = new Map();
 
     for (const sel of selections) {
@@ -3008,14 +3016,14 @@ class AppController {
       item.classList.add('failed');
     }
 
-    // Check if all items are done
+    // Check if all items are done — show close button
     if (this._onboardingItems) {
       const allDone = Array.from(this._onboardingItems.values()).every(
         el => el.classList.contains('completed') || el.classList.contains('failed')
       );
       if (allDone) {
-        const actionsEl = document.getElementById('onboarding-progress-actions');
-        actionsEl.classList.remove('hidden');
+        const closeBtn = document.getElementById('onboarding-done-btn');
+        if (closeBtn) closeBtn.classList.remove('hidden');
       }
     }
   }
@@ -3046,9 +3054,7 @@ class AppController {
           this.logEntry('SYSTEM', `Hire failed: ${data.error}`, 'system');
           document.querySelectorAll('.pixel-btn.hire').forEach(b => { b.disabled = false; b.textContent = 'Hire'; });
         } else {
-          const nn = data.nickname ? ` (${data.nickname})` : '';
-          this.logEntry('CEO', `🎉 Hired: ${data.name}${nn}`, 'ceo');
-          this.bootstrap();
+          this.logEntry('CEO', `⏳ Onboarding ${data.name || candidate.name} in background...`, 'ceo');
           this.closeCandidateModal();
           this.closeInterviewModal();
         }
