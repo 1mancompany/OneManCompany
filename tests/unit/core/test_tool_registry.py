@@ -154,10 +154,10 @@ class TestGetToolsFor:
             ToolMeta(name="gmail", category="asset", source="asset"),
         )
 
-        # asset — restricted to specific users
+        # asset — talent-brought, restricted to specific users
         reg.register(
             _make_mock_tool("roblox"),
-            ToolMeta(name="roblox", category="asset", allowed_users=["00007"], source="asset"),
+            ToolMeta(name="roblox", category="asset", allowed_users=["00007"], source="talent"),
         )
 
         return reg

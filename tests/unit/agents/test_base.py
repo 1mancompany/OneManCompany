@@ -290,7 +290,7 @@ class TestGetEmployeeToolsPrompt:
         assert result == ""
 
     def _register_asset_tool(self, monkeypatch, cs, name, description,
-                             allowed_users=None):
+                             allowed_users=None, source="asset"):
         """Helper to register an asset tool in both tool_registry and company_state."""
         from onemancompany.core import tool_registry as tr_mod
         from onemancompany.core.tool_registry import ToolMeta
@@ -304,7 +304,7 @@ class TestGetEmployeeToolsPrompt:
         _dummy.name = name
         _dummy.description = description
 
-        meta = ToolMeta(name=name, category="asset", allowed_users=allowed_users, source="asset")
+        meta = ToolMeta(name=name, category="asset", allowed_users=allowed_users, source=source)
         tool_registry.register(_dummy, meta)
 
     def _mock_store_employee(self, monkeypatch, emp_id="00010"):
@@ -325,25 +325,38 @@ class TestGetEmployeeToolsPrompt:
         assert "MyTool" in result
         assert "A tool" in result
 
-    def test_excludes_restricted_tools_for_unauthorized(self, monkeypatch):
+    def test_excludes_talent_tools_for_unauthorized(self, monkeypatch):
+        """Talent-brought tools are restricted to allowed_users only."""
         from onemancompany.agents import base as base_mod
 
         self._mock_store_employee(monkeypatch, "00010")
         self._register_asset_tool(monkeypatch, None, "SecretTool", "Restricted",
-                                  allowed_users=["00099"])
+                                  allowed_users=["00099"], source="talent")
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "SecretTool" not in result
 
-    def test_includes_restricted_tools_for_authorized(self, monkeypatch):
+    def test_includes_talent_tools_for_authorized(self, monkeypatch):
+        """Talent-brought tools are visible to the bringing employee."""
         from onemancompany.agents import base as base_mod
 
         self._mock_store_employee(monkeypatch, "00010")
         self._register_asset_tool(monkeypatch, None, "SpecialTool", "Only for 00010",
-                                  allowed_users=["00010"])
+                                  allowed_users=["00010"], source="talent")
 
         result = base_mod.get_employee_tools_prompt("00010")
         assert "SpecialTool" in result
+
+    def test_company_asset_tools_available_to_all(self, monkeypatch):
+        """Company-provided asset tools (source=asset) are available to everyone."""
+        from onemancompany.agents import base as base_mod
+
+        self._mock_store_employee(monkeypatch, "00010")
+        self._register_asset_tool(monkeypatch, None, "CompanyTool", "Company provided",
+                                  allowed_users=["00099"], source="asset")
+
+        result = base_mod.get_employee_tools_prompt("00010")
+        assert "CompanyTool" in result
 
 
 # ---------------------------------------------------------------------------

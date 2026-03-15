@@ -109,6 +109,10 @@ class ToolRegistry:
             return emp_data.get("role", "") in meta.allowed_roles
 
         if category == "asset":
+            # Company-provided asset tools: available to all employees
+            if meta.source != "talent":
+                return True
+            # Talent-brought tools: filter by allowed_users/allowed_roles
             if meta.allowed_users is None and meta.allowed_roles is None:
                 return True
             if meta.allowed_users and employee_id in meta.allowed_users:
@@ -184,6 +188,9 @@ class ToolRegistry:
             # If key is present but value is empty list or null, treat as restricted-to-nobody
             # If key is absent, stays None (unrestricted)
 
+            # Talent-brought tools have source_talent in tool.yaml
+            source = "talent" if tool_conf.get("source_talent") else "asset"
+
             for attr_name in dir(mod):
                 attr = getattr(mod, attr_name)
                 if isinstance(attr, BaseTool):
@@ -192,7 +199,7 @@ class ToolRegistry:
                         category="asset",
                         allowed_users=allowed_users,
                         allowed_roles=allowed_roles,
-                        source="asset",
+                        source=source,
                     )
                     self.register(attr, meta)
                     logger.debug("Registered asset tool: %s (from %s)", attr.name, folder_name)
