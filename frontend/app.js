@@ -478,29 +478,110 @@ class AppController {
     panel.innerHTML = '';
     for (const t of tasks) {
       const card = document.createElement('div');
+      const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
       card.className = `task-card ${t.status}`;
 
+      // Status icon
       const statusMap = {
+        pending: ['⏳', 'Pending'],
         processing: ['🔄', 'Processing'],
+        completed: ['✅', 'Completed'],
+        finished: ['🏁', 'Finished'],
+        failed: ['❌', 'Failed'],
+        cancelled: ['🚫', 'Cancelled'],
         holding: ['⏸️', 'Holding'],
       };
-      const [icon, label] = statusMap[t.status] || ['🔄', t.status];
+      const [icon, label] = statusMap[t.status] || ['⏳', t.status];
 
-      const empName = t.employee_name || t.employee_id;
-      const desc = t.description || '';
-      const taskText = this._escHtml(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '');
+      // Owner — resolve from tree root node for better display
+      let ownerLabel = '';
+      if (!isTerminal) {
+        const ownerEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === t.current_owner);
+        ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
+        if (t.current_owner === 'pending' || !ownerLabel) {
+          ownerLabel = t.routed_to || '';
+        }
+      } else if (t.tree) {
+        const rootNode = t.tree.active_nodes?.[0];
+        if (rootNode) {
+          const rootEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === rootNode.employee_id);
+          ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
+        }
+      }
+
+      // Task description
+      const taskText = this._escHtml(t.task.substring(0, 80)) + (t.task.length > 80 ? '...' : '');
+
+      // Result from tree root node for completed tasks
+      let resultHtml = '';
+      if (isTerminal && t.tree) {
+        const rootNode = t.tree.root_result;
+        if (rootNode) {
+          const firstLine = rootNode.split('\n').find(l => l.trim()) || '';
+          const summary = firstLine.substring(0, 120);
+          resultHtml = `<div class="task-card-result">${this._escHtml(summary)}${firstLine.length > 120 ? '...' : ''}</div>`;
+        }
+      }
+
+      // Tree progress — only for active multi-node trees
+      let treeHtml = '';
+      if (!isTerminal && t.tree) {
+        const tr = t.tree;
+        const childCount = tr.total - 1;
+        if (childCount > 0) {
+          const done = tr.terminal;
+          const pct = Math.round((done / childCount) * 100);
+          treeHtml = `<div class="task-card-tree">
+            <div class="task-tree-progress"><div class="task-tree-bar" style="width:${pct}%"></div></div>
+            <span class="task-tree-label">${done}/${childCount} subtasks</span>
+          </div>`;
+        }
+        if (tr.active_nodes && tr.active_nodes.length > 0) {
+          const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
+            const nEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === n.employee_id);
+            const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
+            const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
+            return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
+          }).join('');
+          const extra = tr.active_nodes.length > 3 ? `<div style="color:var(--text-dim);font-size:5px;">+${tr.active_nodes.length - 3} more</div>` : '';
+          treeHtml += `<div class="task-tree-nodes">${nodesHtml}${extra}</div>`;
+        }
+      }
+
+      // Completed time
+      let timeHtml = '';
+      if (isTerminal && t.completed_at) {
+        const completedTime = t.completed_at.substring(11, 19);
+        timeHtml = `<span class="task-card-time">${completedTime}</span>`;
+      }
+
+      // Cancel button for active tasks
+      const cancelBtn = !isTerminal && t.project_id
+        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="取消任务">✕</button>`
+        : '';
 
       card.innerHTML = `
         <div class="task-card-header">
           <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${this._escHtml(empName)}</span>
+          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${cancelBtn}</span>
         </div>
         <div class="task-card-text">${taskText}</div>
+        ${resultHtml}
+        ${treeHtml}
       `;
 
-      if (t.project_id) {
+      // Bind cancel button
+      const btn = card.querySelector('.task-cancel-btn');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._cancelTask(btn.dataset.projectId);
+        });
+      }
+
+      if (t.project_id && !t.project_id.startsWith('_auto_')) {
         card.style.cursor = 'pointer';
-        card.addEventListener('click', () => this._openTaskInBoard(t.project_id, t.node_id));
+        card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
       }
       panel.appendChild(card);
     }

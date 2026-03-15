@@ -3119,44 +3119,38 @@ def _tree_summary(project_id: str) -> dict | None:
 
 @router.get("/api/task-queue")
 async def get_task_queue() -> list[dict]:
-    """Return all currently processing task nodes across all projects.
+    """Return tasks from persistent project files, enriched with tree summaries.
 
-    Scans EmployeeManager schedule for active entries and returns their
-    node details — used by the frontend task panel.
+    Source of truth is the filesystem (project.yaml), not in-memory state.
+    This survives restarts without any snapshot/restore logic.
     """
-    from onemancompany.core.task_tree import get_tree
-    from onemancompany.core.vessel import employee_manager
+    from onemancompany.core.project_archive import list_projects
 
-    active = []
-    for employee_id, entries in employee_manager._schedule.items():
-        for entry in entries:
-            try:
-                tree = get_tree(entry.tree_path)
-                node = tree.get_node(entry.node_id)
-                if not node:
-                    continue
-                # Only show processing/holding nodes (active work)
-                if node.status not in ("processing", "holding"):
-                    continue
-                node.load_content(Path(entry.tree_path).parent)
-                emp = _load_emp(employee_id)
-                emp_name = ""
-                if emp:
-                    emp_name = emp.get("nickname") or emp.get("name", "")
-                active.append({
-                    "node_id": node.id,
-                    "employee_id": employee_id,
-                    "employee_name": emp_name,
-                    "description": (node.description or "")[:200],
-                    "status": node.status,
-                    "project_id": node.project_id,
-                    "tree_path": entry.tree_path,
-                    "created_at": node.created_at or "",
-                })
-            except Exception as exc:
-                logger.debug("Skipping schedule entry: {}", exc)
-                continue
-    return active
+    result = []
+    for p in list_projects():
+        # Skip v2 named projects (shown in PROJECTS panel)
+        if p.get("is_named"):
+            continue
+        tree = _tree_summary(p["project_id"])
+        # project.yaml is the single source of truth for status
+        status = _normalize_project_status(p.get("status", ""))
+
+        entry = {
+            "project_id": p["project_id"],
+            "task": p.get("task", ""),
+            "routed_to": p.get("routed_to", ""),
+            "current_owner": p.get("current_owner", ""),
+            "status": status,
+            "created_at": p.get("created_at", ""),
+            "completed_at": p.get("completed_at", ""),
+            "result": "",
+            "tree": tree,
+        }
+        # Get result from tree root if available
+        if tree and tree.get("root_result"):
+            entry["result"] = tree["root_result"][:200]
+        result.append(entry)
+    return result
 
 
 def _normalize_project_status(status: str) -> str:
