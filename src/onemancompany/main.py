@@ -179,52 +179,6 @@ async def _start_file_watcher() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Periodic reload fallback (safety net for when watchdog misses events)
-# ---------------------------------------------------------------------------
-
-async def _periodic_reload_loop() -> None:
-    """Periodically check for disk changes and reload if idle.
-
-    macOS watchdog can miss file events (atomic writes, IDE temp files),
-    so this acts as a fallback to keep memory in sync with disk.
-    """
-    from onemancompany.core.state import is_idle, reload_all_from_disk
-
-    INTERVAL = 30  # seconds
-
-    while True:
-        await asyncio.sleep(INTERVAL)
-        try:
-            if is_idle():
-                result = reload_all_from_disk()
-                updated = result.get("employees_updated", [])
-                added = result.get("employees_added", [])
-                if updated or added:
-                    print(f"[periodic-reload] {len(updated)} updated, {len(added)} added")
-        except Exception as e:
-            print(f"[periodic-reload] Error: {e}")
-
-
-async def _heartbeat_loop() -> None:
-    """Periodically check employee API connections (zero token cost)."""
-    from onemancompany.core.heartbeat import run_heartbeat_cycle
-    from onemancompany.core.events import CompanyEvent, event_bus
-
-    INTERVAL = 60  # seconds
-
-    while True:
-        await asyncio.sleep(INTERVAL)
-        try:
-            changed = await run_heartbeat_cycle()
-            if changed:
-                await event_bus.publish(
-                    CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")
-                )
-        except Exception as e:
-            print(f"[heartbeat] Error: {e}")
-
-
-# ---------------------------------------------------------------------------
 # Code change watcher (CEO-controlled hot reload)
 # ---------------------------------------------------------------------------
 
@@ -561,11 +515,9 @@ async def lifespan(app: FastAPI):
     # Start file watcher for soft reload
     watcher_task = asyncio.create_task(_start_file_watcher())
 
-    # Start periodic reload as watchdog fallback
-    periodic_task = asyncio.create_task(_periodic_reload_loop())
-
-    # Start heartbeat loop (API connection checks every 60s)
-    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+    # Start system cron registry (heartbeat, review_reminder, config_reload)
+    from onemancompany.core import system_cron as _system_cron_mod  # triggers @system_cron registrations
+    _system_cron_mod.system_cron_manager.start_all()
 
     # Start code change watcher (CEO-controlled hot reload)
     code_watcher_task = asyncio.create_task(_start_code_watcher())
@@ -588,6 +540,9 @@ async def lifespan(app: FastAPI):
 
     # Stop agent loops
     await stop_all_loops()
+
+    # Stop system crons
+    await _system_cron_mod.system_cron_manager.stop_all()
 
     # Stop automations (crons + webhooks)
     from onemancompany.core.automation import stop_all_automations
@@ -614,11 +569,10 @@ async def lifespan(app: FastAPI):
 
     watcher_task.cancel()
     broadcaster_task.cancel()
-    heartbeat_task.cancel()
     code_watcher_task.cancel()
     sync_tick_task.cancel()
     try:
-        await asyncio.gather(broadcaster_task, watcher_task, heartbeat_task, code_watcher_task, sync_tick_task, return_exceptions=True)
+        await asyncio.gather(broadcaster_task, watcher_task, code_watcher_task, sync_tick_task, return_exceptions=True)
     except asyncio.CancelledError:
         print("[shutdown] Background tasks cancelled")
 

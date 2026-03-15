@@ -375,239 +375,6 @@ class TestConfigReloadHandler:
 
 
 # ---------------------------------------------------------------------------
-# _periodic_reload_loop
-# ---------------------------------------------------------------------------
-
-
-class TestPeriodicReloadLoop:
-    @pytest.mark.asyncio
-    async def test_reload_when_idle(self, monkeypatch):
-        call_count = 0
-
-        def mock_is_idle():
-            return True
-
-        def mock_reload():
-            nonlocal call_count
-            call_count += 1
-            return {"employees_updated": ["e1"], "employees_added": []}
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.state.is_idle", mock_is_idle):
-            with patch("onemancompany.core.state.reload_all_from_disk", mock_reload):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._periodic_reload_loop()
-
-        assert call_count >= 1
-
-    @pytest.mark.asyncio
-    async def test_reload_skipped_when_busy(self, monkeypatch):
-        reload_called = False
-
-        def mock_is_idle():
-            return False
-
-        def mock_reload():
-            nonlocal reload_called
-            reload_called = True
-            return {}
-
-        call_count = 0
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            call_count += 1
-            if call_count >= 2:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.state.is_idle", mock_is_idle):
-            with patch("onemancompany.core.state.reload_all_from_disk", mock_reload):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._periodic_reload_loop()
-
-        assert not reload_called
-
-    @pytest.mark.asyncio
-    async def test_reload_with_added_employees(self, monkeypatch, capsys):
-        call_count = 0
-
-        def mock_is_idle():
-            return True
-
-        def mock_reload():
-            nonlocal call_count
-            call_count += 1
-            return {"employees_updated": [], "employees_added": ["new1"]}
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.state.is_idle", mock_is_idle):
-            with patch("onemancompany.core.state.reload_all_from_disk", mock_reload):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._periodic_reload_loop()
-
-        captured = capsys.readouterr()
-        assert "periodic-reload" in captured.out
-
-    @pytest.mark.asyncio
-    async def test_reload_handles_exception(self, monkeypatch, capsys):
-        call_count = 0
-
-        def mock_is_idle():
-            nonlocal call_count
-            call_count += 1
-            raise RuntimeError("disk error")
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.state.is_idle", mock_is_idle):
-            with patch("asyncio.sleep", mock_sleep):
-                with pytest.raises(asyncio.CancelledError):
-                    await main_mod._periodic_reload_loop()
-
-        captured = capsys.readouterr()
-        assert "[periodic-reload] Error" in captured.out
-
-    @pytest.mark.asyncio
-    async def test_reload_no_changes(self, monkeypatch, capsys):
-        """When reload returns no updated/added, no print occurs."""
-        call_count = 0
-
-        def mock_is_idle():
-            return True
-
-        def mock_reload():
-            nonlocal call_count
-            call_count += 1
-            return {"employees_updated": [], "employees_added": []}
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.state.is_idle", mock_is_idle):
-            with patch("onemancompany.core.state.reload_all_from_disk", mock_reload):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._periodic_reload_loop()
-
-        captured = capsys.readouterr()
-        assert "periodic-reload" not in captured.out
-
-
-# ---------------------------------------------------------------------------
-# _heartbeat_loop
-# ---------------------------------------------------------------------------
-
-
-class TestHeartbeatLoop:
-    @pytest.mark.asyncio
-    async def test_heartbeat_publishes_event_on_change(self, monkeypatch):
-        mock_event_bus = MagicMock(publish=AsyncMock())
-        call_count = 0
-
-        async def mock_heartbeat():
-            nonlocal call_count
-            call_count += 1
-            return ["emp1"]  # changed
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.heartbeat.run_heartbeat_cycle", mock_heartbeat):
-            with patch("onemancompany.core.events.event_bus", mock_event_bus):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._heartbeat_loop()
-
-        assert mock_event_bus.publish.await_count >= 1
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_no_publish_when_no_change(self, monkeypatch):
-        mock_event_bus = MagicMock(publish=AsyncMock())
-        call_count = 0
-
-        async def mock_heartbeat():
-            nonlocal call_count
-            call_count += 1
-            return []  # no changes
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.heartbeat.run_heartbeat_cycle", mock_heartbeat):
-            with patch("onemancompany.core.events.event_bus", mock_event_bus):
-                with patch("asyncio.sleep", mock_sleep):
-                    with pytest.raises(asyncio.CancelledError):
-                        await main_mod._heartbeat_loop()
-
-        assert mock_event_bus.publish.await_count == 0
-
-    @pytest.mark.asyncio
-    async def test_heartbeat_handles_exception(self, monkeypatch, capsys):
-        call_count = 0
-
-        async def mock_heartbeat():
-            nonlocal call_count
-            call_count += 1
-            raise RuntimeError("API error")
-
-        original_sleep = asyncio.sleep
-
-        async def mock_sleep(seconds):
-            nonlocal call_count
-            if call_count >= 1:
-                raise asyncio.CancelledError()
-            await original_sleep(0)
-
-        with patch("onemancompany.core.heartbeat.run_heartbeat_cycle", mock_heartbeat):
-            with patch("asyncio.sleep", mock_sleep):
-                with pytest.raises(asyncio.CancelledError):
-                    await main_mod._heartbeat_loop()
-
-        captured = capsys.readouterr()
-        assert "[heartbeat] Error" in captured.out
-
-
-# ---------------------------------------------------------------------------
 # lifespan
 # ---------------------------------------------------------------------------
 
@@ -669,8 +436,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_watcher)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_watcher)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_watcher)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         # Mock restore_persisted_tasks to avoid scanning real project files
         monkeypatch.setattr(
@@ -749,8 +515,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -809,8 +574,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -866,8 +630,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -922,8 +685,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -978,8 +740,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -1036,8 +797,7 @@ class TestLifespan:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
@@ -1091,8 +851,7 @@ class TestLifespanGatherCancelledError:
             await asyncio.sleep(100)
 
         monkeypatch.setattr(main_mod, "_start_file_watcher", mock_noop)
-        monkeypatch.setattr(main_mod, "_periodic_reload_loop", mock_noop)
-        monkeypatch.setattr(main_mod, "_heartbeat_loop", mock_noop)
+        monkeypatch.setattr("onemancompany.core.system_cron.system_cron_manager", MagicMock(start_all=MagicMock(), stop_all=AsyncMock()))
 
         monkeypatch.setattr("onemancompany.tools.sandbox.cleanup_sandbox", AsyncMock())
         monkeypatch.setattr("onemancompany.tools.sandbox.stop_sandbox_server", MagicMock())
