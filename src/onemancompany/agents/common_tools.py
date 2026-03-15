@@ -31,12 +31,18 @@ async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> No
 
 
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
-    await _publish("meeting_chat", {
+    from datetime import datetime
+    entry = {
         "room_id": room_id,
         "speaker": speaker,
         "role": role,
         "message": message,
-    })
+        "time": datetime.now().strftime("%H:%M:%S"),
+    }
+    await _publish("meeting_chat", entry)
+    # Persist to disk so chat history survives page reload
+    from onemancompany.core.store import append_room_chat
+    await append_room_chat(room_id, entry)
 
 
 @tool
