@@ -359,7 +359,7 @@ def _step_optional(console: Console) -> dict[str, str]:
         extras["ANTHROPIC_API_KEY"] = key.strip()
 
     console.print(
-        "  Get your SkillMarket API key at [link=https://one-man-company.com]https://one-man-company.com[/link]"
+        "  Get your SkillMarket API key at [link=https://skillsmp.com/docs/api]https://skillsmp.com/docs/api[/link]"
     )
     key = Prompt.ask("  SkillMarket API Key", default="", password=True, console=console)
     if key.strip():
