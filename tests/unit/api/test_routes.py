@@ -2662,7 +2662,7 @@ class TestCancelTask:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/task/t1/cancel")
 
-        assert resp.json()["message"] == "Task not found in schedule"
+        assert resp.json()["message"] == "Task not found in schedule or running tasks"
 
     async def test_cancel_task_already_completed(self, tmp_path):
         from onemancompany.core.task_tree import TaskTree

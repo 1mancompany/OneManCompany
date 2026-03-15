@@ -1661,10 +1661,8 @@ class TestUpdateProjectTeam:
         task = MagicMock()
         task.project_dir = str(tmp_path)
         task.project_id = "test-proj"
-        board = MagicMock()
-        board.get_task.return_value = task
         vessel = MagicMock()
-        vessel.board = board
+        vessel.get_task.return_value = task
 
         tok_v = _current_vessel.set(vessel)
         tok_t = _current_task_id.set("task-1")
@@ -1703,10 +1701,8 @@ class TestUpdateProjectTeam:
         task = MagicMock()
         task.project_dir = str(tmp_path)
         task.project_id = "test-proj"
-        board = MagicMock()
-        board.get_task.return_value = task
         vessel = MagicMock()
-        vessel.board = board
+        vessel.get_task.return_value = task
 
         tok_v = _current_vessel.set(vessel)
         tok_t = _current_task_id.set("task-2")
