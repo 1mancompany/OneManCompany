@@ -5414,3 +5414,34 @@ async def complete_ceo_conversation(node_id: str):
 
     await session.complete()
     return {"status": "completing", "node_id": node_id}
+
+
+# ---------------------------------------------------------------------------
+# System Cron management
+# ---------------------------------------------------------------------------
+
+@router.get("/api/system/crons")
+async def list_system_crons() -> list[dict]:
+    from onemancompany.core.system_cron import system_cron_manager
+    return system_cron_manager.get_all()
+
+
+@router.post("/api/system/crons/{name}/start")
+async def start_system_cron(name: str) -> dict:
+    from onemancompany.core.system_cron import system_cron_manager
+    return system_cron_manager.start(name)
+
+
+@router.post("/api/system/crons/{name}/stop")
+async def stop_system_cron(name: str) -> dict:
+    from onemancompany.core.system_cron import system_cron_manager
+    return system_cron_manager.stop(name)
+
+
+@router.patch("/api/system/crons/{name}")
+async def update_system_cron(name: str, body: dict) -> dict:
+    from onemancompany.core.system_cron import system_cron_manager
+    interval = body.get("interval")
+    if not interval:
+        return {"status": "error", "message": "interval is required"}
+    return system_cron_manager.update_interval(name, interval)
