@@ -1953,113 +1953,6 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     }
 
 
-@router.put("/api/employee/{employee_id}/provider")
-async def update_employee_provider(employee_id: str, body: dict) -> dict:
-    """Switch the API provider for an employee (openrouter / anthropic)."""
-    import yaml
-
-    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
-
-    new_provider = body.get("api_provider", "")
-    if new_provider not in ("openrouter", "anthropic"):
-        return {"error": "Invalid provider. Use 'openrouter' or 'anthropic'."}
-
-    _require_employee(employee_id)  # validate exists
-
-    cfg = employee_configs.get(employee_id)
-    if not cfg:
-        return {"error": "Employee config not found"}
-
-    old_provider = cfg.api_provider
-    cfg.api_provider = new_provider
-    # When switching to anthropic, use company-level key if employee has none
-    from onemancompany.core.config import settings as app_settings
-    provider_updates: dict = {"api_provider": new_provider}
-    if new_provider == "anthropic" and not cfg.api_key:
-        cfg.api_key = app_settings.anthropic_api_key
-        cfg.auth_method = app_settings.anthropic_auth_method
-        provider_updates["api_key"] = app_settings.anthropic_api_key
-        provider_updates["auth_method"] = app_settings.anthropic_auth_method
-
-    # Persist via store
-    await _store.save_employee(employee_id, provider_updates)
-
-    # Rebuild agent LLM
-    _rebuild_employee_agent(employee_id)
-
-    await event_bus.publish(
-        CompanyEvent(
-            type="agent_done",
-            payload={
-                "role": "CEO",
-                "summary": f"Switched {emp.name}'s provider: {old_provider} → {new_provider}",
-            },
-            agent="CEO",
-        )
-    )
-
-    return {
-        "status": "updated",
-        "employee_id": employee_id,
-        "api_provider": new_provider,
-        "api_key_set": bool(cfg.api_key),
-        "model": cfg.llm_model,
-    }
-
-
-@router.put("/api/employee/{employee_id}/api-key")
-async def update_employee_api_key(employee_id: str, body: dict) -> dict:
-    """Update the API key (and optionally model) for a custom-provider employee."""
-    import yaml
-
-    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
-
-    emp = _require_employee(employee_id)
-
-    cfg = employee_configs.get(employee_id)
-    if not cfg:
-        return {"error": "Employee config not found"}
-
-    if cfg.api_provider == "openrouter":
-        return {"error": "This employee uses OpenRouter — API key is not applicable"}
-
-    new_key = body.get("api_key", "")
-    new_model = body.get("model", "")
-
-    # Update in-memory config
-    cfg.api_key = new_key
-    if new_model:
-        cfg.llm_model = new_model
-
-    # Persist to disk via store
-    updates = {"api_key": new_key}
-    if new_model:
-        updates["llm_model"] = new_model
-    await _store.save_employee(employee_id, updates)
-
-    # If an agent loop exists, rebuild its LLM so the new key takes effect
-    _rebuild_employee_agent(employee_id)
-
-    await event_bus.publish(
-        CompanyEvent(
-            type="agent_done",
-            payload={
-                "role": "CEO",
-                "summary": f"Updated {emp.get('name', '')}'s API key ({cfg.api_provider})"
-                           + (f", model={new_model}" if new_model else ""),
-            },
-            agent="CEO",
-        )
-    )
-
-    return {
-        "status": "updated",
-        "employee_id": employee_id,
-        "api_provider": cfg.api_provider,
-        "api_key_set": bool(new_key),
-        "model": cfg.llm_model,
-        "hosting": cfg.hosting,
-    }
 
 
 # ===== Global API Settings =====
@@ -2228,18 +2121,15 @@ async def update_api_settings(body: dict) -> dict:
 
 @router.post("/api/settings/api/test")
 async def test_api_connection(body: dict) -> dict:
-    """Test connectivity for a given API provider."""
-    from onemancompany.core.heartbeat import _check_anthropic_key, _check_openrouter_key
-    from onemancompany.core.config import settings
+    """Deprecated — use POST /api/auth/verify instead."""
+    from onemancompany.core.auth_verify import probe_chat
 
-    provider = body.get("provider", "")
-    if provider == "openrouter":
-        ok = await _check_openrouter_key()
-        return {"provider": "openrouter", "ok": ok}
-    elif provider == "anthropic":
-        ok = await _check_anthropic_key(settings.anthropic_api_key)
-        return {"provider": "anthropic", "ok": ok}
-    return {"error": "Invalid provider"}
+    provider = body.get("provider", "openrouter")
+    api_key = body.get("api_key", "")
+    model = body.get("model", "")
+
+    ok, error = await probe_chat(provider, api_key, model)
+    return {"ok": ok, "error": error} if not ok else {"ok": True}
 
 
 @router.post("/api/settings/api/oauth/start")

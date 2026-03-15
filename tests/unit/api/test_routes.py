@@ -2723,84 +2723,6 @@ class TestCancelTask:
 
 
 # ---------------------------------------------------------------------------
-# PUT /api/employee/{employee_id}/api-key
-# ---------------------------------------------------------------------------
-
-
-class TestUpdateEmployeeApiKey:
-    async def test_update_api_key_employee_not_found(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.put("/api/employee/99999/api-key", json={"api_key": "sk-test"})
-
-        assert resp.status_code == 404
-
-    async def test_update_api_key_no_config(self):
-        emp = _make_employee(id="00010")
-        state = _make_state(employees={"00010": emp})
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.config.employee_configs", {}):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.put("/api/employee/00010/api-key", json={"api_key": "sk-test"})
-
-        assert resp.json()["error"] == "Employee config not found"
-
-    async def test_update_api_key_openrouter_rejected(self):
-        emp = _make_employee(id="00010")
-        state = _make_state(employees={"00010": emp})
-
-        mock_cfg = MagicMock()
-        mock_cfg.api_provider = "openrouter"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.put("/api/employee/00010/api-key", json={"api_key": "sk-test"})
-
-        assert "OpenRouter" in resp.json()["error"]
-
-    async def test_update_api_key_success(self):
-        emp = _make_employee(id="00010")
-        state = _make_state(employees={"00010": emp})
-        bus = EventBus()
-
-        mock_cfg = MagicMock()
-        mock_cfg.api_provider = "anthropic"
-        mock_cfg.llm_model = "claude-3"
-        mock_cfg.hosting = "company"
-
-        mock_path = MagicMock()
-        mock_path.exists.return_value = False
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", MagicMock(__truediv__=MagicMock(return_value=MagicMock(__truediv__=MagicMock(return_value=mock_path))))), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.put("/api/employee/00010/api-key", json={"api_key": "sk-new-key"})
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "updated"
-        assert data["api_key_set"] is True
-
-
-# ---------------------------------------------------------------------------
 # Employee detail — self-hosted variant
 # ---------------------------------------------------------------------------
 
@@ -5427,53 +5349,6 @@ class TestAbortTaskWithBoards:
 
         assert resp.json()["cancelled"] == 1
         mock_manager.abort_project.assert_called_once_with("proj1")
-
-
-# ---------------------------------------------------------------------------
-# Update API key with agent rebuild (lines 1316-1338)
-# ---------------------------------------------------------------------------
-
-
-class TestUpdateApiKeyWithAgentRebuild:
-    async def test_update_api_key_rebuilds_agent(self, tmp_path):
-        """Covers the agent rebuild code path when loop has an agent."""
-        emp = _make_employee(id="00010")
-        state = _make_state(employees={"00010": emp})
-        bus = EventBus()
-
-        mock_cfg = MagicMock()
-        mock_cfg.api_provider = "anthropic"
-        mock_cfg.api_key = "old"
-        mock_cfg.hosting = "company"
-        mock_cfg.llm_model = "old-model"
-
-        profile_path = tmp_path / "00010" / "profile.yaml"
-        profile_path.parent.mkdir(parents=True)
-        profile_path.write_text("api_key: old\n")
-
-        mock_agent = MagicMock()
-        mock_agent._agent = MagicMock()
-
-        mock_loop = MagicMock()
-        mock_loop.agent = mock_agent
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
-             patch("onemancompany.core.tool_registry.tool_registry.get_tools_for", return_value=[]), \
-             patch("langgraph.prebuilt.create_react_agent", return_value=MagicMock()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.put("/api/employee/00010/api-key", json={
-                    "api_key": "new-key",
-                    "model": "new-model",
-                })
-
-        assert resp.json()["status"] == "updated"
 
 
 # ---------------------------------------------------------------------------
