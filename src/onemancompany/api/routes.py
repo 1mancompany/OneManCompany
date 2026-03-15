@@ -1299,6 +1299,38 @@ async def start_all_hands(body: dict) -> dict:
     return {"status": "all_hands_started"}
 
 
+@router.post("/api/meeting/start")
+async def meeting_start(body: dict) -> dict:
+    """Start a CEO meeting (all_hands or discussion)."""
+    from onemancompany.core.routine import start_ceo_meeting
+
+    meeting_type = body.get("type", "")
+    if meeting_type not in ("all_hands", "discussion"):
+        return {"error": "Invalid meeting type. Must be 'all_hands' or 'discussion'."}
+
+    return await start_ceo_meeting(meeting_type)
+
+
+@router.post("/api/meeting/chat")
+async def meeting_chat(body: dict) -> dict:
+    """CEO sends a message in the active meeting."""
+    from onemancompany.core.routine import ceo_meeting_chat
+
+    message = body.get("message", "")
+    if not message:
+        return {"error": "Missing message"}
+
+    return await ceo_meeting_chat(message)
+
+
+@router.post("/api/meeting/end")
+async def meeting_end() -> dict:
+    """End the active CEO meeting. EA summarizes action points."""
+    from onemancompany.core.routine import end_ceo_meeting
+
+    return await end_ceo_meeting()
+
+
 @router.get("/api/workflows")
 async def list_workflows() -> dict:
     """List all company workflow documents."""

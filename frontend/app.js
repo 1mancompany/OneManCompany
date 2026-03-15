@@ -757,8 +757,24 @@ class AppController {
     oneononeModal.addEventListener('click', (e) => {
       if (e.target === oneononeModal) this.closeOneononeModal();
     });
+    // Meeting type selector — show/hide employee dropdown
+    document.getElementById('meeting-type-select').addEventListener('change', () => {
+      const type = document.getElementById('meeting-type-select').value;
+      const empRow = document.getElementById('oneonone-employee-select-row');
+      const startBtn = document.getElementById('oneonone-start-btn');
+      if (type === 'oneonone') {
+        empRow.style.display = '';
+        startBtn.disabled = !document.getElementById('oneonone-target').value;
+      } else {
+        empRow.style.display = 'none';
+        startBtn.disabled = false;
+      }
+    });
     document.getElementById('oneonone-target').addEventListener('change', () => {
-      document.getElementById('oneonone-start-btn').disabled = !document.getElementById('oneonone-target').value;
+      const type = document.getElementById('meeting-type-select').value;
+      if (type === 'oneonone') {
+        document.getElementById('oneonone-start-btn').disabled = !document.getElementById('oneonone-target').value;
+      }
     });
     document.getElementById('oneonone-start-btn').addEventListener('click', () => this.startOneonone());
     document.getElementById('oneonone-send-btn').addEventListener('click', () => this.sendOneononeMessage());
@@ -1041,6 +1057,14 @@ class AppController {
   }
 
   async startOneonone() {
+    const meetingType = document.getElementById('meeting-type-select').value;
+    this._meetingType = meetingType;
+
+    if (meetingType === 'all_hands' || meetingType === 'discussion') {
+      return this._startGroupMeeting(meetingType);
+    }
+
+    // Original 1-on-1 flow
     const select = document.getElementById('oneonone-target');
     const empId = select.value;
     if (!empId) return;
@@ -1092,6 +1116,53 @@ class AppController {
     textarea.focus();
   }
 
+  async _startGroupMeeting(meetingType) {
+    const startBtn = document.getElementById('oneonone-start-btn');
+    startBtn.disabled = true;
+
+    const res = await fetch('/api/meeting/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: meetingType }),
+    }).then(r => r.json()).catch(e => ({ error: e.message }));
+
+    startBtn.disabled = false;
+
+    if (res.error) {
+      alert(res.error);
+      return;
+    }
+
+    this._oneononeEmployeeId = '__group_meeting__';
+    this._oneononeHistory = [];
+    this._oneononeInputHistory = [];
+    this._oneononeHistoryIdx = -1;
+    this._oneononePendingFiles = [];
+
+    // Switch to chat phase
+    document.getElementById('oneonone-setup').classList.add('hidden');
+    document.getElementById('oneonone-chat-phase').classList.remove('hidden');
+
+    const typeLabel = meetingType === 'all_hands' ? 'All-Hands' : 'Discussion';
+    document.getElementById('oneonone-chat-title').textContent = `🎓 ${typeLabel} Meeting`;
+
+    const chat = document.getElementById('oneonone-chat');
+    chat.innerHTML = '';
+    const participantNames = res.participants.map(p => p.nickname || p.name).join(', ');
+    this._addOneononeSystemMsg(`${typeLabel} meeting started in ${res.room_name}. Participants: ${participantNames}`);
+
+    if (meetingType === 'all_hands') {
+      this._addOneononeSystemMsg('All-Hands mode: Send your address. Employees will absorb silently.');
+    } else {
+      this._addOneononeSystemMsg('Discussion mode: Send a message to start discussion. Employees will compete to respond.');
+    }
+
+    const textarea = document.getElementById('oneonone-input');
+    textarea.value = '';
+    textarea.style.height = 'auto';
+    textarea.focus();
+  }
+
   _addOneononeSystemMsg(text) {
     const chat = document.getElementById('oneonone-chat');
     const div = document.createElement('div');
@@ -1127,6 +1198,11 @@ class AppController {
     const message = textarea.value.trim();
     const hasFiles = this._oneononePendingFiles && this._oneononePendingFiles.length > 0;
     if ((!message && !hasFiles) || !this._oneononeEmployeeId) return;
+
+    // Group meeting — use meeting/chat endpoint
+    if (this._oneononeEmployeeId === '__group_meeting__') {
+      return this._sendGroupMeetingMessage(message);
+    }
 
     // Upload files first if any
     let attachments = [];
@@ -1212,8 +1288,55 @@ class AppController {
       .finally(() => { sendBtn.disabled = false; });
   }
 
+  async _sendGroupMeetingMessage(message) {
+    const textarea = document.getElementById('oneonone-input');
+    this._addOneononeBubble('CEO', message, 'outgoing');
+    this._oneononeInputHistory.push(message);
+    this._oneononeHistoryIdx = -1;
+    textarea.value = '';
+    textarea.style.height = 'auto';
+
+    const typing = document.getElementById('oneonone-typing');
+    typing.classList.remove('hidden');
+    this._scrollOneononeToBottom();
+    const sendBtn = document.getElementById('oneonone-send-btn');
+    sendBtn.disabled = true;
+
+    try {
+      const res = await fetch('/api/meeting/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      }).then(r => r.json());
+
+      typing.classList.add('hidden');
+
+      if (res.error) {
+        this._addOneononeSystemMsg(`Error: ${res.error}`);
+      } else if (res.responses) {
+        for (const r of res.responses) {
+          const display = r.nickname || r.name || 'Employee';
+          this._addOneononeBubble(display, r.message, 'incoming');
+        }
+        if (res.responses.length === 0 && this._meetingType === 'discussion') {
+          this._addOneononeSystemMsg('No one wants to speak. Send another message or end the meeting.');
+        }
+      }
+    } catch (err) {
+      typing.classList.add('hidden');
+      this._addOneononeSystemMsg(`Error: ${err.message}`);
+    } finally {
+      sendBtn.disabled = false;
+    }
+  }
+
   endOneononeMeeting() {
     if (!this._oneononeEmployeeId) return;
+
+    // Group meeting — use meeting/end endpoint
+    if (this._oneononeEmployeeId === '__group_meeting__') {
+      return this._endGroupMeeting();
+    }
 
     const endBtn = document.getElementById('oneonone-end-btn');
     endBtn.disabled = true;
@@ -1252,6 +1375,48 @@ class AppController {
         this._oneononeEmployeeId = null;
         this._oneononeHistory = [];
       });
+  }
+
+  async _endGroupMeeting() {
+    const endBtn = document.getElementById('oneonone-end-btn');
+    endBtn.disabled = true;
+    const sendBtn = document.getElementById('oneonone-send-btn');
+    sendBtn.disabled = true;
+    this._addOneononeSystemMsg('Ending meeting... EA is summarizing action points...');
+
+    try {
+      const data = await fetch('/api/meeting/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(r => r.json());
+
+      if (data.error) {
+        this._addOneononeSystemMsg(`Error: ${data.error}`);
+      } else {
+        const ap = data.action_points || [];
+        if (ap.length > 0) {
+          this._addOneononeSystemMsg(`Meeting concluded. ${ap.length} action point(s):`);
+          for (const point of ap) {
+            this._addOneononeSystemMsg(`  • ${point}`);
+          }
+          if (data.project_id) {
+            this._addOneononeSystemMsg(`Project created: ${data.project_id}`);
+          }
+          this.logEntry('CEO', `🎓 Meeting ended — ${ap.length} action points → project created`, 'guidance');
+        } else {
+          this._addOneononeSystemMsg('Meeting concluded. No action points — informational only.');
+          this.logEntry('CEO', `🎓 Meeting ended — informational`, 'guidance');
+        }
+      }
+    } catch (err) {
+      this._addOneononeSystemMsg(`Error: ${err.message}`);
+    } finally {
+      endBtn.disabled = false;
+      sendBtn.disabled = false;
+      this._oneononeEmployeeId = null;
+      this._oneononeHistory = [];
+      this._meetingType = null;
+    }
   }
 
   closeOneononeModal() {

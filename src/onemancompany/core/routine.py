@@ -13,6 +13,7 @@ to the appropriate handler based on the step owner (HR, COO, employees, etc.).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import uuid
@@ -2075,6 +2076,403 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             "participants": [],
         })
         await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+
+
+# ---------------------------------------------------------------------------
+# CEO Meeting System — All-Hands & Discussion
+# ---------------------------------------------------------------------------
+
+_active_ceo_meeting: dict | None = None
+
+
+async def start_ceo_meeting(meeting_type: str) -> dict:
+    """Start a CEO meeting (all_hands or discussion). Books a room, sets state."""
+    global _active_ceo_meeting
+    if _active_ceo_meeting:
+        return {"error": "A CEO meeting is already in progress"}
+
+    all_emps = load_all_employees()
+    if not all_emps:
+        return {"error": "No employees available"}
+
+    all_emp_ids = list(all_emps.keys())
+    room_participants = [CEO_ID] + all_emp_ids
+
+    # Book largest available room
+    room = None
+    for r in sorted(company_state.meeting_rooms.values(), key=lambda x: x.capacity, reverse=True):
+        if not r.is_booked:
+            r.is_booked = True
+            r.booked_by = CEO_ID
+            r.participants = room_participants
+            await _store.save_room(r.id, {
+                "is_booked": True,
+                "booked_by": CEO_ID,
+                "participants": room_participants,
+            })
+            room = r
+            break
+
+    if not room:
+        return {"error": "No meeting room available"}
+
+    await _publish("meeting_booked", {
+        "room_id": room.id,
+        "room_name": room.name,
+        "participants": room.participants,
+    })
+    await _set_participants_status(room_participants, STATUS_IN_MEETING)
+
+    _active_ceo_meeting = {
+        "type": meeting_type,
+        "room_id": room.id,
+        "room_name": room.name,
+        "participants": all_emp_ids,
+        "chat_history": [],
+    }
+
+    await _publish("routine_phase", {
+        "phase": "CEO Meeting",
+        "message": f"CEO convened a {'all-hands' if meeting_type == 'all_hands' else 'discussion'} meeting in {room.name}",
+    })
+
+    return {
+        "status": "started",
+        "type": meeting_type,
+        "room_id": room.id,
+        "room_name": room.name,
+        "participants": [
+            {"id": eid, "name": edata.get("name", ""), "nickname": edata.get("nickname", "")}
+            for eid, edata in all_emps.items()
+        ],
+    }
+
+
+async def ceo_meeting_chat(message: str) -> dict:
+    """CEO sends a message in the active meeting. Returns employee responses."""
+    global _active_ceo_meeting
+    if not _active_ceo_meeting:
+        return {"error": "No active CEO meeting"}
+
+    meeting = _active_ceo_meeting
+    room_id = meeting["room_id"]
+
+    # Post CEO message to room chat
+    await _chat(room_id, "CEO", "CEO", message)
+    meeting["chat_history"].append({"speaker": "CEO", "message": message})
+
+    await _publish("routine_phase", {
+        "phase": "CEO Meeting",
+        "message": f"CEO: {message[:100]}",
+    })
+
+    responses: list[dict] = []
+    all_emps = load_all_employees()
+
+    if meeting["type"] == "all_hands":
+        # All-hands: each employee absorbs silently (no discussion)
+        llm = make_llm(HR_ID)
+        for emp_id in meeting["participants"]:
+            emp_data = all_emps.get(emp_id)
+            if not emp_data:
+                continue
+
+            emp_name = emp_data.get("name", "")
+            emp_nickname = emp_data.get("nickname", "")
+            work_principles = emp_data.get("work_principles", "")
+            principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n" if work_principles else ""
+
+            prompt = (
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
+                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
+                f"{principles_ctx}"
+                f"The CEO just delivered the following at the all-hands meeting:\n\n"
+                f'"{message}"\n\n'
+                f"Summarize in 1-2 sentences what you took away and how it affects your work."
+            )
+            resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
+            summary_text = resp.content
+
+            display = emp_nickname or emp_name
+            await _chat(room_id, display, emp_data.get("role", ""), summary_text)
+            meeting["chat_history"].append({"speaker": display, "message": summary_text})
+
+            responses.append({
+                "employee_id": emp_id,
+                "name": emp_name,
+                "nickname": emp_nickname,
+                "message": summary_text,
+            })
+
+            await _publish("guidance_noted", {
+                "employee_id": emp_id,
+                "name": emp_name,
+                "guidance": message[:80],
+                "acknowledgment": summary_text,
+            })
+
+    elif meeting["type"] == "discussion":
+        # Discussion: token-grab rounds until no one wants to speak
+        from onemancompany.agents.common_tools import _build_evaluate_prompt, _build_speech_prompt
+
+        speakers = [
+            (eid, all_emps[eid])
+            for eid in meeting["participants"]
+            if eid in all_emps
+        ]
+
+        loop = asyncio.get_running_loop()
+        last_speaker_id = ""
+        max_rounds = 10
+
+        for _round in range(max_rounds):
+            async def _evaluate(eid_and_data: tuple[str, dict]):
+                eid, edata = eid_and_data
+                prompt = _build_evaluate_prompt(edata, eid, "CEO Meeting", "", meeting["chat_history"])
+                llm = make_llm(eid)
+                t0 = loop.time()
+                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
+                t1 = loop.time()
+                first_line = resp.content.strip().split("\n")[0].upper()[:20]
+                wants = "YES" in first_line
+                return (eid, edata, wants, t1)
+
+            results = await asyncio.gather(
+                *[_evaluate(e) for e in speakers],
+                return_exceptions=True,
+            )
+
+            willing = [
+                (eid, edata, ts)
+                for r in results
+                if not isinstance(r, Exception)
+                for eid, edata, wants, ts in [r]
+                if wants
+            ]
+
+            if not willing:
+                break
+
+            # Token grab — fastest wins, no consecutive same speaker
+            willing.sort(key=lambda x: x[2])
+            winner_id, winner_data, _ = willing[0]
+            if winner_id == last_speaker_id and len(willing) > 1:
+                winner_id, winner_data, _ = willing[1]
+
+            speech_prompt = _build_speech_prompt(winner_data, winner_id, "CEO Meeting", "", meeting["chat_history"])
+            resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
+            last_speaker_id = winner_id
+
+            display = winner_data.get("nickname", "") or winner_data.get("name", "")
+            await _chat(room_id, display, winner_data.get("role", ""), resp.content)
+            meeting["chat_history"].append({"speaker": display, "message": resp.content})
+
+            responses.append({
+                "employee_id": winner_id,
+                "name": winner_data.get("name", ""),
+                "nickname": winner_data.get("nickname", ""),
+                "message": resp.content,
+            })
+
+    return {"responses": responses}
+
+
+async def end_ceo_meeting() -> dict:
+    """End CEO meeting. EA summarizes action points, saves guidance, creates project if needed."""
+    global _active_ceo_meeting
+    if not _active_ceo_meeting:
+        return {"error": "No active CEO meeting"}
+
+    meeting = _active_ceo_meeting
+    room_id = meeting["room_id"]
+    meeting_type = meeting["type"]
+    chat_history = meeting["chat_history"]
+
+    await _publish("routine_phase", {
+        "phase": "CEO Meeting",
+        "message": "Meeting ending — summarizing action points...",
+    })
+
+    # --- Save guidance notes for each employee ---
+    all_emps = load_all_employees()
+    full_transcript = "\n".join(f"[{e['speaker']}] {e['message']}" for e in chat_history)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    meeting_label = "All-Hands" if meeting_type == "all_hands" else "Discussion"
+
+    for emp_id in meeting["participants"]:
+        emp_data = all_emps.get(emp_id)
+        if not emp_data:
+            continue
+
+        # Save guidance note
+        note = f"**{date_str} {meeting_label} Meeting**\nMeeting transcript summary:\n{full_transcript[:500]}"
+        try:
+            existing_notes = _store.load_employee_guidance(emp_id)
+            existing_notes.append(note)
+            await _store.save_guidance(emp_id, existing_notes)
+        except Exception as e:
+            logger.warning("Failed to save guidance for {}: {}", emp_id, e)
+
+        # Reflect on work principles update
+        work_principles = emp_data.get("work_principles", "") or "(No work principles yet)"
+        emp_name = emp_data.get("name", "")
+        emp_nickname = emp_data.get("nickname", "")
+
+        try:
+            reflection_prompt = (
+                f"You are {emp_name} ({emp_nickname}, {emp_data.get('role', '')}).\n\n"
+                f"You just attended a {meeting_label} meeting. Here is the transcript:\n\n"
+                f"{full_transcript[:2000]}\n\n"
+                f"Your current work principles:\n{work_principles}\n\n"
+                f"Did the CEO convey any actionable guidance that should update your work principles?\n"
+                f"If YES — output UPDATED: followed by complete updated work principles in Markdown.\n"
+                f"If NO — output NO_UPDATE"
+            )
+            llm = make_llm(emp_id)
+            result = await tracked_ainvoke(llm, reflection_prompt, category="meeting", employee_id=emp_id)
+            resp_text = result.content.strip()
+
+            if "UPDATED:" in resp_text and "NO_UPDATE" not in resp_text:
+                new_principles = resp_text[resp_text.index("UPDATED:") + len("UPDATED:"):].strip()
+                if new_principles:
+                    await _store.save_work_principles(emp_id, new_principles)
+        except Exception as e:
+            logger.warning("Principles reflection failed for {}: {}", emp_id, e)
+
+    # --- EA summarizes action points ---
+    action_points: list[str] = []
+    try:
+        ea_summary_prompt = (
+            f"You are the Executive Assistant reviewing a CEO {meeting_label} meeting.\n\n"
+            f"Full meeting transcript:\n{full_transcript[:3000]}\n\n"
+            f"Extract concrete, actionable items from this meeting.\n"
+            f"For each action point, write a clear, measurable acceptance criterion.\n\n"
+            f"Output format — JSON array of strings, each being one action point:\n"
+            f'["Action point 1: description", "Action point 2: description"]\n\n'
+            f"If there are NO action points (purely informational meeting), output: []"
+        )
+        ea_llm = make_llm(EA_ID)
+        ea_result = await tracked_ainvoke(ea_llm, ea_summary_prompt, category="meeting", employee_id=EA_ID)
+        ea_text = ea_result.content.strip()
+
+        import json as _json
+        json_match = re.search(r'\[.*\]', ea_text, re.DOTALL)
+        if json_match:
+            parsed = _json.loads(json_match.group())
+            if isinstance(parsed, list):
+                action_points = [str(ap) for ap in parsed if ap]
+    except Exception as e:
+        logger.warning("EA action point extraction failed: {}", e)
+
+    summary_msg = f"Meeting concluded. {len(action_points)} action point(s) identified."
+    if action_points:
+        summary_msg += "\n" + "\n".join(f"• {ap}" for ap in action_points)
+    await _chat(room_id, "EA", "EA", summary_msg)
+
+    await _publish("routine_phase", {
+        "phase": "CEO Meeting",
+        "message": summary_msg[:200],
+    })
+
+    # --- Auto-create project if action points exist ---
+    project_id = ""
+    if action_points:
+        try:
+            project_id = await _create_project_from_action_points(
+                action_points, meeting_type, full_transcript[:1000],
+            )
+        except Exception as e:
+            logger.warning("Failed to create project from action points: {}", e)
+
+    # Save meeting report
+    report_id = str(uuid.uuid4())[:8]
+    doc = {
+        "id": report_id,
+        "type": f"ceo_{meeting_type}",
+        "timestamp": datetime.now().isoformat(),
+        "room": meeting["room_name"],
+        "attendees": meeting["participants"],
+        "action_points": action_points,
+        "project_id": project_id,
+    }
+    _save_report(report_id, doc)
+
+    # Release room
+    room = company_state.meeting_rooms.get(room_id)
+    if room:
+        await _set_participants_status(room.participants, STATUS_IDLE)
+        room.is_booked = False
+        room.booked_by = ""
+        room.participants = []
+        await _store.save_room(room.id, {
+            "is_booked": False, "booked_by": "", "participants": [],
+        })
+        await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+
+    _active_ceo_meeting = None
+
+    return {
+        "status": "ended",
+        "action_points": action_points,
+        "project_id": project_id,
+    }
+
+
+async def _create_project_from_action_points(
+    action_points: list[str], meeting_type: str, transcript_excerpt: str,
+) -> str:
+    """Create a new project from meeting action points, dispatched to EA."""
+    from onemancompany.core.project_archive import create_project, get_project_dir
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.vessel import _save_project_tree
+    from onemancompany.core.agent_loop import employee_manager
+    from onemancompany.core.task_lifecycle import TaskPhase
+    from pathlib import Path
+
+    meeting_label = "All-Hands" if meeting_type == "all_hands" else "Discussion"
+    task_desc = (
+        f"Action points from CEO {meeting_label} meeting:\n\n"
+        + "\n".join(f"- {ap}" for ap in action_points)
+        + f"\n\nMeeting context:\n{transcript_excerpt}"
+    )
+
+    pid = create_project(task_desc, "pending", list(load_all_employees().keys()))
+    pdir = get_project_dir(pid)
+
+    tree = TaskTree(project_id=pid)
+    ceo_root = tree.create_root(employee_id=CEO_ID, description=task_desc)
+    ceo_root.node_type = "ceo_prompt"
+    ceo_root.set_status(TaskPhase.PROCESSING)
+
+    ea_task = (
+        f"CEO has assigned action points from a {meeting_label} meeting. "
+        f"Please analyze and dispatch to the appropriate owner:\n\n"
+        f"Task: {task_desc}\n\n"
+        f"[Project ID: {pid}] [Project workspace: {pdir}]"
+    )
+    ea_node = tree.add_child(
+        parent_id=ceo_root.id,
+        employee_id=EA_ID,
+        description=ea_task,
+        acceptance_criteria=action_points,
+    )
+    _save_project_tree(pdir, tree)
+
+    tree_path = str(Path(pdir) / "task_tree.yaml")
+    employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
+    employee_manager._schedule_next(EA_ID)
+
+    await _publish("routine_phase", {
+        "phase": "CEO Meeting",
+        "message": f"Created project {pid} with {len(action_points)} action points",
+    })
+    # Broadcast so frontend sees project immediately
+    await event_bus.publish(
+        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+    )
+
+    logger.info("Created project {} from meeting action points", pid)
+    return pid
 
 
 # ---------------------------------------------------------------------------

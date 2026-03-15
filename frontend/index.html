@@ -53,7 +53,7 @@
           <span class="status-item" id="employee-count">&#128101; 2</span>
           <span class="status-item status-clickable" id="tool-count" onclick="window.app.openToolList()">&#128295; 0</span>
           <span class="status-item" id="room-count">&#127970; 0/0</span>
-          <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="1-on-1 Meeting">&#127891;</button>
+          <button id="guidance-toolbar-btn" class="toolbar-icon-btn" title="Meeting">&#127891;</button>
           <button id="ex-employee-toolbar-btn" class="toolbar-icon-btn" title="Ex-Employee Wall">&#128220;</button>
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
@@ -147,17 +147,25 @@
   <!-- 1-on-1 Meeting Modal (conversational chat) -->
   <div id="oneonone-modal" class="modal-overlay hidden">
     <div class="modal-content oneonone-modal-content">
-      <!-- Phase 1: Select employee -->
+      <!-- Phase 1: Select meeting type + employee -->
       <div id="oneonone-setup" class="oneonone-phase">
         <div class="modal-header">
-          <h3 class="pixel-title">&#127891; 1-on-1 Meeting</h3>
+          <h3 class="pixel-title">&#127891; Meeting</h3>
           <button id="oneonone-close-btn" class="modal-close">&#10005;</button>
         </div>
         <div class="modal-body" style="flex-direction:column;padding:12px;">
-          <label class="guidance-label">Select Employee:</label>
-          <select id="oneonone-target">
-            <option value="">-- Select Employee --</option>
+          <label class="guidance-label">Meeting Type:</label>
+          <select id="meeting-type-select">
+            <option value="oneonone">1-on-1 Meeting</option>
+            <option value="all_hands">All-Hands (CEO Address)</option>
+            <option value="discussion">Discussion (Open Floor)</option>
           </select>
+          <div id="oneonone-employee-select-row">
+            <label class="guidance-label" style="margin-top:8px;">Select Employee:</label>
+            <select id="oneonone-target">
+              <option value="">-- Select Employee --</option>
+            </select>
+          </div>
           <button id="oneonone-start-btn" class="pixel-btn guidance" disabled style="margin-top:10px;">&#127891; Start Meeting</button>
         </div>
       </div>
