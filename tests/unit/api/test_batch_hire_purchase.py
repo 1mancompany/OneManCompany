@@ -1,13 +1,14 @@
 """Tests for batch hire with Talent Market purchase+clone flow."""
 from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+import asyncio
 import pytest
 
 
 class TestBatchHirePurchase:
     @pytest.mark.asyncio
     async def test_purchase_called_when_connected(self):
-        """When talent_market is connected, hire() and onboard() are called."""
+        """When talent_market is connected, hire() and onboard() are called before background dispatch."""
         from onemancompany.agents import recruitment
 
         # Setup connected state
@@ -36,9 +37,13 @@ class TestBatchHirePurchase:
                     "selections": [{"candidate_id": "t1", "role": "Engineer"}],
                 })
 
+                # Purchase and clone happen synchronously before background dispatch
                 recruitment.talent_market.hire.assert_awaited_once()
                 recruitment.talent_market.onboard.assert_awaited_once_with("t1")
                 mock_clone.assert_awaited_once()
+
+                # Result is now async — returns immediately
+                assert result["status"] == "onboarding"
         finally:
             recruitment.talent_market._session = None
             recruitment.pending_candidates.pop("bp1", None)
@@ -46,7 +51,7 @@ class TestBatchHirePurchase:
 
     @pytest.mark.asyncio
     async def test_purchase_error_returns_error(self):
-        """When hire() returns an error, batch hire returns it."""
+        """When hire() returns an error, batch hire returns it synchronously."""
         from onemancompany.agents import recruitment
 
         recruitment.talent_market._session = MagicMock()
@@ -103,5 +108,6 @@ class TestBatchHirePurchase:
                 })
 
                 recruitment.talent_market.hire.assert_not_awaited()
+                assert result["status"] == "onboarding"
         finally:
             recruitment.pending_candidates.pop("bp3", None)

@@ -4902,7 +4902,7 @@ class TestHireCandidate:
                     "candidate_id": "c1",
                 })
 
-        assert resp.json()["status"] == "hired"
+        assert resp.json()["status"] == "onboarding"
 
     async def test_hire_candidate_with_project(self):
         """Hire with pending project context triggers retrospective."""
@@ -4932,10 +4932,10 @@ class TestHireCandidate:
                     "nickname": "GivenNick",
                 })
 
-        assert resp.json()["status"] == "hired"
+        assert resp.json()["status"] == "onboarding"
 
-    async def test_hire_candidate_exception(self):
-        """execute_hire raises an exception."""
+    async def test_hire_candidate_not_found_returns_error(self):
+        """Candidate not in batch returns error synchronously."""
         state = _make_state()
         bus = EventBus()
 
@@ -4944,19 +4944,16 @@ class TestHireCandidate:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.agents.recruitment.pending_candidates", candidates), \
-             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
-             patch("onemancompany.agents.onboarding.execute_hire", new_callable=AsyncMock, side_effect=RuntimeError("hire failed")), \
-             patch("onemancompany.core.config.load_talent_profile", return_value={}):
+             patch("onemancompany.agents.recruitment.pending_candidates", candidates):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/candidates/hire", json={
                     "batch_id": "b1",
-                    "candidate_id": "c1",
+                    "candidate_id": "nonexistent",
                     "nickname": "TestNick",
                 })
 
-        assert "Hire failed" in resp.json()["error"]
+        assert "not found" in resp.json()["error"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -6155,8 +6152,8 @@ class TestProjectFilePathEscape:
 
 
 class TestDispatchHiringToHR:
-    async def test_approved_hiring_pushes_task_to_hr(self):
-        """CEO approval pushes hiring task to HR via push_task and queues COO context."""
+    async def test_approved_hiring_is_noop_legacy(self):
+        """Legacy decide endpoint: approval is a no-op (hiring is auto-approved by COO)."""
         from onemancompany.agents.coo_agent import pending_hiring_requests
 
         req_id = "test123"
@@ -6174,31 +6171,18 @@ class TestDispatchHiringToHR:
         mock_bus = MagicMock()
         mock_bus.publish = AsyncMock()
 
-        from onemancompany.api.routes import _pending_coo_hire_queue
-        queue_before = len(_pending_coo_hire_queue)
-
-        with patch("onemancompany.api.routes.event_bus", mock_bus), \
-             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
-             patch("onemancompany.api.routes._push_adhoc_task", return_value=("n1", "/tmp/tree.yaml")) as mock_push:
+        with patch("onemancompany.api.routes.event_bus", mock_bus):
             from onemancompany.api.routes import decide_hiring_request
             result = await decide_hiring_request(req_id, {"approved": True})
 
         assert result["status"] == "approved"
-        mock_push.assert_called_once()
-        jd = mock_push.call_args[0][1]  # second positional arg is description
-        assert "Developer" in jd
-        assert "Python" in jd
-        assert "Engineering" in jd  # department included in JD
+        assert result["hire_id"] == req_id
+        # Request stays in pending (not popped — already auto-approved)
+        assert req_id in pending_hiring_requests
+        pending_hiring_requests.pop(req_id, None)  # cleanup
 
-        # COO context was queued
-        assert len(_pending_coo_hire_queue) == queue_before + 1
-        ctx = _pending_coo_hire_queue.pop()
-        assert ctx["role"] == "Developer"
-        assert ctx["department"] == "Engineering"
-        assert ctx["project_id"] == "proj_1"
-
-    async def test_rejected_hiring_does_not_push(self):
-        """CEO rejection does not push any task to HR."""
+    async def test_rejected_hiring_removes_request(self):
+        """CEO rejection removes the request from pending."""
         from onemancompany.agents.coo_agent import pending_hiring_requests
 
         req_id = "test456"
@@ -6218,6 +6202,7 @@ class TestDispatchHiringToHR:
             result = await decide_hiring_request(req_id, {"approved": False})
 
         assert result["status"] == "rejected"
+        assert req_id not in pending_hiring_requests
 
 
 # ---------------------------------------------------------------------------

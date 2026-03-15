@@ -270,11 +270,10 @@ class AppController {
       'file_edit_applied':   (p) => ({ text: `✅ File updated: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
       'file_edit_rejected':  (p) => ({ text: `❌ File edit rejected: ${p.rel_path}`, cls: 'ceo', agent: 'CEO' }),
       'hiring_request_ready': (p) => {
-        this.showHiringRequestModal(p);
-        return { text: `📋 COO requests hiring: ${p.role} — ${p.reason}`, cls: 'coo', agent: 'COO' };
+        return { text: `📋 COO auto-approved hiring: ${p.role} — ${p.reason} (hire_id: ${p.hire_id})`, cls: 'coo', agent: 'COO' };
       },
       'hiring_request_decided': (p) => {
-        return { text: `${p.approved ? '✅' : '❌'} Hiring request ${p.approved ? 'approved' : 'rejected'}: ${p.role}`, cls: 'ceo', agent: 'CEO' };
+        return { text: `${p.approved ? '✅' : '❌'} Hiring ${p.approved ? 'confirmed' : 'rejected'}: ${p.role}`, cls: 'ceo', agent: 'CEO' };
       },
       'inquiry_started':     (p) => {
         this._startInquiryMode(p);

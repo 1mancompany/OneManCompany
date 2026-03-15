@@ -944,14 +944,16 @@ def resume_held_task(task_id: str, result: str, employee_id: str = "") -> dict:
     if not employee_id:
         return {"status": "error", "message": "employee_id required"}
 
-    from onemancompany.core.agent_loop import get_agent_loop
-    loop = get_agent_loop(employee_id)
-    if not loop:
-        return {"status": "error", "message": f"No agent loop for {employee_id}"}
-
+    from onemancompany.core.vessel import employee_manager
     import asyncio
-    coro = loop.resume_held_task(employee_id, task_id, result)
-    asyncio.ensure_future(coro)
+
+    main_loop = getattr(employee_manager, "_event_loop", None)
+    if main_loop and main_loop.is_running():
+        coro = employee_manager.resume_held_task(employee_id, task_id, result)
+        main_loop.call_soon_threadsafe(main_loop.create_task, coro)
+    else:
+        return {"status": "error", "message": "No event loop available to resume task"}
+
     return {"status": "ok", "message": f"Resume scheduled for task {task_id}"}
 
 

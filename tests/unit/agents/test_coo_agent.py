@@ -586,11 +586,13 @@ class TestRequestHiring:
             "desired_skills": ["unity", "c#"],
         })
 
-        assert result["status"] == "submitted"
+        assert result["status"] == "auto_approved"
+        assert "hire_id" in result
         assert len(coo_mod.pending_hiring_requests) == 1
         req = list(coo_mod.pending_hiring_requests.values())[0]
         assert req["role"] == "Game Developer"
         assert req["desired_skills"] == ["unity", "c#"]
+        assert req["auto_approved"] is True
 
 
 # ---------------------------------------------------------------------------

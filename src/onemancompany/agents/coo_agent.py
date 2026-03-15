@@ -22,8 +22,8 @@ from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
-# Pending hiring requests awaiting CEO approval.
-# { request_id: { role, reason, skills, requested_by, requested_at } }
+# Pending hiring requests — now auto-approved; kept for audit/frontend display.
+# { hire_id: { role, reason, skills, requested_by, requested_at, ... } }
 pending_hiring_requests: dict[str, dict] = {}
 
 COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Company".
@@ -66,7 +66,7 @@ COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Com
 ### 阶段2 — 补人（如需要）
 - 如果现有人力不足 → **必须先 request_hiring() 补齐人手**
 - ⚠️ **先招人，再开项目** — 这是铁律。不要在缺人的情况下强行开工
-- request_hiring() 提交后，你的任务应该输出 `__HOLDING:reason=等待招聘完成` 暂停
+- request_hiring() 会返回 hire_id，你的任务应该输出 `__HOLDING:hire_id=<返回的hire_id>` 暂停
 - 招聘完成、新员工入职后，系统会唤醒你，届时再进入阶段3
 - 如果不需要招人，直接跳到阶段3
 
@@ -786,11 +786,10 @@ def request_hiring(
     department: str = "",
     desired_skills: list[str] | None = None,
 ) -> dict:
-    """Request CEO approval to hire a new employee.
+    """Request to hire a new employee. Auto-approved — HR starts recruiting immediately.
 
     Use this when you identify the team lacks a capability needed for current
-    or upcoming work. The request goes to CEO for approval — if approved, HR
-    automatically starts recruiting.
+    or upcoming work. Returns a hire_id for tracking the hiring flow.
 
     Args:
         role: The role to hire (e.g. "Game Developer", "QA Engineer").
@@ -801,7 +800,7 @@ def request_hiring(
         desired_skills: Optional list of desired skills/technologies.
 
     Returns:
-        Confirmation that the request was submitted for CEO review.
+        hire_id that you MUST use in __HOLDING:hire_id=<hire_id> to wait for completion.
     """
     from datetime import datetime
     from onemancompany.core.agent_loop import _current_vessel, _current_task_id
@@ -817,7 +816,7 @@ def request_hiring(
             project_id = caller_task.project_id or caller_task.original_project_id
             project_dir = caller_task.project_dir or caller_task.original_project_dir
 
-    request_id = str(uuid.uuid4())[:8]
+    hire_id = str(uuid.uuid4())[:8]
     req = {
         "role": role,
         "department": department,
@@ -827,38 +826,58 @@ def request_hiring(
         "requested_at": datetime.now().isoformat(),
         "project_id": project_id,
         "project_dir": project_dir,
+        "hire_id": hire_id,
+        "auto_approved": True,
     }
-    pending_hiring_requests[request_id] = req
+    pending_hiring_requests[hire_id] = req
 
-    # Note: hiring flow tracking is now handled by the task tree.
-    # The hiring request event is sufficient for frontend tracking.
-
-    # Publish event for frontend — CEO will see and approve/reject.
-    # LangChain tools run in a thread pool, so use run_coroutine_threadsafe
-    # with the main event loop stored on EmployeeManager.
+    # Auto-approved — directly push JD to HR and queue COO context.
     from onemancompany.core.vessel import employee_manager
+
+    skills_str = ", ".join(desired_skills or [])
+    jd = f"招聘 {role}"
+    if department:
+        jd += f"（部门: {department}）"
+    if skills_str:
+        jd += f"（技能要求: {skills_str}）"
+    jd += f"\n原因: {reason}"
+
+    from onemancompany.core.agent_loop import get_agent_loop
+    from onemancompany.core.config import HR_ID
+    hr_loop = get_agent_loop(HR_ID)
+    if hr_loop:
+        from onemancompany.api.routes import _push_adhoc_task, _pending_coo_hire_queue
+        _push_adhoc_task(HR_ID, jd)
+        _pending_coo_hire_queue.append({
+            "hire_id": hire_id,
+            "role": role,
+            "department": department,
+            "project_id": project_id,
+            "project_dir": project_dir,
+            "reason": reason,
+        })
+        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR task queued", hire_id, role)
+    else:
+        logger.warning("No agent loop for HR — hiring task for {} dropped", role)
+
+    # Publish event for frontend notification (informational, no approval needed)
     coro = event_bus.publish(CompanyEvent(
         type="hiring_request_ready",
-        payload={"request_id": request_id, **req},
+        payload={"hire_id": hire_id, **req},
         agent="COO",
     ))
     loop = getattr(employee_manager, "_event_loop", None)
     if loop and loop.is_running():
         asyncio.run_coroutine_threadsafe(coro, loop)
-    else:
-        try:
-            asyncio.get_event_loop().run_until_complete(coro)
-        except RuntimeError:
-            logger.warning("No event loop available — hiring_request_ready event will be missed")
 
     return {
-        "status": "submitted",
-        "request_id": request_id,
+        "status": "auto_approved",
+        "hire_id": hire_id,
         "message": (
-            f"Hiring request for '{role}' submitted to CEO for approval. "
-            f"⚠️ 招聘是异步流程，新员工尚未就位。"
-            f"如果项目需要此岗位才能开工，你应该立即暂停（输出 __HOLDING:reason=等待{role}招聘完成），"
-            f"等新员工入职后再继续分派任务。不要在缺人的情况下强行开工。"
+            f"招聘 '{role}' 已自动批准，HR开始招聘。hire_id={hire_id}\n"
+            f"⚠️ 招聘是异步流程，新员工尚未就位。\n"
+            f"你必须立即输出 __HOLDING:hire_id={hire_id} 暂停当前任务，\n"
+            f"等新员工入职后系统会自动唤醒你继续执行。不要在缺人的情况下强行开工。"
         ),
     }
 

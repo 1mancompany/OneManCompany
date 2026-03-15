@@ -3585,10 +3585,9 @@ async def list_hiring_requests() -> list[dict]:
     ]
 
 
-# COO hiring context queue — populated when CEO approves a hiring request,
-# consumed when hire_candidate() fires. Stores COO's requested role,
-# department, and project info so we can override the talent's indicative
-# role and correctly notify COO after the employee is ready.
+# COO hiring context queue — populated when COO calls request_hiring() (auto-approved),
+# consumed when hire_candidate()/batch_hire fires. Stores COO's requested role,
+# department, hire_id, and project info for role override and HOLDING resume.
 _pending_coo_hire_queue: list[dict] = []
 
 # Per-employee OAuth wait context — for OAuth employees, the hire completes
@@ -3598,28 +3597,50 @@ _pending_oauth_hire: dict[str, dict] = {}
 
 
 def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
-    """Push a follow-up task to COO after a hired employee is fully ready.
+    """Resume COO's HOLDING task after a hired employee is fully ready.
 
-    Marks the hiring dispatch as complete and gives COO the project context
-    so it can dispatch_child() to the new employee.
+    Matches by hire_id in the HOLDING node's metadata for exact correlation.
+    Falls back to adhoc notification if no matching HOLDING task found.
 
     Args:
         employee_id: The newly hired employee's ID.
-        ctx: COO hiring context dict with keys: request_id, role, department,
+        ctx: COO hiring context dict with keys: hire_id, role, department,
              project_id, project_dir, reason.
     """
     project_id = ctx.get("project_id", "")
     project_dir = ctx.get("project_dir", "")
-    request_id = ctx.get("request_id", "")
+    hire_id = ctx.get("hire_id", "")
 
-    # Note: hiring dispatch tracking now handled by task tree
+    _hire_emp = _load_emp(employee_id)
+    emp_name = _hire_emp.get("name", employee_id) if _hire_emp else employee_id
+    role = ctx.get("role", "Employee")
 
-    from onemancompany.core.agent_loop import get_agent_loop
-    coo_loop = get_agent_loop(COO_ID)
-    if coo_loop:
-        _hire_emp = _load_emp(employee_id)
-        emp_name = _hire_emp.get("name", employee_id) if _hire_emp else employee_id
-        role = ctx.get("role", "Employee")
+    # Try to resume COO's HOLDING task matched by hire_id
+    from onemancompany.core.vessel import employee_manager, _parse_holding_metadata
+    resumed = False
+    for entry in employee_manager._schedule.get(COO_ID, []):
+        from onemancompany.core.task_tree import get_tree
+        tree = get_tree(entry.tree_path)
+        node = tree.get_node(entry.node_id)
+        if not node or node.status != "holding":
+            continue
+        # Match by hire_id in HOLDING metadata
+        holding_meta = _parse_holding_metadata(node.result)
+        if holding_meta and holding_meta.get("hire_id") == hire_id:
+            import asyncio
+            resume_result = f"招聘完成: {emp_name} (#{employee_id}) 已入职（{role}）。请继续项目执行。"
+            main_loop = getattr(employee_manager, "_event_loop", None)
+            if main_loop and main_loop.is_running():
+                main_loop.call_soon_threadsafe(
+                    main_loop.create_task,
+                    employee_manager.resume_held_task(COO_ID, entry.node_id, resume_result),
+                )
+                resumed = True
+                logger.info("[hire-ready] Resumed COO holding task {} via hire_id={}", entry.node_id, hire_id)
+            break
+
+    if not resumed:
+        # No matching HOLDING task — push as adhoc notification
         followup = (
             f"新员工就绪通知\n\n"
             f"员工 {emp_name} (#{employee_id}) 已入职并准备就绪（{role}）。\n"
@@ -3628,80 +3649,38 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
             f"[Project ID: {project_id}] [Project workspace: {project_dir}]"
         )
         _push_adhoc_task(COO_ID, followup, project_id=project_id, project_dir=project_dir)
-        logger.info(f"[hire-ready] Pushed follow-up to COO for {emp_name} on project {project_id}")
-    else:
-        logger.warning(f"[hire-ready] No COO agent loop — cannot notify about {employee_id}")
+        logger.info("[hire-ready] No HOLDING task with hire_id={}, pushed adhoc for {}", hire_id, emp_name)
 
 
 @router.post("/api/hiring-requests/{request_id}/decide")
 async def decide_hiring_request(request_id: str, body: dict) -> dict:
-    """CEO approves or rejects a hiring request from COO.
+    """Legacy endpoint — hiring is now auto-approved by COO.
 
+    Kept for manual override: CEO can still reject a pending hire.
     Body: { "approved": true/false, "note": "optional comment" }
-    If approved, HR automatically starts searching for candidates.
     """
     from onemancompany.agents.coo_agent import pending_hiring_requests
 
-    req = pending_hiring_requests.pop(request_id, None)
+    req = pending_hiring_requests.get(request_id, None)
     if not req:
         return {"error": f"Hiring request '{request_id}' not found"}
 
-    approved = body.get("approved", False)
+    approved = body.get("approved", True)
     note = body.get("note", "")
 
-    await event_bus.publish(CompanyEvent(
-        type="hiring_request_decided",
-        payload={
-            "request_id": request_id,
-            "approved": approved,
-            "role": req["role"],
-            "note": note,
-        },
-        agent="CEO",
-    ))
-
-    project_id = req.get("project_id", "")
-    project_dir = req.get("project_dir", "")
-    hiring_dispatch_id = f"hiring_{request_id}"
-
-    if approved:
-        # Build JD from COO's request and push to HR's task board
-        from onemancompany.core.agent_loop import get_agent_loop
-
-        skills_str = ", ".join(req.get("desired_skills", []))
-        jd = f"招聘 {req['role']}"
-        if req.get("department"):
-            jd += f"（部门: {req['department']}）"
-        if skills_str:
-            jd += f"（技能要求: {skills_str}）"
-        jd += f"\n原因: {req['reason']}"
-        if note:
-            jd += f"\nCEO 备注: {note}"
-
-        hr_loop = get_agent_loop(HR_ID)
-        if hr_loop:
-            _push_adhoc_task(HR_ID, jd)
-        else:
-            logger.warning("No agent loop for HR — hiring task dropped")
-
-        # Queue COO context so hire_candidate() can override the talent's
-        # indicative role with COO's requested role and department.
-        _pending_coo_hire_queue.append({
-            "request_id": request_id,
-            "role": req["role"],
-            "department": req.get("department", ""),
-            "project_id": project_id,
-            "project_dir": project_dir,
-            "reason": req["reason"],
-        })
-        logger.info(f"[hiring] Queued COO context: role='{req['role']}' dept='{req.get('department', '')}' req={request_id}")
-    else:
-        # Rejected — no dispatch cleanup needed (task tree handles tracking)
-        pass
+    if not approved:
+        # CEO rejects — remove from pending and cancel
+        pending_hiring_requests.pop(request_id, None)
+        await event_bus.publish(CompanyEvent(
+            type="hiring_request_decided",
+            payload={"hire_id": request_id, "approved": False, "role": req["role"], "note": note},
+            agent="CEO",
+        ))
+        # TODO: cancel HR task if already dispatched
 
     return {
         "status": "approved" if approved else "rejected",
-        "request_id": request_id,
+        "hire_id": request_id,
         "role": req["role"],
     }
 
@@ -3712,56 +3691,69 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
 async def hire_candidate(body: HireRequest) -> dict:
     """CEO selects a candidate to hire from the shortlist.
 
-    Executes the full hire flow in code — no LLM involved.
-    Reads authoritative fields directly from the talent profile.
+    Launches onboarding in background — returns immediately.
     """
-    from pathlib import Path
-    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
-    from onemancompany.agents.onboarding import execute_hire
+    from onemancompany.agents.recruitment import pending_candidates
 
     candidates = pending_candidates.get(body.batch_id, [])
     candidate = next((c for c in candidates if c.get("id") == body.candidate_id), None)
     if not candidate:
         return {"error": "Candidate not found"}
 
-    # Auto-generate wuxia-themed 花名 (nickname) if not provided
-    nickname = body.nickname
-    if not nickname:
-        from onemancompany.agents.onboarding import generate_nickname
-        nickname = await generate_nickname(candidate["name"], candidate["role"], is_founding=False)
-
-    # Read authoritative fields from the talent profile (LLM shortlist may drop them)
-    talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
-    talent_data: dict = {}
-    if talent_id:
-        from onemancompany.core.config import load_talent_profile
-        talent_data = load_talent_profile(talent_id)
-
-    skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
-
     # Pop COO hiring context (FIFO) — overrides talent's indicative role
-    # with what COO actually requested.
     coo_ctx: dict = {}
     if _pending_coo_hire_queue:
         coo_ctx = _pending_coo_hire_queue.pop(0)
-        logger.info(f"[hiring] Applying COO context: role='{coo_ctx['role']}' over talent role='{candidate['role']}'")
+        logger.info("[hiring] Applying COO context: role='{}' over talent role='{}'", coo_ctx.get("role"), candidate.get("role"))
 
-    # Role and department assigned by COO after hire (unless COO pre-specified)
-    hire_role = coo_ctx.get("role") or ""
-    hire_department = coo_ctx.get("department", "")
+    # Launch onboarding as background task
+    asyncio.create_task(
+        _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
+    )
 
-    # Ensure COO's requested role is in the role mappings
-    if coo_ctx.get("role"):
-        from onemancompany.core.config import ROLE_DEPARTMENT_MAP
-        from onemancompany.core.state import ROLE_TITLES
-        if coo_ctx["role"] not in ROLE_TITLES:
-            ROLE_TITLES[coo_ctx["role"]] = coo_ctx["role"]
-            logger.info(f"[hiring] Added '{coo_ctx['role']}' to ROLE_TITLES")
-        if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and hire_department:
-            ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = hire_department
-            logger.info(f"[hiring] Added '{coo_ctx['role']}' → '{hire_department}' to ROLE_DEPARTMENT_MAP")
+    return {
+        "status": "onboarding",
+        "candidate_id": body.candidate_id,
+        "name": candidate["name"],
+        "message": "Onboarding started in background",
+    }
+
+
+async def _do_hire_single(
+    batch_id: str, candidate_id: str, nickname: str,
+    candidate: dict, coo_ctx: dict,
+) -> None:
+    """Background task: execute hire + post-hire notifications."""
+    from pathlib import Path
+    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
+    from onemancompany.agents.onboarding import execute_hire, generate_nickname
 
     try:
+        # Auto-generate nickname if not provided
+        if not nickname:
+            nickname = await generate_nickname(candidate["name"], candidate.get("role", ""), is_founding=False)
+
+        # Read authoritative fields from the talent profile
+        talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
+        talent_data: dict = {}
+        if talent_id:
+            from onemancompany.core.config import load_talent_profile
+            talent_data = load_talent_profile(talent_id)
+
+        skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
+
+        hire_role = coo_ctx.get("role") or ""
+        hire_department = coo_ctx.get("department", "")
+
+        # Ensure COO's requested role is in the role mappings
+        if coo_ctx.get("role"):
+            from onemancompany.core.config import ROLE_DEPARTMENT_MAP
+            from onemancompany.core.state import ROLE_TITLES
+            if coo_ctx["role"] not in ROLE_TITLES:
+                ROLE_TITLES[coo_ctx["role"]] = coo_ctx["role"]
+            if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and hire_department:
+                ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = hire_department
+
         emp = await execute_hire(
             name=candidate["name"],
             nickname=nickname or "",
@@ -3778,72 +3770,62 @@ async def hire_candidate(body: HireRequest) -> dict:
             remote=candidate.get("remote", False),
             department=hire_department,
         )
+
+        # Notify COO that the hire is ready (or stash for OAuth completion)
+        if coo_ctx.get("project_id"):
+            auth_method = talent_data.get("auth_method", "api_key")
+            if auth_method == "oauth":
+                _pending_oauth_hire[emp.id] = coo_ctx
+            else:
+                _notify_coo_hire_ready(emp.id, coo_ctx)
+
+        # Resume project lifecycle
+        from onemancompany.agents.hr_agent import _pending_project_ctx
+        from onemancompany.core.project_archive import append_action, complete_project
+        ctx = _pending_project_ctx.pop(batch_id, {})
+        pid = ctx.get("project_id", "")
+        if pid:
+            append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
+            complete_project(pid, f"Hired {candidate['name']}")
+
+        pending_candidates.pop(batch_id, None)
+        _persist_candidates()
+
+        # Resume HR's HOLDING task
+        from onemancompany.core.vessel import employee_manager as _em_hr
+        from onemancompany.core.task_tree import get_tree as _get_tree_hr
+        for entry in _em_hr._schedule.get(HR_ID, []):
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            tree = _get_tree_hr(tp)
+            node = tree.get_node(entry.node_id)
+            if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+                await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hired {candidate['name']} (ID: {emp.id})")
+                break
+
+        # Broadcast state update
+        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        logger.info("[hiring] Background hire completed: {} ({})", candidate["name"], emp.id)
+
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
+        logger.error("[hiring] Background hire failed for {}: {}", candidate.get("name"), e)
         traceback.print_exc()
-        return {"error": f"Hire failed: {e!s}"}
-
-    # Notify COO that the hire is ready (or stash for OAuth completion)
-    if coo_ctx.get("project_id"):
-        auth_method = talent_data.get("auth_method", "api_key")
-        if auth_method == "oauth":
-            _pending_oauth_hire[emp.id] = coo_ctx
-            logger.info(f"[hiring] Stashed COO context for OAuth employee {emp.id}")
-        else:
-            _notify_coo_hire_ready(emp.id, coo_ctx)
-
-    # Resume project lifecycle: stashed project_id is restored so
-    # retrospective runs after the *actual* hire, not after shortlist.
-    from onemancompany.agents.hr_agent import _pending_project_ctx
-    from onemancompany.core.project_archive import append_action, complete_project
-    ctx = _pending_project_ctx.pop(body.batch_id, {})
-    pid = ctx.get("project_id", "")
-    if pid:
-        append_action(pid, HR_ID, "入职完成", f"{candidate['name']} 已入职，工号 {emp.id}")
-        complete_project(pid, f"Hired {candidate['name']}")
-        # No retrospective — hiring is not a project iteration.
-        # Retrospective only triggers after project acceptance + rectification.
-
-    pending_candidates.pop(body.batch_id, None)
-    _persist_candidates()
-
-    # Resume HR's HOLDING task so EA knows the hire is done
-    from onemancompany.core.vessel import employee_manager as _em_hr
-    from onemancompany.core.task_tree import get_tree as _get_tree_hr
-    for entry in _em_hr._schedule.get(HR_ID, []):
-        tp = Path(entry.tree_path)
-        if not tp.exists():
-            continue
-        tree = _get_tree_hr(tp)
-        node = tree.get_node(entry.node_id)
-        if node and node.status == "holding" and node.result and f"batch_id={body.batch_id}" in node.result:
-            await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hired {candidate['name']} (ID: {emp.id})")
-            break
-
-    # Explicit state broadcast to ensure frontend updates
-    await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="CEO")
-    )
-
-    return {
-        "status": "hired",
-        "employee_id": emp.id,
-        "name": candidate["name"],
-        "nickname": nickname,
-    }
+        await event_bus.publish(CompanyEvent(
+            type="onboarding_progress",
+            payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                     "name": candidate.get("name", ""), "step": "failed",
+                     "message": str(e)},
+            agent="HR",
+        ))
 
 
 @router.post("/api/candidates/batch-hire")
 async def batch_hire_candidates(body: dict) -> dict:
-    """Batch hire multiple candidates from a role-grouped shortlist.
-
-    Request body:
-        batch_id: str
-        selections: list of {candidate_id: str, role: str}
-    """
-    from pathlib import Path
-    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
-    from onemancompany.agents.onboarding import execute_hire, generate_nickname
-    from onemancompany.core.config import load_talent_profile
+    """Batch hire multiple candidates. Returns immediately, onboarding runs in background."""
+    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx
 
     batch_id = body.get("batch_id", "")
     selections = body.get("selections", [])
@@ -3855,7 +3837,7 @@ async def batch_hire_candidates(body: dict) -> dict:
     if not all_candidates:
         return {"error": "Batch not found"}
 
-    # --- Talent Market purchase + clone flow ---
+    # --- Talent Market purchase (must complete before background work) ---
     from onemancompany.agents.recruitment import talent_market
     session_id = _pending_project_ctx.get(batch_id, {}).get("session_id", "")
     talent_ids = [s.get("candidate_id", "") for s in selections]
@@ -3874,7 +3856,7 @@ async def batch_hire_candidates(body: dict) -> dict:
             logger.error("Talent Market purchase failed: {}", e)
             return {"error": f"Purchase failed: {e}"}
 
-        # Onboard + clone each purchased talent (concurrently)
+        # Clone talents concurrently
         from onemancompany.agents.onboarding import clone_talent_repo
 
         async def _onboard_one(tid):
@@ -3888,184 +3870,207 @@ async def batch_hire_candidates(body: dict) -> dict:
 
         await asyncio.gather(*[_onboard_one(tid) for tid in talent_ids])
 
+    # Collect COO contexts for all selections
+    coo_ctxs = []
+    for _ in selections:
+        if _pending_coo_hire_queue:
+            coo_ctxs.append(_pending_coo_hire_queue.pop(0))
+        else:
+            coo_ctxs.append({})
+
+    # Launch background task for the actual hiring
+    asyncio.create_task(
+        _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
+    )
+
+    names = []
+    for sel in selections:
+        cid = sel.get("candidate_id", "")
+        c = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == cid), None)
+        if c:
+            names.append(c.get("name", cid))
+    return {"status": "onboarding", "count": len(selections), "names": names, "message": "Batch onboarding started in background"}
+
+
+async def _do_batch_hire(
+    batch_id: str, selections: list[dict],
+    all_candidates: list[dict], coo_ctxs: list[dict],
+) -> None:
+    """Background task: batch hire + post-hire notifications."""
+    from pathlib import Path
+    from onemancompany.agents.recruitment import pending_candidates, _pending_project_ctx, _persist_candidates
+    from onemancompany.agents.onboarding import execute_hire, generate_nickname
+    from onemancompany.core.config import load_talent_profile
+
     total = len(selections)
     results = []
 
-    # Pre-generate nicknames concurrently (LLM calls are the main bottleneck)
-    async def _gen_nick(sel):
-        cid = sel.get("candidate_id", "")
-        candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == cid), None)
-        if not candidate:
-            return cid, ""
-        cand_name = candidate.get("name", cid)
-        coo_ctx = {}  # role for nickname only
-        if _pending_coo_hire_queue:
+    try:
+        # Pre-generate nicknames concurrently
+        async def _gen_nick(sel):
+            cid = sel.get("candidate_id", "")
+            candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == cid), None)
+            if not candidate:
+                return cid, ""
+            cand_name = candidate.get("name", cid)
             coo_ctx_role = sel.get("role", "") or candidate.get("role", "Engineer")
-        else:
-            coo_ctx_role = sel.get("role", "") or candidate.get("role", "Engineer")
-        try:
-            nick = await generate_nickname(cand_name, coo_ctx_role, is_founding=False)
-        except Exception:
-            nick = ""
-        return cid, nick
+            try:
+                nick = await generate_nickname(cand_name, coo_ctx_role, is_founding=False)
+            except Exception:
+                nick = ""
+            return cid, nick
 
-    nickname_results = await asyncio.gather(*[_gen_nick(s) for s in selections])
-    nickname_map = dict(nickname_results)
+        nickname_results = await asyncio.gather(*[_gen_nick(s) for s in selections])
+        nickname_map = dict(nickname_results)
 
-    for idx, sel in enumerate(selections):
-        candidate_id = sel.get("candidate_id", "")
-        hire_role = sel.get("role", "")
+        for idx, sel in enumerate(selections):
+            candidate_id = sel.get("candidate_id", "")
 
-        # Find candidate — check both "id" and "talent_id" fields
-        candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == candidate_id), None)
-        if not candidate:
-            await event_bus.publish(CompanyEvent(
-                type="onboarding_progress",
-                payload={"batch_id": batch_id, "candidate_id": candidate_id,
-                         "name": candidate_id, "step": "failed",
-                         "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
-                         "message": "Candidate not found"},
-                agent="HR",
-            ))
-            results.append({"candidate_id": candidate_id, "status": "error", "error": "Not found"})
-            continue
-
-        cand_name = candidate.get("name", candidate_id)
-        talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
-
-        # Read authoritative fields from talent profile, fallback to candidate data
-        talent_data: dict = {}
-        if talent_id:
-            talent_data = load_talent_profile(talent_id)
-        if not talent_data:
-            # Talent profile not found on disk — use candidate data from Talent Market
-            talent_data = candidate
-
-        skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", candidate.get("skills", []))]
-
-        # Apply COO context if available
-        coo_ctx: dict = {}
-        if _pending_coo_hire_queue:
-            coo_ctx = _pending_coo_hire_queue.pop(0)
-
-        # Role and department are assigned by COO after hire, not during hire.
-        # Only use COO context if explicitly provided (e.g. pre-approved hiring request).
-        final_role = coo_ctx.get("role") or ""
-        final_dept = coo_ctx.get("department", "")
-
-        # Register custom roles
-        if coo_ctx.get("role"):
-            from onemancompany.core.config import ROLE_DEPARTMENT_MAP
-            from onemancompany.core.state import ROLE_TITLES
-            if coo_ctx["role"] not in ROLE_TITLES:
-                ROLE_TITLES[coo_ctx["role"]] = coo_ctx["role"]
-            if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and final_dept:
-                ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = final_dept
-
-        # Progress callback — publishes WebSocket events
-        async def _make_progress_cb(cid, name, idx_val):
-            async def cb(step, message):
-                step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-                step_index = step_order.index(step) if step in step_order else -1
+            candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == candidate_id), None)
+            if not candidate:
                 await event_bus.publish(CompanyEvent(
                     type="onboarding_progress",
-                    payload={"batch_id": batch_id, "candidate_id": cid,
-                             "name": name, "step": step,
-                             "step_index": step_index,
-                             "total_steps": 4, "current": idx_val + 1, "total": total,
-                             "message": message},
+                    payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                             "name": candidate_id, "step": "failed",
+                             "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
+                             "message": "Candidate not found"},
                     agent="HR",
                 ))
-            return cb
+                results.append({"candidate_id": candidate_id, "status": "error", "error": "Not found"})
+                continue
 
-        progress_cb = await _make_progress_cb(candidate_id, cand_name, idx)
+            cand_name = candidate.get("name", candidate_id)
+            talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
 
-        try:
-            nickname = nickname_map.get(candidate_id, "") or await generate_nickname(cand_name, final_role, is_founding=False)
-            emp = await execute_hire(
-                name=cand_name,
-                nickname=nickname,
-                role=final_role,
-                skills=skill_names,
-                talent_id=talent_id,
-                llm_model="" if talent_data.get("hosting") == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
-                temperature=float(talent_data.get("temperature", 0.7)),
-                image_model=candidate.get("image_model", ""),
-                api_provider="" if talent_data.get("hosting") == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
-                hosting=talent_data.get("hosting", "company"),
-                auth_method=talent_data.get("auth_method", "api_key"),
-                sprite=candidate.get("sprite", "employee_default"),
-                remote=candidate.get("remote", False),
-                department=final_dept,
-                progress_callback=progress_cb,
-            )
-            results.append({"candidate_id": candidate_id, "status": "hired", "employee_id": emp.id, "name": cand_name, "nickname": nickname})
+            talent_data: dict = {}
+            if talent_id:
+                talent_data = load_talent_profile(talent_id)
+            if not talent_data:
+                talent_data = candidate
 
-            # Handle COO notification
-            if coo_ctx.get("project_id"):
-                auth_method = talent_data.get("auth_method", "api_key")
-                if auth_method == "oauth":
-                    _pending_oauth_hire[emp.id] = coo_ctx
-                else:
-                    _notify_coo_hire_ready(emp.id, coo_ctx)
+            skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", candidate.get("skills", []))]
 
-        except Exception as e:
-            traceback.print_exc()
-            await event_bus.publish(CompanyEvent(
-                type="onboarding_progress",
-                payload={"batch_id": batch_id, "candidate_id": candidate_id,
-                         "name": cand_name, "step": "failed",
-                         "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
-                         "message": str(e)},
-                agent="HR",
-            ))
-            results.append({"candidate_id": candidate_id, "status": "error", "error": str(e)})
+            coo_ctx = coo_ctxs[idx] if idx < len(coo_ctxs) else {}
+            final_role = coo_ctx.get("role") or ""
+            final_dept = coo_ctx.get("department", "")
 
-    # Resume project lifecycle
-    from onemancompany.core.project_archive import append_action, complete_project
-    ctx = _pending_project_ctx.pop(batch_id, {})
-    pid = ctx.get("project_id", "")
-    hired_names = [r["name"] for r in results if r["status"] == "hired"]
-    if pid and hired_names:
-        append_action(pid, HR_ID, "批量入职完成", f"{', '.join(hired_names)} 已入职")
-        complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
+            if coo_ctx.get("role"):
+                from onemancompany.core.config import ROLE_DEPARTMENT_MAP
+                from onemancompany.core.state import ROLE_TITLES
+                if coo_ctx["role"] not in ROLE_TITLES:
+                    ROLE_TITLES[coo_ctx["role"]] = coo_ctx["role"]
+                if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and final_dept:
+                    ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = final_dept
 
-    pending_candidates.pop(batch_id, None)
-    _persist_candidates()
+            # Progress callback
+            async def _make_progress_cb(cid, name, idx_val):
+                async def cb(step, message):
+                    step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
+                    step_index = step_order.index(step) if step in step_order else -1
+                    await event_bus.publish(CompanyEvent(
+                        type="onboarding_progress",
+                        payload={"batch_id": batch_id, "candidate_id": cid,
+                                 "name": name, "step": step,
+                                 "step_index": step_index,
+                                 "total_steps": 4, "current": idx_val + 1, "total": total,
+                                 "message": message},
+                        agent="HR",
+                    ))
+                return cb
 
-    # Resume HR HOLDING task
-    from onemancompany.core.vessel import employee_manager as _em_batch
-    from onemancompany.core.task_tree import get_tree as _get_tree_batch
-    for entry in _em_batch._schedule.get(HR_ID, []):
-        tp = Path(entry.tree_path)
-        if not tp.exists():
-            continue
-        tree = _get_tree_batch(tp)
-        node = tree.get_node(entry.node_id)
-        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-            await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
-            break
+            progress_cb = await _make_progress_cb(candidate_id, cand_name, idx)
 
-    await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            try:
+                nickname = nickname_map.get(candidate_id, "") or await generate_nickname(cand_name, final_role, is_founding=False)
+                emp = await execute_hire(
+                    name=cand_name,
+                    nickname=nickname,
+                    role=final_role,
+                    skills=skill_names,
+                    talent_id=talent_id,
+                    llm_model="" if talent_data.get("hosting") == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
+                    temperature=float(talent_data.get("temperature", 0.7)),
+                    image_model=candidate.get("image_model", ""),
+                    api_provider="" if talent_data.get("hosting") == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
+                    hosting=talent_data.get("hosting", "company"),
+                    auth_method=talent_data.get("auth_method", "api_key"),
+                    sprite=candidate.get("sprite", "employee_default"),
+                    remote=candidate.get("remote", False),
+                    department=final_dept,
+                    progress_callback=progress_cb,
+                )
+                results.append({"candidate_id": candidate_id, "status": "hired", "employee_id": emp.id, "name": cand_name, "nickname": nickname})
 
-    # Dispatch COO task to assign departments and roles for new hires
-    # Skip if COO already received a project-specific notification via _notify_coo_hire_ready
-    if not coo_ctx.get("project_id"):
-        hired_entries = [r for r in results if r["status"] == "hired"]
-        if hired_entries:
-            emp_lines = "\n".join(
-                f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}"
-                for r in hired_entries
-            )
-            _push_adhoc_task(
-                COO_ID,
-                f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
-                f"可选部门: Engineering, Design, Analytics, Marketing\n"
-                f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
-                f"{emp_lines}",
-            )
+                if coo_ctx.get("project_id"):
+                    auth_method = talent_data.get("auth_method", "api_key")
+                    if auth_method == "oauth":
+                        _pending_oauth_hire[emp.id] = coo_ctx
+                    else:
+                        _notify_coo_hire_ready(emp.id, coo_ctx)
 
-    return {"status": "ok", "count": len(hired_names), "results": results}
+            except Exception as e:
+                traceback.print_exc()
+                await event_bus.publish(CompanyEvent(
+                    type="onboarding_progress",
+                    payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                             "name": cand_name, "step": "failed",
+                             "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
+                             "message": str(e)},
+                    agent="HR",
+                ))
+                results.append({"candidate_id": candidate_id, "status": "error", "error": str(e)})
+
+        # Resume project lifecycle
+        from onemancompany.core.project_archive import append_action, complete_project
+        ctx = _pending_project_ctx.pop(batch_id, {})
+        pid = ctx.get("project_id", "")
+        hired_names = [r["name"] for r in results if r["status"] == "hired"]
+        if pid and hired_names:
+            append_action(pid, HR_ID, "批量入职完成", f"{', '.join(hired_names)} 已入职")
+            complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
+
+        pending_candidates.pop(batch_id, None)
+        _persist_candidates()
+
+        # Resume HR HOLDING task
+        from onemancompany.core.vessel import employee_manager as _em_batch
+        from onemancompany.core.task_tree import get_tree as _get_tree_batch
+        for entry in _em_batch._schedule.get(HR_ID, []):
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            tree = _get_tree_batch(tp)
+            node = tree.get_node(entry.node_id)
+            if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+                await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
+                break
+
+        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+
+        # Dispatch COO task for department assignment (only if no project context)
+        last_coo_ctx = coo_ctxs[-1] if coo_ctxs else {}
+        if not last_coo_ctx.get("project_id"):
+            hired_entries = [r for r in results if r["status"] == "hired"]
+            if hired_entries:
+                emp_lines = "\n".join(
+                    f"- {r['name']}（{r.get('nickname', '')}）#{r['employee_id']}"
+                    for r in hired_entries
+                )
+                _push_adhoc_task(
+                    COO_ID,
+                    f"以下新员工刚入职，请为他们分配部门和角色。使用 assign_department(employee_id, department, role) 工具逐个分配。\n"
+                    f"可选部门: Engineering, Design, Analytics, Marketing\n"
+                    f"角色由你根据员工名称和技能自行判断（如 Engineer, Designer, PM, QA Engineer 等）。\n\n"
+                    f"{emp_lines}",
+                )
+
+        logger.info("[hiring] Background batch hire completed: {} hired", len(hired_names))
+
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.error("[hiring] Background batch hire failed: {}", e)
+        traceback.print_exc()
 
 
 @router.post("/api/candidates/interview")
