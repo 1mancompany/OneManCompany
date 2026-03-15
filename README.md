@@ -96,13 +96,17 @@ npx @1mancompany/onemancompany
 
 <table>
   <tr>
-    <td align="center">
-      <b>"Make me a game"</b><br><br>
-      <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" alt="Make me a game" width="100%">
+    <td align="center" width="50%">
+      <a href="https://1mancompany.github.io/OneManCompany/#demos">
+        <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.gif" alt="Make me a game" width="100%">
+      </a>
+      <br><b>"Make me a game"</b>
       <br><i>CEO gives one sentence — the team builds a complete game autonomously.</i>
     </td>
   </tr>
 </table>
+
+<p align="center"><a href="https://1mancompany.github.io/OneManCompany/#demos">Watch all demos with full video on our website →</a></p>
 
 ---
 
@@ -227,7 +231,7 @@ Founding employees (EA, HR, COO, CSO) support three execution modes, switchable 
 | **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
 | **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
 
-Defaults to Company Hosted Agent — no extra subscription needed to get started. See [Execution Modes docs](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) for details.
+Defaults to Company Hosted Agent — no extra subscription needed to get started. See [Execution Modes docs](https://1mancompany.github.io/OneManCompany/docs/guide/execution-modes/) for details.
 
 ### Manage Your Service
 
@@ -363,16 +367,16 @@ This is a living plan — [request a feature](https://github.com/1mancompany/One
 
 ## Documentation
 
-**[Full Documentation Site](https://carbonkite.github.io/OneManCompany/docs/)** — Feature guides, usage instructions, and technical reference.
+**[Full Documentation Site](https://1mancompany.github.io/OneManCompany/docs/)** — Feature guides, usage instructions, and technical reference.
 
 | Guide | Description |
 | --- | --- |
-| [Getting Started](https://carbonkite.github.io/OneManCompany/docs/guide/getting-started/) | First-time setup and your first task |
-| [Execution Modes](https://carbonkite.github.io/OneManCompany/docs/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
-| [Task Management](https://carbonkite.github.io/OneManCompany/docs/guide/task-management/) | Create, delegate, review, and approve tasks |
-| [Hiring & Talent Market](https://carbonkite.github.io/OneManCompany/docs/guide/hiring/) | Find and hire AI employees |
-| [1-on-1 Coaching](https://carbonkite.github.io/OneManCompany/docs/guide/coaching/) | Shape employee behavior permanently |
-| [Performance Reviews](https://carbonkite.github.io/OneManCompany/docs/guide/performance/) | Evaluate, promote, or fire employees |
+| [Getting Started](https://1mancompany.github.io/OneManCompany/docs/guide/getting-started/) | First-time setup and your first task |
+| [Execution Modes](https://1mancompany.github.io/OneManCompany/docs/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
+| [Task Management](https://1mancompany.github.io/OneManCompany/docs/guide/task-management/) | Create, delegate, review, and approve tasks |
+| [Hiring & Talent Market](https://1mancompany.github.io/OneManCompany/docs/guide/hiring/) | Find and hire AI employees |
+| [1-on-1 Coaching](https://1mancompany.github.io/OneManCompany/docs/guide/coaching/) | Shape employee behavior permanently |
+| [Performance Reviews](https://1mancompany.github.io/OneManCompany/docs/guide/performance/) | Evaluate, promote, or fire employees |
 
 | Technical Reference | Description |
 | --- | --- |

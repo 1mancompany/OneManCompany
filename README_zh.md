@@ -185,13 +185,17 @@ OneManCompany 不止于内置能力——它面向全球 Agent 社区开放。
 
 <table>
   <tr>
-    <td align="center">
-      <b>「做个游戏」</b><br><br>
-      <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" alt="做个游戏" width="100%">
+    <td align="center" width="50%">
+      <a href="https://1mancompany.github.io/OneManCompany/#demos">
+        <img src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.gif" alt="做个游戏" width="100%">
+      </a>
+      <br><b>「做个游戏」</b>
       <br><i>CEO 一句话 —— 团队自主完成整个游戏开发。</i>
     </td>
   </tr>
 </table>
+
+<p align="center"><a href="https://1mancompany.github.io/OneManCompany/#demos">在官网查看完整视频 →</a></p>
 
 ---
 
@@ -251,7 +255,7 @@ CEO（你，唯一能喝咖啡的人）
 | **Claude Code** | 能力更强，更省 token 开销 | 需要安装 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max 订阅](https://claude.ai) |
 | **OpenClaw** | 开源替代，支持多种 LLM 后端 | 需要安装 [OpenClaw CLI](https://github.com/anthropics/openclaw) + 兼容的 LLM API Key |
 
-默认使用 Company Hosted Agent，无需额外订阅即可开始。使用 Claude Code 或 OpenClaw 前需先安装对应 CLI，详见[执行模式文档](https://carbonkite.github.io/OneManCompany/docs/zh/guide/execution-modes/)。
+默认使用 Company Hosted Agent，无需额外订阅即可开始。使用 Claude Code 或 OpenClaw 前需先安装对应 CLI，详见[执行模式文档](https://1mancompany.github.io/OneManCompany/docs/zh/guide/execution-modes/)。
 
 <details>
 <summary><b>macOS</b></summary>
@@ -390,16 +394,16 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 
 ## 文档
 
-**[完整文档站](https://carbonkite.github.io/OneManCompany/docs/zh/)** —— 功能指南、使用说明、技术参考。
+**[完整文档站](https://1mancompany.github.io/OneManCompany/docs/zh/)** —— 功能指南、使用说明、技术参考。
 
 | 用户指南 | 说明 |
 | --- | --- |
-| [快速上手](https://carbonkite.github.io/OneManCompany/docs/zh/guide/getting-started/) | 首次启动到完成第一个任务 |
-| [执行模式](https://carbonkite.github.io/OneManCompany/docs/zh/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
-| [任务管理](https://carbonkite.github.io/OneManCompany/docs/zh/guide/task-management/) | 创建、分派、审批、迭代 |
-| [招聘与人才市场](https://carbonkite.github.io/OneManCompany/docs/zh/guide/hiring/) | 搜索、面试、入职 AI 员工 |
-| [1-on-1 辅导](https://carbonkite.github.io/OneManCompany/docs/zh/guide/coaching/) | CEO 指导，永久改变员工行为 |
-| [绩效管理](https://carbonkite.github.io/OneManCompany/docs/zh/guide/performance/) | 考核、PIP、晋升、解雇 |
+| [快速上手](https://1mancompany.github.io/OneManCompany/docs/zh/guide/getting-started/) | 首次启动到完成第一个任务 |
+| [执行模式](https://1mancompany.github.io/OneManCompany/docs/zh/guide/execution-modes/) | Company Hosted Agent vs Claude Code |
+| [任务管理](https://1mancompany.github.io/OneManCompany/docs/zh/guide/task-management/) | 创建、分派、审批、迭代 |
+| [招聘与人才市场](https://1mancompany.github.io/OneManCompany/docs/zh/guide/hiring/) | 搜索、面试、入职 AI 员工 |
+| [1-on-1 辅导](https://1mancompany.github.io/OneManCompany/docs/zh/guide/coaching/) | CEO 指导，永久改变员工行为 |
+| [绩效管理](https://1mancompany.github.io/OneManCompany/docs/zh/guide/performance/) | 考核、PIP、晋升、解雇 |
 
 | 技术参考 | 说明 |
 | --- | --- |

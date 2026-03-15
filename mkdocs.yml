@@ -1,5 +1,5 @@
 site_name: OneManCompany Docs
-site_url: https://carbonkite.github.io/OneManCompany/docs/
+site_url: https://1mancompany.github.io/OneManCompany/docs/
 site_description: Documentation for OneManCompany — The AI Operating System for One-Person Companies
 repo_url: https://github.com/1mancompany/OneManCompany
 repo_name: OneManCompany
@@ -94,4 +94,4 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/1mancompany/OneManCompany
-  homepage: https://carbonkite.github.io/OneManCompany/
+  homepage: https://1mancompany.github.io/OneManCompany/

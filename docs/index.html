@@ -320,6 +320,36 @@
     .link-card img { width: 28px; height: 28px; image-rendering: pixelated; }
     .link-card span { font-family: var(--pixel); font-size: 9px; color: #fff; }
 
+    /* ── Demo wall ────────────────────────────────────────────── */
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+    .demo-card {
+      background: var(--bg-card);
+      border: 2px solid var(--border);
+      overflow: hidden;
+      transition: border-color .2s, transform .2s;
+    }
+    .demo-card:hover { border-color: var(--cyan); transform: translateY(-2px); }
+    .demo-card video {
+      width: 100%;
+      display: block;
+      border-bottom: 2px solid var(--border);
+    }
+    .demo-card .demo-info {
+      padding: 16px 20px;
+    }
+    .demo-card h3 {
+      font-family: var(--pixel);
+      font-size: 10px;
+      color: var(--cyan);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .demo-card p { color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+
     /* ── Footer ───────────────────────────────────────────────── */
     footer {
       border-top: 2px solid var(--border);
@@ -383,6 +413,27 @@
       <p id="notify-msg" style="margin-top: 12px; font-family: var(--pixel); font-size: 8px; color: var(--green); display: none;">
         ✓ You're on the list. We'll let you know when we launch.
       </p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Demos ──────────────────────────────────────────────── -->
+<div class="divider"></div>
+<section id="demos">
+  <div class="container">
+    <div class="section-label">See It In Action</div>
+    <div class="section-title">Demos</div>
+    <p class="section-desc">One sentence from the CEO. The AI team takes it from there.</p>
+    <div class="demo-grid">
+
+      <div class="demo-card">
+        <video src="https://github.com/1mancompany/OneManCompany/releases/download/demos/lets-make-a-game.mp4" controls preload="metadata" playsinline></video>
+        <div class="demo-info">
+          <h3>"Make me a game"</h3>
+          <p>CEO gives one sentence — the team builds a complete game autonomously.</p>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
