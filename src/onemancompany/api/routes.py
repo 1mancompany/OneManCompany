@@ -207,6 +207,54 @@ def _rebuild_employee_agent(employee_id: str) -> bool:
     return True
 
 
+# --- Auth Onboarding Endpoints ---
+
+@router.get("/api/auth/providers")
+async def get_auth_providers() -> list[dict]:
+    """Return AUTH_CHOICE_GROUPS for the provider selection UI."""
+    from onemancompany.core.auth_choices import get_auth_groups_json
+
+    return get_auth_groups_json()
+
+
+@router.post("/api/auth/verify")
+async def verify_auth(body: dict) -> dict:
+    """Verify provider connectivity with a minimal chat request."""
+    from onemancompany.core.auth_verify import probe_chat
+
+    provider = body.get("provider", "")
+    api_key = body.get("api_key", "")
+    model = body.get("model", "")
+    base_url = body.get("base_url", "")
+    chat_class = body.get("chat_class", "")
+
+    if not provider or not api_key or not model:
+        return {"ok": False, "error": "provider, api_key, and model are required"}
+
+    ok, error = await probe_chat(
+        provider, api_key, model,
+        base_url=base_url,
+        chat_class=chat_class,
+    )
+    return {"ok": ok, "error": error} if not ok else {"ok": True}
+
+
+@router.post("/api/auth/apply")
+async def apply_auth(body: dict) -> dict:
+    """Apply an auth choice (persist key/config)."""
+    from onemancompany.core.auth_apply import apply_auth_choice
+
+    return await apply_auth_choice(
+        choice_value=body.get("choice", ""),
+        scope=body.get("scope", ""),
+        api_key=body.get("api_key", ""),
+        model=body.get("model", ""),
+        employee_id=body.get("employee_id", ""),
+        base_url=body.get("base_url", ""),
+        chat_class=body.get("chat_class", ""),
+    )
+
+
 @router.post("/api/admin/reload")
 async def admin_reload() -> dict:
     """Manual soft-reload: re-read all disk data into company_state."""
