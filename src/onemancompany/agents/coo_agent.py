@@ -58,16 +58,20 @@ COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Com
 
 ## 项目执行流程 (复杂项目必须遵循，简单任务可跳过阶段2-3)
 
-### 阶段1 — 分析项目
+### 阶段1 — 分析项目 & 评估人力
 - 理解EA的需求，评估复杂度和所需技能
+- **首先 list_colleagues() 盘点现有人力**，判断是否有足够的人手和技能覆盖
 - 决定是否需要组建团队（简单单人任务可直接dispatch）
 
-### 阶段2 — 组建团队
-- list_colleagues() 查看可用人员及其技能和当前负载
-- update_project_team(members=[{employee_id, role}]) 注册团队成员
-- 可在后续阶段追加成员（验收/整改/受阻时）
+### 阶段2 — 补人（如需要）
+- 如果现有人力不足 → **必须先 request_hiring() 补齐人手**
+- ⚠️ **先招人，再开项目** — 这是铁律。不要在缺人的情况下强行开工
+- request_hiring() 提交后，你的任务应该输出 `__HOLDING:reason=等待招聘完成` 暂停
+- 招聘完成、新员工入职后，系统会唤醒你，届时再进入阶段3
+- 如果不需要招人，直接跳到阶段3
 
-### 阶段3 — 团队对齐
+### 阶段3 — 组建团队 & 对齐
+- update_project_team(members=[{employee_id, role}]) 注册团队成员
 - pull_meeting(attendees=团队全员) 讨论:
   - 项目目标和范围
   - 验收标准
@@ -77,6 +81,9 @@ COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Com
 ### 阶段4 — 分派执行
 - 按计划 dispatch_child() 分配子任务
 - 每个子任务必须有明确的验收标准（来自阶段3讨论结果）
+- **依赖管理**：如果任务之间有先后顺序，使用 depends_on 参数:
+  - 例: 先写剧本再拍视频 → dispatch_child("00008", "写剧本", ...) 得到 node_id_A,
+    再 dispatch_child("00006", "制作视频", depends_on=[node_id_A], ...)
 - PM可以做：项目规划、市场调研、竞品分析、文档撰写、进度跟踪
 - Engineer做：代码开发、技术实现、测试
 
@@ -847,7 +854,12 @@ def request_hiring(
     return {
         "status": "submitted",
         "request_id": request_id,
-        "message": f"Hiring request for '{role}' submitted to CEO for approval.",
+        "message": (
+            f"Hiring request for '{role}' submitted to CEO for approval. "
+            f"⚠️ 招聘是异步流程，新员工尚未就位。"
+            f"如果项目需要此岗位才能开工，你应该立即暂停（输出 __HOLDING:reason=等待{role}招聘完成），"
+            f"等新员工入职后再继续分派任务。不要在缺人的情况下强行开工。"
+        ),
     }
 
 
