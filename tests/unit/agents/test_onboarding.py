@@ -1553,7 +1553,8 @@ class TestExecuteHireAdditional:
         assert hb_path.stat().st_mode & stat.S_IXUSR
 
     @pytest.mark.asyncio
-    async def test_hire_non_openrouter_zero_salary(self, tmp_path, monkeypatch):
+    async def test_hire_non_openrouter_computes_salary(self, tmp_path, monkeypatch):
+        """Salary is computed for all providers, not just openrouter."""
         cs, onboarding = self._setup_hire(tmp_path, monkeypatch)
 
         emp = await onboarding.execute_hire(
@@ -1561,7 +1562,9 @@ class TestExecuteHireAdditional:
             api_provider="anthropic", llm_model="claude-sonnet",
         )
 
-        assert emp.salary_per_1m_tokens == 0.0
+        # compute_salary handles all models; non-openrouter no longer forced to 0
+        from onemancompany.core.model_costs import compute_salary
+        assert emp.salary_per_1m_tokens == compute_salary("claude-sonnet")
 
     @pytest.mark.asyncio
     async def test_hire_agent_already_registered_skips_registration(self, tmp_path, monkeypatch):

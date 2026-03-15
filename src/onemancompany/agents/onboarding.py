@@ -777,10 +777,7 @@ async def execute_hire(
     ))
 
     # Salary
-    if api_provider == "openrouter":
-        salary = compute_salary(llm_model) if llm_model else 0.0
-    else:
-        salary = 0.0
+    salary = compute_salary(llm_model) if llm_model else 0.0
 
     # Auto-generate nickname if not provided
     if not nickname:
