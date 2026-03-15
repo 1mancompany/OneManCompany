@@ -3247,7 +3247,9 @@ class AppController {
           document.querySelectorAll('.pixel-btn.hire').forEach(b => { b.disabled = false; b.textContent = 'Hire'; });
         } else {
           this.logEntry('CEO', `⏳ Onboarding ${data.name || candidate.name} in background...`, 'ceo');
+          this._batchHired = true;
           this.closeCandidateModal();
+          this._batchHired = false;
           this.closeInterviewModal();
         }
       })
