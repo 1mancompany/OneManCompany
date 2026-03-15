@@ -222,3 +222,37 @@ async def test_config_reload_handler_when_busy():
         events = await config_reload_check()
         assert events is None
         mock_reload.assert_not_called()
+
+
+def test_list_all_crons_aggregates():
+    """list_all_crons returns both system and employee crons."""
+    from unittest.mock import MagicMock
+
+    fake_system = [
+        {"name": "heartbeat", "interval": "1m", "description": "HB",
+         "running": True, "scope": "system", "employee_id": None,
+         "last_run": None, "run_count": 0},
+    ]
+    fake_emp_crons = [
+        {"name": "my_cron", "interval": "5m", "task_description": "Do stuff", "running": True},
+    ]
+
+    with patch("onemancompany.core.system_cron.system_cron_manager") as mock_mgr, \
+         patch("onemancompany.core.automation.EMPLOYEES_DIR") as mock_dir:
+        mock_mgr.get_all.return_value = fake_system
+
+        emp_dir = MagicMock()
+        emp_dir.is_dir.return_value = True
+        emp_dir.name = "emp_001"
+        mock_dir.exists.return_value = True
+        mock_dir.iterdir.return_value = [emp_dir]
+
+        with patch("onemancompany.core.automation.list_crons", return_value=fake_emp_crons):
+            from onemancompany.core.automation import list_all_crons
+            result = list_all_crons()
+
+    assert len(result) == 2
+    assert result[0]["scope"] == "system"
+    assert result[1]["scope"] == "employee"
+    assert result[1]["employee_id"] == "emp_001"
+    assert result[1]["description"] == "Do stuff"

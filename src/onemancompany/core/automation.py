@@ -406,6 +406,38 @@ def list_webhooks(employee_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Unified query
+# ---------------------------------------------------------------------------
+
+def list_all_crons() -> list[dict]:
+    """Unified query: system crons + all employee crons."""
+    from onemancompany.core.system_cron import system_cron_manager
+
+    result = system_cron_manager.get_all()
+
+    if not EMPLOYEES_DIR.exists():
+        return result
+
+    for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
+        if not emp_dir.is_dir():
+            continue
+        employee_id = emp_dir.name
+        for cron in list_crons(employee_id):
+            result.append({
+                "name": cron["name"],
+                "interval": cron.get("interval", "?"),
+                "description": cron.get("task_description", ""),
+                "running": cron.get("running", False),
+                "scope": "employee",
+                "employee_id": employee_id,
+                "last_run": None,
+                "run_count": None,
+            })
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Shutdown
 # ---------------------------------------------------------------------------
 
