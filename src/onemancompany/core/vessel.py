@@ -1057,6 +1057,10 @@ class EmployeeManager:
             self._log_node(employee_id, entry.node_id, "cancelled", "Task cancelled")
             save_tree_async(entry.tree_path)
             self._publish_node_update(employee_id, node)
+            # Cascade-cancel downstream dependents
+            if project_dir:
+                tree = get_tree(entry.tree_path)
+                _trigger_dep_resolution(project_dir, tree, node)
             raise
         except TimeoutError as te:
             agent_error = True
