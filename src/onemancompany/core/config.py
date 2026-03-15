@@ -282,6 +282,16 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
         env_key="together_api_key",
         health_url="https://api.together.xyz/v1/models",
     ),
+    "google": ProviderConfig(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+        env_key="google_api_key",
+        health_url="https://generativelanguage.googleapis.com/v1beta/models",
+    ),
+    "minimax": ProviderConfig(
+        base_url="https://api.minimax.chat/v1",
+        env_key="minimax_api_key",
+        health_url="https://api.minimax.chat/v1/models",
+    ),
 }
 
 
@@ -342,6 +352,8 @@ class Settings(BaseSettings):
     zhipu_api_key: str = ""
     groq_api_key: str = ""
     together_api_key: str = ""
+    google_api_key: str = ""
+    minimax_api_key: str = ""
 
     # Default model
     default_llm_model: str = "moonshotai/kimi-k2.5"
