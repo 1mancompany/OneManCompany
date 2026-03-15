@@ -1,8 +1,7 @@
 """Heartbeat detection for employee API connections.
 
-Zero-token-cost health checks:
-- OpenRouter: GET /api/v1/auth/key (one request covers all OpenRouter employees)
-- Anthropic: GET /v1/models (per employee, each has own key)
+Health checks via probe_chat (minimal-token probe):
+- Company-hosted: probe_chat() against provider (batched per company-level key)
 - Self-hosted: check worker.pid process liveness via os.kill(pid, 0)
 - Script: execute employee's heartbeat.sh script
 - Manifest-driven: heartbeat.method in manifest.json overrides auto-detection
@@ -13,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import os
 
-import httpx
 from loguru import logger
 
 from onemancompany.core.config import (
@@ -83,58 +81,17 @@ def check_needs_setup(emp_id: str) -> bool:
     return not bool(_resolve_provider_key(cfg))
 
 
-async def _check_provider_key(provider_name: str, api_key: str) -> bool:
-    """Validate an API key against a provider's health endpoint (zero tokens).
+async def _check_provider_online(provider: str, api_key: str, model: str) -> bool:
+    """Check provider connectivity via probe_chat.
 
-    Uses PROVIDER_REGISTRY to determine URL and auth method.
+    Used by heartbeat cycle. Preserves the batching pattern: called once per
+    company-level key, result shared across all employees using that key.
     """
-    if not api_key:
+    if not api_key or not model:
         return False
-    prov = get_provider(provider_name)
-    if not prov or not prov.health_url:
-        # No health endpoint configured — assume online if key exists
-        return bool(api_key)
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            if prov.health_auth == "anthropic":
-                # Anthropic: try x-api-key first, then Bearer (OAuth)
-                resp = await client.get(
-                    prov.health_url,
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                    },
-                )
-                if resp.status_code == 200:
-                    return True
-                resp = await client.get(
-                    prov.health_url,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "anthropic-version": "2023-06-01",
-                    },
-                )
-                return resp.status_code == 200
-            else:
-                # Bearer auth (OpenAI-compatible providers)
-                resp = await client.get(
-                    prov.health_url,
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                return resp.status_code == 200
-    except Exception:
-        return False
-
-
-# Legacy aliases for backward compatibility with tests
-async def _check_openrouter_key() -> bool:
-    """Validate the company OpenRouter API key (zero tokens)."""
-    return await _check_provider_key("openrouter", settings.openrouter_api_key)
-
-
-async def _check_anthropic_key(api_key: str) -> bool:
-    """Validate an Anthropic API key (zero tokens)."""
-    return await _check_provider_key("anthropic", api_key)
+    from onemancompany.core.auth_verify import probe_chat
+    ok, _error = await probe_chat(provider, api_key, model, timeout=15.0)
+    return ok
 
 
 def _check_self_hosted_pid(emp_id: str) -> bool:
@@ -285,13 +242,17 @@ async def run_heartbeat_cycle() -> list[str]:
     for provider, emp_ids in provider_groups.items():
         prov = get_provider(provider)
         company_key = getattr(settings, prov.env_key, "") if prov and prov.env_key else ""
-        online = await _check_provider_key(provider, company_key)
+        first_emp_cfg = employee_configs.get(emp_ids[0])
+        default_model = first_emp_cfg.llm_model if first_emp_cfg else ""
+        online = await _check_provider_online(provider, company_key, default_model)
         for emp_id in emp_ids:
             _update_online(emp_id, online, changed)
 
     # 4. Per-employee provider checks (employees with their own API keys)
     for emp_id, provider, key in per_employee_checks:
-        online = await _check_provider_key(provider, key)
+        emp_cfg = employee_configs.get(emp_id)
+        emp_model = emp_cfg.llm_model if emp_cfg else ""
+        online = await _check_provider_online(provider, key, emp_model)
         _update_online(emp_id, online, changed)
 
     # 5. Claude CLI: one check covers all self-hosted employees
