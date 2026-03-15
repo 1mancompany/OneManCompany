@@ -4285,6 +4285,12 @@ body {
     stroke-width: 2;
 }
 
+.tree-link-finished {
+    stroke: #00cc66;
+    stroke-width: 2;
+    opacity: 0.6;
+}
+
 .tree-link-failed {
     stroke: #ff4444;
     stroke-dasharray: 4 4;

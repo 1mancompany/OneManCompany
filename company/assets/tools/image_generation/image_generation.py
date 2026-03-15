@@ -187,10 +187,13 @@ def _build_headers(api_key: str) -> dict:
 
 @tool
 def image_generation(requirement: str, save_path: str) -> dict:
-    """Generate an image from requirement and save it to a local path.
+    """Generate an image from a text prompt and save it to disk. USE THIS for any image creation task.
+
+    Suitable for: illustrations, logos, banners, icons, marketing visuals, concept art, diagrams.
+    After generating, use remove_image_background if you need a transparent version.
 
     Args:
-        requirement: Text requirement/prompt for image generation.
+        requirement: Detailed text prompt describing the image to generate. Be specific about style, colors, composition.
         save_path: Output file path (e.g. /tmp/banner.png).
     """
     requirement = (requirement or "").strip()

@@ -1932,7 +1932,7 @@ class AppController {
         <span class="inbox-status">${item.status === 'processing' ? '🔄' : '⏸'}</span>
         <div class="inbox-item-content">
           <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
-          <div class="inbox-item-desc">${this._escHtml(item.description.substring(0, 60))}${item.description.length > 60 ? '...' : ''}</div>
+          <div class="inbox-item-desc">${this._escHtml((item.description || '').substring(0, 60))}${(item.description || '').length > 60 ? '...' : ''}</div>
         </div>
       </div>
     `).join('');

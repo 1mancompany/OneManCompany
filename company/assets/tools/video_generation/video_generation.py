@@ -1,14 +1,9 @@
 """Video generation tool via fal.ai + Bytedance Seedance 2.0.
 
-Provides three LangChain @tools for async video generation workflow:
-
-1. video_submit(prompt, ...) — submit a generation request, returns request_id + URLs
-2. video_check_status(status_url) — check if generation is done
-3. video_download(response_url, save_path) — download completed video to disk
-
-IMPORTANT: Video generation takes 1-5 minutes. Do NOT poll in a loop.
-After calling video_submit, create a cron task to call video_check_status
-every 30-60 seconds. Once status is COMPLETED, call video_download.
+Three-step workflow:
+1. video_submit(prompt) → returns status_url + response_url
+2. video_check_status(status_url) → poll via cron task every 30s until COMPLETED
+3. video_download(response_url, save_path) → save video to disk
 """
 
 from __future__ import annotations
@@ -88,17 +83,15 @@ def video_submit(
     resolution: str = "720p",
     generate_audio: bool = True,
 ) -> dict:
-    """Submit a text-to-video generation request (Bytedance Seedance 2.0 via fal.ai).
+    """Submit a text-to-video generation request. USE THIS for any video creation task.
 
-    IMPORTANT: This only SUBMITS the request. Video generation takes 1-5 minutes.
-    After calling this tool, you MUST create a cron task that runs every 30-60
-    seconds to call video_check_status with the returned status_url. Once the
-    status is COMPLETED, call video_download with the response_url.
-
-    Do NOT wait or poll in a loop — use a cron task instead.
+    This is Step 1 of 3 for video generation:
+    1. Call video_submit(prompt) → get status_url and response_url
+    2. Create a cron task to call video_check_status(status_url) every 30 seconds
+    3. When status is COMPLETED, call video_download(response_url, save_path)
 
     Args:
-        prompt: Text description of the video to generate.
+        prompt: Detailed description of the video to generate. Be specific about scenes, motion, style.
         duration: Video length: "auto", or "4" through "15" seconds (default: "5").
         aspect_ratio: "auto", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16" (default: "16:9").
         resolution: "480p" or "720p" (default: "720p").
@@ -153,17 +146,11 @@ def video_submit(
 
 @tool
 def video_check_status(status_url: str) -> dict:
-    """Check the status of a video generation request.
+    """Check if a submitted video generation is done (Step 2 of 3).
 
-    Call this periodically (via cron task, every 30-60 seconds) after
-    submitting a video generation request with video_submit.
-    Use the status_url returned by video_submit.
-
-    Possible statuses:
-    - IN_QUEUE: waiting to start
-    - IN_PROGRESS: currently generating
-    - COMPLETED: done — call video_download with the response_url
-    - FAILED: generation failed
+    Call this via cron task every 30 seconds after video_submit.
+    When generation_status is COMPLETED → call video_download.
+    When FAILED → stop the cron task and report the error.
 
     Args:
         status_url: The status_url returned by video_submit.
@@ -215,10 +202,9 @@ def video_check_status(status_url: str) -> dict:
 
 @tool
 def video_download(response_url: str, save_path: str) -> dict:
-    """Download a completed video and save it to a local file.
+    """Download a completed video to disk (Step 3 of 3).
 
-    Only call this AFTER video_check_status returns COMPLETED.
-    Use the response_url returned by video_submit.
+    Call this after video_check_status returns COMPLETED. Stop the cron task after downloading.
 
     Args:
         response_url: The response_url returned by video_submit.

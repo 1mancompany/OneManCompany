@@ -43,12 +43,14 @@ def _is_close_to_bg(rgb: tuple[int, int, int], bg: tuple[int, int, int], toleran
 
 @tool
 def remove_image_background(input_path: str, output_path: str, tolerance: int = 28) -> dict:
-    """Remove connected background from image and save transparent PNG.
+    """Remove background from an image and save as transparent PNG. USE THIS after image_generation when transparency is needed.
+
+    Best for: logos, stickers, product images, overlays — any image that needs a transparent background.
 
     Args:
-        input_path: Source image path.
-        output_path: Output path (will be saved as .png).
-        tolerance: Color tolerance for background matching (0-255, default 28).
+        input_path: Source image path (output from image_generation).
+        output_path: Output path (will be saved as .png with transparency).
+        tolerance: Color tolerance for background matching (0-255, default 28). Increase for noisy backgrounds.
     """
     input_path = (input_path or "").strip()
     output_path = (output_path or "").strip()

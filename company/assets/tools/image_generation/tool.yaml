@@ -1,8 +1,9 @@
 id: image_generation
 name: Image Generation
 description: >
-  Generate an image from a text requirement and save it to a local file path.
-  Uses OpenRouter with model google/gemini-3-pro-image-preview.
+  Generate images from text prompts (Gemini via OpenRouter).
+  USE THIS whenever a task involves creating images, illustrations, logos, banners,
+  icons, diagrams, or any visual content. Call image_generation(requirement, save_path).
 added_by: CEO
 type: langchain_module
 sprite: desk_equipment

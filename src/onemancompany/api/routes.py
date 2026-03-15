@@ -5186,18 +5186,15 @@ async def get_activity_log():
 
 def _scan_ceo_inbox_nodes() -> list[dict]:
     """Scan all active task trees for ceo_request nodes that aren't terminal."""
-    from pathlib import Path as _Path
+    from onemancompany.core.config import PROJECTS_DIR
+    from onemancompany.core.task_tree import get_tree
 
     results = []
-    projects_dir = COMPANY_DIR / "projects"
-    if not projects_dir.exists():
+    if not PROJECTS_DIR.exists():
         return results
 
-    for proj_dir in projects_dir.iterdir():
-        tree_path = proj_dir / "task_tree.yaml"
-        if not tree_path.exists():
-            continue
-        from onemancompany.core.task_tree import get_tree
+    # Recursively find all task_tree.yaml files under projects/
+    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
         tree = get_tree(tree_path)
         for node in tree._nodes.values():
             if node.node_type != "ceo_request":
@@ -5215,7 +5212,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
-                "description": node.description_preview,
+                "description": node.description_preview or node.description or "",
                 "from_employee_id": from_id,
                 "from_nickname": from_nickname,
                 "status": node.status,
@@ -5229,18 +5226,15 @@ def _find_ceo_node(node_id: str):
 
     Returns (node, tree, project_dir) or raises HTTPException(404).
     """
+    from onemancompany.core.config import PROJECTS_DIR
     from onemancompany.core.task_tree import get_tree
 
-    projects_dir = COMPANY_DIR / "projects"
-    if projects_dir.exists():
-        for proj_dir in projects_dir.iterdir():
-            tree_path = proj_dir / "task_tree.yaml"
-            if not tree_path.exists():
-                continue
+    if PROJECTS_DIR.exists():
+        for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
             tree = get_tree(tree_path)
             node = tree.get_node(node_id)
             if node and node.node_type == "ceo_request":
-                return node, tree, str(proj_dir)
+                return node, tree, str(tree_path.parent)
     raise HTTPException(status_code=404, detail=f"CEO request node {node_id} not found")
 
 

@@ -1,11 +1,10 @@
 id: video_generation
 name: Video Generation
 description: >
-  Generate a video from a text prompt using Bytedance Seedance 2.0 via fal.ai.
-  Three-step async workflow: (1) video_submit — submit prompt, get request_id;
-  (2) video_check_status — poll progress (use cron task every 30-60s);
-  (3) video_download — save completed video to disk.
-  Video generation takes 1-5 minutes. Do NOT block-wait — use cron tasks to check.
+  Generate videos from text prompts (Bytedance Seedance 2.0 via fal.ai).
+  USE THIS whenever a task involves creating video content, promotional videos, demos, or animations.
+  Workflow: call video_submit → create a cron task to call video_check_status every 30s →
+  when COMPLETED, call video_download to save the file. Do NOT block-wait.
 added_by: CEO
 type: langchain_module
 sprite: desk_equipment
