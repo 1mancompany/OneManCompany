@@ -217,6 +217,79 @@ def route_inquiry(task: str) -> tuple[str, str]:
     return "COO", COO_ID
 
 
+# ---------------------------------------------------------------------------
+# LLM Provider Registry — data-driven provider dispatch
+# ---------------------------------------------------------------------------
+# chat_class: "openai" = ChatOpenAI (OpenAI-compatible), "anthropic" = ChatAnthropic
+# env_key: Settings field name for the company-level API key
+# health_url: endpoint for zero-token health check (None = skip)
+# health_auth: "bearer" = Authorization: Bearer, "anthropic" = x-api-key + anthropic-version
+
+class ProviderConfig(BaseModel):
+    """Configuration for a single LLM API provider."""
+    base_url: str = ""             # OpenAI-compatible base URL (empty = provider default)
+    chat_class: str = "openai"     # "openai" | "anthropic"
+    env_key: str = ""              # Settings field name for company-level API key
+    health_url: str = ""           # Zero-token health check endpoint
+    health_auth: str = "bearer"    # "bearer" | "anthropic"
+
+
+PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
+    "openrouter": ProviderConfig(
+        base_url="https://openrouter.ai/api/v1",
+        env_key="openrouter_api_key",
+        health_url="https://openrouter.ai/api/v1/auth/key",
+    ),
+    "openai": ProviderConfig(
+        base_url="https://api.openai.com/v1",
+        env_key="openai_api_key",
+        health_url="https://api.openai.com/v1/models",
+    ),
+    "anthropic": ProviderConfig(
+        base_url="",
+        chat_class="anthropic",
+        env_key="anthropic_api_key",
+        health_url="https://api.anthropic.com/v1/models",
+        health_auth="anthropic",
+    ),
+    "kimi": ProviderConfig(
+        base_url="https://api.moonshot.cn/v1",
+        env_key="kimi_api_key",
+        health_url="https://api.moonshot.cn/v1/models",
+    ),
+    "deepseek": ProviderConfig(
+        base_url="https://api.deepseek.com",
+        env_key="deepseek_api_key",
+        health_url="https://api.deepseek.com/models",
+    ),
+    "qwen": ProviderConfig(
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        env_key="qwen_api_key",
+        health_url="https://dashscope.aliyuncs.com/compatible-mode/v1/models",
+    ),
+    "zhipu": ProviderConfig(
+        base_url="https://open.bigmodel.cn/api/paas/v4",
+        env_key="zhipu_api_key",
+        health_url="https://open.bigmodel.cn/api/paas/v4/models",
+    ),
+    "groq": ProviderConfig(
+        base_url="https://api.groq.com/openai/v1",
+        env_key="groq_api_key",
+        health_url="https://api.groq.com/openai/v1/models",
+    ),
+    "together": ProviderConfig(
+        base_url="https://api.together.xyz/v1",
+        env_key="together_api_key",
+        health_url="https://api.together.xyz/v1/models",
+    ),
+}
+
+
+def get_provider(name: str) -> ProviderConfig | None:
+    """Look up a provider by name (case-insensitive)."""
+    return PROVIDER_REGISTRY.get(name.lower())
+
+
 class EmployeeConfig(BaseModel):
     """Configuration loaded from employees/{id}/profile.yaml."""
 
@@ -242,7 +315,7 @@ class EmployeeConfig(BaseModel):
     okrs: list[dict] = []  # OKR objectives
     pip: dict | None = None  # Performance Improvement Plan (if active)
     onboarding_completed: bool = False  # set True after onboarding routine
-    api_provider: str = "openrouter"  # "openrouter" | "anthropic"
+    api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
     api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
     hosting: str = "company"  # "company" = company-hosted (server manages agent loop) | "self" = self-hosted (external process, e.g. Claude Code)
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
@@ -256,14 +329,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # OpenRouter API
+    # --- LLM Provider API Keys (auto-discovered by PROVIDER_REGISTRY) ---
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-
-    # Anthropic API (company-level fallback for employees with api_provider=anthropic)
+    openai_api_key: str = ""
     anthropic_api_key: str = ""
     anthropic_auth_method: str = "api_key"  # "api_key" | "oauth"
     anthropic_refresh_token: str = ""
+    kimi_api_key: str = ""
+    deepseek_api_key: str = ""
+    qwen_api_key: str = ""
+    zhipu_api_key: str = ""
+    groq_api_key: str = ""
+    together_api_key: str = ""
 
     # Default model
     default_llm_model: str = "moonshotai/kimi-k2.5"

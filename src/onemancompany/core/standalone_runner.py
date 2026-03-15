@@ -57,22 +57,46 @@ def _load_llm(profile: dict):
     except ImportError:
         sys.exit("langchain-openai required: pip install langchain-openai")
 
-    provider = profile.get("api_provider", "openrouter")
+    # Provider registry — OpenAI-compatible providers just need base_url + env key
+    _PROVIDERS = {{
+        "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "openai"),
+        "openai":     ("https://api.openai.com/v1", "OPENAI_API_KEY", "openai"),
+        "anthropic":  ("", "ANTHROPIC_API_KEY", "anthropic"),
+        "kimi":       ("https://api.moonshot.cn/v1", "KIMI_API_KEY", "openai"),
+        "deepseek":   ("https://api.deepseek.com", "DEEPSEEK_API_KEY", "openai"),
+        "qwen":       ("https://dashscope.aliyuncs.com/compatible-mode/v1", "QWEN_API_KEY", "openai"),
+        "zhipu":      ("https://open.bigmodel.cn/api/paas/v4", "ZHIPU_API_KEY", "openai"),
+        "groq":       ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai"),
+        "together":   ("https://api.together.xyz/v1", "TOGETHER_API_KEY", "openai"),
+    }}
+
+    provider_name = profile.get("api_provider", "openrouter")
     model = profile.get("llm_model", "")
     temperature = profile.get("temperature", 0.7)
     api_key = profile.get("api_key", "")
 
-    if provider == "anthropic":
+    prov = _PROVIDERS.get(provider_name)
+
+    if prov and prov[2] == "anthropic":
         try:
             from langchain_anthropic import ChatAnthropic
         except ImportError:
             sys.exit("langchain-anthropic required: pip install langchain-anthropic")
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        key = api_key or os.environ.get(prov[1], "")
         if not key:
-            sys.exit("Set ANTHROPIC_API_KEY or api_key in profile.yaml")
+            sys.exit("Set " + prov[1] + " or api_key in profile.yaml")
         return ChatAnthropic(model=model, api_key=key, temperature=temperature)
 
-    # Default: OpenRouter
+    if prov and prov[2] == "openai":
+        key = api_key or os.environ.get(prov[1], "")
+        if not key:
+            sys.exit("Set " + prov[1] + " or api_key in profile.yaml")
+        base_url = prov[0]
+        if provider_name == "openrouter":
+            base_url = os.environ.get("OPENROUTER_BASE_URL", base_url)
+        return ChatOpenAI(model=model, api_key=key, base_url=base_url, temperature=temperature)
+
+    # Unknown provider — fall back to OpenRouter
     key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
     if not key:
         sys.exit("Set OPENROUTER_API_KEY or api_key in profile.yaml")

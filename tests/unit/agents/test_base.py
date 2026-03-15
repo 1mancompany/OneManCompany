@@ -122,6 +122,105 @@ class TestMakeLlm:
         # Should fall back to default model via OpenRouter
         assert llm.model_name == "default-model"
 
+    def test_deepseek_provider(self, monkeypatch):
+        """DeepSeek provider should use ChatOpenAI with DeepSeek base URL."""
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.deepseek_api_key = "sk-ds-test"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "deepseek-chat"
+        cfg.temperature = 0.5
+        cfg.api_provider = "deepseek"
+        cfg.api_key = ""  # use company-level key
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        llm = base_mod.make_llm("00010")
+        assert llm.model_name == "deepseek-chat"
+        assert "deepseek" in llm.openai_api_base
+
+    def test_kimi_provider(self, monkeypatch):
+        """Kimi provider should use ChatOpenAI with Moonshot base URL."""
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.kimi_api_key = "sk-kimi-test"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "moonshot-v1-8k"
+        cfg.temperature = 0.7
+        cfg.api_provider = "kimi"
+        cfg.api_key = ""
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        llm = base_mod.make_llm("00010")
+        assert llm.model_name == "moonshot-v1-8k"
+        assert "moonshot" in llm.openai_api_base
+
+    def test_openai_direct_provider(self, monkeypatch):
+        """OpenAI direct provider (not via OpenRouter)."""
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.openai_api_key = "sk-openai-test"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "gpt-4o"
+        cfg.temperature = 0.3
+        cfg.api_provider = "openai"
+        cfg.api_key = ""
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        llm = base_mod.make_llm("00010")
+        assert llm.model_name == "gpt-4o"
+        assert "openai.com" in llm.openai_api_base
+
+    def test_employee_specific_key_overrides_company(self, monkeypatch):
+        """Employee's own API key takes priority over company-level key."""
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "gpt-4"
+        mock_settings.deepseek_api_key = "company-key"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "deepseek-chat"
+        cfg.temperature = 0.7
+        cfg.api_provider = "deepseek"
+        cfg.api_key = "employee-key"
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        llm = base_mod.make_llm("00010")
+        assert llm.openai_api_key.get_secret_value() == "employee-key"
+
+    def test_unknown_provider_falls_back_to_openrouter(self, monkeypatch):
+        """Unknown provider name falls back to openrouter with default model."""
+        from onemancompany.agents import base as base_mod
+
+        mock_settings = MagicMock()
+        mock_settings.default_llm_model = "default-model"
+        mock_settings.openrouter_api_key = "or-key"
+        mock_settings.openrouter_base_url = "https://openrouter.ai/api/v1"
+        monkeypatch.setattr(base_mod, "settings", mock_settings)
+
+        cfg = MagicMock()
+        cfg.llm_model = "some-model"
+        cfg.temperature = 0.7
+        cfg.api_provider = "nonexistent_provider"
+        cfg.api_key = ""
+        monkeypatch.setattr(base_mod, "employee_configs", {"00010": cfg})
+
+        llm = base_mod.make_llm("00010")
+        assert llm.model_name == "default-model"
+
 
 # ---------------------------------------------------------------------------
 # _record_overhead

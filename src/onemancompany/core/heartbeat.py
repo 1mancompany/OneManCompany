@@ -18,7 +18,9 @@ from loguru import logger
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
+    PROVIDER_REGISTRY,
     employee_configs,
+    get_provider,
     load_manifest,
     settings,
     FOUNDING_LEVEL,
@@ -32,7 +34,7 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
     Priority:
     1. manifest.json heartbeat.method (explicit config)
     2. Self-hosted employees → claude_cli
-    3. Fallback: auto-detect from api_provider
+    3. Fallback: auto-detect from api_provider via PROVIDER_REGISTRY
     """
     manifest = load_manifest(emp_id)
     if manifest:
@@ -46,15 +48,18 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
     if cfg.hosting == "self":
         return "claude_cli"
 
-    # Fallback: auto-detect based on api_provider
-    if cfg.api_provider == "anthropic":
-        return "anthropic_key"
-    return "openrouter_key"
+    # Fallback: use provider registry to determine health check method
+    return "provider_key"
 
 
-def _resolve_anthropic_key(cfg) -> str:
-    """Return per-employee Anthropic key, falling back to company-level key."""
-    return cfg.api_key or settings.anthropic_api_key
+def _resolve_provider_key(cfg) -> str:
+    """Return per-employee API key, falling back to company-level key from PROVIDER_REGISTRY."""
+    if cfg.api_key:
+        return cfg.api_key
+    prov = get_provider(cfg.api_provider)
+    if prov and prov.env_key:
+        return getattr(settings, prov.env_key, "")
+    return ""
 
 
 def check_needs_setup(emp_id: str) -> bool:
@@ -64,66 +69,72 @@ def check_needs_setup(emp_id: str) -> bool:
         return False  # founding employees without config don't need setup
 
     if cfg.hosting == "self":
-        # Self-hosted employees use Claude CLI (run_claude_session) which manages
-        # its own auth — no API key or launch.sh needed from our side.
         return False
 
-    if cfg.api_provider == "anthropic":
-        # Anthropic employees need their own API key or company-level key
-        return not bool(_resolve_anthropic_key(cfg))
+    prov = get_provider(cfg.api_provider)
+    if not prov:
+        return True  # unknown provider → needs setup
 
-    # OpenRouter: uses company key — no per-employee setup needed
-    return False
-
-
-async def _check_openrouter_key() -> bool:
-    """Validate the company OpenRouter API key (zero tokens)."""
-    api_key = settings.openrouter_api_key
-    if not api_key:
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                "https://openrouter.ai/api/v1/auth/key",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            return resp.status_code == 200
-    except Exception:
+    # OpenRouter uses company key — no per-employee setup needed
+    if cfg.api_provider == "openrouter":
         return False
 
+    # Other providers need either employee key or company-level key
+    return not bool(_resolve_provider_key(cfg))
 
-async def _check_anthropic_key(api_key: str) -> bool:
-    """Validate an Anthropic API key (zero tokens).
 
-    Supports both permanent keys (x-api-key header) and OAuth access tokens
-    (Authorization: Bearer header).  Tries x-api-key first; on 401 falls
-    back to Bearer.
+async def _check_provider_key(provider_name: str, api_key: str) -> bool:
+    """Validate an API key against a provider's health endpoint (zero tokens).
+
+    Uses PROVIDER_REGISTRY to determine URL and auth method.
     """
     if not api_key:
         return False
+    prov = get_provider(provider_name)
+    if not prov or not prov.health_url:
+        # No health endpoint configured — assume online if key exists
+        return bool(api_key)
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            # Try permanent key first
-            resp = await client.get(
-                "https://api.anthropic.com/v1/models",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-            )
-            if resp.status_code == 200:
-                return True
-            # Fallback: OAuth access token
-            resp = await client.get(
-                "https://api.anthropic.com/v1/models",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "anthropic-version": "2023-06-01",
-                },
-            )
-            return resp.status_code == 200
+            if prov.health_auth == "anthropic":
+                # Anthropic: try x-api-key first, then Bearer (OAuth)
+                resp = await client.get(
+                    prov.health_url,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                )
+                if resp.status_code == 200:
+                    return True
+                resp = await client.get(
+                    prov.health_url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "anthropic-version": "2023-06-01",
+                    },
+                )
+                return resp.status_code == 200
+            else:
+                # Bearer auth (OpenAI-compatible providers)
+                resp = await client.get(
+                    prov.health_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                return resp.status_code == 200
     except Exception:
         return False
+
+
+# Legacy aliases for backward compatibility with tests
+async def _check_openrouter_key() -> bool:
+    """Validate the company OpenRouter API key (zero tokens)."""
+    return await _check_provider_key("openrouter", settings.openrouter_api_key)
+
+
+async def _check_anthropic_key(api_key: str) -> bool:
+    """Validate an Anthropic API key (zero tokens)."""
+    return await _check_provider_key("anthropic", api_key)
 
 
 def _check_self_hosted_pid(emp_id: str) -> bool:
@@ -199,8 +210,9 @@ async def run_heartbeat_cycle() -> list[str]:
             changed.append(emp_id)
 
     # 2. Route employees to heartbeat methods
-    openrouter_employees: list[str] = []
-    anthropic_checks: dict[str, str] = {}  # emp_id -> api_key
+    # Group by provider for batching (one health check per company-level key)
+    provider_groups: dict[str, list[str]] = {}  # provider_name -> [emp_ids]
+    per_employee_checks: list[tuple[str, str, str]] = []  # (emp_id, provider, key)
     claude_cli_employees: list[str] = []
     pid_employees: list[str] = []
     script_employees: list[str] = []
@@ -245,26 +257,41 @@ async def run_heartbeat_cycle() -> list[str]:
             pid_employees.append(emp_id)
         elif method == "script":
             script_employees.append(emp_id)
-        elif method == "anthropic_key":
-            key = _resolve_anthropic_key(cfg)
-            # OAuth tokens can't be validated via /v1/models — just check existence
-            auth_method = cfg.auth_method if cfg.auth_method == "oauth" else settings.anthropic_auth_method
-            if auth_method == "oauth":
-                _update_online(emp_id, bool(key), changed)
+        elif method == "provider_key":
+            provider = cfg.api_provider
+            key = _resolve_provider_key(cfg)
+
+            # OAuth tokens can't be validated via health endpoint — just check existence
+            if provider == "anthropic":
+                auth_method = cfg.auth_method if cfg.auth_method == "oauth" else settings.anthropic_auth_method
+                if auth_method == "oauth":
+                    _update_online(emp_id, bool(key), changed)
+                    continue
+
+            # Employee has own key → per-employee check
+            if cfg.api_key:
+                per_employee_checks.append((emp_id, provider, key))
             else:
-                anthropic_checks[emp_id] = key
-        else:  # openrouter_key
-            openrouter_employees.append(emp_id)
+                # Company-level key → batch by provider
+                provider_groups.setdefault(provider, []).append(emp_id)
+        # Legacy method names from manifest.json
+        elif method == "anthropic_key":
+            key = _resolve_provider_key(cfg)
+            per_employee_checks.append((emp_id, "anthropic", key))
+        else:  # openrouter_key or unknown
+            provider_groups.setdefault("openrouter", []).append(emp_id)
 
-    # 3. OpenRouter: one request covers all employees
-    if openrouter_employees:
-        or_online = await _check_openrouter_key()
-        for emp_id in openrouter_employees:
-            _update_online(emp_id, or_online, changed)
+    # 3. Batched provider checks — one request per company-level key
+    for provider, emp_ids in provider_groups.items():
+        prov = get_provider(provider)
+        company_key = getattr(settings, prov.env_key, "") if prov and prov.env_key else ""
+        online = await _check_provider_key(provider, company_key)
+        for emp_id in emp_ids:
+            _update_online(emp_id, online, changed)
 
-    # 4. Anthropic: per-employee check
-    for emp_id, api_key in anthropic_checks.items():
-        online = await _check_anthropic_key(api_key)
+    # 4. Per-employee provider checks (employees with their own API keys)
+    for emp_id, provider, key in per_employee_checks:
+        online = await _check_provider_key(provider, key)
         _update_online(emp_id, online, changed)
 
     # 5. Claude CLI: one check covers all self-hosted employees
@@ -273,12 +300,12 @@ async def run_heartbeat_cycle() -> list[str]:
         for emp_id in claude_cli_employees:
             _update_online(emp_id, cli_online, changed)
 
-    # 7. PID check
+    # 6. PID check
     for emp_id in pid_employees:
         online = _check_self_hosted_pid(emp_id)
         _update_online(emp_id, online, changed)
 
-    # 8. Script check
+    # 7. Script check
     for emp_id in script_employees:
         online = await _check_script(emp_id)
         _update_online(emp_id, online, changed)

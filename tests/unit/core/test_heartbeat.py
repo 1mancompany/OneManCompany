@@ -12,6 +12,7 @@ import pytest
 from onemancompany.core.heartbeat import (
     _check_anthropic_key,
     _check_openrouter_key,
+    _check_provider_key,
     _check_script,
     _check_self_hosted_pid,
     _get_heartbeat_method,
@@ -49,13 +50,13 @@ class TestGetHeartbeatMethod:
         cfg = _FakeCfg(api_provider="openrouter")
         with patch("onemancompany.core.heartbeat.load_manifest", return_value=None):
             method = _get_heartbeat_method("emp1", cfg)
-            assert method == "openrouter_key"
+            assert method == "provider_key"
 
     def test_anthropic_provider(self):
         cfg = _FakeCfg(api_provider="anthropic")
         with patch("onemancompany.core.heartbeat.load_manifest", return_value=None):
             method = _get_heartbeat_method("emp1", cfg)
-            assert method == "anthropic_key"
+            assert method == "provider_key"
 
     def test_manifest_override(self):
         cfg = _FakeCfg(api_provider="openrouter")
@@ -69,14 +70,14 @@ class TestGetHeartbeatMethod:
         manifest = {"some_key": "value"}
         with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
             method = _get_heartbeat_method("emp1", cfg)
-            assert method == "openrouter_key"
+            assert method == "provider_key"
 
     def test_manifest_heartbeat_not_dict(self):
         cfg = _FakeCfg(api_provider="openrouter")
         manifest = {"heartbeat": "not_a_dict"}
         with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
             method = _get_heartbeat_method("emp1", cfg)
-            assert method == "openrouter_key"
+            assert method == "provider_key"
 
     def test_manifest_pid_method(self):
         cfg = _FakeCfg()
@@ -124,9 +125,68 @@ class TestCheckNeedsSetup:
         with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
             assert check_needs_setup("emp1") is False
 
+    def test_deepseek_with_company_key_no_setup(self):
+        """DeepSeek provider with company-level key doesn't need setup."""
+        cfg = _FakeCfg(api_provider="deepseek", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.deepseek_api_key = "sk-ds-test"
+            assert check_needs_setup("emp1") is False
+
+    def test_deepseek_without_key_needs_setup(self):
+        """DeepSeek provider without any key needs setup."""
+        cfg = _FakeCfg(api_provider="deepseek", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.deepseek_api_key = ""
+            assert check_needs_setup("emp1") is True
+
+    def test_unknown_provider_needs_setup(self):
+        """Unknown provider always needs setup."""
+        cfg = _FakeCfg(api_provider="nonexistent", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is True
+
 
 # ---------------------------------------------------------------------------
-# _check_openrouter_key
+# _check_provider_key (generic provider health check)
+# ---------------------------------------------------------------------------
+
+class TestCheckProviderKey:
+    async def test_no_key_returns_false(self):
+        result = await _check_provider_key("openrouter", "")
+        assert result is False
+
+    async def test_unknown_provider_with_key_returns_true(self):
+        """Unknown provider with no health URL — assume online if key exists."""
+        result = await _check_provider_key("nonexistent", "some-key")
+        assert result is True
+
+    async def test_bearer_auth_success(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        with patch("onemancompany.core.heartbeat.httpx.AsyncClient", return_value=mock_client):
+            result = await _check_provider_key("deepseek", "sk-ds-test")
+            assert result is True
+
+    async def test_bearer_auth_failure(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+        with patch("onemancompany.core.heartbeat.httpx.AsyncClient", return_value=mock_client):
+            result = await _check_provider_key("deepseek", "sk-bad")
+            assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _check_openrouter_key (legacy alias)
 # ---------------------------------------------------------------------------
 
 class TestCheckOpenRouterKey:
@@ -412,13 +472,15 @@ class TestRunHeartbeatCycle:
              patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
              patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
              patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
-             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="openrouter_key"), \
-             patch("onemancompany.core.heartbeat._check_openrouter_key", return_value=True) as mock_check:
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
+             patch("onemancompany.core.heartbeat._check_provider_key", return_value=True) as mock_check, \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.openrouter_api_key = "test-key"
             mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
             mock_store.load_employee.return_value = self._emp_data(api_online=False)
             mock_store.save_employee_runtime = AsyncMock()
             changed = await run_heartbeat_cycle()
-            mock_check.assert_awaited_once()
+            mock_check.assert_awaited_once_with("openrouter", "test-key")
             assert "emp1" in changed
 
     async def test_anthropic_path(self):
@@ -427,15 +489,16 @@ class TestRunHeartbeatCycle:
              patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
              patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
              patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
-             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="anthropic_key"), \
-             patch("onemancompany.core.heartbeat._check_anthropic_key", return_value=True) as mock_check, \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
+             patch("onemancompany.core.heartbeat._check_provider_key", return_value=True) as mock_check, \
              patch("onemancompany.core.heartbeat.settings") as mock_settings:
             mock_settings.anthropic_auth_method = "api_key"
             mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
             mock_store.load_employee.return_value = self._emp_data(api_online=False)
             mock_store.save_employee_runtime = AsyncMock()
             changed = await run_heartbeat_cycle()
-            mock_check.assert_awaited_once_with("sk-test")
+            # Employee has own key, so per-employee check
+            mock_check.assert_awaited_once_with("anthropic", "sk-test")
 
     async def test_pid_path(self):
         cfg = _FakeCfg()

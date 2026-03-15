@@ -14,10 +14,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     MAX_SUMMARY_LEN,
+    PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
     STATUS_IDLE,
     STATUS_WORKING,
     employee_configs,
+    get_provider,
     load_employee_skills,
     settings,
 )
@@ -92,12 +94,21 @@ def extract_final_content(result: dict) -> str:
     return _extract_text(messages[-1].content) or "(no output)"
 
 
+def _resolve_provider_key(provider_name: str, employee_api_key: str) -> str:
+    """Resolve API key: employee-level → company-level (from Settings via PROVIDER_REGISTRY)."""
+    if employee_api_key:
+        return employee_api_key
+    prov = get_provider(provider_name)
+    if prov and prov.env_key:
+        return getattr(settings, prov.env_key, "")
+    return ""
+
+
 def make_llm(employee_id: str = "") -> BaseChatModel:
     """Create an LLM instance, using per-agent model config from employees/{id}/profile.yaml.
 
-    Supports multiple API providers:
-    - "openrouter" (default): Uses OpenRouter API via ChatOpenAI
-    - "anthropic": Uses Anthropic API directly via ChatAnthropic (requires api_key)
+    Supports all providers in PROVIDER_REGISTRY (openrouter, openai, anthropic,
+    kimi, deepseek, qwen, zhipu, groq, together, etc.).
     """
     model = settings.default_llm_model
     temperature = 0.7
@@ -112,11 +123,14 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
         api_provider = cfg.api_provider
         api_key = cfg.api_key
 
-    if api_provider == "anthropic":
-        effective_key = api_key or settings.anthropic_api_key
+    prov = get_provider(api_provider)
+
+    # --- Anthropic (non-OpenAI-compatible) ---
+    if prov and prov.chat_class == "anthropic":
+        effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             from langchain_anthropic import ChatAnthropic
-            # Determine auth method
+
             auth_method = ""
             if employee_id and employee_id in employee_configs:
                 auth_method = employee_configs[employee_id].auth_method
@@ -134,11 +148,27 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
                 default_headers=extra_headers or None,
             )
 
-    # Self-hosted employees without an API key: fall back to default company model
+    # --- OpenAI-compatible providers (openrouter, openai, kimi, deepseek, etc.) ---
+    if prov and prov.chat_class == "openai":
+        effective_key = _resolve_provider_key(api_provider, api_key)
+        if effective_key:
+            base_url = prov.base_url
+            # OpenRouter allows custom base_url override from settings
+            if api_provider == "openrouter":
+                base_url = settings.openrouter_base_url
+            return ChatOpenAI(
+                model=model,
+                api_key=effective_key,
+                base_url=base_url,
+                temperature=temperature,
+                max_retries=3,
+            )
+
+    # --- Fallback: unknown provider or no key → fall back to openrouter with default model ---
     if api_provider != "openrouter":
+        logger.debug("Provider '{}' has no key, falling back to openrouter default", api_provider)
         model = settings.default_llm_model
 
-    # Default: OpenRouter
     return ChatOpenAI(
         model=model,
         api_key=settings.openrouter_api_key,
