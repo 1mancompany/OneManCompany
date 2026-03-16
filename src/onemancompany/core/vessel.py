@@ -19,6 +19,8 @@ Design:
 from __future__ import annotations
 
 import asyncio
+
+from onemancompany.core.async_utils import spawn_background
 import json
 import traceback
 import uuid
@@ -2148,7 +2150,7 @@ class EmployeeManager:
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
-            asyncio.create_task(_store.save_employee_runtime(employee_id, status=status))
+            spawn_background(_store.save_employee_runtime(employee_id, status=status))
         except RuntimeError:
             logger.debug("No event loop for runtime persist of {}", employee_id)
 
