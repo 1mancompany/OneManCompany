@@ -33,11 +33,15 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
-🏢 **Real company, not a chatbot**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous.
+🤖 **Real agents, not a wrapper**: *We don't just visualize someone else's agents — we build ours from the ground up.* Own agent runtime, own execution engine, own multi-agent collaboration protocols. Not a dashboard on top of LangChain — a full operating system underneath.
+
+🏢 **Run like a Fortune 500**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after how the best companies actually operate, not improvised by an LLM.
+
+🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Multi-agent meetings, cross-functional task delegation, structured handoffs. Engineers pull in designers, QA blocks releases, COO coordinates — real teamwork, not parallel chat windows.
 
 📈 **Gets smarter with use**: *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
 
-🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://one-man-company.com)** of community-verified AI employees.
+🛡️ **Verified talents, not hallucinated agents**: *Download counts and real reviews don't lie — trust the community.* Your employees come from the **[Talent Market](https://one-man-company.com)** — real, tested, community-verified AI workers. Not auto-generated agents that claim they can do everything and deliver nothing.
 
 ⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
 
@@ -179,8 +183,11 @@ These aren't toy demos — each AI company produces **product-level deliverables
 
 |                                | Typical Agent Orchestrators          | OneManCompany                                                          |
 | ------------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
-| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — modular architecture with Harness protocols |
+| **Agent system**               | Wrapper / visualization on third-party agents | **Own agent runtime** — execution engine, retry, communication, all built from scratch |
+| **Agent collaboration**        | Parallel execution, no real interaction | **Multi-agent meetings**, cross-functional delegation, structured handoffs |
 | **Where do agents come from?** | You find and configure them yourself | **C-suite built-in on Day 1** + HR hires from a verified Talent Market |
+| **Management methodology**     | Ad-hoc, improvised by LLM           | Systematic — modeled after Fortune 500 org structures and management science |
+| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — modular architecture with Harness protocols |
 | **Execution model**            | Heartbeat polling / loop             | Event-driven, zero-idle, on-demand dispatch                            |
 | **Organization**               | Simple task queues                   | Full company simulation — org chart, reviews, coaching, meetings       |
 | **Deliverables**               | Single-point task outputs            | Multi-iteration project delivery with quality gates                    |
