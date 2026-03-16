@@ -33,15 +33,15 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
-🤖 **Real agents, not a wrapper**: *Others slap a UI on someone else's agents and call it a product. We built ours from scratch.* Own agent runtime, own execution engine, own collaboration protocols. Not a pretty dashboard on top of LangChain — the pixel-art office is just the tip of the iceberg.
+🏢 **Real company, not an LLM improv show**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous. Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after Fortune 500 management, not some "organizational theory" an LLM made up on the spot.
 
-🏢 **Run like a Fortune 500**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after how the best companies actually operate, not some "management theory" an LLM made up on the spot.
+🤖 **Real agents, not a wrapper**: *Others slap a UI on someone else's agents and call it a product. We built ours from scratch.* Own agent runtime, own execution engine, own collaboration protocols. Not a dashboard on top of LangChain — the pixel-art office is just the tip of the iceberg.
 
-🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Multi-agent meetings, cross-functional task delegation, structured handoffs. Engineers pull in designers, QA blocks releases, COO coordinates — real teamwork, not parallel chat windows pretending to be a company.
+🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Engineers pull in designers, QA blocks releases, COO coordinates — multi-agent meetings, cross-functional delegation, structured handoffs. Real teamwork, not parallel chat windows pretending to be a company.
 
 📈 **Gets smarter with use**: *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
 
-🛡️ **Verified talents, not hallucinated agents**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that claims "I'm an expert in everything" and delivers nothing? Your employees come from the **[Talent Market](https://one-man-company.com)** — battle-tested, community-scored AI workers. No self-proclaimed geniuses allowed.
+🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://one-man-company.com)** of battle-tested, community-scored AI employees. No self-proclaimed "I'm an expert in everything" agents allowed.
 
 ⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps. Same system, different direction and team — entirely new company.
 
