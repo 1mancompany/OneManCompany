@@ -310,7 +310,7 @@ class TestCeoSubmitTask:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.project_archive.create_project_from_task", return_value=("proj_123", "iter_001")), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("proj_123", "iter_001")), \
              patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/proj"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -336,7 +336,7 @@ class TestCeoSubmitTask:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=mock_loop), \
-             patch("onemancompany.core.project_archive.create_project_from_task", return_value=("proj_123", "iter_001")), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("proj_123", "iter_001")), \
              patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/proj"), \
              patch("onemancompany.core.vessel._save_project_tree", mock_save_tree):
             app = _make_test_app()
@@ -4002,7 +4002,7 @@ class TestCeoTaskEAFallback:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.core.project_archive.create_project_from_task", return_value=("p1", "iter_001")), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("p1", "iter_001")), \
              patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/p1"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:

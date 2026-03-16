@@ -172,21 +172,61 @@ def _save_resolved(version: str, resolved_key: str, doc: dict) -> None:
 # ─────────────────────────────────────────────
 
 def _auto_project_name(task: str) -> str:
-    """Generate a short project name from a task description.
-
-    Takes the first line, truncates to ~50 chars on a word boundary.
-    """
+    """Fallback: derive a project name by truncating the task description."""
     first_line = task.strip().split("\n")[0].strip()
     if len(first_line) <= 50:
         return first_line or "Untitled Project"
-    # Truncate at word boundary
     truncated = first_line[:50].rsplit(" ", 1)[0]
     return truncated or first_line[:50]
 
 
+async def _llm_project_name(task: str) -> str:
+    """Use the default LLM to generate a concise project name (2-6 words)."""
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        from onemancompany.agents.base import build_llm, tracked_ainvoke
+
+        llm = build_llm(temperature=0)
+        result = await tracked_ainvoke(
+            llm,
+            [
+                SystemMessage(content=(
+                    "You are a project naming assistant. "
+                    "Given a CEO's task description, generate a concise project name in 2-6 words. "
+                    "Use the same language as the task description. "
+                    "Return ONLY the project name, nothing else. No quotes, no punctuation, no explanation."
+                )),
+                HumanMessage(content=task[:500]),
+            ],
+            category="overhead",
+        )
+        name = result.content.strip().strip('"\'')
+        if 1 < len(name) <= 60:
+            return name
+    except Exception as exc:
+        logger.debug("LLM project naming failed, using fallback: {}", exc)
+    return _auto_project_name(task)
+
+
+async def async_create_project_from_task(
+    task: str,
+    routed_to: str = "pending",
+    participants: list[str] | None = None,
+) -> tuple[str, str]:
+    """Create a named project + first iteration, using LLM for the name.
+
+    Returns (project_id, iteration_id).
+    """
+    name = await _llm_project_name(task)
+    project_id = create_named_project(name)
+    iter_id = create_iteration(project_id, task, routed_to)
+    return project_id, iter_id
+
+
 def create_project_from_task(task: str, routed_to: str = "pending",
                              participants: list[str] | None = None) -> tuple[str, str]:
-    """Create a v2 named project + first iteration from a task description.
+    """Sync fallback: create project with truncation-based name.
 
     Returns (project_id, iteration_id).
     """
