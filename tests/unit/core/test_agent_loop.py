@@ -2007,3 +2007,125 @@ class TestTaskTimeout:
         node = reloaded.get_node(entry.node_id)
         assert node.status == TaskPhase.FAILED.value
         assert "Timeout" in (node.result or "")
+
+
+# ---------------------------------------------------------------------------
+# Execution log — per-agent file-based debug logging
+# ---------------------------------------------------------------------------
+
+class TestExecutionLog:
+    """_append_execution_log writes structured entries to {employee_dir}/execution.log."""
+
+    def test_append_creates_file_and_writes(self, tmp_path):
+        from onemancompany.core.vessel import _append_execution_log
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            _append_execution_log("emp01", "node123456ab", "start", "Starting task")
+        log_path = tmp_path / "emp01" / "execution.log"
+        assert log_path.exists()
+        content = log_path.read_text()
+        assert "[start" in content
+        assert "node=node123456ab" in content
+        assert "Starting task" in content
+
+    def test_append_multiple_entries(self, tmp_path):
+        from onemancompany.core.vessel import _append_execution_log
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            _append_execution_log("emp01", "node_a", "start", "Task A")
+            _append_execution_log("emp01", "node_a", "llm_output", "Hello world")
+            _append_execution_log("emp01", "node_a", "result", "Done")
+        log_path = tmp_path / "emp01" / "execution.log"
+        lines = log_path.read_text().strip().split("\n")
+        assert len(lines) == 3
+        assert "start" in lines[0]
+        assert "llm_output" in lines[1]
+        assert "result" in lines[2]
+
+    def test_content_truncated_at_500_chars(self, tmp_path):
+        from onemancompany.core.vessel import _append_execution_log
+        long_content = "x" * 1000
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            _append_execution_log("emp01", "node_a", "llm_output", long_content)
+        log_path = tmp_path / "emp01" / "execution.log"
+        content = log_path.read_text()
+        # 500 chars of content + prefix, should be well under 1000
+        assert len(content) < 700
+
+    def test_rotation_when_exceeding_max_size(self, tmp_path):
+        from onemancompany.core.vessel import _append_execution_log, EXECUTION_LOG_MAX_SIZE
+        log_dir = tmp_path / "emp01"
+        log_dir.mkdir(parents=True)
+        log_path = log_dir / "execution.log"
+        rotated_path = log_dir / "execution.log.1"
+        # Write a file larger than threshold
+        log_path.write_text("line\n" * (EXECUTION_LOG_MAX_SIZE // 4), encoding="utf-8")
+        original_size = log_path.stat().st_size
+        assert original_size > EXECUTION_LOG_MAX_SIZE
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            _append_execution_log("emp01", "node_a", "start", "New entry")
+        # Old log renamed to .1, new log has only the fresh entry
+        assert rotated_path.exists()
+        assert rotated_path.stat().st_size == original_size
+        assert log_path.exists()
+        assert log_path.stat().st_size < original_size
+
+
+class TestLogNodeWritesExecutionLog:
+    """_log_node should call _append_execution_log."""
+
+    def test_log_node_calls_append(self):
+        mgr = EmployeeManager()
+        with patch("onemancompany.core.vessel._append_execution_log") as mock_append:
+            mgr._log_node("emp01", "node_abc", "start", "Starting task")
+        mock_append.assert_called_once_with("emp01", "node_abc", "start", "Starting task")
+
+
+# ---------------------------------------------------------------------------
+# Executor timeout — asyncio.wait_for wraps executor.execute()
+# ---------------------------------------------------------------------------
+
+class TestExecutorTimeout:
+    """_execute_task should timeout hanging executors via asyncio.wait_for."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_langchain_executor_timeout(self, tmp_path):
+        """A hanging LangChain executor should be cancelled by asyncio.wait_for."""
+        from onemancompany.core.task_tree import _cache as tree_cache
+
+        mgr = EmployeeManager()
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="00010")
+        # Set timeout BEFORE the tree gets cached by _execute_task
+        root.timeout_seconds = 1  # 1 second timeout
+        tree = TaskTree.load(tree_path)
+        tree.get_node(entry.node_id).timeout_seconds = 1
+        tree.save(tree_path)
+        # Clear cache so _execute_task reloads from disk with timeout
+        tree_cache.pop(str(tree_path.resolve()), None)
+
+        mgr.schedule_node("00010", entry.node_id, str(tree_path))
+        mock_vessel = MagicMock()
+        mock_vessel.employee_id = "00010"
+        mgr.vessels["00010"] = mock_vessel
+
+        # Create a hanging executor
+        async def hang_forever(*args, **kwargs):
+            await asyncio.sleep(999)
+            return LaunchResult(output="never", model_used="", input_tokens=0, output_tokens=0, total_tokens=0)
+
+        mock_executor = MagicMock()
+        mock_executor.execute = hang_forever
+        mgr.executors["00010"] = mock_executor
+
+        with (
+            patch("onemancompany.core.task_tree.save_tree_async"),
+            patch("onemancompany.core.vessel._store") as mock_store,
+        ):
+            mock_store.save_employee_runtime = AsyncMock()
+            await mgr._execute_task("00010", entry)
+
+        # Verify node was marked failed with timeout (check in-memory tree, save_tree_async is mocked)
+        from onemancompany.core.task_tree import get_tree
+        tree = get_tree(str(tree_path))
+        node = tree.get_node(entry.node_id)
+        assert node.status == TaskPhase.FAILED.value
+        assert "Timeout" in (node.result or "")

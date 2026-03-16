@@ -512,6 +512,27 @@ def _append_progress(employee_id: str, entry: str) -> None:
         f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
 
 
+EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
+
+
+def _append_execution_log(employee_id: str, node_id: str, log_type: str, content: str) -> None:
+    """Append a structured entry to the employee's execution log (persistent, per-agent debug file)."""
+    path = EMPLOYEES_DIR / employee_id / "execution.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Size-based rotation: rename current log and start fresh (no large reads)
+        if path.exists() and path.stat().st_size > EXECUTION_LOG_MAX_SIZE:
+            rotated = path.with_suffix(".log.1")
+            path.rename(rotated)
+        ts = datetime.now().isoformat()[:23]
+        # Truncate content to keep log readable
+        short = content[:500].replace("\n", "\\n") if content else ""
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] [{log_type:12s}] node={node_id[:12]} | {short}\n")
+    except Exception as exc:
+        logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
+
+
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
     """Load recent entries from the employee's progress log."""
     path = EMPLOYEES_DIR / employee_id / "progress.log"
@@ -1007,23 +1028,31 @@ class EmployeeManager:
                 except Exception:
                     logger.warning("Pre-task hook failed for %s", employee_id)
 
-            # Set timeout from node
-            if node.timeout_seconds:
-                from onemancompany.core.subprocess_executor import SubprocessExecutor
-                if isinstance(executor, SubprocessExecutor):
-                    executor.timeout_seconds = node.timeout_seconds
+            # Universal timeout — asyncio.wait_for wraps ALL executor types.
+            task_timeout = node.timeout_seconds or 3600
+            # For SubprocessExecutor: set its internal timeout slightly longer
+            # so the outer wait_for fires first. If the outer cancellation
+            # somehow fails, the inner timeout still kills the subprocess.
+            from onemancompany.core.subprocess_executor import SubprocessExecutor
+            if isinstance(executor, SubprocessExecutor):
+                executor.timeout_seconds = task_timeout + 30
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
             for attempt in range(max_retries):
                 try:
-                    launch_result = await executor.execute(task_with_ctx, context, on_log=_on_log)
+                    launch_result = await asyncio.wait_for(
+                        executor.execute(task_with_ctx, context, on_log=_on_log),
+                        timeout=task_timeout,
+                    )
                     last_err = None
                     break
                 except GraphRecursionError as rec_err:
                     last_err = rec_err
                     self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
                     break
+                except TimeoutError:
+                    raise  # Don't retry — let outer except TimeoutError handle it
                 except Exception as run_err:
                     last_err = run_err
                     if attempt < max_retries - 1:
@@ -1065,10 +1094,10 @@ class EmployeeManager:
         except TimeoutError as te:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
-            node.result = str(te)
+            node.result = f"Timeout: task exceeded {node.timeout_seconds or 3600}s limit"
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
-            self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out: {te!s}")
+            self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
@@ -2132,6 +2161,7 @@ class EmployeeManager:
         }
         self._task_logs.setdefault(node_id, []).append(entry)
         self._publish_log_event(employee_id, node_id, entry)
+        _append_execution_log(employee_id, node_id, log_type, content)
 
     def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
         """Publish a log event via event bus."""
