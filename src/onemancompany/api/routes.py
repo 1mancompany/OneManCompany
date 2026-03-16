@@ -557,9 +557,9 @@ async def ceo_submit_task(body: dict) -> dict:
     from pathlib import Path
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import (
+        async_create_project_from_task,
         create_iteration,
         create_named_project,
-        create_project_from_task,
         get_project_workspace,
     )
 
@@ -583,8 +583,8 @@ async def ceo_submit_task(body: dict) -> dict:
         pid = create_named_project(project_name)
         iter_id = create_iteration(pid, task, "pending")
     else:
-        # Auto-create named project from task description
-        pid, iter_id = create_project_from_task(task, "pending")
+        # Auto-create named project from task description (LLM-powered naming)
+        pid, iter_id = await async_create_project_from_task(task, "pending")
 
     pdir = get_project_workspace(pid)
 

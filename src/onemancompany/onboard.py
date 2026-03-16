@@ -236,13 +236,23 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     console.print("  Select your LLM provider:\n")
     console.print(table)
+
+    # Find OpenRouter's actual position in the filtered list
+    or_num = next(
+        (i for i, g in enumerate(available_groups, 1) if g.group_id == "openrouter"),
+        None,
+    )
+    hint = (
+        f"  Not sure? [bold]{or_num}[/bold] (OpenRouter) works with most models."
+        if or_num else "  Not sure? OpenRouter works with most models."
+    )
     console.print(
-        "\n  [dim]Type the number of your provider and press [bold]Enter[/bold].\n"
-        "  Not sure? [bold]1[/bold] (OpenRouter) works with most models.[/dim]\n"
+        f"\n  [dim]Type the number of your provider and press [bold]Enter[/bold].\n"
+        f"  {hint}[/dim]\n"
     )
 
     while True:
-        choice = Prompt.ask("  Provider #", default="1", console=console).strip()
+        choice = Prompt.ask("  Provider #", default=str(or_num or 1), console=console).strip()
         if choice.isdigit() and 1 <= int(choice) <= len(available_groups):
             selected_group = available_groups[int(choice) - 1]
             break

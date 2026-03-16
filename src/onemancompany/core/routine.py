@@ -2469,7 +2469,7 @@ async def _create_project_from_action_points(
     action_points: list[str], meeting_type: str, transcript_excerpt: str,
 ) -> str:
     """Create a new project from meeting action points, dispatched to EA."""
-    from onemancompany.core.project_archive import create_project_from_task, get_project_workspace
+    from onemancompany.core.project_archive import async_create_project_from_task, get_project_workspace
     from onemancompany.core.task_tree import TaskTree
     from onemancompany.core.vessel import _save_project_tree
     from onemancompany.core.agent_loop import employee_manager
@@ -2483,7 +2483,7 @@ async def _create_project_from_action_points(
         + f"\n\nMeeting context:\n{transcript_excerpt}"
     )
 
-    pid, _iter_id = create_project_from_task(task_desc, "pending")
+    pid, _iter_id = await async_create_project_from_task(task_desc, "pending")
     pdir = get_project_workspace(pid)
 
     tree = TaskTree(project_id=pid)
