@@ -3653,6 +3653,8 @@ _pending_oauth_hire: dict[str, dict] = {}
 # frontend can restore the progress modal after a page refresh.
 # Structure: { batch_id: { "items": { candidate_id: {name, role, step, message} }, "total": N } }
 _active_onboarding: dict[str, dict] = {}
+# prevent background tasks from being GC'd (Python 3.12+ asyncio weak-refs)
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _track_onboarding_progress(batch_id: str, candidate_id: str, name: str, role: str, step: str, message: str, total: int) -> None:
@@ -4023,10 +4025,12 @@ async def batch_hire_candidates(body: dict) -> dict:
         else:
             coo_ctxs.append({})
 
-    # Launch background task for the actual hiring
-    asyncio.create_task(
+    # Launch background task for the actual hiring (store ref to prevent GC)
+    task = asyncio.create_task(
         _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
     )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     names = []
     for sel in selections:
@@ -4190,21 +4194,6 @@ async def _do_batch_hire(
         pending_candidates.pop(batch_id, None)
         _persist_candidates()
 
-        # Resume HR HOLDING task
-        from onemancompany.core.vessel import employee_manager as _em_batch
-        from onemancompany.core.task_tree import get_tree as _get_tree_batch
-        for entry in _em_batch._schedule.get(HR_ID, []):
-            tp = Path(entry.tree_path)
-            if not tp.exists():
-                continue
-            tree = _get_tree_batch(tp)
-            node = tree.get_node(entry.node_id)
-            if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-                await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
-                break
-
-        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
-
         # Dispatch COO task for department assignment (only if no project context)
         last_coo_ctx = coo_ctxs[-1] if coo_ctxs else {}
         if not last_coo_ctx.get("project_id"):
@@ -4222,13 +4211,39 @@ async def _do_batch_hire(
                     f"{emp_lines}",
                 )
 
-        logger.info("[hiring] Background batch hire completed: {} hired", len(hired_names))
+        logger.info("[hiring] Background batch hire completed: {} hired, {} failed",
+                     len(hired_names), len(results) - len(hired_names))
 
     except asyncio.CancelledError:
         raise
     except Exception as e:
         logger.error("[hiring] Background batch hire failed: {}", e)
         traceback.print_exc()
+    finally:
+        # ALWAYS resume HR HOLDING task — even on partial/total failure
+        try:
+            resume_msg = f"Batch hired: {', '.join(hired_names)}" if hired_names else "Batch hire completed (no candidates hired)"
+        except NameError:
+            resume_msg = "Batch hire failed"
+        try:
+            from onemancompany.core.vessel import employee_manager as _em_batch
+            from onemancompany.core.task_tree import get_tree as _get_tree_batch
+            for entry in _em_batch._schedule.get(HR_ID, []):
+                tp = Path(entry.tree_path)
+                if not tp.exists():
+                    continue
+                tree = _get_tree_batch(tp)
+                node = tree.get_node(entry.node_id)
+                if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+                    await _em_batch.resume_held_task(HR_ID, entry.node_id, resume_msg)
+                    logger.info("[hiring] Resumed HR holding task {}", entry.node_id)
+                    break
+            else:
+                logger.warning("[hiring] No matching HR holding task found for batch_id={}", batch_id)
+        except Exception as resume_exc:
+            logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
+
+        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
 
 @router.post("/api/candidates/interview")

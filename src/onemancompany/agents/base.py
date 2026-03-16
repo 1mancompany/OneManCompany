@@ -169,9 +169,13 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
         logger.debug("Provider '{}' has no key, falling back to openrouter default", api_provider)
         model = settings.default_llm_model
 
+    fallback_key = settings.openrouter_api_key
+    if not fallback_key:
+        logger.warning("make_llm: no API key for provider '{}' and no OpenRouter fallback key; LLM calls will fail", api_provider)
+
     return ChatOpenAI(
         model=model,
-        api_key=settings.openrouter_api_key,
+        api_key=fallback_key,
         base_url=settings.openrouter_base_url,
         temperature=temperature,
         max_retries=3,
