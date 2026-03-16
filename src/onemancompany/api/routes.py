@@ -3973,11 +3973,15 @@ async def batch_hire_candidates(body: dict) -> dict:
 
     batch_id = body.get("batch_id", "")
     selections = body.get("selections", [])
+    logger.debug("[batch-hire] Received request: batch_id={}, selections={}", batch_id, len(selections))
 
     if not selections:
+        logger.debug("[batch-hire] No selections, returning error")
         return {"error": "No candidates selected"}
 
     all_candidates = pending_candidates.get(batch_id, [])
+    logger.debug("[batch-hire] pending_candidates keys={}, found {} candidates for batch_id={}",
+                 list(pending_candidates.keys()), len(all_candidates), batch_id)
     if not all_candidates:
         return {"error": "Batch not found"}
 
@@ -4023,6 +4027,8 @@ async def batch_hire_candidates(body: dict) -> dict:
             coo_ctxs.append({})
 
     # Launch background task for the actual hiring
+    logger.debug("[batch-hire] Launching background _do_batch_hire: batch_id={}, {} selections, {} candidates, {} coo_ctxs",
+                 batch_id, len(selections), len(all_candidates), len(coo_ctxs))
     spawn_background(
         _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
     )
@@ -4049,11 +4055,14 @@ async def _do_batch_hire(
     total = len(selections)
     results = []
     hired_names: list[str] = []
+    logger.debug("[batch-hire] _do_batch_hire entered: batch_id={}, {} selections, {} all_candidates",
+                 batch_id, total, len(all_candidates))
 
     # Clear pending batch immediately — CEO already approved, data is no longer
     # "pending review". This unblocks HR from submitting new shortlists.
     pending_candidates.pop(batch_id, None)
     _persist_candidates()
+    logger.debug("[batch-hire] Cleared pending batch, remaining keys={}", list(pending_candidates.keys()))
 
     logger.info("[batch-hire] Starting batch hire: batch_id={}, {} candidates", batch_id, total)
 
@@ -4068,10 +4077,13 @@ async def _do_batch_hire(
             cand_name = candidate.get("name", cid)
             coo_ctx_role = sel.get("role", "") or candidate.get("role", "Engineer")
             try:
+                logger.debug("[batch-hire] Generating nickname for cid={}, name={}, role={}", cid, cand_name, coo_ctx_role)
                 nickname_map[cid] = await generate_nickname(cand_name, coo_ctx_role, is_founding=False)
-            except Exception:
+                logger.debug("[batch-hire] Nickname for {}: '{}'", cid, nickname_map[cid])
+            except Exception as exc:
+                logger.debug("[batch-hire] Nickname generation failed for {}: {}", cid, exc)
                 nickname_map[cid] = ""
-        logger.info("[batch-hire] Nicknames ready, starting hire loop")
+        logger.info("[batch-hire] Nicknames ready ({}), starting hire loop", nickname_map)
 
         for idx, sel in enumerate(selections):
             candidate_id = sel.get("candidate_id", "")
@@ -4135,6 +4147,8 @@ async def _do_batch_hire(
 
             try:
                 nickname = nickname_map.get(candidate_id, "") or await generate_nickname(cand_name, final_role, is_founding=False)
+                logger.debug("[batch-hire] Hiring {}/{}: cid={}, name={}, nickname={}, role={}, talent_id={}",
+                             idx + 1, total, candidate_id, cand_name, nickname, final_role, talent_id)
                 emp = await execute_hire(
                     name=cand_name,
                     nickname=nickname,

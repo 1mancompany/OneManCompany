@@ -515,8 +515,11 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
     from onemancompany.core.events import CompanyEvent, event_bus
 
     # Guard: reject duplicate shortlist while a pending batch already exists
+    logger.debug("[shortlist] submit_shortlist called: {} candidate_ids, pending_candidates keys={}",
+                 len(candidate_ids), list(pending_candidates.keys()))
     if pending_candidates:
         existing_ids = list(pending_candidates.keys())
+        logger.debug("[shortlist] Guard: rejecting duplicate, existing batch_id={}", existing_ids[0])
         return (
             f"A shortlist is already pending (batch_id={existing_ids[0]}). "
             "Wait for CEO to approve or dismiss the current batch before submitting a new one."

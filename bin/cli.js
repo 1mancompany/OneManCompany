@@ -395,12 +395,17 @@ ${green("What gets installed automatically:")}
   const debugMode = passthrough.includes("--debug");
   const launchArgs = passthrough.filter((a) => a !== "--debug");
 
+  // Build env: pass OMC_DEBUG=1 in debug mode
+  const childEnv = { ...process.env };
+  if (debugMode) childEnv.OMC_DEBUG = "1";
+
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
     info("Starting OneManCompany in debug mode (Ctrl+C to stop)...\n");
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
+      env: childEnv,
     });
 
     writePidFile(installDir, child.pid);

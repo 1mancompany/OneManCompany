@@ -21,11 +21,17 @@ def spawn_background(coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
     """
     task = asyncio.create_task(coro)
     _background_tasks.add(task)
+    logger.debug("spawn_background: created task {} (total active: {})", task.get_name(), len(_background_tasks))
 
     def _on_done(t: asyncio.Task) -> None:
         _background_tasks.discard(t)
-        if not t.cancelled() and t.exception():
-            logger.error("Background task failed: {}", t.exception())
+        if t.cancelled():
+            logger.debug("Background task {} cancelled", t.get_name())
+        elif t.exception():
+            logger.error("Background task {} failed: {}", t.get_name(), t.exception())
+            logger.opt(exception=t.exception()).debug("Background task {} traceback", t.get_name())
+        else:
+            logger.debug("Background task {} completed successfully", t.get_name())
 
     task.add_done_callback(_on_done)
     return task

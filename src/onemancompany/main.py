@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
 from loguru import logger
+
+# Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
+_debug_mode = os.environ.get("OMC_DEBUG", "0") == "1"
+logger.remove()
+logger.add(sys.stderr, level="DEBUG" if _debug_mode else "INFO")
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware

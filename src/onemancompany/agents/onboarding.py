@@ -746,9 +746,13 @@ async def execute_hire(
     """
     from onemancompany.core.model_costs import compute_salary
 
+    logger.debug("[execute_hire] Starting: name={}, nickname={}, role={}, talent_id={}, hosting={}",
+                 name, nickname, role, talent_id, hosting)
+
     # Resolve talent_dir from talent_id if not explicitly provided
     if talent_dir is None and talent_id:
         talent_dir = resolve_talent_dir(talent_id)
+        logger.debug("[execute_hire] Resolved talent_dir={}", talent_dir)
 
     # Use explicit department if provided (from COO), otherwise auto-assign
     if not department:
@@ -796,6 +800,7 @@ async def execute_hire(
         probation=True,
         onboarding_completed=False,
     )
+    logger.debug("[execute_hire] Created Employee object: id={}, nickname={}, dept={}", emp_num, nickname, department)
     # Persist profile via store (single source of truth)
     await _store.save_employee(emp_num, {
         "name": name,
@@ -930,6 +935,7 @@ async def execute_hire(
     if progress_callback:
         await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")
 
+    logger.debug("[execute_hire] Profile saved, registering agent for {}", emp_num)
     # Register in EmployeeManager (skip remote — they use remote task queue)
     if not remote:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
