@@ -1,0 +1,6 @@
+id: project_room_3
+name: Project Meeting Room 3
+capacity: 30
+description: A project meeting room seating 30 people, used for project wrap-up meetings and retrospectives.
+type: room
+status: inactive

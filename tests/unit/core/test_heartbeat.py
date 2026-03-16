@@ -1,0 +1,476 @@
+"""Unit tests for core/heartbeat.py — heartbeat detection for employee APIs."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from onemancompany.core.heartbeat import (
+    _check_provider_online,
+    _check_script,
+    _check_self_hosted_pid,
+    _get_heartbeat_method,
+    _update_online,
+    check_needs_setup,
+    run_heartbeat_cycle,
+)
+
+
+# ---------------------------------------------------------------------------
+# Minimal stub types for test isolation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _FakeCfg:
+    api_provider: str = "openrouter"
+    hosting: str = "company"
+    api_key: str = ""
+    auth_method: str = ""
+    llm_model: str = "deepseek-chat"
+
+
+@dataclass
+class _FakeEmployee:
+    api_online: bool = True
+    needs_setup: bool = False
+    level: int = 1
+
+
+# ---------------------------------------------------------------------------
+# _get_heartbeat_method
+# ---------------------------------------------------------------------------
+
+class TestGetHeartbeatMethod:
+    def test_default_openrouter(self):
+        cfg = _FakeCfg(api_provider="openrouter")
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=None):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "provider_key"
+
+    def test_anthropic_provider(self):
+        cfg = _FakeCfg(api_provider="anthropic")
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=None):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "provider_key"
+
+    def test_manifest_override(self):
+        cfg = _FakeCfg(api_provider="openrouter")
+        manifest = {"heartbeat": {"method": "always_online"}}
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "always_online"
+
+    def test_manifest_without_heartbeat(self):
+        cfg = _FakeCfg(api_provider="openrouter")
+        manifest = {"some_key": "value"}
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "provider_key"
+
+    def test_manifest_heartbeat_not_dict(self):
+        cfg = _FakeCfg(api_provider="openrouter")
+        manifest = {"heartbeat": "not_a_dict"}
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "provider_key"
+
+    def test_manifest_pid_method(self):
+        cfg = _FakeCfg()
+        manifest = {"heartbeat": {"method": "pid"}}
+        with patch("onemancompany.core.heartbeat.load_manifest", return_value=manifest):
+            method = _get_heartbeat_method("emp1", cfg)
+            assert method == "pid"
+
+
+# ---------------------------------------------------------------------------
+# check_needs_setup
+# ---------------------------------------------------------------------------
+
+class TestCheckNeedsSetup:
+    def test_no_config_returns_false(self):
+        with patch("onemancompany.core.heartbeat.employee_configs", {}):
+            assert check_needs_setup("missing") is False
+
+    def test_openrouter_no_setup_needed(self):
+        cfg = _FakeCfg(api_provider="openrouter")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is False
+
+    def test_anthropic_without_key_needs_setup(self):
+        cfg = _FakeCfg(api_provider="anthropic", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            with patch("onemancompany.core.heartbeat.settings") as mock_settings:
+                mock_settings.anthropic_api_key = ""
+                assert check_needs_setup("emp1") is True
+
+    def test_anthropic_with_key_no_setup(self):
+        cfg = _FakeCfg(api_provider="anthropic", api_key="sk-test")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is False
+
+    def test_self_hosted_never_needs_setup(self):
+        """Self-hosted employees use Claude CLI which manages its own auth."""
+        cfg = _FakeCfg(hosting="self", api_provider="openrouter")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is False
+
+    def test_self_hosted_anthropic_no_key_still_ok(self):
+        """Self-hosted + anthropic provider doesn't need API key (CLI handles auth)."""
+        cfg = _FakeCfg(hosting="self", api_provider="anthropic", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is False
+
+    def test_deepseek_with_company_key_no_setup(self):
+        """DeepSeek provider with company-level key doesn't need setup."""
+        cfg = _FakeCfg(api_provider="deepseek", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.deepseek_api_key = "sk-ds-test"
+            assert check_needs_setup("emp1") is False
+
+    def test_deepseek_without_key_needs_setup(self):
+        """DeepSeek provider without any key needs setup."""
+        cfg = _FakeCfg(api_provider="deepseek", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.deepseek_api_key = ""
+            assert check_needs_setup("emp1") is True
+
+    def test_unknown_provider_needs_setup(self):
+        """Unknown provider always needs setup."""
+        cfg = _FakeCfg(api_provider="nonexistent", api_key="")
+        with patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}):
+            assert check_needs_setup("emp1") is True
+
+
+# ---------------------------------------------------------------------------
+# _check_provider_online (probe_chat-based health check)
+# ---------------------------------------------------------------------------
+
+class TestCheckProviderOnline:
+    """Tests for _check_provider_online using probe_chat."""
+
+    async def test_batched_check_calls_probe(self):
+        with patch("onemancompany.core.auth_verify.probe_chat", new_callable=AsyncMock) as mock_probe:
+            mock_probe.return_value = (True, "")
+            result = await _check_provider_online("deepseek", "sk-company-key", "deepseek-chat")
+
+        assert result is True
+        mock_probe.assert_called_once_with("deepseek", "sk-company-key", "deepseek-chat", timeout=15.0)
+
+    async def test_batched_check_failure(self):
+        with patch("onemancompany.core.auth_verify.probe_chat", new_callable=AsyncMock) as mock_probe:
+            mock_probe.return_value = (False, "Invalid API key")
+            result = await _check_provider_online("deepseek", "sk-bad", "deepseek-chat")
+
+        assert result is False
+
+    async def test_missing_key_returns_false(self):
+        result = await _check_provider_online("deepseek", "", "deepseek-chat")
+        assert result is False
+
+    async def test_missing_model_returns_false(self):
+        result = await _check_provider_online("deepseek", "sk-test", "")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _check_self_hosted_pid
+# ---------------------------------------------------------------------------
+
+class TestCheckSelfHostedPid:
+    def test_no_pid_file(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            (tmp_path / "emp1").mkdir()
+            assert _check_self_hosted_pid("emp1") is False
+
+    def test_valid_pid(self, tmp_path):
+        import os
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            # Use current process PID (guaranteed to exist)
+            (emp_dir / "worker.pid").write_text(str(os.getpid()))
+            assert _check_self_hosted_pid("emp1") is True
+
+    def test_dead_pid(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            (emp_dir / "worker.pid").write_text("999999999")  # very unlikely to exist
+            with patch("os.kill", side_effect=ProcessLookupError()):
+                assert _check_self_hosted_pid("emp1") is False
+
+    def test_invalid_pid_content(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            (emp_dir / "worker.pid").write_text("not_a_number")
+            assert _check_self_hosted_pid("emp1") is False
+
+
+# ---------------------------------------------------------------------------
+# _check_script
+# ---------------------------------------------------------------------------
+
+class TestCheckScript:
+    async def test_no_script(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            (tmp_path / "emp1").mkdir()
+            assert await _check_script("emp1") is False
+
+    async def test_script_success(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            script = emp_dir / "heartbeat.sh"
+            script.write_text("#!/bin/bash\nexit 0\n")
+            script.chmod(0o755)
+            result = await _check_script("emp1")
+            assert result is True
+
+    async def test_script_failure(self, tmp_path):
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            script = emp_dir / "heartbeat.sh"
+            script.write_text("#!/bin/bash\nexit 1\n")
+            script.chmod(0o755)
+            result = await _check_script("emp1")
+            assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _update_online
+# ---------------------------------------------------------------------------
+
+class TestUpdateOnline:
+    def test_change_from_offline_to_online(self):
+        changed = []
+        with patch("onemancompany.core.heartbeat._store") as mock_store:
+            mock_store.load_employee.return_value = {"runtime": {"api_online": False}}
+            mock_store.save_employee_runtime = AsyncMock()
+            _update_online("emp1", True, changed)
+            assert "emp1" in changed
+
+    def test_no_change_no_append(self):
+        changed = []
+        with patch("onemancompany.core.heartbeat._store") as mock_store:
+            mock_store.load_employee.return_value = {"runtime": {"api_online": True}}
+            _update_online("emp1", True, changed)
+            assert changed == []
+
+    def test_missing_employee_ignored(self):
+        changed = []
+        with patch("onemancompany.core.heartbeat._store") as mock_store:
+            mock_store.load_employee.return_value = None
+            _update_online("missing", True, changed)
+            assert changed == []
+
+    def test_no_duplicate_in_changed(self):
+        changed = ["emp1"]
+        with patch("onemancompany.core.heartbeat._store") as mock_store:
+            mock_store.load_employee.return_value = {"runtime": {"api_online": False}}
+            mock_store.save_employee_runtime = AsyncMock()
+            _update_online("emp1", True, changed)
+            assert changed.count("emp1") == 1
+
+
+# ---------------------------------------------------------------------------
+# run_heartbeat_cycle
+# ---------------------------------------------------------------------------
+
+class TestRunHeartbeatCycle:
+    def _emp_data(self, api_online=True, needs_setup=False, level=1):
+        return {
+            "level": level,
+            "runtime": {"api_online": api_online, "needs_setup": needs_setup},
+        }
+
+    async def test_empty_employees(self):
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {}):
+            mock_store.load_all_employees.return_value = {}
+            changed = await run_heartbeat_cycle()
+            assert changed == []
+
+    async def test_founding_employees_skipped(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False):
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(level=4)}
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert changed == []
+
+    async def test_needs_setup_sets_offline(self):
+        cfg = _FakeCfg()
+        # Step 1 sees needs_setup change (False->True), step 2 sees needs_setup=True, sets offline
+        call_count = [0]
+        def _load_all():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {"emp1": self._emp_data(api_online=True, needs_setup=False)}
+            return {"emp1": self._emp_data(api_online=True, needs_setup=True)}
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=True), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4):
+            mock_store.load_all_employees.side_effect = _load_all
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert "emp1" in changed
+
+    async def test_no_config_always_online(self):
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False):
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert "emp1" in changed
+
+    async def test_always_online_method(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="always_online"):
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert "emp1" in changed
+
+    async def test_openrouter_path(self):
+        cfg = _FakeCfg(api_provider="openrouter", llm_model="openrouter/model-v1")
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
+             patch("onemancompany.core.heartbeat._check_provider_online", new_callable=AsyncMock, return_value=True) as mock_check, \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.openrouter_api_key = "test-key"
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.load_employee.return_value = self._emp_data(api_online=False)
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            mock_check.assert_awaited_once_with("openrouter", "test-key", "openrouter/model-v1")
+            assert "emp1" in changed
+
+    async def test_anthropic_path(self):
+        cfg = _FakeCfg(api_provider="anthropic", api_key="sk-test", llm_model="claude-sonnet-4-20250514")
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
+             patch("onemancompany.core.heartbeat._check_provider_online", new_callable=AsyncMock, return_value=True) as mock_check, \
+             patch("onemancompany.core.heartbeat.settings") as mock_settings:
+            mock_settings.anthropic_auth_method = "api_key"
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.load_employee.return_value = self._emp_data(api_online=False)
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            # Employee has own key, so per-employee check
+            mock_check.assert_awaited_once_with("anthropic", "sk-test", "claude-sonnet-4-20250514")
+
+    async def test_pid_path(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="pid"), \
+             patch("onemancompany.core.heartbeat._check_self_hosted_pid", return_value=True) as mock_check:
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.load_employee.return_value = self._emp_data(api_online=False)
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            mock_check.assert_called_once_with("emp1")
+
+    async def test_script_path(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="script"), \
+             patch("onemancompany.core.heartbeat._check_script", return_value=False) as mock_check:
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=False)}
+            mock_store.load_employee.return_value = self._emp_data(api_online=False)
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            mock_check.assert_awaited_once_with("emp1")
+
+    async def test_needs_setup_already_offline_no_duplicate(self):
+        cfg = _FakeCfg()
+        call_count = [0]
+        def _load_all():
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return {"emp1": self._emp_data(api_online=False, needs_setup=False)}
+            return {"emp1": self._emp_data(api_online=False, needs_setup=True)}
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=True), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4):
+            mock_store.load_all_employees.side_effect = _load_all
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert changed.count("emp1") == 1
+
+    async def test_needs_setup_online_but_no_change_in_needs_setup(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=True), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4):
+            # needs_setup already True, api_online=True
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=True, needs_setup=True)}
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert "emp1" in changed
+            assert changed.count("emp1") == 1
+
+    async def test_always_online_already_online_no_change(self):
+        cfg = _FakeCfg()
+        with patch("onemancompany.core.heartbeat._store") as mock_store, \
+             patch("onemancompany.core.heartbeat.employee_configs", {"emp1": cfg}), \
+             patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+             patch("onemancompany.core.heartbeat.FOUNDING_LEVEL", 4), \
+             patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="always_online"):
+            mock_store.load_all_employees.return_value = {"emp1": self._emp_data(api_online=True)}
+            mock_store.save_employee_runtime = AsyncMock()
+            changed = await run_heartbeat_cycle()
+            assert "emp1" not in changed
+
+
+# ---------------------------------------------------------------------------
+# _check_script timeout
+# ---------------------------------------------------------------------------
+
+class TestCheckScriptTimeout:
+    async def test_script_timeout(self, tmp_path):
+        """Lines 148-149: _check_script timeout returns False."""
+        with patch("onemancompany.core.heartbeat.EMPLOYEES_DIR", tmp_path):
+            emp_dir = tmp_path / "emp1"
+            emp_dir.mkdir()
+            script = emp_dir / "heartbeat.sh"
+            script.write_text("#!/bin/bash\nsleep 30\n")
+            script.chmod(0o755)
+
+            # Mock the wait_for to immediately timeout
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                mock_proc = AsyncMock()
+                mock_proc.wait = AsyncMock()
+                with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+                    result = await _check_script("emp1")
+                    assert result is False

@@ -1,0 +1,23 @@
+# Default Vessel DNA — used when a talent does not include vessel configuration
+runner:
+  module: ""
+  class_name: ""
+hooks:
+  module: ""
+  pre_task: ""
+  post_task: ""
+context:
+  prompt_sections: []
+  inject_progress_log: true
+  inject_task_history: true
+limits:
+  max_retries: 3
+  retry_delays: [5, 15, 30]
+  max_subtask_iterations: 3
+  max_subtask_depth: 2
+  task_timeout_seconds: 600
+capabilities:
+  file_upload: false
+  websocket: false
+  sandbox: false
+  image_generation: false

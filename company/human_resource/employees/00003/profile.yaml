@@ -1,0 +1,26 @@
+api_provider: openrouter
+current_quarter_tasks: 0
+department: Operations
+desk_position:
+- 11
+- 0
+employee_number: '00003'
+hosting: company
+level: 4
+llm_model: google/gemini-3.1-pro-preview-customtools
+name: Alex COO
+nickname: 铁面侠
+performance_history: []
+permissions:
+- company_file_access
+- web_search
+- asset_management
+role: COO
+salary_per_1m_tokens: 7.0
+skills:
+- operations
+- tool_management
+- strategy
+sprite: coo
+temperature: 0.7
+title: Founding

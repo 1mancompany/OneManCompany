@@ -1,0 +1,25 @@
+# CEO Profile — the only human employee, no LLM configuration needed
+
+name: CEO
+nickname: 老板
+employee_number: '00001'
+level: 5
+title: CEO
+department: Executive
+role: CEO
+desk_position: [14, 3]
+sprite: ceo
+
+skills:
+  - leadership
+  - strategy
+
+permissions:
+  - company_file_access
+  - web_search
+  - hr_management
+  - asset_management
+
+hosting: self
+probation: false
+onboarding_completed: true

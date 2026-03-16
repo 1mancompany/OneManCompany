@@ -1,0 +1,25 @@
+id: gmail
+name: Gmail
+description: >
+  Access Gmail via Google API — search, read, send emails, create drafts,
+  and manage labels. Uses OAuth 2.0 for authentication. When first used,
+  triggers an OAuth popup for CEO authorization.
+  IMPORTANT: Gmail is ONLY for external communication (clients, vendors, partners).
+  NEVER use Gmail for internal task dispatch or employee coordination —
+  use dispatch_child() for that. NEVER use Gmail to contact CEO — use report_to_ceo().
+added_by: CEO
+sprite: desk_equipment
+type: langchain_module
+oauth:
+  service_name: gmail
+  authorize_url: https://accounts.google.com/o/oauth2/v2/auth
+  token_url: https://oauth2.googleapis.com/token
+  scopes: https://www.googleapis.com/auth/gmail.modify
+  client_id_env: GOOGLE_OAUTH_CLIENT_ID
+  client_secret_env: GOOGLE_OAUTH_CLIENT_SECRET
+  credentials_help:
+    text: "1. Create a Google Cloud project; 2. Enable Gmail API (APIs & Services → Library → Gmail API → Enable); 3. Create OAuth 2.0 credentials (APIs & Services → Credentials → Create → OAuth client ID); 4. Set redirect URI to http://localhost:8585/callback; 5. If app is in testing mode, add your email as test user (OAuth consent screen → Test users)"
+    url: https://console.cloud.google.com/apis/credentials
+templates:
+  dir: templates
+  format: md

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "fastskills": {
+      "command": "uvx",
+      "args": ["fastskills", "--skills-dir", "{skills_dir}", "--workdir", "{workdir}"],
+      "env": {
+        "SKILLSMP_API_KEY": "{SKILLSMP_API_KEY}"
+      }
+    }
+  }
+}

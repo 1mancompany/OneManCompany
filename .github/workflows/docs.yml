@@ -1,0 +1,55 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mkdocs-docs/**'
+      - 'mkdocs.yml'
+      - 'docs/index.html'
+      - 'docs/index-full.html'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install mkdocs-material mkdocs-static-i18n
+
+      - name: Build docs
+        run: mkdocs build --site-dir _site/docs
+
+      - name: Copy landing page
+        run: |
+          cp docs/index.html _site/
+          cp docs/index-full.html _site/
+          cp -r img _site/ 2>/dev/null || true
+
+      - uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

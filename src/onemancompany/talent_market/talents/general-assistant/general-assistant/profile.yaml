@@ -1,0 +1,28 @@
+id: general-assistant
+name: General AI Assistant
+description: General-purpose AI assistant with file operations and shell command capabilities. Suitable for research, writing, code analysis, and everyday tasks.
+role: Assistant
+agent_family: omctalent
+remote: false
+api_provider: openrouter
+llm_model: ''
+temperature: 0.7
+hosting: company
+auth_method: api_key
+hiring_fee: 0
+salary_per_1m_tokens: 0.0
+skills:
+- ontology
+- proactive-agent
+- self-improving-agent
+personality_tags:
+- helpful
+- thorough
+- versatile
+- proactive
+system_prompt_template: >
+  You are a general-purpose AI assistant. You have access to file system tools
+  (read, write, list) and a bash shell. Use these tools to accomplish tasks
+  efficiently. Think step-by-step, verify your work, and be proactive about
+  identifying potential issues. Use your skills library to maintain structured
+  knowledge and continuously improve your approach.

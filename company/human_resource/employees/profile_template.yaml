@@ -1,0 +1,52 @@
+# Employee Profile
+
+name: "{name}"
+nickname: "{nickname}"
+employee_number: "{employee_number}"
+level: {level}
+title: "{title}"
+department: "{department}"
+role: "{role}"
+desk_position: [{desk_x}, {desk_y}]
+sprite: "{sprite}"
+
+# LLM Configuration
+llm_model: "{llm_model}"
+temperature: {temperature}
+
+# Compensation (USD/1M tokens)
+salary_per_1m_tokens: {salary_per_1m_tokens}
+
+# Performance Records
+current_quarter_tasks: {current_quarter_tasks}
+performance_history:
+{performance_history}
+
+# Skills list — each item corresponds to a same-named directory under skills/
+skills:
+{skills}
+
+# Permissions list — controls employee access to tools and resources
+# company_file_access: Read/write company project files
+# web_search: Web search
+# backend_code_maintenance: Backend code maintenance (access to src/ directory)
+permissions:
+{permissions}
+
+# Tool permissions — list of LangChain tools this employee can use
+# Tools not on the list require authorization from the COO
+tool_permissions:
+{tool_permissions}
+
+# API Configuration — openrouter (default) or anthropic
+api_provider: "{api_provider}"
+api_key: "{api_key}"
+
+# Hosting mode — company (company-hosted, agent loop started by company) or self (self-hosted, process started locally e.g. Claude Code)
+hosting: "{hosting}"
+# Auth method — api_key (enter key) or oauth (pop up link for interactive login)
+auth_method: "{auth_method}"
+
+# HR Management
+probation: {probation}
+onboarding_completed: {onboarding_completed}

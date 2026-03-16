@@ -1,0 +1,65 @@
+{
+  "id": "ea-founding",
+  "name": "Executive Assistant",
+  "version": "1.0.0",
+  "role": "EA",
+  "hosting": "company",
+  "settings": {
+    "sections": [
+      {
+        "id": "hosting",
+        "title": "Hosting Mode",
+        "fields": [
+          {
+            "key": "hosting",
+            "type": "select",
+            "label": "Hosting",
+            "options": [
+              {
+                "value": "company",
+                "label": "Company (LangChain)"
+              },
+              {
+                "value": "self",
+                "label": "Self-hosted (Claude Code)"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "llm",
+        "title": "LLM Configuration",
+        "fields": [
+          {
+            "key": "llm_model",
+            "type": "select",
+            "label": "Model",
+            "options_from": "api:models"
+          },
+          {
+            "key": "temperature",
+            "type": "number",
+            "label": "Temperature",
+            "default": 0.7,
+            "min": 0,
+            "max": 2,
+            "step": 0.1
+          }
+        ]
+      }
+    ]
+  },
+  "prompts": {
+    "skills": [
+      "skills/*/SKILL.md"
+    ]
+  },
+  "tools": {
+    "builtin": [],
+    "custom": []
+  },
+  "platform_capabilities": [
+    "websocket"
+  ]
+}
