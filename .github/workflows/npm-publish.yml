@@ -1,0 +1,47 @@
+name: Publish npm package
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync version from pyproject.toml to package.json
+        run: |
+          VERSION=$(grep '^version = ' pyproject.toml | head -1 | sed 's/version = "//;s/"//')
+          echo "Extracted version: $VERSION"
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '$VERSION';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "package.json version now: $(node -p 'require(\"./package.json\").version')"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          VERSION=$(node -p 'require("./package.json").version')
+          if npm view "@1mancompany/onemancompany@$VERSION" version 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already published, skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION not yet published."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        if: steps.check.outputs.skip != 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

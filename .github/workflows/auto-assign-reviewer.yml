@@ -1,0 +1,24 @@
+name: Auto-assign PR reviewer
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign-reviewer:
+    runs-on: ubuntu-latest
+    # Don't assign reviewer to the admin's own PRs
+    if: github.event.pull_request.user.login != 'zhengxuyu'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Assign org admin as reviewer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              reviewers: ['zhengxuyu']
+            });
