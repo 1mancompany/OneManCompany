@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
 import uuid as _uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +12,7 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from onemancompany.agents.base import tracked_ainvoke
+from onemancompany.core.async_utils import spawn_background
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
     CEO_ID,
@@ -3779,7 +3779,7 @@ async def hire_candidate(body: HireRequest) -> dict:
         logger.info("[hiring] Applying COO context: role='{}' over talent role='{}'", coo_ctx.get("role"), candidate.get("role"))
 
     # Launch onboarding as background task
-    asyncio.create_task(
+    spawn_background(
         _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
     )
 
@@ -3909,8 +3909,7 @@ async def _do_hire_single(
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.error("[hiring] Background hire failed for {}: {}", candidate.get("name"), e)
-        traceback.print_exc()
+        logger.exception("[hiring] Background hire failed for {}", candidate.get("name"))
         _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", str(e), 1)
         await event_bus.publish(CompanyEvent(
             type="onboarding_progress",
@@ -4024,7 +4023,7 @@ async def batch_hire_candidates(body: dict) -> dict:
             coo_ctxs.append({})
 
     # Launch background task for the actual hiring
-    asyncio.create_task(
+    spawn_background(
         _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
     )
 
@@ -4049,6 +4048,7 @@ async def _do_batch_hire(
 
     total = len(selections)
     results = []
+    hired_names: list[str] = []
     logger.info("[batch-hire] Starting batch hire: batch_id={}, {} candidates", batch_id, total)
 
     try:
@@ -4166,7 +4166,7 @@ async def _do_batch_hire(
                         _notify_coo_hire_ready(emp.id, coo_ctx)
 
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
                     type="onboarding_progress",
@@ -4190,21 +4190,6 @@ async def _do_batch_hire(
         pending_candidates.pop(batch_id, None)
         _persist_candidates()
 
-        # Resume HR HOLDING task
-        from onemancompany.core.vessel import employee_manager as _em_batch
-        from onemancompany.core.task_tree import get_tree as _get_tree_batch
-        for entry in _em_batch._schedule.get(HR_ID, []):
-            tp = Path(entry.tree_path)
-            if not tp.exists():
-                continue
-            tree = _get_tree_batch(tp)
-            node = tree.get_node(entry.node_id)
-            if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-                await _em_batch.resume_held_task(HR_ID, entry.node_id, f"Batch hired: {', '.join(hired_names)}")
-                break
-
-        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
-
         # Dispatch COO task for department assignment (only if no project context)
         last_coo_ctx = coo_ctxs[-1] if coo_ctxs else {}
         if not last_coo_ctx.get("project_id"):
@@ -4222,13 +4207,38 @@ async def _do_batch_hire(
                     f"{emp_lines}",
                 )
 
-        logger.info("[hiring] Background batch hire completed: {} hired", len(hired_names))
+        logger.info("[hiring] Background batch hire completed: {} hired, {} failed",
+                     len(hired_names), len(results) - len(hired_names))
 
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.error("[hiring] Background batch hire failed: {}", e)
-        traceback.print_exc()
+        logger.exception("[hiring] Background batch hire failed")
+    finally:
+        # ALWAYS resume HR HOLDING task — even on partial/total failure
+        resume_msg = f"Batch hired: {', '.join(hired_names)}" if hired_names else "Batch hire completed (no candidates hired)"
+        try:
+            from onemancompany.core.vessel import employee_manager as _em_batch
+            from onemancompany.core.task_tree import get_tree as _get_tree_batch
+            for entry in _em_batch._schedule.get(HR_ID, []):
+                tp = Path(entry.tree_path)
+                if not tp.exists():
+                    continue
+                tree = _get_tree_batch(tp)
+                node = tree.get_node(entry.node_id)
+                if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+                    await _em_batch.resume_held_task(HR_ID, entry.node_id, resume_msg)
+                    logger.info("[hiring] Resumed HR holding task {}", entry.node_id)
+                    break
+            else:
+                logger.debug("[hiring] No matching HR holding task found for batch_id={}", batch_id)
+        except Exception as resume_exc:
+            logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
+
+        try:
+            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        except Exception as pub_exc:
+            logger.debug("[hiring] Could not publish state_snapshot in finally: {}", pub_exc)
 
 
 @router.post("/api/candidates/interview")
@@ -5448,7 +5458,7 @@ async def open_ceo_conversation(node_id: str):
     register_session(session)
 
     # Start conversation loop as background task
-    asyncio.create_task(_run_conversation_loop(session, node, tree, project_dir))
+    spawn_background(_run_conversation_loop(session, node, tree, project_dir))
 
     messages = load_messages(Path(project_dir) / "conversations", node_id)
     node.load_content(project_dir)

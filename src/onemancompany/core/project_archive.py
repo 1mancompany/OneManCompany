@@ -185,9 +185,9 @@ async def _llm_project_name(task: str) -> str:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        from onemancompany.agents.base import build_llm, tracked_ainvoke
+        from onemancompany.agents.base import make_llm, tracked_ainvoke
 
-        llm = build_llm(temperature=0)
+        llm = make_llm(temperature=0)
         result = await tracked_ainvoke(
             llm,
             [

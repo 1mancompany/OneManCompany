@@ -104,14 +104,18 @@ def _resolve_provider_key(provider_name: str, employee_api_key: str) -> str:
     return ""
 
 
-def make_llm(employee_id: str = "") -> BaseChatModel:
+def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseChatModel:
     """Create an LLM instance, using per-agent model config from employees/{id}/profile.yaml.
 
     Supports all providers in PROVIDER_REGISTRY (openrouter, openai, anthropic,
     kimi, deepseek, qwen, zhipu, groq, together, etc.).
+
+    Args:
+        employee_id: Use this employee's LLM config. Empty = company default.
+        temperature: Override temperature. None = use employee/default value.
     """
     model = settings.default_llm_model
-    temperature = 0.7
+    effective_temp = 0.7
     api_provider = "openrouter"
     api_key = ""
 
@@ -119,9 +123,12 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
         cfg = employee_configs[employee_id]
         if cfg.llm_model:
             model = cfg.llm_model
-        temperature = cfg.temperature
+        effective_temp = cfg.temperature
         api_provider = cfg.api_provider
         api_key = cfg.api_key
+
+    if temperature is not None:
+        effective_temp = temperature
 
     prov = get_provider(api_provider)
 
@@ -143,7 +150,7 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
             return ChatAnthropic(
                 model=model,
                 api_key=effective_key,
-                temperature=temperature,
+                temperature=effective_temp,
                 max_retries=3,
                 default_headers=extra_headers or None,
             )
@@ -160,7 +167,7 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
                 model=model,
                 api_key=effective_key,
                 base_url=base_url,
-                temperature=temperature,
+                temperature=effective_temp,
                 max_retries=3,
             )
 
@@ -169,11 +176,15 @@ def make_llm(employee_id: str = "") -> BaseChatModel:
         logger.debug("Provider '{}' has no key, falling back to openrouter default", api_provider)
         model = settings.default_llm_model
 
+    fallback_key = settings.openrouter_api_key
+    if not fallback_key:
+        logger.warning("make_llm: no API key for provider '{}' and no OpenRouter fallback key; LLM calls will fail", api_provider)
+
     return ChatOpenAI(
         model=model,
-        api_key=settings.openrouter_api_key,
+        api_key=fallback_key,
         base_url=settings.openrouter_base_url,
-        temperature=temperature,
+        temperature=effective_temp,
         max_retries=3,
     )
 

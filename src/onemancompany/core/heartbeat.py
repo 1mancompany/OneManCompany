@@ -10,6 +10,8 @@ Health checks via probe_chat (minimal-token probe):
 from __future__ import annotations
 
 import asyncio
+
+from onemancompany.core.async_utils import spawn_background
 import os
 
 from loguru import logger
@@ -146,7 +148,7 @@ def _update_online(emp_id: str, online: bool, changed: list[str]) -> None:
     current = emp_data.get("runtime", {}).get("api_online", False)
     if current != online:
         try:
-            asyncio.create_task(_store.save_employee_runtime(emp_id, api_online=online))
+            spawn_background(_store.save_employee_runtime(emp_id, api_online=online))
         except RuntimeError:
             logger.debug("No event loop for runtime persist of {}", emp_id)
         if emp_id not in changed:
