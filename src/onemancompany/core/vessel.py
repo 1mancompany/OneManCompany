@@ -1029,9 +1029,13 @@ class EmployeeManager:
                     logger.warning("Pre-task hook failed for %s", employee_id)
 
             # Universal timeout — asyncio.wait_for wraps ALL executor types.
-            # SubprocessExecutor's internal timeout is left at its default;
-            # the outer wait_for is the single source of truth for cancellation.
             task_timeout = node.timeout_seconds or 3600
+            # For SubprocessExecutor: set its internal timeout slightly longer
+            # so the outer wait_for fires first. If the outer cancellation
+            # somehow fails, the inner timeout still kills the subprocess.
+            from onemancompany.core.subprocess_executor import SubprocessExecutor
+            if isinstance(executor, SubprocessExecutor):
+                executor.timeout_seconds = task_timeout + 30
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
@@ -1047,10 +1051,8 @@ class EmployeeManager:
                     last_err = rec_err
                     self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
                     break
-                except TimeoutError as te:
-                    last_err = te
-                    self._log_node(employee_id, entry.node_id, "timeout", f"Executor timed out after {task_timeout}s")
-                    break
+                except TimeoutError:
+                    raise  # Don't retry — let outer except TimeoutError handle it
                 except Exception as run_err:
                     last_err = run_err
                     if attempt < max_retries - 1:
