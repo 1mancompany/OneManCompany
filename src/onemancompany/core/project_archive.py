@@ -188,6 +188,9 @@ async def _llm_project_name(task: str) -> str:
         from onemancompany.agents.base import make_llm, tracked_ainvoke
 
         llm = make_llm()
+        # Use temperature=0 for deterministic naming
+        if hasattr(llm, 'temperature'):
+            llm.temperature = 0
         result = await tracked_ainvoke(
             llm,
             [

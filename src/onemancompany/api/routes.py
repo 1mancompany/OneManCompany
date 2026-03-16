@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
 import uuid as _uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -3657,6 +3656,18 @@ _active_onboarding: dict[str, dict] = {}
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _spawn_background(coro) -> asyncio.Task:
+    """Launch a fire-and-forget background task with GC protection.
+
+    Python 3.12+ only keeps weak references to asyncio tasks.
+    This stores a strong reference until the task completes.
+    """
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
 def _track_onboarding_progress(batch_id: str, candidate_id: str, name: str, role: str, step: str, message: str, total: int) -> None:
     """Update in-memory onboarding tracker for state recovery on refresh."""
     if batch_id not in _active_onboarding:
@@ -3781,7 +3792,7 @@ async def hire_candidate(body: HireRequest) -> dict:
         logger.info("[hiring] Applying COO context: role='{}' over talent role='{}'", coo_ctx.get("role"), candidate.get("role"))
 
     # Launch onboarding as background task
-    asyncio.create_task(
+    _spawn_background(
         _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
     )
 
@@ -3911,8 +3922,7 @@ async def _do_hire_single(
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.error("[hiring] Background hire failed for {}: {}", candidate.get("name"), e)
-        traceback.print_exc()
+        logger.exception("[hiring] Background hire failed for {}", candidate.get("name"))
         _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", str(e), 1)
         await event_bus.publish(CompanyEvent(
             type="onboarding_progress",
@@ -4025,12 +4035,10 @@ async def batch_hire_candidates(body: dict) -> dict:
         else:
             coo_ctxs.append({})
 
-    # Launch background task for the actual hiring (store ref to prevent GC)
-    task = asyncio.create_task(
+    # Launch background task for the actual hiring
+    _spawn_background(
         _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
     )
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
     names = []
     for sel in selections:
@@ -4053,6 +4061,7 @@ async def _do_batch_hire(
 
     total = len(selections)
     results = []
+    hired_names: list[str] = []
     logger.info("[batch-hire] Starting batch hire: batch_id={}, {} candidates", batch_id, total)
 
     try:
@@ -4170,7 +4179,7 @@ async def _do_batch_hire(
                         _notify_coo_hire_ready(emp.id, coo_ctx)
 
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
                     type="onboarding_progress",
@@ -4217,14 +4226,10 @@ async def _do_batch_hire(
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logger.error("[hiring] Background batch hire failed: {}", e)
-        traceback.print_exc()
+        logger.exception("[hiring] Background batch hire failed")
     finally:
         # ALWAYS resume HR HOLDING task — even on partial/total failure
-        try:
-            resume_msg = f"Batch hired: {', '.join(hired_names)}" if hired_names else "Batch hire completed (no candidates hired)"
-        except NameError:
-            resume_msg = "Batch hire failed"
+        resume_msg = f"Batch hired: {', '.join(hired_names)}" if hired_names else "Batch hire completed (no candidates hired)"
         try:
             from onemancompany.core.vessel import employee_manager as _em_batch
             from onemancompany.core.task_tree import get_tree as _get_tree_batch
@@ -4243,7 +4248,10 @@ async def _do_batch_hire(
         except Exception as resume_exc:
             logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
 
-        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        try:
+            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        except Exception:
+            logger.debug("[hiring] Could not publish state_snapshot in finally")
 
 
 @router.post("/api/candidates/interview")
@@ -5463,7 +5471,7 @@ async def open_ceo_conversation(node_id: str):
     register_session(session)
 
     # Start conversation loop as background task
-    asyncio.create_task(_run_conversation_loop(session, node, tree, project_dir))
+    _spawn_background(_run_conversation_loop(session, node, tree, project_dir))
 
     messages = load_messages(Path(project_dir) / "conversations", node_id)
     node.load_content(project_dir)
