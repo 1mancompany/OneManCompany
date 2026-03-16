@@ -3800,10 +3800,18 @@ async def _do_hire_single(
     from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
     from onemancompany.agents.onboarding import execute_hire, generate_nickname
 
+    logger.info("[hiring] Starting single hire: batch_id={}, candidate={}", batch_id, candidate.get("name"))
     try:
         # Auto-generate nickname if not provided
         if not nickname:
-            nickname = await generate_nickname(candidate["name"], candidate.get("role", ""), is_founding=False)
+            try:
+                nickname = await asyncio.wait_for(
+                    generate_nickname(candidate["name"], candidate.get("role", ""), is_founding=False),
+                    timeout=60,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("[hiring] Nickname generation timed out for {}", candidate["name"])
+                nickname = ""
 
         # Read authoritative fields from the talent profile
         talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
@@ -4041,9 +4049,10 @@ async def _do_batch_hire(
 
     total = len(selections)
     results = []
+    logger.info("[batch-hire] Starting batch hire: batch_id={}, {} candidates", batch_id, total)
 
     try:
-        # Pre-generate nicknames concurrently
+        # Pre-generate nicknames concurrently (with overall timeout)
         async def _gen_nick(sel):
             cid = sel.get("candidate_id", "")
             candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == cid), None)
@@ -4057,8 +4066,16 @@ async def _do_batch_hire(
                 nick = ""
             return cid, nick
 
-        nickname_results = await asyncio.gather(*[_gen_nick(s) for s in selections])
-        nickname_map = dict(nickname_results)
+        try:
+            nickname_results = await asyncio.wait_for(
+                asyncio.gather(*[_gen_nick(s) for s in selections]),
+                timeout=60,
+            )
+            nickname_map = dict(nickname_results)
+        except asyncio.TimeoutError:
+            logger.warning("[batch-hire] Nickname generation timed out, proceeding without nicknames")
+            nickname_map = {}
+        logger.info("[batch-hire] Nicknames ready, starting hire loop")
 
         for idx, sel in enumerate(selections):
             candidate_id = sel.get("candidate_id", "")

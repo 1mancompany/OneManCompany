@@ -60,6 +60,9 @@ def _get_existing_nicknames() -> set[str]:
     return nicknames
 
 
+_NICKNAME_TIMEOUT = 30  # seconds per LLM attempt
+
+
 async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
     """Generate a wuxia-themed Chinese nickname (花名) for an employee.
 
@@ -67,6 +70,7 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
     Normal employees (level 1-3) get 2-character nicknames.
     All nicknames must be unique across all current and ex-employees.
     """
+    import asyncio
     from onemancompany.agents.base import make_llm, tracked_ainvoke
 
     char_count = 3 if is_founding else 2
@@ -92,10 +96,17 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
             f"{avoid_clause}\n"
             f"Reply with ONLY the {char_count}-character 花名, nothing else."
         )
-        result = await tracked_ainvoke(gen_llm, [
-            SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
-            HumanMessage(content=gen_prompt),
-        ], category="nickname_gen", employee_id=HR_ID)
+        try:
+            result = await asyncio.wait_for(
+                tracked_ainvoke(gen_llm, [
+                    SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
+                    HumanMessage(content=gen_prompt),
+                ], category="nickname_gen", employee_id=HR_ID),
+                timeout=_NICKNAME_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Nickname generation timed out for {} (attempt {}/5)", name, attempt + 1)
+            continue
         nickname = result.content.strip()
         chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
         if len(chinese_chars) >= char_count:
