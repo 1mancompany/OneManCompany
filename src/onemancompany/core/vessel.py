@@ -2004,6 +2004,24 @@ class EmployeeManager:
         _save_ephemeral_state()
         _pending_code_changes.clear()
 
+        # Cancel and await all fire-and-forget background tasks so they don't
+        # get silently killed by os.execv.
+        from onemancompany.core.async_utils import _background_tasks
+        if _background_tasks:
+            logger.info("Graceful restart: waiting for {} background task(s) to finish", len(_background_tasks))
+            # Give them a chance to finish naturally (e.g. ongoing hires)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*list(_background_tasks), return_exceptions=True),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Graceful restart: {} background task(s) still running after 30s, cancelling",
+                               len(_background_tasks))
+                for t in list(_background_tasks):
+                    t.cancel()
+                await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+
         await event_bus.publish(
             CompanyEvent(
                 type="backend_restart_scheduled",

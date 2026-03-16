@@ -514,6 +514,14 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
 
     from onemancompany.core.events import CompanyEvent, event_bus
 
+    # Guard: reject duplicate shortlist while a pending batch already exists
+    if pending_candidates:
+        existing_ids = list(pending_candidates.keys())
+        return (
+            f"A shortlist is already pending (batch_id={existing_ids[0]}). "
+            "Wait for CEO to approve or dismiss the current batch before submitting a new one."
+        )
+
     # Build flat candidate list from IDs (always needed for backward compat)
     all_candidates = []
     for cid in candidate_ids[:5]:
@@ -521,7 +529,7 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
         if full:
             all_candidates.append(full)
         else:
-            logger.warning("submit_shortlist: candidate %s not found in search results", cid)
+            logger.warning("submit_shortlist: candidate {} not found in search results", cid)
 
     if not all_candidates:
         return "ERROR: No valid candidates found. Call search_candidates() first."
@@ -561,7 +569,7 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
         },
         agent="HR",
     ))
-    logger.info("Shortlist submitted: batch=%s, %d candidates in %d roles",
+    logger.info("Shortlist submitted: batch={}, {} candidates in {} roles",
                 batch_id, len(all_candidates), len(hydrated_roles))
     return (
         f"Shortlist submitted (batch_id={batch_id}). "

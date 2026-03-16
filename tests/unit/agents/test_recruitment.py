@@ -454,6 +454,7 @@ class TestSessionIdTracking:
 
         recruitment._last_session_id = "ses_test123"
         recruitment._last_search_results["c1"] = {"id": "c1", "name": "Test"}
+        recruitment.pending_candidates.clear()  # ensure guard doesn't block
 
         mock_bus = MagicMock()
         mock_bus.publish = AsyncMock()
