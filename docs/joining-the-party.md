@@ -397,7 +397,19 @@ talents/{talent-id}/
     └── {name}.py           #   Function implementations
 ```
 
-Onboarding flow: HR browses talent market → CEO confirms hire → Platform assigns employee number / department / desk → Copies skills & tools to employee directory → Generates nickname → Registers with EmployeeManager → Ready to work.
+Onboarding flow: HR browses talent market → CEO confirms hire → Platform assigns employee number / department / desk → Copies skills & tools to employee directory → Assigns nickname → Registers with EmployeeManager → Ready to work.
+
+### Customizing Nicknames (花名)
+
+Each employee receives a wuxia-themed 2-character Chinese nickname (花名) on hire. Nicknames are drawn randomly from a pool file:
+
+```
+company/human_resource/nicknames.txt
+```
+
+The file ships with 1000 pre-built names sourced from classic wuxia novels (金庸、古龙、梁羽生) and jianghu-inspired combinations. You can replace this file with your own list — one nickname per line, any character length. The system picks a random name that doesn't collide with existing employees.
+
+To use a custom pool, place your `nicknames.txt` in `<data_dir>/company/human_resource/nicknames.txt` (the runtime data directory takes priority over the built-in file).
 
 ---
 

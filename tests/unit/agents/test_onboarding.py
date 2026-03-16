@@ -88,111 +88,66 @@ class TestGetExistingNicknames:
 
 class TestGenerateNickname:
     @pytest.mark.asyncio
-    async def test_generates_unique_2char_nickname(self, monkeypatch):
-        from onemancompany.agents import onboarding, base as base_mod
+    async def test_picks_2char_from_pool(self, monkeypatch):
+        from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
-
-        mock_llm = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "追风"
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "星辰"])
 
         nickname = await onboarding.generate_nickname("Test Dev", "Engineer", is_founding=False)
-        assert nickname == "追风"
         assert len(nickname) == 2
+        assert nickname in {"凌风", "追风", "星辰"}
 
     @pytest.mark.asyncio
-    async def test_generates_3char_for_founding(self, monkeypatch):
-        from onemancompany.agents import onboarding, base as base_mod
+    async def test_avoids_existing_nicknames(self, monkeypatch):
+        from onemancompany.agents import onboarding
+
+        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"凌风", "追风"})
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "星辰"])
+
+        nickname = await onboarding.generate_nickname("Dev", "Engineer")
+        assert nickname == "星辰"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_pool_exhausted(self, monkeypatch):
+        from onemancompany.agents import onboarding
+
+        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"凌风", "追风"})
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
+
+        nickname = await onboarding.generate_nickname("Dev", "Engineer")
+        # Should generate random 2-char from wuxia chars
+        assert nickname != ""
+        assert len(nickname) == 2
+        assert nickname not in {"凌风", "追风"}
+
+    @pytest.mark.asyncio
+    async def test_founding_gets_3char(self, monkeypatch):
+        from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
-
-        mock_llm = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "逍遥子"
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
+        # Pool has only 2-char names, so founding (3-char) falls back to random gen
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
 
         nickname = await onboarding.generate_nickname("Boss", "COO", is_founding=True)
-        assert nickname == "逍遥子"
         assert len(nickname) == 3
 
     @pytest.mark.asyncio
-    async def test_retries_on_duplicate(self, monkeypatch):
-        from onemancompany.agents import onboarding, base as base_mod
-
-        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"追风"})
-
-        mock_llm = MagicMock()
-        call_count = 0
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            mock_result = MagicMock()
-            if call_count == 1:
-                mock_result.content = "追风"  # duplicate
-            else:
-                mock_result.content = "凌霄"  # unique
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
-
-        nickname = await onboarding.generate_nickname("Dev", "Engineer")
-        assert nickname == "凌霄"
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_falls_back_to_random_after_max_retries(self, monkeypatch):
-        from onemancompany.agents import onboarding, base as base_mod
-
-        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"追风"})
-
-        mock_llm = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "追风"  # always duplicate
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
-
-        nickname = await onboarding.generate_nickname("Dev", "Engineer")
-        # Should fall back to a random nickname from pool (not empty, not the duplicate)
-        assert nickname != ""
-        assert nickname != "追风"
-        assert len(nickname) == 2
-
-    @pytest.mark.asyncio
-    async def test_extracts_chinese_from_noisy_output(self, monkeypatch):
-        from onemancompany.agents import onboarding, base as base_mod
+    async def test_loads_from_file(self, monkeypatch, tmp_path):
+        from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
 
-        mock_llm = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "The nickname is: 凌霄 (ling xiao)"  # noisy LLM output
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
+        nick_file = tmp_path / "nicknames.txt"
+        nick_file.write_text("剑心\n龙吟\n虎啸\n")
+        monkeypatch.setattr(onboarding, "_NICKNAMES_FILE", nick_file)
+        # Also mock settings.data_dir to a non-existent path so it falls back to _NICKNAMES_FILE
+        mock_settings = MagicMock()
+        mock_settings.data_dir = tmp_path / "nonexistent"
+        monkeypatch.setattr(onboarding, "settings", mock_settings)
 
         nickname = await onboarding.generate_nickname("Dev", "Engineer")
-        assert nickname == "凌霄"
+        assert nickname in {"剑心", "龙吟", "虎啸"}
 
 
 # ---------------------------------------------------------------------------
@@ -603,82 +558,36 @@ class TestExecuteHire:
 # generate_nickname — additional edge cases
 # ---------------------------------------------------------------------------
 
-class TestGenerateNicknameEdgeCases:
-    @pytest.mark.asyncio
-    async def test_fewer_chinese_chars_than_needed(self, monkeypatch):
-        """When LLM returns fewer Chinese chars than required, use what we get."""
-        from onemancompany.agents import onboarding, base as base_mod
+class TestPickNickname:
+    def test_picks_from_pool_by_char_count(self, monkeypatch):
+        from onemancompany.agents import onboarding
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "御风行"])
+        result = onboarding._pick_nickname(2, set())
+        assert result in {"凌风", "追风"}
 
-        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
+    def test_avoids_existing(self, monkeypatch):
+        from onemancompany.agents import onboarding
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
+        result = onboarding._pick_nickname(2, {"凌风"})
+        assert result == "追风"
 
-        mock_llm = MagicMock()
-        call_count = 0
+    def test_falls_back_to_random_chars(self, monkeypatch):
+        from onemancompany.agents import onboarding
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风"])
+        result = onboarding._pick_nickname(2, {"凌风"})
+        assert len(result) == 2
+        assert result != "凌风"
 
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            mock_result = MagicMock()
-            # Return only 1 Chinese char when 2 are needed
-            if call_count == 1:
-                mock_result.content = "风"
-            else:
-                mock_result.content = "追风"
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
-
-        nickname = await onboarding.generate_nickname("Test", "Engineer", is_founding=False)
-        # First attempt returns 1 char (fewer than 2, but non-empty) — accepted
-        assert nickname == "风"
-
-    @pytest.mark.asyncio
-    async def test_no_chinese_chars_at_all_retries(self, monkeypatch):
-        """LLM returns no Chinese chars — should retry and fall back to random."""
-        from onemancompany.agents import onboarding, base as base_mod
-
-        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
-
-        mock_llm = MagicMock()
-
-        async def fake_tracked_ainvoke(*args, **kwargs):
-            mock_result = MagicMock()
-            mock_result.content = "no chinese here at all"
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
-
-        nickname = await onboarding.generate_nickname("Test", "Engineer")
-        # Falls back to random nickname from pool
-        assert nickname != ""
-        assert len(nickname) == 2
-
-    @pytest.mark.asyncio
-    async def test_avoid_clause_with_existing_nicknames(self, monkeypatch):
-        """When there are existing nicknames, the prompt should mention them."""
-        from onemancompany.agents import onboarding, base as base_mod
-
-        existing = {"追风", "凌霄", "破军"}
-        monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: existing)
-
-        mock_llm = MagicMock()
-        mock_result = MagicMock()
-        mock_result.content = "天机"
-
-        captured_messages = []
-        async def fake_tracked_ainvoke(llm, messages, **kwargs):
-            captured_messages.extend(messages)
-            return mock_result
-
-        monkeypatch.setattr(base_mod, "make_llm", lambda _: mock_llm)
-        monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
-
-        nickname = await onboarding.generate_nickname("Test", "Engineer")
-        assert nickname == "天机"
-        # The prompt should contain at least one of the existing nicknames
-        prompt_text = captured_messages[1].content
-        assert any(n in prompt_text for n in existing)
+    def test_loads_from_file(self, monkeypatch, tmp_path):
+        from onemancompany.agents import onboarding
+        nick_file = tmp_path / "nicknames.txt"
+        nick_file.write_text("剑心\n龙吟\n")
+        monkeypatch.setattr(onboarding, "_NICKNAMES_FILE", nick_file)
+        mock_settings = MagicMock()
+        mock_settings.data_dir = tmp_path / "nonexistent"
+        monkeypatch.setattr(onboarding, "settings", mock_settings)
+        result = onboarding._pick_nickname(2, set())
+        assert result in {"剑心", "龙吟"}
 
 
 # ---------------------------------------------------------------------------

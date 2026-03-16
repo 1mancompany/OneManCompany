@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import importlib.util
 import json as _json
-import re
 import shutil
 import subprocess
 from pathlib import Path
-
-from langchain_core.messages import HumanMessage, SystemMessage
 
 import yaml
 
@@ -60,33 +57,39 @@ def _get_existing_nicknames() -> set[str]:
     return nicknames
 
 
-_NICKNAME_TIMEOUT = 30  # seconds per LLM attempt
-
-# Fallback pool for random nickname generation when LLM fails
-_WUXIA_CHARS_2 = [
-    "凌风", "云霄", "星辰", "破浪", "惊鸿", "飞羽", "寒光", "雷霆",
-    "烈焰", "碧落", "苍穹", "紫霞", "青云", "白鹤", "墨影", "剑心",
-    "龙吟", "虎啸", "鹤鸣", "凤舞", "松风", "竹月", "梅雪", "兰溪",
-    "玄武", "朱雀", "天狼", "北斗", "银河", "流星", "晓月", "暮雨",
-]
-_WUXIA_CHARS_3 = [
-    "御风行", "踏雪归", "听雨轩", "揽月阁", "破云天", "望星辰",
-    "逐浪客", "凌霄子", "醉剑仙", "铸剑师", "百里烟", "九霄云",
-    "千秋雪", "万里风", "一剑封", "三清子", "太虚子", "无涯客",
-]
+_NICKNAMES_FILE = Path(__file__).resolve().parents[3] / "company" / "human_resource" / "nicknames.txt"
 
 
-def _random_nickname(char_count: int, existing: set[str]) -> str:
-    """Pick a random wuxia nickname that doesn't collide with existing ones."""
+def _load_nickname_pool() -> list[str]:
+    """Load the wuxia nickname pool from company/human_resource/nicknames.txt.
+
+    Reads from disk every call (磁盘即唯一真相源). The file is small (~1000 lines)
+    so there is no measurable overhead.
+    """
+    # Runtime data dir takes priority (user may have customised it there)
+    runtime_file = settings.data_dir / "company" / "human_resource" / "nicknames.txt"
+    src = runtime_file if runtime_file.exists() else _NICKNAMES_FILE
+
+    if src.exists():
+        pool = [
+            line.strip() for line in src.read_text("utf-8").splitlines() if line.strip()
+        ]
+        logger.debug("Loaded {} nicknames from {}", len(pool), src)
+        return pool
+
+    logger.warning("Nickname file not found at {}; using built-in fallback", src)
+    return []
+
+
+def _pick_nickname(char_count: int, existing: set[str]) -> str:
+    """Pick a random wuxia nickname from the pool, avoiding collisions."""
     import random
-    pool = list(_WUXIA_CHARS_3 if char_count == 3 else _WUXIA_CHARS_2)
-    random.shuffle(pool)
-    for n in pool:
-        if n not in existing:
-            return n
-    # Extremely unlikely: all pool names taken — generate from random chars
+    pool = [n for n in _load_nickname_pool() if len(n) == char_count and n not in existing]
+    if pool:
+        return random.choice(pool)
+    # Exhausted pool — generate from random wuxia chars
     wuxia_parts = "风云雷电霜雪星月剑刀枪棍龙虎鹤凤松竹梅兰"
-    for _ in range(20):
+    for _ in range(50):
         candidate = "".join(random.choices(wuxia_parts, k=char_count))
         if candidate not in existing:
             return candidate
@@ -94,70 +97,23 @@ def _random_nickname(char_count: int, existing: set[str]) -> str:
 
 
 async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
-    """Generate a wuxia-themed Chinese nickname (花名) for an employee.
+    """Assign a wuxia-themed Chinese nickname (花名) for an employee.
 
     Founding employees (level 4) get 3-character nicknames.
     Normal employees (level 1-3) get 2-character nicknames.
     All nicknames must be unique across all current and ex-employees.
-    Falls back to random selection if LLM fails after 5 attempts.
-    """
-    import asyncio
-    from onemancompany.agents.base import make_llm, tracked_ainvoke
 
+    Nicknames are drawn from company/human_resource/nicknames.txt (replaceable
+    by the user). No LLM calls — instant and reliable.
+    """
     char_count = 3 if is_founding else 2
     existing = _get_existing_nicknames()
-    gen_llm = make_llm(HR_ID)
-
-    for attempt in range(5):
-        avoid_clause = ""
-        if existing:
-            sample = list(existing)[:20]
-            avoid_clause = f"- MUST NOT be any of these existing nicknames: {', '.join(sample)}\n"
-
-        gen_prompt = (
-            f"You are a wuxia novelist naming a character.\n"
-            f"Give a 花名 (nickname) for: {name}, role: {role}.\n\n"
-            f"Requirements:\n"
-            f"- Exactly {char_count} Chinese characters\n"
-            f"- Must have a wuxia/martial arts/jianghu flavor — think swordsmen, heroes, legendary figures\n"
-            f"- Should sound like a person's name or title in the jianghu, not an object\n"
-            f"- Creative, memorable, and fitting for their role\n"
-            f"- Reference style: 独孤求败, 风清扬, 令狐冲, 段誉, 黄蓉, 小龙女, 逍遥子, 天山童姥\n"
-            f"- For {char_count}-char names: 铁面侠, 暖心侠, 玲珑阁, 金算盘, 逍遥子, 追风客\n"
-            f"{avoid_clause}\n"
-            f"Reply with ONLY the {char_count}-character 花名, nothing else."
-        )
-        try:
-            result = await asyncio.wait_for(
-                tracked_ainvoke(gen_llm, [
-                    SystemMessage(content="You are a wuxia novelist. Reply with ONLY the nickname."),
-                    HumanMessage(content=gen_prompt),
-                ], category="nickname_gen", employee_id=HR_ID),
-                timeout=_NICKNAME_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("Nickname generation timed out for {} (attempt {}/5)", name, attempt + 1)
-            continue
-        except Exception as exc:
-            logger.warning("Nickname generation error for {} (attempt {}/5): {}", name, attempt + 1, exc)
-            continue
-        nickname = result.content.strip()
-        chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
-        if len(chinese_chars) >= char_count:
-            candidate = ''.join(chinese_chars[:char_count])
-        elif chinese_chars:
-            candidate = ''.join(chinese_chars)
-        else:
-            continue
-
-        if candidate not in existing:
-            return candidate
-
-    # Fallback: random nickname from pool
-    fallback = _random_nickname(char_count, existing)
-    if fallback:
-        logger.warning("Using random fallback nickname '{}' for {} after 5 failed LLM attempts", fallback, name)
-    return fallback
+    nickname = _pick_nickname(char_count, existing)
+    if nickname:
+        logger.info("Assigned nickname '{}' to {} (from pool)", nickname, name)
+    else:
+        logger.warning("Could not find a unique {}-char nickname for {}", char_count, name)
+    return nickname
 
 
 # ---------------------------------------------------------------------------
