@@ -353,17 +353,20 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         if not node:
             return {"status": "error", "message": f"Node {node_id} not found."}
 
+        # Normalize status to string for comparison (TaskNode.status is str)
+        current = node.status.value if hasattr(node.status, "value") else node.status
+
         # Idempotent: already accepted → return success without re-transitioning
-        if node.status == TaskPhase.ACCEPTED:
+        if current == TaskPhase.ACCEPTED.value:
             return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
-        if node.status == TaskPhase.FINISHED:
+        if current == TaskPhase.FINISHED.value:
             return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
 
         # Only completed tasks can be accepted
-        if node.status != TaskPhase.COMPLETED:
+        if current != TaskPhase.COMPLETED.value:
             return {
                 "status": "error",
-                "message": f"Cannot accept node {node_id}: current status is '{node.status.value}', must be 'completed' first.",
+                "message": f"Cannot accept node {node_id}: current status is '{current}', must be 'completed' first.",
             }
 
         node.set_status(TaskPhase.ACCEPTED)
