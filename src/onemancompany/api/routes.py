@@ -1843,6 +1843,9 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     # Persist via store
     await _store.save_employee(employee_id, {"llm_model": model_id, "salary_per_1m_tokens": new_salary})
 
+    # Rebuild the in-memory LLM agent so the new model takes effect immediately
+    _rebuild_employee_agent(employee_id)
+
     await event_bus.publish(
         CompanyEvent(
             type="agent_done",
