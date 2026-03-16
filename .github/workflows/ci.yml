@@ -15,7 +15,9 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          pip install -e .
+          pip install pytest pytest-asyncio pytest-timeout
 
       - name: Compilation check
         run: python -c "from onemancompany.api.routes import router; print('OK')"
