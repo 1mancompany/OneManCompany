@@ -9,11 +9,18 @@
 <p align="center"><b>The AI Operating System for One-Person Companies</b></p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+</p>
+
+<p align="center">
   <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="90%" />
 </p>
 
 <p align="center">
-  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
+  <a href="https://1mancompany.github.io/OneManCompany/">Homepage</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.
@@ -26,19 +33,25 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
-🏢 **Real company, not a chatbot**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous.
+⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps. Same system, different direction and team — entirely new company.
+
+🤖 **Real agents, but top talent welcome**: *Built-in execution engine, task scheduling, retry & fault tolerance, multi-agent communication protocols.* OpenClaw, Claude Code, and other powerful agents can move right in as employees. Yes, there's a visualization — but that's just the surface. Underneath runs a full operating system. The pixel-art office is just the tip of the iceberg.
+
+🏢 **Real company, not a chatbot**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous. Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after Fortune 500 management.
+
+🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Engineers pull in designers, COO coordinates the big picture, employees call their own meetings to align — multi-agent meetings, cross-functional delegation, structured handoffs. Real teamwork, not parallel chat windows pretending to be a company.
+
+🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://one-man-company.com)** of battle-tested, community-scored AI employees. No self-proclaimed "I'm an expert in everything" agents allowed.
 
 📈 **Gets smarter with use**: *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
-
-🛡️ **No more hallucination roulette**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that talks big and delivers nothing? We ship with a **[Talent Market](https://one-man-company.com)** of community-verified AI employees.
-
-⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
 
 ```bash
 npx @1mancompany/onemancompany
 ```
 
-> One command. A full AI company in your browser. No Python, no Docker, no config — just run it.
+> **One command. A full AI company in your browser.** No Python, no Docker, no config — just run it.
+>
+> If this project is useful to you, please consider giving it a ⭐ — it helps others discover OneManCompany.
 
 ---
 
@@ -114,6 +127,9 @@ npx @1mancompany/onemancompany
       <br><b>"Make me a game"</b>
       <br><i>CEO gives one sentence — the team builds a complete game autonomously.</i>
     </td>
+    <td align="center" width="50%">
+      <i>More demos coming soon — <a href="https://github.com/1mancompany/OneManCompany/issues">request one</a></i>
+    </td>
   </tr>
 </table>
 
@@ -167,8 +183,11 @@ These aren't toy demos — each AI company produces **product-level deliverables
 
 |                                | Typical Agent Orchestrators          | OneManCompany                                                          |
 | ------------------------------ | ------------------------------------ | ---------------------------------------------------------------------- |
-| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — modular architecture with Harness protocols |
+| **Agent system**               | Wrapper / visualization on third-party agents | **Own agent runtime** — execution engine, retry, communication, all built from scratch |
+| **Agent collaboration**        | Parallel execution, no real interaction | **Multi-agent meetings**, cross-functional delegation, structured handoffs |
 | **Where do agents come from?** | You find and configure them yourself | **C-suite built-in on Day 1** + HR hires from a verified Talent Market |
+| **Management methodology**     | Ad-hoc, improvised by LLM           | Systematic — modeled after Fortune 500 org structures and management science |
+| **Agent architecture**         | Flat task runners, BYOA              | Vessel + Talent separation — modular architecture with Harness protocols |
 | **Execution model**            | Heartbeat polling / loop             | Event-driven, zero-idle, on-demand dispatch                            |
 | **Organization**               | Simple task queues                   | Full company simulation — org chart, reviews, coaching, meetings       |
 | **Deliverables**               | Single-point task outputs            | Multi-iteration project delivery with quality gates                    |
@@ -419,7 +438,8 @@ If you use OneManCompany in your research or project, please cite it:
 ```bibtex
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},
   license = {Apache-2.0}
@@ -430,7 +450,7 @@ If you use OneManCompany in your research or project, please cite it:
 
 ## Links
 
-**[Talent Market](https://one-man-company.com)** — Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
+**[Talent Market](https://one-man-company.com)** — Community-verified AI employee marketplace (Built an amazing AI agent but no one uses it? List it on the market — let it work for someone's company!)
 
 **[Talent Template](https://github.com/1mancompany/talent-template)** — Template repo for building your own Talents
 
