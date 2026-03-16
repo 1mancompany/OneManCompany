@@ -532,6 +532,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
 
     Returns the local talent directory path for the requested talent_id.
     """
+    import asyncio
     import tempfile
 
     _TALENTS_CLONE_DIR.mkdir(parents=True, exist_ok=True)
@@ -539,7 +540,14 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
     # Clone into a temp dir first to inspect structure
     tmp_clone = Path(tempfile.mkdtemp(prefix="talent_clone_"))
     try:
-        subprocess.run(["git", "clone", repo_url, str(tmp_clone)], check=True)
+        proc = await asyncio.create_subprocess_exec(
+            "git", "clone", repo_url, str(tmp_clone),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, f"git clone {repo_url}", stderr=stderr)
 
         # Check if repo itself is a single talent (has profile.yaml at root)
         if (tmp_clone / "profile.yaml").exists():

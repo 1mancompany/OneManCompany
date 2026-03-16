@@ -1,10 +1,25 @@
 """Tests for clone_talent_repo in onboarding.py."""
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 
 from onemancompany.agents.onboarding import clone_talent_repo
+
+
+def _make_fake_proc(side_effect):
+    """Create a mock async subprocess that runs side_effect to simulate git clone."""
+    proc = AsyncMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+
+    async def _fake_create(*args, **kwargs):
+        # args[0..N] are the command parts; find the target dir (last positional arg)
+        cmd = list(args)
+        side_effect(cmd)
+        return proc
+
+    return _fake_create
 
 
 class TestCloneTalentRepo:
@@ -14,14 +29,13 @@ class TestCloneTalentRepo:
         import onemancompany.agents.onboarding as onboarding_mod
         monkeypatch.setattr(onboarding_mod, "_TALENTS_CLONE_DIR", tmp_path)
 
-        def fake_clone(cmd, check=True):
-            # Simulate git clone — cmd is ["git", "clone", url, target_dir]
+        def fake_clone(cmd):
+            # cmd is ["git", "clone", url, target_dir]
             clone_dir = Path(cmd[3])
             clone_dir.mkdir(parents=True, exist_ok=True)
             (clone_dir / "profile.yaml").write_text("name: test\nhosting: self\n")
 
-        with patch("onemancompany.agents.onboarding.subprocess") as mock_sub:
-            mock_sub.run = MagicMock(side_effect=fake_clone)
+        with patch("asyncio.create_subprocess_exec", new=_make_fake_proc(fake_clone)):
             result = await clone_talent_repo("https://git.example.com/repo.git", "test-talent")
 
         assert result == tmp_path / "test-talent"
@@ -33,7 +47,7 @@ class TestCloneTalentRepo:
         import onemancompany.agents.onboarding as onboarding_mod
         monkeypatch.setattr(onboarding_mod, "_TALENTS_CLONE_DIR", tmp_path)
 
-        def fake_clone(cmd, check=True):
+        def fake_clone(cmd):
             clone_dir = Path(cmd[3])
             clone_dir.mkdir(parents=True, exist_ok=True)
             # Two sub-talents
@@ -43,8 +57,7 @@ class TestCloneTalentRepo:
             (clone_dir / "talent-b" / "profile.yaml").write_text("name: B\n")
             (clone_dir / "README.md").write_text("repo readme")
 
-        with patch("onemancompany.agents.onboarding.subprocess") as mock_sub:
-            mock_sub.run = MagicMock(side_effect=fake_clone)
+        with patch("asyncio.create_subprocess_exec", new=_make_fake_proc(fake_clone)):
             result = await clone_talent_repo("https://git.example.com/repo.git", "talent-a")
 
         assert (tmp_path / "talent-a" / "profile.yaml").exists()
