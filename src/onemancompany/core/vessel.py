@@ -704,6 +704,7 @@ class EmployeeManager:
     def _schedule_next(self, employee_id: str) -> None:
         """If no task is running for this employee, start the next scheduled one."""
         if employee_id in self._running_tasks:
+            logger.debug("[SCHEDULE] employee={} already has running task, skip", employee_id)
             return
         entry = self.get_next_scheduled(employee_id)
         if not entry:
@@ -923,6 +924,8 @@ class EmployeeManager:
         try:
             await self._execute_task(employee_id, entry)
         finally:
+            logger.debug("[TASK LIFECYCLE] employee={} node={} _run_task finally block — cleaning up",
+                         employee_id, entry.node_id)
             self._current_entries.pop(employee_id, None)
             self._running_tasks.pop(employee_id, None)
             self._schedule_next(employee_id)
@@ -1004,6 +1007,11 @@ class EmployeeManager:
                 if progress:
                     task_with_ctx += f"\n\n[Previous Work Learnings]\n{progress}"
 
+            # Debug: print full task prompt (without history)
+            logger.debug("[TASK PROMPT] employee={} node={} project={}:\n{}",
+                         employee_id, entry.node_id, project_id or "none",
+                         task_with_ctx[:3000] + ("..." if len(task_with_ctx) > 3000 else ""))
+
             def _on_log(log_type: str, content: str) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
 
@@ -1066,6 +1074,9 @@ class EmployeeManager:
                 raise last_err
 
             node.result = launch_result.output if launch_result else ""
+            logger.debug("[TASK RESPONSE] employee={} node={}:\n{}",
+                         employee_id, entry.node_id,
+                         (node.result or "")[:3000] + ("..." if len(node.result or "") > 3000 else ""))
             self._log_node(employee_id, entry.node_id, "result", node.result or "")
 
             # Record token usage to node
@@ -1112,6 +1123,8 @@ class EmployeeManager:
 
         # 8. Mark completed (or HOLDING)
         # (No stale-read issue: tree is in-memory cache, all tools modify the same object)
+        logger.debug("[TASK LIFECYCLE] employee={} node={} status_before_completion={}",
+                     employee_id, entry.node_id, node.status)
         if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
             holding_meta = _parse_holding_metadata(node.result or "")
 
@@ -1127,6 +1140,8 @@ class EmployeeManager:
                 )
 
             if holding_meta is not None:
+                logger.debug("[TASK LIFECYCLE] employee={} node={} → HOLDING meta={}",
+                             employee_id, entry.node_id, holding_meta)
                 node.set_status(TaskPhase.HOLDING)
                 save_tree_async(entry.tree_path)
                 # Auto-resume HOLDING (e.g. ceo_request): skip watchdog when the
@@ -1136,10 +1151,14 @@ class EmployeeManager:
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)
+                logger.debug("[TASK LIFECYCLE] employee={} node={} → COMPLETED (type={})",
+                             employee_id, entry.node_id, node.node_type)
                 # System nodes auto-skip review: they don't need to be reviewed themselves
                 if node.node_type in ("review", "ceo_request"):
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
+                    logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node)",
+                                 employee_id, entry.node_id)
                 save_tree_async(entry.tree_path)
 
         if node.status != TaskPhase.HOLDING.value:
@@ -1616,6 +1635,8 @@ class EmployeeManager:
         # Trigger 3: root node failed → project failed
         is_root = not node.parent_id
         task_failed = node.status == TaskPhase.FAILED.value
+        logger.debug("[ON_CHILD_COMPLETE] employee={} node={} status={} is_root={} parent_id={}",
+                     employee_id, entry.node_id, node.status, is_root, node.parent_id)
         if is_root and task_failed:
             await _store.save_project_status(project_id, "failed")
             return
