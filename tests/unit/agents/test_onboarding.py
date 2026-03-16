@@ -135,16 +135,15 @@ class TestGenerateNickname:
     @pytest.mark.asyncio
     async def test_loads_from_file(self, monkeypatch, tmp_path):
         from onemancompany.agents import onboarding
+        from onemancompany.core import config as _config
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
 
         nick_file = tmp_path / "nicknames.txt"
         nick_file.write_text("剑心\n龙吟\n虎啸\n")
         monkeypatch.setattr(onboarding, "_NICKNAMES_FILE", nick_file)
-        # Also mock settings.data_dir to a non-existent path so it falls back to _NICKNAMES_FILE
-        mock_settings = MagicMock()
-        mock_settings.data_dir = tmp_path / "nonexistent"
-        monkeypatch.setattr(onboarding, "settings", mock_settings)
+        # Point DATA_ROOT to a non-existent path so it falls back to _NICKNAMES_FILE
+        monkeypatch.setattr(_config, "DATA_ROOT", tmp_path / "nonexistent")
 
         nickname = await onboarding.generate_nickname("Dev", "Engineer")
         assert nickname in {"剑心", "龙吟", "虎啸"}
@@ -580,12 +579,12 @@ class TestPickNickname:
 
     def test_loads_from_file(self, monkeypatch, tmp_path):
         from onemancompany.agents import onboarding
+        from onemancompany.core import config as _config
         nick_file = tmp_path / "nicknames.txt"
         nick_file.write_text("剑心\n龙吟\n")
         monkeypatch.setattr(onboarding, "_NICKNAMES_FILE", nick_file)
-        mock_settings = MagicMock()
-        mock_settings.data_dir = tmp_path / "nonexistent"
-        monkeypatch.setattr(onboarding, "settings", mock_settings)
+        # Point DATA_ROOT to a non-existent path so it falls back to _NICKNAMES_FILE
+        monkeypatch.setattr(_config, "DATA_ROOT", tmp_path / "nonexistent")
         result = onboarding._pick_nickname(2, set())
         assert result in {"剑心", "龙吟"}
 

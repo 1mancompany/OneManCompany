@@ -67,7 +67,8 @@ def _load_nickname_pool() -> list[str]:
     so there is no measurable overhead.
     """
     # Runtime data dir takes priority (user may have customised it there)
-    runtime_file = settings.data_dir / "company" / "human_resource" / "nicknames.txt"
+    from onemancompany.core.config import DATA_ROOT
+    runtime_file = DATA_ROOT / "company" / "human_resource" / "nicknames.txt"
     src = runtime_file if runtime_file.exists() else _NICKNAMES_FILE
 
     if src.exists():
