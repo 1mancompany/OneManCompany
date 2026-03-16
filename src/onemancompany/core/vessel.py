@@ -535,6 +535,12 @@ def _append_execution_log(employee_id: str, node_id: str, log_type: str, content
         logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
 
 
+def _trunc(s: str | None, limit: int = 3000) -> str:
+    """Truncate string for debug logging."""
+    text = s or ""
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
     """Load recent entries from the employee's progress log."""
     path = EMPLOYEES_DIR / employee_id / "progress.log"
@@ -711,9 +717,11 @@ class EmployeeManager:
             # Also check deferred schedule
             if employee_id in self._deferred_schedule:
                 self._deferred_schedule.discard(employee_id)
+            logger.debug("[SCHEDULE] employee={} no pending tasks → IDLE", employee_id)
             self._set_employee_status(employee_id, STATUS_IDLE)
             return
         try:
+            logger.debug("[SCHEDULE] employee={} starting node={}", employee_id, entry.node_id)
             loop = asyncio.get_running_loop()
             self._running_tasks[employee_id] = loop.create_task(
                 self._run_task(employee_id, entry)
@@ -955,6 +963,7 @@ class EmployeeManager:
 
         # 1. Mark PROCESSING
         node.set_status(TaskPhase.PROCESSING)
+        logger.debug("[TASK LIFECYCLE] employee={} node={} → PROCESSING", employee_id, entry.node_id)
         save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
@@ -1010,7 +1019,7 @@ class EmployeeManager:
             # Debug: print full task prompt (without history)
             logger.debug("[TASK PROMPT] employee={} node={} project={}:\n{}",
                          employee_id, entry.node_id, project_id or "none",
-                         task_with_ctx[:3000] + ("..." if len(task_with_ctx) > 3000 else ""))
+                         _trunc(task_with_ctx))
 
             def _on_log(log_type: str, content: str) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
@@ -1075,8 +1084,7 @@ class EmployeeManager:
 
             node.result = launch_result.output if launch_result else ""
             logger.debug("[TASK RESPONSE] employee={} node={}:\n{}",
-                         employee_id, entry.node_id,
-                         (node.result or "")[:3000] + ("..." if len(node.result or "") > 3000 else ""))
+                         employee_id, entry.node_id, _trunc(node.result))
             self._log_node(employee_id, entry.node_id, "result", node.result or "")
 
             # Record token usage to node
@@ -1093,6 +1101,7 @@ class EmployeeManager:
         except asyncio.CancelledError:
             agent_error = True
             node.status = TaskPhase.CANCELLED.value
+            logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED", employee_id, entry.node_id)
             node.result = node.result or "Cancelled by CEO"
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
@@ -1107,6 +1116,7 @@ class EmployeeManager:
         except TimeoutError as te:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
+            logger.debug("[TASK LIFECYCLE] employee={} node={} → FAILED (timeout)", employee_id, entry.node_id)
             node.result = f"Timeout: task exceeded {node.timeout_seconds or 3600}s limit"
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
@@ -1114,6 +1124,7 @@ class EmployeeManager:
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
+            logger.debug("[TASK LIFECYCLE] employee={} node={} → FAILED (error: {})", employee_id, entry.node_id, e)
             node.result = f"Error: {e!s}"
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
             traceback.print_exc()
@@ -1273,12 +1284,14 @@ class EmployeeManager:
                 node.load_content(Path(entry.tree_path).parent)
                 node.result = result
                 node.set_status(TaskPhase.COMPLETED)
+                logger.debug("[TASK LIFECYCLE] employee={} node={} HOLDING → COMPLETED (resumed)", employee_id, task_id)
                 node.completed_at = datetime.now().isoformat()
 
                 # System nodes auto-skip review
                 if node.node_type in ("review", "ceo_request"):
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
+                    logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node, resumed)", employee_id, task_id)
 
                 save_tree_async(entry.tree_path)
 
@@ -1638,6 +1651,7 @@ class EmployeeManager:
         logger.debug("[ON_CHILD_COMPLETE] employee={} node={} status={} is_root={} parent_id={}",
                      employee_id, entry.node_id, node.status, is_root, node.parent_id)
         if is_root and task_failed:
+            logger.debug("[ON_CHILD_COMPLETE] root node {} failed → project {} marked failed", entry.node_id, project_id)
             await _store.save_project_status(project_id, "failed")
             return
 
@@ -1670,6 +1684,7 @@ class EmployeeManager:
         # Check all children of parent — are they all done executing?
         children = tree.get_active_children(parent_node.id)
         if not tree.all_children_done(parent_node.id):
+            logger.debug("[ON_CHILD_COMPLETE] not all children done for parent={} → waiting", parent_node.id)
             return
 
         # Skip if there's already a pending/processing review node for this parent
