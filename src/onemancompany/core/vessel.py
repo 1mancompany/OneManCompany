@@ -829,6 +829,7 @@ class EmployeeManager:
                         continue
                     if node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value):
                         # Force status — may not follow normal transitions
+                        logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED (project abort)", emp_id, entry.node_id)
                         node.status = TaskPhase.CANCELLED.value
                         node.completed_at = datetime.now().isoformat()
                         node.result = "Cancelled by CEO"
@@ -886,6 +887,7 @@ class EmployeeManager:
                 node = tree.get_node(entry.node_id)
                 if node and node.status in _cancelable:
                     # Force status — may not follow normal transitions
+                    logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED (employee abort)", employee_id, entry.node_id)
                     node.status = TaskPhase.CANCELLED.value
                     node.completed_at = datetime.now().isoformat()
                     node.result = f"Cancelled: employee {employee_id} aborted"
@@ -1665,6 +1667,7 @@ class EmployeeManager:
                 if parent_node.status != TaskPhase.COMPLETED.value:
                     if parent_node.status == TaskPhase.PENDING.value:
                         parent_node.set_status(TaskPhase.PROCESSING)
+                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child of CEO completing)", parent_node.id)
                     parent_node.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (child of CEO completed)", parent_node.id)
                 save_tree_async(entry.tree_path)
@@ -1704,6 +1707,7 @@ class EmployeeManager:
                 return  # Already completed (e.g. from a previous review cycle)
             if parent_node.status == TaskPhase.HOLDING.value:
                 parent_node.set_status(TaskPhase.PROCESSING)
+                logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (resuming from HOLDING for auto-complete)", parent_node.id)
             parent_node.set_status(TaskPhase.COMPLETED)
             logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children accepted)", parent_node.id)
             parent_node.result = "All child tasks accepted."
