@@ -120,7 +120,34 @@ company_state.employees[emp_id].status = "working"
 await store.save_employee_runtime(emp_id, status="working")
 ```
 
-### 6. Minimal Complexity
+### 6. Debug Logging at Key Nodes
+
+Every critical code path must have `logger.debug(...)` at key decision points: function entry with parameters, branching conditions, external call results, and error context. Users deploy with INFO level (default); `--debug` mode (`OMC_DEBUG=1`) enables DEBUG level to surface these logs for diagnosis.
+
+**What to log (DEBUG level):**
+- Function entry with key parameters (truncate long strings)
+- Branch decisions: which path was taken and why
+- External call inputs/outputs (MCP, LLM, API)
+- State transitions and their triggers
+- Loop iterations with item identifiers
+
+**What NOT to log at DEBUG:**
+- Every line of execution (that's tracing, not debugging)
+- Full request/response bodies (truncate to key fields)
+- Sensitive data (API keys, tokens — mask them)
+
+```python
+# Good: key decision points logged
+logger.debug("[recruitment] search called, market_connected={}", talent_market.connected)
+logger.debug("[recruitment] Talent Market candidate #{}: id={}, name={}", idx, tid, tname)
+
+# Bad: no debug logs, impossible to diagnose in production
+grouped = await talent_market.search(jd)  # what happened? who knows
+```
+
+**Rule:** If a bug required adding debug logs to diagnose, those logs stay in the codebase permanently. They cost nothing at INFO level and save hours on the next issue.
+
+### 7. Minimal Complexity
 
 Don't over-engineer. The right amount of complexity is the **minimum** needed for the current task. Three similar lines are better than a premature abstraction.
 
