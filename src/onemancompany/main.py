@@ -21,6 +21,17 @@ _debug_mode = os.environ.get("OMC_DEBUG", "0") == "1"
 logger.remove()
 logger.add(sys.stderr, level="DEBUG" if _debug_mode else "INFO")
 
+# Always write logs to file; DEBUG level when debug mode, else INFO
+_log_dir = Path.cwd() / ".onemancompany" / "logs"
+_log_dir.mkdir(parents=True, exist_ok=True)
+logger.add(
+    _log_dir / "omc_{time:YYYY-MM-DD}.log",
+    level="DEBUG" if _debug_mode else "INFO",
+    rotation="00:00",
+    retention="7 days",
+    encoding="utf-8",
+)
+
 # Load .env from data root (.onemancompany/) first, fall back to source root
 _data_root = Path.cwd() / ".onemancompany"
 _source_root = Path(__file__).parent.parent.parent
