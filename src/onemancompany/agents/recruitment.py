@@ -347,15 +347,20 @@ class TalentMarketClient:
         if not self._session:
             raise RuntimeError("Not connected to Talent Market")
         kwargs["api_key"] = self._api_key
+        logger.debug("[TalentMarket] calling tool={} args={}", tool_name,
+                     {k: v[:30] + "..." if isinstance(v, str) and len(v) > 30 else v for k, v in kwargs.items() if k != "api_key"})
         result = await self._session.call_tool(tool_name, arguments=kwargs)
+        logger.debug("[TalentMarket] result content blocks: {}", len(result.content))
         for item in result.content:
             try:
                 parsed = json.loads(item.text)
             except (json.JSONDecodeError, AttributeError):
-                logger.debug("Skipping unparseable MCP content block")
+                logger.debug("Skipping unparseable MCP content block: {}", getattr(item, 'text', '')[:200])
                 continue
             if isinstance(parsed, dict):
                 return parsed
+        logger.warning("[TalentMarket] No dict found in response, raw content: {}",
+                      [getattr(item, 'text', '')[:200] for item in result.content])
         return {}
 
     async def search(self, job_description: str) -> dict:
@@ -398,11 +403,13 @@ async def start_talent_market() -> None:
     from onemancompany.core.config import load_app_config
 
     tm_config = load_app_config().get("talent_market", {})
+    logger.debug("[recruitment] talent_market config: {}", {k: v[:8] + "..." if k == "api_key" and v else v for k, v in tm_config.items()})
     url = tm_config.get("url", "https://api.one-man-company.com/mcp/sse")
     api_key = tm_config.get("api_key", "")
     if not api_key:
         logger.warning("Talent Market API key not configured — skipping connection")
         return
+    logger.info("[recruitment] Connecting to Talent Market at {} ...", url)
     await talent_market.connect(url, api_key)
 
 
@@ -441,16 +448,19 @@ async def search_candidates(job_description: str) -> dict:
     """
     global _last_session_id
 
+    logger.debug("[recruitment] search_candidates called, talent_market.connected={}", talent_market.connected)
     if talent_market.connected:
         try:
+            logger.debug("[recruitment] Calling Talent Market API for JD: {}", job_description[:80])
             grouped = await talent_market.search(job_description)
             total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
             logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
                         total, len(grouped.get("roles", [])), job_description[:80])
         except Exception as e:
-            logger.error("Talent Market search failed: {}", e)
+            logger.opt(exception=e).error("Talent Market search failed, falling back to local: {!r}", e)
             grouped = _local_fallback_search(job_description)
     else:
+        logger.info("[recruitment] Talent Market not connected, using local talent pool")
         grouped = _local_fallback_search(job_description)
 
     _last_session_id = grouped.get("session_id", "")

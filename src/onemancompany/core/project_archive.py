@@ -214,14 +214,52 @@ async def async_create_project_from_task(
     routed_to: str = "pending",
     participants: list[str] | None = None,
 ) -> tuple[str, str]:
-    """Create a named project + first iteration, using LLM for the name.
+    """Create a named project + first iteration, non-blocking.
+
+    Creates the project immediately with a truncation-based fallback name,
+    then spawns a background task to generate a better LLM name and update
+    the project asynchronously.
 
     Returns (project_id, iteration_id).
     """
-    name = await _llm_project_name(task)
-    project_id = create_named_project(name)
+    # Immediate: create project with fallback name so it appears instantly
+    fallback_name = _auto_project_name(task)
+    project_id = create_named_project(fallback_name)
     iter_id = create_iteration(project_id, task, routed_to)
+
+    # Background: generate LLM name and update when ready
+    from onemancompany.core.async_utils import spawn_background
+
+    async def _rename_when_ready() -> None:
+        import asyncio as _aio
+        try:
+            llm_name = await _aio.wait_for(_llm_project_name(task), timeout=30.0)
+        except _aio.TimeoutError:
+            logger.warning("LLM project naming timed out for {}, keeping fallback", project_id)
+            return
+        if llm_name and llm_name != fallback_name:
+            _update_project_name(project_id, llm_name)
+            logger.info("Project {} renamed: '{}' → '{}'", project_id, fallback_name, llm_name)
+            # Notify frontend via store dirty so next sync tick picks it up
+            from onemancompany.core.store import mark_dirty
+            mark_dirty("task_queue")
+
+    spawn_background(_rename_when_ready())
     return project_id, iter_id
+
+
+def _update_project_name(project_id: str, new_name: str) -> None:
+    """Update the display name of an existing named project."""
+    path = PROJECTS_DIR / project_id / "project.yaml"
+    lock = _get_project_lock(project_id)
+    with lock:
+        if not path.exists():
+            return
+        with open(path) as f:
+            doc = yaml.safe_load(f) or {}
+        doc["name"] = new_name
+        with open(path, "w") as f:
+            yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
 
 
 def create_project_from_task(task: str, routed_to: str = "pending",
