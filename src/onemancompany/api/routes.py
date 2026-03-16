@@ -4049,6 +4049,12 @@ async def _do_batch_hire(
     total = len(selections)
     results = []
     hired_names: list[str] = []
+
+    # Clear pending batch immediately — CEO already approved, data is no longer
+    # "pending review". This unblocks HR from submitting new shortlists.
+    pending_candidates.pop(batch_id, None)
+    _persist_candidates()
+
     logger.info("[batch-hire] Starting batch hire: batch_id={}, {} candidates", batch_id, total)
 
     try:
@@ -4176,9 +4182,6 @@ async def _do_batch_hire(
         if pid and hired_names:
             append_action(pid, HR_ID, "batch onboarding complete", f"{', '.join(hired_names)} have onboarded")
             complete_project(pid, f"Batch hired: {', '.join(hired_names)}")
-
-        pending_candidates.pop(batch_id, None)
-        _persist_candidates()
 
         # Dispatch COO task for department assignment (only if no project context)
         last_coo_ctx = coo_ctxs[-1] if coo_ctxs else {}

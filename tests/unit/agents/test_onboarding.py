@@ -92,7 +92,7 @@ class TestGenerateNickname:
         from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风", "星辰"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "星辰"])
 
         nickname = await onboarding.generate_nickname("Test Dev", "Engineer", is_founding=False)
         assert len(nickname) == 2
@@ -103,7 +103,7 @@ class TestGenerateNickname:
         from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"凌风", "追风"})
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风", "星辰"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "星辰"])
 
         nickname = await onboarding.generate_nickname("Dev", "Engineer")
         assert nickname == "星辰"
@@ -113,7 +113,7 @@ class TestGenerateNickname:
         from onemancompany.agents import onboarding
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"凌风", "追风"})
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
 
         nickname = await onboarding.generate_nickname("Dev", "Engineer")
         # Should generate random 2-char from wuxia chars
@@ -127,7 +127,7 @@ class TestGenerateNickname:
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
         # Pool has only 2-char names, so founding (3-char) falls back to random gen
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
 
         nickname = await onboarding.generate_nickname("Boss", "COO", is_founding=True)
         assert len(nickname) == 3
@@ -136,8 +136,6 @@ class TestGenerateNickname:
     async def test_loads_from_file(self, monkeypatch, tmp_path):
         from onemancompany.agents import onboarding
 
-        # Reset pool cache
-        monkeypatch.setattr(onboarding, "_nickname_pool", None)
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
 
         nick_file = tmp_path / "nicknames.txt"
@@ -563,26 +561,25 @@ class TestExecuteHire:
 class TestPickNickname:
     def test_picks_from_pool_by_char_count(self, monkeypatch):
         from onemancompany.agents import onboarding
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风", "御风行"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风", "御风行"])
         result = onboarding._pick_nickname(2, set())
         assert result in {"凌风", "追风"}
 
     def test_avoids_existing(self, monkeypatch):
         from onemancompany.agents import onboarding
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风", "追风"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风", "追风"])
         result = onboarding._pick_nickname(2, {"凌风"})
         assert result == "追风"
 
     def test_falls_back_to_random_chars(self, monkeypatch):
         from onemancompany.agents import onboarding
-        monkeypatch.setattr(onboarding, "_nickname_pool", ["凌风"])
+        monkeypatch.setattr(onboarding, "_load_nickname_pool", lambda: ["凌风"])
         result = onboarding._pick_nickname(2, {"凌风"})
         assert len(result) == 2
         assert result != "凌风"
 
     def test_loads_from_file(self, monkeypatch, tmp_path):
         from onemancompany.agents import onboarding
-        monkeypatch.setattr(onboarding, "_nickname_pool", None)
         nick_file = tmp_path / "nicknames.txt"
         nick_file.write_text("剑心\n龙吟\n")
         monkeypatch.setattr(onboarding, "_NICKNAMES_FILE", nick_file)

@@ -240,7 +240,7 @@ def create_named_project(name: str) -> str:
     """Create a persistent named project. Returns the project_id (slug-timestamp)."""
     base_slug = _slugify(name)
     # Append compact timestamp to guarantee uniqueness and prevent overwrites
-    ts = datetime.now().strftime("%m%d%H%M")
+    ts = datetime.now().strftime("%m%d%H%M%S")
     slug = f"{base_slug}-{ts}"
     # Extremely unlikely collision (same name + same minute) — append counter
     counter = 1
@@ -400,7 +400,7 @@ def list_named_projects() -> list[dict]:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
-            logger.warning("Failed to load %s: %s", yaml_path, _e)
+            logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
         # Only v2 projects have 'iterations' key
         if "iterations" not in doc:
@@ -596,7 +596,7 @@ def list_projects() -> list[dict]:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
-            logger.warning("Failed to load %s: %s", yaml_path, _e)
+            logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
 
         if "iterations" not in doc:
@@ -715,7 +715,7 @@ def get_cost_summary() -> dict:
             with open(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
-            logger.warning("Failed to load %s: %s", yaml_path, _e)
+            logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
 
         if "iterations" not in doc:

@@ -59,29 +59,26 @@ def _get_existing_nicknames() -> set[str]:
 
 _NICKNAMES_FILE = Path(__file__).resolve().parents[3] / "company" / "human_resource" / "nicknames.txt"
 
-# In-memory cache — loaded once per process.
-_nickname_pool: list[str] | None = None
-
 
 def _load_nickname_pool() -> list[str]:
-    """Load the wuxia nickname pool from company/human_resource/nicknames.txt."""
-    global _nickname_pool
-    if _nickname_pool is not None:
-        return _nickname_pool
+    """Load the wuxia nickname pool from company/human_resource/nicknames.txt.
 
-    # Also check the runtime data dir (user may have customised it there)
+    Reads from disk every call (磁盘即唯一真相源). The file is small (~1000 lines)
+    so there is no measurable overhead.
+    """
+    # Runtime data dir takes priority (user may have customised it there)
     runtime_file = settings.data_dir / "company" / "human_resource" / "nicknames.txt"
     src = runtime_file if runtime_file.exists() else _NICKNAMES_FILE
 
     if src.exists():
-        _nickname_pool = [
+        pool = [
             line.strip() for line in src.read_text("utf-8").splitlines() if line.strip()
         ]
-        logger.debug("Loaded {} nicknames from {}", len(_nickname_pool), src)
-    else:
-        logger.warning("Nickname file not found at {}; using built-in fallback", src)
-        _nickname_pool = []
-    return _nickname_pool
+        logger.debug("Loaded {} nicknames from {}", len(pool), src)
+        return pool
+
+    logger.warning("Nickname file not found at {}; using built-in fallback", src)
+    return []
 
 
 def _pick_nickname(char_count: int, existing: set[str]) -> str:

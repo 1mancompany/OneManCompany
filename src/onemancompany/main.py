@@ -488,7 +488,7 @@ async def lifespan(app: FastAPI):
             from onemancompany.core.vessel import employee_manager as _em_mgr
             _executor = SubprocessExecutor(emp_id, script_path=str(_launch_sh))
             _em_mgr.register(emp_id, _executor, config=_vessel_cfg)
-            print(f"[startup] Registered {emp_data.get('name', emp_id)} ({emp_id}) — SubprocessExecutor (launch.sh)")
+            logger.info("[startup] Registered {} ({}) — SubprocessExecutor (launch.sh)", emp_data.get('name', emp_id), emp_id)
             continue
 
         _runner = EmployeeAgent(emp_id)
