@@ -33,6 +33,8 @@ LOGO = r"""
   One Man Company
 """
 
+TOTAL_STEPS = 5
+
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
 
@@ -48,8 +50,16 @@ def _step_welcome(console: Console) -> None:
         border_style="cyan",
     ))
     console.print(
-        "This wizard will set up your [bold].onemancompany/[/bold] workspace.\n"
-        "It takes about 30 seconds.\n"
+        "  You're about to set up your AI company.\n"
+        "  In a minute, you'll have a full team — EA, HR, COO, CSO — ready to work.\n"
+    )
+    console.print(
+        "  [dim]What we'll configure:[/dim]\n"
+        "  [dim]  1. LLM provider & API key  — powers your employees' brains[/dim]\n"
+        "  [dim]  2. Server settings          — where your office runs[/dim]\n"
+        "  [dim]  3. Sandbox tools            — isolated code execution (optional)[/dim]\n"
+        "  [dim]  4. Extra integrations       — Talent Market, Claude Code, etc.[/dim]\n"
+        "  [dim]  5. Initialize               — set up your company directory[/dim]\n"
     )
 
 
@@ -205,8 +215,11 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     from onemancompany.core.auth_choices import AUTH_CHOICE_GROUPS
     from onemancompany.core.config import PROVIDER_REGISTRY
 
-    console.rule("[bold]Step 1[/bold]  LLM Configuration")
-    console.print()
+    console.rule(f"[bold]Step 1/{TOTAL_STEPS}[/bold]  LLM Configuration")
+    console.print(
+        "\n  [dim]This powers your AI employees' brains. Pick any LLM provider —\n"
+        "  each employee can use a different model later via the web UI.[/dim]\n"
+    )
 
     # 1. Select provider
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
@@ -223,26 +236,34 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     console.print("  Select your LLM provider:\n")
     console.print(table)
-    console.print()
+    console.print(
+        "\n  [dim]Type the number of your provider and press [bold]Enter[/bold].\n"
+        "  Not sure? [bold]1[/bold] (OpenRouter) works with most models.[/dim]\n"
+    )
 
     while True:
         choice = Prompt.ask("  Provider #", default="1", console=console).strip()
         if choice.isdigit() and 1 <= int(choice) <= len(available_groups):
             selected_group = available_groups[int(choice) - 1]
             break
-        console.print(f"  [red]Enter a number 1-{len(available_groups)}[/red]")
+        console.print(f"  [red]Please type a number between 1 and {len(available_groups)}, then press Enter.[/red]")
 
     provider = selected_group.group_id
     console.print(f"  [green]✔[/green] Selected: [bold]{selected_group.label}[/bold]\n")
 
     # 2. Enter API key
+    console.print(
+        f"  [dim]Paste your {selected_group.label} API key and press [bold]Enter[/bold].\n"
+        f"  The input is hidden for security — you won't see what you type.[/dim]"
+    )
     api_key = Prompt.ask(
         f"  {selected_group.label} API Key",
         password=True,
         console=console,
     )
     while not api_key.strip():
-        console.print("  [red]API key is required.[/red]")
+        console.print("  [red]API key is required — your employees can't think without it.[/red]")
+        console.print("  [dim]Paste your key and press [bold]Enter[/bold].[/dim]")
         api_key = Prompt.ask(f"  {selected_group.label} API Key", password=True, console=console)
 
     # 3. Select model
@@ -253,7 +274,12 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             console.print(f"  [green]✔[/green] Found {len(all_models)} models")
         console.print(
             "  [dim]This only sets the [bold]default[/bold] model, used for company-level features.\n"
-            "  Each employee can use a different LLM — configurable on the web UI.[/dim]\n"
+            "  Each employee can use a different LLM — configurable on the web UI.\n\n"
+            "  How to pick a model:\n"
+            "    • Type a [bold]number[/bold] and press [bold]Enter[/bold] to select\n"
+            "    • Type a [bold]keyword[/bold] (e.g. \"claude\") to search\n"
+            "    • Type [bold]n[/bold]/[bold]p[/bold] to go to next/previous page\n"
+            "    • Type [bold]c[/bold] to enter a custom model ID[/dim]\n"
         )
         model = _select_model_interactive(console, all_models)
     else:
@@ -271,6 +297,10 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             "minimax": "MiniMax-Text-01",
         }
         default_model = defaults.get(provider, "")
+        console.print(
+            f"  [dim]Type a model ID and press [bold]Enter[/bold].\n"
+            f"  Press [bold]Enter[/bold] directly to use the default: [bold]{default_model}[/bold][/dim]\n"
+        )
         model = Prompt.ask(
             "  Model ID",
             default=default_model,
@@ -282,10 +312,29 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
 def _step_server(console: Console) -> tuple[str, int]:
     console.print()
-    console.rule("[bold]Step 2[/bold]  Server Configuration")
-    console.print()
+    console.rule(f"[bold]Step 2/{TOTAL_STEPS}[/bold]  Server Configuration")
+    console.print(
+        "\n  [dim]Your AI company runs as a local web server.\n"
+        "  After setup, open the URL in your browser to enter your office.[/dim]\n"
+    )
+    console.print(
+        f"  Default: [bold]http://0.0.0.0:8000[/bold]\n"
+        f"  [dim]0.0.0.0 means accessible from any device on your network.\n"
+        f"  Use 127.0.0.1 for local-only access.[/dim]\n"
+    )
 
+    console.print(
+        "  [dim]Type [bold]y[/bold] and press [bold]Enter[/bold] to use defaults,\n"
+        "  or [bold]n[/bold] to customize host and port.[/dim]\n"
+    )
+    use_defaults = Confirm.ask("  Use default host/port?", default=True, console=console)
+    if use_defaults:
+        console.print("  [green]✔[/green] Using [bold]0.0.0.0:8000[/bold]\n")
+        return "0.0.0.0", 8000
+
+    console.print("  [dim]Type the host address and press [bold]Enter[/bold].[/dim]")
     host = Prompt.ask("  Host", default="0.0.0.0", console=console)
+    console.print("  [dim]Type the port number and press [bold]Enter[/bold].[/dim]")
     port_str = Prompt.ask("  Port", default="8000", console=console)
     try:
         port = int(port_str)
@@ -298,16 +347,18 @@ def _step_server(console: Console) -> tuple[str, int]:
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
-    console.rule("[bold]Step 3[/bold]  Sandbox Tools")
+    console.rule(f"[bold]Step 3/{TOTAL_STEPS}[/bold]  Sandbox Tools")
     console.print(
-        "\n  Sandbox provides isolated Docker containers for AI employees to\n"
-        "  execute code, run commands, and manage files safely.\n"
+        "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
+        "  Without it, code execution happens directly on your machine.\n"
+        "  With it, each task runs in an isolated Docker container.[/dim]\n"
     )
     console.print(
-        "  [bold]Dependencies required:[/bold]\n"
+        "  [bold]Requirements:[/bold]\n"
         "    • [cyan]Docker[/cyan] — must be installed and running\n"
-        "    • [cyan]opensandbox[/cyan] + [cyan]opensandbox-code-interpreter[/cyan] — Python packages\n"
-        "      Install via: [dim]uv pip install 'onemancompany[sandbox]'[/dim]\n"
+        "    • Python packages will be installed automatically\n"
+        "  [dim]This is optional. You can always enable it later.\n"
+        "  Type [bold]y[/bold] or [bold]n[/bold] and press [bold]Enter[/bold].[/dim]\n"
     )
     install = Confirm.ask("  Install sandbox tools?", default=False, console=console)
     if install:
@@ -349,27 +400,47 @@ def _install_sandbox_deps(console: Console) -> None:
 
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    console.rule("[bold]Step 4[/bold]  Optional Configuration")
-    console.print("  [dim]Press Enter to skip any key you don't have.[/dim]\n")
+    console.rule(f"[bold]Step 4/{TOTAL_STEPS}[/bold]  Extra Integrations")
+    console.print(
+        "\n  [dim]These are all optional.\n"
+        "  Paste a key and press [bold]Enter[/bold] to save it,\n"
+        "  or just press [bold]Enter[/bold] to skip.\n"
+        "  You can always add them later in [bold].onemancompany/.env[/bold][/dim]\n"
+    )
 
     extras: dict[str, str] = {}
 
+    # Anthropic API Key
+    console.print(
+        "  [bold]Anthropic API Key[/bold]\n"
+        "  [dim]Needed for Claude Code execution mode (more capable, lower token cost).\n"
+        "  If you prefer OAuth login, skip this — you can set it up later in the\n"
+        "  browser Settings page.[/dim]"
+    )
     key = Prompt.ask("  Anthropic API Key", default="", password=True, console=console)
     if key.strip():
         extras["ANTHROPIC_API_KEY"] = key.strip()
+    console.print()
 
+    # SkillMarket API Key
     console.print(
-        "  Get your SkillMarket API key at [link=https://skillsmp.com/docs/api]https://skillsmp.com/docs/api[/link]"
+        "  [bold]SkillMarket API Key[/bold]\n"
+        "  [dim]Enables employees to install and use community skills (like phone apps).\n"
+        "  Get yours at[/dim] [link=https://skillsmp.com/docs/api]https://skillsmp.com/docs/api[/link]"
     )
     key = Prompt.ask("  SkillMarket API Key", default="", password=True, console=console)
     if key.strip():
         extras["SKILLSMP_API_KEY"] = key.strip()
+    console.print()
 
+    # Talent Market API Key
     console.print(
-        "  [bold yellow]★ Recommended[/bold yellow] Talent Market — hire community-verified AI employees\n"
-        "    Register at [link=https://one-man-company.com]https://one-man-company.com[/link] to get your API key"
+        "  [bold yellow]★ Recommended[/bold yellow]  [bold]Talent Market API Key[/bold]\n"
+        "  [dim]Lets HR hire community-verified AI employees from the marketplace.\n"
+        "  Without this, you can only use the 4 founding executives.\n"
+        "  Register at[/dim] [link=https://one-man-company.com]https://one-man-company.com[/link] [dim]to get your key.[/dim]"
     )
-    key = Prompt.ask("  Talent Market API Key (one-man-company.com)", default="", password=True, console=console)
+    key = Prompt.ask("  Talent Market API Key", default="", password=True, console=console)
     if key.strip():
         extras["TALENT_MARKET_API_KEY"] = key.strip()
 
@@ -387,8 +458,10 @@ def _step_execute(
     sandbox_enabled: bool = False,
 ) -> None:
     console.print()
-    console.rule("[bold]Step 5[/bold]  Initializing")
-    console.print()
+    console.rule(f"[bold]Step 5/{TOTAL_STEPS}[/bold]  Initializing")
+    console.print(
+        "\n  [dim]Setting up your company directory and founding team...[/dim]\n"
+    )
 
     # 1. Copy company/ template
     src_company = SOURCE_ROOT / "company"
@@ -530,14 +603,24 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
 
 def _step_done(console: Console, host: str, port: int) -> None:
     console.print()
-    console.rule("[bold green]Done![/bold green]")
+    console.rule("[bold green]Setup Complete![/bold green]")
     console.print()
+
+    url = f"http://{'localhost' if host == '0.0.0.0' else host}:{port}"
     console.print(Panel(
-        f"  Workspace created at [bold].onemancompany/[/bold]\n\n"
-        f"  Start the server:\n"
-        f"    [cyan]onemancompany[/cyan]\n\n"
-        f"  Then open [link=http://{host}:{port}]http://{host}:{port}[/link] in your browser.",
-        title="Next Steps",
+        f"  Your AI company is ready.\n\n"
+        f"  [bold]Your founding team:[/bold]\n"
+        f"    EA  (Executive Assistant) — routes your tasks, quality gate\n"
+        f"    HR  (Human Resources)     — hiring, performance reviews\n"
+        f"    COO (Chief Operating Officer) — operations, task dispatch\n"
+        f"    CSO (Chief Sales Officer) — sales, client relations\n\n"
+        f"  [bold]What's next:[/bold]\n"
+        f"    1. The server will start automatically after this wizard\n"
+        f"    2. Open [link={url}]{url}[/link] in your browser\n"
+        f"    3. Try your first task — just type what you want built\n\n"
+        f"  [dim]Example: \"Build me a puzzle game for mobile\"[/dim]\n\n"
+        f"  [dim]Need more employees? Set up a Talent Market key and tell HR to hire.[/dim]",
+        title="Congratulations, CEO",
         border_style="green",
     ))
 
@@ -558,6 +641,7 @@ def run_wizard() -> None:
             f"[yellow]\u26a0[/yellow]  [bold].onemancompany/[/bold] already exists at\n"
             f"   {DATA_ROOT}\n"
         )
+        console.print("  [dim]Type [bold]y[/bold] to reconfigure, or [bold]n[/bold] to keep existing settings.[/dim]\n")
         if not Confirm.ask("  Reconfigure?", default=False, console=console):
             console.print("\n  Aborted. Existing configuration unchanged.")
             return
