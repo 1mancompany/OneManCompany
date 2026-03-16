@@ -284,7 +284,6 @@ def _parse_holding_metadata(result: str | None) -> dict | None:
 
 
 
-
 # ---------------------------------------------------------------------------
 # Execution Harness — pluggable execution backends (was: Launcher)
 # ---------------------------------------------------------------------------
@@ -775,7 +774,8 @@ class EmployeeManager:
                         node.load_content(load_dir)
                         meta = _parse_holding_metadata(node.result or "")
                         if meta:
-                            self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
+                            if not meta.get("no_watchdog"):
+                                self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
                             count += 1
                 except Exception as e:
                     logger.warning("Failed to check holding status for node {}: {}", entry.node_id, e)
@@ -1083,10 +1083,25 @@ class EmployeeManager:
         # (No stale-read issue: tree is in-memory cache, all tools modify the same object)
         if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
             holding_meta = _parse_holding_metadata(node.result or "")
+
+            # Generic auto-HOLDING: tools set node.hold_reason to request HOLDING
+            # after execution. Inject __HOLDING: prefix so it's serializable + restart-safe.
+            if holding_meta is None and node.hold_reason:
+                original = node.result or ""
+                node.result = f"__HOLDING:{node.hold_reason}\n{original}"
+                holding_meta = _parse_holding_metadata(node.result)
+                self._log_node(
+                    employee_id, entry.node_id, "auto_holding",
+                    f"Tool-requested HOLDING: {node.hold_reason}",
+                )
+
             if holding_meta is not None:
                 node.set_status(TaskPhase.HOLDING)
                 save_tree_async(entry.tree_path)
-                self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
+                # Auto-resume HOLDING (e.g. ceo_request): skip watchdog when the
+                # resume is handled by another code path (routes.py, etc.)
+                if not holding_meta.get("no_watchdog"):
+                    self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)

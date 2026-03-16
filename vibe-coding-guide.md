@@ -416,12 +416,79 @@ async def test_something():
 
 ---
 
+## PR Review Checklist
+
+Every PR must pass this three-phase review before merge. This is not optional — it's how we catch bugs that tests don't cover and design debt before it accumulates.
+
+> Design principles are documented in full at [docs/design-principles.md](docs/design-principles.md).
+
+### Phase 1: Bug Hunt
+
+Go through every changed line and ask:
+
+| Check | What to look for |
+|---|---|
+| **State mutation safety** | Does the code modify shared state (node, tree, schedule)? Is the modification atomic? Can a restart mid-operation leave things inconsistent? |
+| **Restart recovery** | If the server crashes right after this line, does the system recover correctly? Any in-memory-only state that's lost? |
+| **Edge cases** | What if the input is empty/None/missing? What if the operation was already done (idempotency)? What if a concurrent operation modified the same data? |
+| **Error paths** | What happens when the operation fails? Is the error logged? Does `CancelledError` propagate? Are there silent `except` blocks? |
+| **Timing/ordering** | If multiple async operations run, does the order matter? Can one complete before another starts and cause issues? |
+
+### Phase 2: Design Principles Check
+
+For each changed file, verify against the core principles:
+
+| Principle | Question to ask |
+|---|---|
+| **Systematic, not patching** | Would a second similar request require touching this same code? Or can it be handled by just adding data/config? |
+| **Modular/generic** | Is there a `if type == "X"` branch that could be a registry/field-based dispatch? Is the solution reusable or one-off? |
+| **Complete data package** | Any new state introduced? Is it serializable, recoverable after restart, registered, and terminable? |
+| **SSOT (disk is truth)** | Does this add in-memory caching of business data? Does it duplicate information that lives elsewhere? |
+| **Status via transition()** | Any direct `node.status = "..."` assignments instead of `set_status()`? |
+| **No silent except** | Any `except Exception: pass` or `except: pass`? |
+
+### Phase 3: Side Effect Scan
+
+Look beyond the changed lines:
+
+| Check | What to look for |
+|---|---|
+| **Downstream consumers** | Who reads the fields/state you modified? Do they handle the new values correctly? |
+| **YAML/API contract** | Did you add/remove/rename a field in `to_dict()`? Does `from_dict()` handle old files without the field? Does the frontend expect specific keys? |
+| **Performance** | Does this add per-node/per-tick work that scales with the number of nodes/employees? |
+| **Watchdog/cron interaction** | If you created a HOLDING state, is the watchdog behavior correct? Will it timeout-escalate when it shouldn't? Is the resume path guaranteed to fire? |
+| **Test coverage** | Are the new paths tested? Are edge cases (empty, duplicate, restart) covered? |
+
+### How to Report
+
+When reviewing, categorize findings:
+
+- **Critical (C)**: Bug or data loss. Must fix before merge.
+- **Important (I)**: Correctness risk in edge cases. Should fix.
+- **Suggestion (S)**: Nice to have, not blocking.
+
+```
+## Review: PR #10
+
+### C1: [title]
+[description + location + fix suggestion]
+
+### I1: [title]
+[description + location]
+
+### S1: [title]
+[description]
+```
+
+---
+
 ## Development Guides
 
 Detailed guides for specific subsystems:
 
 | Guide | Location | Description |
 | --- | --- | --- |
+| Design Principles | [docs/design-principles.md](docs/design-principles.md) | The 8 load-bearing principles — read this first |
 | Tool Development | [company/assets/tools/README.md](company/assets/tools/README.md) | Creating custom LangChain tools with OAuth, env vars, and dynamic UI |
 | Workflow Rules | [company_rules/README.md](company_rules/README.md) | Writing workflow definitions parsed by the workflow engine |
 | Plugin Development | [plugins/README.md](plugins/README.md) | Creating frontend plugins (kanban, timeline, etc.) |
@@ -445,7 +512,26 @@ frontend/         — Vanilla JS + Canvas 2D
 tests/            — pytest (unit / integration / e2e)
 ```
 
-### Common Commands
+#### Git Workflow
+
+**All changes must go through a Pull Request. Never push directly to `main`.**
+
+```bash
+# Correct workflow:
+git checkout -b fix/my-bugfix
+# ... make changes, commit ...
+git push -u origin fix/my-bugfix
+gh pr create --title "fix: description" --body "..."
+
+# NEVER do this:
+git push origin main  # ← BANNED
+```
+
+- Every code change (bugfix, feature, refactor) requires a new branch → commit → PR
+- PR must pass all tests (pre-commit hook runs full test suite)
+- Review before merge — no exceptions
+
+## Common Commands
 
 ```bash
 # Start server
