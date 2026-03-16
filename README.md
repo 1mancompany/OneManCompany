@@ -240,7 +240,7 @@ Founding employees (EA, HR, COO, CSO) support three execution modes, switchable 
 | --- | --- | --- |
 | **Company Hosted Agent** | OMC's built-in agent, calls LLMs via OpenRouter | OpenRouter API Key (configured in setup process) |
 | **Claude Code** | More capable, lower token cost | Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max subscription](https://claude.ai) |
-| **OpenClaw** | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
+| **OpenClaw** *(Coming Soon)* | Open-source alternative, multiple LLM backends | Install [OpenClaw CLI](https://github.com/anthropics/openclaw) + compatible LLM API Key |
 
 Defaults to Company Hosted Agent — no extra subscription needed to get started. See [Execution Modes docs](https://1mancompany.github.io/OneManCompany/docs/guide/execution-modes/) for details.
 

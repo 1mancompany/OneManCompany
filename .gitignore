@@ -242,3 +242,9 @@ video/
 
 # Git worktrees
 .worktrees/
+
+# Claude Code local config
+.claude/
+
+# Talent template dev
+talent-template-*/
