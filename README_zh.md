@@ -9,7 +9,7 @@
 <p align="center"><b>AI 一人公司操作系统</b></p>
 
 <p align="center">
-  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/zh/">文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
+  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/zh/">文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/">主页</a>
 </p>
 
 > 别人用 AI 写代码，你用 AI 开公司。
@@ -434,9 +434,9 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 ```bibtex
 @software{onemancompany2025,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
   url = {https://github.com/1mancompany/OneManCompany},
-  year = {2025},
+  year = {2026},
   license = {Apache-2.0}
 }
 ```
