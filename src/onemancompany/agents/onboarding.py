@@ -62,6 +62,36 @@ def _get_existing_nicknames() -> set[str]:
 
 _NICKNAME_TIMEOUT = 30  # seconds per LLM attempt
 
+# Fallback pool for random nickname generation when LLM fails
+_WUXIA_CHARS_2 = [
+    "凌风", "云霄", "星辰", "破浪", "惊鸿", "飞羽", "寒光", "雷霆",
+    "烈焰", "碧落", "苍穹", "紫霞", "青云", "白鹤", "墨影", "剑心",
+    "龙吟", "虎啸", "鹤鸣", "凤舞", "松风", "竹月", "梅雪", "兰溪",
+    "玄武", "朱雀", "天狼", "北斗", "银河", "流星", "晓月", "暮雨",
+]
+_WUXIA_CHARS_3 = [
+    "御风行", "踏雪归", "听雨轩", "揽月阁", "破云天", "望星辰",
+    "逐浪客", "凌霄子", "醉剑仙", "铸剑师", "百里烟", "九霄云",
+    "千秋雪", "万里风", "一剑封", "三清子", "太虚子", "无涯客",
+]
+
+
+def _random_nickname(char_count: int, existing: set[str]) -> str:
+    """Pick a random wuxia nickname that doesn't collide with existing ones."""
+    import random
+    pool = list(_WUXIA_CHARS_3 if char_count == 3 else _WUXIA_CHARS_2)
+    random.shuffle(pool)
+    for n in pool:
+        if n not in existing:
+            return n
+    # Extremely unlikely: all pool names taken — generate from random chars
+    wuxia_parts = "风云雷电霜雪星月剑刀枪棍龙虎鹤凤松竹梅兰"
+    for _ in range(20):
+        candidate = "".join(random.choices(wuxia_parts, k=char_count))
+        if candidate not in existing:
+            return candidate
+    return ""
+
 
 async def generate_nickname(name: str, role: str, is_founding: bool = False) -> str:
     """Generate a wuxia-themed Chinese nickname (花名) for an employee.
@@ -69,6 +99,7 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
     Founding employees (level 4) get 3-character nicknames.
     Normal employees (level 1-3) get 2-character nicknames.
     All nicknames must be unique across all current and ex-employees.
+    Falls back to random selection if LLM fails after 5 attempts.
     """
     import asyncio
     from onemancompany.agents.base import make_llm, tracked_ainvoke
@@ -107,6 +138,9 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
         except asyncio.TimeoutError:
             logger.warning("Nickname generation timed out for {} (attempt {}/5)", name, attempt + 1)
             continue
+        except Exception as exc:
+            logger.warning("Nickname generation error for {} (attempt {}/5): {}", name, attempt + 1, exc)
+            continue
         nickname = result.content.strip()
         chinese_chars = re.findall(r'[\u4e00-\u9fff]', nickname)
         if len(chinese_chars) >= char_count:
@@ -119,7 +153,11 @@ async def generate_nickname(name: str, role: str, is_founding: bool = False) -> 
         if candidate not in existing:
             return candidate
 
-    return ""
+    # Fallback: random nickname from pool
+    fallback = _random_nickname(char_count, existing)
+    if fallback:
+        logger.warning("Using random fallback nickname '{}' for {} after 5 failed LLM attempts", fallback, name)
+    return fallback
 
 
 # ---------------------------------------------------------------------------

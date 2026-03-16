@@ -3807,7 +3807,7 @@ async def _do_hire_single(
             try:
                 nickname = await asyncio.wait_for(
                     generate_nickname(candidate["name"], candidate.get("role", ""), is_founding=False),
-                    timeout=60,
+                    timeout=120,
                 )
             except asyncio.TimeoutError:
                 logger.warning("[hiring] Nickname generation timed out for {}", candidate["name"])
@@ -4069,7 +4069,7 @@ async def _do_batch_hire(
         try:
             nickname_results = await asyncio.wait_for(
                 asyncio.gather(*[_gen_nick(s) for s in selections]),
-                timeout=60,
+                timeout=120,
             )
             nickname_map = dict(nickname_results)
         except asyncio.TimeoutError:

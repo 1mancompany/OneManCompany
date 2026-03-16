@@ -154,7 +154,7 @@ class TestGenerateNickname:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_returns_empty_after_max_retries(self, monkeypatch):
+    async def test_falls_back_to_random_after_max_retries(self, monkeypatch):
         from onemancompany.agents import onboarding, base as base_mod
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: {"追风"})
@@ -170,7 +170,10 @@ class TestGenerateNickname:
         monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
 
         nickname = await onboarding.generate_nickname("Dev", "Engineer")
-        assert nickname == ""
+        # Should fall back to a random nickname from pool (not empty, not the duplicate)
+        assert nickname != ""
+        assert nickname != "追风"
+        assert len(nickname) == 2
 
     @pytest.mark.asyncio
     async def test_extracts_chinese_from_noisy_output(self, monkeypatch):
@@ -631,7 +634,7 @@ class TestGenerateNicknameEdgeCases:
 
     @pytest.mark.asyncio
     async def test_no_chinese_chars_at_all_retries(self, monkeypatch):
-        """LLM returns no Chinese chars — should retry and eventually return empty."""
+        """LLM returns no Chinese chars — should retry and fall back to random."""
         from onemancompany.agents import onboarding, base as base_mod
 
         monkeypatch.setattr(onboarding, "_get_existing_nicknames", lambda: set())
@@ -647,7 +650,9 @@ class TestGenerateNicknameEdgeCases:
         monkeypatch.setattr(base_mod, "tracked_ainvoke", fake_tracked_ainvoke)
 
         nickname = await onboarding.generate_nickname("Test", "Engineer")
-        assert nickname == ""
+        # Falls back to random nickname from pool
+        assert nickname != ""
+        assert len(nickname) == 2
 
     @pytest.mark.asyncio
     async def test_avoid_clause_with_existing_nicknames(self, monkeypatch):
