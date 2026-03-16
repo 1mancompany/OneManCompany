@@ -3074,18 +3074,20 @@ class AppController {
 
     this.logEntry('CEO', `Batch hiring ${selections.length} candidate(s)...`, 'ceo');
 
-    // Save batch_id before closeCandidateModal clears it
+    // Save batch_id — closeCandidateModal won't clear it when _batchHired=true,
+    // but keep a local copy as defensive measure
     const batchId = this._candidateBatchId;
 
-    // Mark as hired so closeCandidateModal won't dismiss
+    // Mark as hired so closeCandidateModal won't dismiss or clear batch_id
     this._batchHired = true;
 
     // Show onboarding progress modal
     this._showOnboardingProgress(selections);
 
-    // Close candidate modal
+    // Close candidate modal (UI only — no dismiss, no batch_id cleanup)
     this.closeCandidateModal();
     this._batchHired = false;
+    this._candidateBatchId = null;  // batch consumed, clean up
 
     fetch('/api/candidates/batch-hire', {
       method: 'POST',
@@ -3258,11 +3260,12 @@ class AppController {
         body: JSON.stringify({ batch_id: this._candidateBatchId }),
       }).catch(() => {});
       this.logEntry('CEO', '🚫 Shortlist dismissed — this recruitment round is cancelled.', 'ceo');
+      // Only clear batch_id on dismiss — hired flows manage their own cleanup
+      this._candidateBatchId = null;
     }
 
     this._interviewingCandidate = null;
     this._selectedCandidates = new Map();
-    this._candidateBatchId = null;
   }
 
   hireCandidate(candidate) {
@@ -3289,6 +3292,7 @@ class AppController {
           this._batchHired = true;
           this.closeCandidateModal();
           this._batchHired = false;
+          this._candidateBatchId = null;  // batch consumed
           this.closeInterviewModal();
         }
       })
