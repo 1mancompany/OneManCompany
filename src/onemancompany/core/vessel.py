@@ -283,16 +283,6 @@ def _parse_holding_metadata(result: str | None) -> dict | None:
     return meta
 
 
-def _find_pending_ceo_children(tree, node_id: str) -> list:
-    """Return unfinished ceo_request child nodes for the given node."""
-    from onemancompany.core.task_lifecycle import TaskPhase
-
-    terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
-    return [
-        c for c in tree.get_children(node_id)
-        if c.node_type == "ceo_request" and c.status not in terminal
-    ]
-
 
 # ---------------------------------------------------------------------------
 # Execution Harness — pluggable execution backends (was: Launcher)
@@ -784,8 +774,7 @@ class EmployeeManager:
                         node.load_content(load_dir)
                         meta = _parse_holding_metadata(node.result or "")
                         if meta:
-                            # ceo_request HOLDING: no watchdog needed, routes.py handles resume
-                            if "ceo_request" not in meta:
+                            if not meta.get("no_watchdog"):
                                 self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
                             count += 1
                 except Exception as e:
@@ -1095,26 +1084,23 @@ class EmployeeManager:
         if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
             holding_meta = _parse_holding_metadata(node.result or "")
 
-            # Auto-detect pending ceo_request children → inject __HOLDING: prefix
-            # so the standard holding path handles it (serializable + restart-safe)
-            if holding_meta is None:
-                pending_ceo = _find_pending_ceo_children(tree, entry.node_id)
-                if pending_ceo:
-                    ceo_child_id = pending_ceo[0].id
-                    original = node.result or ""
-                    node.result = f"__HOLDING:ceo_request={ceo_child_id}\n{original}"
-                    holding_meta = _parse_holding_metadata(node.result)
-                    self._log_node(
-                        employee_id, entry.node_id, "auto_holding",
-                        f"Injected HOLDING: waiting for CEO response on {ceo_child_id}",
-                    )
+            # Generic auto-HOLDING: tools set node.hold_reason to request HOLDING
+            # after execution. Inject __HOLDING: prefix so it's serializable + restart-safe.
+            if holding_meta is None and node.hold_reason:
+                original = node.result or ""
+                node.result = f"__HOLDING:{node.hold_reason}\n{original}"
+                holding_meta = _parse_holding_metadata(node.result)
+                self._log_node(
+                    employee_id, entry.node_id, "auto_holding",
+                    f"Tool-requested HOLDING: {node.hold_reason}",
+                )
 
             if holding_meta is not None:
                 node.set_status(TaskPhase.HOLDING)
                 save_tree_async(entry.tree_path)
-                # ceo_request HOLDING: routes.py auto-resumes when CEO responds,
-                # so no watchdog needed (avoids premature 30-min timeout escalation)
-                if "ceo_request" not in holding_meta:
+                # Auto-resume HOLDING (e.g. ceo_request): skip watchdog when the
+                # resume is handled by another code path (routes.py, etc.)
+                if not holding_meta.get("no_watchdog"):
                     self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:

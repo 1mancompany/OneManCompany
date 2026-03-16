@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from onemancompany.core.task_tree import TaskTree
-from onemancompany.core.vessel import ScheduleEntry, _current_task_id, _current_vessel, _find_pending_ceo_children
+from onemancompany.core.vessel import ScheduleEntry, _current_task_id, _current_vessel
 
 
 CEO_ID = "00001"
@@ -223,39 +223,51 @@ class TestCeoRequestIdempotency:
             _reset_context(tok_v, tok_t)
 
 
-class TestFindPendingCeoChildren:
-    """Test _find_pending_ceo_children helper."""
+class TestHoldReason:
+    """dispatch_child to CEO sets hold_reason on parent node."""
 
-    def test_finds_pending_ceo_request(self):
-        tree = _make_tree()
-        root = tree.get_node(tree.root_id)
-        child = tree.add_child(
-            parent_id=root.id, employee_id=CEO_ID,
-            description="test", acceptance_criteria=["ok"],
-        )
-        child.node_type = "ceo_request"
-        result = _find_pending_ceo_children(tree, root.id)
-        assert len(result) == 1
-        assert result[0].id == child.id
+    def test_dispatch_ceo_sets_hold_reason_on_parent(self):
+        from onemancompany.agents.tree_tools import dispatch_child
 
-    def test_ignores_finished_ceo_request(self):
         tree = _make_tree()
-        root = tree.get_node(tree.root_id)
-        child = tree.add_child(
-            parent_id=root.id, employee_id=CEO_ID,
-            description="test", acceptance_criteria=["ok"],
-        )
-        child.node_type = "ceo_request"
-        child.status = "accepted"
-        result = _find_pending_ceo_children(tree, root.id)
-        assert len(result) == 0
+        root_id = tree.root_id
+        vessel = MagicMock()
+        tok_v, tok_t = _set_context(vessel, root_id)
+        mock_em = _make_mock_em(root_id)
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        mock_em._event_loop = mock_loop
 
-    def test_ignores_non_ceo_children(self):
-        tree = _make_tree()
-        root = tree.get_node(tree.root_id)
-        child = tree.add_child(
-            parent_id=root.id, employee_id="00010",
-            description="normal task", acceptance_criteria=["ok"],
-        )
-        result = _find_pending_ceo_children(tree, root.id)
-        assert len(result) == 0
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.core.events.event_bus", AsyncMock()),
+                patch("asyncio.run_coroutine_threadsafe"),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval",
+                    "acceptance_criteria": ["Approve"],
+                })
+
+            root = tree.get_node(root_id)
+            assert root.hold_reason != ""
+            assert f"ceo_request={result['node_id']}" in root.hold_reason
+            assert "no_watchdog=1" in root.hold_reason
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_hold_reason_serializes_to_dict(self):
+        """hold_reason field persists through to_dict/from_dict round-trip."""
+        from onemancompany.core.task_tree import TaskNode
+
+        node = TaskNode(employee_id="emp001", description="test")
+        node.hold_reason = "ceo_request=abc123,no_watchdog=1"
+        d = node.to_dict()
+        assert d["hold_reason"] == "ceo_request=abc123,no_watchdog=1"
+
+        restored = TaskNode.from_dict(d)
+        assert restored.hold_reason == "ceo_request=abc123,no_watchdog=1"

@@ -258,6 +258,9 @@ def dispatch_child(
 
         if employee_id == CEO_EMPLOYEE_ID:
             child.node_type = "ceo_request"
+            # Signal vessel to auto-HOLD parent after execution (no_watchdog:
+            # routes.py handles resume when CEO responds)
+            current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
             _save_tree(project_dir, tree)
             # Persist task index entry for taskboard
             from onemancompany.core.store import append_task_index_entry

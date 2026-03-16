@@ -64,6 +64,11 @@ class TaskNode:
 
     depends_on: list[str] = field(default_factory=list)
 
+    # Hold reason: when a tool needs the parent to enter HOLDING after execution,
+    # it sets this field (e.g. "blocking_child=<node_id>"). vessel.py checks this
+    # generically — no child-type-specific detection needed.
+    hold_reason: str = ""
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -167,6 +172,7 @@ class TaskNode:
             "branch": self.branch,
             "branch_active": self.branch_active,
             "depends_on": list(self.depends_on),
+            "hold_reason": self.hold_reason,
         }
 
     @classmethod
