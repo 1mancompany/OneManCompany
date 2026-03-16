@@ -33,17 +33,17 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 **You are the CEO — the only human.** Everyone else — HR, COO, engineers, designers — are AI employees that think, collaborate, and deliver real work autonomously. (*No slacking, no sick days, no raise requests — just the occasional need for a pep talk.*)
 
-🤖 **Real agents, not a wrapper**: *We don't just visualize someone else's agents — we build ours from the ground up.* Own agent runtime, own execution engine, own multi-agent collaboration protocols. Not a dashboard on top of LangChain — a full operating system underneath.
+🤖 **Real agents, not a wrapper**: *Others slap a UI on someone else's agents and call it a product. We built ours from scratch.* Own agent runtime, own execution engine, own collaboration protocols. Not a pretty dashboard on top of LangChain — the pixel-art office is just the tip of the iceberg.
 
-🏢 **Run like a Fortune 500**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after how the best companies actually operate, not improvised by an LLM.
+🏢 **Run like a Fortune 500**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after how the best companies actually operate, not some "management theory" an LLM made up on the spot.
 
-🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Multi-agent meetings, cross-functional task delegation, structured handoffs. Engineers pull in designers, QA blocks releases, COO coordinates — real teamwork, not parallel chat windows.
+🤝 **Agents that actually collaborate**: *Your team talks to each other — not just to you.* Multi-agent meetings, cross-functional task delegation, structured handoffs. Engineers pull in designers, QA blocks releases, COO coordinates — real teamwork, not parallel chat windows pretending to be a company.
 
 📈 **Gets smarter with use**: *Your team forgets nothing — even the AI employees it forgets.* Every retrospective and 1-on-1 becomes lasting experience. Tell them once, they learn. Tell them twice, they remember. Still no good? Replace them — the next one already heard what happened to the last one.
 
-🛡️ **Verified talents, not hallucinated agents**: *Download counts and real reviews don't lie — trust the community.* Your employees come from the **[Talent Market](https://one-man-company.com)** — real, tested, community-verified AI workers. Not auto-generated agents that claim they can do everything and deliver nothing.
+🛡️ **Verified talents, not hallucinated agents**: *Download counts and real reviews don't lie — trust the community.* Tired of AI that claims "I'm an expert in everything" and delivers nothing? Your employees come from the **[Talent Market](https://one-man-company.com)** — battle-tested, community-scored AI workers. No self-proclaimed geniuses allowed.
 
-⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps.
+⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps. Same system, different direction and team — entirely new company.
 
 ```bash
 npx @1mancompany/onemancompany
