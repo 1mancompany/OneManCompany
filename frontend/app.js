@@ -3074,6 +3074,9 @@ class AppController {
 
     this.logEntry('CEO', `Batch hiring ${selections.length} candidate(s)...`, 'ceo');
 
+    // Save batch_id before closeCandidateModal clears it
+    const batchId = this._candidateBatchId;
+
     // Mark as hired so closeCandidateModal won't dismiss
     this._batchHired = true;
 
@@ -3088,7 +3091,7 @@ class AppController {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        batch_id: this._candidateBatchId,
+        batch_id: batchId,
         selections,
       }),
     })
