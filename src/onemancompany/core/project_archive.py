@@ -237,13 +237,15 @@ def create_project_from_task(task: str, routed_to: str = "pending",
 
 
 def create_named_project(name: str) -> str:
-    """Create a persistent named project. Returns the project_id (slug)."""
-    slug = _slugify(name)
-    # Ensure unique slug
-    base_slug = slug
+    """Create a persistent named project. Returns the project_id (slug-timestamp)."""
+    base_slug = _slugify(name)
+    # Append compact timestamp to guarantee uniqueness and prevent overwrites
+    ts = datetime.now().strftime("%m%d%H%M")
+    slug = f"{base_slug}-{ts}"
+    # Extremely unlikely collision (same name + same minute) — append counter
     counter = 1
     while (PROJECTS_DIR / slug).exists():
-        slug = f"{base_slug}-{counter}"
+        slug = f"{base_slug}-{ts}-{counter}"
         counter += 1
 
     proj_dir = PROJECTS_DIR / slug
@@ -602,14 +604,15 @@ def list_projects() -> list[dict]:
 
         iterations = doc.get("iterations", [])
         latest_task = ""
-        latest_status = doc.get("status", "active")
+        project_status = doc.get("status", "active")
+        latest_iter_status = ""
         latest_owner = ""
         total_cost = 0.0
         if iterations:
             latest_iter = load_iteration(d.name, iterations[-1])
             if latest_iter:
                 latest_task = latest_iter.get("task", "")
-                latest_status = latest_iter.get("status", latest_status)
+                latest_iter_status = latest_iter.get("status", "")
                 latest_owner = latest_iter.get("current_owner", "")
             # Aggregate cost across all iterations
             for iter_id in iterations:
@@ -619,7 +622,8 @@ def list_projects() -> list[dict]:
         projects.append({
             "project_id": doc.get("project_id", d.name),
             "task": latest_task or doc.get("name", ""),
-            "status": latest_status,
+            "status": project_status,
+            "latest_iter_status": latest_iter_status,
             "routed_to": "",
             "current_owner": latest_owner,
             "created_at": doc.get("created_at", ""),
