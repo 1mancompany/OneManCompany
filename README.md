@@ -35,7 +35,7 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 
 ⚙️ **An OS, not just a product**: *Swap the plan, swap the clan — brand new company in your hand.* One runtime abstracts away AI differences. Skills install like phone apps. Same system, different direction and team — entirely new company.
 
-🤖 **Real agents, but top talent welcome**: *Built-in execution engine, task scheduling, retry & fault tolerance, multi-agent communication protocols.* Top-tier agents welcome — OpenClaw, Claude Code, and other powerful agents can move right in as employees. Yes, there's a visualization — but that's just the surface. Underneath runs a full operating system. The pixel-art office is just the tip of the iceberg.
+🤖 **Real agents, but top talent welcome**: *Built-in execution engine, task scheduling, retry & fault tolerance, multi-agent communication protocols.* OpenClaw, Claude Code, and other powerful agents can move right in as employees. Yes, there's a visualization — but that's just the surface. Underneath runs a full operating system. The pixel-art office is just the tip of the iceberg.
 
 🏢 **Real company, not a chatbot**: *Interview, review, promote the few — fire the ones who haven't got a clue.* Yes, your AI employees get nervous. Org chart, hiring pipelines, performance reviews, approval chains, meeting rooms — modeled after Fortune 500 management.
 
