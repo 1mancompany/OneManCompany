@@ -177,3 +177,97 @@ class TestDispatchChildCeo:
             coro_arg.close()
         finally:
             _reset_context(tok_v, tok_t)
+
+
+class TestCeoRequestIdempotency:
+    """Duplicate dispatch_child to CEO should return existing node."""
+
+    def test_duplicate_ceo_request_returns_existing(self):
+        """Second dispatch_child to CEO returns already_dispatched."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree()
+        root_id = tree.root_id
+        vessel = MagicMock()
+        tok_v, tok_t = _set_context(vessel, root_id)
+        mock_em = _make_mock_em(root_id)
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        mock_em._event_loop = mock_loop
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.core.events.event_bus", AsyncMock()),
+                patch("asyncio.run_coroutine_threadsafe"),
+            ):
+                result1 = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval",
+                    "acceptance_criteria": ["Approve"],
+                })
+                assert result1["status"] == "dispatched"
+                first_id = result1["node_id"]
+
+                result2 = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval again",
+                    "acceptance_criteria": ["Approve"],
+                })
+                assert result2["status"] == "already_dispatched"
+                assert result2["node_id"] == first_id
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+class TestHoldReason:
+    """dispatch_child to CEO sets hold_reason on parent node."""
+
+    def test_dispatch_ceo_sets_hold_reason_on_parent(self):
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree()
+        root_id = tree.root_id
+        vessel = MagicMock()
+        tok_v, tok_t = _set_context(vessel, root_id)
+        mock_em = _make_mock_em(root_id)
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        mock_em._event_loop = mock_loop
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.core.events.event_bus", AsyncMock()),
+                patch("asyncio.run_coroutine_threadsafe"),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval",
+                    "acceptance_criteria": ["Approve"],
+                })
+
+            root = tree.get_node(root_id)
+            assert root.hold_reason != ""
+            assert f"ceo_request={result['node_id']}" in root.hold_reason
+            assert "no_watchdog=1" in root.hold_reason
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_hold_reason_serializes_to_dict(self):
+        """hold_reason field persists through to_dict/from_dict round-trip."""
+        from onemancompany.core.task_tree import TaskNode
+
+        node = TaskNode(employee_id="emp001", description="test")
+        node.hold_reason = "ceo_request=abc123,no_watchdog=1"
+        d = node.to_dict()
+        assert d["hold_reason"] == "ceo_request=abc123,no_watchdog=1"
+
+        restored = TaskNode.from_dict(d)
+        assert restored.hold_reason == "ceo_request=abc123,no_watchdog=1"

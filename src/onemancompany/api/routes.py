@@ -5465,7 +5465,11 @@ async def open_ceo_conversation(node_id: str):
 async def _run_conversation_loop(session, node, tree, project_dir):
     """Run conversation loop and handle completion."""
     from onemancompany.core.task_lifecycle import transition
-    from onemancompany.core.vessel import _trigger_dep_resolution
+    from onemancompany.core.vessel import (
+        _trigger_dep_resolution,
+        _parse_holding_metadata,
+        employee_manager,
+    )
 
     try:
         summary = await session.run()
@@ -5477,6 +5481,21 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         from onemancompany.core.task_tree import save_tree_async
         save_tree_async(Path(project_dir) / "task_tree.yaml")
         _trigger_dep_resolution(project_dir, tree, node)
+
+        # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
+        parent = tree.get_node(node.parent_id) if node.parent_id else None
+        if parent and parent.status == TaskPhase.HOLDING.value:
+            holding_meta = _parse_holding_metadata(parent.result or "")
+            if holding_meta and holding_meta.get("ceo_request") == node.id:
+                resumed = await employee_manager.resume_held_task(
+                    parent.employee_id,
+                    parent.id,
+                    f"CEO responded to {node.id}: {summary[:500]}",
+                )
+                if resumed:
+                    logger.info("Auto-resumed parent {} after CEO conversation {}", parent.id, node.id)
+                else:
+                    logger.warning("Failed to auto-resume parent {} for CEO conversation {}", parent.id, node.id)
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
     finally:
