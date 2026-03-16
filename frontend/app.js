@@ -144,7 +144,7 @@ class AppController {
         }
       }
     } catch (e) {
-      // Silently ignore — modal just won't restore
+      console.warn('Failed to restore onboarding progress:', e);
     }
   }
 
