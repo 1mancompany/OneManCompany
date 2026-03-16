@@ -202,7 +202,7 @@ class ToolRegistry:
                         source=source,
                     )
                     self.register(attr, meta)
-                    logger.debug("Registered asset tool: %s (from %s)", attr.name, folder_name)
+                    logger.debug("Registered asset tool: {} (from {})", attr.name, folder_name)
 
 
     # ------------------------------------------------------------------
