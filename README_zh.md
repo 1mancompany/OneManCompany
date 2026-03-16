@@ -435,6 +435,7 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 @software{onemancompany2025,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},
   license = {Apache-2.0}

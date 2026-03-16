@@ -420,6 +420,7 @@ If you use OneManCompany in your research or project, please cite it:
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},
   license = {Apache-2.0}
