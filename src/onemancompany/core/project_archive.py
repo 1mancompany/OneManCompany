@@ -231,7 +231,12 @@ async def async_create_project_from_task(
     from onemancompany.core.async_utils import spawn_background
 
     async def _rename_when_ready() -> None:
-        llm_name = await _llm_project_name(task)
+        import asyncio as _aio
+        try:
+            llm_name = await _aio.wait_for(_llm_project_name(task), timeout=30.0)
+        except _aio.TimeoutError:
+            logger.warning("LLM project naming timed out for {}, keeping fallback", project_id)
+            return
         if llm_name and llm_name != fallback_name:
             _update_project_name(project_id, llm_name)
             logger.info("Project {} renamed: '{}' → '{}'", project_id, fallback_name, llm_name)
@@ -246,10 +251,10 @@ async def async_create_project_from_task(
 def _update_project_name(project_id: str, new_name: str) -> None:
     """Update the display name of an existing named project."""
     path = PROJECTS_DIR / project_id / "project.yaml"
-    if not path.exists():
-        return
     lock = _get_project_lock(project_id)
     with lock:
+        if not path.exists():
+            return
         with open(path) as f:
             doc = yaml.safe_load(f) or {}
         doc["name"] = new_name
