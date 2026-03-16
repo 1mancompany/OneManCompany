@@ -131,6 +131,7 @@ class AppController {
         }));
 
         // Show the modal with all candidates
+        this._onboardingBatchId = batchId;
         this._showOnboardingProgress(selections);
 
         // Replay each candidate's current step
@@ -1011,6 +1012,13 @@ class AppController {
       this._onboardingItems = null;
       document.getElementById('onboarding-progress-list').innerHTML = '';
       document.getElementById('onboarding-done-btn').classList.add('hidden');
+      // Tell backend to clear completed batches so they don't re-appear on refresh
+      fetch('/api/onboarding/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_id: this._onboardingBatchId || '' }),
+      }).catch(() => {});
+      this._onboardingBatchId = null;
     });
     document.getElementById('onboarding-toggle-btn').addEventListener('click', () => {
       const toast = document.getElementById('onboarding-progress-modal');
@@ -3082,6 +3090,7 @@ class AppController {
     this._batchHired = true;
 
     // Show onboarding progress modal
+    this._onboardingBatchId = batchId;
     this._showOnboardingProgress(selections);
 
     // Close candidate modal (UI only — no dismiss, no batch_id cleanup)

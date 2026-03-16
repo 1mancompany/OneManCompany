@@ -3662,10 +3662,10 @@ def _track_onboarding_progress(batch_id: str, candidate_id: str, name: str, role
     _active_onboarding[batch_id]["items"][candidate_id] = {
         "name": name, "role": role, "step": step, "message": message,
     }
-    # Auto-cleanup: if all items are terminal, remove batch
+    # Mark batch as done (but don't auto-remove — frontend dismisses explicitly)
     items = _active_onboarding[batch_id]["items"]
     if len(items) >= total and all(v["step"] in ("completed", "failed") for v in items.values()):
-        _active_onboarding.pop(batch_id, None)
+        _active_onboarding[batch_id]["done"] = True
 
 
 def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
@@ -3964,6 +3964,20 @@ async def dismiss_shortlist(body: dict) -> dict:
 async def onboarding_status() -> dict:
     """Return active onboarding batches for frontend state recovery."""
     return {"batches": _active_onboarding}
+
+
+@router.post("/api/onboarding/dismiss")
+async def onboarding_dismiss(body: dict) -> dict:
+    """Dismiss a completed onboarding batch (frontend 'Done' button)."""
+    batch_id = body.get("batch_id", "")
+    if batch_id:
+        _active_onboarding.pop(batch_id, None)
+    else:
+        # Dismiss all completed batches
+        done_ids = [k for k, v in _active_onboarding.items() if v.get("done")]
+        for bid in done_ids:
+            _active_onboarding.pop(bid, None)
+    return {"ok": True}
 
 
 @router.post("/api/candidates/batch-hire")
