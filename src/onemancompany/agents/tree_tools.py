@@ -28,6 +28,28 @@ def _load_tree(project_dir: str) -> TaskTree:
     return get_tree(path)
 
 
+def _find_entry_for_task(task_id: str) -> tuple[str, str]:
+    """Find (project_dir, tree_path) for a task_id in schedule or running entries.
+
+    Running tasks are popped from _schedule, so we also check _current_entries.
+    Returns ("", "") if not found.
+    """
+    from onemancompany.core.vessel import employee_manager
+
+    # Check schedule first
+    for entries in employee_manager._schedule.values():
+        for e in entries:
+            if e.node_id == task_id:
+                return str(Path(e.tree_path).parent), e.tree_path
+
+    # Check currently running tasks (popped from schedule)
+    for e in employee_manager._current_entries.values():
+        if e.node_id == task_id:
+            return str(Path(e.tree_path).parent), e.tree_path
+
+    return "", ""
+
+
 def _save_tree(project_dir: str, tree: TaskTree) -> None:
     """Schedule async save of the TaskTree."""
     from onemancompany.core.task_tree import save_tree_async
@@ -117,19 +139,7 @@ def dispatch_child(
         return {"status": "error", "message": "No agent context."}
 
     # Load tree, find current node
-    # Get project_dir from parent node
-    from onemancompany.core.vessel import employee_manager
-    # Find the entry for the current task_id in schedule
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                tree_path_str = e.tree_path
-                project_dir = str(Path(e.tree_path).parent)
-                break
-        if tree_path_str:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir or not tree_path_str:
         # --- Standalone CEO request (no tree context, e.g. system/adhoc tasks) ---
@@ -267,6 +277,7 @@ def dispatch_child(
             }
 
         # Save tree and schedule via employee_manager
+        from onemancompany.core.vessel import employee_manager
         _save_tree(project_dir, tree)
         employee_manager.schedule_node(employee_id, child.id, tree_path_str)
         employee_manager._schedule_next(employee_id)
@@ -296,17 +307,7 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         return {"status": "error", "message": "No agent context."}
 
     # Find project_dir from current task context
-    from onemancompany.core.vessel import employee_manager
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                project_dir = str(Path(e.tree_path).parent)
-                tree_path_str = e.tree_path
-                break
-        if project_dir:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir:
         return {"status": "error", "message": "No project context."}
@@ -358,17 +359,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
     if not vessel or not task_id:
         return {"status": "error", "message": "No agent context."}
 
-    from onemancompany.core.vessel import employee_manager
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                project_dir = str(Path(e.tree_path).parent)
-                tree_path_str = e.tree_path
-                break
-        if project_dir:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir:
         return {"status": "error", "message": "No project context."}
@@ -430,17 +421,7 @@ def unblock_child(node_id: str, new_description: str = "") -> dict:
     if not vessel or not task_id:
         return {"status": "error", "message": "No agent context."}
 
-    from onemancompany.core.vessel import employee_manager
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                project_dir = str(Path(e.tree_path).parent)
-                tree_path_str = e.tree_path
-                break
-        if project_dir:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir:
         return {"status": "error", "message": "No project context."}
@@ -466,6 +447,7 @@ def unblock_child(node_id: str, new_description: str = "") -> dict:
         _save_tree(project_dir, tree)
 
         # Check if remaining deps are met
+        from onemancompany.core.vessel import employee_manager
         if tree.all_deps_resolved(node.id):
             employee_manager.schedule_node(node.employee_id, node.id, tree_path_str)
             employee_manager._schedule_next(node.employee_id)
@@ -490,17 +472,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
     if not vessel or not task_id:
         return {"status": "error", "message": "No agent context."}
 
-    from onemancompany.core.vessel import employee_manager
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                project_dir = str(Path(e.tree_path).parent)
-                tree_path_str = e.tree_path
-                break
-        if project_dir:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir:
         return {"status": "error", "message": "No project context."}
@@ -539,17 +511,7 @@ def set_project_name(name: str) -> dict:
     if not task_id:
         return {"status": "error", "message": "No agent context."}
 
-    from onemancompany.core.vessel import employee_manager
-    project_dir = ""
-    tree_path_str = ""
-    for entries in employee_manager._schedule.values():
-        for e in entries:
-            if e.node_id == task_id:
-                project_dir = str(Path(e.tree_path).parent)
-                tree_path_str = e.tree_path
-                break
-        if tree_path_str:
-            break
+    project_dir, tree_path_str = _find_entry_for_task(task_id)
 
     if not project_dir:
         return {"status": "error", "message": "No project context."}
