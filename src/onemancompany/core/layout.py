@@ -116,6 +116,10 @@ def compute_layout(company_state) -> dict:
     # Persist computed desk positions to disk
     _persist_positions(position_updates)
 
+    # Notify frontend that office layout changed (dept zones, colors, etc.)
+    from onemancompany.core.store import mark_dirty
+    mark_dirty("office_layout")
+
     return layout
 
 
