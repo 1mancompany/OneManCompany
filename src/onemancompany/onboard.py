@@ -236,20 +236,26 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     console.print("  Select your LLM provider:\n")
     console.print(table)
-    console.print()
+    console.print(
+        "\n  [dim]Type the number of your provider and press [bold]Enter[/bold].\n"
+        "  Not sure? [bold]1[/bold] (OpenRouter) works with most models.[/dim]\n"
+    )
 
     while True:
         choice = Prompt.ask("  Provider #", default="1", console=console).strip()
         if choice.isdigit() and 1 <= int(choice) <= len(available_groups):
             selected_group = available_groups[int(choice) - 1]
             break
-        console.print(f"  [red]Enter a number 1-{len(available_groups)}[/red]")
+        console.print(f"  [red]Please type a number between 1 and {len(available_groups)}, then press Enter.[/red]")
 
     provider = selected_group.group_id
     console.print(f"  [green]✔[/green] Selected: [bold]{selected_group.label}[/bold]\n")
 
     # 2. Enter API key
-    console.print(f"  [dim]Paste your {selected_group.label} API key below (input is hidden).[/dim]")
+    console.print(
+        f"  [dim]Paste your {selected_group.label} API key and press [bold]Enter[/bold].\n"
+        f"  The input is hidden for security — you won't see what you type.[/dim]"
+    )
     api_key = Prompt.ask(
         f"  {selected_group.label} API Key",
         password=True,
@@ -257,6 +263,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     )
     while not api_key.strip():
         console.print("  [red]API key is required — your employees can't think without it.[/red]")
+        console.print("  [dim]Paste your key and press [bold]Enter[/bold].[/dim]")
         api_key = Prompt.ask(f"  {selected_group.label} API Key", password=True, console=console)
 
     # 3. Select model
@@ -267,7 +274,12 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             console.print(f"  [green]✔[/green] Found {len(all_models)} models")
         console.print(
             "  [dim]This only sets the [bold]default[/bold] model, used for company-level features.\n"
-            "  Each employee can use a different LLM — configurable on the web UI.[/dim]\n"
+            "  Each employee can use a different LLM — configurable on the web UI.\n\n"
+            "  How to pick a model:\n"
+            "    • Type a [bold]number[/bold] and press [bold]Enter[/bold] to select\n"
+            "    • Type a [bold]keyword[/bold] (e.g. \"claude\") to search\n"
+            "    • Type [bold]n[/bold]/[bold]p[/bold] to go to next/previous page\n"
+            "    • Type [bold]c[/bold] to enter a custom model ID[/dim]\n"
         )
         model = _select_model_interactive(console, all_models)
     else:
@@ -285,6 +297,10 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             "minimax": "MiniMax-Text-01",
         }
         default_model = defaults.get(provider, "")
+        console.print(
+            f"  [dim]Type a model ID and press [bold]Enter[/bold].\n"
+            f"  Press [bold]Enter[/bold] directly to use the default: [bold]{default_model}[/bold][/dim]\n"
+        )
         model = Prompt.ask(
             "  Model ID",
             default=default_model,
@@ -307,11 +323,18 @@ def _step_server(console: Console) -> tuple[str, int]:
         f"  Use 127.0.0.1 for local-only access.[/dim]\n"
     )
 
+    console.print(
+        "  [dim]Type [bold]y[/bold] and press [bold]Enter[/bold] to use defaults,\n"
+        "  or [bold]n[/bold] to customize host and port.[/dim]\n"
+    )
     use_defaults = Confirm.ask("  Use default host/port?", default=True, console=console)
     if use_defaults:
+        console.print("  [green]✔[/green] Using [bold]0.0.0.0:8000[/bold]\n")
         return "0.0.0.0", 8000
 
+    console.print("  [dim]Type the host address and press [bold]Enter[/bold].[/dim]")
     host = Prompt.ask("  Host", default="0.0.0.0", console=console)
+    console.print("  [dim]Type the port number and press [bold]Enter[/bold].[/dim]")
     port_str = Prompt.ask("  Port", default="8000", console=console)
     try:
         port = int(port_str)
@@ -334,7 +357,8 @@ def _step_sandbox(console: Console) -> bool:
         "  [bold]Requirements:[/bold]\n"
         "    • [cyan]Docker[/cyan] — must be installed and running\n"
         "    • Python packages will be installed automatically\n"
-        "  [dim]You can always enable this later. Skip if unsure.[/dim]\n"
+        "  [dim]This is optional. You can always enable it later.\n"
+        "  Type [bold]y[/bold] or [bold]n[/bold] and press [bold]Enter[/bold].[/dim]\n"
     )
     install = Confirm.ask("  Install sandbox tools?", default=False, console=console)
     if install:
@@ -378,8 +402,10 @@ def _step_optional(console: Console) -> dict[str, str]:
     console.print()
     console.rule(f"[bold]Step 4/{TOTAL_STEPS}[/bold]  Extra Integrations")
     console.print(
-        "\n  [dim]These are optional. Press Enter to skip any you don't have.\n"
-        "  You can add them later in [bold].onemancompany/.env[/bold][/dim]\n"
+        "\n  [dim]These are all optional.\n"
+        "  Paste a key and press [bold]Enter[/bold] to save it,\n"
+        "  or just press [bold]Enter[/bold] to skip.\n"
+        "  You can always add them later in [bold].onemancompany/.env[/bold][/dim]\n"
     )
 
     extras: dict[str, str] = {}
@@ -387,9 +413,9 @@ def _step_optional(console: Console) -> dict[str, str]:
     # Anthropic API Key
     console.print(
         "  [bold]Anthropic API Key[/bold]\n"
-        "  [dim]Required if you want founding employees to use Claude Code as their\n"
-        "  execution mode (more capable, lower token cost). Not needed if you only\n"
-        "  use the Company Hosted Agent mode you configured in Step 1.[/dim]"
+        "  [dim]Needed for Claude Code execution mode (more capable, lower token cost).\n"
+        "  If you prefer OAuth login, skip this — you can set it up later in the\n"
+        "  browser Settings page.[/dim]"
     )
     key = Prompt.ask("  Anthropic API Key", default="", password=True, console=console)
     if key.strip():
@@ -615,6 +641,7 @@ def run_wizard() -> None:
             f"[yellow]\u26a0[/yellow]  [bold].onemancompany/[/bold] already exists at\n"
             f"   {DATA_ROOT}\n"
         )
+        console.print("  [dim]Type [bold]y[/bold] to reconfigure, or [bold]n[/bold] to keep existing settings.[/dim]\n")
         if not Confirm.ask("  Reconfigure?", default=False, console=console):
             console.print("\n  Aborted. Existing configuration unchanged.")
             return
