@@ -9,11 +9,18 @@
 <p align="center"><b>The AI Operating System for One-Person Companies</b></p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+</p>
+
+<p align="center">
   <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="90%" />
 </p>
 
 <p align="center">
-  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/">Homepage</a>
+  <a href="https://1mancompany.github.io/OneManCompany/">Homepage</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.
@@ -38,7 +45,9 @@ OneManCompany is an open-source OS that lets anyone build and run a complete AI-
 npx @1mancompany/onemancompany
 ```
 
-> One command. A full AI company in your browser. No Python, no Docker, no config — just run it.
+> **One command. A full AI company in your browser.** No Python, no Docker, no config — just run it.
+>
+> If this project is useful to you, please consider giving it a ⭐ — it helps others discover OneManCompany.
 
 ---
 
@@ -113,6 +122,9 @@ npx @1mancompany/onemancompany
       </a>
       <br><b>"Make me a game"</b>
       <br><i>CEO gives one sentence — the team builds a complete game autonomously.</i>
+    </td>
+    <td align="center" width="50%">
+      <i>More demos coming soon — <a href="https://github.com/1mancompany/OneManCompany/issues">request one</a></i>
     </td>
   </tr>
 </table>
@@ -431,7 +443,7 @@ If you use OneManCompany in your research or project, please cite it:
 
 ## Links
 
-**[Talent Market](https://one-man-company.com)** — Community-verified AI employee marketplace (Trained a 🦞 but not sure what to do with it? List it on the market!)
+**[Talent Market](https://one-man-company.com)** — Community-verified AI employee marketplace (Built an amazing AI agent but no one uses it? List it on the market — let it work for someone's company!)
 
 **[Talent Template](https://github.com/1mancompany/talent-template)** — Template repo for building your own Talents
 

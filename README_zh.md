@@ -9,7 +9,14 @@
 <p align="center"><b>AI 一人公司操作系统</b></p>
 
 <p align="center">
-  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/zh/">文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/">主页</a>
+  <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
+  <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+</p>
+
+<p align="center">
+  <a href="https://1mancompany.github.io/OneManCompany/">主页</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/zh/">文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > 别人用 AI 写代码，你用 AI 开公司。
@@ -17,6 +24,8 @@
 > Linux 管服务器，OneManCompany 管公司。
 >
 > 不是造一家公司——是让你造任何一家公司。
+>
+> 如果这个项目对你有帮助，请点个 ⭐ —— 让更多人发现 OneManCompany。
 
 OneManCompany 是一个开源的 AI 操作系统，让任何人都能在浏览器里组建并运营一整家 AI 驱动的公司。
 
@@ -191,6 +200,9 @@ OneManCompany 不止于内置能力——它面向全球 Agent 社区开放。
       </a>
       <br><b>「做个游戏」</b>
       <br><i>CEO 一句话 —— 团队自主完成整个游戏开发。</i>
+    </td>
+    <td align="center" width="50%">
+      <i>更多演示即将上线 —— <a href="https://github.com/1mancompany/OneManCompany/issues">提个需求</a></i>
     </td>
   </tr>
 </table>
@@ -432,7 +444,7 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 如果你在研究或项目中使用了本项目，请引用：
 
 ```bibtex
-@software{onemancompany2025,
+@software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
