@@ -1666,6 +1666,7 @@ class EmployeeManager:
                     if parent_node.status == TaskPhase.PENDING.value:
                         parent_node.set_status(TaskPhase.PROCESSING)
                     parent_node.set_status(TaskPhase.COMPLETED)
+                    logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (child of CEO completed)", parent_node.id)
                 save_tree_async(entry.tree_path)
             await self._request_ceo_confirmation(
                 employee_id, node, tree, entry, project_id
@@ -1704,6 +1705,7 @@ class EmployeeManager:
             if parent_node.status == TaskPhase.HOLDING.value:
                 parent_node.set_status(TaskPhase.PROCESSING)
             parent_node.set_status(TaskPhase.COMPLETED)
+            logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children accepted)", parent_node.id)
             parent_node.result = "All child tasks accepted."
             save_tree_async(entry.tree_path)
             self._publish_node_update(parent_node.employee_id, parent_node)
@@ -1762,6 +1764,7 @@ class EmployeeManager:
                 review_count, parent_node.id,
             )
             parent_node.set_status(TaskPhase.HOLDING)
+            logger.debug("[TASK LIFECYCLE] parent={} → HOLDING (review circuit breaker, {} rounds)", parent_node.id, review_count)
             save_tree_async(entry.tree_path)
 
             # Build escalation summary
@@ -1850,6 +1853,7 @@ class EmployeeManager:
                     if cancelled_deps:
                         # Cascade cancel: dep was cancelled, so this node should be too
                         dep_node.set_status(TaskPhase.CANCELLED)
+                        logger.debug("[TASK LIFECYCLE] node={} → CANCELLED (cascade from {})", dep_node.id, cancelled_deps[0].id)
                         dep_node.result = (
                             f"Cascade cancelled: dependency "
                             f"\"{cancelled_deps[0].description_preview[:80]}\" was cancelled"
@@ -1864,6 +1868,7 @@ class EmployeeManager:
                         continue
 
                     dep_node.set_status(TaskPhase.BLOCKED)
+                    logger.debug("[TASK LIFECYCLE] node={} → BLOCKED (dep {} failed)", dep_node.id, completed_node.id)
                     dirty = True
                     # Notify parent about blocked task
                     parent = tree.get_node(dep_node.parent_id)
