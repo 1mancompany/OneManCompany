@@ -992,8 +992,8 @@ async def execute_hire(
                 _register_employee_hooks(emp_num, emp_dir)
 
     # Trigger onboarding routine as background task
-    import asyncio
     from onemancompany.core.routine import run_onboarding_routine
-    asyncio.create_task(run_onboarding_routine(emp_num))
+    from onemancompany.core.async_utils import spawn_background
+    spawn_background(run_onboarding_routine(emp_num))
 
     return emp

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from onemancompany.agents.base import tracked_ainvoke
+from onemancompany.core.async_utils import spawn_background
 from onemancompany.api.websocket import ws_manager
 from onemancompany.core.config import (
     CEO_ID,
@@ -3652,20 +3653,6 @@ _pending_oauth_hire: dict[str, dict] = {}
 # frontend can restore the progress modal after a page refresh.
 # Structure: { batch_id: { "items": { candidate_id: {name, role, step, message} }, "total": N } }
 _active_onboarding: dict[str, dict] = {}
-# prevent background tasks from being GC'd (Python 3.12+ asyncio weak-refs)
-_background_tasks: set[asyncio.Task] = set()
-
-
-def _spawn_background(coro) -> asyncio.Task:
-    """Launch a fire-and-forget background task with GC protection.
-
-    Python 3.12+ only keeps weak references to asyncio tasks.
-    This stores a strong reference until the task completes.
-    """
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return task
 
 
 def _track_onboarding_progress(batch_id: str, candidate_id: str, name: str, role: str, step: str, message: str, total: int) -> None:
@@ -3792,7 +3779,7 @@ async def hire_candidate(body: HireRequest) -> dict:
         logger.info("[hiring] Applying COO context: role='{}' over talent role='{}'", coo_ctx.get("role"), candidate.get("role"))
 
     # Launch onboarding as background task
-    _spawn_background(
+    spawn_background(
         _do_hire_single(body.batch_id, body.candidate_id, body.nickname, candidate, coo_ctx)
     )
 
@@ -4036,7 +4023,7 @@ async def batch_hire_candidates(body: dict) -> dict:
             coo_ctxs.append({})
 
     # Launch background task for the actual hiring
-    _spawn_background(
+    spawn_background(
         _do_batch_hire(batch_id, selections, list(all_candidates), coo_ctxs)
     )
 
@@ -4244,14 +4231,14 @@ async def _do_batch_hire(
                     logger.info("[hiring] Resumed HR holding task {}", entry.node_id)
                     break
             else:
-                logger.warning("[hiring] No matching HR holding task found for batch_id={}", batch_id)
+                logger.debug("[hiring] No matching HR holding task found for batch_id={}", batch_id)
         except Exception as resume_exc:
             logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
 
         try:
             await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
-        except Exception:
-            logger.debug("[hiring] Could not publish state_snapshot in finally")
+        except Exception as pub_exc:
+            logger.debug("[hiring] Could not publish state_snapshot in finally: {}", pub_exc)
 
 
 @router.post("/api/candidates/interview")
@@ -5471,7 +5458,7 @@ async def open_ceo_conversation(node_id: str):
     register_session(session)
 
     # Start conversation loop as background task
-    _spawn_background(_run_conversation_loop(session, node, tree, project_dir))
+    spawn_background(_run_conversation_loop(session, node, tree, project_dir))
 
     messages = load_messages(Path(project_dir) / "conversations", node_id)
     node.load_content(project_dir)
