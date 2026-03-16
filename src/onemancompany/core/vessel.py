@@ -283,6 +283,17 @@ def _parse_holding_metadata(result: str | None) -> dict | None:
     return meta
 
 
+def _find_pending_ceo_children(tree, node_id: str) -> list:
+    """Return unfinished ceo_request child nodes for the given node."""
+    from onemancompany.core.task_lifecycle import TaskPhase
+
+    children = tree.get_children(node_id)
+    terminal = {TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value, TaskPhase.ACCEPTED.value}
+    return [
+        c for c in children
+        if c.node_type == "ceo_request" and c.status not in terminal
+    ]
+
 
 
 # ---------------------------------------------------------------------------
@@ -1089,12 +1100,26 @@ class EmployeeManager:
                 self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
-                node.set_status(TaskPhase.COMPLETED)
-                # System nodes auto-skip review: they don't need to be reviewed themselves
-                if node.node_type in ("review", "ceo_request"):
-                    node.set_status(TaskPhase.ACCEPTED)
-                    node.set_status(TaskPhase.FINISHED)
-                save_tree_async(entry.tree_path)
+                # Auto-detect pending ceo_request children → force HOLDING
+                # (LLM may not reliably output __HOLDING: prefix after dispatch_child to CEO)
+                pending_ceo = _find_pending_ceo_children(tree, entry.node_id)
+                if pending_ceo:
+                    ceo_child = pending_ceo[0]
+                    auto_meta = {"ceo_request": ceo_child.id}
+                    node.set_status(TaskPhase.HOLDING)
+                    save_tree_async(entry.tree_path)
+                    # No watchdog needed — routes.py will resume when CEO responds
+                    self._log_node(
+                        employee_id, entry.node_id, "holding",
+                        f"Auto-HOLDING: waiting for CEO response on {ceo_child.id}",
+                    )
+                else:
+                    node.set_status(TaskPhase.COMPLETED)
+                    # System nodes auto-skip review: they don't need to be reviewed themselves
+                    if node.node_type in ("review", "ceo_request"):
+                        node.set_status(TaskPhase.ACCEPTED)
+                        node.set_status(TaskPhase.FINISHED)
+                    save_tree_async(entry.tree_path)
 
         if node.status != TaskPhase.HOLDING.value:
             if not node.completed_at:

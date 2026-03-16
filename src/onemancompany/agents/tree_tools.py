@@ -219,6 +219,31 @@ def dispatch_child(
                     "message": f"Dependency node {dep_id} not found in task tree.",
                 }
 
+        # --- CEO request interception (idempotency check BEFORE creating child) ---
+        CEO_EMPLOYEE_ID = "00001"
+        if employee_id == CEO_EMPLOYEE_ID:
+            from onemancompany.core.task_lifecycle import TaskPhase as _TP
+            existing = [
+                c for c in tree.get_children(task_id)
+                if c.node_type == "ceo_request"
+                and c.status not in (_TP.FINISHED.value, _TP.CANCELLED.value, _TP.ACCEPTED.value)
+            ]
+            if existing:
+                dup = existing[0]
+                return {
+                    "status": "already_dispatched",
+                    "node_id": dup.id,
+                    "employee_id": employee_id,
+                    "description": dup.description,
+                    "node_type": "ceo_request",
+                    "ceo_request": True,
+                    "message": (
+                        f"A CEO request ({dup.id}) is already pending. Do NOT create another. "
+                        "Your task will automatically pause (HOLDING) until the CEO responds. "
+                        "You should finish your current output now — the system handles the rest."
+                    ),
+                }
+
         # Add child node
         child = tree.add_child(
             parent_id=task_id,
@@ -231,8 +256,6 @@ def dispatch_child(
         child.project_id = current_node.project_id
         child.project_dir = project_dir
 
-        # --- CEO request interception ---
-        CEO_EMPLOYEE_ID = "00001"
         if employee_id == CEO_EMPLOYEE_ID:
             child.node_type = "ceo_request"
             _save_tree(project_dir, tree)
@@ -260,7 +283,11 @@ def dispatch_child(
                 "description": description,
                 "node_type": "ceo_request",
                 "ceo_request": True,
-                "message": "Task dispatched to CEO inbox. CEO will respond when available.",
+                "message": (
+                    "Task dispatched to CEO inbox. Your task will automatically pause (HOLDING) "
+                    "until the CEO responds. You should finish your current output now — "
+                    "the system handles the rest."
+                ),
             }
 
         # --- Normal employee dispatch (existing logic) ---

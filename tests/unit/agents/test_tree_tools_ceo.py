@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 
 from onemancompany.core.task_tree import TaskTree
-from onemancompany.core.vessel import ScheduleEntry, _current_task_id, _current_vessel
+from onemancompany.core.vessel import ScheduleEntry, _current_task_id, _current_vessel, _find_pending_ceo_children
 
 
 CEO_ID = "00001"
@@ -177,3 +177,85 @@ class TestDispatchChildCeo:
             coro_arg.close()
         finally:
             _reset_context(tok_v, tok_t)
+
+
+class TestCeoRequestIdempotency:
+    """Duplicate dispatch_child to CEO should return existing node."""
+
+    def test_duplicate_ceo_request_returns_existing(self):
+        """Second dispatch_child to CEO returns already_dispatched."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree()
+        root_id = tree.root_id
+        vessel = MagicMock()
+        tok_v, tok_t = _set_context(vessel, root_id)
+        mock_em = _make_mock_em(root_id)
+        mock_loop = MagicMock()
+        mock_loop.is_running.return_value = True
+        mock_em._event_loop = mock_loop
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.core.events.event_bus", AsyncMock()),
+                patch("asyncio.run_coroutine_threadsafe"),
+            ):
+                result1 = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval",
+                    "acceptance_criteria": ["Approve"],
+                })
+                assert result1["status"] == "dispatched"
+                first_id = result1["node_id"]
+
+                result2 = dispatch_child.invoke({
+                    "employee_id": CEO_ID,
+                    "description": "Need approval again",
+                    "acceptance_criteria": ["Approve"],
+                })
+                assert result2["status"] == "already_dispatched"
+                assert result2["node_id"] == first_id
+        finally:
+            _reset_context(tok_v, tok_t)
+
+
+class TestFindPendingCeoChildren:
+    """Test _find_pending_ceo_children helper."""
+
+    def test_finds_pending_ceo_request(self):
+        tree = _make_tree()
+        root = tree.get_node(tree.root_id)
+        child = tree.add_child(
+            parent_id=root.id, employee_id=CEO_ID,
+            description="test", acceptance_criteria=["ok"],
+        )
+        child.node_type = "ceo_request"
+        result = _find_pending_ceo_children(tree, root.id)
+        assert len(result) == 1
+        assert result[0].id == child.id
+
+    def test_ignores_finished_ceo_request(self):
+        tree = _make_tree()
+        root = tree.get_node(tree.root_id)
+        child = tree.add_child(
+            parent_id=root.id, employee_id=CEO_ID,
+            description="test", acceptance_criteria=["ok"],
+        )
+        child.node_type = "ceo_request"
+        child.status = "accepted"
+        result = _find_pending_ceo_children(tree, root.id)
+        assert len(result) == 0
+
+    def test_ignores_non_ceo_children(self):
+        tree = _make_tree()
+        root = tree.get_node(tree.root_id)
+        child = tree.add_child(
+            parent_id=root.id, employee_id="00010",
+            description="normal task", acceptance_criteria=["ok"],
+        )
+        result = _find_pending_ceo_children(tree, root.id)
+        assert len(result) == 0
