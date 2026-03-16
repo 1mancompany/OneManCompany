@@ -784,7 +784,9 @@ class EmployeeManager:
                         node.load_content(load_dir)
                         meta = _parse_holding_metadata(node.result or "")
                         if meta:
-                            self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
+                            # ceo_request HOLDING: no watchdog needed, routes.py handles resume
+                            if "ceo_request" not in meta:
+                                self._setup_holding_watchdog_by_id(emp_id, entry.node_id, node.created_at, meta)
                             count += 1
                 except Exception as e:
                     logger.warning("Failed to check holding status for node {}: {}", entry.node_id, e)
@@ -1110,7 +1112,10 @@ class EmployeeManager:
             if holding_meta is not None:
                 node.set_status(TaskPhase.HOLDING)
                 save_tree_async(entry.tree_path)
-                self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
+                # ceo_request HOLDING: routes.py auto-resumes when CEO responds,
+                # so no watchdog needed (avoids premature 30-min timeout escalation)
+                if "ceo_request" not in holding_meta:
+                    self._setup_holding_watchdog_by_id(employee_id, entry.node_id, node.created_at, holding_meta)
                 self._log_node(employee_id, entry.node_id, "holding", f"Task entered HOLDING: {holding_meta}")
             else:
                 node.set_status(TaskPhase.COMPLETED)
