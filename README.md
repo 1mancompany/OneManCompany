@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
+  <a href="README_zh.md">中文文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > Others use AI to write code. You use AI to run a company.

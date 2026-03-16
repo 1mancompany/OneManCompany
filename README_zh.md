@@ -9,7 +9,7 @@
 <p align="center"><b>AI 一人公司操作系统</b></p>
 
 <p align="center">
-  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
+  <a href="README.md">English</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://1mancompany.github.io/OneManCompany/docs/zh/">文档</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://one-man-company.com">Talent Market</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://github.com/1mancompany/OneManCompany/issues">Issues</a>
 </p>
 
 > 别人用 AI 写代码，你用 AI 开公司。
