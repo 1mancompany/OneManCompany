@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Compilation check
+        run: python -c "from onemancompany.api.routes import router; print('OK')"
+
+      - name: Unit tests
+        run: python -m pytest tests/unit/ -x -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Frontend syntax check
+        run: node --check frontend/app.js
