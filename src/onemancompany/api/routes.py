@@ -3970,13 +3970,10 @@ async def onboarding_status() -> dict:
 async def onboarding_dismiss(body: dict) -> dict:
     """Dismiss a completed onboarding batch (frontend 'Done' button)."""
     batch_id = body.get("batch_id", "")
-    if batch_id:
-        _active_onboarding.pop(batch_id, None)
-    else:
-        # Dismiss all completed batches
-        done_ids = [k for k, v in _active_onboarding.items() if v.get("done")]
-        for bid in done_ids:
-            _active_onboarding.pop(bid, None)
+    if not batch_id:
+        return {"error": "batch_id is required"}
+    removed = _active_onboarding.pop(batch_id, None)
+    logger.debug("[onboarding] Dismissed batch {}: {}", batch_id, "found" if removed else "not found")
     return {"ok": True}
 
 
@@ -4097,7 +4094,7 @@ async def _do_batch_hire(
             except Exception as exc:
                 logger.debug("[batch-hire] Nickname generation failed for {}: {}", cid, exc)
                 nickname_map[cid] = ""
-        logger.info("[batch-hire] Nicknames ready ({}), starting hire loop", nickname_map)
+        logger.debug("[batch-hire] Nicknames ready ({}), starting hire loop", nickname_map)
 
         for idx, sel in enumerate(selections):
             candidate_id = sel.get("candidate_id", "")

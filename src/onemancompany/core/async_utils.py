@@ -28,8 +28,7 @@ def spawn_background(coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
         if t.cancelled():
             logger.debug("Background task {} cancelled", t.get_name())
         elif t.exception():
-            logger.error("Background task {} failed: {}", t.get_name(), t.exception())
-            logger.opt(exception=t.exception()).debug("Background task {} traceback", t.get_name())
+            logger.opt(exception=t.exception()).error("Background task {} failed", t.get_name())
         else:
             logger.debug("Background task {} completed successfully", t.get_name())
 

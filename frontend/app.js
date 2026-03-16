@@ -1013,11 +1013,13 @@ class AppController {
       document.getElementById('onboarding-progress-list').innerHTML = '';
       document.getElementById('onboarding-done-btn').classList.add('hidden');
       // Tell backend to clear completed batches so they don't re-appear on refresh
-      fetch('/api/onboarding/dismiss', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: this._onboardingBatchId || '' }),
-      }).catch(() => {});
+      if (this._onboardingBatchId) {
+        fetch('/api/onboarding/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: this._onboardingBatchId }),
+        }).catch(err => console.warn('Failed to dismiss onboarding batch:', err));
+      }
       this._onboardingBatchId = null;
     });
     document.getElementById('onboarding-toggle-btn').addEventListener('click', () => {
@@ -3267,7 +3269,7 @@ class AppController {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ batch_id: this._candidateBatchId }),
-      }).catch(() => {});
+      }).catch(err => console.warn('Failed to dismiss shortlist:', err));
       this.logEntry('CEO', '🚫 Shortlist dismissed — this recruitment round is cancelled.', 'ceo');
       // Only clear batch_id on dismiss — hired flows manage their own cleanup
       this._candidateBatchId = null;
