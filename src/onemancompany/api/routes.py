@@ -3649,6 +3649,24 @@ _pending_coo_hire_queue: list[dict] = []
 # can notify COO.
 _pending_oauth_hire: dict[str, dict] = {}
 
+# Active onboarding state — tracks in-flight onboarding batches so the
+# frontend can restore the progress modal after a page refresh.
+# Structure: { batch_id: { "items": { candidate_id: {name, role, step, message} }, "total": N } }
+_active_onboarding: dict[str, dict] = {}
+
+
+def _track_onboarding_progress(batch_id: str, candidate_id: str, name: str, role: str, step: str, message: str, total: int) -> None:
+    """Update in-memory onboarding tracker for state recovery on refresh."""
+    if batch_id not in _active_onboarding:
+        _active_onboarding[batch_id] = {"items": {}, "total": total}
+    _active_onboarding[batch_id]["items"][candidate_id] = {
+        "name": name, "role": role, "step": step, "message": message,
+    }
+    # Auto-cleanup: if all items are terminal, remove batch
+    items = _active_onboarding[batch_id]["items"]
+    if len(items) >= total and all(v["step"] in ("completed", "failed") for v in items.values()):
+        _active_onboarding.pop(batch_id, None)
+
 
 def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
     """Resume COO's HOLDING task after a hired employee is fully ready.
@@ -3808,8 +3826,25 @@ async def _do_hire_single(
             if coo_ctx["role"] not in ROLE_DEPARTMENT_MAP and hire_department:
                 ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = hire_department
 
+        cand_name = candidate["name"]
+        cand_role = hire_role or candidate.get("role", "")
+
+        async def _single_progress(step, message):
+            _track_onboarding_progress(batch_id, candidate_id, cand_name, cand_role, step, message, 1)
+            step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
+            step_index = step_order.index(step) if step in step_order else -1
+            await event_bus.publish(CompanyEvent(
+                type="onboarding_progress",
+                payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                         "name": cand_name, "step": step,
+                         "step_index": step_index,
+                         "total_steps": 4, "current": 1, "total": 1,
+                         "message": message},
+                agent="HR",
+            ))
+
         emp = await execute_hire(
-            name=candidate["name"],
+            name=cand_name,
             nickname=nickname or "",
             role=hire_role,
             skills=skill_names,
@@ -3823,6 +3858,7 @@ async def _do_hire_single(
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
             department=hire_department,
+            progress_callback=_single_progress,
         )
 
         # Notify COO that the hire is ready (or stash for OAuth completion)
@@ -3867,6 +3903,7 @@ async def _do_hire_single(
     except Exception as e:
         logger.error("[hiring] Background hire failed for {}: {}", candidate.get("name"), e)
         traceback.print_exc()
+        _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", str(e), 1)
         await event_bus.publish(CompanyEvent(
             type="onboarding_progress",
             payload={"batch_id": batch_id, "candidate_id": candidate_id,
@@ -3914,6 +3951,12 @@ async def dismiss_shortlist(body: dict) -> dict:
     await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
 
     return {"status": "ok", "message": "Shortlist dismissed"}
+
+
+@router.get("/api/onboarding/status")
+async def onboarding_status() -> dict:
+    """Return active onboarding batches for frontend state recovery."""
+    return {"batches": _active_onboarding}
 
 
 @router.post("/api/candidates/batch-hire")
@@ -4022,6 +4065,7 @@ async def _do_batch_hire(
 
             candidate = next((c for c in all_candidates if (c.get("id") or c.get("talent_id")) == candidate_id), None)
             if not candidate:
+                _track_onboarding_progress(batch_id, candidate_id, candidate_id, "", "failed", "Candidate not found", total)
                 await event_bus.publish(CompanyEvent(
                     type="onboarding_progress",
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
@@ -4057,10 +4101,12 @@ async def _do_batch_hire(
                     ROLE_DEPARTMENT_MAP[coo_ctx["role"]] = final_dept
 
             # Progress callback
-            async def _make_progress_cb(cid, name, idx_val):
+            sel_role = sel.get("role", "") or candidate.get("role", "")
+            async def _make_progress_cb(cid, name, idx_val, role):
                 async def cb(step, message):
                     step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
                     step_index = step_order.index(step) if step in step_order else -1
+                    _track_onboarding_progress(batch_id, cid, name, role, step, message, total)
                     await event_bus.publish(CompanyEvent(
                         type="onboarding_progress",
                         payload={"batch_id": batch_id, "candidate_id": cid,
@@ -4072,7 +4118,7 @@ async def _do_batch_hire(
                     ))
                 return cb
 
-            progress_cb = await _make_progress_cb(candidate_id, cand_name, idx)
+            progress_cb = await _make_progress_cb(candidate_id, cand_name, idx, sel_role)
 
             try:
                 nickname = nickname_map.get(candidate_id, "") or await generate_nickname(cand_name, final_role, is_founding=False)
@@ -4104,6 +4150,7 @@ async def _do_batch_hire(
 
             except Exception as e:
                 traceback.print_exc()
+                _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
                     type="onboarding_progress",
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
@@ -5086,6 +5133,8 @@ class _RoutesSnapshot:
             result["remote_task_queues"] = _remote_task_queues
         if _remote_task_project_map:
             result["remote_task_project_map"] = _remote_task_project_map
+        if _active_onboarding:
+            result["active_onboarding"] = _active_onboarding
         return result
 
     @staticmethod
@@ -5110,6 +5159,11 @@ class _RoutesSnapshot:
             )
             sess._system_prompt = sdata.get("system_prompt", "")
             _inquiry_sessions[sid] = sess
+
+        # Onboarding state
+        restored_onboarding = data.get("active_onboarding", {})
+        if restored_onboarding:
+            _active_onboarding.update(restored_onboarding)
 
         # Remote worker state
         restored_remote_workers = data.get("remote_workers", {})

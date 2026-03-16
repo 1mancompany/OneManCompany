@@ -107,8 +107,44 @@ class AppController {
         if (room) this._refreshMeetingModalStatus(room);
       }
       this._refreshCeoInbox();
+      // Restore onboarding progress modal if there's an active onboarding
+      this._restoreOnboardingProgress();
     } catch (e) {
       console.error('Bootstrap failed:', e);
+    }
+  }
+
+  async _restoreOnboardingProgress() {
+    try {
+      const data = await fetch('/api/onboarding/status').then(r => r.json());
+      const batches = data.batches || {};
+      if (Object.keys(batches).length === 0) return;
+
+      // Restore modal for each active batch
+      for (const [batchId, batch] of Object.entries(batches)) {
+        const items = batch.items || {};
+        if (Object.keys(items).length === 0) continue;
+
+        // Build selections array to pass to _showOnboardingProgress
+        const selections = Object.entries(items).map(([cid, info]) => ({
+          candidate_id: cid, role: info.role || '', name: info.name || cid,
+        }));
+
+        // Show the modal with all candidates
+        this._showOnboardingProgress(selections);
+
+        // Replay each candidate's current step
+        for (const [cid, info] of Object.entries(items)) {
+          this._handleOnboardingProgress({
+            candidate_id: cid,
+            step: info.step,
+            message: info.message || '',
+            name: info.name,
+          });
+        }
+      }
+    } catch (e) {
+      // Silently ignore — modal just won't restore
     }
   }
 
@@ -3080,7 +3116,7 @@ class AppController {
 
     for (const sel of selections) {
       const candidate = this._allCandidatesMap ? this._allCandidatesMap.get(sel.candidate_id) : null;
-      const name = candidate ? candidate.name : sel.candidate_id;
+      const name = candidate ? candidate.name : (sel.name || sel.candidate_id);
       const role = sel.role;
 
       const item = document.createElement('div');
