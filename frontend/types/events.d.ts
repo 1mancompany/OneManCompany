@@ -53,6 +53,7 @@ interface CandidatesReadyPayload {
   batch_id: string;
   jd: string;
   candidates: Record<string, unknown>[];
+  roles?: { role: string; description: string; candidates: Record<string, unknown>[] }[];
 }
 
 interface ResolutionReadyPayload {

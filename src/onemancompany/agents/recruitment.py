@@ -449,6 +449,7 @@ async def search_candidates(job_description: str) -> dict:
     global _last_session_id
 
     logger.debug("[recruitment] search_candidates called, talent_market.connected={}", talent_market.connected)
+    from_market = False
     if talent_market.connected:
         try:
             logger.debug("[recruitment] Calling Talent Market API for JD: {}", job_description[:80])
@@ -457,15 +458,16 @@ async def search_candidates(job_description: str) -> dict:
             logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
                         total, len(grouped.get("roles", [])), job_description[:80])
             # Enumerate all returned talents for debugging
-            for rg in grouped.get("roles", []):
-                for ci, c in enumerate(rg.get("candidates", [])):
-                    t = c.get("talent", {}) if isinstance(c.get("talent"), dict) else {}
-                    p = t.get("profile", {}) if isinstance(t, dict) else {}
-                    tid = p.get("id", "") or c.get("id", "") or c.get("talent_id", "")
-                    tname = p.get("name", "") or c.get("name", "")
-                    trole = rg.get("role", "")
+            for role_group in grouped.get("roles", []):
+                for idx, candidate in enumerate(role_group.get("candidates", [])):
+                    talent_data = candidate.get("talent", {}) if isinstance(candidate.get("talent"), dict) else {}
+                    profile = talent_data.get("profile", {}) if isinstance(talent_data, dict) else {}
+                    talent_id = profile.get("id", "") or candidate.get("id", "") or candidate.get("talent_id", "")
+                    talent_name = profile.get("name", "") or candidate.get("name", "")
+                    talent_role = role_group.get("role", "")
                     logger.debug("[recruitment] Talent Market candidate #{}: id={}, name={}, role={}",
-                                 ci + 1, tid, tname, trole)
+                                 idx + 1, talent_id, talent_name, talent_role)
+            from_market = True
         except Exception as e:
             logger.opt(exception=e).error("Talent Market search failed, falling back to local: {!r}", e)
             grouped = _local_fallback_search(job_description)
@@ -474,7 +476,6 @@ async def search_candidates(job_description: str) -> dict:
         grouped = _local_fallback_search(job_description)
 
     _last_session_id = grouped.get("session_id", "")
-    from_market = talent_market.connected and grouped.get("session_id", "")
 
     # Normalize Talent Market candidates into flat CandidateProfile dicts
     # and stash ALL candidates from ALL roles for shortlist lookup by ID
@@ -498,7 +499,12 @@ async def search_candidates(job_description: str) -> dict:
         all_ids = list(_last_search_results.keys())
         logger.info("[recruitment] Auto-submitting {} Talent Market candidates as shortlist", len(all_ids))
         result = await _auto_submit_shortlist(job_description, all_ids, grouped.get("roles", []))
-        return {"auto_shortlisted": True, "message": result, "roles": grouped.get("roles", [])}
+        return {
+            "type": grouped.get("type", "market"),
+            "summary": result,
+            "roles": grouped.get("roles", []),
+            "auto_shortlisted": True,
+        }
 
     return grouped
 
@@ -521,8 +527,12 @@ def list_open_positions() -> list[dict]:
     return random.sample(positions, k=random.randint(2, 4))
 
 
-async def _auto_submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict]) -> str:
-    """Auto-submit all Talent Market candidates as shortlist (no cap)."""
+async def _create_and_publish_batch(jd: str, candidates: list[dict], roles: list[dict]) -> str:
+    """Create a pending batch and publish candidates_ready event.
+
+    Shared by both auto-submit (Talent Market) and manual submit (local) paths.
+    Returns confirmation message or error string.
+    """
     import uuid as _uuid
     from onemancompany.core.events import CompanyEvent, event_bus
 
@@ -530,12 +540,11 @@ async def _auto_submit_shortlist(jd: str, candidate_ids: list[str], roles: list[
         existing_ids = list(pending_candidates.keys())
         return f"A shortlist is already pending (batch_id={existing_ids[0]})."
 
-    all_candidates = [_last_search_results[cid] for cid in candidate_ids if cid in _last_search_results]
-    if not all_candidates:
+    if not candidates:
         return "ERROR: No valid candidates found."
 
     batch_id = str(_uuid.uuid4())[:8]
-    pending_candidates[batch_id] = all_candidates
+    pending_candidates[batch_id] = candidates
     _pending_project_ctx[batch_id] = {"session_id": _last_session_id}
     _persist_candidates()
 
@@ -545,20 +554,26 @@ async def _auto_submit_shortlist(jd: str, candidate_ids: list[str], roles: list[
             "batch_id": batch_id,
             "jd": jd,
             "roles": roles,
-            "candidates": all_candidates,
+            "candidates": candidates,
         },
         agent="HR",
     ))
-    logger.info("Auto-shortlist submitted: batch={}, {} candidates in {} roles",
-                batch_id, len(all_candidates), len(roles))
-    return f"Shortlist auto-submitted (batch_id={batch_id}). {len(all_candidates)} candidates sent to CEO."
+    logger.info("Shortlist submitted: batch={}, {} candidates in {} roles",
+                batch_id, len(candidates), len(roles))
+    return f"Shortlist submitted (batch_id={batch_id}). {len(candidates)} candidates sent to CEO."
+
+
+async def _auto_submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict]) -> str:
+    """Auto-submit all Talent Market candidates as shortlist (no cap)."""
+    all_candidates = [_last_search_results[cid] for cid in candidate_ids if cid in _last_search_results]
+    return await _create_and_publish_batch(jd, all_candidates, roles)
 
 
 @tool
 async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] | None = None) -> str:
     """Submit a shortlist of candidates to CEO for selection and interview.
 
-    After calling search_candidates(), pick the top 5 candidates and submit
+    After calling search_candidates(), pick the top 12 candidates and submit
     their IDs here.  This sends the shortlist to the CEO's frontend for
     visual selection — do NOT hire directly.
 
@@ -573,22 +588,10 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
     Returns:
         Confirmation message with batch_id.
     """
-    import uuid as _uuid
-
-    from onemancompany.core.events import CompanyEvent, event_bus
-
-    # Guard: reject duplicate shortlist while a pending batch already exists
     logger.debug("[shortlist] submit_shortlist called: {} candidate_ids, pending_candidates keys={}",
                  len(candidate_ids), list(pending_candidates.keys()))
-    if pending_candidates:
-        existing_ids = list(pending_candidates.keys())
-        logger.debug("[shortlist] Guard: rejecting duplicate, existing batch_id={}", existing_ids[0])
-        return (
-            f"A shortlist is already pending (batch_id={existing_ids[0]}). "
-            "Wait for CEO to approve or dismiss the current batch before submitting a new one."
-        )
 
-    # Build flat candidate list from IDs (always needed for backward compat)
+    # Build flat candidate list from IDs
     all_candidates = []
     for cid in candidate_ids[:12]:
         full = _last_search_results.get(cid)
@@ -602,7 +605,6 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
 
     # Build hydrated role groups
     if roles:
-        # Re-hydrate each role group with full candidate data
         hydrated_roles = []
         for role_group in roles:
             hydrated_candidates = []
@@ -617,31 +619,9 @@ async def submit_shortlist(jd: str, candidate_ids: list[str], roles: list[dict] 
                 "candidates": hydrated_candidates,
             })
     else:
-        # Backward compat: wrap flat list in a single role group
         hydrated_roles = [{"role": "Candidates", "description": jd, "candidates": all_candidates}]
 
-    batch_id = str(_uuid.uuid4())[:8]
-    pending_candidates[batch_id] = all_candidates
-    _pending_project_ctx[batch_id] = {"session_id": _last_session_id}
-    _persist_candidates()
-
-    await event_bus.publish(CompanyEvent(
-        type="candidates_ready",
-        payload={
-            "batch_id": batch_id,
-            "jd": jd,
-            "roles": hydrated_roles,
-            "candidates": all_candidates,  # flat list for backward compat
-        },
-        agent="HR",
-    ))
-    logger.info("Shortlist submitted: batch={}, {} candidates in {} roles",
-                batch_id, len(all_candidates), len(hydrated_roles))
-    return (
-        f"Shortlist submitted (batch_id={batch_id}). "
-        f"{len(all_candidates)} candidates sent to CEO for selection. "
-        "Wait for CEO to choose — do NOT hire directly."
-    )
+    return await _create_and_publish_batch(jd, all_candidates, hydrated_roles)
 
 
 # ---------------------------------------------------------------------------
