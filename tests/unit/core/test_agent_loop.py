@@ -2055,14 +2055,18 @@ class TestExecutionLog:
         log_dir = tmp_path / "emp01"
         log_dir.mkdir(parents=True)
         log_path = log_dir / "execution.log"
+        rotated_path = log_dir / "execution.log.1"
         # Write a file larger than threshold
         log_path.write_text("line\n" * (EXECUTION_LOG_MAX_SIZE // 4), encoding="utf-8")
         original_size = log_path.stat().st_size
         assert original_size > EXECUTION_LOG_MAX_SIZE
         with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
             _append_execution_log("emp01", "node_a", "start", "New entry")
-        new_size = log_path.stat().st_size
-        assert new_size < original_size  # File was rotated
+        # Old log renamed to .1, new log has only the fresh entry
+        assert rotated_path.exists()
+        assert rotated_path.stat().st_size == original_size
+        assert log_path.exists()
+        assert log_path.stat().st_size < original_size
 
 
 class TestLogNodeWritesExecutionLog:

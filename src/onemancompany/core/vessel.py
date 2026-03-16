@@ -520,18 +520,17 @@ def _append_execution_log(employee_id: str, node_id: str, log_type: str, content
     path = EMPLOYEES_DIR / employee_id / "execution.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        # Simple size-based rotation: truncate older half when file exceeds threshold
+        # Size-based rotation: rename current log and start fresh (no large reads)
         if path.exists() and path.stat().st_size > EXECUTION_LOG_MAX_SIZE:
-            lines = path.read_text(encoding="utf-8").splitlines()
-            half = len(lines) // 2
-            path.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
+            rotated = path.with_suffix(".log.1")
+            path.rename(rotated)
         ts = datetime.now().isoformat()[:23]
         # Truncate content to keep log readable
         short = content[:500].replace("\n", "\\n") if content else ""
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] [{log_type:12s}] node={node_id[:12]} | {short}\n")
-    except Exception:
-        logger.debug("Failed to write execution log for {}", employee_id)
+    except Exception as exc:
+        logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
 
 
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
@@ -1029,12 +1028,10 @@ class EmployeeManager:
                 except Exception:
                     logger.warning("Pre-task hook failed for %s", employee_id)
 
-            # Set timeout from node (applies to ALL executor types)
+            # Universal timeout — asyncio.wait_for wraps ALL executor types.
+            # SubprocessExecutor's internal timeout is left at its default;
+            # the outer wait_for is the single source of truth for cancellation.
             task_timeout = node.timeout_seconds or 3600
-            if node.timeout_seconds:
-                from onemancompany.core.subprocess_executor import SubprocessExecutor
-                if isinstance(executor, SubprocessExecutor):
-                    executor.timeout_seconds = node.timeout_seconds
 
             launch_result: LaunchResult | None = None
             last_err: Exception | None = None
@@ -1095,7 +1092,7 @@ class EmployeeManager:
         except TimeoutError as te:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
-            node.result = str(te) or f"Timeout: task exceeded {node.timeout_seconds or 3600}s limit"
+            node.result = f"Timeout: task exceeded {node.timeout_seconds or 3600}s limit"
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
