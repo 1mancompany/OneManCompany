@@ -268,6 +268,18 @@ class AppController {
       'okr_updated':        (p) => ({ text: `🎯 OKRs updated for #${p.employee_id}`, cls: 'hr', agent: 'HR' }),
       'onboarding_started': (p) => ({ text: `📋 Onboarding started: ${p.name}`, cls: 'hr', agent: 'HR' }),
       'onboarding_completed': (p) => ({ text: `✅ Onboarding completed: ${p.name}`, cls: 'hr', agent: 'HR' }),
+      'talent_profile_error': (p) => {
+        // Show modal alert for talent profile issues
+        const link = p.talent_link ? `<a href="${this._escapeHtml(p.talent_link)}" target="_blank" rel="noopener">${this._escapeHtml(p.talent_link)}</a>` : '';
+        const fields = (p.missing_fields || []).join(', ');
+        let detail = `<b>Talent:</b> ${this._escapeHtml(p.talent_id || '')}<br>`;
+        if (fields) detail += `<b>Missing fields:</b> ${this._escapeHtml(fields)}<br>`;
+        if (link) detail += `<b>Repo:</b> ${link}<br>`;
+        detail += `<br>Please contact the talent uploader to fix this issue.`;
+        if (link) detail += ` You can file an issue on the talent repo.`;
+        this._showAlertModal('Talent Profile Error', detail);
+        return { text: `⚠️ Talent profile error: ${p.talent_id}`, cls: 'hr', agent: 'HR' };
+      },
       'probation_review':   (p) => ({ text: `📋 Probation review: #${p.id} — ${p.passed ? 'Passed' : 'Failed'}`, cls: 'hr', agent: 'HR' }),
       'pip_started':        (p) => ({ text: `⚠️ PIP started for #${p.id}`, cls: 'hr', agent: 'HR' }),
       'pip_resolved':       (p) => ({ text: `✅ PIP resolved for #${p.id}`, cls: 'hr', agent: 'HR' }),
@@ -5490,6 +5502,34 @@ class AppController {
           <button class="pixel-btn small" onclick="window.app.openToolDetail('${esc(toolId)}')">Cancel</button>
         </div>
       </div>`;
+  }
+
+  _showAlertModal(title, htmlContent) {
+    // Reuse or create a simple alert modal overlay
+    let overlay = document.getElementById('alert-modal-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'alert-modal-overlay';
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-content" style="max-width:420px;">
+          <div class="modal-header">
+            <h3 class="pixel-title" id="alert-modal-title"></h3>
+            <button class="modal-close" id="alert-modal-close">✕</button>
+          </div>
+          <div id="alert-modal-body" style="padding:12px 16px;font-size:12px;line-height:1.6;"></div>
+          <div style="padding:8px 16px 12px;text-align:right;">
+            <button class="pixel-btn" id="alert-modal-ok">OK</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const close = () => overlay.classList.add('hidden');
+      overlay.querySelector('#alert-modal-close').addEventListener('click', close);
+      overlay.querySelector('#alert-modal-ok').addEventListener('click', close);
+    }
+    overlay.querySelector('#alert-modal-title').textContent = title;
+    overlay.querySelector('#alert-modal-body').innerHTML = htmlContent;
+    overlay.classList.remove('hidden');
   }
 
   _escapeHtml(text) {

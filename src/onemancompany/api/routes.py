@@ -3812,6 +3812,61 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
+# Required fields in talent profile.yaml for hiring
+_TALENT_REQUIRED_FIELDS = ["hosting"]
+
+
+def _check_talent_required_fields(talent_data: dict) -> list[str]:
+    """Return list of required fields missing from talent profile."""
+    missing = []
+    for field in _TALENT_REQUIRED_FIELDS:
+        if not talent_data.get(field):
+            missing.append(field)
+    # Self-hosted talents don't need llm_model/api_provider
+    if talent_data.get("hosting") != "self":
+        if not talent_data.get("llm_model"):
+            missing.append("llm_model")
+    return missing
+
+
+async def _publish_talent_profile_error(
+    talent_id: str, missing_fields: list[str], source_repo: str = "", *, is_missing: bool = False,
+) -> None:
+    """Publish an error event to the frontend about talent profile issues."""
+    if is_missing:
+        message = (
+            f"Talent '{talent_id}' profile not found on disk. "
+            f"The talent repo may have failed to clone."
+        )
+    else:
+        message = (
+            f"Talent '{talent_id}' profile is missing required fields: "
+            f"{', '.join(missing_fields)}. "
+            f"Please contact the talent uploader to fix."
+        )
+
+    # Build talent market link if source_repo is available
+    talent_link = ""
+    if source_repo:
+        talent_link = source_repo
+    payload: dict = {
+        "role": "HR",
+        "summary": message,
+    }
+    if talent_link:
+        payload["talent_link"] = talent_link
+        payload["summary"] += f"\n\nTalent repo: {talent_link}"
+    payload["missing_fields"] = missing_fields
+    payload["talent_id"] = talent_id
+
+    logger.warning("[hiring] {}", message)
+    await event_bus.publish(CompanyEvent(
+        type="talent_profile_error",
+        payload=payload,
+        agent="HR",
+    ))
+
+
 async def _do_hire_single(
     batch_id: str, candidate_id: str, nickname: str,
     candidate: dict, coo_ctx: dict,
@@ -3854,6 +3909,18 @@ async def _do_hire_single(
             from onemancompany.core.config import load_talent_profile
             talent_data = load_talent_profile(talent_id)
 
+        # Validate required fields from talent profile
+        if talent_id and not talent_data:
+            source_repo = candidate.get("source_repo", "")
+            await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
+            return
+        if talent_id:
+            missing = _check_talent_required_fields(talent_data)
+            if missing:
+                source_repo = candidate.get("source_repo", "")
+                await _publish_talent_profile_error(talent_id, missing, source_repo)
+                return
+
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
 
         hire_role = coo_ctx.get("role") or ""
@@ -3885,18 +3952,19 @@ async def _do_hire_single(
                 agent="HR",
             ))
 
+        is_self = talent_data.get("hosting") == "self"
         emp = await execute_hire(
             name=cand_name,
             nickname=nickname or "",
             role=hire_role,
             skills=skill_names,
             talent_id=talent_id,
-            llm_model="" if (talent_data.get("hosting") or candidate.get("hosting")) == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
+            llm_model="" if is_self else talent_data.get("llm_model", ""),
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
-            api_provider="" if (talent_data.get("hosting") or candidate.get("hosting")) == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
-            hosting=talent_data.get("hosting") or candidate.get("hosting") or "company",
-            auth_method=talent_data.get("auth_method") or candidate.get("auth_method") or "api_key",
+            api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
+            hosting=talent_data.get("hosting", "company"),
+            auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
             department=hire_department,
@@ -4153,6 +4221,22 @@ async def _do_batch_hire(
             talent_data: dict = {}
             if talent_id:
                 talent_data = load_talent_profile(talent_id)
+
+            # Validate required fields from talent profile
+            if talent_id and not talent_data:
+                source_repo = candidate.get("source_repo", "")
+                await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
+                results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
+                                "error": f"Talent profile not found for {talent_id}"})
+                continue
+            if talent_id:
+                missing = _check_talent_required_fields(talent_data)
+                if missing:
+                    source_repo = candidate.get("source_repo", "")
+                    await _publish_talent_profile_error(talent_id, missing, source_repo)
+                    results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
+                                    "error": f"Talent profile missing fields: {', '.join(missing)}"})
+                    continue
             if not talent_data:
                 talent_data = candidate
 
@@ -4200,12 +4284,12 @@ async def _do_batch_hire(
                     role=final_role,
                     skills=skill_names,
                     talent_id=talent_id,
-                    llm_model="" if (talent_data.get("hosting") or candidate.get("hosting")) == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
+                    llm_model="" if talent_data.get("hosting") == "self" else talent_data.get("llm_model", ""),
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
-                    api_provider="" if (talent_data.get("hosting") or candidate.get("hosting")) == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
-                    hosting=talent_data.get("hosting") or candidate.get("hosting") or "company",
-                    auth_method=talent_data.get("auth_method") or candidate.get("auth_method") or "api_key",
+                    api_provider="" if talent_data.get("hosting") == "self" else talent_data.get("api_provider", "openrouter"),
+                    hosting=talent_data.get("hosting", "company"),
+                    auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),
                     remote=candidate.get("remote", False),
                     department=final_dept,
