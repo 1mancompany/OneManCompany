@@ -550,10 +550,48 @@ def _step_execute(
         if tm_key:
             console.print("  [green]\u2714[/green] Talent Market API key saved")
 
-    # 4. Generate MCP configs for founding employees
+    # 4. Assign random default avatars to founding employees
+    _assign_default_avatars(console)
+
+    # 5. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
         _generate_mcp_configs(extras.get("SKILLSMP_API_KEY", ""))
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
+
+
+def _assign_default_avatars(console: Console) -> None:
+    """Assign random avatars from avatars/ to founding employees that lack one."""
+    import random
+
+    avatars_dir = DATA_ROOT / "company" / "human_resource" / "avatars"
+    if not avatars_dir.exists():
+        return
+
+    avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
+    if not avatars:
+        return
+
+    employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
+    exec_ids = ["00001", "00002", "00003", "00004", "00005"]
+    pool = list(avatars)
+    random.shuffle(pool)
+
+    assigned = 0
+    for i, emp_id in enumerate(exec_ids):
+        emp_dir = employees_dir / emp_id
+        if not emp_dir.exists():
+            continue
+        # Skip if already has a custom avatar
+        if any((emp_dir / f"avatar.{ext}").exists() for ext in ("png", "jpg", "jpeg")):
+            continue
+        pick = pool[i % len(pool)]
+        shutil.copy2(str(pick), str(emp_dir / f"avatar{pick.suffix}"))
+        assigned += 1
+
+    if assigned:
+        console.print(f"  [green]\u2714[/green] Default avatars assigned to {assigned} founding employees")
+    else:
+        console.print("  [green]\u2714[/green] Founding employees already have avatars")
 
 
 def _generate_mcp_configs(skillsmp_key: str) -> None:

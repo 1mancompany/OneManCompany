@@ -3179,6 +3179,21 @@ def _load_project_tree_for_api(project_id: str):
 
     from onemancompany.core.task_tree import get_tree
     from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.project_archive import (
+        _is_iteration,
+        _find_project_for_iteration,
+        _split_qualified_iter,
+        PROJECTS_DIR,
+    )
+
+    # If project_id is an iteration ID, look in the iteration directory first
+    if _is_iteration(project_id):
+        slug = _find_project_for_iteration(project_id)
+        if slug:
+            _, bare_id = _split_qualified_iter(project_id)
+            iter_tree = PROJECTS_DIR / slug / "iterations" / bare_id / "task_tree.yaml"
+            if iter_tree.exists():
+                return get_tree(iter_tree, project_id=project_id)
 
     project_dir = get_project_dir(project_id)
     if not project_dir:
@@ -3189,7 +3204,7 @@ def _load_project_tree_for_api(project_id: str):
     return get_tree(path, project_id=project_id)
 
 
-@router.get("/api/projects/{project_id}/tree")
+@router.get("/api/projects/{project_id:path}/tree")
 async def get_project_tree(project_id: str) -> dict:
     """Get the task tree for a project."""
     tree = _load_project_tree_for_api(project_id)
@@ -3269,7 +3284,16 @@ async def get_avatar(employee_id: str):
     if avatar_path.exists():
         media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
         return FileResponse(avatar_path, media_type=media)
-    # Fallback to default avatar
+    # Fallback: pick a deterministic avatar from the avatars directory based on employee ID
+    avatars_dir = COMPANY_DIR / "human_resource" / "avatars"
+    if avatars_dir.exists():
+        avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
+        if avatars:
+            idx = int(employee_id) % len(avatars) if employee_id.isdigit() else hash(employee_id) % len(avatars)
+            pick = avatars[idx]
+            media = "image/png" if pick.suffix == ".png" else "image/jpeg"
+            return FileResponse(pick, media_type=media)
+    # Legacy fallback
     default = COMPANY_DIR / "human_resource" / "piggy.jpg"
     if default.exists():
         return FileResponse(default, media_type="image/jpeg")

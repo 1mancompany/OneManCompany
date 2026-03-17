@@ -5754,10 +5754,14 @@ class AppController {
     if (!panel) return;
     panel.innerHTML = '<div style="color:var(--text-dim);font-size:6px;">Loading...</div>';
 
+    // Use qualified iteration ID (projectId/iterationId) for unambiguous lookup
+    const qualifiedId = (projectId && iterationId && projectId !== iterationId)
+      ? `${projectId}/${iterationId}` : iterationId;
+
     // Fetch project doc + task tree in parallel
     Promise.all([
-      fetch(`/api/projects/${encodeURIComponent(iterationId)}`).then(r => r.json()),
-      fetch(`/api/projects/${encodeURIComponent(iterationId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}`).then(r => r.json()),
+      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([doc, treeData]) => {
         if (doc.error) {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
@@ -5831,7 +5835,7 @@ class AppController {
         </div>`;
 
         const files = doc.files || [];
-        const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
+        const fileBaseUrl = `/api/projects/${encodeURIComponent(qualifiedId)}/files/`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
         if (files.length > 0) {
           for (const f of files) {
@@ -5947,8 +5951,8 @@ class AppController {
               if (!this._treeRenderer) {
                 this._treeRenderer = new TaskTreeRenderer('board-tree-container', 'board-tree-detail');
               }
-              this._treeRenderer.load(iterationId);
-              this._currentTreeProjectId = iterationId;
+              this._treeRenderer.load(qualifiedId);
+              this._currentTreeProjectId = qualifiedId;
             } else if (tabName.startsWith('plugin-')) {
               const pluginId = tabName.replace('plugin-', '');
               this._viewingBoardProjectId = projectId;
