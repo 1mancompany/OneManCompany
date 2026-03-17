@@ -18,6 +18,31 @@ class TaskTreeRenderer {
         this.levelSep = 140;
         this.sibSep = 30;
         this._descMaxCharsPerLine = 28;  // approx chars per line at 10px font
+        this._descMaxLines = 3;
+        this._descLineHeight = 13;
+    }
+
+    /** Word-wrap a description string into lines respecting word boundaries. */
+    static _wrapText(desc, maxChars, maxLines) {
+        const words = desc.replace(/\n/g, ' ').split(/\s+/);
+        const lines = [];
+        let cur = '';
+        for (const w of words) {
+            const trial = cur ? cur + ' ' + w : w;
+            if (trial.length <= maxChars) {
+                cur = trial;
+            } else {
+                if (cur) lines.push(cur);
+                cur = w.length > maxChars ? w.substring(0, maxChars) : w;
+            }
+            if (lines.length === maxLines) { cur = ''; break; }
+        }
+        if (cur && lines.length < maxLines) lines.push(cur);
+        if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+            lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxChars - 1) + '…';
+        }
+        if (lines.length === 0) lines.push('');
+        return lines;
     }
 
     static STATUS_COLORS = {
@@ -142,22 +167,11 @@ class TaskTreeRenderer {
         treeLayout(root);
 
         // Pre-compute _extraH for each node (word-wrapped description lines)
-        const maxCharsPrepass = this._descMaxCharsPerLine;
-        const lineHeightPrepass = 13;
-        const maxLinesPrepass = 3;
+        const _mc = this._descMaxCharsPerLine, _ml = this._descMaxLines, _lh = this._descLineHeight;
         root.descendants().forEach(d => {
-            const desc = (d.data.description || '').replace(/\n/g, ' ');
-            const words = desc.split(/\s+/);
-            let lineCount = 0, cur = '';
-            for (const w of words) {
-                const trial = cur ? cur + ' ' + w : w;
-                if (trial.length <= maxCharsPrepass) { cur = trial; }
-                else { if (cur) lineCount++; cur = w.length > maxCharsPrepass ? w.substring(0, maxCharsPrepass) : w; }
-                if (lineCount === maxLinesPrepass) { cur = ''; break; }
-            }
-            if (cur && lineCount < maxLinesPrepass) lineCount++;
-            const extraLines = Math.max(0, (lineCount || 1) - 1);
-            d._extraH = extraLines > 0 ? extraLines * lineHeightPrepass : 0;
+            const lines = TaskTreeRenderer._wrapText(d.data.description || '', _mc, _ml);
+            const extraLines = Math.max(0, lines.length - 1);
+            d._extraH = extraLines > 0 ? extraLines * _lh : 0;
         });
 
         // Connection lines — colored by child status, dashed for inactive branch
@@ -288,33 +302,15 @@ class TaskTreeRenderer {
             });
 
         // Description — word-wrapped into multiple tspan lines
-        const maxChars = this._descMaxCharsPerLine;
         const descTextX = -this.nodeWidth / 2 + 14;
         const descStartY = -this.nodeHeight / 2 + 56;
-        const lineHeight = 13;
-        const maxLines = 3;
+        const descMaxChars = this._descMaxCharsPerLine;
+        const descMaxLines = this._descMaxLines;
+        const descLineH = this._descLineHeight;
 
         nodeGroups.each(function(d) {
             const g = d3.select(this);
-            const desc = (d.data.description || '').replace(/\n/g, ' ');
-            const words = desc.split(/\s+/);
-            const lines = [];
-            let cur = '';
-            for (const w of words) {
-                const trial = cur ? cur + ' ' + w : w;
-                if (trial.length <= maxChars) {
-                    cur = trial;
-                } else {
-                    if (cur) lines.push(cur);
-                    cur = w.length > maxChars ? w.substring(0, maxChars) : w;
-                }
-                if (lines.length === maxLines) { cur = ''; break; }
-            }
-            if (cur && lines.length < maxLines) lines.push(cur);
-            if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
-                lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxChars - 1) + '…';
-            }
-            if (lines.length === 0) lines.push('');
+            const lines = TaskTreeRenderer._wrapText(d.data.description || '', descMaxChars, descMaxLines);
 
             const text = g.append('text')
                 .attr('x', descTextX)
@@ -322,19 +318,16 @@ class TaskTreeRenderer {
             lines.forEach((line, idx) => {
                 text.append('tspan')
                     .attr('x', descTextX)
-                    .attr('y', descStartY + idx * lineHeight)
+                    .attr('y', descStartY + idx * descLineH)
                     .text(line);
             });
 
             // Grow card rect + status bar if description wraps beyond 1 line
-            const extraLines = Math.max(0, lines.length - 1);
-            if (extraLines > 0) {
-                const extraH = extraLines * lineHeight;
-                d._extraH = extraH;
+            if (d._extraH > 0) {
                 g.select('.tree-node-card')
-                    .attr('height', 90 + extraH);
+                    .attr('height', 90 + d._extraH);
                 g.select('.tree-status-bar')
-                    .attr('height', 90 + extraH);
+                    .attr('height', 90 + d._extraH);
             }
         });
 

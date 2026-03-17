@@ -2105,6 +2105,7 @@ body {
 }
 
 /* ===== Candidate Detail Panel ===== */
+.candidate-detail-panel.hidden { display: none; }
 .candidate-detail-panel {
   width: 280px;
   min-width: 260px;

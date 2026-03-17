@@ -3056,6 +3056,12 @@ class AppController {
   }
 
   _showCandidateDetail(candidateId, candidate, role, cardEl) {
+    const ROLE_EMOJI = {
+      Engineer: '💻', Designer: '🎨', Analyst: '📊',
+      DevOps: '🔧', QA: '🧪', Marketing: '📢',
+      'Game Engineer': '🎮', 'Game Designer': '🎯',
+      'Project Manager': '📋', Manager: '📋',
+    };
     const panel = document.getElementById('candidate-detail-panel');
     const content = document.getElementById('detail-panel-content');
 
