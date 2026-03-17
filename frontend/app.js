@@ -2,6 +2,14 @@
  * app.js — WebSocket client, CEO console, and activity log controller
  */
 
+const ROLE_EMOJI = {
+  Engineer: '💻', Designer: '🎨', Analyst: '📊',
+  DevOps: '🔧', QA: '🧪', Marketing: '📢',
+  'Game Engineer': '🎮', 'Game Designer': '🎯',
+  'Project Manager': '📋', Manager: '📋',
+  HR: '💼', COO: '⚙️',
+};
+
 class AppController {
   constructor() {
     this.ws = null;
@@ -2938,13 +2946,6 @@ class AppController {
     // Render role groups
     rolesEl.innerHTML = '';
 
-    const ROLE_EMOJI = {
-      Engineer: '💻', Designer: '🎨', Analyst: '📊',
-      DevOps: '🔧', QA: '🧪', Marketing: '📢',
-      'Game Engineer': '🎮', 'Game Designer': '🎯',
-      'Project Manager': '📋', Manager: '📋',
-    };
-
     for (const roleGroup of this._candidateRoles) {
       const section = document.createElement('div');
       section.className = 'role-group';
@@ -3056,12 +3057,6 @@ class AppController {
   }
 
   _showCandidateDetail(candidateId, candidate, role, cardEl) {
-    const ROLE_EMOJI = {
-      Engineer: '💻', Designer: '🎨', Analyst: '📊',
-      DevOps: '🔧', QA: '🧪', Marketing: '📢',
-      'Game Engineer': '🎮', 'Game Designer': '🎯',
-      'Project Manager': '📋', Manager: '📋',
-    };
     const panel = document.getElementById('candidate-detail-panel');
     const content = document.getElementById('detail-panel-content');
 
@@ -4317,10 +4312,6 @@ class AppController {
       return;
     }
     listEl.innerHTML = '';
-    const ROLE_EMOJI = {
-      Engineer: '💻', Designer: '🎨', Analyst: '📊',
-      DevOps: '🔧', QA: '🧪', Marketing: '📢', HR: '💼', COO: '⚙️',
-    };
     for (const emp of exEmps) {
       const card = document.createElement('div');
       card.className = 'ex-employee-card';

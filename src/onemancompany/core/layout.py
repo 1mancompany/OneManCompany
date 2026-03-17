@@ -15,7 +15,6 @@ from onemancompany.core.config import (
     DEPT_COLORS,
     DEPT_DESK_ROWS,
     DEPT_DESK_SPACING_X,
-    DEPT_DIVIDER_WIDTH,
     DEPT_END_ROW,
     DEPT_FLOOR_STYLES,
     DEPT_MIN_ZONE_WIDTH,

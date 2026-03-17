@@ -152,8 +152,6 @@ DEPT_FLOOR_STYLES: dict[str, str] = {
     "General": "stone_gray",
 }
 
-DEPT_DIVIDER_WIDTH: int = 1
-
 # Executive row floor colors
 EXEC_FLOOR_COLORS = ("#2a2a20", "#26261e")  # gold tones
 

@@ -179,9 +179,9 @@ class TileAtlas {
   }
 }
 
-// ── Debug helper (call from browser console) ────────────────────────────────
+// ── Debug helper (only available when window.OMC_DEBUG is truthy) ────────────
 // Usage: debugSheet('office', 0, 10)  — shows rows 0-10 of the office sheet with grid
-window.debugSheet = function(sheetKey, startRow = 0, endRow = 5) {
+if (window.OMC_DEBUG) window.debugSheet = function(sheetKey, startRow = 0, endRow = 5) {
   const img = tileAtlas._images[sheetKey];
   if (!img) { console.log('Not loaded:', sheetKey); return; }
   const c = document.createElement('canvas');
@@ -203,7 +203,7 @@ window.debugSheet = function(sheetKey, startRow = 0, endRow = 5) {
   c.style.cssText = 'position:fixed;top:0;left:0;z-index:9999;background:#111;overflow:auto;max-width:100vw;max-height:100vh;';
   c.title = 'Click to remove';
   c.onclick = () => c.remove();
-};
+};  // end if (window.OMC_DEBUG)
 
 // Singleton
 const tileAtlas = new TileAtlas();
