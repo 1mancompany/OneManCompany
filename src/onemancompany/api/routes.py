@@ -3834,8 +3834,21 @@ async def _do_hire_single(
                 logger.warning("[hiring] Nickname generation timed out for {}", candidate["name"])
                 nickname = ""
 
-        # Read authoritative fields from the talent profile
+        # Clone talent repo if sourced from Talent Market (batch-hire does this
+        # before _do_batch_hire, but single-hire was missing this step).
         talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
+        if talent_id and candidate.get("source_repo"):
+            from onemancompany.agents.onboarding import clone_talent_repo
+            from onemancompany.agents.recruitment import talent_market
+            try:
+                onboard_result = await talent_market.onboard(talent_id)
+                repo_url = onboard_result.get("repo_url", "") or candidate.get("source_repo", "")
+                if repo_url:
+                    await clone_talent_repo(repo_url, talent_id)
+            except Exception as e:
+                logger.warning("[hiring] Failed to clone talent {}: {}", talent_id, e)
+
+        # Read authoritative fields from the talent profile
         talent_data: dict = {}
         if talent_id:
             from onemancompany.core.config import load_talent_profile
