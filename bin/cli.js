@@ -223,7 +223,8 @@ ${green("Usage:")}
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
   npx @1mancompany/onemancompany init         Re-run setup process (interactive)
-  npx @1mancompany/onemancompany init --auto  Auto-setup from .env file (non-interactive)
+  npx @1mancompany/onemancompany init --auto     Auto-setup from .env (with confirmation)
+  npx @1mancompany/onemancompany init --auto -y  Full auto, no confirmation prompt
   npx @1mancompany/onemancompany uninstall    Stop service and remove installation
   npx @1mancompany/onemancompany --port 8080  Custom port
   npx @1mancompany/onemancompany --dir ./my   Custom install directory
@@ -385,7 +386,8 @@ ${green("What gets installed automatically:")}
 
   // Run setup process if needed
   const isInitCmd = passthrough[0] === "init";
-  const isAutoInit = isInitCmd && passthrough[1] === "--auto";
+  const isAutoInit = isInitCmd && passthrough.includes("--auto");
+  const skipConfirm = isAutoInit && (passthrough.includes("-y") || passthrough.includes("--yes"));
 
   if (isInitCmd || !initComplete) {
     if (isAutoInit) {
@@ -448,10 +450,14 @@ ${green("What gets installed automatically:")}
       console.log(`  ${cyan("Talent Market:")} ${envVars.TALENT_MARKET_API_KEY ? green("✓ configured") : dim("not set")}`);
       console.log();
 
-      const answer = await ask("  Proceed with auto-init? [y/N] ");
-      if (answer !== "y" && answer !== "yes") {
-        console.log("  Aborted.");
-        return;
+      if (skipConfirm) {
+        info("Skipping confirmation (-y flag)");
+      } else {
+        const answer = await ask("  Proceed with auto-init? [y/N] ");
+        if (answer !== "y" && answer !== "yes") {
+          console.log("  Aborted.");
+          return;
+        }
       }
 
       info("Running auto-init from .env...\n");
@@ -460,7 +466,9 @@ ${green("What gets installed automatically:")}
         stdio: "inherit",
       });
       if (initResult.status !== 0) fail("Auto-init failed");
-      passthrough.splice(0, 2); // remove "init" and "--auto"
+      // remove init, --auto, -y/--yes from passthrough
+      const initFlags = new Set(["init", "--auto", "-y", "--yes"]);
+      while (passthrough.length && initFlags.has(passthrough[0])) passthrough.shift();
     } else {
       // ── Interactive init ───────────────────────────────────────────
       info("Running setup process...\n");

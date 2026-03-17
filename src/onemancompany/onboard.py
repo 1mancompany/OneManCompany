@@ -664,7 +664,7 @@ def run_wizard() -> None:
     _step_done(console, host, port)
 
 
-def run_auto() -> None:
+def run_auto(*, skip_confirm: bool = False) -> None:
     """Non-interactive init that reads config from .env file."""
     import os
 
@@ -715,10 +715,17 @@ def run_auto() -> None:
 
     sandbox_enabled = env.get("SANDBOX_ENABLED", "").lower() in ("1", "true", "yes")
 
+    masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
     console.print(f"  Provider: [cyan]{provider}[/cyan]")
+    console.print(f"  API Key:  [cyan]{masked}[/cyan]")
     console.print(f"  Model:    [cyan]{model}[/cyan]")
     console.print(f"  Server:   [cyan]{host}:{port}[/cyan]")
     console.print()
+
+    if not skip_confirm:
+        if not Confirm.ask("  Proceed with auto-init?", default=False, console=console):
+            console.print("\n  Aborted.")
+            return
 
     _step_execute(console, provider, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
     _step_done(console, host, port)
@@ -730,7 +737,7 @@ def main() -> None:
 
     try:
         if "--auto" in sys.argv:
-            run_auto()
+            run_auto(skip_confirm=("-y" in sys.argv or "--yes" in sys.argv))
         else:
             run_wizard()
     except KeyboardInterrupt:
