@@ -891,6 +891,23 @@ body {
   box-shadow: 0 0 40px rgba(255, 215, 0, 0.15);
 }
 
+.alert-modal-content {
+  max-width: 420px;
+  width: auto;
+  height: auto;
+}
+
+.alert-modal-body {
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.alert-modal-footer {
+  padding: 8px 16px 12px;
+  text-align: right;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;

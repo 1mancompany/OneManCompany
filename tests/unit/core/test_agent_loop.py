@@ -2129,3 +2129,81 @@ class TestExecutorTimeout:
         node = tree.get_node(entry.node_id)
         assert node.status == TaskPhase.FAILED.value
         assert "Timeout" in (node.result or "")
+
+
+# ---------------------------------------------------------------------------
+# EmployeeManager — _recover_orphaned_tasks
+# ---------------------------------------------------------------------------
+
+class TestRecoverOrphanedTasks:
+    def test_recovers_pending_orphan(self, tmp_path):
+        """Orphaned PENDING task in task_index gets re-added to _schedule."""
+        mgr = EmployeeManager()
+        launcher = MagicMock(spec=Launcher)
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="emp01", status="pending")
+
+        index_entries = [{"node_id": entry.node_id, "tree_path": str(tree_path)}]
+
+        with patch("onemancompany.core.store.load_task_index", return_value=index_entries), \
+             patch.object(mgr, "_schedule_next"):
+            mgr.register("emp01", launcher)
+
+        assert any(e.node_id == entry.node_id for e in mgr._schedule.get("emp01", []))
+
+    def test_skips_completed_task(self, tmp_path):
+        """Completed tasks in task_index should NOT be recovered."""
+        mgr = EmployeeManager()
+        launcher = MagicMock(spec=Launcher)
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="emp01", status="completed")
+
+        index_entries = [{"node_id": entry.node_id, "tree_path": str(tree_path)}]
+
+        with patch("onemancompany.core.store.load_task_index", return_value=index_entries), \
+             patch.object(mgr, "_schedule_next"):
+            mgr.register("emp01", launcher)
+
+        scheduled_ids = {e.node_id for e in mgr._schedule.get("emp01", [])}
+        assert entry.node_id not in scheduled_ids
+
+    def test_skips_already_scheduled(self, tmp_path):
+        """Tasks already in _schedule should not be duplicated."""
+        mgr = EmployeeManager()
+        launcher = MagicMock(spec=Launcher)
+        entry, tree_path, root = _make_tree_entry(tmp_path, employee_id="emp01", status="pending")
+
+        # Pre-populate _schedule
+        mgr._schedule["emp01"] = [ScheduleEntry(node_id=entry.node_id, tree_path=str(tree_path))]
+
+        index_entries = [{"node_id": entry.node_id, "tree_path": str(tree_path)}]
+
+        with patch("onemancompany.core.store.load_task_index", return_value=index_entries), \
+             patch.object(mgr, "_schedule_next"):
+            mgr.register("emp01", launcher)
+
+        # Should still be exactly 1
+        assert len(mgr._schedule["emp01"]) == 1
+
+    def test_skips_missing_tree_path(self, tmp_path):
+        """Tasks with non-existent tree_path are skipped."""
+        mgr = EmployeeManager()
+        launcher = MagicMock(spec=Launcher)
+
+        index_entries = [{"node_id": "n1", "tree_path": "/nonexistent/tree.yaml"}]
+
+        with patch("onemancompany.core.store.load_task_index", return_value=index_entries), \
+             patch.object(mgr, "_schedule_next"):
+            mgr.register("emp01", launcher)
+
+        assert len(mgr._schedule.get("emp01", [])) == 0
+
+    def test_empty_index_no_error(self, tmp_path):
+        """Empty task_index doesn't cause errors."""
+        mgr = EmployeeManager()
+        launcher = MagicMock(spec=Launcher)
+
+        with patch("onemancompany.core.store.load_task_index", return_value=[]), \
+             patch.object(mgr, "_schedule_next"):
+            mgr.register("emp01", launcher)
+
+        # No crash, schedule empty or only has what register() adds
+        assert mgr.executors.get("emp01") is not None

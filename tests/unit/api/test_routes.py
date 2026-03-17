@@ -6685,3 +6685,56 @@ class TestUpdateEmployeeHostingManifest:
         assert "connection" in final_ids, "connection should be restored on switch back to self"
         assert "llm" not in final_ids, "llm should be removed on switch back to self"
         assert final["hosting"] == "self"
+
+
+# ---------------------------------------------------------------------------
+# _check_talent_required_fields
+# ---------------------------------------------------------------------------
+
+class TestCheckTalentRequiredFields:
+    def test_complete_company_profile(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "company", "llm_model": "gpt-4o", "auth_method": "api_key"}
+        assert _check_talent_required_fields(data) == []
+
+    def test_complete_self_profile(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "self"}
+        assert _check_talent_required_fields(data) == []
+
+    def test_missing_hosting(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"llm_model": "gpt-4o", "auth_method": "api_key"}
+        missing = _check_talent_required_fields(data)
+        assert "hosting" in missing
+
+    def test_missing_llm_model_for_company(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "company", "auth_method": "api_key"}
+        missing = _check_talent_required_fields(data)
+        assert "llm_model" in missing
+        assert "hosting" not in missing
+
+    def test_missing_auth_method_for_company(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "company", "llm_model": "gpt-4o"}
+        missing = _check_talent_required_fields(data)
+        assert "auth_method" in missing
+
+    def test_self_hosted_skips_llm_and_auth(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "self"}
+        missing = _check_talent_required_fields(data)
+        assert "llm_model" not in missing
+        assert "auth_method" not in missing
+
+    def test_empty_dict(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        missing = _check_talent_required_fields({})
+        assert "hosting" in missing
+
+    def test_empty_string_values_treated_as_missing(self):
+        from onemancompany.api.routes import _check_talent_required_fields
+        data = {"hosting": "", "llm_model": "", "auth_method": ""}
+        missing = _check_talent_required_fields(data)
+        assert "hosting" in missing

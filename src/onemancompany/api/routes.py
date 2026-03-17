@@ -3822,22 +3822,26 @@ def _check_talent_required_fields(talent_data: dict) -> list[str]:
     for field in _TALENT_REQUIRED_FIELDS:
         if not talent_data.get(field):
             missing.append(field)
-    # Self-hosted talents don't need llm_model/api_provider
+    # Self-hosted talents don't need llm_model/api_provider/auth_method
     if talent_data.get("hosting") != "self":
         if not talent_data.get("llm_model"):
             missing.append("llm_model")
+        if not talent_data.get("auth_method"):
+            missing.append("auth_method")
     return missing
 
 
 async def _publish_talent_profile_error(
-    talent_id: str, missing_fields: list[str], source_repo: str = "", *, is_missing: bool = False,
+    talent_id: str, missing_fields: list[str], source_repo: str = "",
+    *, is_missing: bool = False, clone_error: str = "",
 ) -> None:
     """Publish an error event to the frontend about talent profile issues."""
     if is_missing:
-        message = (
-            f"Talent '{talent_id}' profile not found on disk. "
-            f"The talent repo may have failed to clone."
-        )
+        message = f"Talent '{talent_id}' profile not found on disk."
+        if clone_error:
+            message += f" Clone failed: {clone_error}"
+        else:
+            message += " The talent repo may have failed to clone."
     else:
         message = (
             f"Talent '{talent_id}' profile is missing required fields: "
@@ -3923,6 +3927,7 @@ async def _do_hire_single(
         # Clone talent repo if sourced from Talent Market (batch-hire does this
         # before _do_batch_hire, but single-hire was missing this step).
         talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
+        clone_error: str = ""
         if talent_id and candidate.get("source_repo"):
             from onemancompany.agents.onboarding import clone_talent_repo
             from onemancompany.agents.recruitment import talent_market
@@ -3932,6 +3937,7 @@ async def _do_hire_single(
                 if repo_url:
                     await clone_talent_repo(repo_url, talent_id)
             except Exception as e:
+                clone_error = str(e)
                 logger.warning("[hiring] Failed to clone talent {}: {}", talent_id, e)
 
         # Read authoritative fields from the talent profile
@@ -3943,8 +3949,11 @@ async def _do_hire_single(
         # Validate required fields from talent profile
         if talent_id and not talent_data:
             source_repo = candidate.get("source_repo", "")
-            await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
-            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile not found: {talent_id}")
+            detail = f"Talent profile not found: {talent_id}"
+            if clone_error:
+                detail += f" (clone failed: {clone_error})"
+            await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True, clone_error=clone_error)
+            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, detail)
             return
         if talent_id:
             missing = _check_talent_required_fields(talent_data)
@@ -3953,6 +3962,8 @@ async def _do_hire_single(
                 await _publish_talent_profile_error(talent_id, missing, source_repo)
                 await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile missing fields: {', '.join(missing)}")
                 return
+        if not talent_data:
+            talent_data = candidate
 
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
 
@@ -4331,6 +4342,10 @@ async def _do_batch_hire(
                         _notify_coo_hire_ready(emp.id, coo_ctx)
 
             except Exception as e:
+                # NOTE: We do NOT use _cleanup_single_hire_failure() here because
+                # batch-hire has different lifecycle semantics: pending_candidates
+                # is already cleared at the top, HR task resume happens in `finally`,
+                # and we need per-candidate progress with idx/total counters.
                 logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(

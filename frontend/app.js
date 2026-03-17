@@ -5512,13 +5512,13 @@ class AppController {
       overlay.id = 'alert-modal-overlay';
       overlay.className = 'modal-overlay';
       overlay.innerHTML = `
-        <div class="modal-content" style="max-width:420px;">
+        <div class="modal-content alert-modal-content">
           <div class="modal-header">
             <h3 class="pixel-title" id="alert-modal-title"></h3>
             <button class="modal-close" id="alert-modal-close">✕</button>
           </div>
-          <div id="alert-modal-body" style="padding:12px 16px;font-size:12px;line-height:1.6;"></div>
-          <div style="padding:8px 16px 12px;text-align:right;">
+          <div id="alert-modal-body" class="alert-modal-body"></div>
+          <div class="alert-modal-footer">
             <button class="pixel-btn" id="alert-modal-ok">OK</button>
           </div>
         </div>`;
