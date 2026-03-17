@@ -3013,9 +3013,6 @@ class AppController {
               <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
               <div class="card-detail-title">Hosting</div>
               <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
-              <div class="card-actions">
-                <button class="pixel-btn interview" data-id="${cid}">Interview</button>
-              </div>
             </div>
           </div>
         `;
@@ -3061,16 +3058,17 @@ class AppController {
     cardEl.classList.add('detail-active');
 
     const c = candidate;
+    const esc = (s) => this._escapeHtml(s || '');
     const emoji = ROLE_EMOJI[c.role] || '🤖';
     const skills = (c.skill_set || c.skills || []).map(s => {
-      if (typeof s === 'object') return `<span class="detail-skill">${s.name} <em>${s.proficiency || ''}</em></span>`;
-      return `<span class="detail-skill">${s}</span>`;
+      if (typeof s === 'object') return `<span class="detail-skill">${esc(s.name)} <em>${esc(s.proficiency)}</em></span>`;
+      return `<span class="detail-skill">${esc(s)}</span>`;
     }).join('');
     const tools = (c.tool_set || []).map(t => {
-      if (typeof t === 'object') return `<span class="detail-tool">${t.name}</span>`;
-      return `<span class="detail-tool">${t}</span>`;
+      if (typeof t === 'object') return `<span class="detail-tool">${esc(t.name)}</span>`;
+      return `<span class="detail-tool">${esc(t)}</span>`;
     }).join('');
-    const tags = (c.personality_tags || []).map(t => `<span class="detail-tag">${t}</span>`).join('');
+    const tags = (c.personality_tags || []).map(t => `<span class="detail-tag">${esc(t)}</span>`).join('');
     const score = c.score || c.jd_relevance || 0;
     const scorePct = Math.round(score * 100);
     const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
@@ -3086,21 +3084,21 @@ class AppController {
       <div class="detail-header">
         <div class="detail-avatar">${emoji}</div>
         <div class="detail-name-block">
-          <div class="detail-name">${c.name}</div>
-          <div class="detail-role">${c.role}</div>
+          <div class="detail-name">${esc(c.name)}</div>
+          <div class="detail-role">${esc(c.role)}</div>
         </div>
         <div class="detail-score" style="border-color:${scoreColor}">
           <span style="color:${scoreColor}">${scorePct}%</span>
           <small>match</small>
         </div>
       </div>
-      ${reasoning ? `<div class="detail-section"><div class="detail-label">Match Reasoning</div><div class="detail-text">${reasoning}</div></div>` : ''}
+      ${reasoning ? `<div class="detail-section"><div class="detail-label">Match Reasoning</div><div class="detail-text">${esc(reasoning)}</div></div>` : ''}
       ${tags ? `<div class="detail-section"><div class="detail-label">Personality</div><div class="detail-tags-list">${tags}</div></div>` : ''}
       <div class="detail-section"><div class="detail-label">Skills</div><div class="detail-skills-list">${skills || '<em>N/A</em>'}</div></div>
       ${tools ? `<div class="detail-section"><div class="detail-label">Tools</div><div class="detail-tools-list">${tools}</div></div>` : ''}
       <div class="detail-section detail-grid">
-        <div><div class="detail-label">LLM Model</div><div class="detail-text">🤖 ${llmModel}</div></div>
-        <div><div class="detail-label">Provider</div><div class="detail-text">${c.api_provider || 'openrouter'}</div></div>
+        <div><div class="detail-label">LLM Model</div><div class="detail-text">🤖 ${esc(llmModel)}</div></div>
+        <div><div class="detail-label">Provider</div><div class="detail-text">${esc(c.api_provider || 'openrouter')}</div></div>
         <div><div class="detail-label">Cost</div><div class="detail-text">${costPer1m}</div></div>
         <div><div class="detail-label">Hiring Fee</div><div class="detail-text">${hiringFee}</div></div>
         <div><div class="detail-label">Hosting</div><div class="detail-text">${hostingLabel}</div></div>

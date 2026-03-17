@@ -15,7 +15,7 @@ class TaskTreeRenderer {
 
         this.nodeWidth = 220;
         this.nodeHeight = 90;       // minimum height; grows with description
-        this.levelSep = 120;
+        this.levelSep = 140;
         this.sibSep = 30;
         this._descMaxCharsPerLine = 28;  // approx chars per line at 10px font
     }
