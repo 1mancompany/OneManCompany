@@ -14,9 +14,10 @@ class TaskTreeRenderer {
         this._currentProjectId = null;
 
         this.nodeWidth = 220;
-        this.nodeHeight = 90;
-        this.levelSep = 100;
+        this.nodeHeight = 90;       // minimum height; grows with description
+        this.levelSep = 120;
         this.sibSep = 30;
+        this._descMaxCharsPerLine = 28;  // approx chars per line at 10px font
     }
 
     static STATUS_COLORS = {
@@ -209,6 +210,7 @@ class TaskTreeRenderer {
 
         // Status color bar (left edge) — gold for CEO nodes
         nodeGroups.append('rect')
+            .attr('class', 'tree-status-bar')
             .attr('x', -this.nodeWidth / 2)
             .attr('y', -this.nodeHeight / 2)
             .attr('width', 4)
@@ -266,19 +268,54 @@ class TaskTreeRenderer {
                 return info.role || '';
             });
 
-        // Description
-        nodeGroups.append('text')
-            .attr('x', -this.nodeWidth / 2 + 14)
-            .attr('y', -this.nodeHeight / 2 + 56)
-            .attr('class', 'tree-node-desc')
-            .text(d => {
-                const desc = d.data.description || '';
-                return desc.substring(0, 30) + (desc.length > 30 ? '...' : '');
+        // Description — word-wrapped into multiple tspan lines
+        const maxChars = this._descMaxCharsPerLine;
+        const descTextX = -this.nodeWidth / 2 + 14;
+        const descStartY = -this.nodeHeight / 2 + 56;
+        const lineHeight = 13;
+        const maxLines = 3;
+
+        nodeGroups.each(function(d) {
+            const g = d3.select(this);
+            const desc = (d.data.description || '').replace(/\n/g, ' ');
+            const lines = [];
+            for (let i = 0; i < desc.length && lines.length < maxLines; i += maxChars) {
+                let line = desc.substring(i, i + maxChars);
+                if (i + maxChars < desc.length && lines.length === maxLines - 1) {
+                    line = line.substring(0, maxChars - 1) + '…';
+                }
+                lines.push(line);
+            }
+            if (lines.length === 0) lines.push('');
+
+            const text = g.append('text')
+                .attr('x', descTextX)
+                .attr('class', 'tree-node-desc');
+            lines.forEach((line, idx) => {
+                text.append('tspan')
+                    .attr('x', descTextX)
+                    .attr('y', descStartY + idx * lineHeight)
+                    .text(line);
             });
 
-        // Status pill (rounded rect + text)
+            // Grow card rect + status bar if description wraps beyond 1 line
+            const extraLines = Math.max(0, lines.length - 1);
+            if (extraLines > 0) {
+                const extraH = extraLines * lineHeight;
+                d._extraH = extraH;
+                g.select('.tree-node-card')
+                    .attr('height', 90 + extraH);
+                g.select('.tree-status-bar')
+                    .attr('height', 90 + extraH);
+            }
+        });
+
+        // Status pill (rounded rect + text) — shifts down if card grew
         const pills = nodeGroups.append('g')
-            .attr('transform', d => `translate(${this.nodeWidth / 2 - 60}, ${this.nodeHeight / 2 - 18})`);
+            .attr('transform', d => {
+                const extra = d._extraH || 0;
+                return `translate(${this.nodeWidth / 2 - 60}, ${this.nodeHeight / 2 - 18 + extra})`;
+            });
 
         pills.append('rect')
             .attr('width', 52)

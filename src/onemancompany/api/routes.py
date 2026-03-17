@@ -3222,7 +3222,7 @@ async def get_project_tree(project_id: str) -> dict:
                         "name": _tree_emp.get("name", ""),
                         "nickname": _tree_emp.get("nickname", ""),
                         "role": _tree_emp.get("role", ""),
-                        "avatar_url": f"/api/employees/{eid}/avatar" if _has_avatar(eid) else "",
+                        "avatar_url": f"/api/employees/{eid}/avatar",
                     }
 
     nodes = []
