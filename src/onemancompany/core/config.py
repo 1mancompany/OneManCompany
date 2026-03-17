@@ -143,6 +143,17 @@ DEPT_COLORS: dict[str, tuple[str, str, str]] = {
     "General":     ("#2a2a2a", "#262626", "#888888"),   # gray tones
 }
 
+# Floor tile style key per department — used by frontend TileAtlas to pick tile variant
+DEPT_FLOOR_STYLES: dict[str, str] = {
+    "Engineering": "stone_blue",
+    "Design": "wood_warm",
+    "Analytics": "tile_green",
+    "Marketing": "carpet_red",
+    "General": "stone_gray",
+}
+
+DEPT_DIVIDER_WIDTH: int = 1
+
 # Executive row floor colors
 EXEC_FLOOR_COLORS = ("#2a2a20", "#26261e")  # gold tones
 

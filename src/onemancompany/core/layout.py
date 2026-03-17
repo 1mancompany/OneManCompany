@@ -15,7 +15,9 @@ from onemancompany.core.config import (
     DEPT_COLORS,
     DEPT_DESK_ROWS,
     DEPT_DESK_SPACING_X,
+    DEPT_DIVIDER_WIDTH,
     DEPT_END_ROW,
+    DEPT_FLOOR_STYLES,
     DEPT_MIN_ZONE_WIDTH,
     DEPT_ORDER,
     DEPT_START_ROW,
@@ -40,6 +42,7 @@ class DeptZone:
     floor1: str = ""
     floor2: str = ""
     label_color: str = ""
+    floor_style: str = "stone_gray"
     label_en: str = ""  # English name for frontend watermark
 
     def to_dict(self) -> dict:
@@ -49,6 +52,7 @@ class DeptZone:
             "end_col": self.end_col,
             "floor1": self.floor1,
             "floor2": self.floor2,
+            "floor_style": self.floor_style,
             "label_color": self.label_color,
             "label_en": self.label_en,
         }
@@ -84,11 +88,13 @@ def compute_layout(company_state) -> dict:
     # Compute zones
     zones = _compute_zones(dept_groups)
 
-    # Assign desk positions within each zone
+    # Assign desk positions within each zone, tracking max row used
     position_updates: dict[str, list[int]] = {}
+    effective_dept_end = DEPT_END_ROW
     for zone in zones:
         zone_employees = dept_groups.get(zone.department, [])
-        _assign_desks_in_zone(zone, zone_employees)
+        zone_max_row = _assign_desks_in_zone(zone, zone_employees)
+        effective_dept_end = max(effective_dept_end, zone_max_row)
         for emp_entry in zone_employees:
             position_updates[emp_entry["id"]] = list(emp_entry["desk_position"])
 
@@ -98,15 +104,18 @@ def compute_layout(company_state) -> dict:
         if emp_id in employees:
             position_updates[emp_id] = list(pos)
 
-    # Build layout metadata for frontend
+    # Build layout metadata for frontend (use effective end row for auto-expansion)
     layout = {
         "zones": [z.to_dict() for z in zones],
         "executive_row": EXEC_ROW_GY,
         "exec_row_height": EXEC_ROW_HEIGHT,
         "exec_floor_colors": list(EXEC_FLOOR_COLORS),
         "dept_start_row": DEPT_START_ROW,
-        "dept_end_row": DEPT_END_ROW,
+        "dept_end_row": effective_dept_end,
     }
+
+    divider_cols = [zones[i].end_col for i in range(len(zones) - 1)]
+    layout["divider_cols"] = divider_cols
 
     # Compute asset positions (tools & meeting rooms) below employee area
     compute_asset_layout(company_state, layout)
@@ -204,6 +213,7 @@ def _compute_zones(dept_groups: dict[str, list]) -> list[DeptZone]:
             department=d,
             start_col=col,
             end_col=col + w,
+            floor_style=DEPT_FLOOR_STYLES.get(d, "stone_gray"),
             floor1=colors[0],
             floor2=colors[1],
             label_color=colors[2],
@@ -214,13 +224,14 @@ def _compute_zones(dept_groups: dict[str, list]) -> list[DeptZone]:
     return zones
 
 
-def _assign_desks_in_zone(zone: DeptZone, employees: list[dict]) -> None:
+def _assign_desks_in_zone(zone: DeptZone, employees: list[dict]) -> int:
     """Place employees within a zone, sorted by level DESC then employee number.
 
     Mutates each employee dict's 'desk_position' in place.
+    Returns the max grid-Y row used (for auto-expansion tracking).
     """
     if not employees:
-        return
+        return DEPT_END_ROW
 
     # Sort: highest level first, then by employee number
     employees.sort(key=lambda e: (-e.get("level", 1), e.get("employee_number", "")))
@@ -237,14 +248,26 @@ def _assign_desks_in_zone(zone: DeptZone, employees: list[dict]) -> None:
     if not desk_cols:
         desk_cols = [zone.start_col + zone_width // 2]
 
+    # Build row list: start with fixed rows, auto-expand if needed
+    row_spacing = DEPT_DESK_ROWS[1] - DEPT_DESK_ROWS[0] if len(DEPT_DESK_ROWS) > 1 else 3
+    slots_per_row = len(desk_cols)
+    total_rows_needed = (len(employees) + slots_per_row - 1) // slots_per_row
+    desk_rows = list(DEPT_DESK_ROWS)
+    while len(desk_rows) < total_rows_needed:
+        desk_rows.append(desk_rows[-1] + row_spacing)
+
     # Place employees row by row
     idx = 0
-    for row_gy in DEPT_DESK_ROWS:
+    max_row = DEPT_END_ROW
+    for row_gy in desk_rows:
         for col_gx in desk_cols:
             if idx >= len(employees):
-                return
+                return max_row
             employees[idx]["desk_position"] = (col_gx, row_gy)
+            max_row = max(max_row, row_gy)
             idx += 1
+
+    return max_row
 
 
 def get_next_desk_for_department(company_state_unused, department: str) -> tuple[int, int]:
@@ -304,13 +327,20 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
     if not desk_cols:
         desk_cols = [target_zone.start_col + zone_width // 2]
 
-    for row_gy in DEPT_DESK_ROWS:
+    # Build expandable row list (auto-expand beyond fixed rows)
+    row_spacing = DEPT_DESK_ROWS[1] - DEPT_DESK_ROWS[0] if len(DEPT_DESK_ROWS) > 1 else 3
+    desk_rows = list(DEPT_DESK_ROWS)
+    # Add extra overflow rows to search
+    for _ in range(10):
+        desk_rows.append(desk_rows[-1] + row_spacing)
+
+    for row_gy in desk_rows:
         for col_gx in desk_cols:
             if (col_gx, row_gy) not in occupied:
                 return (col_gx, row_gy)
 
-    # All slots full — place at end of zone
-    return (target_zone.start_col + 1, DEPT_DESK_ROWS[0])
+    # Truly full — place at next overflow row
+    return (target_zone.start_col + 1, desk_rows[-1] + row_spacing)
 
 
 TOTAL_COLS = 20
@@ -326,8 +356,9 @@ def compute_asset_layout(company_state, layout: dict) -> None:
     Places tools in a row below the employee area, meeting rooms below tools.
     Updates positions in-place and sets layout['canvas_rows'].
     """
-    # Asset area starts below the department zone
-    asset_start_gy = DEPT_END_ROW + 2
+    # Asset area starts below the department zone (uses effective end row for auto-expansion)
+    effective_end = layout.get("dept_end_row", DEPT_END_ROW)
+    asset_start_gy = effective_end + 2
 
     # --- Tools row (only tools with icons get canvas positions) ---
     tool_list = [t for t in company_state.tools.values() if t.has_icon]
