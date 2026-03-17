@@ -41,47 +41,44 @@ for (let i = 1; i <= 20; i++) {
  * Tile definitions for semantic access.
  * Format: [sheetKey, srcRow, srcCol]  or  [sheetKey, srcRow, srcCol, widthTiles, heightTiles]
  *
- * ⚠️  COORDINATES ARE APPROXIMATE — must be verified visually in Task 8
- *     Use debugSheet() in browser console to inspect tile positions.
+ * Coordinates verified against actual spritesheet layouts (Task 8 calibration complete).
+ * Room Builder sheet (room): floor rows 5-13. Office sheet (office): furniture rows 7+.
  */
 const TILE_DEFS = {
   // ── Floor tiles (from Room_Builder_Office_32x32.png) ──
-  // Row 0-1: wall top areas; rows 2+ are floor variants
-  floor_stone_gray:  ['room',  2,  0],
-  floor_stone_blue:  ['room',  2,  4],
-  floor_wood_warm:   ['room',  4,  0],
-  floor_tile_green:  ['room',  6,  0],
-  floor_carpet_red:  ['room',  8,  0],
-  floor_wood_gold:   ['room',  4,  4],
+  // Rows 5-13 contain tiling floor variants; col 0 = standard center tile
+  floor_stone_gray:  ['room',  7,  0],   // gray stone (Engineering default)
+  floor_stone_blue:  ['room',  5,  0],   // blue/purple stone
+  floor_wood_warm:   ['room', 10,  0],   // warm brown wood
+  floor_tile_green:  ['room',  9,  0],   // clean light tile (Analytics)
+  floor_carpet_red:  ['room', 12, 10],   // mauve/pink carpet
+  floor_wood_gold:   ['room', 10,  7],   // golden warm wood (exec area)
 
-  // ── Potted plants (from Interiors_32x32.png) ──
-  // Plant sprites are in the upper portion of the massive Interiors sheet
-  // These rows/cols are approximate — verify in Task 8
-  plant_large:  ['interiors',  0,  8, 1, 2],  // tall potted plant (1×2 tiles)
-  plant_small:  ['interiors',  2,  8, 1, 1],  // small potted plant (1×1 tile)
-  plant_round:  ['interiors',  2, 10, 1, 1],  // round bush pot
+  // ── Potted plants (from Modern_Office_32x32.png) ──
+  // Plants occupy 1×2 tiles; only top (leafy) tile used for single-row dividers
+  plant_large:  ['office', 10, 6],  // large leafy plant (top tile)
+  plant_small:  ['office',  7, 6],  // smaller plant (top tile)
 
   // ── Office furniture (from Modern_Office_32x32.png) ──
-  // Desk unit: occupies 2 tiles wide, 2 tall
   desk_top_l:      ['office',  0,  0],
   desk_top_r:      ['office',  0,  1],
   desk_front_l:    ['office',  1,  0],
   desk_front_r:    ['office',  1,  1],
   monitor_single:  ['office',  0,  4],
   monitor_dual:    ['office',  0,  5],
-  chair_black:     ['office',  2,  0],
-  chair_blue:      ['office',  2,  2],
+  chair_black:     ['office',  8,  0],
+  chair_blue:      ['office',  8,  2],
   whiteboard:      ['office',  3,  8, 2, 2],
   bookshelf:       ['office',  6,  0, 2, 2],
   printer:         ['office',  4,  6],
 
   // ── Conference / meeting room furniture ──
-  conf_table_tl:     ['office', 10,  0],
-  conf_table_tr:     ['office', 10,  1],
-  conf_table_bl:     ['office', 11,  0],
-  conf_table_br:     ['office', 11,  1],
-  conf_chair_top:    ['office',  9,  0],
-  conf_chair_bottom: ['office', 12,  0],
+  conf_table_tl:     ['office', 17,  0],
+  conf_table_tr:     ['office', 17,  1],
+  conf_table_bl:     ['office', 18,  0],
+  conf_table_br:     ['office', 18,  1],
+  conf_chair_top:    ['office', 16,  0],
+  conf_chair_bottom: ['office', 19,  0],
 };
 
 class TileAtlas {

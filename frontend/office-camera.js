@@ -17,7 +17,7 @@
 
 const CAMERA_ZOOM_MIN  = 0.5;
 const CAMERA_ZOOM_MAX  = 3.0;
-const CAMERA_ZOOM_STEP = 0.15;
+const CAMERA_ZOOM_STEP = 0.08;
 const CAMERA_LERP      = 0.12;  // fraction per frame toward target
 
 class Camera {
