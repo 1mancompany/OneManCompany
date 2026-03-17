@@ -144,7 +144,7 @@ class Camera {
     this._clamp();
   }
 
-  /** Center on a tile grid position (col, row). */
+  /** Center on a tile grid position (col, row). Used by click-to-focus (Task 9). */
   centerOnTile(col, row, targetZoom = null) {
     this.centerOn((col + 0.5) * TILE_SIZE, (row + 0.5) * TILE_SIZE, targetZoom);
   }
@@ -183,7 +183,7 @@ class Camera {
   }
 
   /**
-   * Convert world pixels to screen coords.
+   * Convert world pixels to screen coords. Used for attaching UI overlays to world entities.
    */
   worldToScreen(wx, wy) {
     return {
@@ -217,6 +217,7 @@ class Camera {
     this._clamp();
   }
 
+  /** Returns true when lerp has converged — used to skip redraws when camera is at rest. */
   isSettled() {
     return (
       Math.abs(this.x - this._tx) < 0.5 &&

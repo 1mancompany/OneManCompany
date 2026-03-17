@@ -89,11 +89,12 @@ class OfficeMap {
     for (const zone of this.zones) {
       const style    = zone.floor_style || 'stone_gray';
       const floorKey = `floor_${style}`;
-      // Paint the full depth of potential department area + overflow rows
+      // Paint from dept start down to the last canvas row (this.rows already
+      // accounts for overflow via canvas_rows from the backend).
       const startRow = deptStartGY + WALL_ROWS;
-      const endRow   = deptEndGY + WALL_ROWS + 10;  // +10 for auto-expansion
+      const endRow   = this.rows - 1;
 
-      for (let row = startRow; row <= Math.min(endRow, this.rows - 1); row++) {
+      for (let row = startRow; row <= endRow; row++) {
         for (let col = zone.start_col; col < zone.end_col; col++) {
           this._setFloor(col, row, floorKey);
         }
@@ -125,7 +126,6 @@ class OfficeMap {
         ...emp,
         col: gx,
         row: gy + WALL_ROWS,  // canvas-row space
-        charIdx: this._charIdx(emp.id),
       };
 
       if (emp.id === CEO_ID) {
@@ -148,17 +148,6 @@ class OfficeMap {
         this.tools.push({ ...tool, col: gx, row: gy + WALL_ROWS });
       }
     }
-  }
-
-  /**
-   * Deterministic character sheet index (1–20) from employee ID string.
-   */
-  _charIdx(empId) {
-    let h = 0;
-    for (let i = 0; i < empId.length; i++) {
-      h = (h * 31 + empId.charCodeAt(i)) >>> 0;
-    }
-    return (h % 20) + 1;
   }
 
   _setFloor(col, row, key) {

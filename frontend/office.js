@@ -103,9 +103,8 @@ class OfficeRenderer {
     );
     this.minimap = new MiniMap(this.officeMap, this.camera);
 
-    // Preload tileset sheets
-    const charKeys = Array.from({ length: 20 }, (_, i) => `char${String(i + 1).padStart(2, '0')}`);
-    tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room', ...charKeys]);
+    // Preload tileset sheets (character sheets excluded until Task 8 spritesheet rendering)
+    tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room']);
 
     // Preload decoration sprites
     this._preloadDecorations();
