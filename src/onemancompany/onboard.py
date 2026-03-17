@@ -664,10 +664,75 @@ def run_wizard() -> None:
     _step_done(console, host, port)
 
 
+def run_auto() -> None:
+    """Non-interactive init that reads config from .env file."""
+    import os
+
+    console = Console()
+    console.rule("[bold]OneManCompany Auto Init[/bold]")
+
+    # Find .env — check CWD first, then project root
+    env_path = Path.cwd() / ".env"
+    if not env_path.exists():
+        env_path = SOURCE_ROOT / ".env"
+    if not env_path.exists():
+        console.print("[red]  ✗ No .env file found. Run onemancompany-init interactively first.[/red]")
+        raise SystemExit(1)
+
+    # Parse .env
+    env = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip()
+
+    # Determine provider from env keys
+    if env.get("OPENROUTER_API_KEY"):
+        provider = "openrouter"
+        api_key = env["OPENROUTER_API_KEY"]
+    elif env.get("ANTHROPIC_API_KEY"):
+        provider = "anthropic"
+        api_key = env["ANTHROPIC_API_KEY"]
+    else:
+        # Try to detect from DEFAULT_API_PROVIDER
+        provider = env.get("DEFAULT_API_PROVIDER", "openrouter")
+        api_key = env.get(f"{provider.upper()}_API_KEY", "")
+
+    model = env.get("DEFAULT_LLM_MODEL", "anthropic/claude-sonnet-4")
+    host = env.get("HOST", "0.0.0.0")
+    port = int(env.get("PORT", "8000"))
+
+    extras: dict[str, str] = {}
+    if env.get("ANTHROPIC_API_KEY"):
+        extras["ANTHROPIC_API_KEY"] = env["ANTHROPIC_API_KEY"]
+    if env.get("SKILLSMP_API_KEY"):
+        extras["SKILLSMP_API_KEY"] = env["SKILLSMP_API_KEY"]
+    if env.get("TALENT_MARKET_API_KEY"):
+        extras["TALENT_MARKET_API_KEY"] = env["TALENT_MARKET_API_KEY"]
+
+    sandbox_enabled = env.get("SANDBOX_ENABLED", "").lower() in ("1", "true", "yes")
+
+    console.print(f"  Provider: [cyan]{provider}[/cyan]")
+    console.print(f"  Model:    [cyan]{model}[/cyan]")
+    console.print(f"  Server:   [cyan]{host}:{port}[/cyan]")
+    console.print()
+
+    _step_execute(console, provider, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
+    _step_done(console, host, port)
+
+
 def main() -> None:
     """CLI entry point for onemancompany-init."""
+    import sys
+
     try:
-        run_wizard()
+        if "--auto" in sys.argv:
+            run_auto()
+        else:
+            run_wizard()
     except KeyboardInterrupt:
         console = Console()
         console.print("\n\n  [yellow]Cancelled.[/yellow]")
