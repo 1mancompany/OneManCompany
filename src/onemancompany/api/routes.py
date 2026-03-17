@@ -4045,14 +4045,7 @@ async def _do_hire_single(
         raise
     except Exception as e:
         logger.exception("[hiring] Background hire failed for {}", candidate.get("name"))
-        _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", str(e), 1)
-        await event_bus.publish(CompanyEvent(
-            type="onboarding_progress",
-            payload={"batch_id": batch_id, "candidate_id": candidate_id,
-                     "name": candidate.get("name", ""), "step": "failed",
-                     "message": str(e)},
-            agent="HR",
-        ))
+        await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, str(e))
 
 
 @router.post("/api/candidates/dismiss")

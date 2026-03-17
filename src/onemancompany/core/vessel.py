@@ -2288,7 +2288,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            logger.warning("No event loop for log publish (%s)", employee_id)
+            logger.warning("No event loop for log publish ({})", employee_id)
 
     def _publish_node_update(self, employee_id: str, node) -> None:
         """Publish a task update event for a TaskNode (ScheduleEntry path)."""
@@ -2305,7 +2305,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            logger.warning("No event loop for node update publish (%s)", employee_id)
+            logger.warning("No event loop for node update publish ({})", employee_id)
 
 
 # ---------------------------------------------------------------------------
