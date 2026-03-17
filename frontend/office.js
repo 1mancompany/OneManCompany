@@ -141,7 +141,7 @@ class OfficeRenderer {
   _resizeCanvas() {
     const parent = this.canvas.parentElement;
     const cssW = parent.clientWidth;
-    const cssH = parent.clientHeight - 45;
+    const cssH = parent.clientHeight - 45; // 45px = office panel header height
     if (cssW <= 0 || cssH <= 0) return;
 
     const dpr = window.devicePixelRatio || 1;

@@ -4,6 +4,11 @@
  * Rendered in screen space (bottom-right corner of canvas).
  * Shows the full office map at reduced scale with a white rectangle
  * indicating the current camera viewport. Click to jump camera.
+ *
+ * Depends on globals from:
+ *   office-tileatlas.js  → TILE_SIZE
+ *   office-camera.js     → Camera
+ *   office-map.js        → OfficeMap
  */
 
 const MINIMAP_W      = 120;
@@ -106,13 +111,13 @@ class MiniMap {
       );
     }
 
-    // Viewport rectangle
+    // Viewport rectangle — clamp vx/vy so rect never draws outside the minimap
     const cam  = this.camera;
     const rect = this._canvas ? this._canvas.getBoundingClientRect() : { width: 640, height: 480 };
-    const vx   = cam.x  * sx;
-    const vy   = cam.y  * sy;
     const vw   = Math.min(MINIMAP_W, (rect.width  / cam.zoom) * sx);
     const vh   = Math.min(MINIMAP_H, (rect.height / cam.zoom) * sy);
+    const vx   = Math.max(0, Math.min(MINIMAP_W - vw, cam.x * sx));
+    const vy   = Math.max(0, Math.min(MINIMAP_H - vh, cam.y * sy));
 
     ctx.fillStyle   = 'rgba(255,255,255,0.12)';
     ctx.fillRect(ox + vx, oy + vy, vw, vh);
