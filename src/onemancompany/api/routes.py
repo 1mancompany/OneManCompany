@@ -3867,6 +3867,37 @@ async def _publish_talent_profile_error(
     ))
 
 
+async def _cleanup_single_hire_failure(
+    batch_id: str, candidate_id: str, candidate: dict, error_msg: str,
+) -> None:
+    """Clean up hiring state when single-hire fails before execute_hire."""
+    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
+
+    _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", error_msg, 1)
+    await event_bus.publish(CompanyEvent(
+        type="onboarding_progress",
+        payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                 "name": candidate.get("name", ""), "step": "failed",
+                 "message": error_msg},
+        agent="HR",
+    ))
+    pending_candidates.pop(batch_id, None)
+    _persist_candidates()
+
+    # Resume HR's HOLDING task
+    from onemancompany.core.vessel import employee_manager as _em_hr
+    from onemancompany.core.task_tree import get_tree as _get_tree_hr
+    for entry in _em_hr._schedule.get(HR_ID, []):
+        tp = Path(entry.tree_path)
+        if not tp.exists():
+            continue
+        tree = _get_tree_hr(tp)
+        node = tree.get_node(entry.node_id)
+        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
+            await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hire failed: {error_msg}")
+            break
+
+
 async def _do_hire_single(
     batch_id: str, candidate_id: str, nickname: str,
     candidate: dict, coo_ctx: dict,
@@ -3913,12 +3944,14 @@ async def _do_hire_single(
         if talent_id and not talent_data:
             source_repo = candidate.get("source_repo", "")
             await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
+            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile not found: {talent_id}")
             return
         if talent_id:
             missing = _check_talent_required_fields(talent_data)
             if missing:
                 source_repo = candidate.get("source_repo", "")
                 await _publish_talent_profile_error(talent_id, missing, source_repo)
+                await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile missing fields: {', '.join(missing)}")
                 return
 
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]

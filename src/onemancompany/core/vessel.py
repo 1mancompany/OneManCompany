@@ -678,21 +678,32 @@ class EmployeeManager:
         return vessel
 
     def _recover_orphaned_tasks(self, employee_id: str) -> None:
-        """Re-add tasks from task_index that are missing from _schedule."""
+        """Re-add PENDING tasks from task_index that are missing from _schedule."""
         from onemancompany.core.store import load_task_index
+        from onemancompany.core.task_tree import get_tree
+
         index_entries = load_task_index(employee_id)
         scheduled_ids = {e.node_id for e in self._schedule.get(employee_id, [])}
         recovered = 0
         for entry in index_entries:
             node_id = entry.get("node_id")
             tree_path = entry.get("tree_path")
-            if node_id and tree_path and node_id not in scheduled_ids:
-                self._schedule.setdefault(employee_id, []).append(
-                    ScheduleEntry(node_id=node_id, tree_path=tree_path)
-                )
-                recovered += 1
+            if not node_id or not tree_path or node_id in scheduled_ids:
+                continue
+            # Only recover tasks that are still PENDING
+            tp = Path(tree_path)
+            if not tp.exists():
+                continue
+            tree = get_tree(tp)
+            node = tree.get_node(node_id)
+            if not node or TaskPhase(node.status) != TaskPhase.PENDING:
+                continue
+            self._schedule.setdefault(employee_id, []).append(
+                ScheduleEntry(node_id=node_id, tree_path=tree_path)
+            )
+            recovered += 1
         if recovered:
-            logger.info("[REGISTER] Recovered {} orphaned tasks for {}", recovered, employee_id)
+            logger.info("[REGISTER] Recovered {} orphaned PENDING tasks for {}", recovered, employee_id)
             self._schedule_next(employee_id)
 
     def register_hooks(self, employee_id: str, hooks: dict[str, Callable]) -> None:
