@@ -2952,12 +2952,13 @@ class AppController {
       const roleEmoji = ROLE_EMOJI[roleGroup.role] || '🤖';
       const candidateCount = (roleGroup.candidates || []).length;
 
+      const esc = this._escapeHtml;
       section.innerHTML = `
         <div class="role-group-header">
           <span class="role-group-icon">${roleEmoji}</span>
-          <span class="role-group-title">${roleGroup.role}</span>
+          <span class="role-group-title">${esc(roleGroup.role)}</span>
           <span class="role-group-count">${candidateCount}</span>
-          ${roleGroup.description ? `<span class="role-group-desc">${roleGroup.description}</span>` : ''}
+          ${roleGroup.description ? `<span class="role-group-desc">${esc(roleGroup.description)}</span>` : ''}
         </div>
         <div class="role-group-cards"></div>
       `;
@@ -2978,41 +2979,42 @@ class AppController {
 
         // Score display — handle both old (jd_relevance) and new (score) formats
         const score = c.score || c.jd_relevance || 0;
-        const scorePct = Math.round(score * 100);
+        const scorePct = Math.min(Math.round(score * 100), 100);
         const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
         const reasoning = c.reasoning || '';
 
+        const esc = this._escapeHtml;
         const llmModel = c.llm_model || 'default';
-        const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
-        const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+        const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
+        const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
         const hosting = c.hosting || 'company';
-        const hostingLabel = hosting === 'self' ? '🏠 Self' : '🏢 Co.';
-        const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+        const hostingLabel = esc(hosting === 'self' ? '🏠 Self' : '🏢 Co.');
+        const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
 
         card.innerHTML = `
           <div class="card-inner">
             <div class="card-front">
               <div class="card-select-indicator"></div>
               <div class="card-avatar">${emoji}</div>
-              <div class="card-name">${c.name}</div>
-              <div class="card-role">${c.role}</div>
-              <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
-              <div class="card-tags">${tags}</div>
+              <div class="card-name">${esc(c.name)}</div>
+              <div class="card-role">${esc(c.role)}</div>
+              <div class="card-model" title="${esc(llmModel)}">🤖 ${esc(llmModel.split('/').pop())}</div>
+              <div class="card-tags">${esc(tags)}</div>
               <div class="card-score-bar">
                 <div class="score-fill" style="width:${scorePct}%;background:${scoreColor};"></div>
                 <span class="score-label">${scorePct}%</span>
               </div>
-              ${reasoning ? `<div class="card-reasoning" title="${reasoning.replace(/"/g, '&quot;')}">${reasoning.substring(0, 40)}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
+              ${reasoning ? `<div class="card-reasoning" title="${esc(reasoning)}">${esc(reasoning.substring(0, 40))}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
               <div class="card-cost">${costPer1m} | ${hiringFee}</div>
               <div class="card-hosting">${hostingLabel}</div>
             </div>
             <div class="card-back">
               <div class="card-detail-title">Skills</div>
-              <div class="card-detail-text">${skills || 'N/A'}</div>
+              <div class="card-detail-text">${esc(skills) || 'N/A'}</div>
               <div class="card-detail-title">Tools</div>
-              <div class="card-detail-text">${tools || 'N/A'}</div>
+              <div class="card-detail-text">${esc(tools) || 'N/A'}</div>
               <div class="card-detail-title">LLM</div>
-              <div class="card-detail-text">${llmModel} (${c.api_provider || 'openrouter'})</div>
+              <div class="card-detail-text">${esc(llmModel)} (${esc(c.api_provider || 'openrouter')})</div>
               <div class="card-detail-title">Cost</div>
               <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
               <div class="card-detail-title">Hosting</div>
@@ -3119,17 +3121,26 @@ class AppController {
     selectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
     selectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
 
-    interviewBtn.onclick = () => this.startInterview(c);
-    selectBtn.onclick = () => {
+    // Replace buttons to remove stale listeners from prior calls
+    interviewBtn.replaceWith(interviewBtn.cloneNode(true));
+    selectBtn.replaceWith(selectBtn.cloneNode(true));
+    closeBtn.replaceWith(closeBtn.cloneNode(true));
+    const newInterviewBtn = document.getElementById('detail-interview-btn');
+    const newSelectBtn = document.getElementById('detail-select-btn');
+    const newCloseBtn = document.getElementById('detail-panel-close');
+    newSelectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
+    newSelectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+    newInterviewBtn.addEventListener('click', () => this.startInterview(c));
+    newSelectBtn.addEventListener('click', () => {
       this._toggleCandidateSelection(candidateId, c, role, cardEl);
       const nowSelected = this._selectedCandidates.has(candidateId);
-      selectBtn.textContent = nowSelected ? '✗ Deselect' : '✔ Select';
-      selectBtn.className = nowSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
-    };
-    closeBtn.onclick = () => {
+      newSelectBtn.textContent = nowSelected ? '✗ Deselect' : '✔ Select';
+      newSelectBtn.className = nowSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+    });
+    newCloseBtn.addEventListener('click', () => {
       panel.classList.add('hidden');
       cardEl.classList.remove('detail-active');
-    };
+    });
 
     panel.classList.remove('hidden');
   }
@@ -3361,6 +3372,11 @@ class AppController {
 
     this._interviewingCandidate = null;
     this._selectedCandidates = new Map();
+
+    // Reset detail panel state so it doesn't flash stale content on reopen
+    const detailPanel = document.getElementById('candidate-detail-panel');
+    if (detailPanel) detailPanel.classList.add('hidden');
+    document.querySelectorAll('.candidate-card.detail-active').forEach(el => el.classList.remove('detail-active'));
   }
 
   hireCandidate(candidate) {

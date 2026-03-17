@@ -141,6 +141,25 @@ class TaskTreeRenderer {
             .nodeSize([this.nodeWidth + this.sibSep, this.nodeHeight + this.levelSep]);
         treeLayout(root);
 
+        // Pre-compute _extraH for each node (word-wrapped description lines)
+        const maxCharsPrepass = this._descMaxCharsPerLine;
+        const lineHeightPrepass = 13;
+        const maxLinesPrepass = 3;
+        root.descendants().forEach(d => {
+            const desc = (d.data.description || '').replace(/\n/g, ' ');
+            const words = desc.split(/\s+/);
+            let lineCount = 0, cur = '';
+            for (const w of words) {
+                const trial = cur ? cur + ' ' + w : w;
+                if (trial.length <= maxCharsPrepass) { cur = trial; }
+                else { if (cur) lineCount++; cur = w.length > maxCharsPrepass ? w.substring(0, maxCharsPrepass) : w; }
+                if (lineCount === maxLinesPrepass) { cur = ''; break; }
+            }
+            if (cur && lineCount < maxLinesPrepass) lineCount++;
+            const extraLines = Math.max(0, (lineCount || 1) - 1);
+            d._extraH = extraLines > 0 ? extraLines * lineHeightPrepass : 0;
+        });
+
         // Connection lines — colored by child status, dashed for inactive branch
         this.g.selectAll('.tree-link')
             .data(root.links())
@@ -174,9 +193,9 @@ class TaskTreeRenderer {
             .append('line')
             .attr('class', 'dep-link')
             .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
+            .attr('y1', d => d.source.y + (d.source._extraH || 0) / 2)
             .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y)
+            .attr('y2', d => d.target.y + (d.target._extraH || 0) / 2)
             .attr('stroke', d => {
                 if (d.status === 'accepted') return '#00ff88';
                 if (d.status === 'failed' || d.status === 'cancelled') return '#ff4444';
