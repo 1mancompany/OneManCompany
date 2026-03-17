@@ -117,10 +117,10 @@ class OfficeRenderer {
       const el = document.getElementById('tooltip');
       if (el) el.classList.add('hidden');
     });
-    this.canvas.addEventListener('click', e => this._onClick(e));
-
-    // Minimap click listener
+    // Minimap click listener must be registered BEFORE the main click handler
+    // so its stopPropagation() prevents _onClick from also firing on minimap clicks.
     this.minimap.attach(this.canvas);
+    this.canvas.addEventListener('click', e => this._onClick(e));
 
     // Responsive sizing
     this._resizeCanvas();
@@ -373,9 +373,16 @@ class OfficeRenderer {
         // Tileset floor tile drawn on top (silent no-op until loaded)
         tileAtlas.drawDef(ctx, floorKey, x, y);
 
-        // Divider plant overlay
-        const overlay = this.officeMap.getOverlay(col, row);
-        if (overlay) tileAtlas.drawDef(ctx, overlay, x, y);
+        // Divider plant overlay: solid green fallback always drawn first,
+        // tileset sprite drawn on top once loaded (same pattern as floor tiles).
+        if (this.officeMap.isDivider(col, row)) {
+          ctx.fillStyle = (row % 2 === 0) ? '#2a5a2a' : '#224a22';
+          ctx.fillRect(x + 4, y, TILE - 8, TILE);
+          ctx.fillStyle = '#1a3a1a';
+          ctx.fillRect(x + 10, y + 4, TILE - 20, TILE - 8);
+          const overlay = this.officeMap.getOverlay(col, row);
+          if (overlay) tileAtlas.drawDef(ctx, overlay, x, y);
+        }
       }
     }
 
