@@ -2104,6 +2104,20 @@ body {
   min-height: 6px;
 }
 
+/* ===== Candidate Card Wrapper ===== */
+.candidate-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.card-detail-btn {
+  font-size: 9px !important;
+  padding: 2px 8px !important;
+  width: 100%;
+  max-width: 105px;
+}
+
 /* ===== Candidate Detail Panel ===== */
 .candidate-detail-panel.hidden { display: none; }
 .candidate-detail-panel {
@@ -2116,7 +2130,7 @@ body {
   display: flex;
   flex-direction: column;
   max-height: calc(85vh - 80px);
-  overflow-y: auto;
+  overflow: hidden;
 }
 .candidate-card.detail-active {
   outline: 2px solid var(--pixel-cyan);
@@ -2135,7 +2149,12 @@ body {
   cursor: pointer;
 }
 .detail-panel-close:hover { color: var(--pixel-white); }
-.detail-panel-content { padding: 8px 12px; }
+.detail-panel-content {
+  padding: 8px 12px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
 .detail-header {
   display: flex;
   align-items: center;
@@ -2234,6 +2253,11 @@ body {
 .detail-panel-actions .pixel-btn {
   flex: 1;
   font-size: 10px;
+}
+.detail-panel-actions .pixel-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
 }
 
 /* ===== Interview Chatbot Modal ===== */

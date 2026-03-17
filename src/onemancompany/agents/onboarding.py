@@ -129,6 +129,7 @@ def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -
     """
     tool_yaml = TOOLS_DIR / tool_name / "tool.yaml"
     if not tool_yaml.exists():
+        logger.warning("_update_tool_allowed_users: tool.yaml not found for '{}', skipping", tool_name)
         return
     with open(tool_yaml) as f:
         data = yaml.safe_load(f) or {}

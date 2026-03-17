@@ -3024,17 +3024,27 @@ class AppController {
           </div>
         `;
 
-        // Click card to show detail panel (or toggle selection with Ctrl/Cmd)
+        // Click card to toggle selection; detail button opens detail panel
         card.addEventListener('click', (e) => {
           if (e.target.closest('.pixel-btn')) return;
-          if (e.ctrlKey || e.metaKey || e.shiftKey) {
-            this._toggleCandidateSelection(cid, c, roleGroup.role, card);
-            return;
-          }
+          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+        });
+
+        // "Details" button below the card
+        const detailBtn = document.createElement('button');
+        detailBtn.className = 'pixel-btn card-detail-btn';
+        detailBtn.textContent = '📋 Details';
+        detailBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
           this._showCandidateDetail(cid, c, roleGroup.role, card);
         });
 
-        cardsContainer.appendChild(card);
+        // Wrap card + detail button in a container
+        const cardWrapper = document.createElement('div');
+        cardWrapper.className = 'candidate-card-wrapper';
+        cardWrapper.appendChild(card);
+        cardWrapper.appendChild(detailBtn);
+        cardsContainer.appendChild(cardWrapper);
       }
 
       rolesEl.appendChild(section);
@@ -3131,7 +3141,21 @@ class AppController {
     const newCloseBtn = document.getElementById('detail-panel-close');
     newSelectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
     newSelectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
-    newInterviewBtn.addEventListener('click', () => this.startInterview(c));
+    // Only remote (self-hosted) candidates support interview
+    const isRemote = (c.hosting === 'self');
+    if (!isRemote) {
+      newInterviewBtn.disabled = true;
+      newInterviewBtn.title = 'For security reasons, only remote (self-hosted) employees support interview';
+      newInterviewBtn.textContent = '🔒 Interview';
+    } else {
+      newInterviewBtn.disabled = false;
+      newInterviewBtn.title = '';
+      newInterviewBtn.textContent = '💬 Interview';
+    }
+    newInterviewBtn.addEventListener('click', () => {
+      if (!isRemote) return;
+      this.startInterview(c);
+    });
     newSelectBtn.addEventListener('click', () => {
       this._toggleCandidateSelection(candidateId, c, role, cardEl);
       const nowSelected = this._selectedCandidates.has(candidateId);
