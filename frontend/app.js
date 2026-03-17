@@ -3020,21 +3020,15 @@ class AppController {
           </div>
         `;
 
-        // Click card to toggle selection (front) or flip (if holding shift)
+        // Click card to show detail panel (or toggle selection with Ctrl/Cmd)
         card.addEventListener('click', (e) => {
           if (e.target.closest('.pixel-btn')) return;
-          if (e.shiftKey) {
-            card.classList.toggle('flipped');
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            this._toggleCandidateSelection(cid, c, roleGroup.role, card);
             return;
           }
-          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+          this._showCandidateDetail(cid, c, roleGroup.role, card);
         });
-
-        // Interview button
-        const interviewBtn = card.querySelector('.pixel-btn.interview');
-        if (interviewBtn) {
-          interviewBtn.addEventListener('click', () => this.startInterview(c));
-        }
 
         cardsContainer.appendChild(card);
       }
@@ -3056,6 +3050,86 @@ class AppController {
       cardEl.classList.add('selected');
     }
     this._updateBatchBar();
+  }
+
+  _showCandidateDetail(candidateId, candidate, role, cardEl) {
+    const panel = document.getElementById('candidate-detail-panel');
+    const content = document.getElementById('detail-panel-content');
+
+    // Highlight active card
+    document.querySelectorAll('.candidate-card.detail-active').forEach(c => c.classList.remove('detail-active'));
+    cardEl.classList.add('detail-active');
+
+    const c = candidate;
+    const emoji = ROLE_EMOJI[c.role] || '🤖';
+    const skills = (c.skill_set || c.skills || []).map(s => {
+      if (typeof s === 'object') return `<span class="detail-skill">${s.name} <em>${s.proficiency || ''}</em></span>`;
+      return `<span class="detail-skill">${s}</span>`;
+    }).join('');
+    const tools = (c.tool_set || []).map(t => {
+      if (typeof t === 'object') return `<span class="detail-tool">${t.name}</span>`;
+      return `<span class="detail-tool">${t}</span>`;
+    }).join('');
+    const tags = (c.personality_tags || []).map(t => `<span class="detail-tag">${t}</span>`).join('');
+    const score = c.score || c.jd_relevance || 0;
+    const scorePct = Math.round(score * 100);
+    const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
+    const llmModel = c.llm_model || 'default';
+    const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
+    const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+    const hosting = c.hosting || 'company';
+    const hostingLabel = hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company-hosted';
+    const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+    const reasoning = c.reasoning || '';
+
+    content.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-avatar">${emoji}</div>
+        <div class="detail-name-block">
+          <div class="detail-name">${c.name}</div>
+          <div class="detail-role">${c.role}</div>
+        </div>
+        <div class="detail-score" style="border-color:${scoreColor}">
+          <span style="color:${scoreColor}">${scorePct}%</span>
+          <small>match</small>
+        </div>
+      </div>
+      ${reasoning ? `<div class="detail-section"><div class="detail-label">Match Reasoning</div><div class="detail-text">${reasoning}</div></div>` : ''}
+      ${tags ? `<div class="detail-section"><div class="detail-label">Personality</div><div class="detail-tags-list">${tags}</div></div>` : ''}
+      <div class="detail-section"><div class="detail-label">Skills</div><div class="detail-skills-list">${skills || '<em>N/A</em>'}</div></div>
+      ${tools ? `<div class="detail-section"><div class="detail-label">Tools</div><div class="detail-tools-list">${tools}</div></div>` : ''}
+      <div class="detail-section detail-grid">
+        <div><div class="detail-label">LLM Model</div><div class="detail-text">🤖 ${llmModel}</div></div>
+        <div><div class="detail-label">Provider</div><div class="detail-text">${c.api_provider || 'openrouter'}</div></div>
+        <div><div class="detail-label">Cost</div><div class="detail-text">${costPer1m}</div></div>
+        <div><div class="detail-label">Hiring Fee</div><div class="detail-text">${hiringFee}</div></div>
+        <div><div class="detail-label">Hosting</div><div class="detail-text">${hostingLabel}</div></div>
+        <div><div class="detail-label">Auth</div><div class="detail-text">${authLabel}</div></div>
+      </div>
+    `;
+
+    // Wire up panel buttons
+    const interviewBtn = document.getElementById('detail-interview-btn');
+    const selectBtn = document.getElementById('detail-select-btn');
+    const closeBtn = document.getElementById('detail-panel-close');
+
+    const isSelected = this._selectedCandidates.has(candidateId);
+    selectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
+    selectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+
+    interviewBtn.onclick = () => this.startInterview(c);
+    selectBtn.onclick = () => {
+      this._toggleCandidateSelection(candidateId, c, role, cardEl);
+      const nowSelected = this._selectedCandidates.has(candidateId);
+      selectBtn.textContent = nowSelected ? '✗ Deselect' : '✔ Select';
+      selectBtn.className = nowSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+    };
+    closeBtn.onclick = () => {
+      panel.classList.add('hidden');
+      cardEl.classList.remove('detail-active');
+    };
+
+    panel.classList.remove('hidden');
   }
 
   _updateBatchBar() {
