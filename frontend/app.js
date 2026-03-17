@@ -150,9 +150,13 @@ class AppController {
   }
 
   async _fetchAndRenderOfficeLayout() {
-    const stateData = await fetch('/api/state').then(r => r.json());
-    if (window.officeRenderer && stateData.office_layout) {
-      window.officeRenderer.updateState({ office_layout: stateData.office_layout });
+    try {
+      const stateData = await fetch('/api/state').then(r => r.json());
+      if (window.officeRenderer && stateData.office_layout) {
+        window.officeRenderer.updateState({ office_layout: stateData.office_layout });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch office layout:', e);
     }
   }
 
@@ -197,11 +201,11 @@ class AppController {
     // Handle tick-based state_changed
     if (msg.type === 'state_changed') {
       const c = msg.changed || [];
-      if (c.includes('employees'))      this._fetchAndRenderRoster();
-      if (c.includes('task_queue'))   this._fetchAndRenderTaskPanel();
-      if (c.includes('rooms'))        this._fetchAndRenderRooms();
-      if (c.includes('tools'))        this._fetchAndRenderTools();
-      if (c.includes('office_layout')) this._fetchAndRenderOfficeLayout();
+      if (c.includes('employees'))       this._fetchAndRenderRoster();
+      if (c.includes('task_queue'))     this._fetchAndRenderTaskPanel();
+      if (c.includes('rooms'))          this._fetchAndRenderRooms();
+      if (c.includes('tools'))          this._fetchAndRenderTools();
+      if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
       // Refresh company culture if modal is open
       if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();

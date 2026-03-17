@@ -278,13 +278,22 @@ class TaskTreeRenderer {
         nodeGroups.each(function(d) {
             const g = d3.select(this);
             const desc = (d.data.description || '').replace(/\n/g, ' ');
+            const words = desc.split(/\s+/);
             const lines = [];
-            for (let i = 0; i < desc.length && lines.length < maxLines; i += maxChars) {
-                let line = desc.substring(i, i + maxChars);
-                if (i + maxChars < desc.length && lines.length === maxLines - 1) {
-                    line = line.substring(0, maxChars - 1) + '…';
+            let cur = '';
+            for (const w of words) {
+                const trial = cur ? cur + ' ' + w : w;
+                if (trial.length <= maxChars) {
+                    cur = trial;
+                } else {
+                    if (cur) lines.push(cur);
+                    cur = w.length > maxChars ? w.substring(0, maxChars) : w;
                 }
-                lines.push(line);
+                if (lines.length === maxLines) { cur = ''; break; }
+            }
+            if (cur && lines.length < maxLines) lines.push(cur);
+            if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+                lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxChars - 1) + '…';
             }
             if (lines.length === 0) lines.push('');
 

@@ -3189,12 +3189,6 @@ def _load_project_tree_for_api(project_id: str):
     return get_tree(path, project_id=project_id)
 
 
-def _has_avatar(employee_id: str) -> bool:
-    """Check if an employee has an uploaded avatar."""
-    from onemancompany.core.config import EMPLOYEES_DIR
-    return (EMPLOYEES_DIR / employee_id / "avatar.png").exists()
-
-
 @router.get("/api/projects/{project_id}/tree")
 async def get_project_tree(project_id: str) -> dict:
     """Get the task tree for a project."""
