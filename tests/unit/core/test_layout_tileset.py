@@ -116,3 +116,32 @@ def test_no_dividers_with_single_department(mock_persist, mock_dirty, mock_load)
     layout = compute_layout(company_state)
 
     assert layout["divider_cols"] == []
+
+
+@patch("onemancompany.core.store.load_all_employees")
+@patch("onemancompany.core.store.mark_dirty")
+@patch("onemancompany.core.layout._persist_positions")
+def test_canvas_rows_grows_with_overflow_employees(mock_persist, mock_dirty, mock_load):
+    """canvas_rows expands when employees overflow all fixed DEPT_DESK_ROWS."""
+    from onemancompany.core.layout import compute_layout, MIN_CANVAS_ROWS
+    from onemancompany.core.config import DEPT_DESK_ROWS
+
+    # 30 employees in one dept overflows the 3 fixed desk rows
+    # (full-width zone ~ 7 desks/row × 3 rows = 21 slots)
+    mock_load.return_value = _make_fake_employees({"Engineering": 30})
+
+    company_state = MagicMock()
+    company_state.tools = {}
+    company_state.meeting_rooms = {}
+
+    layout = compute_layout(company_state)
+
+    # Overflow rows must be tracked
+    assert layout["dept_end_row"] > DEPT_DESK_ROWS[-1], (
+        "dept_end_row should exceed last fixed desk row when employees overflow"
+    )
+    # canvas_rows must accommodate the extra rows (wall offset 3 + padding 2)
+    expected_min = layout["dept_end_row"] + 3 + 2
+    assert layout["canvas_rows"] >= expected_min, (
+        f"canvas_rows {layout['canvas_rows']} too small for dept_end_row {layout['dept_end_row']}"
+    )

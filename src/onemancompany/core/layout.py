@@ -355,8 +355,10 @@ def compute_asset_layout(company_state, layout: dict) -> None:
     Places tools in a row below the employee area, meeting rooms below tools.
     Updates positions in-place and sets layout['canvas_rows'].
     """
-    # Asset area starts below the department zone (uses effective end row for auto-expansion)
-    effective_end = layout.get("dept_end_row", DEPT_END_ROW)
+    # Asset area starts below the department zone (uses effective end row for auto-expansion).
+    # Fall back to DEPT_END_ROW if dept_end_row absent or non-int (e.g. first startup).
+    _raw_end = layout.get("dept_end_row", DEPT_END_ROW)
+    effective_end = _raw_end if isinstance(_raw_end, int) else DEPT_END_ROW
     asset_start_gy = effective_end + 2
 
     # --- Tools row (only tools with icons get canvas positions) ---
@@ -390,7 +392,7 @@ def compute_asset_layout(company_state, layout: dict) -> None:
         max_room_rows = row_offset + 3  # rooms are 2 tiles + label
 
     # Calculate required canvas rows (grid-y + 3 wall offset + padding)
-    max_gy = DEPT_END_ROW  # minimum
+    max_gy = effective_end  # must account for auto-expanded overflow dept rows
     if tool_list:
         max_gy = max(max_gy, tool_row_gy + max_tool_rows + 1)
     if room_list:

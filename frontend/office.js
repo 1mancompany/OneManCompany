@@ -1408,17 +1408,17 @@ class OfficeRenderer {
     this._updateParticles();
     this._drawParticles();
 
-    // Subtle scanline
-    ctx.globalAlpha = 0.02;
-    ctx.fillStyle = '#000';
-    for (let sy = 0; sy < ROWS * TILE; sy += 2) {
-      ctx.fillRect(0, sy, COLS * TILE, 1);
-    }
-    ctx.globalAlpha = 1;
-
     this.camera.resetTransform(ctx);
 
     // === Screen space ===
+    // Subtle scanline (screen space — covers full viewport at any zoom/pan)
+    ctx.globalAlpha = 0.02;
+    ctx.fillStyle = '#000';
+    for (let sy = 0; sy < cssH; sy += 2) {
+      ctx.fillRect(0, sy, cssW, 1);
+    }
+    ctx.globalAlpha = 1;
+
     this.minimap.draw(ctx, cssW, cssH);
     this._updateTooltip();
   }
