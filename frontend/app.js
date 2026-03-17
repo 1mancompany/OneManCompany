@@ -3074,14 +3074,14 @@ class AppController {
     }).join('');
     const tags = (c.personality_tags || []).map(t => `<span class="detail-tag">${esc(t)}</span>`).join('');
     const score = c.score || c.jd_relevance || 0;
-    const scorePct = Math.round(score * 100);
+    const scorePct = Math.min(Math.round(score * 100), 100);
     const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
     const llmModel = c.llm_model || 'default';
-    const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
-    const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+    const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
+    const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
     const hosting = c.hosting || 'company';
-    const hostingLabel = hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company-hosted';
-    const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+    const hostingLabel = esc(hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company-hosted');
+    const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
     const reasoning = c.reasoning || '';
 
     content.innerHTML = `

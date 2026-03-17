@@ -153,7 +153,7 @@ class TaskTreeRenderer {
             })
             .attr('d', d3.linkVertical()
                 .x(d => d.x)
-                .y(d => d.y))
+                .y(d => d.y + (d._extraH || 0) / 2))
             .attr('stroke-width', d => d.target.data.branch_active !== false ? 2.5 : 1);
 
         // --- Dependency arrows (dashed) ---
@@ -353,7 +353,7 @@ class TaskTreeRenderer {
         nodeGroups.filter(d => d.data.dependency_status === 'waiting')
             .append('text')
             .attr('class', 'tree-dep-label')
-            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('y', d => this.nodeHeight / 2 + 14 + (d._extraH || 0))
             .attr('text-anchor', 'middle')
             .attr('fill', '#aaa')
             .attr('font-size', '9px')
@@ -369,7 +369,7 @@ class TaskTreeRenderer {
         nodeGroups.filter(d => d.data.dependency_status === 'blocked')
             .append('text')
             .attr('class', 'tree-dep-label blocked')
-            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('y', d => this.nodeHeight / 2 + 14 + (d._extraH || 0))
             .attr('text-anchor', 'middle')
             .attr('fill', '#ff4444')
             .attr('font-size', '9px')
