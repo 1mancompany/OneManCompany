@@ -594,6 +594,34 @@ def _inject_default_skills(skills_dir: Path) -> None:
             shutil.copytree(str(src), str(dst))
 
 
+def _assign_default_avatar(emp_dir: Path, emp_num: str) -> None:
+    """Assign a random default avatar if the employee doesn't already have one."""
+    # Check if employee already has a custom avatar
+    for ext in (".png", ".jpg", ".jpeg"):
+        if (emp_dir / f"avatar{ext}").exists():
+            logger.debug("Employee {} already has avatar, skipping default", emp_num)
+            return
+
+    avatars_dir = settings.company_dir / "human_resource" / "avatars"
+    if not avatars_dir.exists():
+        logger.debug("No avatars directory found at {}", avatars_dir)
+        return
+
+    avatars = sorted(
+        p for p in avatars_dir.iterdir()
+        if p.suffix.lower() in (".png", ".jpg", ".jpeg")
+    )
+    if not avatars:
+        logger.debug("No avatar files found in {}", avatars_dir)
+        return
+
+    idx = int(emp_num) % len(avatars) if emp_num.isdigit() else hash(emp_num) % len(avatars)
+    pick = avatars[idx]
+    dst = emp_dir / f"avatar{pick.suffix}"
+    shutil.copy2(str(pick), str(dst))
+    logger.info("Assigned default avatar {} to employee {}", pick.name, emp_num)
+
+
 def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
     """Copy skills/ and tools/ from a talent package into an employee folder.
 
@@ -833,6 +861,9 @@ async def execute_hire(
 
     emp_dir = ensure_employee_dir(emp_num)
     skills_dir = emp_dir / "skills"
+
+    # Assign a default avatar if the employee doesn't have one
+    _assign_default_avatar(emp_dir, emp_num)
 
     # Connection config for remote and self-hosted employees
     if remote or hosting == "self":

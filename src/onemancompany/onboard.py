@@ -550,10 +550,48 @@ def _step_execute(
         if tm_key:
             console.print("  [green]\u2714[/green] Talent Market API key saved")
 
-    # 4. Generate MCP configs for founding employees
+    # 4. Assign random default avatars to founding employees
+    _assign_default_avatars(console)
+
+    # 5. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
         _generate_mcp_configs(extras.get("SKILLSMP_API_KEY", ""))
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
+
+
+def _assign_default_avatars(console: Console) -> None:
+    """Assign random avatars from avatars/ to founding employees that lack one."""
+    import random
+
+    avatars_dir = DATA_ROOT / "company" / "human_resource" / "avatars"
+    if not avatars_dir.exists():
+        return
+
+    avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
+    if not avatars:
+        return
+
+    employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
+    exec_ids = ["00001", "00002", "00003", "00004", "00005"]
+    pool = list(avatars)
+    random.shuffle(pool)
+
+    assigned = 0
+    for i, emp_id in enumerate(exec_ids):
+        emp_dir = employees_dir / emp_id
+        if not emp_dir.exists():
+            continue
+        # Skip if already has a custom avatar
+        if any((emp_dir / f"avatar.{ext}").exists() for ext in ("png", "jpg", "jpeg")):
+            continue
+        pick = pool[i % len(pool)]
+        shutil.copy2(str(pick), str(emp_dir / f"avatar{pick.suffix}"))
+        assigned += 1
+
+    if assigned:
+        console.print(f"  [green]\u2714[/green] Default avatars assigned to {assigned} founding employees")
+    else:
+        console.print("  [green]\u2714[/green] Founding employees already have avatars")
 
 
 def _generate_mcp_configs(skillsmp_key: str) -> None:
@@ -664,10 +702,82 @@ def run_wizard() -> None:
     _step_done(console, host, port)
 
 
+def run_auto(*, skip_confirm: bool = False) -> None:
+    """Non-interactive init that reads config from .env file."""
+    import os
+
+    console = Console()
+    console.rule("[bold]OneManCompany Auto Init[/bold]")
+
+    # Find .env — check CWD first, then project root
+    env_path = Path.cwd() / ".env"
+    if not env_path.exists():
+        env_path = SOURCE_ROOT / ".env"
+    if not env_path.exists():
+        console.print("[red]  ✗ No .env file found. Run onemancompany-init interactively first.[/red]")
+        raise SystemExit(1)
+
+    # Parse .env
+    env = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip()
+
+    # Determine provider from env keys
+    if env.get("OPENROUTER_API_KEY"):
+        provider = "openrouter"
+        api_key = env["OPENROUTER_API_KEY"]
+    elif env.get("ANTHROPIC_API_KEY"):
+        provider = "anthropic"
+        api_key = env["ANTHROPIC_API_KEY"]
+    else:
+        # Try to detect from DEFAULT_API_PROVIDER
+        provider = env.get("DEFAULT_API_PROVIDER", "openrouter")
+        api_key = env.get(f"{provider.upper()}_API_KEY", "")
+
+    model = env.get("DEFAULT_LLM_MODEL", "anthropic/claude-sonnet-4")
+    host = env.get("HOST", "0.0.0.0")
+    port = int(env.get("PORT", "8000"))
+
+    extras: dict[str, str] = {}
+    if env.get("ANTHROPIC_API_KEY"):
+        extras["ANTHROPIC_API_KEY"] = env["ANTHROPIC_API_KEY"]
+    if env.get("SKILLSMP_API_KEY"):
+        extras["SKILLSMP_API_KEY"] = env["SKILLSMP_API_KEY"]
+    if env.get("TALENT_MARKET_API_KEY"):
+        extras["TALENT_MARKET_API_KEY"] = env["TALENT_MARKET_API_KEY"]
+
+    sandbox_enabled = env.get("SANDBOX_ENABLED", "").lower() in ("1", "true", "yes")
+
+    masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
+    console.print(f"  Provider: [cyan]{provider}[/cyan]")
+    console.print(f"  API Key:  [cyan]{masked}[/cyan]")
+    console.print(f"  Model:    [cyan]{model}[/cyan]")
+    console.print(f"  Server:   [cyan]{host}:{port}[/cyan]")
+    console.print()
+
+    if not skip_confirm:
+        if not Confirm.ask("  Proceed with auto-init?", default=False, console=console):
+            console.print("\n  Aborted.")
+            return
+
+    _step_execute(console, provider, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
+    _step_done(console, host, port)
+
+
 def main() -> None:
     """CLI entry point for onemancompany-init."""
+    import sys
+
     try:
-        run_wizard()
+        if "--auto" in sys.argv:
+            run_auto(skip_confirm=("-y" in sys.argv or "--yes" in sys.argv))
+        else:
+            run_wizard()
     except KeyboardInterrupt:
         console = Console()
         console.print("\n\n  [yellow]Cancelled.[/yellow]")

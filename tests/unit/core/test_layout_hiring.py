@@ -386,7 +386,7 @@ class TestNarrowZoneFallback:
         assert pos == (1, DEPT_DESK_ROWS[0])
 
     def test_all_slots_full_exact(self, monkeypatch):
-        """Line 270: all slots occupied — returns fallback position at zone start."""
+        """All fixed desk rows occupied — returns first overflow (auto-expanded) row."""
         from unittest.mock import patch
         from onemancompany.core.layout import get_next_desk_for_department, DeptZone
         from onemancompany.core import state as state_mod
@@ -398,8 +398,7 @@ class TestNarrowZoneFallback:
         fake_zones = [DeptZone(department="Full", start_col=0, end_col=5)]
 
         # Pre-occupy all possible desk positions in this zone
-        # desk_cols: col = 1, 1 < 4 => yes, so desk_cols = [1, 4] (1 + 3 = 4, 4 < 4 => no)
-        # Actually: col=1, then col=1+3=4, 4 < 4 is False. So desk_cols = [1]
+        # desk_cols: col = 1, 1 < 4 => yes; col=1+3=4, 4 < 4 is False. So desk_cols = [1]
         # All positions: (1, row) for each row in DEPT_DESK_ROWS
         # Use IDs that don't collide with _EXEC_IDS (00002-00005)
         for idx, row in enumerate(DEPT_DESK_ROWS):
@@ -409,8 +408,11 @@ class TestNarrowZoneFallback:
 
         with patch("onemancompany.core.layout._compute_zones", return_value=fake_zones):
             pos = get_next_desk_for_department(cs, "Full")
-        # Fallback: (target_zone.start_col + 1, DEPT_DESK_ROWS[0]) = (1, DEPT_DESK_ROWS[0])
-        assert pos == (0 + 1, DEPT_DESK_ROWS[0])
+        # All DEPT_DESK_ROWS occupied → auto-expansion kicks in, returns first overflow row:
+        # row_spacing = DEPT_DESK_ROWS[1] - DEPT_DESK_ROWS[0], first overflow = DEPT_DESK_ROWS[-1] + spacing
+        row_spacing = DEPT_DESK_ROWS[1] - DEPT_DESK_ROWS[0]
+        first_overflow = DEPT_DESK_ROWS[-1] + row_spacing
+        assert pos == (1, first_overflow)
 
 
 class TestExecutivePositions:

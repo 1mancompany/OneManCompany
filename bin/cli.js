@@ -222,7 +222,9 @@ ${green("Usage:")}
   npx @1mancompany/onemancompany              Start (runs in background)
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
-  npx @1mancompany/onemancompany init         Re-run setup process
+  npx @1mancompany/onemancompany init         Re-run setup process (interactive)
+  npx @1mancompany/onemancompany init --auto     Auto-setup from .env (with confirmation)
+  npx @1mancompany/onemancompany init --auto -y  Full auto, no confirmation prompt
   npx @1mancompany/onemancompany uninstall    Stop service and remove installation
   npx @1mancompany/onemancompany --port 8080  Custom port
   npx @1mancompany/onemancompany --dir ./my   Custom install directory
@@ -346,7 +348,9 @@ ${green("What gets installed automatically:")}
         ? path.join(installDir, ".venv", "Scripts", "python.exe")
         : path.join(installDir, ".venv", "bin", "python");
       if (fs.existsSync(pythonBinCheck)) {
-        const initResult = spawnSync(pythonBinCheck, ["-m", "onemancompany.onboard"], {
+        const onboardArgs = ["-m", "onemancompany.onboard"];
+        if (args.includes("--auto")) onboardArgs.push("--auto");
+        const initResult = spawnSync(pythonBinCheck, onboardArgs, {
           cwd: installDir,
           stdio: "inherit",
         });
@@ -381,14 +385,100 @@ ${green("What gets installed automatically:")}
     && fs.existsSync(path.join(installDir, ".onemancompany", "company", "human_resource", "employees"));
 
   // Run setup process if needed
-  if (passthrough[0] === "init" || !initComplete) {
-    info("Running setup process...\n");
-    const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard"], {
-      cwd: installDir,
-      stdio: "inherit",
-    });
-    if (initResult.status !== 0) fail("Setup wizard failed");
-    if (passthrough[0] === "init") passthrough.shift();
+  const isInitCmd = passthrough[0] === "init";
+  const isAutoInit = isInitCmd && passthrough.includes("--auto");
+  const skipConfirm = isAutoInit && (passthrough.includes("-y") || passthrough.includes("--yes"));
+
+  if (isInitCmd || !initComplete) {
+    if (isAutoInit) {
+      // ── Auto-init: read .env, confirm with user, then run ──────────
+      const envPath = path.join(installDir, ".env");
+      if (!fs.existsSync(envPath)) {
+        fail(
+          `.env file not found at ${envPath}\n` +
+          "  Auto-init requires a .env file with your configuration.\n" +
+          "  Run interactive setup instead:  npx @1mancompany/onemancompany init"
+        );
+      }
+
+      // Parse .env to show user what will be used
+      const envContent = fs.readFileSync(envPath, "utf-8");
+      const envVars = {};
+      for (const line of envContent.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq > 0) envVars[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+      }
+
+      // Check required fields
+      const required = [];
+      const hasProvider = envVars.OPENROUTER_API_KEY || envVars.ANTHROPIC_API_KEY;
+      if (!hasProvider) required.push("OPENROUTER_API_KEY or ANTHROPIC_API_KEY");
+      if (!envVars.DEFAULT_LLM_MODEL) required.push("DEFAULT_LLM_MODEL");
+
+      if (required.length > 0) {
+        fail(
+          "Missing required fields in .env:\n" +
+          required.map(r => `  • ${r}`).join("\n") + "\n\n" +
+          "Required .env fields:\n" +
+          `  ${cyan("OPENROUTER_API_KEY")} or ${cyan("ANTHROPIC_API_KEY")}  — LLM provider API key\n` +
+          `  ${cyan("DEFAULT_LLM_MODEL")}                       — e.g. anthropic/claude-sonnet-4\n\n` +
+          "Optional .env fields:\n" +
+          `  ${dim("HOST")}                  — Server host (default: 0.0.0.0)\n` +
+          `  ${dim("PORT")}                  — Server port (default: 8000)\n` +
+          `  ${dim("ANTHROPIC_API_KEY")}     — For self-hosted employees (Claude CLI)\n` +
+          `  ${dim("SKILLSMP_API_KEY")}      — FastSkills MCP integration\n` +
+          `  ${dim("TALENT_MARKET_API_KEY")} — Talent Market for hiring\n`
+        );
+      }
+
+      // Show config summary and ask for confirmation
+      const provider = envVars.OPENROUTER_API_KEY ? "openrouter" : "anthropic";
+      const apiKey = envVars.OPENROUTER_API_KEY || envVars.ANTHROPIC_API_KEY;
+      const maskedKey = apiKey.length > 8 ? apiKey.slice(0, 4) + "..." + apiKey.slice(-4) : "****";
+
+      console.log();
+      console.log(cyan("  Auto-init will configure your company with these settings:"));
+      console.log();
+      console.log(`  ${cyan("Provider:")}      ${provider}`);
+      console.log(`  ${cyan("API Key:")}       ${maskedKey}`);
+      console.log(`  ${cyan("Model:")}         ${envVars.DEFAULT_LLM_MODEL || "anthropic/claude-sonnet-4"}`);
+      console.log(`  ${cyan("Server:")}        ${envVars.HOST || "0.0.0.0"}:${envVars.PORT || "8000"}`);
+      console.log(`  ${cyan("Anthropic:")}     ${envVars.ANTHROPIC_API_KEY ? green("✓ configured") : dim("not set")}`);
+      console.log(`  ${cyan("SkillsMP:")}      ${envVars.SKILLSMP_API_KEY ? green("✓ configured") : dim("not set")}`);
+      console.log(`  ${cyan("Talent Market:")} ${envVars.TALENT_MARKET_API_KEY ? green("✓ configured") : dim("not set")}`);
+      console.log();
+
+      if (skipConfirm) {
+        info("Skipping confirmation (-y flag)");
+      } else {
+        const answer = await ask("  Proceed with auto-init? [y/N] ");
+        if (answer !== "y" && answer !== "yes") {
+          console.log("  Aborted.");
+          return;
+        }
+      }
+
+      info("Running auto-init from .env...\n");
+      const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard", "--auto"], {
+        cwd: installDir,
+        stdio: "inherit",
+      });
+      if (initResult.status !== 0) fail("Auto-init failed");
+      // remove init, --auto, -y/--yes from passthrough
+      const initFlags = new Set(["init", "--auto", "-y", "--yes"]);
+      while (passthrough.length && initFlags.has(passthrough[0])) passthrough.shift();
+    } else {
+      // ── Interactive init ───────────────────────────────────────────
+      info("Running setup process...\n");
+      const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard"], {
+        cwd: installDir,
+        stdio: "inherit",
+      });
+      if (initResult.status !== 0) fail("Setup wizard failed");
+      if (isInitCmd) passthrough.shift();
+    }
   }
 
   // Start server

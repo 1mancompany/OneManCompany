@@ -421,6 +421,16 @@
       <div class="modal-body candidate-modal-body">
         <div id="candidate-jd" class="candidate-jd"></div>
         <div id="candidate-roles" class="candidate-roles"></div>
+        <div id="candidate-detail-panel" class="candidate-detail-panel hidden">
+          <div class="detail-panel-header">
+            <button id="detail-panel-close" class="detail-panel-close">&times;</button>
+          </div>
+          <div id="detail-panel-content" class="detail-panel-content"></div>
+          <div class="detail-panel-actions">
+            <button id="detail-interview-btn" class="pixel-btn">&#128172; Interview</button>
+            <button id="detail-select-btn" class="pixel-btn secondary">&#10004; Select</button>
+          </div>
+        </div>
       </div>
       <div id="candidate-batch-bar" class="candidate-batch-bar hidden">
         <span id="candidate-batch-count" class="batch-count">0 selected</span>
@@ -632,6 +642,10 @@
   </div>
 
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="office-tileatlas.js"></script>
+  <script src="office-camera.js"></script>
+  <script src="office-map.js"></script>
+  <script src="office-minimap.js"></script>
   <script src="office.js"></script>
   <script src="task-tree.js"></script>
   <script src="plugin-loader.js"></script>

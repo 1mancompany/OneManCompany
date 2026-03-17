@@ -14,9 +14,35 @@ class TaskTreeRenderer {
         this._currentProjectId = null;
 
         this.nodeWidth = 220;
-        this.nodeHeight = 90;
-        this.levelSep = 100;
+        this.nodeHeight = 90;       // minimum height; grows with description
+        this.levelSep = 140;
         this.sibSep = 30;
+        this._descMaxCharsPerLine = 28;  // approx chars per line at 10px font
+        this._descMaxLines = 3;
+        this._descLineHeight = 13;
+    }
+
+    /** Word-wrap a description string into lines respecting word boundaries. */
+    static _wrapText(desc, maxChars, maxLines) {
+        const words = desc.replace(/\n/g, ' ').split(/\s+/);
+        const lines = [];
+        let cur = '';
+        for (const w of words) {
+            const trial = cur ? cur + ' ' + w : w;
+            if (trial.length <= maxChars) {
+                cur = trial;
+            } else {
+                if (cur) lines.push(cur);
+                cur = w.length > maxChars ? w.substring(0, maxChars) : w;
+            }
+            if (lines.length === maxLines) { cur = ''; break; }
+        }
+        if (cur && lines.length < maxLines) lines.push(cur);
+        if (lines.length === maxLines && words.join(' ').length > lines.join(' ').length) {
+            lines[maxLines - 1] = lines[maxLines - 1].substring(0, maxChars - 1) + '…';
+        }
+        if (lines.length === 0) lines.push('');
+        return lines;
     }
 
     static STATUS_COLORS = {
@@ -140,6 +166,14 @@ class TaskTreeRenderer {
             .nodeSize([this.nodeWidth + this.sibSep, this.nodeHeight + this.levelSep]);
         treeLayout(root);
 
+        // Pre-compute _extraH for each node (word-wrapped description lines)
+        const _mc = this._descMaxCharsPerLine, _ml = this._descMaxLines, _lh = this._descLineHeight;
+        root.descendants().forEach(d => {
+            const lines = TaskTreeRenderer._wrapText(d.data.description || '', _mc, _ml);
+            const extraLines = Math.max(0, lines.length - 1);
+            d._extraH = extraLines > 0 ? extraLines * _lh : 0;
+        });
+
         // Connection lines — colored by child status, dashed for inactive branch
         this.g.selectAll('.tree-link')
             .data(root.links())
@@ -152,7 +186,7 @@ class TaskTreeRenderer {
             })
             .attr('d', d3.linkVertical()
                 .x(d => d.x)
-                .y(d => d.y))
+                .y(d => d.y + (d._extraH || 0) / 2))
             .attr('stroke-width', d => d.target.data.branch_active !== false ? 2.5 : 1);
 
         // --- Dependency arrows (dashed) ---
@@ -173,9 +207,9 @@ class TaskTreeRenderer {
             .append('line')
             .attr('class', 'dep-link')
             .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
+            .attr('y1', d => d.source.y + (d.source._extraH || 0) / 2)
             .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y)
+            .attr('y2', d => d.target.y + (d.target._extraH || 0) / 2)
             .attr('stroke', d => {
                 if (d.status === 'accepted') return '#00ff88';
                 if (d.status === 'failed' || d.status === 'cancelled') return '#ff4444';
@@ -209,6 +243,7 @@ class TaskTreeRenderer {
 
         // Status color bar (left edge) — gold for CEO nodes
         nodeGroups.append('rect')
+            .attr('class', 'tree-status-bar')
             .attr('x', -this.nodeWidth / 2)
             .attr('y', -this.nodeHeight / 2)
             .attr('width', 4)
@@ -266,19 +301,42 @@ class TaskTreeRenderer {
                 return info.role || '';
             });
 
-        // Description
-        nodeGroups.append('text')
-            .attr('x', -this.nodeWidth / 2 + 14)
-            .attr('y', -this.nodeHeight / 2 + 56)
-            .attr('class', 'tree-node-desc')
-            .text(d => {
-                const desc = d.data.description || '';
-                return desc.substring(0, 30) + (desc.length > 30 ? '...' : '');
+        // Description — word-wrapped into multiple tspan lines
+        const descTextX = -this.nodeWidth / 2 + 14;
+        const descStartY = -this.nodeHeight / 2 + 56;
+        const descMaxChars = this._descMaxCharsPerLine;
+        const descMaxLines = this._descMaxLines;
+        const descLineH = this._descLineHeight;
+
+        nodeGroups.each(function(d) {
+            const g = d3.select(this);
+            const lines = TaskTreeRenderer._wrapText(d.data.description || '', descMaxChars, descMaxLines);
+
+            const text = g.append('text')
+                .attr('x', descTextX)
+                .attr('class', 'tree-node-desc');
+            lines.forEach((line, idx) => {
+                text.append('tspan')
+                    .attr('x', descTextX)
+                    .attr('y', descStartY + idx * descLineH)
+                    .text(line);
             });
 
-        // Status pill (rounded rect + text)
+            // Grow card rect + status bar if description wraps beyond 1 line
+            if (d._extraH > 0) {
+                g.select('.tree-node-card')
+                    .attr('height', 90 + d._extraH);
+                g.select('.tree-status-bar')
+                    .attr('height', 90 + d._extraH);
+            }
+        });
+
+        // Status pill (rounded rect + text) — shifts down if card grew
         const pills = nodeGroups.append('g')
-            .attr('transform', d => `translate(${this.nodeWidth / 2 - 60}, ${this.nodeHeight / 2 - 18})`);
+            .attr('transform', d => {
+                const extra = d._extraH || 0;
+                return `translate(${this.nodeWidth / 2 - 60}, ${this.nodeHeight / 2 - 18 + extra})`;
+            });
 
         pills.append('rect')
             .attr('width', 52)
@@ -307,7 +365,7 @@ class TaskTreeRenderer {
         nodeGroups.filter(d => d.data.dependency_status === 'waiting')
             .append('text')
             .attr('class', 'tree-dep-label')
-            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('y', d => this.nodeHeight / 2 + 14 + (d._extraH || 0))
             .attr('text-anchor', 'middle')
             .attr('fill', '#aaa')
             .attr('font-size', '9px')
@@ -323,7 +381,7 @@ class TaskTreeRenderer {
         nodeGroups.filter(d => d.data.dependency_status === 'blocked')
             .append('text')
             .attr('class', 'tree-dep-label blocked')
-            .attr('y', this.nodeHeight / 2 + 14)
+            .attr('y', d => this.nodeHeight / 2 + 14 + (d._extraH || 0))
             .attr('text-anchor', 'middle')
             .attr('fill', '#ff4444')
             .attr('font-size', '9px')

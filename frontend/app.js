@@ -2,6 +2,14 @@
  * app.js — WebSocket client, CEO console, and activity log controller
  */
 
+const ROLE_EMOJI = {
+  Engineer: '💻', Designer: '🎨', Analyst: '📊',
+  DevOps: '🔧', QA: '🧪', Marketing: '📢',
+  'Game Engineer': '🎮', 'Game Designer': '🎯',
+  'Project Manager': '📋', Manager: '📋',
+  HR: '💼', COO: '⚙️',
+};
+
 class AppController {
   constructor() {
     this.ws = null;
@@ -149,6 +157,17 @@ class AppController {
     }
   }
 
+  async _fetchAndRenderOfficeLayout() {
+    try {
+      const stateData = await fetch('/api/state').then(r => r.json());
+      if (window.officeRenderer && stateData.office_layout) {
+        window.officeRenderer.updateState({ office_layout: stateData.office_layout });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch office layout:', e);
+    }
+  }
+
   async _fetchAndRenderRoster() {
     const employees = await fetch('/api/employees').then(r => r.json());
     this.updateRoster(employees);
@@ -190,10 +209,11 @@ class AppController {
     // Handle tick-based state_changed
     if (msg.type === 'state_changed') {
       const c = msg.changed || [];
-      if (c.includes('employees'))   this._fetchAndRenderRoster();
-      if (c.includes('task_queue'))  this._fetchAndRenderTaskPanel();
-      if (c.includes('rooms'))       this._fetchAndRenderRooms();
-      if (c.includes('tools'))       this._fetchAndRenderTools();
+      if (c.includes('employees'))       this._fetchAndRenderRoster();
+      if (c.includes('task_queue'))     this._fetchAndRenderTaskPanel();
+      if (c.includes('rooms'))          this._fetchAndRenderRooms();
+      if (c.includes('tools'))          this._fetchAndRenderTools();
+      if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
       // Refresh company culture if modal is open
       if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
@@ -2926,13 +2946,6 @@ class AppController {
     // Render role groups
     rolesEl.innerHTML = '';
 
-    const ROLE_EMOJI = {
-      Engineer: '💻', Designer: '🎨', Analyst: '📊',
-      DevOps: '🔧', QA: '🧪', Marketing: '📢',
-      'Game Engineer': '🎮', 'Game Designer': '🎯',
-      'Project Manager': '📋', Manager: '📋',
-    };
-
     for (const roleGroup of this._candidateRoles) {
       const section = document.createElement('div');
       section.className = 'role-group';
@@ -2940,12 +2953,13 @@ class AppController {
       const roleEmoji = ROLE_EMOJI[roleGroup.role] || '🤖';
       const candidateCount = (roleGroup.candidates || []).length;
 
+      const esc = this._escapeHtml;
       section.innerHTML = `
         <div class="role-group-header">
           <span class="role-group-icon">${roleEmoji}</span>
-          <span class="role-group-title">${roleGroup.role}</span>
+          <span class="role-group-title">${esc(roleGroup.role)}</span>
           <span class="role-group-count">${candidateCount}</span>
-          ${roleGroup.description ? `<span class="role-group-desc">${roleGroup.description}</span>` : ''}
+          ${roleGroup.description ? `<span class="role-group-desc">${esc(roleGroup.description)}</span>` : ''}
         </div>
         <div class="role-group-cards"></div>
       `;
@@ -2966,67 +2980,59 @@ class AppController {
 
         // Score display — handle both old (jd_relevance) and new (score) formats
         const score = c.score || c.jd_relevance || 0;
-        const scorePct = Math.round(score * 100);
+        const scorePct = Math.min(Math.round(score * 100), 100);
         const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
         const reasoning = c.reasoning || '';
 
+        const esc = this._escapeHtml;
         const llmModel = c.llm_model || 'default';
-        const costPer1m = c.cost_per_1m_tokens ? `$${c.cost_per_1m_tokens.toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${c.salary_per_1m_tokens.toFixed(2)}/1M` : 'N/A');
-        const hiringFee = c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free';
+        const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
+        const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
         const hosting = c.hosting || 'company';
-        const hostingLabel = hosting === 'self' ? '🏠 Self' : '🏢 Co.';
-        const authLabel = c.auth_method === 'oauth' ? 'OAuth' : 'API Key';
+        const hostingLabel = esc(hosting === 'self' ? '🏠 Self' : '🏢 Co.');
+        const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
 
         card.innerHTML = `
           <div class="card-inner">
             <div class="card-front">
               <div class="card-select-indicator"></div>
               <div class="card-avatar">${emoji}</div>
-              <div class="card-name">${c.name}</div>
-              <div class="card-role">${c.role}</div>
-              <div class="card-model" title="${llmModel}">🤖 ${llmModel.split('/').pop()}</div>
-              <div class="card-tags">${tags}</div>
+              <div class="card-name">${esc(c.name)}</div>
+              <div class="card-role">${esc(c.role)}</div>
+              <div class="card-model" title="${esc(llmModel)}">🤖 ${esc(llmModel.split('/').pop())}</div>
+              <div class="card-tags">${esc(tags)}</div>
               <div class="card-score-bar">
                 <div class="score-fill" style="width:${scorePct}%;background:${scoreColor};"></div>
                 <span class="score-label">${scorePct}%</span>
               </div>
-              ${reasoning ? `<div class="card-reasoning" title="${reasoning.replace(/"/g, '&quot;')}">${reasoning.substring(0, 40)}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
+              ${reasoning ? `<div class="card-reasoning" title="${esc(reasoning)}">${esc(reasoning.substring(0, 40))}${reasoning.length > 40 ? '...' : ''}</div>` : ''}
               <div class="card-cost">${costPer1m} | ${hiringFee}</div>
               <div class="card-hosting">${hostingLabel}</div>
             </div>
             <div class="card-back">
               <div class="card-detail-title">Skills</div>
-              <div class="card-detail-text">${skills || 'N/A'}</div>
+              <div class="card-detail-text">${esc(skills) || 'N/A'}</div>
               <div class="card-detail-title">Tools</div>
-              <div class="card-detail-text">${tools || 'N/A'}</div>
+              <div class="card-detail-text">${esc(tools) || 'N/A'}</div>
               <div class="card-detail-title">LLM</div>
-              <div class="card-detail-text">${llmModel} (${c.api_provider || 'openrouter'})</div>
+              <div class="card-detail-text">${esc(llmModel)} (${esc(c.api_provider || 'openrouter')})</div>
               <div class="card-detail-title">Cost</div>
               <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
               <div class="card-detail-title">Hosting</div>
               <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
-              <div class="card-actions">
-                <button class="pixel-btn interview" data-id="${cid}">Interview</button>
-              </div>
             </div>
           </div>
         `;
 
-        // Click card to toggle selection (front) or flip (if holding shift)
+        // Click card to show detail panel (or toggle selection with Ctrl/Cmd)
         card.addEventListener('click', (e) => {
           if (e.target.closest('.pixel-btn')) return;
-          if (e.shiftKey) {
-            card.classList.toggle('flipped');
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            this._toggleCandidateSelection(cid, c, roleGroup.role, card);
             return;
           }
-          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+          this._showCandidateDetail(cid, c, roleGroup.role, card);
         });
-
-        // Interview button
-        const interviewBtn = card.querySelector('.pixel-btn.interview');
-        if (interviewBtn) {
-          interviewBtn.addEventListener('click', () => this.startInterview(c));
-        }
 
         cardsContainer.appendChild(card);
       }
@@ -3048,6 +3054,96 @@ class AppController {
       cardEl.classList.add('selected');
     }
     this._updateBatchBar();
+  }
+
+  _showCandidateDetail(candidateId, candidate, role, cardEl) {
+    const panel = document.getElementById('candidate-detail-panel');
+    const content = document.getElementById('detail-panel-content');
+
+    // Highlight active card
+    document.querySelectorAll('.candidate-card.detail-active').forEach(c => c.classList.remove('detail-active'));
+    cardEl.classList.add('detail-active');
+
+    const c = candidate;
+    const esc = (s) => this._escapeHtml(s || '');
+    const emoji = ROLE_EMOJI[c.role] || '🤖';
+    const skills = (c.skill_set || c.skills || []).map(s => {
+      if (typeof s === 'object') return `<span class="detail-skill">${esc(s.name)} <em>${esc(s.proficiency)}</em></span>`;
+      return `<span class="detail-skill">${esc(s)}</span>`;
+    }).join('');
+    const tools = (c.tool_set || []).map(t => {
+      if (typeof t === 'object') return `<span class="detail-tool">${esc(t.name)}</span>`;
+      return `<span class="detail-tool">${esc(t)}</span>`;
+    }).join('');
+    const tags = (c.personality_tags || []).map(t => `<span class="detail-tag">${esc(t)}</span>`).join('');
+    const score = c.score || c.jd_relevance || 0;
+    const scorePct = Math.min(Math.round(score * 100), 100);
+    const scoreColor = scorePct >= 80 ? 'var(--pixel-green)' : scorePct >= 50 ? 'var(--pixel-yellow)' : 'var(--pixel-red)';
+    const llmModel = c.llm_model || 'default';
+    const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
+    const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
+    const hosting = c.hosting || 'company';
+    const hostingLabel = esc(hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company-hosted');
+    const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
+    const reasoning = c.reasoning || '';
+
+    content.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-avatar">${emoji}</div>
+        <div class="detail-name-block">
+          <div class="detail-name">${esc(c.name)}</div>
+          <div class="detail-role">${esc(c.role)}</div>
+        </div>
+        <div class="detail-score" style="border-color:${scoreColor}">
+          <span style="color:${scoreColor}">${scorePct}%</span>
+          <small>match</small>
+        </div>
+      </div>
+      ${reasoning ? `<div class="detail-section"><div class="detail-label">Match Reasoning</div><div class="detail-text">${esc(reasoning)}</div></div>` : ''}
+      ${tags ? `<div class="detail-section"><div class="detail-label">Personality</div><div class="detail-tags-list">${tags}</div></div>` : ''}
+      <div class="detail-section"><div class="detail-label">Skills</div><div class="detail-skills-list">${skills || '<em>N/A</em>'}</div></div>
+      ${tools ? `<div class="detail-section"><div class="detail-label">Tools</div><div class="detail-tools-list">${tools}</div></div>` : ''}
+      <div class="detail-section detail-grid">
+        <div><div class="detail-label">LLM Model</div><div class="detail-text">🤖 ${esc(llmModel)}</div></div>
+        <div><div class="detail-label">Provider</div><div class="detail-text">${esc(c.api_provider || 'openrouter')}</div></div>
+        <div><div class="detail-label">Cost</div><div class="detail-text">${costPer1m}</div></div>
+        <div><div class="detail-label">Hiring Fee</div><div class="detail-text">${hiringFee}</div></div>
+        <div><div class="detail-label">Hosting</div><div class="detail-text">${hostingLabel}</div></div>
+        <div><div class="detail-label">Auth</div><div class="detail-text">${authLabel}</div></div>
+      </div>
+    `;
+
+    // Wire up panel buttons
+    const interviewBtn = document.getElementById('detail-interview-btn');
+    const selectBtn = document.getElementById('detail-select-btn');
+    const closeBtn = document.getElementById('detail-panel-close');
+
+    const isSelected = this._selectedCandidates.has(candidateId);
+    selectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
+    selectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+
+    // Replace buttons to remove stale listeners from prior calls
+    interviewBtn.replaceWith(interviewBtn.cloneNode(true));
+    selectBtn.replaceWith(selectBtn.cloneNode(true));
+    closeBtn.replaceWith(closeBtn.cloneNode(true));
+    const newInterviewBtn = document.getElementById('detail-interview-btn');
+    const newSelectBtn = document.getElementById('detail-select-btn');
+    const newCloseBtn = document.getElementById('detail-panel-close');
+    newSelectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
+    newSelectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+    newInterviewBtn.addEventListener('click', () => this.startInterview(c));
+    newSelectBtn.addEventListener('click', () => {
+      this._toggleCandidateSelection(candidateId, c, role, cardEl);
+      const nowSelected = this._selectedCandidates.has(candidateId);
+      newSelectBtn.textContent = nowSelected ? '✗ Deselect' : '✔ Select';
+      newSelectBtn.className = nowSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
+    });
+    newCloseBtn.addEventListener('click', () => {
+      panel.classList.add('hidden');
+      cardEl.classList.remove('detail-active');
+    });
+
+    panel.classList.remove('hidden');
   }
 
   _updateBatchBar() {
@@ -3277,6 +3373,11 @@ class AppController {
 
     this._interviewingCandidate = null;
     this._selectedCandidates = new Map();
+
+    // Reset detail panel state so it doesn't flash stale content on reopen
+    const detailPanel = document.getElementById('candidate-detail-panel');
+    if (detailPanel) detailPanel.classList.add('hidden');
+    document.querySelectorAll('.candidate-card.detail-active').forEach(el => el.classList.remove('detail-active'));
   }
 
   hireCandidate(candidate) {
@@ -4211,10 +4312,6 @@ class AppController {
       return;
     }
     listEl.innerHTML = '';
-    const ROLE_EMOJI = {
-      Engineer: '💻', Designer: '🎨', Analyst: '📊',
-      DevOps: '🔧', QA: '🧪', Marketing: '📢', HR: '💼', COO: '⚙️',
-    };
     for (const emp of exEmps) {
       const card = document.createElement('div');
       card.className = 'ex-employee-card';
@@ -5648,10 +5745,14 @@ class AppController {
     if (!panel) return;
     panel.innerHTML = '<div style="color:var(--text-dim);font-size:6px;">Loading...</div>';
 
+    // Use qualified iteration ID (projectId/iterationId) for unambiguous lookup
+    const qualifiedId = (projectId && iterationId && projectId !== iterationId)
+      ? `${projectId}/${iterationId}` : iterationId;
+
     // Fetch project doc + task tree in parallel
     Promise.all([
-      fetch(`/api/projects/${encodeURIComponent(iterationId)}`).then(r => r.json()),
-      fetch(`/api/projects/${encodeURIComponent(iterationId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}`).then(r => r.json()),
+      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([doc, treeData]) => {
         if (doc.error) {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
@@ -5725,7 +5826,7 @@ class AppController {
         </div>`;
 
         const files = doc.files || [];
-        const fileBaseUrl = `/api/projects/${encodeURIComponent(iterationId)}/files/`;
+        const fileBaseUrl = `/api/projects/${encodeURIComponent(qualifiedId)}/files/`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
         if (files.length > 0) {
           for (const f of files) {
@@ -5841,8 +5942,8 @@ class AppController {
               if (!this._treeRenderer) {
                 this._treeRenderer = new TaskTreeRenderer('board-tree-container', 'board-tree-detail');
               }
-              this._treeRenderer.load(iterationId);
-              this._currentTreeProjectId = iterationId;
+              this._treeRenderer.load(qualifiedId);
+              this._currentTreeProjectId = qualifiedId;
             } else if (tabName.startsWith('plugin-')) {
               const pluginId = tabName.replace('plugin-', '');
               this._viewingBoardProjectId = projectId;
