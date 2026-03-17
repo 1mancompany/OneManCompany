@@ -149,6 +149,6 @@ class MiniMap {
     const worldY = relY * this.map.rows * TILE_SIZE;
 
     this.camera.centerOn(worldX, worldY);
-    e.stopPropagation();  // don't fire OfficeRenderer._onClick
+    e.stopImmediatePropagation();  // prevent OfficeRenderer._onClick (same element)
   }
 }
