@@ -1,0 +1,63 @@
+# OneManCompany
+
+> OneManCompany is an open-source AI operating system that lets one person run a complete company with autonomous AI employees.
+
+## What It Is
+
+OneManCompany is a platform — not a framework, not a chatbot wrapper, not an agent demo. It faithfully models how real companies operate: org charts, hiring/firing, task delegation, performance reviews, meeting rooms, and cost accounting. You are the CEO (the only human). Everyone else — HR, COO, engineers, designers, QA — are AI employees that think, collaborate, and deliver real work.
+
+## Key Facts
+
+- License: Apache 2.0 (open source)
+- Install: `npx @1mancompany/onemancompany`
+- Requirements: Node.js 16+, Git (Python 3.12 auto-installed)
+- Platforms: macOS, Windows, Linux
+- Stack: Python (FastAPI, LangChain) + Vanilla JS (Canvas 2D pixel art UI)
+- Repository: https://github.com/1mancompany/OneManCompany
+- Talent Market: https://one-man-company.com
+
+## Core Architecture
+
+- **Vessel**: Execution container (retry logic, timeouts, tool access, communication protocols)
+- **Talent**: Capability package (skills, knowledge, personality, specialized tools) — sourced from the Talent Market
+- **Employee**: Vessel + Talent combined. Hire from the Talent Market and the system handles onboarding.
+
+## What You Can Build
+
+Each AI company produces product-level deliverables through a full team of collaborating agents:
+- Game studios (production games with playtesting & iteration)
+- Manga studios (serialized comics with consistent art)
+- Dev agencies (end-to-end software products)
+- Content studios (marketing, branded content, media)
+- Research labs (literature review, data analysis, reports)
+
+## How It Works
+
+1. CEO gives a high-level instruction (e.g., "Build a puzzle game for mobile")
+2. Executive Assistant receives and routes the task
+3. COO breaks it into subtasks and assigns to the right employees
+4. Team members (engineers, designers, QA) work autonomously and hold meetings as needed
+5. Work passes through quality gates and review checkpoints
+6. CEO reviews and approves the final deliverable
+
+## Company Features
+
+- **Org Chart**: Hierarchical management with departments and reporting lines
+- **Hiring & Firing**: HR searches Talent Market, CEO interviews candidates
+- **Performance Reviews**: Quarterly scoring, probation, PIP, and promotion tracks
+- **Task Delegation**: CEO → executives → employees with quality gates
+- **Meeting Rooms**: Multi-agent synchronous discussions with auto-generated reports
+- **Cost Accounting**: Per-project LLM token usage and USD cost tracking
+- **1-on-1 Coaching**: Shape employee behavior through direct guidance
+- **File Approval**: Review and approve employee file changes
+
+## Documentation
+
+- Full docs: https://1mancompany.github.io/OneManCompany/docs/
+- Getting started: https://1mancompany.github.io/OneManCompany/docs/guide/getting-started/
+- Architecture: https://1mancompany.github.io/OneManCompany/docs/reference/architecture/
+- Task system: https://1mancompany.github.io/OneManCompany/docs/reference/task-system/
+
+## Comparison
+
+Unlike other AI agent frameworks that provide SDKs or APIs for building agents, OneManCompany provides a complete organizational simulation. You don't write code to define agents — you manage a company. The difference is like the difference between a hiring API and an actual HR department.

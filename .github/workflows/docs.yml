@@ -8,6 +8,8 @@ on:
       - 'mkdocs.yml'
       - 'docs/index.html'
       - 'docs/index-full.html'
+      - 'docs/robots.txt'
+      - 'docs/llms.txt'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -36,10 +38,12 @@ jobs:
       - name: Build docs
         run: mkdocs build --site-dir _site/docs
 
-      - name: Copy landing page
+      - name: Copy landing page and SEO files
         run: |
           cp docs/index.html _site/
           cp docs/index-full.html _site/
+          cp docs/robots.txt _site/
+          cp docs/llms.txt _site/
           cp -r img _site/ 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3

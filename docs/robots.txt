@@ -1,0 +1,5 @@
+# OneManCompany — https://1mancompany.github.io/OneManCompany/
+User-agent: *
+Allow: /
+
+Sitemap: https://1mancompany.github.io/OneManCompany/docs/sitemap.xml
