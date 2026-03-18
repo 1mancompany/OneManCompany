@@ -121,7 +121,7 @@ class OfficeRenderer {
     this.canvas.height = Math.round(cssH * dpr);
 
     if (this.camera) {
-      this.camera.resize((MAP_COLS + 2) * TILE, (ROWS + 2) * TILE);
+      this.camera.resize(MAP_COLS * TILE, ROWS * TILE);
     }
   }
 
@@ -142,7 +142,7 @@ class OfficeRenderer {
       const newRows = this.officeMap.rows;
       if (newRows !== ROWS) {
         ROWS = newRows;
-        this.camera.resize((MAP_COLS + 2) * TILE, (ROWS + 2) * TILE);
+        this.camera.resize(MAP_COLS * TILE, ROWS * TILE);
       }
     }
 
