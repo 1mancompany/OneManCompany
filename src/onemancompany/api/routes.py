@@ -2789,12 +2789,12 @@ async def rename_project(project_id: str, body: dict) -> dict:
     if not name:
         raise HTTPException(400, "Name required")
     from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
-    from onemancompany.core.project_archive import _update_project_name
+    from onemancompany.core.project_archive import update_project_name
 
     candidate = _PROJ_DIR / project_id / "project.yaml"
     if not candidate.exists():
         raise HTTPException(404, "Project not found")
-    _update_project_name(project_id, name)
+    update_project_name(project_id, name)
     return {"status": "ok", "name": name}
 
 

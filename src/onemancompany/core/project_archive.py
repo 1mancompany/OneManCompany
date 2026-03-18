@@ -239,7 +239,7 @@ async def async_create_project_from_task(
             logger.warning("LLM project naming timed out for {}, keeping fallback", project_id)
             return
         if llm_name and llm_name != fallback_name:
-            _update_project_name(project_id, llm_name)
+            update_project_name(project_id, llm_name)
             logger.info("Project {} renamed: '{}' → '{}'", project_id, fallback_name, llm_name)
             # Notify frontend via store dirty so next sync tick picks it up
             from onemancompany.core.store import mark_dirty
@@ -249,7 +249,7 @@ async def async_create_project_from_task(
     return project_id, iter_id
 
 
-def _update_project_name(project_id: str, new_name: str) -> None:
+def update_project_name(project_id: str, new_name: str) -> None:
     """Update the display name of an existing named project."""
     path = PROJECTS_DIR / project_id / "project.yaml"
     lock = _get_project_lock(project_id)
@@ -480,10 +480,10 @@ def get_project_workspace(project_id: str) -> str:
             if latest_doc and latest_doc.get("project_dir"):
                 iter_dir = _rebase_project_dir(latest_doc["project_dir"])
                 ws = iter_dir / "workspace"
-                if ws.exists():
+                if ws.is_dir():
                     return str(ws)
                 # Backward compat: old iterations stored files directly in iter_dir
-                if iter_dir.exists() and any(iter_dir.iterdir()):
+                if iter_dir.is_dir() and any(iter_dir.iterdir()):
                     logger.debug("get_project_workspace: legacy layout, using iter_dir as workspace for {}", project_id)
                     return str(iter_dir)
                 ws.mkdir(parents=True, exist_ok=True)
@@ -562,10 +562,10 @@ def _resolve_workspace(project_id: str) -> Path:
             if iter_doc and iter_doc.get("project_dir"):
                 iter_dir = _rebase_project_dir(iter_doc["project_dir"])
                 ws = iter_dir / "workspace"
-                if ws.exists():
+                if ws.is_dir():
                     return ws
                 # Backward compat: old iterations stored files directly in iter_dir
-                if iter_dir.exists() and any(iter_dir.iterdir()):
+                if iter_dir.is_dir() and any(iter_dir.iterdir()):
                     return iter_dir
                 ws.mkdir(parents=True, exist_ok=True)
                 return ws
