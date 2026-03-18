@@ -40,6 +40,7 @@
     "url": "https://1mancompany.github.io/OneManCompany/",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS, Windows, Linux",
+    "dateModified": "2026-03-18",
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -163,7 +164,7 @@
     }
     nav .container { display: flex; align-items: center; justify-content: space-between; }
     nav .logo { font-family: var(--pixel); font-size: 11px; color: var(--cyan); }
-    nav .links { display: flex; gap: 20px; font-size: 13px; font-weight: 500; }
+    nav .links { display: flex; gap: 20px; font-size: 13px; font-weight: 500; list-style: none; }
     nav .links a { color: var(--text-dim); }
     nav .links a:hover { color: var(--cyan); }
 
@@ -469,13 +470,13 @@
 <nav aria-label="Main navigation">
   <div class="container">
     <a href="/OneManCompany/" class="logo" aria-label="OneManCompany home">OneManCompany</a>
-    <div class="links">
-      <a href="#demos">Demos</a>
-      <a href="#features">Features</a>
-      <a href="#how">How It Works</a>
-      <a href="#start">Quick Start</a>
-      <a href="https://github.com/1mancompany/OneManCompany">GitHub</a>
-    </div>
+    <ul class="links">
+      <li><a href="#demos">Demos</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how">How It Works</a></li>
+      <li><a href="#start">Quick Start</a></li>
+      <li><a href="https://github.com/1mancompany/OneManCompany">GitHub</a></li>
+    </ul>
   </div>
 </nav>
 
@@ -677,10 +678,10 @@
 <div class="divider"></div>
 
 <!-- ── Vessel + Talent ─────────────────────────────────────── -->
-<section>
+<section aria-labelledby="vessel-title">
   <div class="container">
     <div class="section-label">Architecture</div>
-    <h2 class="section-title">Vessel + Talent System</h2>
+    <h2 id="vessel-title" class="section-title">Vessel + Talent System</h2>
     <p class="section-desc">
       Think of it like EVA or Gundam — a powerful mech that comes alive when a pilot is plugged in.
     </p>
@@ -738,10 +739,10 @@
 <div class="divider"></div>
 
 <!-- ── Links ────────────────────────────────────────────────── -->
-<section>
+<section aria-labelledby="links-title">
   <div class="container" style="text-align: center;">
     <div class="section-label">Links</div>
-    <h2 class="section-title">Join the Ecosystem</h2>
+    <h2 id="links-title" class="section-title">Join the Ecosystem</h2>
     <div style="margin-top: 32px;">
       <div class="links-row">
         <a href="https://one-man-company.com" class="link-card">

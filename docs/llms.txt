@@ -1,5 +1,7 @@
 # OneManCompany
 
+> Last updated: 2026-03-18
+
 > OneManCompany is an open-source AI operating system that lets one person run a complete company with autonomous AI employees.
 
 ## What It Is
