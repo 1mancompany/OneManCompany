@@ -24,7 +24,7 @@ const PALETTE = {
   led1: '#33ffaa',
   led2: '#ff5555',
   led3: '#ffee44',
-  // People (wider variety, warmer tones)
+  // People — still used by meeting room participant fallback
   skin: ['#f5cc8e', '#eab878', '#d09868', '#b07858', '#8c6048'],
   hair: ['#1a1a24', '#5c3010', '#dd9922', '#cc4444', '#7744aa', '#2255aa', '#884444', '#446644'],
   shirt: ['#4488ff', '#ff4466', '#44cc44', '#cc44cc', '#ff8844', '#44cccc', '#8866dd', '#dd8844'],
@@ -175,6 +175,8 @@ class OfficeRenderer {
 
     this._preloadToolIcons();
     this._preloadAvatars();
+    // Preload character spritesheets for current employees
+    this._preloadCharacterSheets();
   }
 
   // ── Preloaders ─────────────────────────────────────────────────────────────
@@ -210,6 +212,32 @@ class OfficeRenderer {
         this._toolIcons[tool.id] = null; // mark as loading
       }
     }
+  }
+
+  _preloadCharacterSheets() {
+    const needed = new Set();
+    for (const emp of (this.state.employees || [])) {
+      const spriteNum = emp.avatar_sprite || ((this._hashStr(emp.id || 'default') % 20) + 1);
+      needed.add(`char${String(spriteNum).padStart(2, '0')}`);
+    }
+    const toLoad = [...needed].filter(k => !tileAtlas.isReady(k));
+    if (toLoad.length > 0) {
+      tileAtlas.preload(toLoad);
+    }
+  }
+
+  _getCharFrame(data) {
+    const hash = this._hashStr(data.id || 'default');
+    const spriteNum = data.avatar_sprite || ((hash % 20) + 1);
+    const sheetKey = `char${String(spriteNum).padStart(2, '0')}`;
+
+    if (data.current_task || data.status === 'working') {
+      // Sit pose: row 4 (upper half) + row 5 (lower half)
+      return { sheet: sheetKey, row: 4, col: 0, w: 1, h: 2 };
+    }
+    // Idle front: row 0, 3-frame animation
+    const frame = Math.floor(this.animFrame * 0.02) % 3;
+    return { sheet: sheetKey, row: 0, col: frame, w: 1, h: 2 };
   }
 
   // ── Click / hover ──────────────────────────────────────────────────────────
@@ -777,223 +805,99 @@ class OfficeRenderer {
     }
   }
 
-  // ── Character (chibi pixel-art) ────────────────────────────────────────────
+  // ── Character (sprite-based with status overlays) ──────────────────────────
 
   drawCharacter(gx, gy, data, isCEO = false) {
     const ctx = this.ctx;
-    const px = gx * TILE + 4;
-    const py = gy * TILE - TILE + 4;
-
-    const ROLE_COLORS = {
-      HR:  PALETTE.hrBlue,
-      COO: PALETTE.cooOrange,
-      EA:  PALETTE.eaGreen,
-      CSO: PALETTE.csoPurple,
-    };
+    const px = gx * TILE;
+    // Character sprite is 2 tiles tall; bottom aligns with desk row
+    const py = gy * TILE - TILE;
 
     const hash = this._hashStr(data.id || 'default');
-    const skinIdx  = hash % PALETTE.skin.length;
-    const hairIdx  = (hash >> 2) % PALETTE.hair.length;
-    const shirtIdx = (hash >> 4) % PALETTE.shirt.length;
 
-    let shirtColor = PALETTE.shirt[shirtIdx];
-    let labelColor = PALETTE.led1;
-
-    const roleColor = ROLE_COLORS[data.role];
-    if (isCEO) {
-      shirtColor = PALETTE.ceoGold;
-      labelColor = PALETTE.ceoGold;
-    } else if (roleColor) {
-      shirtColor = roleColor;
-      labelColor = roleColor;
+    // ── Draw character sprite ──
+    const frame = this._getCharFrame(data);
+    if (tileAtlas.isReady(frame.sheet)) {
+      tileAtlas.drawTile(ctx, frame.sheet, frame.row, frame.col, px, py, frame.w, frame.h);
+    } else {
+      // Fallback silhouette while loading
+      ctx.globalAlpha = 0.3;
+      this._rect(px + 8, py + 4, 16, 28, '#888');
+      ctx.globalAlpha = 1;
     }
 
-    const skinColor = PALETTE.skin[skinIdx];
-    const hairColor = PALETTE.hair[hairIdx];
-    const shirtDark  = this._darken(shirtColor, 35);
-    const shirtLight = this._lighten(shirtColor, 25);
-    const skinDark   = this._darken(skinColor, 30);
-
-    const bounce = Math.sin(this.animFrame * 0.05 + hash) * 1;
-    const bx = px;
-    const by = py + bounce;
-
-    ctx.globalAlpha = 0.2;
-    this._rect(bx + 3, gy * TILE + 28, 18, 2, '#000');
-    this._rect(bx + 5, gy * TILE + 30, 14, 2, '#000');
-    ctx.globalAlpha = 1;
-
-    this._rect(bx + 5, by + 18, 14, 12, shirtColor);
-    this._rect(bx + 5, by + 18, 2, 10, shirtLight);
-    this._rect(bx + 17, by + 18, 2, 10, shirtDark);
-    this._rect(bx + 10, by + 18, 4, 2, skinColor);
-    this._rect(bx + 11, by + 20, 2, 1, skinColor);
-
-    const armPhase = Math.sin(this.animFrame * 0.06 + hash) * 1;
-    this._rect(bx + 3, by + 19 + armPhase, 3, 8, shirtColor);
-    this._rect(bx + 3, by + 19 + armPhase, 1, 8, shirtLight);
-    this._rect(bx + 3, by + 26 + armPhase, 3, 2, skinColor);
-    this._rect(bx + 18, by + 19 - armPhase, 3, 8, shirtColor);
-    this._rect(bx + 20, by + 19 - armPhase, 1, 8, shirtDark);
-    this._rect(bx + 18, by + 26 - armPhase, 3, 2, skinColor);
-
+    // ── Avatar image overlay (if available, draw on top of sprite head area) ──
     const avatarImg = this._avatarImages?.[data.id];
     if (avatarImg) {
-      const hx = bx + 3, hy = by + 2;
+      const hx = px + 4, hy = py + 2;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(hx + 4, hy, 10, 1);
-      ctx.rect(hx + 2, hy + 1, 14, 1);
-      ctx.rect(hx + 1, hy + 2, 16, 1);
-      ctx.rect(hx, hy + 3, 18, 11);
-      ctx.rect(hx + 1, hy + 14, 16, 1);
-      ctx.rect(hx + 2, hy + 15, 14, 1);
-      ctx.rect(hx + 4, hy + 16, 10, 1);
+      ctx.arc(hx + 12, hy + 10, 9, 0, Math.PI * 2);
       ctx.clip();
-      ctx.drawImage(avatarImg, hx, hy, 18, 17);
+      ctx.drawImage(avatarImg, hx + 3, hy + 1, 18, 18);
       ctx.restore();
-      ctx.globalAlpha = 0.4;
-      this._rect(hx + 4, hy - 1, 10, 1, '#181828');
-      this._rect(hx + 2, hy, 2, 1, '#181828');
-      this._rect(hx + 14, hy, 2, 1, '#181828');
-      this._rect(hx + 1, hy + 1, 1, 1, '#181828');
-      this._rect(hx + 16, hy + 1, 1, 1, '#181828');
-      this._rect(hx - 1, hy + 3, 1, 11, '#181828');
-      this._rect(hx + 18, hy + 3, 1, 11, '#181828');
-      this._rect(hx + 1, hy + 14, 1, 1, '#181828');
-      this._rect(hx + 16, hy + 14, 1, 1, '#181828');
-      this._rect(hx + 2, hy + 15, 2, 1, '#181828');
-      this._rect(hx + 14, hy + 15, 2, 1, '#181828');
-      this._rect(hx + 4, hy + 17, 10, 1, '#181828');
-      ctx.globalAlpha = 1;
-    } else {
-      this._rect(bx + 6, by + 3, 12, 1, skinColor);
-      this._rect(bx + 4, by + 4, 16, 12, skinColor);
-      this._rect(bx + 6, by + 16, 12, 1, skinColor);
-
-      ctx.globalAlpha = 0.15;
-      this._rect(bx + 4, by + 6, 3, 8, '#fff');
-      this._rect(bx + 17, by + 6, 3, 8, '#000');
-      ctx.globalAlpha = 1;
-
-      ctx.globalAlpha = 0.25;
-      this._rect(bx + 4, by + 12, 3, 2, '#ff7777');
-      this._rect(bx + 17, by + 12, 3, 2, '#ff7777');
-      ctx.globalAlpha = 1;
-
-      const hairStyle = hairIdx % 4;
-      this._rect(bx + 5, by + 1, 14, 2, hairColor);
-      this._rect(bx + 4, by + 3, 16, 3, hairColor);
-      if (hairStyle === 0) {
-        this._rect(bx + 3, by + 4, 2, 6, hairColor);
-        this._rect(bx + 19, by + 4, 2, 6, hairColor);
-      } else if (hairStyle === 1) {
-        this._rect(bx + 3, by + 4, 2, 10, hairColor);
-        this._rect(bx + 19, by + 4, 2, 10, hairColor);
-        this._rect(bx + 3, by + 14, 3, 2, hairColor);
-        this._rect(bx + 18, by + 14, 3, 2, hairColor);
-      } else if (hairStyle === 2) {
-        this._rect(bx + 5, by - 1, 3, 3, hairColor);
-        this._rect(bx + 10, by - 2, 3, 4, hairColor);
-        this._rect(bx + 15, by - 1, 3, 3, hairColor);
-        this._rect(bx + 3, by + 4, 2, 5, hairColor);
-        this._rect(bx + 19, by + 4, 2, 5, hairColor);
-      } else {
-        this._rect(bx + 4, by + 5, 16, 2, hairColor);
-        this._rect(bx + 3, by + 4, 2, 8, hairColor);
-        this._rect(bx + 19, by + 4, 2, 8, hairColor);
-      }
-      ctx.globalAlpha = 0.2;
-      this._rect(bx + 7, by + 2, 4, 2, '#fff');
-      ctx.globalAlpha = 1;
-
-      const blinkPhase = (this.animFrame + hash * 7) % 120;
-      if (blinkPhase > 3) {
-        this._rect(bx + 7, by + 8, 4, 4, '#fff');
-        this._rect(bx + 13, by + 8, 4, 4, '#fff');
-        const irisColors = ['#334466', '#443322', '#224433', '#442244', '#333333'];
-        const irisColor = irisColors[hash % irisColors.length];
-        this._rect(bx + 8, by + 9, 3, 3, irisColor);
-        this._rect(bx + 14, by + 9, 3, 3, irisColor);
-        this._rect(bx + 9, by + 10, 2, 2, '#111');
-        this._rect(bx + 15, by + 10, 2, 2, '#111');
-        this._rect(bx + 8, by + 8, 1, 1, '#fff');
-        this._rect(bx + 14, by + 8, 1, 1, '#fff');
-      } else {
-        this._rect(bx + 7, by + 10, 4, 1, '#222');
-        this._rect(bx + 13, by + 10, 4, 1, '#222');
-        this._rect(bx + 7, by + 9, 1, 1, '#222');
-        this._rect(bx + 10, by + 9, 1, 1, '#222');
-        this._rect(bx + 13, by + 9, 1, 1, '#222');
-        this._rect(bx + 16, by + 9, 1, 1, '#222');
-      }
-
-      this._rect(bx + 10, by + 14, 4, 1, skinDark);
-      this._rect(bx + 11, by + 15, 2, 1, skinDark);
     }
 
+    // ── CEO crown (drawn above sprite) ──
     if (isCEO) {
-      const cy = by - 1;
-      this._rect(bx + 5, cy + 2, 14, 2, PALETTE.ceoGold);
-      this._rect(bx + 5, cy + 2, 14, 1, this._lighten(PALETTE.ceoGold, 30));
-      this._rect(bx + 5, cy, 3, 3, PALETTE.ceoGold);
-      this._rect(bx + 10, cy - 2, 4, 5, PALETTE.ceoGold);
-      this._rect(bx + 16, cy, 3, 3, PALETTE.ceoGold);
-      this._rect(bx + 6, cy, 1, 1, '#fff8aa');
-      this._rect(bx + 11, cy - 2, 2, 1, '#fff8aa');
-      this._rect(bx + 17, cy, 1, 1, '#fff8aa');
+      const cy = py - 2;
+      this._rect(px + 9, cy + 2, 14, 2, PALETTE.ceoGold);
+      this._rect(px + 9, cy + 2, 14, 1, '#ffe44d');
+      this._rect(px + 9, cy, 3, 3, PALETTE.ceoGold);
+      this._rect(px + 14, cy - 2, 4, 5, PALETTE.ceoGold);
+      this._rect(px + 20, cy, 3, 3, PALETTE.ceoGold);
       const twinkle = Math.floor(this.animFrame * 0.05) % 3;
-      this._rect(bx + 6, cy + 1, 2, 2, twinkle === 0 ? '#ff6666' : '#ff4444');
-      this._rect(bx + 11, cy - 1, 2, 2, twinkle === 1 ? '#66ddff' : '#44bbdd');
-      this._rect(bx + 16, cy + 1, 2, 2, twinkle === 2 ? '#66ff66' : '#44dd44');
+      this._rect(px + 10, cy + 1, 2, 2, twinkle === 0 ? '#ff6666' : '#ff4444');
+      this._rect(px + 15, cy - 1, 2, 2, twinkle === 1 ? '#66ddff' : '#44bbdd');
+      this._rect(px + 20, cy + 1, 2, 2, twinkle === 2 ? '#66ff66' : '#44dd44');
     }
+
+    // ── Status overlays (listening, working, idle) ──
+    const ROLE_COLORS = {
+      HR: PALETTE.hrBlue, COO: PALETTE.cooOrange,
+      EA: PALETTE.eaGreen, CSO: PALETTE.csoPurple,
+    };
+    let labelColor = isCEO ? PALETTE.ceoGold : (ROLE_COLORS[data.role] || PALETTE.led1);
 
     if (data.is_listening) {
       const glowAlpha = Math.sin(this.animFrame * 0.1) * 0.2 + 0.3;
       ctx.globalAlpha = glowAlpha;
-      this._rect(bx + 2, by + 1, 20, 1, '#cc88ff');
-      this._rect(bx + 2, by + 30, 20, 1, '#cc88ff');
-      this._rect(bx + 2, by + 1, 1, 30, '#cc88ff');
-      this._rect(bx + 21, by + 1, 1, 30, '#cc88ff');
+      ctx.strokeStyle = '#cc88ff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px + 2, py + 1, TILE - 4, TILE * 2 - 2);
       ctx.globalAlpha = 1;
 
-      const bubbleX = bx + 2;
-      const bubbleY = by - 12;
+      // Listening bubble
+      const bubbleX = px + 2, bubbleY = py - 12;
       this._rect(bubbleX + 1, bubbleY, 18, 10, '#fff');
       this._rect(bubbleX, bubbleY + 1, 20, 8, '#fff');
       this._rect(bubbleX + 8, bubbleY + 10, 4, 2, '#fff');
       this._rect(bubbleX + 9, bubbleY + 12, 2, 1, '#fff');
       this._rect(bubbleX + 5, bubbleY + 2, 10, 6, '#9955dd');
       this._rect(bubbleX + 9, bubbleY + 2, 2, 6, '#fff');
-      this._rect(bubbleX + 5, bubbleY + 2, 1, 6, '#7733bb');
 
       const noteCount = (data.guidance_notes || []).length;
       if (noteCount > 0) {
-        this._rect(bx + 20, by - 2, 8, 8, '#aa66ff');
-        this._rect(bx + 21, by - 3, 6, 1, '#aa66ff');
-        this._rect(bx + 21, by + 6, 6, 1, '#aa66ff');
+        this._rect(px + 24, py - 2, 8, 8, '#aa66ff');
         ctx.fillStyle = '#fff';
         ctx.font = '7px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(String(noteCount), bx + 24, by + 5);
+        ctx.fillText(String(noteCount), px + 28, py + 5);
         ctx.textAlign = 'left';
       }
     } else if ((data.guidance_notes || []).length > 0) {
       const noteCount = data.guidance_notes.length;
-      this._rect(bx + 20, by + 2, 8, 8, '#6633aa');
-      this._rect(bx + 21, by + 1, 6, 1, '#6633aa');
-      this._rect(bx + 21, by + 10, 6, 1, '#6633aa');
+      this._rect(px + 24, py + 2, 8, 8, '#6633aa');
       ctx.fillStyle = '#fff';
       ctx.font = '7px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(String(noteCount), bx + 24, by + 9);
+      ctx.fillText(String(noteCount), px + 28, py + 9);
       ctx.textAlign = 'left';
     }
 
     if (!isCEO && !data.is_listening) {
       const status = data.status || 'idle';
-      const iconX = bx + 2;
-      const iconY = by - 10;
+      const iconX = px + 2, iconY = py - 10;
 
       if (status === 'working') {
         this._rect(iconX + 1, iconY - 2, 18, 8, '#fff');
@@ -1019,25 +923,21 @@ class OfficeRenderer {
       }
     }
 
+    // Setup/offline badges
     if (!isCEO) {
       if (data.needs_setup) {
-        const keyX = bx + 18, keyY = by - 10;
+        const keyX = px + 22, keyY = py - 10;
         const alpha = 0.6 + Math.sin(this.animFrame * 0.08) * 0.3;
         ctx.globalAlpha = alpha;
         this._rect(keyX, keyY, 10, 8, '#ffaa00');
-        this._rect(keyX + 1, keyY - 1, 8, 1, '#ffaa00');
-        this._rect(keyX + 1, keyY + 8, 8, 1, '#ffaa00');
         this._rect(keyX + 2, keyY + 2, 3, 3, '#fff');
         this._rect(keyX + 5, keyY + 3, 3, 1, '#fff');
-        this._rect(keyX + 7, keyY + 4, 1, 2, '#fff');
         ctx.globalAlpha = 1;
       } else if (data.api_online === false) {
-        const offX = bx + 18, offY = by - 10;
+        const offX = px + 22, offY = py - 10;
         const alpha = 0.5 + Math.sin(this.animFrame * 0.1) * 0.4;
         ctx.globalAlpha = alpha;
         this._rect(offX, offY, 10, 8, '#ff3344');
-        this._rect(offX + 1, offY - 1, 8, 1, '#ff3344');
-        this._rect(offX + 1, offY + 8, 8, 1, '#ff3344');
         this._rect(offX + 2, offY + 1, 2, 2, '#fff');
         this._rect(offX + 6, offY + 1, 2, 2, '#fff');
         this._rect(offX + 4, offY + 3, 2, 2, '#fff');
@@ -1047,13 +947,14 @@ class OfficeRenderer {
       }
     }
 
+    // Name tag
     ctx.font = '8px monospace';
     const displayName = data.nickname || (data.name || data.role || '').substring(0, 8);
     const lvlTag = data.level ? ` L${data.level}` : '';
     const nameText = displayName + lvlTag;
     const nameW = ctx.measureText(nameText).width;
     const tagW = nameW + 6;
-    const tagX = px + 12 - tagW / 2;
+    const tagX = px + TILE / 2 - tagW / 2;
     const tagY = gy * TILE + 32;
     this._rect(tagX, tagY, tagW, 9, '#0d0d1a');
     this._rect(tagX, tagY, tagW, 1, '#2a2a44');
@@ -1062,7 +963,7 @@ class OfficeRenderer {
     this._rect(tagX + tagW - 1, tagY, 1, 9, '#2a2a44');
     ctx.fillStyle = labelColor;
     ctx.textAlign = 'center';
-    ctx.fillText(nameText, px + 12, tagY + 8);
+    ctx.fillText(nameText, px + TILE / 2, tagY + 8);
     ctx.textAlign = 'left';
   }
 
