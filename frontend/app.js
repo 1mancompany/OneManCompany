@@ -4987,7 +4987,7 @@ class AppController {
     btn.disabled = true;
     btn.textContent = '⏳ Sending...';
 
-    const task = `The CEO has drafted a company direction statement. Please polish and expand it into a complete corporate positioning description, preserving the core message while adding strategic vision, target market, core competencies, and other dimensions. Once polished, use the save_company_direction tool to save.\n\nDraft content:\n${draft}`;
+    const task = `The CEO has drafted a company direction statement. Please polish and expand it into a complete corporate positioning description, preserving the core message while adding strategic vision, target market, core competencies, and other dimensions. Once polished, dispatch to COO to save via deposit_company_knowledge(category="direction").\n\nDraft content:\n${draft}`;
 
     fetch('/api/ceo/task', {
       method: 'POST',
