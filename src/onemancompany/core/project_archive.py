@@ -599,16 +599,44 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
     return {"status": "ok", "path": str(file_path), "relative": filename}
 
 
+# Internal infrastructure files excluded from user-facing document listing
+_INTERNAL_FILE_NAMES = frozenset({"project.yaml", "task_tree.yaml"})
+_INTERNAL_DIR_NAMES = frozenset({"nodes"})
+
+
+def _is_internal_file(name: str) -> bool:
+    """Check if a filename is internal infrastructure (task tree archive etc.)."""
+    if name in _INTERNAL_FILE_NAMES:
+        return True
+    # Archived task trees: task_tree_iter_NNN.yaml
+    if name.startswith("task_tree_iter_") and name.endswith(".yaml"):
+        return True
+    return False
+
+
 def list_project_files(project_id: str) -> list[str]:
-    """List all files in a project workspace (excluding project.yaml and iterations/)."""
+    """List user-facing files in a project workspace.
+
+    Excludes internal infrastructure files (project.yaml, task trees, node content).
+    """
     project_dir = _resolve_workspace(project_id)
+    logger.debug("[list_project_files] project_id={} → workspace={}", project_id, project_dir)
 
     if not project_dir.exists():
+        logger.debug("[list_project_files] workspace does not exist")
         return []
+
     files = []
     for p in sorted(project_dir.rglob("*")):
-        if p.is_file() and p.name != "project.yaml":
-            files.append(str(p.relative_to(project_dir)))
+        if not p.is_file():
+            continue
+        if _is_internal_file(p.name):
+            continue
+        rel = p.relative_to(project_dir)
+        if rel.parts and rel.parts[0] in _INTERNAL_DIR_NAMES:
+            continue
+        files.append(str(rel))
+    logger.debug("[list_project_files] found {} files", len(files))
     return files
 
 
@@ -616,7 +644,8 @@ def _safe_file_count(project_id: str) -> int:
     """Return file count for a project, returning 0 on any error."""
     try:
         return len(list_project_files(project_id))
-    except Exception:
+    except Exception as e:
+        logger.debug("[_safe_file_count] failed for {}: {}", project_id, e)
         return 0
 
 

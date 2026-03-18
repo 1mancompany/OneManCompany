@@ -4,10 +4,108 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OneManCompany — The AI Operating System for One-Person Companies</title>
-  <meta name="description" content="Run a complete AI-powered company from your browser. You're the CEO, AI does the rest." />
-  <meta property="og:title" content="OneManCompany" />
-  <meta property="og:description" content="The AI Operating System for One-Person Companies" />
+  <meta name="description" content="Open-source AI operating system that lets one person run a complete company. AI employees handle engineering, design, QA, and operations — you just manage. Install with one command: npx @1mancompany/onemancompany" />
+  <meta name="keywords" content="AI agents, AI company, one person company, AI operating system, multi-agent system, LangChain, autonomous agents, AI employees, AI team management, open source AI" />
+  <link rel="canonical" href="https://1mancompany.github.io/OneManCompany/" />
+  <meta name="robots" content="index, follow" />
+  <meta name="author" content="OneManCompany" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="OneManCompany — The AI Operating System for One-Person Companies" />
+  <meta property="og:description" content="Open-source AI OS that lets one person run a complete company with AI employees. Engineering, design, QA, operations — all handled by autonomous AI agents." />
   <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://1mancompany.github.io/OneManCompany/" />
+  <meta property="og:image" content="https://1mancompany.github.io/OneManCompany/img/og-cover.png" />
+  <meta property="og:image:alt" content="OneManCompany pixel art office with AI employees at their desks" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:site_name" content="OneManCompany" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="OneManCompany — AI OS for One-Person Companies" />
+  <meta name="twitter:description" content="One command. A full AI company in your browser. Open-source multi-agent system with hiring, task management, performance reviews, and real deliverables." />
+  <meta name="twitter:image" content="https://1mancompany.github.io/OneManCompany/img/og-cover.png" />
+  <meta name="twitter:image:alt" content="OneManCompany pixel art office with AI employees" />
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "OneManCompany",
+    "description": "Open-source AI operating system that lets one person run a complete company with autonomous AI employees. Features include hiring from a Talent Market, task delegation, performance reviews, meeting rooms, and cost tracking.",
+    "url": "https://1mancompany.github.io/OneManCompany/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS, Windows, Linux",
+    "dateModified": "2026-03-18",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "license": "https://github.com/1mancompany/OneManCompany/blob/main/LICENSE",
+    "codeRepository": "https://github.com/1mancompany/OneManCompany",
+    "programmingLanguage": ["Python", "JavaScript"],
+    "author": {
+      "@type": "Organization",
+      "name": "OneManCompany",
+      "url": "https://github.com/1mancompany"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntityOfPage": "https://1mancompany.github.io/OneManCompany/",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "What is OneManCompany?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany is an open-source AI operating system that lets one person run a complete company. You are the CEO — the only human. AI employees (HR, COO, engineers, designers, QA) think, collaborate, and deliver real work autonomously. It's not a chatbot or demo — it produces production-grade output like games, apps, and content."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I install OneManCompany?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Run 'npx @1mancompany/onemancompany' in your terminal. It auto-installs Python 3.12, all dependencies, and launches a setup wizard. Then open http://localhost:8000 in your browser. Works on macOS, Windows, and Linux. Requires Node.js 16+ and Git."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What can I build with OneManCompany?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "You can build production-grade deliverables including games, manga/comics, software products, marketing content, and research reports. Each AI company has a full team of collaborating agents that handle the work autonomously — you just give high-level instructions as CEO."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does OneManCompany differ from other AI agent frameworks?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany faithfully models how real companies operate — with org charts, hiring/firing, performance reviews, task delegation with quality gates, meeting rooms, and cost accounting. It's not a framework or SDK — it's a complete platform with a pixel-art office UI where you manage AI employees as a CEO."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the Talent Market?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The Talent Market (one-man-company.com) is where you find, hire, and onboard community-verified AI employees. Each talent comes as a capability package with skills, knowledge, personality, and specialized tools — plugged into a Vessel (execution container) to form a complete employee."
+        }
+      }
+    ]
+  }
+  </script>
+
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -66,7 +164,7 @@
     }
     nav .container { display: flex; align-items: center; justify-content: space-between; }
     nav .logo { font-family: var(--pixel); font-size: 11px; color: var(--cyan); }
-    nav .links { display: flex; gap: 20px; font-size: 13px; font-weight: 500; }
+    nav .links { display: flex; gap: 20px; font-size: 13px; font-weight: 500; list-style: none; }
     nav .links a { color: var(--text-dim); }
     nav .links a:hover { color: var(--cyan); }
 
@@ -369,21 +467,21 @@
 <body>
 
 <!-- ── Nav ──────────────────────────────────────────────────── -->
-<nav>
+<nav aria-label="Main navigation">
   <div class="container">
-    <div class="logo">OneManCompany</div>
-    <div class="links">
-      <a href="#demos">Demos</a>
-      <a href="#features">Features</a>
-      <a href="#how">How It Works</a>
-      <a href="#start">Quick Start</a>
-      <a href="https://github.com/1mancompany/OneManCompany">GitHub</a>
-    </div>
+    <a href="/OneManCompany/" class="logo" aria-label="OneManCompany home">OneManCompany</a>
+    <ul class="links">
+      <li><a href="#demos">Demos</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how">How It Works</a></li>
+      <li><a href="#start">Quick Start</a></li>
+      <li><a href="https://github.com/1mancompany/OneManCompany">GitHub</a></li>
+    </ul>
   </div>
 </nav>
 
 <!-- ── Hero ─────────────────────────────────────────────────── -->
-<section class="hero">
+<header class="hero">
   <div class="container">
     <div class="hero-badge">Open Source</div>
     <h1>
@@ -406,18 +504,19 @@
       <span class="prompt">$</span> npx @1mancompany/onemancompany
     </div>
     <div style="margin-top: 40px;">
-      <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" style="max-width: 100%; border: 2px solid var(--border);" />
+      <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="3014" height="1558" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
     </div>
   </div>
-</section>
+</header>
 
+<main>
 <div class="divider"></div>
 
 <!-- ── What You Can Build ──────────────────────────────────── -->
-<section>
+<section aria-labelledby="build-title">
   <div class="container">
     <div class="section-label">Build Anything</div>
-    <div class="section-title">What Can Your AI Company Do?</div>
+    <h2 id="build-title" class="section-title">What Can Your AI Company Do?</h2>
     <p class="section-desc">
       Each AI company produces product-level deliverables through a full team of collaborating AI agents.
     </p>
@@ -453,10 +552,10 @@
 
 <!-- ── Demos ──────────────────────────────────────────────── -->
 <div class="divider"></div>
-<section id="demos">
+<section id="demos" aria-labelledby="demos-title">
   <div class="container">
     <div class="section-label">See It In Action</div>
-    <div class="section-title">Demos</div>
+    <h2 id="demos-title" class="section-title">Demos</h2>
     <p class="section-desc">One sentence from the CEO. The AI team takes it from there.</p>
     <div class="demo-grid">
 
@@ -483,10 +582,10 @@
 <div class="divider"></div>
 
 <!-- ── Features ─────────────────────────────────────────────── -->
-<section id="features">
+<section id="features" aria-labelledby="features-title">
   <div class="container">
     <div class="section-label">Features</div>
-    <div class="section-title">Built Like a Real Company</div>
+    <h2 id="features-title" class="section-title">Built Like a Real Company</h2>
     <p class="section-desc">
       We didn't borrow corporate vocabulary — we faithfully modeled how Fortune 500 companies actually operate.
     </p>
@@ -528,10 +627,10 @@
 <div class="divider"></div>
 
 <!-- ── How It Works ─────────────────────────────────────────── -->
-<section id="how">
+<section id="how" aria-labelledby="how-title">
   <div class="container">
     <div class="section-label">How It Works</div>
-    <div class="section-title">You Manage. AI Executes.</div>
+    <h2 id="how-title" class="section-title">You Manage. AI Executes.</h2>
     <p class="section-desc">
       Open a browser. See a pixel-art office. Your AI employees are at their desks, pretending to look busy.
     </p>
@@ -579,10 +678,10 @@
 <div class="divider"></div>
 
 <!-- ── Vessel + Talent ─────────────────────────────────────── -->
-<section>
+<section aria-labelledby="vessel-title">
   <div class="container">
     <div class="section-label">Architecture</div>
-    <div class="section-title">Vessel + Talent System</div>
+    <h2 id="vessel-title" class="section-title">Vessel + Talent System</h2>
     <p class="section-desc">
       Think of it like EVA or Gundam — a powerful mech that comes alive when a pilot is plugged in.
     </p>
@@ -605,7 +704,7 @@
     </div>
     <div style="margin-top: 40px; text-align: center;">
       <a href="https://one-man-company.com">
-        <img src="img/talent-market.png" alt="Talent Market" style="max-width: 100%; border: 2px solid var(--border);" />
+        <img src="img/talent-market.png" alt="Talent Market" width="3022" height="1660" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
       </a>
       <p style="color: var(--text-dim); font-size: 13px; margin-top: 12px;">
         <a href="https://one-man-company.com">Talent Market</a> — find, hire, and onboard community-verified AI employees.
@@ -617,10 +716,10 @@
 <div class="divider"></div>
 
 <!-- ── Quick Start ──────────────────────────────────────────── -->
-<section id="start">
+<section id="start" aria-labelledby="start-title">
   <div class="container">
     <div class="section-label">Quick Start</div>
-    <div class="section-title">One Command. CEO in 60 Seconds.</div>
+    <h2 id="start-title" class="section-title">One Command. CEO in 60 Seconds.</h2>
     <p class="section-desc">
       Requires Node.js 16+ and Git. Everything else is installed automatically.
     </p>
@@ -640,10 +739,10 @@
 <div class="divider"></div>
 
 <!-- ── Links ────────────────────────────────────────────────── -->
-<section>
+<section aria-labelledby="links-title">
   <div class="container" style="text-align: center;">
     <div class="section-label">Links</div>
-    <div class="section-title">Join the Ecosystem</div>
+    <h2 id="links-title" class="section-title">Join the Ecosystem</h2>
     <div style="margin-top: 32px;">
       <div class="links-row">
         <a href="https://one-man-company.com" class="link-card">
@@ -662,6 +761,8 @@
     </div>
   </div>
 </section>
+
+</main>
 
 <!-- ── Footer ──────────────────────────────────────────────── -->
 <footer>

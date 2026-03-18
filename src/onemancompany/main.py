@@ -441,6 +441,14 @@ async def lifespan(app: FastAPI):
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
+    # Rebuild ConversationService index from disk + recover stuck conversations
+    from onemancompany.api.routes import _conversation_service
+    _conversation_service.rebuild_index()
+    logger.info("[startup] ConversationService index rebuilt: {} conversations", len(_conversation_service._index))
+    _conv_recovered = await _conversation_service.recover()
+    if _conv_recovered:
+        logger.info("[startup] Recovered {} stuck conversation(s)", _conv_recovered)
+
     # Register employees with the centralized EmployeeManager
     from onemancompany.core.agent_loop import register_agent, register_self_hosted, start_all_loops, stop_all_loops
     from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID, EA_ID as _EA_ID, CSO_ID as _CSO_ID
@@ -579,6 +587,15 @@ async def lifespan(app: FastAPI):
     from onemancompany.tools.sandbox import stop_sandbox_server, cleanup_sandbox
     await cleanup_sandbox()
     stop_sandbox_server()
+
+    # Cancel active conversation adapter tasks
+    from onemancompany.api.routes import _active_adapter_tasks
+    if _active_adapter_tasks:
+        logger.info("[shutdown] Cancelling {} active adapter task(s)", len(_active_adapter_tasks))
+        for t in _active_adapter_tasks:
+            t.cancel()
+        await asyncio.gather(*_active_adapter_tasks, return_exceptions=True)
+        _active_adapter_tasks.clear()
 
     watcher_task.cancel()
     broadcaster_task.cancel()

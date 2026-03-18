@@ -3,10 +3,14 @@ name: Publish npm package
 on:
   push:
     branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
-  publish:
+  # Every push to main → publish to "dev" dist-tag
+  publish-dev:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,8 +45,61 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish to npm
+      - name: Publish to npm (dev tag)
         if: steps.check.outputs.skip != 'true'
-        run: npm publish --access public
+        run: npm publish --access public --tag dev
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # GitHub Release → promote to "latest" dist-tag
+  promote-latest:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Sync version from pyproject.toml to package.json
+        run: |
+          VERSION=$(grep '^version = ' pyproject.toml | head -1 | sed 's/version = "//;s/"//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Promoting version: $VERSION"
+        id: ver
+
+      - name: Check if version exists on npm
+        id: check
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if npm view "@1mancompany/onemancompany@$VERSION" version 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Promote dev to latest
+        if: steps.check.outputs.exists == 'true'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          npm dist-tag add "@1mancompany/onemancompany@$VERSION" latest
+          echo "Promoted @1mancompany/onemancompany@$VERSION to latest"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish as latest (if not yet on npm)
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '$VERSION';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
