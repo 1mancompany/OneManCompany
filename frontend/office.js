@@ -547,16 +547,15 @@ class OfficeRenderer {
     const bw = TILE * 3;
     const bh = TILE - 4;
 
-    this._rect(bx, by, bw, bh, PALETTE.boardBg);
-    ctx.globalAlpha = 0.08;
-    for (let tx = bx + 2; tx < bx + bw - 2; tx += 4) {
-      for (let ty = by + 2; ty < by + bh - 2; ty += 4) {
-        const seed = (tx * 31 + ty * 17) & 0xff;
-        if (seed > 180) this._rect(tx, ty, 2, 2, '#fff');
-        if (seed < 40)  this._rect(tx + 1, ty + 1, 1, 1, '#000');
-      }
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('room')) {
+      this._rect(bx, by, bw, bh, PALETTE.boardBg);
     }
-    ctx.globalAlpha = 1;
+
+    // Tile background — use floor wood tile for cork-board texture
+    for (let tx = 0; tx < 3; tx++) {
+      tileAtlas.drawDef(this.ctx, 'floor_wood_warm', bx + tx * TILE, by - 2);
+    }
 
     const fc = PALETTE.boardFrame;
     const fl = this._lighten(fc, 20);
@@ -612,13 +611,15 @@ class OfficeRenderer {
     const bw = TILE * 3;
     const bh = TILE - 4;
 
-    this._rect(bx, by, bw, bh, PALETTE.projectBg);
-    ctx.globalAlpha = 0.06;
-    for (let lx = bx + TILE; lx < bx + bw; lx += TILE) {
-      this._rect(lx, by + 2, 1, bh - 4, '#fff');
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('room')) {
+      this._rect(bx, by, bw, bh, PALETTE.projectBg);
     }
-    this._rect(bx + 2, by + 2, bw - 4, 4, '#fff');
-    ctx.globalAlpha = 1;
+
+    // Tile background — use dark stone floor tile for project wall surface
+    for (let tx = 0; tx < 3; tx++) {
+      tileAtlas.drawDef(this.ctx, 'floor_stone_blue', bx + tx * TILE, by - 2);
+    }
 
     const fc = PALETTE.projectFrame;
     this._rect(bx - 1, by - 1, bw + 2, 3, fc);
