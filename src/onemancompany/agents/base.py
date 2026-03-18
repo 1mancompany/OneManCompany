@@ -881,6 +881,19 @@ class EmployeeAgent(BaseAgentRunner):
                       ))
         pb.add("tool_usage", tool_usage, priority=20)
 
+        # 3.5. Company directory map — so agents know where files live
+        from onemancompany.core.config import COMPANY_DIR, WORKFLOWS_DIR, PROJECTS_DIR
+        dir_map = (
+            "## Company Directory Map\n"
+            f"- Company root: {COMPANY_DIR}\n"
+            f"- Workflows / SOPs: {WORKFLOWS_DIR}\n"
+            f"- Projects: {PROJECTS_DIR}\n"
+            "- Use `ls()` with these absolute paths or relative paths under company root (e.g. `ls('business/workflows')`).\n"
+            "- Use `read()` with absolute paths to read any file.\n"
+            "- Project deliverables go in the project workspace path given in your task description.\n"
+        )
+        pb.add("directory_map", dir_map, priority=21)
+
         # 4. Unauthorized tools section
         pb.add("unauthorized_tools", self._get_unauthorized_tools_section(), priority=36)
 
