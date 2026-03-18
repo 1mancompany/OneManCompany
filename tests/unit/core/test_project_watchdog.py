@@ -141,31 +141,31 @@ async def test_watchdog_skips_fully_terminal(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_watchdog_skips_when_pending_scheduled(tmp_path):
-    """If a pending node is already scheduled in EmployeeManager, skip."""
-    tree = _make_tree("proj_sched", [
+async def test_watchdog_nudges_when_all_pending(tmp_path):
+    """All nodes pending (nobody working) should trigger EA nudge."""
+    tree = _make_tree("proj_pending", [
         {"id": "root", "node_type": "ceo_prompt"},
-        {"id": "ea", "status": "holding", "parent_id": "root"},
+        {"id": "ea", "status": "pending", "parent_id": "root", "employee_id": "00004"},
         {"id": "t1", "status": "pending", "employee_id": "00010", "parent_id": "ea"},
+        {"id": "t2", "status": "pending", "employee_id": "00011", "parent_id": "ea"},
     ])
 
-    projects_dir = tmp_path / "projects" / "proj_sched"
+    projects_dir = tmp_path / "projects" / "proj_pending"
     projects_dir.mkdir(parents=True)
     tree.save(projects_dir / "task_tree.yaml")
 
-    # Simulate t1 already being in the schedule
-    mock_entry = MagicMock()
-    mock_entry.node_id = "t1"
     mock_em = MagicMock()
-    mock_em._schedule = {"00010": [mock_entry]}
+    mock_em._schedule = {}
     mock_em._running_tasks = {}
 
     with patch("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects"), \
-         patch("onemancompany.core.vessel.employee_manager", mock_em):
+         patch("onemancompany.core.vessel.employee_manager", mock_em), \
+         patch("onemancompany.core.task_tree.save_tree_async"):
         events = await project_progress_watchdog()
 
-    assert events is None
-    mock_em.schedule_node.assert_not_called()
+    assert events is not None
+    assert events[0].payload["watchdog_nudged"] == ["proj_pending"]
+    mock_em.schedule_node.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -304,21 +304,6 @@ async def project_progress_watchdog() -> list | None:
         if all_terminal:
             continue
 
-        # Skip if there are already pending nodes scheduled in EmployeeManager
-        # (the system is about to pick them up)
-        has_scheduled_pending = False
-        for n in active_nodes:
-            if n.status == TaskPhase.PENDING.value:
-                # Check if this node is already in EmployeeManager's schedule
-                for entries in employee_manager._schedule.values():
-                    if any(e.node_id == n.id for e in entries):
-                        has_scheduled_pending = True
-                        break
-            if has_scheduled_pending:
-                break
-        if has_scheduled_pending:
-            continue
-
         # --- Project is stuck — nudge EA ---
         ea_node = tree.get_ea_node()
         if not ea_node:
