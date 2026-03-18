@@ -5575,10 +5575,20 @@ class AppController {
     }
 
     // Fetch conversation + messages
-    const [convResp, msgsResp] = await Promise.all([
-      fetch(`/api/conversation/${convId}`).then(r => r.json()),
-      fetch(`/api/conversation/${convId}/messages`).then(r => r.json()),
-    ]);
+    let convResp, msgsResp;
+    try {
+      [convResp, msgsResp] = await Promise.all([
+        fetch(`/api/conversation/${convId}`).then(r => r.json()),
+        fetch(`/api/conversation/${convId}/messages`).then(r => r.json()),
+      ]);
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      chatContainer.classList.add('hidden');
+      for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
+        el.style.display = '';
+      }
+      return;
+    }
 
     const empName = this._resolveEmployeeName(convResp.employee_id);
     this._chatPanel.setConversation(convId, convResp.type, empName);

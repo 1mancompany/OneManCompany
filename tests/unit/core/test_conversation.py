@@ -1,7 +1,6 @@
 """Tests for conversation data models and disk persistence."""
 
 import pytest
-import yaml
 
 from onemancompany.core.conversation import Conversation, Message
 

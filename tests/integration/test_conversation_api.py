@@ -109,3 +109,17 @@ async def test_create_invalid_type(client):
 async def test_list_invalid_phase(client):
     resp = await client.get("/api/conversations?phase=bogus")
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_send_empty_text(client):
+    resp = await client.post("/api/conversation/create", json={
+        "type": "oneonone", "employee_id": "00100", "tools_enabled": True,
+    })
+    conv_id = resp.json()["id"]
+
+    resp = await client.post(f"/api/conversation/{conv_id}/message", json={"text": ""})
+    assert resp.status_code == 400
+
+    resp = await client.post(f"/api/conversation/{conv_id}/message", json={})
+    assert resp.status_code == 400
