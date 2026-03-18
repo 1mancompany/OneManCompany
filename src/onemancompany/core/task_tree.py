@@ -329,6 +329,43 @@ class TaskTree:
         return True
 
 
+    def is_subtree_resolved(self, node_id: str) -> bool:
+        """Check if node AND all descendants are in RESOLVED state.
+
+        Bottom-up semantic: a subtree is resolved when the node itself
+        is resolved and every child subtree is also resolved.
+        """
+        node = self._nodes.get(node_id)
+        if not node:
+            return False
+        if not node.is_resolved:
+            return False
+        return all(
+            self.is_subtree_resolved(cid)
+            for cid in node.children_ids
+            if cid in self._nodes
+        )
+
+    def is_project_complete(self) -> bool:
+        """Check if the project is fully complete — ready for retrospective.
+
+        Condition: EA anchor has finished executing (DONE_EXECUTING) and
+        every child subtree of the EA anchor is fully resolved (RESOLVED).
+        The EA anchor itself may still be COMPLETED (not yet ACCEPTED)
+        because acceptance happens as part of the project completion flow.
+        """
+        ea = self.get_ea_node()
+        if not ea:
+            return False
+        if not ea.is_done_executing:
+            return False
+        # All children subtrees must be fully resolved
+        return all(
+            self.is_subtree_resolved(cid)
+            for cid in ea.children_ids
+            if cid in self._nodes
+        )
+
     def has_failed_deps(self, node_id: str) -> bool:
         """Check if any depends_on node will not deliver (failed/blocked/cancelled)."""
         node = self._nodes.get(node_id)
