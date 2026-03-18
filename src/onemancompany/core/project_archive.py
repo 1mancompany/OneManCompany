@@ -319,31 +319,25 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     iterations_dir = PROJECTS_DIR / project_id / "iterations"
     iterations_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- per-iteration workspace ---
-    # Determine previous iteration's workspace to copy from
-    prev_workspace: Path | None = None
+    # --- per-iteration directory ---
+    # Determine previous iteration's directory to copy files from
+    prev_iter: Path | None = None
     if existing:
         prev_iter_id = existing[-1]
         prev_doc = load_iteration(project_id, prev_iter_id)
         if prev_doc and prev_doc.get("project_dir"):
-            prev_iter_dir = _rebase_project_dir(prev_doc["project_dir"])
-            candidate = prev_iter_dir / "workspace"
-            if candidate.is_dir():
-                prev_workspace = candidate
-            elif prev_iter_dir.is_dir() and any(prev_iter_dir.iterdir()):
-                # Backward compat: old layout stored files directly in iter_dir
-                prev_workspace = prev_iter_dir
+            prev_iter = _rebase_project_dir(prev_doc["project_dir"])
 
-    # Create the new iteration directory and its workspace subdirectory
+    # Create the new iteration directory
     iter_dir = iterations_dir / iter_id
     iter_dir.mkdir(parents=True, exist_ok=True)
-    new_workspace = iter_dir / "workspace"
-    new_workspace.mkdir(parents=True, exist_ok=True)
 
-    # Copy files from previous workspace
-    if prev_workspace is not None and prev_workspace.is_dir():
-        for item in prev_workspace.iterdir():
-            dest = new_workspace / item.name
+    # Copy user files from previous iteration (skip infrastructure)
+    if prev_iter is not None and prev_iter.is_dir():
+        for item in prev_iter.iterdir():
+            if _is_internal_file(item.name) or item.name in _INTERNAL_DIR_NAMES:
+                continue
+            dest = iter_dir / item.name
             if item.is_dir():
                 shutil.copytree(item, dest, dirs_exist_ok=True)
             else:
@@ -471,31 +465,8 @@ def archive_project(project_id: str) -> None:
 
 
 def get_project_workspace(project_id: str) -> str:
-    """Return the workspace directory path for a v2 named project.
-
-    Returns the latest iteration's workspace/ subdirectory.
-    """
-    proj = load_named_project(project_id)
-    if proj:
-        iters = proj.get("iterations", [])
-        if iters:
-            latest_doc = load_iteration(project_id, iters[-1])
-            if latest_doc and latest_doc.get("project_dir"):
-                iter_dir = _rebase_project_dir(latest_doc["project_dir"])
-                ws = iter_dir / "workspace"
-                if ws.is_dir():
-                    return str(ws)
-                # Backward compat: old iterations stored files directly in iter_dir
-                if iter_dir.is_dir() and any(iter_dir.iterdir()):
-                    logger.debug("get_project_workspace: legacy layout, using iter_dir as workspace for {}", project_id)
-                    return str(iter_dir)
-                ws.mkdir(parents=True, exist_ok=True)
-                return str(ws)
-    # Fallback: project has no iterations — log warning
-    logger.warning("get_project_workspace fallback: project {} has no iterations", project_id)
-    ws = PROJECTS_DIR / project_id / "workspace"
-    ws.mkdir(parents=True, exist_ok=True)
-    return str(ws)
+    """Alias for get_project_dir — workspace IS the iteration directory."""
+    return get_project_dir(project_id)
 
 
 # ─────────────────────────────────────────────
@@ -551,39 +522,18 @@ def load_project(project_id: str) -> dict | None:
     return doc
 
 
-def _resolve_workspace(project_id: str) -> Path:
-    """Resolve the workspace directory for any project identifier.
+def _resolve_project_path(project_id: str) -> Path:
+    """Resolve the project/iteration directory for any project identifier.
 
-    Returns the workspace/ subdirectory under the iteration directory.
     Supports qualified iteration IDs like "first-game/iter_002".
     """
-    if _is_iteration(project_id):
-        slug = _find_project_for_iteration(project_id)
-        _, bare_id = _split_qualified_iter(project_id)
-        if slug:
-            iter_doc = load_iteration(slug, bare_id)
-            if iter_doc and iter_doc.get("project_dir"):
-                iter_dir = _rebase_project_dir(iter_doc["project_dir"])
-                ws = iter_dir / "workspace"
-                if ws.is_dir():
-                    return ws
-                # Backward compat: old iterations stored files directly in iter_dir
-                if iter_dir.is_dir() and any(iter_dir.iterdir()):
-                    return iter_dir
-                ws.mkdir(parents=True, exist_ok=True)
-                return ws
-            # Fallback for old iterations without per-iter workspace
-            ws = PROJECTS_DIR / slug / "iterations" / bare_id / "workspace"
-            ws.mkdir(parents=True, exist_ok=True)
-            return ws
-    return Path(get_project_workspace(project_id))
+    return Path(get_project_dir(project_id))
 
 
 def get_project_dir(project_id: str) -> str:
     """Return the absolute path of a project's iteration directory.
 
-    This is the iteration root (where task_tree.yaml lives),
-    NOT the workspace/ subdirectory for user files.
+    All files (task_tree.yaml, nodes/, user documents) live here.
     """
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
@@ -617,7 +567,7 @@ def get_project_dir(project_id: str) -> str:
 
 def save_project_file(project_id: str, filename: str, content: str | bytes) -> dict:
     """Save a file into the project workspace directory."""
-    project_dir = _resolve_workspace(project_id)
+    project_dir = _resolve_project_path(project_id)
     project_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = project_dir / filename
@@ -656,7 +606,7 @@ def list_project_files(project_id: str) -> list[str]:
 
     Excludes internal infrastructure files (project.yaml, task trees, node content).
     """
-    project_dir = _resolve_workspace(project_id)
+    project_dir = _resolve_project_path(project_id)
     logger.debug("[list_project_files] project_id={} → workspace={}", project_id, project_dir)
 
     if not project_dir.exists():
