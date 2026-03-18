@@ -3709,7 +3709,7 @@ class AppController {
         }
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -3823,7 +3823,7 @@ class AppController {
         contentEl.innerHTML = html;
       })
       .catch(err => {
-        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${err.message}</div>`;
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -4362,7 +4362,7 @@ class AppController {
         this._renderExEmployees(list);
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -6240,7 +6240,7 @@ class AppController {
         }
       })
       .catch(err => {
-        panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${err.message}</div>`;
+        panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
