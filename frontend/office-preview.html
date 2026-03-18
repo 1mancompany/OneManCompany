@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Office Preview · 办公室复现</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    min-height: 100vh;
+    padding: 40px 24px 60px;
+    gap: 28px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  header {
+    text-align: center;
+  }
+  header h1 {
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: #7a6a52;
+  }
+  header p {
+    font-size: 9px;
+    color: #3a3028;
+    letter-spacing: 0.1em;
+    margin-top: 6px;
+  }
+
+  /* Canvas wrapper — drop shadow, crisp pixel rendering */
+  .office-wrap {
+    position: relative;
+    box-shadow: 0 0 0 1px #1e1810, 0 24px 80px rgba(0,0,0,0.9);
+  }
+
+  #c {
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  /* Loading state overlay */
+  #loading {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: #0d0b09;
+    color: #3a3028;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    transition: opacity 0.4s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+
+  /* Tile reference strip */
+  .ref-strip {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 900px;
+  }
+
+  .ref-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 9px;
+    color: #3a3028;
+    letter-spacing: 0.04em;
+  }
+
+  .ref-swatch {
+    width: 32px; height: 32px;
+    image-rendering: pixelated;
+    border: 1px solid #1e1810;
+    flex-shrink: 0;
+    background: #1a1612;
+  }
+
+  .ref-label { line-height: 1.6; }
+  .ref-label strong { display: block; color: #6a5a48; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>OFFICE PREVIEW · 办公室复现</h1>
+  <p>基于参考截图 · LimeZu Modern Interiors + Modern Office 32×32</p>
+</header>
+
+<div class="office-wrap">
+  <canvas id="c"></canvas>
+  <div id="loading">LOADING SPRITES…</div>
+</div>
+
+<div class="ref-strip" id="refstrip"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────────────
+const SRC   = 32;    // sprite tile size (px)
+const SCALE = 2;     // render scale (2× → 64px display tiles)
+const T     = SRC * SCALE;
+
+const TSET  = '/assets/office/tilesets/';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sprite sheet registry
+// ─────────────────────────────────────────────────────────────────────────
+const SHEETS = {
+  room:   'Modern_Office_Revamped_v1.2/1_Room_Builder_Office/Room_Builder_Office_32x32.png',
+  office: 'Modern_Office_Revamped_v1.2/Modern_Office_32x32.png',
+  char01: 'moderninteriors-win/2_Characters/Character_Generator/0_Premade_Characters/32x32/Premade_Character_32x32_01.png',
+};
+
+const imgs = {};
+function loadSheet(key) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload  = () => { imgs[key] = img; res(true);  };
+    img.onerror = () => {                   res(false); };
+    img.src = TSET + SHEETS[key];
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tile definitions  [sheet, srcRow, srcCol, wTiles=1, hTiles=1]
+// ─────────────────────────────────────────────────────────────────────────
+const DEF = {
+  // Floors (Room Builder sheet)
+  fl_warm:   ['room',   9,  0],   // warm tan / cream stone  ← screenshot main floor
+  fl_gray:   ['room',   7,  0],   // cool gray stone         ← screenshot secondary room
+  fl_light:  ['room',   5,  0],   // lighter blue-stone      ← screenshot lower area
+  fl_wood:   ['room',  10,  0],   // warm brown wood
+  fl_gold:   ['room',  10,  7],   // golden wood
+
+  // Furniture (Modern Office sheet)
+  desk_tl:   ['office',  0,  0],
+  desk_tr:   ['office',  0,  1],
+  desk_bl:   ['office',  1,  0],
+  desk_br:   ['office',  1,  1],
+  mon_s:     ['office',  0,  4],   // single monitor
+  mon_d:     ['office',  0,  5],   // dual monitor
+  chair_blk: ['office',  8,  0],
+  chair_blu: ['office',  8,  2],
+  bookshelf: ['office',  6,  0,  2, 2],
+  plant_lg:  ['office', 10,  6],
+  plant_sm:  ['office',  7,  6],
+  whiteboard:['office',  3,  8,  2, 2],
+  printer:   ['office',  4,  6],
+  conf_tl:   ['office', 17,  0],
+  conf_tr:   ['office', 17,  1],
+  conf_bl:   ['office', 18,  0],
+  conf_br:   ['office', 18,  1],
+  conf_ch_t: ['office', 16,  0],
+  conf_ch_b: ['office', 19,  0],
+
+  // Character (char01 sheet) — sitting pose row 4
+  char_sit:  ['char01',  4,  0],
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Map layout  (18 cols × 15 rows)
+//   W = wall/null   F = fl_warm   G = fl_gray   L = fl_light
+// ─────────────────────────────────────────────────────────────────────────
+const C = 18, R = 15;   // map dimensions
+const W = null, F = 'fl_warm', G = 'fl_gray', L = 'fl_light';
+
+//  col→  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17
+const MAP = [
+  [W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W],  //  0 top wall
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  1
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  2
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  3
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  4
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  5
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  6
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  7
+  [W, F, F, F, F, F, F, F, F, F, W, G, G, G, G, G, G, W],  //  8
+  [W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W],  //  9 mid wall
+  [W, L, L, L, L, L, L, L, L, L, W, L, L, L, L, L, L, W],  // 10
+  [W, L, L, L, L, L, L, L, L, L, W, L, L, L, L, L, L, W],  // 11
+  [W, L, L, L, L, L, L, L, L, L, W, L, L, L, L, L, L, W],  // 12
+  [W, L, L, L, L, L, L, L, L, L, W, L, L, L, L, L, L, W],  // 13
+  [W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W, W],  // 14 bottom wall
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// Objects  { key, col, row }
+// ─────────────────────────────────────────────────────────────────────────
+// Floor-level objects drawn in order (earlier = further back)
+const OBJ = [
+  // ── LEFT ROOM (cols 1–9, rows 1–8): main office ──────────────────────
+
+  // Bookshelf — top-left, anchored against top wall (2×2)
+  { key: 'bookshelf',  col: 1, row: 1 },
+
+  // Plant — left wall
+  { key: 'plant_lg',  col: 1, row: 3 },
+  { key: 'plant_sm',  col: 1, row: 6 },
+
+  // Workstation A  (desk top at row 2, front at row 3)
+  { key: 'desk_tl',   col: 3, row: 2 },
+  { key: 'desk_tr',   col: 4, row: 2 },
+  { key: 'desk_bl',   col: 3, row: 3 },
+  { key: 'desk_br',   col: 4, row: 3 },
+  { key: 'mon_s',     col: 3, row: 2 },
+
+  // Printer nearby
+  { key: 'printer',   col: 5, row: 3 },
+
+  // Free-standing monitor on stand
+  { key: 'mon_d',     col: 7, row: 2 },
+
+  // Workstation B
+  { key: 'desk_tl',   col: 6, row: 5 },
+  { key: 'desk_tr',   col: 7, row: 5 },
+  { key: 'desk_bl',   col: 6, row: 6 },
+  { key: 'desk_br',   col: 7, row: 6 },
+  { key: 'mon_s',     col: 7, row: 5 },
+  { key: 'chair_blu', col: 6, row: 7 },
+
+  // Plant + bookshelf along right edge of left room
+  { key: 'plant_sm',  col: 9, row: 1 },
+  { key: 'plant_lg',  col: 9, row: 7 },
+
+  // ── RIGHT ROOM (cols 11–16, rows 1–8): secondary office ──────────────
+
+  // Desk with dual monitor
+  { key: 'desk_tl',   col: 12, row: 2 },
+  { key: 'desk_tr',   col: 13, row: 2 },
+  { key: 'desk_bl',   col: 12, row: 3 },
+  { key: 'desk_br',   col: 13, row: 3 },
+  { key: 'mon_d',     col: 13, row: 2 },
+  { key: 'chair_blk', col: 12, row: 4 },
+
+  // Bookshelf on right wall (2×2)
+  { key: 'bookshelf', col: 15, row: 2 },
+
+  // Whiteboard
+  { key: 'whiteboard',col: 11, row: 6 },
+
+  // Plant
+  { key: 'plant_lg',  col: 16, row: 6 },
+  { key: 'plant_sm',  col: 11, row: 1 },
+
+  // ── LOWER-LEFT (cols 1–9, rows 10–13): reception ─────────────────────
+
+  // Two chairs facing each other (reception seating) — using conf_ch_t/b as couches
+  { key: 'conf_ch_t', col: 2, row: 11 },
+  { key: 'conf_ch_t', col: 3, row: 11 },
+  { key: 'chair_blk', col: 5, row: 12 },
+  { key: 'chair_blk', col: 6, row: 12 },
+
+  // Plant
+  { key: 'plant_lg',  col: 1,  row: 10 },
+  { key: 'plant_sm',  col: 9,  row: 10 },
+
+  // ── LOWER-RIGHT (cols 11–16, rows 10–13): break/meeting area ─────────
+
+  // Conference table
+  { key: 'conf_tl',   col: 12, row: 10 },
+  { key: 'conf_tr',   col: 13, row: 10 },
+  { key: 'conf_bl',   col: 12, row: 11 },
+  { key: 'conf_br',   col: 13, row: 11 },
+  { key: 'conf_ch_t', col: 12, row: 9  },
+  { key: 'conf_ch_b', col: 13, row: 12 },
+
+  // Row of blue chairs (like screenshot bottom)
+  { key: 'chair_blu', col: 11, row: 13 },
+  { key: 'chair_blu', col: 12, row: 13 },
+  { key: 'chair_blu', col: 13, row: 13 },
+  { key: 'chair_blu', col: 14, row: 13 },
+  { key: 'chair_blu', col: 15, row: 13 },
+
+  // Plant
+  { key: 'plant_sm',  col: 16, row: 10 },
+  { key: 'plant_lg',  col: 11, row: 12 },
+];
+
+// Character drawn last (on top of furniture)
+const CHAR = { key: 'char_sit', col: 3, row: 4 };
+const CHAIR_A = { key: 'chair_blk', col: 3, row: 4 };  // chair at workstation A
+
+// ─────────────────────────────────────────────────────────────────────────
+// Canvas setup
+// ─────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+canvas.width  = C * T;
+canvas.height = R * T;
+ctx.imageSmoothingEnabled = false;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Draw helpers
+// ─────────────────────────────────────────────────────────────────────────
+function drawTile(sheetKey, srcRow, srcCol, dx, dy, wt = 1, ht = 1) {
+  const img = imgs[sheetKey];
+  if (!img) return;
+  ctx.drawImage(img,
+    srcCol * SRC, srcRow * SRC, SRC * wt, SRC * ht,
+    dx, dy, T * wt, T * ht
+  );
+}
+
+function drawDef(defKey, col, row) {
+  const d = DEF[defKey];
+  if (!d) return;
+  const [sheet, sr, sc, w = 1, h = 1] = d;
+  drawTile(sheet, sr, sc, col * T, row * T, w, h);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fallback colors (shown while/if sprites don't load)
+// ─────────────────────────────────────────────────────────────────────────
+const FALLBACK = {
+  fl_warm:  (r, c) => (r + c) % 2 === 0 ? '#c8b890' : '#b8a880',
+  fl_gray:  (r, c) => (r + c) % 2 === 0 ? '#8890a0' : '#7a8090',
+  fl_light: (r, c) => (r + c) % 2 === 0 ? '#d0ccc8' : '#c0bab4',
+  wall:     () => '#0c0a08',
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// Render
+// ─────────────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // ── 1. Floor layer ───────────────────────────────────────────────────
+  for (let r = 0; r < R; r++) {
+    for (let c = 0; c < C; c++) {
+      const key = MAP[r][c];
+      const x = c * T, y = r * T;
+
+      if (!key) {
+        // Wall — simple dark fill with a very faint warm edge on interior walls
+        ctx.fillStyle = '#0e0c0a';
+        ctx.fillRect(x, y, T, T);
+        // Tiny warm highlight on bottom edge of horizontal walls
+        if (r === 9) {
+          ctx.fillStyle = 'rgba(200,160,80,0.09)';
+          ctx.fillRect(x, y + T - 2, T, 2);
+        }
+        continue;
+      }
+
+      // Floor tile — try sprite, fallback to solid color
+      const d = DEF[key];
+      const [sheet, sr, sc] = d;
+      const img = imgs[sheet];
+
+      if (img) {
+        ctx.drawImage(img, sc * SRC, sr * SRC, SRC, SRC, x, y, T, T);
+      } else {
+        ctx.fillStyle = FALLBACK[key] ? FALLBACK[key](r, c) : '#888';
+        ctx.fillRect(x, y, T, T);
+      }
+
+      // Subtle grid groove
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x, y, T, 1);
+      ctx.fillRect(x, y, 1, T);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── 2. Ambient room labels (faint text, drawn under furniture) ────────
+  ctx.globalAlpha = 0.07;
+  ctx.fillStyle = '#fff';
+  ctx.font = `${T * 0.22}px monospace`;
+  ctx.textAlign = 'left';
+  ctx.fillText('MAIN OFFICE', 2 * T, 8.5 * T);
+  ctx.fillText('SECONDARY', 11.5 * T, 8.5 * T);
+  ctx.fillText('RECEPTION', 2 * T, 13.5 * T);
+  ctx.fillText('MEETING', 12 * T, 13.5 * T);
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'start';
+
+  // ── 3. Objects layer ──────────────────────────────────────────────────
+  for (const obj of OBJ) {
+    drawDef(obj.key, obj.col, obj.row);
+  }
+
+  // Chair + character at workstation A (drawn last so character is on top)
+  drawDef(CHAIR_A.key, CHAIR_A.col, CHAIR_A.row);
+  drawDef(CHAR.key,   CHAR.col,   CHAR.row);
+
+  // ── 4. Room divider overlay (inner wall col 10) ───────────────────────
+  // Already handled by W tiles in MAP, but add a small shadow on right side
+  const divX = 10 * T;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(divX + T, 0, 4, canvas.height);  // subtle shadow on right edge of wall
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tile reference strip
+// ─────────────────────────────────────────────────────────────────────────
+const REF_ITEMS = [
+  { key: 'fl_warm',    label: '主区地板',   hint: 'Room Builder  r9 c0' },
+  { key: 'fl_gray',    label: '副区地板',   hint: 'Room Builder  r7 c0' },
+  { key: 'fl_light',   label: '下区地板',   hint: 'Room Builder  r5 c0' },
+  { key: 'bookshelf',  label: '书架',       hint: 'Modern Office r6 c0' },
+  { key: 'desk_tl',    label: '工作台',     hint: 'Modern Office r0 c0' },
+  { key: 'mon_d',      label: '显示器',     hint: 'Modern Office r0 c5' },
+  { key: 'chair_blu',  label: '椅子 (蓝)',  hint: 'Modern Office r8 c2' },
+  { key: 'plant_lg',   label: '绿植',       hint: 'Modern Office r10 c6' },
+  { key: 'whiteboard', label: '白板',       hint: 'Modern Office r3 c8' },
+  { key: 'char_sit',   label: '角色',       hint: 'Character 01  r4 c0' },
+];
+
+function buildRefStrip() {
+  const strip = document.getElementById('refstrip');
+  REF_ITEMS.forEach(item => {
+    const d = DEF[item.key];
+    if (!d) return;
+    const [sheet, sr, sc, w = 1, h = 1] = d;
+
+    const el    = document.createElement('div');
+    el.className = 'ref-item';
+
+    const sw  = document.createElement('canvas');
+    sw.className = 'ref-swatch';
+    sw.width  = SRC * Math.min(w, 1);
+    sw.height = SRC * Math.min(h, 1);
+    sw.style.width  = `${sw.width}px`;
+    sw.style.height = `${sw.height}px`;
+    const sc2 = sw.getContext('2d');
+    sc2.imageSmoothingEnabled = false;
+    const img = imgs[sheet];
+    if (img) sc2.drawImage(img, sc * SRC, sr * SRC, sw.width, sw.height, 0, 0, sw.width, sw.height);
+    else { sc2.fillStyle = '#1a1612'; sc2.fillRect(0, 0, sw.width, sw.height); }
+
+    const lbl = document.createElement('div');
+    lbl.className = 'ref-label';
+    lbl.innerHTML = `<strong>${item.label}</strong>${item.hint}`;
+
+    el.appendChild(sw);
+    el.appendChild(lbl);
+    strip.appendChild(el);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────────────────
+async function init() {
+  await Promise.all(Object.keys(SHEETS).map(loadSheet));
+  render();
+  buildRefStrip();
+  document.getElementById('loading').classList.add('hidden');
+}
+
+init();
+</script>
+</body>
+</html>

@@ -248,3 +248,6 @@ video/
 
 # Talent template dev
 talent-template-*/
+
+# Tileset source assets (full packs, not redistributable)
+/assets/
