@@ -400,37 +400,46 @@ class OfficeRenderer {
 
   drawWalls() {
     const ctx = this.ctx;
-    this._rect(0, 0, COLS * TILE, 8, PALETTE.wallTop);
-    this._rect(0, 8, COLS * TILE, 16, PALETTE.wallMid);
-    this._rect(0, 24, COLS * TILE, 8, PALETTE.wallBot);
-    this._rect(0, 30, COLS * TILE, 2, '#2a2650');
+    const vis = this.camera.getVisibleTiles(COLS, ROWS);
 
-    ctx.globalAlpha = 0.04;
-    for (let wx = 0; wx < COLS * TILE; wx += 16) {
-      for (let wy = 4; wy < 28; wy += 8) {
-        const offset = (wy % 16 === 4) ? 0 : 8;
-        this._rect(wx + offset, wy, 14, 6, '#fff');
-        this._rect(wx + offset, wy, 14, 1, '#fff');
+    // Only draw wall tiles in rows 0-2 (WALL_ROWS = 3)
+    for (let col = Math.max(0, vis.minCol); col <= Math.min(COLS - 1, vis.maxCol); col++) {
+      const x = col * TILE;
+
+      // Determine if this column has a window
+      // Windows at every 4 columns, except where bulletin board (cols 5-7)
+      // and project wall (cols 12-14) are
+      const hasWindow = (col % 4 === 0) && !(col >= 4 && col <= 8) && !(col >= 11 && col <= 15);
+
+      // Fallback: draw colored bands FIRST (tile draws on top, silent no-op if not loaded)
+      if (!tileAtlas.isReady('room')) {
+        this._rect(x, 0, TILE, 8, PALETTE.wallTop);
+        this._rect(x, 8, TILE, 16, PALETTE.wallMid);
+        this._rect(x, 24, TILE, 8, PALETTE.wallBot);
+      }
+
+      // Row 0: top wall
+      tileAtlas.drawDef(ctx, hasWindow ? 'wall_window_top' : 'wall_top', x, 0);
+      // Row 1: mid wall (window bottom or solid)
+      tileAtlas.drawDef(ctx, hasWindow ? 'wall_window_bottom' : 'wall_mid', x, TILE);
+      // Row 2: baseboard
+      tileAtlas.drawDef(ctx, 'wall_bottom', x, TILE * 2);
+
+      // Dynamic sky + stars in window panes (Canvas overlay on top of tile)
+      if (hasWindow) {
+        this._drawWindowAnimation(x + 8, 4);
       }
     }
-    ctx.globalAlpha = 1;
 
-    for (let i = 0; i < COLS; i += 4) {
-      if (i >= 4 && i <= 8)   continue;
-      if (i >= 11 && i <= 15) continue;
-      this._drawWindow(i * TILE + 8, 4);
-    }
+    // Baseboard shadow line
+    this._rect(0, 30, COLS * TILE, 2, '#2a2650');
   }
 
-  _drawWindow(x, y) {
+  _drawWindowAnimation(x, y) {
     const ctx = this.ctx;
-    this._rect(x - 3, y - 3, TILE - 10, TILE - 6, '#2a2a55');
-    this._rect(x - 2, y - 2, TILE - 12, TILE - 8, PALETTE.windowFrame);
     const glassW = (TILE - 18) / 2;
-    this._rect(x, y, glassW, TILE - 12, PALETTE.windowGlass);
-    this._rect(x + glassW + 2, y, glassW, TILE - 12, PALETTE.windowGlass);
-    this._rect(x + glassW, y - 1, 2, TILE - 10, PALETTE.windowFrame);
 
+    // Dynamic sky color
     const timeOfDay = (Math.sin(this.animFrame * 0.005) + 1) / 2;
     const skyTop = `rgb(${30 + timeOfDay * 20}, ${50 + timeOfDay * 30}, ${130 + timeOfDay * 40})`;
     ctx.globalAlpha = 0.4;
@@ -438,6 +447,7 @@ class OfficeRenderer {
     this._rect(x + glassW + 3, y + 1, glassW - 2, 6, skyTop);
     ctx.globalAlpha = 1;
 
+    // Twinkling stars
     const starPhase = (this.animFrame + x * 7) % 200;
     if (starPhase < 80) {
       ctx.globalAlpha = starPhase < 40 ? starPhase / 40 : (80 - starPhase) / 40;
@@ -445,13 +455,6 @@ class OfficeRenderer {
       this._rect(x + glassW + 5, y + 4, 1, 1, '#fff');
       ctx.globalAlpha = 1;
     }
-
-    this._rect(x - 3, y + TILE - 12, TILE - 10, 2, '#3a3a66');
-    this._rect(x - 2, y + TILE - 10, TILE - 12, 1, '#4a4a77');
-
-    ctx.globalAlpha = 0.03;
-    this._rect(x - 2, y + TILE - 8, TILE - 12, 20, '#8888cc');
-    ctx.globalAlpha = 1;
   }
 
   // ── Plants ─────────────────────────────────────────────────────────────────
