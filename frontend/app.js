@@ -3778,6 +3778,18 @@ class AppController {
           html += `<div style="font-size:6px;color:var(--pixel-white);background:var(--bg-dark);padding:6px;border:1px solid var(--border);">${doc.output}</div>`;
         }
 
+        // Documents
+        const files = doc.files || [];
+        if (files.length > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents (${files.length}):</div>`;
+          for (const f of files) {
+            const url = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(f)}`;
+            html += `<div style="font-size:6px;margin:2px 0;">`;
+            html += `<a href="${url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${f}</a>`;
+            html += `</div>`;
+          }
+        }
+
         contentEl.innerHTML = html;
       })
       .catch(err => {
