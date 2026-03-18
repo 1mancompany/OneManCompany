@@ -257,8 +257,6 @@ async def project_progress_watchdog() -> list | None:
     When stuck, a new task node is added under the EA node asking it to
     review the task tree and drive the project forward.
     """
-    from pathlib import Path
-
     from onemancompany.core.config import EA_ID, PROJECTS_DIR
     from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
@@ -273,8 +271,8 @@ async def project_progress_watchdog() -> list | None:
         tree_path_str = str(tree_path)
         try:
             tree = get_tree(tree_path_str)
-        except Exception:
-            logger.debug("[watchdog] Skipping corrupt tree: {}", tree_path)
+        except Exception as e:
+            logger.debug("[watchdog] Skipping corrupt tree: {} — {}", tree_path, e)
             continue
 
         project_id = tree.project_id
@@ -337,9 +335,9 @@ async def project_progress_watchdog() -> list | None:
             nudge_node.project_dir = ea_node.project_dir or str(tree_path.parent)
             save_tree_async(tree_path_str)
 
-        employee_manager.schedule_node(EA_ID, nudge_node.id, tree_path_str)
-        if EA_ID not in employee_manager._running_tasks:
-            employee_manager._schedule_next(EA_ID)
+        employee_manager.push_task(
+            EA_ID, description="", node_id=nudge_node.id, tree_path=tree_path_str,
+        )
 
         _watchdog_nudged.add(project_id)
         nudged_projects.append(project_id)

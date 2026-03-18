@@ -111,7 +111,7 @@ async def test_watchdog_skips_when_processing_exists(tmp_path):
         events = await project_progress_watchdog()
 
     assert events is None
-    mock_em.schedule_node.assert_not_called()
+    mock_em.push_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -137,7 +137,7 @@ async def test_watchdog_skips_fully_terminal(tmp_path):
         events = await project_progress_watchdog()
 
     assert events is None
-    mock_em.schedule_node.assert_not_called()
+    mock_em.push_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_watchdog_nudges_when_all_pending(tmp_path):
 
     assert events is not None
     assert events[0].payload["watchdog_nudged"] == ["proj_pending"]
-    mock_em.schedule_node.assert_called_once()
+    mock_em.push_task.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -193,9 +193,9 @@ async def test_watchdog_nudges_stuck_project(tmp_path):
 
     assert events is not None
     assert events[0].payload["watchdog_nudged"] == ["proj_stuck"]
-    mock_em.schedule_node.assert_called_once()
+    mock_em.push_task.assert_called_once()
     # The nudge should target EA
-    call_args = mock_em.schedule_node.call_args
+    call_args = mock_em.push_task.call_args
     assert call_args[0][0] == "00004"  # EA_ID
     assert "proj_stuck" in _watchdog_nudged
 
@@ -224,7 +224,7 @@ async def test_watchdog_does_not_double_nudge(tmp_path):
         events = await project_progress_watchdog()
 
     assert events is None
-    mock_em.schedule_node.assert_not_called()
+    mock_em.push_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -254,7 +254,7 @@ async def test_watchdog_re_nudges_after_clear(tmp_path):
         events = await project_progress_watchdog()
 
     assert events is not None
-    mock_em.schedule_node.assert_called_once()
+    mock_em.push_task.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -284,4 +284,27 @@ async def test_watchdog_ignores_old_branch_nodes(tmp_path):
 
     # Should not nudge — current branch is all finished
     assert events is None
-    mock_em.schedule_node.assert_not_called()
+    mock_em.push_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_watchdog_skips_tree_without_ea_node(tmp_path):
+    """A tree with no EA node (only root) should be skipped gracefully."""
+    tree = _make_tree("proj_no_ea", [
+        {"id": "root", "node_type": "ceo_prompt", "status": "pending"},
+    ])
+
+    projects_dir = tmp_path / "projects" / "proj_no_ea"
+    projects_dir.mkdir(parents=True)
+    tree.save(projects_dir / "task_tree.yaml")
+
+    mock_em = MagicMock()
+    mock_em._schedule = {}
+    mock_em._running_tasks = {}
+
+    with patch("onemancompany.core.config.PROJECTS_DIR", tmp_path / "projects"), \
+         patch("onemancompany.core.vessel.employee_manager", mock_em):
+        events = await project_progress_watchdog()
+
+    assert events is None
+    mock_em.push_task.assert_not_called()
