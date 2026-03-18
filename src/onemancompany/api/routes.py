@@ -560,7 +560,7 @@ async def ceo_submit_task(body: dict) -> dict:
         async_create_project_from_task,
         create_iteration,
         create_named_project,
-        get_project_workspace,
+        get_project_dir,
     )
 
     task = body.get("task", "")
@@ -586,7 +586,7 @@ async def ceo_submit_task(body: dict) -> dict:
         # Auto-create named project from task description (LLM-powered naming)
         pid, iter_id = await async_create_project_from_task(task, "pending")
 
-    pdir = get_project_workspace(pid)
+    pdir = get_project_dir(pid)
 
     await event_bus.publish(
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
@@ -3395,9 +3395,9 @@ async def get_project_file(project_id: str, file_path: str):
 
     from fastapi.responses import Response
 
-    from onemancompany.core.project_archive import get_project_workspace
+    from onemancompany.core.project_archive import get_project_dir
 
-    workspace = Path(get_project_workspace(project_id))
+    workspace = Path(get_project_dir(project_id))
     target = (workspace / file_path).resolve()
     # Security: ensure path stays within workspace
     if not str(target).startswith(str(workspace.resolve())):
@@ -3545,9 +3545,9 @@ async def download_project_workspace(project_id: str):
 
     from pathlib import Path
 
-    from onemancompany.core.project_archive import get_project_workspace
+    from onemancompany.core.project_archive import get_project_dir
 
-    pdir = Path(get_project_workspace(project_id))
+    pdir = Path(get_project_dir(project_id))
     if not pdir.is_dir():
         from fastapi.responses import Response
         return Response(content="Project workspace not found", status_code=404)

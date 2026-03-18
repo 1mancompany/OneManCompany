@@ -1619,8 +1619,8 @@ class EmployeeManager:
                 parts.append(f"  {f}")
             if len(files) > self._CTX_MAX_WORKSPACE_FILES:
                 parts.append(f"  ... and {len(files) - self._CTX_MAX_WORKSPACE_FILES} more")
-            from onemancompany.core.project_archive import get_project_workspace
-            ws_path = get_project_workspace(slug)
+            from onemancompany.core.project_archive import get_project_dir
+            ws_path = get_project_dir(slug)
             parts.append(f'\nUse read("{ws_path}/{{filename}}") to read file contents.')
 
         return "\n".join(parts)
