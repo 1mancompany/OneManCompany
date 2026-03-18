@@ -1797,7 +1797,10 @@ class EmployeeManager:
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
         # EA done executing + all child subtrees RESOLVED → trigger retrospective.
-        if tree.is_project_complete():
+        # watchdog_nudge nodes are housekeeping probes — they must NOT trigger
+        # project completion. Their purpose is to nudge stalled projects, not
+        # to be the final event that marks a project done.
+        if node.node_type != "watchdog_nudge" and tree.is_project_complete():
             ea_node = tree.get_ea_node()
             logger.info(
                 "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
