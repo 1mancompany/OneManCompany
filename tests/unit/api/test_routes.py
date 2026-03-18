@@ -6692,59 +6692,45 @@ class TestUpdateEmployeeHostingManifest:
 # ---------------------------------------------------------------------------
 
 class TestCheckTalentRequiredFields:
-    def test_complete_company_profile(self):
+    @staticmethod
+    def _check(data):
         from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"}
-        assert _check_talent_required_fields(data) == []
+        return _check_talent_required_fields(data)
+
+    def test_complete_company_profile(self):
+        assert self._check({"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"}) == []
 
     def test_complete_self_profile(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "self"}
-        assert _check_talent_required_fields(data) == []
+        assert self._check({"hosting": "self"}) == []
 
     def test_missing_hosting(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"}
-        missing = _check_talent_required_fields(data)
+        missing = self._check({"llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"})
         assert "hosting" in missing
 
     def test_missing_llm_model_for_company(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "company", "api_provider": "openrouter", "auth_method": "api_key"}
-        missing = _check_talent_required_fields(data)
+        missing = self._check({"hosting": "company", "api_provider": "openrouter", "auth_method": "api_key"})
         assert "llm_model" in missing
         assert "hosting" not in missing
 
     def test_missing_auth_method_for_company(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter"}
-        missing = _check_talent_required_fields(data)
+        missing = self._check({"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter"})
         assert "auth_method" in missing
 
     def test_missing_api_provider_for_company(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "company", "llm_model": "gpt-4o", "auth_method": "api_key"}
-        missing = _check_talent_required_fields(data)
+        missing = self._check({"hosting": "company", "llm_model": "gpt-4o", "auth_method": "api_key"})
         assert "api_provider" in missing
 
     def test_self_hosted_skips_llm_and_auth(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "self"}
-        missing = _check_talent_required_fields(data)
+        missing = self._check({"hosting": "self"})
         assert "llm_model" not in missing
         assert "api_provider" not in missing
         assert "auth_method" not in missing
 
     def test_empty_dict(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        missing = _check_talent_required_fields({})
-        assert "hosting" in missing
+        assert "hosting" in self._check({})
 
     def test_empty_string_values_treated_as_missing(self):
-        from onemancompany.api.routes import _check_talent_required_fields
-        data = {"hosting": "", "llm_model": "", "api_provider": "", "auth_method": ""}
-        missing = _check_talent_required_fields(data)
-        assert "hosting" in missing
+        assert "hosting" in self._check({"hosting": "", "llm_model": "", "api_provider": "", "auth_method": ""})
 
 
 # ---------------------------------------------------------------------------

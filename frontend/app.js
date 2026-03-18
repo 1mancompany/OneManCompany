@@ -5504,8 +5504,8 @@ class AppController {
       </div>`;
   }
 
+  /** Show a simple alert modal. htmlContent must be pre-sanitized (use _escapeHtml). */
   _showAlertModal(title, htmlContent) {
-    // Reuse or create a simple alert modal overlay
     let overlay = document.getElementById('alert-modal-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
