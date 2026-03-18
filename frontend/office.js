@@ -72,7 +72,6 @@ class OfficeRenderer {
     this.hoverTile = null;    // {x, y, screenX, screenY} in tile coords
     this.particles = [];
     this._avatarImages = {};
-    this._decoImages  = {};
     this._toolIcons   = {};
     this.dpr = window.devicePixelRatio || 1;
 
@@ -87,9 +86,6 @@ class OfficeRenderer {
 
     // Preload tileset sheets (character sheets excluded until Task 8 spritesheet rendering)
     tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room']);
-
-    // Preload decoration sprites
-    this._preloadDecorations();
 
     // Mouse / click events
     this.canvas.addEventListener('mousemove', e => this._onMouseMove(e));
@@ -190,16 +186,6 @@ class OfficeRenderer {
         img.onerror = () => { this._avatarImages[emp.id] = null; };
         this._avatarImages[emp.id] = undefined; // loading sentinel
       }
-    }
-  }
-
-  _preloadDecorations() {
-    const decoNames = ['potted_plant', 'water_cooler', 'coffee_machine', 'bookshelf', 'server_rack', 'wall_clock'];
-    for (const name of decoNames) {
-      const img = new Image();
-      img.src = `/assets/office/${name}.png`;
-      img.onload  = () => { this._decoImages[name] = img; };
-      img.onerror = () => { this._decoImages[name] = null; };
     }
   }
 
@@ -454,118 +440,44 @@ class OfficeRenderer {
   drawPlants() {
     const plantPositions = [[0, 1], [19, 1], [10, 1]];
     for (const [gx, gy] of plantPositions) {
-      this._drawPlant(gx * TILE + 8, gy * TILE);
+      // Plant is 1×2 tiles (leafy top + pot bottom)
+      tileAtlas.drawDef(this.ctx, 'plant_large', gx * TILE, gy * TILE);
     }
-  }
-
-  _drawPlant(x, y) {
-    const sway = Math.sin(this.animFrame * 0.02) * 1;
-
-    this._rect(x + 6, y + 18, 12, 10, PALETTE.plantPot);
-    this._rect(x + 4, y + 16, 16, 3, PALETTE.plantPot);
-    this._rect(x + 4, y + 16, 16, 1, this._lighten(PALETTE.plantPot, 30));
-    this._rect(x + 6, y + 19, 2, 8, this._lighten(PALETTE.plantPot, 15));
-    this._rect(x + 16, y + 19, 2, 8, this._darken(PALETTE.plantPot, 20));
-    this._rect(x + 6, y + 16, 12, 2, '#3a2a1a');
-
-    this._rect(x + 6 + sway, y + 4, 4, 12, '#1a8835');
-    this._rect(x + 14 + sway, y + 6, 4, 10, '#1a8835');
-    this._rect(x + 9 + sway, y + 2, 6, 14, PALETTE.plant);
-    this._rect(x + 4 + sway, y + 8, 5, 8, PALETTE.plant);
-    this._rect(x + 15 + sway, y + 5, 5, 11, PALETTE.plant);
-    this._rect(x + 10 + sway, y + 3, 2, 6, '#2ecc55');
-    this._rect(x + 5 + sway, y + 9, 2, 4, '#2ecc55');
-
-    const ctx = this.ctx;
-    ctx.globalAlpha = 0.15;
-    this._rect(x + 11 + sway, y + 4, 1, 10, '#fff');
-    ctx.globalAlpha = 1;
   }
 
   // ── Decorations ────────────────────────────────────────────────────────────
 
   drawDecorations() {
     const ctx = this.ctx;
-    const placements = [
-      ['water_cooler', 2, 1],
-      ['coffee_machine', 17, 1],
-      ['bookshelf', 8, 1],
-      ['server_rack', 16, 1],
-    ];
 
-    for (const [name, gx, gy] of placements) {
-      const px = gx * TILE;
-      const py = gy * TILE;
-      const img = this._decoImages[name];
-      if (img) {
-        ctx.drawImage(img, px + 4, py, TILE - 8, TILE);
-      } else if (img === null) {
-        this._drawDecoFallback(name, px, py);
-      }
-    }
+    // Tile-based decorations (positions match original placements)
+    // Original: water_cooler(2,1), bookshelf(8,1), server_rack(16,1), coffee_machine(17,1)
+    tileAtlas.drawDef(ctx, 'plant_small', 2 * TILE, 1 * TILE);   // water cooler area
+    tileAtlas.drawDef(ctx, 'bookshelf', 8 * TILE, 1 * TILE);     // bookshelf (2×2)
+    tileAtlas.drawDef(ctx, 'filing_cabinet', 16 * TILE, 1 * TILE); // server rack area
+    tileAtlas.drawDef(ctx, 'printer', 17 * TILE, 1 * TILE);      // coffee machine area
 
-    const clockImg = this._decoImages['wall_clock'];
+    // Wall clock (small, in wall area — keep as primitive, no good tile match)
     const clockX = 9 * TILE + 8;
     const clockY = 2;
-    if (clockImg) {
-      ctx.drawImage(clockImg, clockX, clockY, 16, 16);
-    } else {
-      this._rect(clockX, clockY, 16, 16, '#333355');
-      this._rect(clockX + 1, clockY + 1, 14, 14, '#ddd');
-      this._rect(clockX + 7, clockY + 3, 2, 6, '#222');
-      this._rect(clockX + 7, clockY + 7, 5, 2, '#222');
-      this._rect(clockX + 7, clockY + 7, 2, 2, '#ff4444');
-    }
-  }
+    this._rect(clockX, clockY, 16, 16, '#333355');
+    this._rect(clockX + 1, clockY + 1, 14, 14, '#ddd');
+    this._rect(clockX + 7, clockY + 3, 2, 6, '#222');
+    this._rect(clockX + 7, clockY + 7, 5, 2, '#222');
+    this._rect(clockX + 7, clockY + 7, 2, 2, '#ff4444');
 
-  _drawDecoFallback(name, px, py) {
-    if (name === 'water_cooler') {
-      this._rect(px + 10, py + 2, 12, 10, '#aaddff');
-      this._rect(px + 10, py + 2, 12, 2, '#cceeFF');
-      this._rect(px + 8, py + 12, 16, 16, '#ddd');
-      this._rect(px + 8, py + 12, 16, 2, '#eee');
-      this._rect(px + 10, py + 28, 12, 4, '#999');
-      this._rect(px + 10, py + 18, 3, 2, '#ff4444');
-      this._rect(px + 19, py + 18, 3, 2, '#4488ff');
-    } else if (name === 'coffee_machine') {
-      this._rect(px + 8, py + 6, 16, 20, '#3a3030');
-      this._rect(px + 8, py + 6, 16, 2, '#4a4040');
-      this._rect(px + 10, py + 10, 12, 8, '#222');
-      this._rect(px + 12, py + 20, 8, 6, '#fff');
-      this._rect(px + 12, py + 20, 8, 1, '#eee');
-      const steamPhase = Math.sin(this.animFrame * 0.06);
-      this.ctx.globalAlpha = 0.3;
-      this._rect(px + 14 + steamPhase, py + 16, 2, 4, '#fff');
-      this._rect(px + 17 - steamPhase, py + 14, 2, 5, '#fff');
-      this.ctx.globalAlpha = 1;
-    } else if (name === 'bookshelf') {
-      this._rect(px + 6, py + 2, 20, 28, '#6b4f0e');
-      this._rect(px + 6, py + 2, 20, 1, '#8b6914');
-      this._rect(px + 6, py + 14, 20, 2, '#8b6914');
-      const bookColors = ['#cc4444', '#4488ff', '#44aa44', '#ffaa00', '#aa44cc', '#44cccc'];
-      let bx = px + 8;
-      for (let i = 0; i < 5; i++) {
-        const bw = 3;
-        this._rect(bx, py + 4, bw, 10, bookColors[i % bookColors.length]);
-        this._rect(bx, py + 4, bw, 1, this._lighten(bookColors[i % bookColors.length], 40));
-        bx += bw + 1;
-      }
-      bx = px + 8;
-      for (let i = 0; i < 4; i++) {
-        const bw = 4;
-        this._rect(bx, py + 17, bw, 10, bookColors[(i + 3) % bookColors.length]);
-        bx += bw + 1;
-      }
-    } else if (name === 'server_rack') {
-      this._rect(px + 8, py + 2, 16, 28, '#333340');
-      this._rect(px + 8, py + 2, 16, 1, '#444455');
-      for (let sy = py + 4; sy < py + 28; sy += 6) {
-        this._rect(px + 10, sy, 12, 4, '#2a2a35');
-        this._rect(px + 10, sy, 12, 1, '#3a3a45');
-        const ledOn = ((this.animFrame + sy) % 60) < 40;
-        this._rect(px + 11, sy + 2, 2, 1, ledOn ? '#44ff88' : '#334433');
-        this._rect(px + 14, sy + 2, 2, 1, '#ffaa00');
-      }
+    // Coffee machine steam animation (Canvas overlay on tile)
+    const steamPhase = Math.sin(this.animFrame * 0.06);
+    ctx.globalAlpha = 0.3;
+    this._rect(17 * TILE + 14 + steamPhase, 1 * TILE + 2, 2, 4, '#fff');
+    this._rect(17 * TILE + 17 - steamPhase, 1 * TILE, 2, 5, '#fff');
+    ctx.globalAlpha = 1;
+
+    // Server rack blinking LEDs (Canvas overlay on tile)
+    for (let sy = 1 * TILE + 4; sy < 1 * TILE + 28; sy += 6) {
+      const ledOn = ((this.animFrame + sy) % 60) < 40;
+      this._rect(16 * TILE + 11, sy + 2, 2, 1, ledOn ? '#44ff88' : '#334433');
+      this._rect(16 * TILE + 14, sy + 2, 2, 1, '#ffaa00');
     }
   }
 
