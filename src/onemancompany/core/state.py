@@ -171,6 +171,7 @@ class Employee:
     current_task_summary: str = ""
     api_online: bool = True       # heartbeat check result
     needs_setup: bool = False     # needs API key / OAuth login
+    avatar_sprite: int = 0         # character spritesheet index (1-20), 0 = use hash fallback
 
     @property
     def title(self) -> str:
@@ -213,6 +214,7 @@ class Employee:
             "current_task_summary": self.current_task_summary,
             "api_online": self.api_online,
             "needs_setup": self.needs_setup,
+            "avatar_sprite": self.avatar_sprite,
         }
 
 

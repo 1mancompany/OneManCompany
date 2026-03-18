@@ -134,10 +134,10 @@ def compute_layout(company_state) -> dict:
 def _get_executive_positions() -> dict[str, tuple[int, int]]:
     """Return fixed executive desk positions."""
     return {
-        HR_ID: (3, EXEC_ROW_GY),
-        EA_ID: (7, EXEC_ROW_GY),
-        COO_ID: (11, EXEC_ROW_GY),
-        CSO_ID: (15, EXEC_ROW_GY),
+        HR_ID: (1, EXEC_ROW_GY),
+        EA_ID: (5, EXEC_ROW_GY),
+        COO_ID: (13, EXEC_ROW_GY),
+        CSO_ID: (17, EXEC_ROW_GY),
     }
 
 
@@ -345,7 +345,7 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
 TOTAL_COLS = 20
 ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
 TOOL_SPACING_X = 3  # horizontal spacing between tools
-ROOM_SPACING_X = 4  # horizontal spacing between meeting rooms (room is 2 tiles wide)
+ROOM_SPACING_X = 3  # horizontal spacing between meeting rooms (room is 2 tiles wide + 1 gap)
 MIN_CANVAS_ROWS = 15
 
 

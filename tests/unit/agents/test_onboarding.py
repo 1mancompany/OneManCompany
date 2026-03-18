@@ -289,8 +289,11 @@ class TestExecuteHire:
             lambda model: 5.0,
         )
 
-        # Mock store.append_activity
+        # Mock store methods to capture call args
         monkeypatch.setattr(onboarding._store, "append_activity", AsyncMock())
+        mock_save_employee = AsyncMock()
+        monkeypatch.setattr(onboarding._store, "save_employee", mock_save_employee)
+        monkeypatch.setattr(onboarding._store, "save_employee_runtime", AsyncMock())
 
         emp = await onboarding.execute_hire(
             name="Test Developer",
@@ -341,6 +344,12 @@ class TestExecuteHire:
         onboarding._store.append_activity.assert_awaited()
         call_entry = onboarding._store.append_activity.call_args[0][0]
         assert call_entry["type"] == "employee_hired"
+
+        # Verify avatar_sprite assigned (1-20) in save_employee call
+        mock_save_employee.assert_awaited_once()
+        saved_data = mock_save_employee.call_args[0][1]  # 2nd positional arg is the dict
+        assert "avatar_sprite" in saved_data, "avatar_sprite field must be in profile"
+        assert 1 <= saved_data["avatar_sprite"] <= 20
 
     @pytest.mark.asyncio
     async def test_hire_remote_employee(self, tmp_path, monkeypatch):

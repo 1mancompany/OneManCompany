@@ -13,27 +13,14 @@ const COLS = MAP_COLS;    // 20
 let ROWS = 18;            // updated from office_layout.canvas_rows
 
 const PALETTE = {
-  // Floor (warm-tinted dark tiles, not grey)
-  floor1: '#2c2840',
-  floor2: '#262238',
   // Walls (deep indigo with subtle warmth)
   wallTop: '#161428',
   wallMid: '#1e1a34',
   wallBot: '#242040',
-  // Furniture (rich warm wood tones)
-  desk: '#9a7420',
-  deskDark: '#6d5210',
-  deskLight: '#b8901e',
-  chair: '#3c3468',
-  chairDark: '#2c2450',
   // Tech (vivid cyan glow)
   screenOn: '#22ddff',
-  screenGlow: 'rgba(34, 221, 255, 0.15)',
-  screenOff: '#333355',
   led1: '#33ffaa',
-  led2: '#ff5555',
-  led3: '#ffee44',
-  // People (wider variety, warmer tones)
+  // People — still used by meeting room participant fallback
   skin: ['#f5cc8e', '#eab878', '#d09868', '#b07858', '#8c6048'],
   hair: ['#1a1a24', '#5c3010', '#dd9922', '#cc4444', '#7744aa', '#2255aa', '#884444', '#446644'],
   shirt: ['#4488ff', '#ff4466', '#44cc44', '#cc44cc', '#ff8844', '#44cccc', '#8866dd', '#dd8844'],
@@ -44,11 +31,11 @@ const PALETTE = {
   eaGreen: '#44ddaa',
   csoPurple: '#bb55ff',
   // Meeting Room
+  meetingBooked: '#ff4455',
+  meetingFree: '#00ff88',
   meetingTable: '#5c4420',
   meetingTableLight: '#7a5c2e',
   meetingChair: '#445566',
-  meetingBooked: '#ff4455',
-  meetingFree: '#00ff88',
   // Bulletin Board
   boardBg: '#6b4226',
   boardFrame: '#4a2e18',
@@ -61,23 +48,8 @@ const PALETTE = {
   projectCard: '#d4e8d0',
   projectCardAlt: '#c0dcc0',
   projectPin: '#ffdd00',
-  // Environment
-  plant: '#22aa44',
-  plantPot: '#884422',
-  windowFrame: '#4444aa',
-  windowGlass: '#1a1a55',
-  windowSky: '#2244aa',
 };
 
-// Floor fallback colors keyed by floor style (used while tileset loads)
-const FLOOR_FALLBACK = {
-  floor_stone_gray: ['#2c2840', '#262238'],
-  floor_stone_blue: ['#1a2840', '#162238'],
-  floor_wood_warm:  ['#3a2810', '#2e2008'],
-  floor_tile_green: ['#1a3020', '#142818'],
-  floor_carpet_red: ['#3a1a1a', '#2e1212'],
-  floor_wood_gold:  ['#3a2c10', '#2e2208'],
-};
 
 class OfficeRenderer {
   constructor(canvasId) {
@@ -90,7 +62,6 @@ class OfficeRenderer {
     this.hoverTile = null;    // {x, y, screenX, screenY} in tile coords
     this.particles = [];
     this._avatarImages = {};
-    this._decoImages  = {};
     this._toolIcons   = {};
     this.dpr = window.devicePixelRatio || 1;
 
@@ -103,11 +74,8 @@ class OfficeRenderer {
     );
     this.minimap = new MiniMap(this.officeMap, this.camera);
 
-    // Preload tileset sheets (character sheets excluded until Task 8 spritesheet rendering)
-    tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room']);
-
-    // Preload decoration sprites
-    this._preloadDecorations();
+    // Preload tileset sheets (character sheets loaded on-demand per employee)
+    tileAtlas.preload(['gen', 'office', 'room_free']);
 
     // Mouse / click events
     this.canvas.addEventListener('mousemove', e => this._onMouseMove(e));
@@ -193,6 +161,8 @@ class OfficeRenderer {
 
     this._preloadToolIcons();
     this._preloadAvatars();
+    // Preload character spritesheets for current employees
+    this._preloadCharacterSheets();
   }
 
   // ── Preloaders ─────────────────────────────────────────────────────────────
@@ -209,16 +179,6 @@ class OfficeRenderer {
     }
   }
 
-  _preloadDecorations() {
-    const decoNames = ['potted_plant', 'water_cooler', 'coffee_machine', 'bookshelf', 'server_rack', 'wall_clock'];
-    for (const name of decoNames) {
-      const img = new Image();
-      img.src = `/assets/office/${name}.png`;
-      img.onload  = () => { this._decoImages[name] = img; };
-      img.onerror = () => { this._decoImages[name] = null; };
-    }
-  }
-
   _preloadToolIcons() {
     for (const tool of (this.state.tools || [])) {
       if (tool.has_icon && !this._toolIcons[tool.id]) {
@@ -228,6 +188,34 @@ class OfficeRenderer {
         this._toolIcons[tool.id] = null; // mark as loading
       }
     }
+  }
+
+  _preloadCharacterSheets() {
+    const needed = new Set();
+    // CEO uses hardcoded id 'ceo_boss' — preload its sheet too
+    const ceoSpriteNum = (this._hashStr('ceo_boss') % 20) + 1;
+    needed.add(`char${String(ceoSpriteNum).padStart(2, '0')}`);
+    for (const emp of (this.state.employees || [])) {
+      const spriteNum = emp.avatar_sprite || ((this._hashStr(emp.id || 'default') % 20) + 1);
+      needed.add(`char${String(spriteNum).padStart(2, '0')}`);
+    }
+    const toLoad = [...needed].filter(k => !tileAtlas.isReady(k));
+    if (toLoad.length > 0) {
+      tileAtlas.preload(toLoad);
+    }
+  }
+
+  _getCharFrame(data) {
+    const hash = this._hashStr(data.id || 'default');
+    const spriteNum = data.avatar_sprite || ((hash % 20) + 1);
+    const sheetKey = `char${String(spriteNum).padStart(2, '0')}`;
+
+    if (data.current_task || data.status === 'working') {
+      // Sit pose: animation row 3 = tile rows 6-7 (Sit variant 1, front-facing)
+      return { sheet: sheetKey, row: 6, col: 0, w: 1, h: 2 };
+    }
+    // Idle front-facing: tile rows 2-3, col 18 (direction order: Right/Up/Left/Down, 6 frames each)
+    return { sheet: sheetKey, row: 2, col: 18, w: 1, h: 2 };
   }
 
   // ── Click / hover ──────────────────────────────────────────────────────────
@@ -277,11 +265,11 @@ class OfficeRenderer {
       }
     }
 
-    // Employees — sprite spans ~2 tiles above desk row
+    // Employees — character is 1 tile right of desk_position
     for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       const canvasRow = ey + WALL_ROWS;
-      if (tx === ex && (ty === canvasRow - 1 || ty === canvasRow || ty === canvasRow + 1)) {
+      if (tx === ex + 1 && (ty === canvasRow - 1 || ty === canvasRow || ty === canvasRow + 1)) {
         if (window.app?.openEmployeeDetail) window.app.openEmployeeDetail(emp);
         return;
       }
@@ -341,96 +329,125 @@ class OfficeRenderer {
     this.ctx.fillRect(x, y, w, h);
   }
 
-  // ── Floor (tileset with fallback checkerboard) ─────────────────────────────
+  // ── Floor (tileset-only) ─────────────────────────────
 
   drawFloor() {
     const ctx  = this.ctx;
     const vis  = this.camera.getVisibleTiles(COLS, ROWS);
 
-    for (let row = vis.minRow; row <= vis.maxRow; row++) {
+    for (let row = Math.max(WALL_ROWS, vis.minRow); row <= vis.maxRow; row++) {
       for (let col = vis.minCol; col <= vis.maxCol; col++) {
-        const x        = col * TILE;
-        const y        = row * TILE;
+        const x = col * TILE;
+        const y = row * TILE;
         const floorKey = this.officeMap.getFloor(col, row);
 
-        // Fallback color fill (visible while tileset loads, and for unrecognized keys)
-        const fb = FLOOR_FALLBACK[floorKey] || FLOOR_FALLBACK.floor_stone_gray;
-        ctx.fillStyle = (row + col) % 2 === 0 ? fb[0] : fb[1];
-        ctx.fillRect(x, y, TILE, TILE);
-
-        // Subtle tile groove lines (mimic old floor detail)
-        ctx.globalAlpha = 0.05;
-        ctx.fillStyle = '#000';
-        ctx.fillRect(x, y, TILE, 1);
-        ctx.fillRect(x, y, 1, TILE);
-        ctx.globalAlpha = 0.04;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x + TILE - 1, y, 1, TILE);
-        ctx.fillRect(x, y + TILE - 1, TILE, 1);
-        ctx.globalAlpha = 1;
-
-        // Tileset floor tile drawn on top (silent no-op until loaded)
+        // Draw tileset floor tile (silent no-op if not loaded)
         tileAtlas.drawDef(ctx, floorKey, x, y);
 
-        // Divider plant overlay: solid green fallback always drawn first,
-        // tileset sprite drawn on top once loaded (same pattern as floor tiles).
+        // Divider plant overlay (fallback green strip if tiles not loaded)
         if (this.officeMap.isDivider(col, row)) {
-          ctx.fillStyle = (row % 2 === 0) ? '#2a5a2a' : '#224a22';
-          ctx.fillRect(x + 4, y, TILE - 8, TILE);
-          ctx.fillStyle = '#1a3a1a';
-          ctx.fillRect(x + 10, y + 4, TILE - 20, TILE - 8);
+          if (!tileAtlas.isReady('gen')) {
+            this._rect(x + 12, y, 8, TILE, '#2a5a30');
+          }
           const overlay = this.officeMap.getOverlay(col, row);
           if (overlay) tileAtlas.drawDef(ctx, overlay, x, y);
         }
       }
     }
 
-    // Ambient floor glow under screen areas (blueish light cast)
+    // CEO rug (below CEO character position)
+    const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
+    tileAtlas.drawDef(ctx, 'ceo_rug', 10 * TILE, (execRowCanvas + 1) * TILE);
+
+    // Ambient floor glow under screen areas
     ctx.globalAlpha = 0.04;
     for (const emp of (this.state.employees || [])) {
       if (emp.remote) continue;
       const [ex, ey] = emp.desk_position || [0, 0];
       ctx.fillStyle = PALETTE.screenOn;
-      ctx.fillRect(ex * TILE - 8, (ey + WALL_ROWS) * TILE + 8, TILE + 16, TILE);
+      ctx.fillRect((ex + 1) * TILE - 8, (ey + WALL_ROWS) * TILE + 8, TILE + 16, TILE);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // ── Office border (wraps entire grid) ────────────────────────────────────
+  drawBorder() {
+    const ctx = this.ctx;
+    const T = TILE;
+    const PI = Math.PI;
+
+    // Left column (col = -1), skip corners
+    for (let row = 0; row < ROWS; row++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', -T, row * T, -PI / 2);
+    }
+
+    // Right column (col = COLS), skip corners
+    for (let row = 0; row < ROWS; row++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', COLS * T, row * T, PI / 2, true);
+    }
+
+    // Top row (row = -1), skip corners
+    for (let col = 0; col < COLS; col++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', col * T, -T);
+    }
+
+    // Bottom row (row = ROWS), skip corners
+    for (let col = 0; col < COLS; col++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', col * T, ROWS * T, PI);
+    }
+
+    // Corners (solid dark tile, no rotation needed)
+    tileAtlas.drawDef(ctx, 'border_corner', -T, -T);
+    tileAtlas.drawDef(ctx, 'border_corner', COLS * T, -T);
+    tileAtlas.drawDef(ctx, 'border_corner', -T, ROWS * T);
+    tileAtlas.drawDef(ctx, 'border_corner', COLS * T, ROWS * T);
   }
 
   // ── Walls ──────────────────────────────────────────────────────────────────
 
   drawWalls() {
     const ctx = this.ctx;
-    this._rect(0, 0, COLS * TILE, 8, PALETTE.wallTop);
-    this._rect(0, 8, COLS * TILE, 16, PALETTE.wallMid);
-    this._rect(0, 24, COLS * TILE, 8, PALETTE.wallBot);
-    this._rect(0, 30, COLS * TILE, 2, '#2a2650');
+    const vis = this.camera.getVisibleTiles(COLS, ROWS);
 
-    ctx.globalAlpha = 0.04;
-    for (let wx = 0; wx < COLS * TILE; wx += 16) {
-      for (let wy = 4; wy < 28; wy += 8) {
-        const offset = (wy % 16 === 4) ? 0 : 8;
-        this._rect(wx + offset, wy, 14, 6, '#fff');
-        this._rect(wx + offset, wy, 14, 1, '#fff');
+    // Only draw wall tiles in rows 0-2 (WALL_ROWS = 3)
+    for (let col = Math.max(0, vis.minCol); col <= Math.min(COLS - 1, vis.maxCol); col++) {
+      const x = col * TILE;
+
+      // Determine if this column has a window
+      // Windows at every 4 columns, except where bulletin board (cols 5-7)
+      // and project wall (cols 12-14) are
+      const hasWindow = (col % 4 === 0) && !(col >= 4 && col <= 8) && !(col >= 11 && col <= 15);
+
+      // Wall colored bands (always drawn as base)
+      this._rect(x, 0, TILE, TILE, PALETTE.wallTop);
+      this._rect(x, TILE, TILE, TILE, PALETTE.wallMid);
+      this._rect(x, TILE * 2, TILE, TILE, PALETTE.wallBot);
+
+      // Tileset wall panels on top (from office sheet cubicle partitions)
+      if (hasWindow) {
+        tileAtlas.drawDef(ctx, 'wall_window_top', x, 0);
+        tileAtlas.drawDef(ctx, 'wall_window_bottom', x, TILE);
+      } else {
+        tileAtlas.drawDef(ctx, 'wall_top', x, 0);
+        tileAtlas.drawDef(ctx, 'wall_mid', x, TILE);
+      }
+      tileAtlas.drawDef(ctx, 'wall_bottom', x, TILE * 2);
+
+      // Dynamic sky + stars in window panes (Canvas overlay on top of tile)
+      if (hasWindow) {
+        this._drawWindowAnimation(x + 8, 4);
       }
     }
-    ctx.globalAlpha = 1;
 
-    for (let i = 0; i < COLS; i += 4) {
-      if (i >= 4 && i <= 8)   continue;
-      if (i >= 11 && i <= 15) continue;
-      this._drawWindow(i * TILE + 8, 4);
-    }
+    // Baseboard shadow line
+    this._rect(0, 30, COLS * TILE, 2, '#2a2650');
   }
 
-  _drawWindow(x, y) {
+  _drawWindowAnimation(x, y) {
     const ctx = this.ctx;
-    this._rect(x - 3, y - 3, TILE - 10, TILE - 6, '#2a2a55');
-    this._rect(x - 2, y - 2, TILE - 12, TILE - 8, PALETTE.windowFrame);
     const glassW = (TILE - 18) / 2;
-    this._rect(x, y, glassW, TILE - 12, PALETTE.windowGlass);
-    this._rect(x + glassW + 2, y, glassW, TILE - 12, PALETTE.windowGlass);
-    this._rect(x + glassW, y - 1, 2, TILE - 10, PALETTE.windowFrame);
 
+    // Dynamic sky color
     const timeOfDay = (Math.sin(this.animFrame * 0.005) + 1) / 2;
     const skyTop = `rgb(${30 + timeOfDay * 20}, ${50 + timeOfDay * 30}, ${130 + timeOfDay * 40})`;
     ctx.globalAlpha = 0.4;
@@ -438,6 +455,7 @@ class OfficeRenderer {
     this._rect(x + glassW + 3, y + 1, glassW - 2, 6, skyTop);
     ctx.globalAlpha = 1;
 
+    // Twinkling stars
     const starPhase = (this.animFrame + x * 7) % 200;
     if (starPhase < 80) {
       ctx.globalAlpha = starPhase < 40 ? starPhase / 40 : (80 - starPhase) / 40;
@@ -445,13 +463,6 @@ class OfficeRenderer {
       this._rect(x + glassW + 5, y + 4, 1, 1, '#fff');
       ctx.globalAlpha = 1;
     }
-
-    this._rect(x - 3, y + TILE - 12, TILE - 10, 2, '#3a3a66');
-    this._rect(x - 2, y + TILE - 10, TILE - 12, 1, '#4a4a77');
-
-    ctx.globalAlpha = 0.03;
-    this._rect(x - 2, y + TILE - 8, TILE - 12, 20, '#8888cc');
-    ctx.globalAlpha = 1;
   }
 
   // ── Plants ─────────────────────────────────────────────────────────────────
@@ -459,118 +470,55 @@ class OfficeRenderer {
   drawPlants() {
     const plantPositions = [[0, 1], [19, 1], [10, 1]];
     for (const [gx, gy] of plantPositions) {
-      this._drawPlant(gx * TILE + 8, gy * TILE);
+      const px = gx * TILE, py = gy * TILE;
+      // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+      if (!tileAtlas.isReady('gen')) {
+        this._rect(px + 8, py + 2, 16, 28, '#2a5a30');
+      }
+      tileAtlas.drawDef(this.ctx, 'plant_large', px, py);
     }
-  }
-
-  _drawPlant(x, y) {
-    const sway = Math.sin(this.animFrame * 0.02) * 1;
-
-    this._rect(x + 6, y + 18, 12, 10, PALETTE.plantPot);
-    this._rect(x + 4, y + 16, 16, 3, PALETTE.plantPot);
-    this._rect(x + 4, y + 16, 16, 1, this._lighten(PALETTE.plantPot, 30));
-    this._rect(x + 6, y + 19, 2, 8, this._lighten(PALETTE.plantPot, 15));
-    this._rect(x + 16, y + 19, 2, 8, this._darken(PALETTE.plantPot, 20));
-    this._rect(x + 6, y + 16, 12, 2, '#3a2a1a');
-
-    this._rect(x + 6 + sway, y + 4, 4, 12, '#1a8835');
-    this._rect(x + 14 + sway, y + 6, 4, 10, '#1a8835');
-    this._rect(x + 9 + sway, y + 2, 6, 14, PALETTE.plant);
-    this._rect(x + 4 + sway, y + 8, 5, 8, PALETTE.plant);
-    this._rect(x + 15 + sway, y + 5, 5, 11, PALETTE.plant);
-    this._rect(x + 10 + sway, y + 3, 2, 6, '#2ecc55');
-    this._rect(x + 5 + sway, y + 9, 2, 4, '#2ecc55');
-
-    const ctx = this.ctx;
-    ctx.globalAlpha = 0.15;
-    this._rect(x + 11 + sway, y + 4, 1, 10, '#fff');
-    ctx.globalAlpha = 1;
   }
 
   // ── Decorations ────────────────────────────────────────────────────────────
 
   drawDecorations() {
     const ctx = this.ctx;
-    const placements = [
-      ['water_cooler', 2, 1],
-      ['coffee_machine', 17, 1],
-      ['bookshelf', 8, 1],
-      ['server_rack', 16, 1],
-    ];
 
-    for (const [name, gx, gy] of placements) {
-      const px = gx * TILE;
-      const py = gy * TILE;
-      const img = this._decoImages[name];
-      if (img) {
-        ctx.drawImage(img, px + 4, py, TILE - 8, TILE);
-      } else if (img === null) {
-        this._drawDecoFallback(name, px, py);
-      }
+    // Fallback FIRST for all decoration positions (tile draws on top)
+    if (!tileAtlas.isReady('gen')) {
+      this._rect(2 * TILE + 8, 1 * TILE, 16, TILE, '#446688');   // water cooler
+      this._rect(8 * TILE, 1 * TILE, TILE * 2, TILE, '#5a3a20'); // bookshelf
+      this._rect(16 * TILE, 1 * TILE, TILE, TILE, '#334455');     // server rack
+      this._rect(17 * TILE, 1 * TILE, TILE, TILE, '#554433');     // coffee machine
     }
 
-    const clockImg = this._decoImages['wall_clock'];
+    // Tile-based decorations (positions match original placements)
+    tileAtlas.drawDef(ctx, 'plant_small', 2 * TILE, 1 * TILE);   // water cooler area
+    tileAtlas.drawDef(ctx, 'bookshelf', 8 * TILE, 1 * TILE);     // bookshelf (2×2)
+    tileAtlas.drawDef(ctx, 'filing_cabinet', 16 * TILE, 1 * TILE); // server rack area
+    tileAtlas.drawDef(ctx, 'printer', 17 * TILE, 1 * TILE);      // coffee machine area
+
+    // Wall clock (small, in wall area — keep as primitive, no good tile match)
     const clockX = 9 * TILE + 8;
     const clockY = 2;
-    if (clockImg) {
-      ctx.drawImage(clockImg, clockX, clockY, 16, 16);
-    } else {
-      this._rect(clockX, clockY, 16, 16, '#333355');
-      this._rect(clockX + 1, clockY + 1, 14, 14, '#ddd');
-      this._rect(clockX + 7, clockY + 3, 2, 6, '#222');
-      this._rect(clockX + 7, clockY + 7, 5, 2, '#222');
-      this._rect(clockX + 7, clockY + 7, 2, 2, '#ff4444');
-    }
-  }
+    this._rect(clockX, clockY, 16, 16, '#333355');
+    this._rect(clockX + 1, clockY + 1, 14, 14, '#ddd');
+    this._rect(clockX + 7, clockY + 3, 2, 6, '#222');
+    this._rect(clockX + 7, clockY + 7, 5, 2, '#222');
+    this._rect(clockX + 7, clockY + 7, 2, 2, '#ff4444');
 
-  _drawDecoFallback(name, px, py) {
-    if (name === 'water_cooler') {
-      this._rect(px + 10, py + 2, 12, 10, '#aaddff');
-      this._rect(px + 10, py + 2, 12, 2, '#cceeFF');
-      this._rect(px + 8, py + 12, 16, 16, '#ddd');
-      this._rect(px + 8, py + 12, 16, 2, '#eee');
-      this._rect(px + 10, py + 28, 12, 4, '#999');
-      this._rect(px + 10, py + 18, 3, 2, '#ff4444');
-      this._rect(px + 19, py + 18, 3, 2, '#4488ff');
-    } else if (name === 'coffee_machine') {
-      this._rect(px + 8, py + 6, 16, 20, '#3a3030');
-      this._rect(px + 8, py + 6, 16, 2, '#4a4040');
-      this._rect(px + 10, py + 10, 12, 8, '#222');
-      this._rect(px + 12, py + 20, 8, 6, '#fff');
-      this._rect(px + 12, py + 20, 8, 1, '#eee');
-      const steamPhase = Math.sin(this.animFrame * 0.06);
-      this.ctx.globalAlpha = 0.3;
-      this._rect(px + 14 + steamPhase, py + 16, 2, 4, '#fff');
-      this._rect(px + 17 - steamPhase, py + 14, 2, 5, '#fff');
-      this.ctx.globalAlpha = 1;
-    } else if (name === 'bookshelf') {
-      this._rect(px + 6, py + 2, 20, 28, '#6b4f0e');
-      this._rect(px + 6, py + 2, 20, 1, '#8b6914');
-      this._rect(px + 6, py + 14, 20, 2, '#8b6914');
-      const bookColors = ['#cc4444', '#4488ff', '#44aa44', '#ffaa00', '#aa44cc', '#44cccc'];
-      let bx = px + 8;
-      for (let i = 0; i < 5; i++) {
-        const bw = 3;
-        this._rect(bx, py + 4, bw, 10, bookColors[i % bookColors.length]);
-        this._rect(bx, py + 4, bw, 1, this._lighten(bookColors[i % bookColors.length], 40));
-        bx += bw + 1;
-      }
-      bx = px + 8;
-      for (let i = 0; i < 4; i++) {
-        const bw = 4;
-        this._rect(bx, py + 17, bw, 10, bookColors[(i + 3) % bookColors.length]);
-        bx += bw + 1;
-      }
-    } else if (name === 'server_rack') {
-      this._rect(px + 8, py + 2, 16, 28, '#333340');
-      this._rect(px + 8, py + 2, 16, 1, '#444455');
-      for (let sy = py + 4; sy < py + 28; sy += 6) {
-        this._rect(px + 10, sy, 12, 4, '#2a2a35');
-        this._rect(px + 10, sy, 12, 1, '#3a3a45');
-        const ledOn = ((this.animFrame + sy) % 60) < 40;
-        this._rect(px + 11, sy + 2, 2, 1, ledOn ? '#44ff88' : '#334433');
-        this._rect(px + 14, sy + 2, 2, 1, '#ffaa00');
-      }
+    // Coffee machine steam animation (Canvas overlay on tile)
+    const steamPhase = Math.sin(this.animFrame * 0.06);
+    ctx.globalAlpha = 0.3;
+    this._rect(17 * TILE + 14 + steamPhase, 1 * TILE + 2, 2, 4, '#fff');
+    this._rect(17 * TILE + 17 - steamPhase, 1 * TILE, 2, 5, '#fff');
+    ctx.globalAlpha = 1;
+
+    // Server rack blinking LEDs (Canvas overlay on tile)
+    for (let sy = 1 * TILE + 4; sy < 1 * TILE + 28; sy += 6) {
+      const ledOn = ((this.animFrame + sy) % 60) < 40;
+      this._rect(16 * TILE + 11, sy + 2, 2, 1, ledOn ? '#44ff88' : '#334433');
+      this._rect(16 * TILE + 14, sy + 2, 2, 1, '#ffaa00');
     }
   }
 
@@ -640,16 +588,15 @@ class OfficeRenderer {
     const bw = TILE * 3;
     const bh = TILE - 4;
 
-    this._rect(bx, by, bw, bh, PALETTE.boardBg);
-    ctx.globalAlpha = 0.08;
-    for (let tx = bx + 2; tx < bx + bw - 2; tx += 4) {
-      for (let ty = by + 2; ty < by + bh - 2; ty += 4) {
-        const seed = (tx * 31 + ty * 17) & 0xff;
-        if (seed > 180) this._rect(tx, ty, 2, 2, '#fff');
-        if (seed < 40)  this._rect(tx + 1, ty + 1, 1, 1, '#000');
-      }
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('gen')) {
+      this._rect(bx, by, bw, bh, PALETTE.boardBg);
     }
-    ctx.globalAlpha = 1;
+
+    // Tile background — use floor wood tile for cork-board texture
+    for (let tx = 0; tx < 3; tx++) {
+      tileAtlas.drawDef(this.ctx, 'floor_wood_warm', bx + tx * TILE, by - 2);
+    }
 
     const fc = PALETTE.boardFrame;
     const fl = this._lighten(fc, 20);
@@ -689,8 +636,8 @@ class OfficeRenderer {
       ctx.globalAlpha = 1;
     }
 
-    ctx.fillStyle = PALETTE.boardPaper;
-    ctx.font = '7px monospace';
+    ctx.fillStyle = '#4a2e18';
+    ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('\u{1F4CB} Rules', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
@@ -705,13 +652,15 @@ class OfficeRenderer {
     const bw = TILE * 3;
     const bh = TILE - 4;
 
-    this._rect(bx, by, bw, bh, PALETTE.projectBg);
-    ctx.globalAlpha = 0.06;
-    for (let lx = bx + TILE; lx < bx + bw; lx += TILE) {
-      this._rect(lx, by + 2, 1, bh - 4, '#fff');
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('gen')) {
+      this._rect(bx, by, bw, bh, PALETTE.projectBg);
     }
-    this._rect(bx + 2, by + 2, bw - 4, 4, '#fff');
-    ctx.globalAlpha = 1;
+
+    // Tile background — use dark stone floor tile for project wall surface
+    for (let tx = 0; tx < 3; tx++) {
+      tileAtlas.drawDef(this.ctx, 'floor_stone_blue', bx + tx * TILE, by - 2);
+    }
 
     const fc = PALETTE.projectFrame;
     this._rect(bx - 1, by - 1, bw + 2, 3, fc);
@@ -747,8 +696,8 @@ class OfficeRenderer {
       ctx.globalAlpha = 1;
     }
 
-    ctx.fillStyle = PALETTE.projectCard;
-    ctx.font = '7px monospace';
+    ctx.fillStyle = '#0d2a1a';
+    ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('\u{1F4CA} Projects', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
@@ -772,276 +721,140 @@ class OfficeRenderer {
     return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
   }
 
-  // ── Desk (pixel-art Stardew Valley style) ──────────────────────────────────
+  // ── Desk (tileset furniture) ──────────────────────────────────
 
-  drawDesk(gx, gy, hasMonitor = true) {
+  drawDesk(gx, gy, hasMonitor = true, chairDef = 'chair_black') {
     const px = gx * TILE;
     const py = gy * TILE;
-    const P = 2;
+    const ctx = this.ctx;
 
-    this._rect(px + 10, py - 2, 12, P, PALETTE.chair);
-    this._rect(px + 8, py, 16, P, PALETTE.chair);
-    this._rect(px + 8, py + 2, 16, P * 2, PALETTE.chair);
-    this._rect(px + 10, py - 2, 12, 1, this._lighten(PALETTE.chair, 30));
-    this._rect(px + 10, py + 6, 12, P * 2, PALETTE.chairDark);
+    // ── L-shaped desk (2×2 from office sheet) ──
+    // Layout: desk surface row (py) and desk front row (py + TILE)
+    //   TL(surface left) TR(surface right/L-ext)
+    //   BL(front left)   BR(front right/L-ext)
+    tileAtlas.drawDef(ctx, 'desk_l_tl', px, py);
+    tileAtlas.drawDef(ctx, 'desk_l_tr', px + TILE, py);
+    tileAtlas.drawDef(ctx, 'desk_l_bl', px, py + TILE);
+    tileAtlas.drawDef(ctx, 'desk_l_br', px + TILE, py + TILE);
 
-    this._rect(px, py + 12, TILE, P, PALETTE.deskLight);
-    this._rect(px, py + 14, TILE, 10, PALETTE.desk);
-    this._rect(px, py + 24, TILE, P, PALETTE.deskDark);
-    this._rect(px, py + 14, P, 10, this._lighten(PALETTE.desk, 15));
-    this._rect(px + TILE - P, py + 14, P, 10, this._darken(PALETTE.desk, 20));
-
-    this._rect(px + 2, py + 26, P * 2, 6, PALETTE.deskDark);
-    this._rect(px + TILE - 6, py + 26, P * 2, 6, PALETTE.deskDark);
-
+    // ── Computer on desk (1×2 from office sheet) ──
+    // Placed at character position (gx+1), starting at desk surface row
     if (hasMonitor) {
-      this._rect(px + 6, py - 2, 20, P, '#111');
-      this._rect(px + 6, py - 2, P, 14, '#111');
-      this._rect(px + 24, py - 2, P, 14, '#111');
-      this._rect(px + 6, py + 10, 20, P, '#111');
-      this._rect(px + 8, py, 16, 10, '#222233');
-      this._rect(px + 8, py, 16, 10, PALETTE.screenOn);
-      const ctx = this.ctx;
-      ctx.globalAlpha = 0.08;
-      for (let sy = py; sy < py + 10; sy += 2) {
-        this._rect(px + 8, sy, 16, 1, '#000');
-      }
-      ctx.globalAlpha = 1;
-      ctx.globalAlpha = 0.2;
-      this._rect(px + 9, py + 1, 6, 3, '#fff');
-      ctx.globalAlpha = 1;
+      const cx = px + TILE;  // character is 1 tile right of desk origin
+      tileAtlas.drawDef(ctx, 'computer_top', cx, py);
+      tileAtlas.drawDef(ctx, 'computer_bottom', cx, py + TILE);
+
+      // Animated screen glow
       ctx.globalAlpha = 0.12;
-      this._rect(px + 6, py + 12, 20, P, PALETTE.screenOn);
-      ctx.globalAlpha = 1;
-      this._rect(px + 14, py + 10, 4, P * 2, '#333');
-      this._rect(px + 12, py + 13, 8, P, '#444');
-      this._rect(px + 10, py + 16, 12, 3, '#3a3a4e');
-      this._rect(px + 10, py + 16, 12, 1, '#4a4a5e');
-      ctx.globalAlpha = 0.4;
-      for (let kx = px + 11; kx < px + 21; kx += 2) {
-        this._rect(kx, py + 17, 1, 1, '#888');
-      }
+      ctx.fillStyle = PALETTE.screenOn;
+      ctx.fillRect(cx + 4, py + 4, 24, 16);
       ctx.globalAlpha = 1;
     }
+
   }
 
-  // ── Character (chibi pixel-art) ────────────────────────────────────────────
+  // ── Office chair (shown when character is away) ────────────────────────────
+
+  _drawChair(gx, gy, isCEO = false) {
+    const px = gx * TILE;
+    const py = gy * TILE;
+    const topDef = isCEO ? 'ceo_chair_top' : 'office_chair_top';
+    const botDef = isCEO ? 'ceo_chair_bottom' : 'office_chair_bottom';
+    // Chair drawn at character position, 2 tiles tall starting 1 tile up
+    tileAtlas.drawDef(this.ctx, topDef, px, py - TILE);
+    tileAtlas.drawDef(this.ctx, botDef, px, py);
+  }
+
+  // ── Desk files / clutter (drawn on top of everything) ──────────────────────
+
+  _drawDeskFiles(gx, gy) {
+    const px = gx * TILE;
+    const py = gy * TILE;
+    // Files on the desk surface, at the desk origin (left of character)
+    tileAtlas.drawDef(this.ctx, 'desk_files', px, py);
+  }
+
+  // ── Character (sprite-based with status overlays) ──────────────────────────
 
   drawCharacter(gx, gy, data, isCEO = false) {
     const ctx = this.ctx;
-    const px = gx * TILE + 4;
-    const py = gy * TILE - TILE + 4;
-
-    const ROLE_COLORS = {
-      HR:  PALETTE.hrBlue,
-      COO: PALETTE.cooOrange,
-      EA:  PALETTE.eaGreen,
-      CSO: PALETTE.csoPurple,
-    };
+    const px = gx * TILE;
+    // Character sprite is 2 tiles tall; bottom aligns with desk row
+    const py = gy * TILE - TILE;
 
     const hash = this._hashStr(data.id || 'default');
-    const skinIdx  = hash % PALETTE.skin.length;
-    const hairIdx  = (hash >> 2) % PALETTE.hair.length;
-    const shirtIdx = (hash >> 4) % PALETTE.shirt.length;
 
-    let shirtColor = PALETTE.shirt[shirtIdx];
-    let labelColor = PALETTE.led1;
-
-    const roleColor = ROLE_COLORS[data.role];
-    if (isCEO) {
-      shirtColor = PALETTE.ceoGold;
-      labelColor = PALETTE.ceoGold;
-    } else if (roleColor) {
-      shirtColor = roleColor;
-      labelColor = roleColor;
-    }
-
-    const skinColor = PALETTE.skin[skinIdx];
-    const hairColor = PALETTE.hair[hairIdx];
-    const shirtDark  = this._darken(shirtColor, 35);
-    const shirtLight = this._lighten(shirtColor, 25);
-    const skinDark   = this._darken(skinColor, 30);
-
-    const bounce = Math.sin(this.animFrame * 0.05 + hash) * 1;
-    const bx = px;
-    const by = py + bounce;
-
-    ctx.globalAlpha = 0.2;
-    this._rect(bx + 3, gy * TILE + 28, 18, 2, '#000');
-    this._rect(bx + 5, gy * TILE + 30, 14, 2, '#000');
-    ctx.globalAlpha = 1;
-
-    this._rect(bx + 5, by + 18, 14, 12, shirtColor);
-    this._rect(bx + 5, by + 18, 2, 10, shirtLight);
-    this._rect(bx + 17, by + 18, 2, 10, shirtDark);
-    this._rect(bx + 10, by + 18, 4, 2, skinColor);
-    this._rect(bx + 11, by + 20, 2, 1, skinColor);
-
-    const armPhase = Math.sin(this.animFrame * 0.06 + hash) * 1;
-    this._rect(bx + 3, by + 19 + armPhase, 3, 8, shirtColor);
-    this._rect(bx + 3, by + 19 + armPhase, 1, 8, shirtLight);
-    this._rect(bx + 3, by + 26 + armPhase, 3, 2, skinColor);
-    this._rect(bx + 18, by + 19 - armPhase, 3, 8, shirtColor);
-    this._rect(bx + 20, by + 19 - armPhase, 1, 8, shirtDark);
-    this._rect(bx + 18, by + 26 - armPhase, 3, 2, skinColor);
-
-    const avatarImg = this._avatarImages?.[data.id];
-    if (avatarImg) {
-      const hx = bx + 3, hy = by + 2;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(hx + 4, hy, 10, 1);
-      ctx.rect(hx + 2, hy + 1, 14, 1);
-      ctx.rect(hx + 1, hy + 2, 16, 1);
-      ctx.rect(hx, hy + 3, 18, 11);
-      ctx.rect(hx + 1, hy + 14, 16, 1);
-      ctx.rect(hx + 2, hy + 15, 14, 1);
-      ctx.rect(hx + 4, hy + 16, 10, 1);
-      ctx.clip();
-      ctx.drawImage(avatarImg, hx, hy, 18, 17);
-      ctx.restore();
-      ctx.globalAlpha = 0.4;
-      this._rect(hx + 4, hy - 1, 10, 1, '#181828');
-      this._rect(hx + 2, hy, 2, 1, '#181828');
-      this._rect(hx + 14, hy, 2, 1, '#181828');
-      this._rect(hx + 1, hy + 1, 1, 1, '#181828');
-      this._rect(hx + 16, hy + 1, 1, 1, '#181828');
-      this._rect(hx - 1, hy + 3, 1, 11, '#181828');
-      this._rect(hx + 18, hy + 3, 1, 11, '#181828');
-      this._rect(hx + 1, hy + 14, 1, 1, '#181828');
-      this._rect(hx + 16, hy + 14, 1, 1, '#181828');
-      this._rect(hx + 2, hy + 15, 2, 1, '#181828');
-      this._rect(hx + 14, hy + 15, 2, 1, '#181828');
-      this._rect(hx + 4, hy + 17, 10, 1, '#181828');
-      ctx.globalAlpha = 1;
+    // ── Draw character sprite ──
+    const frame = this._getCharFrame(data);
+    if (tileAtlas.isReady(frame.sheet)) {
+      tileAtlas.drawTile(ctx, frame.sheet, frame.row, frame.col, px, py, frame.w, frame.h);
     } else {
-      this._rect(bx + 6, by + 3, 12, 1, skinColor);
-      this._rect(bx + 4, by + 4, 16, 12, skinColor);
-      this._rect(bx + 6, by + 16, 12, 1, skinColor);
-
-      ctx.globalAlpha = 0.15;
-      this._rect(bx + 4, by + 6, 3, 8, '#fff');
-      this._rect(bx + 17, by + 6, 3, 8, '#000');
+      // Fallback silhouette while loading
+      ctx.globalAlpha = 0.3;
+      this._rect(px + 8, py + 4, 16, 28, '#888');
       ctx.globalAlpha = 1;
-
-      ctx.globalAlpha = 0.25;
-      this._rect(bx + 4, by + 12, 3, 2, '#ff7777');
-      this._rect(bx + 17, by + 12, 3, 2, '#ff7777');
-      ctx.globalAlpha = 1;
-
-      const hairStyle = hairIdx % 4;
-      this._rect(bx + 5, by + 1, 14, 2, hairColor);
-      this._rect(bx + 4, by + 3, 16, 3, hairColor);
-      if (hairStyle === 0) {
-        this._rect(bx + 3, by + 4, 2, 6, hairColor);
-        this._rect(bx + 19, by + 4, 2, 6, hairColor);
-      } else if (hairStyle === 1) {
-        this._rect(bx + 3, by + 4, 2, 10, hairColor);
-        this._rect(bx + 19, by + 4, 2, 10, hairColor);
-        this._rect(bx + 3, by + 14, 3, 2, hairColor);
-        this._rect(bx + 18, by + 14, 3, 2, hairColor);
-      } else if (hairStyle === 2) {
-        this._rect(bx + 5, by - 1, 3, 3, hairColor);
-        this._rect(bx + 10, by - 2, 3, 4, hairColor);
-        this._rect(bx + 15, by - 1, 3, 3, hairColor);
-        this._rect(bx + 3, by + 4, 2, 5, hairColor);
-        this._rect(bx + 19, by + 4, 2, 5, hairColor);
-      } else {
-        this._rect(bx + 4, by + 5, 16, 2, hairColor);
-        this._rect(bx + 3, by + 4, 2, 8, hairColor);
-        this._rect(bx + 19, by + 4, 2, 8, hairColor);
-      }
-      ctx.globalAlpha = 0.2;
-      this._rect(bx + 7, by + 2, 4, 2, '#fff');
-      ctx.globalAlpha = 1;
-
-      const blinkPhase = (this.animFrame + hash * 7) % 120;
-      if (blinkPhase > 3) {
-        this._rect(bx + 7, by + 8, 4, 4, '#fff');
-        this._rect(bx + 13, by + 8, 4, 4, '#fff');
-        const irisColors = ['#334466', '#443322', '#224433', '#442244', '#333333'];
-        const irisColor = irisColors[hash % irisColors.length];
-        this._rect(bx + 8, by + 9, 3, 3, irisColor);
-        this._rect(bx + 14, by + 9, 3, 3, irisColor);
-        this._rect(bx + 9, by + 10, 2, 2, '#111');
-        this._rect(bx + 15, by + 10, 2, 2, '#111');
-        this._rect(bx + 8, by + 8, 1, 1, '#fff');
-        this._rect(bx + 14, by + 8, 1, 1, '#fff');
-      } else {
-        this._rect(bx + 7, by + 10, 4, 1, '#222');
-        this._rect(bx + 13, by + 10, 4, 1, '#222');
-        this._rect(bx + 7, by + 9, 1, 1, '#222');
-        this._rect(bx + 10, by + 9, 1, 1, '#222');
-        this._rect(bx + 13, by + 9, 1, 1, '#222');
-        this._rect(bx + 16, by + 9, 1, 1, '#222');
-      }
-
-      this._rect(bx + 10, by + 14, 4, 1, skinDark);
-      this._rect(bx + 11, by + 15, 2, 1, skinDark);
     }
 
+    // ── CEO crown (drawn above sprite) ──
     if (isCEO) {
-      const cy = by - 1;
-      this._rect(bx + 5, cy + 2, 14, 2, PALETTE.ceoGold);
-      this._rect(bx + 5, cy + 2, 14, 1, this._lighten(PALETTE.ceoGold, 30));
-      this._rect(bx + 5, cy, 3, 3, PALETTE.ceoGold);
-      this._rect(bx + 10, cy - 2, 4, 5, PALETTE.ceoGold);
-      this._rect(bx + 16, cy, 3, 3, PALETTE.ceoGold);
-      this._rect(bx + 6, cy, 1, 1, '#fff8aa');
-      this._rect(bx + 11, cy - 2, 2, 1, '#fff8aa');
-      this._rect(bx + 17, cy, 1, 1, '#fff8aa');
+      const cy = py - 2;
+      this._rect(px + 9, cy + 2, 14, 2, PALETTE.ceoGold);
+      this._rect(px + 9, cy + 2, 14, 1, '#ffe44d');
+      this._rect(px + 9, cy, 3, 3, PALETTE.ceoGold);
+      this._rect(px + 14, cy - 2, 4, 5, PALETTE.ceoGold);
+      this._rect(px + 20, cy, 3, 3, PALETTE.ceoGold);
       const twinkle = Math.floor(this.animFrame * 0.05) % 3;
-      this._rect(bx + 6, cy + 1, 2, 2, twinkle === 0 ? '#ff6666' : '#ff4444');
-      this._rect(bx + 11, cy - 1, 2, 2, twinkle === 1 ? '#66ddff' : '#44bbdd');
-      this._rect(bx + 16, cy + 1, 2, 2, twinkle === 2 ? '#66ff66' : '#44dd44');
+      this._rect(px + 10, cy + 1, 2, 2, twinkle === 0 ? '#ff6666' : '#ff4444');
+      this._rect(px + 15, cy - 1, 2, 2, twinkle === 1 ? '#66ddff' : '#44bbdd');
+      this._rect(px + 20, cy + 1, 2, 2, twinkle === 2 ? '#66ff66' : '#44dd44');
     }
+
+    // ── Status overlays (listening, working, idle) ──
+    const ROLE_COLORS = {
+      HR: PALETTE.hrBlue, COO: PALETTE.cooOrange,
+      EA: PALETTE.eaGreen, CSO: PALETTE.csoPurple,
+    };
+    let labelColor = isCEO ? PALETTE.ceoGold : (ROLE_COLORS[data.role] || PALETTE.led1);
 
     if (data.is_listening) {
       const glowAlpha = Math.sin(this.animFrame * 0.1) * 0.2 + 0.3;
       ctx.globalAlpha = glowAlpha;
-      this._rect(bx + 2, by + 1, 20, 1, '#cc88ff');
-      this._rect(bx + 2, by + 30, 20, 1, '#cc88ff');
-      this._rect(bx + 2, by + 1, 1, 30, '#cc88ff');
-      this._rect(bx + 21, by + 1, 1, 30, '#cc88ff');
+      ctx.strokeStyle = '#cc88ff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px + 2, py + 1, TILE - 4, TILE * 2 - 2);
       ctx.globalAlpha = 1;
 
-      const bubbleX = bx + 2;
-      const bubbleY = by - 12;
+      // Listening bubble
+      const bubbleX = px + 2, bubbleY = py - 12;
       this._rect(bubbleX + 1, bubbleY, 18, 10, '#fff');
       this._rect(bubbleX, bubbleY + 1, 20, 8, '#fff');
       this._rect(bubbleX + 8, bubbleY + 10, 4, 2, '#fff');
       this._rect(bubbleX + 9, bubbleY + 12, 2, 1, '#fff');
       this._rect(bubbleX + 5, bubbleY + 2, 10, 6, '#9955dd');
       this._rect(bubbleX + 9, bubbleY + 2, 2, 6, '#fff');
-      this._rect(bubbleX + 5, bubbleY + 2, 1, 6, '#7733bb');
 
       const noteCount = (data.guidance_notes || []).length;
       if (noteCount > 0) {
-        this._rect(bx + 20, by - 2, 8, 8, '#aa66ff');
-        this._rect(bx + 21, by - 3, 6, 1, '#aa66ff');
-        this._rect(bx + 21, by + 6, 6, 1, '#aa66ff');
+        this._rect(px + 24, py - 2, 8, 8, '#aa66ff');
         ctx.fillStyle = '#fff';
         ctx.font = '7px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(String(noteCount), bx + 24, by + 5);
+        ctx.fillText(String(noteCount), px + 28, py + 5);
         ctx.textAlign = 'left';
       }
     } else if ((data.guidance_notes || []).length > 0) {
       const noteCount = data.guidance_notes.length;
-      this._rect(bx + 20, by + 2, 8, 8, '#6633aa');
-      this._rect(bx + 21, by + 1, 6, 1, '#6633aa');
-      this._rect(bx + 21, by + 10, 6, 1, '#6633aa');
+      this._rect(px + 24, py + 2, 8, 8, '#6633aa');
       ctx.fillStyle = '#fff';
       ctx.font = '7px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(String(noteCount), bx + 24, by + 9);
+      ctx.fillText(String(noteCount), px + 28, py + 9);
       ctx.textAlign = 'left';
     }
 
     if (!isCEO && !data.is_listening) {
       const status = data.status || 'idle';
-      const iconX = bx + 2;
-      const iconY = by - 10;
+      const iconX = px + 2, iconY = py - 10;
 
       if (status === 'working') {
         this._rect(iconX + 1, iconY - 2, 18, 8, '#fff');
@@ -1067,25 +880,21 @@ class OfficeRenderer {
       }
     }
 
+    // Setup/offline badges
     if (!isCEO) {
       if (data.needs_setup) {
-        const keyX = bx + 18, keyY = by - 10;
+        const keyX = px + 22, keyY = py - 10;
         const alpha = 0.6 + Math.sin(this.animFrame * 0.08) * 0.3;
         ctx.globalAlpha = alpha;
         this._rect(keyX, keyY, 10, 8, '#ffaa00');
-        this._rect(keyX + 1, keyY - 1, 8, 1, '#ffaa00');
-        this._rect(keyX + 1, keyY + 8, 8, 1, '#ffaa00');
         this._rect(keyX + 2, keyY + 2, 3, 3, '#fff');
         this._rect(keyX + 5, keyY + 3, 3, 1, '#fff');
-        this._rect(keyX + 7, keyY + 4, 1, 2, '#fff');
         ctx.globalAlpha = 1;
       } else if (data.api_online === false) {
-        const offX = bx + 18, offY = by - 10;
+        const offX = px + 22, offY = py - 10;
         const alpha = 0.5 + Math.sin(this.animFrame * 0.1) * 0.4;
         ctx.globalAlpha = alpha;
         this._rect(offX, offY, 10, 8, '#ff3344');
-        this._rect(offX + 1, offY - 1, 8, 1, '#ff3344');
-        this._rect(offX + 1, offY + 8, 8, 1, '#ff3344');
         this._rect(offX + 2, offY + 1, 2, 2, '#fff');
         this._rect(offX + 6, offY + 1, 2, 2, '#fff');
         this._rect(offX + 4, offY + 3, 2, 2, '#fff');
@@ -1095,13 +904,14 @@ class OfficeRenderer {
       }
     }
 
+    // Name tag
     ctx.font = '8px monospace';
     const displayName = data.nickname || (data.name || data.role || '').substring(0, 8);
     const lvlTag = data.level ? ` L${data.level}` : '';
     const nameText = displayName + lvlTag;
     const nameW = ctx.measureText(nameText).width;
     const tagW = nameW + 6;
-    const tagX = px + 12 - tagW / 2;
+    const tagX = px + TILE / 2 - tagW / 2;
     const tagY = gy * TILE + 32;
     this._rect(tagX, tagY, tagW, 9, '#0d0d1a');
     this._rect(tagX, tagY, tagW, 1, '#2a2a44');
@@ -1110,7 +920,7 @@ class OfficeRenderer {
     this._rect(tagX + tagW - 1, tagY, 1, 9, '#2a2a44');
     ctx.fillStyle = labelColor;
     ctx.textAlign = 'center';
-    ctx.fillText(nameText, px + 12, tagY + 8);
+    ctx.fillText(nameText, px + TILE / 2, tagY + 8);
     ctx.textAlign = 'left';
   }
 
@@ -1160,6 +970,7 @@ class OfficeRenderer {
     const rw = TILE * 2 + 8;
     const rh = TILE * 2 + 8;
 
+    // Room background with subtle pattern
     this._rect(px - 4, py - 4, rw, rh, '#1c1c36');
     ctx.globalAlpha = 0.04;
     for (let cy = py - 2; cy < py + rh - 6; cy += 3) {
@@ -1169,6 +980,7 @@ class OfficeRenderer {
     }
     ctx.globalAlpha = 1;
 
+    // Walls
     const wc = '#3a3a66', wl = '#4a4a88';
     this._rect(px - 4, py - 4, rw, 3, wc);
     this._rect(px - 4, py - 4, rw, 1, wl);
@@ -1178,6 +990,7 @@ class OfficeRenderer {
     this._rect(px + rw - 7, py - 4, 3, rh, wc);
     this._rect(px + TILE - 6, py + rh - 7, 14, 3, '#1c1c36');
 
+    // Table
     const tableX = px + 8, tableY = py + 14;
     const tableW = TILE + 16, tableH = 18;
     ctx.globalAlpha = 0.15;
@@ -1191,6 +1004,7 @@ class OfficeRenderer {
     this._rect(tableX + tableW / 2 - 1, tableY + 2, 2, tableH - 4, '#fff');
     ctx.globalAlpha = 1;
 
+    // Chairs
     const chairPositions = [
       [px + 4, py + 8],  [px + 22, py + 8],  [px + 40, py + 8],
       [px + 4, py + 34], [px + 22, py + 34], [px + 40, py + 34],
@@ -1203,6 +1017,7 @@ class OfficeRenderer {
       this._rect(cx + 1, cy + 2, 3, 4, this._lighten(PALETTE.meetingChair, 15));
     }
 
+    // Status LED
     const statusColor = roomData.is_booked ? PALETTE.meetingBooked : PALETTE.meetingFree;
     const glowAlpha = roomData.is_booked
       ? Math.sin(this.animFrame * 0.08) * 0.3 + 0.5
@@ -1214,6 +1029,7 @@ class OfficeRenderer {
     this._rect(px + TILE, py - 2, 2, 2, '#fff');
     ctx.globalAlpha = 1;
 
+    // Participants
     if (roomData.is_booked && roomData.participants) {
       for (let i = 0; i < Math.min(roomData.participants.length, numChairs); i++) {
         const [cx, cy] = chairPositions[i];
@@ -1226,20 +1042,40 @@ class OfficeRenderer {
       }
     }
 
-    const label = (roomData.name || 'Meeting').substring(0, 10);
+    // Room label (auto-wrap)
+    const fullLabel = roomData.name || 'Meeting';
     ctx.font = '7px monospace';
-    const lw = ctx.measureText(label).width + 4;
-    const lx = px + TILE - lw / 2;
+    const maxW = TILE * 2 + 4;
+    const lines = [];
+    let cur = '';
+    for (const ch of fullLabel) {
+      const test = cur + ch;
+      if (ctx.measureText(test).width > maxW && cur) {
+        lines.push(cur);
+        cur = ch;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    if (lines.length === 0) return;
+
+    const lineH = 9;
+    const totalH = lines.length * lineH + (roomData.is_booked ? 8 : 0);
+    const bgW = Math.max(...lines.map(l => ctx.measureText(l).width)) + 4;
+    const lx = px + TILE - bgW / 2;
     const ly = py + TILE * 2 + 8;
-    this._rect(lx, ly, lw, 9, '#0d0d1a');
-    this._rect(lx, ly, lw, 1, '#2a2a44');
+    this._rect(lx, ly, bgW, totalH, '#0d0d1a');
+    this._rect(lx, ly, bgW, 1, '#2a2a44');
     ctx.fillStyle = statusColor;
     ctx.textAlign = 'center';
-    ctx.fillText(label, px + TILE, ly + 8);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], px + TILE, ly + 8 + i * lineH);
+    }
     if (roomData.is_booked) {
       ctx.fillStyle = PALETTE.meetingBooked;
       ctx.font = '6px monospace';
-      ctx.fillText('IN USE', px + TILE, ly + 16);
+      ctx.fillText('IN USE', px + TILE, ly + 8 + lines.length * lineH);
     }
     ctx.textAlign = 'left';
   }
@@ -1263,9 +1099,12 @@ class OfficeRenderer {
 
     // CEO
     const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
-    this.drawDesk(9, execRowCanvas, true);
-    if (!inMeeting['ceo']) {
-      this.drawCharacter(9, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
+    this.drawDesk(9, execRowCanvas, true, 'chair_gold');
+    if (inMeeting['ceo']) {
+      // Chair visible when CEO is away
+      this._drawChair(9 + 1, execRowCanvas, true);
+    } else {
+      this.drawCharacter(9 + 1, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
 
     // AI employees
@@ -1274,10 +1113,12 @@ class OfficeRenderer {
       const [gx, gy] = emp.desk_position || [0, 0];
       this.drawDesk(gx, gy + WALL_ROWS, true);
       if (inMeeting[emp.id]) {
+        // Chair visible when employee is in meeting
+        this._drawChair(gx + 1, gy + WALL_ROWS, false);
         const pos = inMeeting[emp.id];
         this.drawCharacter(pos.x, pos.y, emp);
       } else {
-        this.drawCharacter(gx, gy + WALL_ROWS, emp);
+        this.drawCharacter(gx + 1, gy + WALL_ROWS, emp);
       }
     }
 
@@ -1299,6 +1140,14 @@ class OfficeRenderer {
       const pos = inMeeting['ceo'];
       this.drawCharacter(pos.x, pos.y, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
+
+    // ── Desk clutter (files) — drawn last so nothing covers them ──
+    this._drawDeskFiles(9, execRowCanvas);
+    for (const emp of (this.state.employees || [])) {
+      if (emp.remote) continue;
+      const [gx, gy] = emp.desk_position || [0, 0];
+      this._drawDeskFiles(gx, gy + WALL_ROWS);
+    }
   }
 
   // ── Tooltip ────────────────────────────────────────────────────────────────
@@ -1317,7 +1166,7 @@ class OfficeRenderer {
     }
 
     const ceoCanvasRow = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
-    if (x === 9 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
+    if (x === 10 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
       tooltipText = 'CEO (You)\nRole: Chief Executive\nInput tasks below';
     }
 
@@ -1325,7 +1174,7 @@ class OfficeRenderer {
     for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       const canvasRow = ey + WALL_ROWS;
-      if (x === ex && (y === canvasRow - 1 || y === canvasRow || y === canvasRow + 1)) {
+      if (x === ex + 1 && (y === canvasRow - 1 || y === canvasRow || y === canvasRow + 1)) {
         const nn  = emp.nickname ? ` (${emp.nickname})` : '';
         const lvl = LEVEL_NAMES[emp.level] || `Lv.${emp.level}`;
         const title = emp.title || `${lvl}${emp.role}`;
@@ -1395,6 +1244,7 @@ class OfficeRenderer {
     this.camera.applyTransform(ctx);
 
     this.drawFloor();
+    this.drawBorder();
     this.drawWalls();
     this.drawBulletinBoard();
     this.drawProjectWall();

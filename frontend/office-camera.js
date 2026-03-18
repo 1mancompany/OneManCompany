@@ -15,7 +15,6 @@
  *   const world = cam.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
  */
 
-const CAMERA_ZOOM_MIN  = 0.5;
 const CAMERA_ZOOM_MAX  = 3.0;
 const CAMERA_ZOOM_STEP = 0.08;
 const CAMERA_LERP      = 0.12;  // fraction per frame toward target
@@ -30,6 +29,7 @@ class Camera {
     this.canvas    = canvas;
     this.mapPixelW = mapPixelW;
     this.mapPixelH = mapPixelH;
+    this._minZoom  = 0.5;  // updated by _updateMinZoom()
 
     // Current state (lerped toward target)
     this.x    = 0;
@@ -50,6 +50,7 @@ class Camera {
     this._dragCamStartY = 0;
 
     this._bindEvents();
+    this._updateMinZoom();
   }
 
   _bindEvents() {
@@ -80,12 +81,22 @@ class Camera {
     this._didDrag = true;
     this._tx = this._dragCamStartX - dx / this._tz;
     this._ty = this._dragCamStartY - dy / this._tz;
-    this._clamp();
+    this._clamp(this.canvas.getBoundingClientRect());
   }
 
   _onUp() {
     this._dragging = false;
     this.canvas.style.cursor = 'default';
+  }
+
+  /** Minimum zoom = fit entire office (with border) in viewport. Cached on resize. */
+  _updateMinZoom() {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) { this._minZoom = 0.5; return; }
+    const margin = TILE_SIZE;
+    const totalW = this.mapPixelW + margin * 2;
+    const totalH = this.mapPixelH + margin * 2;
+    this._minZoom = Math.min(rect.width / totalW, rect.height / totalH);
   }
 
   _onWheel(e) {
@@ -100,22 +111,37 @@ class Camera {
     const wx = this._tx + sx / this._tz;
     const wy = this._ty + sy / this._tz;
 
-    this._tz = Math.max(CAMERA_ZOOM_MIN,
+    this._tz = Math.max(this._minZoom,
                Math.min(CAMERA_ZOOM_MAX, this._tz + (e.deltaY < 0 ? CAMERA_ZOOM_STEP : -CAMERA_ZOOM_STEP)));
 
     // Adjust so cursor stays fixed in world space
     this._tx = wx - sx / this._tz;
     this._ty = wy - sy / this._tz;
-    this._clamp();
+    this._clamp(rect);
   }
 
-  _clamp() {
-    const rect = this.canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;  // skip before first layout paint
+  _clamp(rect) {
+    if (!rect) rect = this.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const margin = TILE_SIZE;
     const vw = rect.width  / this._tz;
     const vh = rect.height / this._tz;
-    this._tx = Math.max(0, Math.min(Math.max(0, this.mapPixelW - vw), this._tx));
-    this._ty = Math.max(0, Math.min(Math.max(0, this.mapPixelH - vh), this._ty));
+    const totalW = this.mapPixelW + margin * 2;
+    const totalH = this.mapPixelH + margin * 2;
+
+    if (vw >= totalW) {
+      // Viewport wider than map: center horizontally
+      this._tx = -margin + (totalW - vw) / 2;
+    } else {
+      this._tx = Math.max(-margin, Math.min(this.mapPixelW + margin - vw, this._tx));
+    }
+
+    if (vh >= totalH) {
+      // Viewport taller than map: center vertically
+      this._ty = -margin + (totalH - vh) / 2;
+    } else {
+      this._ty = Math.max(-margin, Math.min(this.mapPixelH + margin - vh, this._ty));
+    }
   }
 
   /**
@@ -135,7 +161,7 @@ class Camera {
   centerOn(wx, wy, targetZoom = null) {
     const rect = this.canvas.getBoundingClientRect();
     if (targetZoom !== null) {
-      this._tz = Math.max(CAMERA_ZOOM_MIN, Math.min(CAMERA_ZOOM_MAX, targetZoom));
+      this._tz = Math.max(this._minZoom, Math.min(CAMERA_ZOOM_MAX, targetZoom));
     }
     const vw = (rect.width  || 640) / this._tz;
     const vh = (rect.height || 480) / this._tz;
@@ -214,6 +240,8 @@ class Camera {
   resize(mapPixelW, mapPixelH) {
     this.mapPixelW = mapPixelW;
     this.mapPixelH = mapPixelH;
+    this._updateMinZoom();
+    if (this._tz < this._minZoom) this._tz = this._minZoom;
     this._clamp();
   }
 

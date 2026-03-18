@@ -86,11 +86,19 @@ class OfficeMap {
     const deptStartGY = layoutData.dept_start_row ?? 4;
     const deptEndGY   = layoutData.dept_end_row ?? 10;
 
-    for (const zone of this.zones) {
-      const style    = zone.floor_style || 'stone_gray';
-      const floorKey = `floor_${style}`;
-      // Paint from dept start down to the last canvas row (this.rows already
-      // accounts for overflow via canvas_rows from the backend).
+    // Assign department floor colors from dept_floor_0..3, ensuring adjacent zones differ
+    const DEPT_FLOOR_COUNT = 4;
+    let prevFloorIdx = -1;
+    for (let zi = 0; zi < this.zones.length; zi++) {
+      const zone = this.zones[zi];
+      // Pick a floor index different from the previous zone
+      let floorIdx = (zi * 3) % DEPT_FLOOR_COUNT;  // spread out by stride of 3
+      if (floorIdx === prevFloorIdx) {
+        floorIdx = (floorIdx + 1) % DEPT_FLOOR_COUNT;
+      }
+      prevFloorIdx = floorIdx;
+      const floorKey = `dept_floor_${floorIdx}`;
+
       const startRow = deptStartGY + WALL_ROWS;
       const endRow   = this.rows - 1;
 
