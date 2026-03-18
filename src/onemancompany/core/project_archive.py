@@ -1,9 +1,10 @@
 """Project Archive — project record and workspace system.
 
 Named projects with multiple iterations:
-  projects/{slug}/project.yaml    — project metadata
-  projects/{slug}/workspace/      — shared workspace for all iterations
-  projects/{slug}/iterations/     — per-iteration YAML files
+  projects/{slug}/project.yaml              — project metadata
+  projects/{slug}/iterations/iter_NNN.yaml  — per-iteration metadata
+  projects/{slug}/iterations/iter_NNN/      — per-iteration directory
+  projects/{slug}/iterations/iter_NNN/workspace/  — per-iteration workspace
 
 Employees can save artifacts to their project workspace via save_project_file().
 """
@@ -288,7 +289,6 @@ def create_named_project(name: str) -> str:
 
     proj_dir = PROJECTS_DIR / slug
     proj_dir.mkdir(parents=True, exist_ok=True)
-    (proj_dir / "workspace").mkdir(exist_ok=True)
     (proj_dir / "iterations").mkdir(exist_ok=True)
 
     doc = {
@@ -326,17 +326,15 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
         prev_iter_id = existing[-1]
         prev_doc = load_iteration(project_id, prev_iter_id)
         if prev_doc and prev_doc.get("project_dir"):
-            candidate = _rebase_project_dir(prev_doc["project_dir"])
+            prev_iter_dir = _rebase_project_dir(prev_doc["project_dir"])
+            candidate = prev_iter_dir / "workspace"
             if candidate.is_dir():
                 prev_workspace = candidate
-    if prev_workspace is None:
-        # Fallback to shared workspace/
-        fallback = PROJECTS_DIR / project_id / "workspace"
-        if fallback.is_dir():
-            prev_workspace = fallback
 
-    # Create the new iteration workspace directory
-    new_workspace = iterations_dir / iter_id
+    # Create the new iteration directory and its workspace subdirectory
+    iter_dir = iterations_dir / iter_id
+    iter_dir.mkdir(parents=True, exist_ok=True)
+    new_workspace = iter_dir / "workspace"
     new_workspace.mkdir(parents=True, exist_ok=True)
 
     # Copy files from previous workspace
@@ -370,7 +368,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
             "token_usage": {"input": 0, "output": 0, "total": 0},
             "breakdown": [],
         },
-        "project_dir": str(new_workspace),
+        "project_dir": str(iter_dir),
     }
     _save_iteration(project_id, iter_id, doc)
 
@@ -472,8 +470,7 @@ def archive_project(project_id: str) -> None:
 def get_project_workspace(project_id: str) -> str:
     """Return the workspace directory path for a v2 named project.
 
-    Prefers the latest iteration's per-iteration workspace if available,
-    otherwise falls back to the shared workspace/ directory.
+    Returns the latest iteration's workspace/ subdirectory.
     """
     proj = load_named_project(project_id)
     if proj:
@@ -481,10 +478,11 @@ def get_project_workspace(project_id: str) -> str:
         if iters:
             latest_doc = load_iteration(project_id, iters[-1])
             if latest_doc and latest_doc.get("project_dir"):
-                ws = _rebase_project_dir(latest_doc["project_dir"])
+                iter_dir = _rebase_project_dir(latest_doc["project_dir"])
+                ws = iter_dir / "workspace"
                 ws.mkdir(parents=True, exist_ok=True)
                 return str(ws)
-    # Fallback to shared workspace/
+    # Fallback: create workspace under project dir directly
     ws = PROJECTS_DIR / project_id / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     return str(ws)
@@ -546,9 +544,7 @@ def load_project(project_id: str) -> dict | None:
 def _resolve_workspace(project_id: str) -> Path:
     """Resolve the workspace directory for any project identifier.
 
-    - v2 project slug: latest iteration's per-iteration workspace (via get_project_workspace)
-    - v2 iteration ID: that iteration's project_dir from its YAML
-
+    Returns the workspace/ subdirectory under the iteration directory.
     Supports qualified iteration IDs like "first-game/iter_002".
     """
     if _is_iteration(project_id):
@@ -557,25 +553,51 @@ def _resolve_workspace(project_id: str) -> Path:
         if slug:
             iter_doc = load_iteration(slug, bare_id)
             if iter_doc and iter_doc.get("project_dir"):
-                ws = _rebase_project_dir(iter_doc["project_dir"])
+                iter_dir = _rebase_project_dir(iter_doc["project_dir"])
+                ws = iter_dir / "workspace"
                 ws.mkdir(parents=True, exist_ok=True)
                 return ws
             # Fallback for old iterations without per-iter workspace
-            ws = PROJECTS_DIR / slug / "workspace"
+            ws = PROJECTS_DIR / slug / "iterations" / bare_id / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
             return ws
     return Path(get_project_workspace(project_id))
 
 
 def get_project_dir(project_id: str) -> str:
-    """Return the absolute path of a project's workspace directory.
+    """Return the absolute path of a project's iteration directory.
 
-    iteration: returns that iteration's workspace
-    slug: returns latest iteration's workspace (or shared workspace/)
+    This is the iteration root (where task_tree.yaml lives),
+    NOT the workspace/ subdirectory for user files.
     """
-    ws = _resolve_workspace(project_id)
-    ws.mkdir(parents=True, exist_ok=True)
-    return str(ws)
+    if _is_iteration(project_id):
+        slug = _find_project_for_iteration(project_id)
+        _, bare_id = _split_qualified_iter(project_id)
+        if slug:
+            iter_doc = load_iteration(slug, bare_id)
+            if iter_doc and iter_doc.get("project_dir"):
+                d = _rebase_project_dir(iter_doc["project_dir"])
+                d.mkdir(parents=True, exist_ok=True)
+                return str(d)
+            # Fallback
+            d = PROJECTS_DIR / slug / "iterations" / bare_id
+            d.mkdir(parents=True, exist_ok=True)
+            return str(d)
+
+    # Project slug — resolve to latest iteration dir
+    proj = load_named_project(project_id)
+    if proj:
+        iters = proj.get("iterations", [])
+        if iters:
+            latest_doc = load_iteration(project_id, iters[-1])
+            if latest_doc and latest_doc.get("project_dir"):
+                d = _rebase_project_dir(latest_doc["project_dir"])
+                d.mkdir(parents=True, exist_ok=True)
+                return str(d)
+    # Fallback
+    d = PROJECTS_DIR / project_id
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 def save_project_file(project_id: str, filename: str, content: str | bytes) -> dict:

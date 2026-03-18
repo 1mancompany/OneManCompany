@@ -82,8 +82,8 @@ class TestCreateNamedProject:
         slug = pa.create_named_project("My App")
         proj_dir = tmp_path / slug
         assert proj_dir.exists()
-        assert (proj_dir / "workspace").exists()
         assert (proj_dir / "iterations").exists()
+        # workspace is now per-iteration, not at project root
         assert (proj_dir / "project.yaml").exists()
 
     def test_project_yaml_content(self, tmp_path):
@@ -148,14 +148,14 @@ class TestCreateIteration:
     def test_iteration_copies_previous_workspace(self, tmp_path):
         slug = pa.create_named_project("CopyWS")
         iter_id1 = pa.create_iteration(slug, "task1", "COO")
-        # Write a file to iter_001 workspace
+        # Write a file to iter_001 workspace subdirectory
         doc1 = pa.load_iteration(slug, iter_id1)
-        ws1 = Path(doc1["project_dir"])
+        ws1 = Path(doc1["project_dir"]) / "workspace"
         (ws1 / "hello.txt").write_text("hello")
-        # Create second iteration — should copy hello.txt
+        # Create second iteration — should copy hello.txt into new workspace
         iter_id2 = pa.create_iteration(slug, "task2", "COO")
         doc2 = pa.load_iteration(slug, iter_id2)
-        ws2 = Path(doc2["project_dir"])
+        ws2 = Path(doc2["project_dir"]) / "workspace"
         assert (ws2 / "hello.txt").exists()
         assert (ws2 / "hello.txt").read_text() == "hello"
 
@@ -685,7 +685,7 @@ class TestResolveWorkspace:
         assert "iter_001" in d
 
     def test_iteration_without_project_dir(self, tmp_path):
-        """Fallback to shared workspace when iteration has no project_dir."""
+        """Fallback to iteration dir when iteration has no project_dir."""
         slug = pa.create_named_project("Fallback WS")
         iter_id = pa.create_iteration(slug, "task", "COO")
         # Remove project_dir from iteration doc
@@ -694,7 +694,7 @@ class TestResolveWorkspace:
         pa._save_iteration(slug, iter_id, doc)
 
         d = pa.get_project_dir(iter_id)
-        assert "workspace" in d
+        assert "iter_001" in d
 
 
 
@@ -748,7 +748,7 @@ class TestCreateIterationCopytree:
 
         # Add a directory with files to the first iteration workspace
         doc1 = pa.load_iteration(slug, iter_id1)
-        ws1 = Path(doc1["project_dir"])
+        ws1 = Path(doc1["project_dir"]) / "workspace"
         sub_dir = ws1 / "src" / "components"
         sub_dir.mkdir(parents=True)
         (sub_dir / "main.py").write_text("print('hello')")
@@ -757,7 +757,7 @@ class TestCreateIterationCopytree:
         # Create second iteration — should copy both files and directories
         iter_id2 = pa.create_iteration(slug, "task2", "COO")
         doc2 = pa.load_iteration(slug, iter_id2)
-        ws2 = Path(doc2["project_dir"])
+        ws2 = Path(doc2["project_dir"]) / "workspace"
 
         assert (ws2 / "src" / "components" / "main.py").exists()
         assert (ws2 / "src" / "components" / "main.py").read_text() == "print('hello')"
