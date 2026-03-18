@@ -238,6 +238,38 @@ async def config_reload_check() -> list | None:
 
 
 # ---------------------------------------------------------------------------
+# Talent Market keepalive — maintain MCP connection
+# ---------------------------------------------------------------------------
+
+
+@system_cron("talent_market_keepalive", interval="15s", description="Talent Market MCP 连接保活")
+async def talent_market_keepalive() -> list | None:
+    """Ping the Talent Market MCP server; reconnect if the session is dead."""
+    from onemancompany.agents.recruitment import talent_market, start_talent_market
+
+    if not talent_market.connected:
+        return None
+
+    try:
+        await talent_market._session.send_ping()
+        logger.debug("[talent_market_keepalive] ping OK")
+    except Exception as e:
+        logger.warning("[talent_market_keepalive] ping failed ({}), reconnecting...", e)
+        try:
+            await talent_market.disconnect()
+        except Exception:
+            # Force-clear stale state even if disconnect fails
+            talent_market._session = None
+            talent_market._stack = None
+        try:
+            await start_talent_market()
+            logger.info("[talent_market_keepalive] reconnected successfully")
+        except Exception as e2:
+            logger.error("[talent_market_keepalive] reconnect failed: {}", e2)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Project progress watchdog — prevent projects from getting stuck
 # ---------------------------------------------------------------------------
 
