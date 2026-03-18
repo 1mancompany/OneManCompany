@@ -330,7 +330,7 @@ async def project_progress_watchdog() -> list | None:
                 description=nudge_desc,
                 acceptance_criteria=[],
             )
-            nudge_node.node_type = "review"
+            nudge_node.node_type = "watchdog_nudge"
             nudge_node.project_id = project_id
             nudge_node.project_dir = ea_node.project_dir or str(tree_path.parent)
             save_tree_async(tree_path_str)
