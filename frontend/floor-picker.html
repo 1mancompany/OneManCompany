@@ -695,7 +695,7 @@ function renderDetail(scheme) {
     tc.style.width = '96px'; tc.style.height = '96px';
     const ctx = tc.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    const fb = t.label.includes('행政') ? scheme.exec.c1 : scheme.dept.c1;
+    const fb = t.label.includes('行政') ? scheme.exec.c1 : scheme.dept.c1;
     ctx.fillStyle = fb;
     ctx.fillRect(0, 0, 96, 96);
     if (roomImg) ctx.drawImage(roomImg, t.c * 32, t.r * 32, 32, 32, 0, 0, 96, 96);

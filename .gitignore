@@ -249,6 +249,5 @@ video/
 # Talent template dev
 talent-template-*/
 
-# Tileset assets (full source, not redistributable)
-# frontend/assets/office/tilesets/ contains only the files actually used by the app
-assets/
+# Tileset source assets (full packs, not redistributable)
+/assets/
