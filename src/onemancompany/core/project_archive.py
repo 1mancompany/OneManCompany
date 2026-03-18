@@ -330,6 +330,9 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
             candidate = prev_iter_dir / "workspace"
             if candidate.is_dir():
                 prev_workspace = candidate
+            elif prev_iter_dir.is_dir() and any(prev_iter_dir.iterdir()):
+                # Backward compat: old layout stored files directly in iter_dir
+                prev_workspace = prev_iter_dir
 
     # Create the new iteration directory and its workspace subdirectory
     iter_dir = iterations_dir / iter_id

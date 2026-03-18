@@ -159,6 +159,26 @@ class TestCreateIteration:
         assert (ws2 / "hello.txt").exists()
         assert (ws2 / "hello.txt").read_text() == "hello"
 
+    def test_iteration_copies_legacy_layout_workspace(self, tmp_path):
+        """Old iterations stored files directly in iter_dir (no workspace/ subdir).
+        create_iteration should still copy those files into the new workspace."""
+        slug = pa.create_named_project("LegacyCopy")
+        iter_id1 = pa.create_iteration(slug, "task1", "COO")
+        doc1 = pa.load_iteration(slug, iter_id1)
+        iter_dir1 = Path(doc1["project_dir"])
+        # Simulate old layout: remove workspace/, put files directly in iter_dir
+        ws1 = iter_dir1 / "workspace"
+        if ws1.exists():
+            import shutil
+            shutil.rmtree(ws1)
+        (iter_dir1 / "legacy.txt").write_text("old-data")
+        # Create second iteration — should copy legacy.txt
+        iter_id2 = pa.create_iteration(slug, "task2", "COO")
+        doc2 = pa.load_iteration(slug, iter_id2)
+        ws2 = Path(doc2["project_dir"]) / "workspace"
+        assert (ws2 / "legacy.txt").exists()
+        assert (ws2 / "legacy.txt").read_text() == "old-data"
+
 
 # ---------------------------------------------------------------------------
 # load / list helpers
