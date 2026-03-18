@@ -3173,7 +3173,16 @@ def _load_project_tree_for_api(project_id: str):
     return get_tree(path, project_id=project_id)
 
 
-@router.get("/api/projects/{project_id:path}/tree")
+@router.get("/api/projects/{project_id}/{iteration_id}/tree")
+async def get_iteration_tree(project_id: str, iteration_id: str) -> dict:
+    """Get the task tree for a qualified iteration (slug/iter_NNN/tree)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await get_project_tree(f"{project_id}/{iteration_id}")
+
+
+@router.get("/api/projects/{project_id}/tree")
 async def get_project_tree(project_id: str) -> dict:
     """Get the task tree for a project."""
     tree = _load_project_tree_for_api(project_id)
@@ -3370,6 +3379,15 @@ async def get_project_detail(project_id: str) -> dict:
     return doc
 
 
+@router.get("/api/projects/{project_id}/{iteration_id}/files/{file_path:path}")
+async def get_iteration_file(project_id: str, iteration_id: str, file_path: str):
+    """Read a file from an iteration workspace (slug/iter_NNN/files/...)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await get_project_file(f"{project_id}/{iteration_id}", file_path)
+
+
 @router.get("/api/projects/{project_id}/files/{file_path:path}")
 async def get_project_file(project_id: str, file_path: str):
     """Read a file from a project workspace."""
@@ -3506,6 +3524,15 @@ async def download_employee_workspace(employee_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{name}_workspace.zip"'},
     )
+
+
+@router.get("/api/projects/{project_id}/{iteration_id}/download")
+async def download_iteration_workspace(project_id: str, iteration_id: str):
+    """Download an iteration workspace as a zip file (slug/iter_NNN/download)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await download_project_workspace(f"{project_id}/{iteration_id}")
 
 
 @router.get("/api/projects/{project_id}/download")
