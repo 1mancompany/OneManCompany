@@ -131,6 +131,8 @@ class ChatPanel {
         this._typingEl.classList.toggle('hidden', !show);
     }
 
+    getConvId() { return this._convId; }
+    getConvType() { return this._convType; }
     onSend(cb) { this._onSendCb = cb; }
     onClose(cb) { this._onCloseCb = cb; }
 

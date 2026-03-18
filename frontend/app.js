@@ -253,14 +253,14 @@ class AppController {
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
-      if (this._chatPanel && p.conv_id === this._chatPanel._convId) {
+      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
         this._chatPanel.appendMessage(p);
       }
       return;
     }
     if (msg.type === 'conversation_phase') {
       const p = msg.payload || msg;
-      if (p.phase === 'closed' && this._chatPanel && p.conv_id === this._chatPanel._convId) {
+      if (p.phase === 'closed' && this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
         this._chatPanel.setInputEnabled(false);
       }
       return;
@@ -5619,7 +5619,7 @@ class AppController {
   }
 
   async _closeConversation(convId) {
-    const convType = this._chatPanel._convType;
+    const convType = this._chatPanel.getConvType();
     const waitHooks = convType === 'oneonone';
     await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
       method: 'POST',

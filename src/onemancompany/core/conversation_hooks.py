@@ -38,8 +38,16 @@ async def run_close_hook(conv: Conversation, wait: bool = False) -> dict | None:
     if wait:
         return await hook(conv)
     else:
-        asyncio.create_task(hook(conv))
+        asyncio.create_task(_run_hook_safe(hook, conv))
         return None
+
+
+async def _run_hook_safe(hook, conv: Conversation) -> None:
+    """Wrapper for fire-and-forget hooks — logs exceptions instead of swallowing."""
+    try:
+        await hook(conv)
+    except Exception:
+        logger.exception("[conversation] async close hook failed for {}", conv.id)
 
 
 # ---------------------------------------------------------------------------

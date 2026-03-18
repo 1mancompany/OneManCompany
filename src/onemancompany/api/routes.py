@@ -5744,13 +5744,22 @@ async def update_system_cron(name: str, body: dict) -> dict:
 from onemancompany.core.conversation import ConversationService, Message
 
 _conversation_service = ConversationService()
+_active_adapter_tasks: set[asyncio.Task] = set()
+
+_VALID_CONV_TYPES = {"ceo_inbox", "oneonone"}
 
 
 @router.post("/api/conversation/create")
 async def create_conversation(body: dict) -> dict:
+    conv_type = body.get("type", "")
+    employee_id = body.get("employee_id", "")
+    if conv_type not in _VALID_CONV_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid type: must be one of {_VALID_CONV_TYPES}")
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="employee_id is required")
     conv = await _conversation_service.create(
-        type=body["type"],
-        employee_id=body["employee_id"],
+        type=conv_type,
+        employee_id=employee_id,
         tools_enabled=body.get("tools_enabled", False),
         **{k: v for k, v in body.items() if k not in ("type", "employee_id", "tools_enabled")},
     )
@@ -5785,7 +5794,9 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     # Dispatch to adapter in background (don't await — async reply via WebSocket)
-    asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
+    task = asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
+    _active_adapter_tasks.add(task)
+    task.add_done_callback(_active_adapter_tasks.discard)
     return {"status": "sent", "message": msg.to_dict()}
 
 
@@ -5799,7 +5810,11 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
     workspace = Path(conv.metadata.get("project_dir", ".")) / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     for file in files:
-        dest = workspace / file.filename
+        # Sanitize filename to prevent path traversal
+        safe_name = Path(file.filename).name
+        if not safe_name:
+            continue
+        dest = workspace / safe_name
         content = await file.read()
         dest.write_bytes(content)
         saved_paths.append(str(dest))
@@ -5809,13 +5824,12 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
 @router.post("/api/conversation/{conv_id}/close")
 async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
     try:
-        result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
-        conv = _conversation_service.get(conv_id)
+        conv, hook_result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     resp = conv.to_dict()
-    if result:
-        resp["hook_result"] = result
+    if hook_result:
+        resp["hook_result"] = hook_result
     return resp
 
 

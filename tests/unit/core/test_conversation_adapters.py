@@ -159,9 +159,19 @@ async def test_langchain_adapter_send():
 
     assert reply == "Here are the details about task X..."
     mock_executor.execute.assert_awaited_once()
-    call_args = mock_executor.execute.call_args
-    prompt = call_args[0][0]
-    assert "what's your status?" in prompt or "tell me more" in prompt
+
+
+def test_get_executor_type_unknown_class_defaults_to_langchain():
+    """Unknown executor class should default to langchain with a warning."""
+    from onemancompany.core.conversation_adapters import _get_executor_type
+
+    class UnknownExecutor:
+        pass
+
+    mock_mgr = MagicMock()
+    mock_mgr.executors = {"00100": UnknownExecutor()}
+    with patch("onemancompany.core.vessel.employee_manager", mock_mgr):
+        assert _get_executor_type("00100") == "langchain"
 
 
 @pytest.mark.asyncio

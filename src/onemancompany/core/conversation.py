@@ -33,7 +33,7 @@ from onemancompany.core.events import event_bus, CompanyEvent
 class Conversation:
     id: str
     type: str                    # "ceo_inbox" | "oneonone"
-    phase: str                   # "created" | "active" | "closing" | "closed"
+    phase: str                   # "active" | "closing" | "closed"
     employee_id: str
     tools_enabled: bool
     metadata: dict = field(default_factory=dict)
@@ -76,6 +76,11 @@ def _get_lock(path: str) -> asyncio.Lock:
     if path not in _locks:
         _locks[path] = asyncio.Lock()
     return _locks[path]
+
+
+def _release_lock(path: str) -> None:
+    """Remove a lock from the cache (called when conversation closes)."""
+    _locks.pop(path, None)
 
 
 def _resolve_conv_dir(conv: Conversation) -> Path:
@@ -185,7 +190,7 @@ class ConversationService:
                 logger.warning("[conversation] failed to load meta for {}", conv_id)
                 continue
             if phase is None:
-                if conv.phase not in ("active", "created"):
+                if conv.phase != "active":
                     continue
             elif conv.phase != phase:
                 continue
@@ -194,7 +199,8 @@ class ConversationService:
             result.append(conv)
         return result
 
-    async def close(self, conv_id: str, wait_hooks: bool = False) -> dict | None:
+    async def close(self, conv_id: str, wait_hooks: bool = False) -> tuple[Conversation, dict | None]:
+        """Close a conversation. Returns (final_conversation, hook_result)."""
         conv = self.get(conv_id)
         conv.phase = "closing"
         save_conversation_meta(conv)
@@ -218,8 +224,14 @@ class ConversationService:
             type="conversation_phase",
             payload={"conv_id": conv_id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
+
+        # Clean up: remove from active index and release file lock
+        conv_dir = self._index.pop(conv_id, None)
+        if conv_dir:
+            _release_lock(str(conv_dir / "messages.yaml"))
+
         logger.debug("[conversation] closed: id={}", conv_id)
-        return hook_result
+        return conv, hook_result
 
     async def send_message(
         self, conv_id: str, sender: str, role: str, text: str, attachments: list[str] | None = None,
@@ -266,3 +278,35 @@ class ConversationService:
                         if meta.exists():
                             self._index[conv_dir.name] = conv_dir
         logger.debug("[conversation] rebuilt index: {} conversations", len(self._index))
+
+    async def recover(self) -> int:
+        """Recover conversations stuck in 'closing' phase after a crash.
+
+        Must be called AFTER rebuild_index(). Re-runs close hooks idempotently.
+        Returns count of recovered conversations.
+        """
+        recovered = 0
+        for conv_id in list(self._index):
+            try:
+                conv = self.get(conv_id)
+            except Exception:
+                logger.warning("[conversation] failed to load conversation {} during recovery", conv_id)
+                continue
+            if conv.phase == "closing":
+                logger.info("[conversation] recovering stuck conversation: id={}", conv_id)
+                try:
+                    from onemancompany.core.conversation_hooks import run_close_hook
+                    await run_close_hook(conv, wait=False)
+                except ImportError:
+                    logger.debug("[conversation] conversation_hooks not available during recovery")
+                except Exception:
+                    logger.exception("[conversation] recovery hook failed for {}", conv_id)
+                # Finalize to closed
+                conv.phase = "closed"
+                conv.closed_at = datetime.now(timezone.utc).isoformat()
+                save_conversation_meta(conv)
+                self._index.pop(conv_id, None)
+                recovered += 1
+        if recovered:
+            logger.info("[conversation] recovered {} stuck conversation(s)", recovered)
+        return recovered

@@ -66,13 +66,25 @@ def _get_employee_executor(employee_id: str):
     return executor
 
 
+_EXECUTOR_CLASS_MAP: dict[str, str] = {
+    "ClaudeSessionExecutor": "claude_session",
+    "LangChainExecutor": "langchain",
+    "EmployeeAgent": "langchain",
+}
+
+
 def _get_executor_type(employee_id: str) -> str:
     """Determine executor type string from Launcher subclass."""
     executor = _get_employee_executor(employee_id)
     cls_name = type(executor).__name__
-    if "ClaudeSession" in cls_name:
-        return "claude_session"
-    return "langchain"
+    executor_type = _EXECUTOR_CLASS_MAP.get(cls_name)
+    if executor_type is None:
+        logger.warning(
+            "[conversation] unknown executor class '{}' for employee {}, defaulting to langchain",
+            cls_name, employee_id,
+        )
+        executor_type = "langchain"
+    return executor_type
 
 
 def _build_conversation_prompt(
@@ -101,16 +113,20 @@ def _build_conversation_prompt(
 # ---------------------------------------------------------------------------
 
 
-@register_adapter("langchain")
-class LangChainAdapter:
+class _BaseConversationAdapter:
+    """Shared send logic — both executor types use the same prompt + execute flow."""
+
+    _adapter_label: str = "Base"
+
     async def send(
         self, conversation: Conversation, messages: list[Message], new_message: Message,
     ) -> str:
         executor = _get_employee_executor(conversation.employee_id)
         prompt = _build_conversation_prompt(conversation, messages, new_message)
         logger.debug(
-            "[conversation] LangChainAdapter.send: employee={}, tools={}",
-            conversation.employee_id, conversation.tools_enabled,
+            "[conversation] {}.send: employee={}, project_id={}",
+            self._adapter_label, conversation.employee_id,
+            conversation.metadata.get("project_id"),
         )
         from onemancompany.core.vessel import TaskContext
 
@@ -126,30 +142,13 @@ class LangChainAdapter:
 
     async def on_close(self, conversation: Conversation) -> None:
         pass
+
+
+@register_adapter("langchain")
+class LangChainAdapter(_BaseConversationAdapter):
+    _adapter_label = "LangChainAdapter"
 
 
 @register_adapter("claude_session")
-class ClaudeSessionAdapter:
-    async def send(
-        self, conversation: Conversation, messages: list[Message], new_message: Message,
-    ) -> str:
-        executor = _get_employee_executor(conversation.employee_id)
-        prompt = _build_conversation_prompt(conversation, messages, new_message)
-        logger.debug(
-            "[conversation] ClaudeSessionAdapter.send: employee={}, project_id={}",
-            conversation.employee_id, conversation.metadata.get("project_id"),
-        )
-        from onemancompany.core.vessel import TaskContext
-
-        ctx = TaskContext(
-            employee_id=conversation.employee_id,
-            project_id=conversation.metadata.get("project_id", ""),
-        )
-        result = await executor.execute(prompt, ctx)
-        return result.output
-
-    async def on_create(self, conversation: Conversation) -> None:
-        pass
-
-    async def on_close(self, conversation: Conversation) -> None:
-        pass
+class ClaudeSessionAdapter(_BaseConversationAdapter):
+    _adapter_label = "ClaudeSessionAdapter"

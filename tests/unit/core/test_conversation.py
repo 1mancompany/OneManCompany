@@ -136,9 +136,8 @@ async def test_create_conversation(svc, tmp_path, monkeypatch):
 async def test_close_conversation(svc, tmp_path, monkeypatch):
     monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
     conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
-    result = await svc.close(conv.id, wait_hooks=False)
-    closed = svc.get(conv.id)
-    assert closed.phase == "closed"
+    closed_conv, hook_result = await svc.close(conv.id, wait_hooks=False)
+    assert closed_conv.phase == "closed"
 
 
 @pytest.mark.asyncio
@@ -146,7 +145,7 @@ async def test_list_active(svc, tmp_path, monkeypatch):
     monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
     c1 = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
     c2 = await svc.create(type="oneonone", employee_id="00101", tools_enabled=True)
-    await svc.close(c2.id)
+    await svc.close(c2.id)  # returns (conv, hook_result)
     active = svc.list_active()
     assert len(active) == 1
     assert active[0].id == c1.id
@@ -215,3 +214,55 @@ async def test_create_publishes_phase_event(svc, tmp_path, monkeypatch):
     assert len(phase_events) == 1
     assert phase_events[0].payload["phase"] == "active"
     assert phase_events[0].payload["conv_id"] == conv.id
+
+
+@pytest.mark.asyncio
+async def test_close_removes_from_index(svc, tmp_path, monkeypatch):
+    """Closed conversations should be removed from the in-memory index."""
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+    assert conv.id in svc._index
+    await svc.close(conv.id)
+    assert conv.id not in svc._index
+
+
+@pytest.mark.asyncio
+async def test_rebuild_index(tmp_path, monkeypatch):
+    """rebuild_index should discover conversations from disk."""
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    monkeypatch.setattr("onemancompany.core.conversation.PROJECTS_DIR", tmp_path / "projects")
+    svc1 = ConversationService()
+    conv = await svc1.create(type="oneonone", employee_id="00100", tools_enabled=True)
+
+    # New service instance — index is empty
+    svc2 = ConversationService()
+    assert len(svc2._index) == 0
+
+    svc2.rebuild_index()
+    assert conv.id in svc2._index
+    loaded = svc2.get(conv.id)
+    assert loaded.employee_id == "00100"
+
+
+@pytest.mark.asyncio
+async def test_recover_closing_conversations(tmp_path, monkeypatch):
+    """recover() should finalize conversations stuck in 'closing' phase."""
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    monkeypatch.setattr("onemancompany.core.conversation.PROJECTS_DIR", tmp_path / "projects")
+
+    from onemancompany.core.conversation import save_conversation_meta, Conversation, _resolve_conv_dir
+    # Manually create a conversation stuck in "closing"
+    conv = Conversation(
+        id="stuck-conv", type="oneonone", phase="closing",
+        employee_id="00100", tools_enabled=True,
+        metadata={}, created_at="2026-03-18T10:00:00",
+    )
+    save_conversation_meta(conv)
+
+    svc = ConversationService()
+    svc.rebuild_index()
+    assert "stuck-conv" in svc._index
+
+    recovered = await svc.recover()
+    assert recovered == 1
+    assert "stuck-conv" not in svc._index

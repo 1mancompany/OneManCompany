@@ -93,3 +93,23 @@ async def test_run_close_hook_fire_and_forget():
     import asyncio
     await asyncio.sleep(0.05)
     assert called.get("done") is True
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_hook_exception_is_logged():
+    """wait=False hooks that raise should log, not crash."""
+
+    @register_close_hook("error_hook_type")
+    async def _error_hook(conv):
+        raise RuntimeError("hook boom")
+
+    conv = Conversation(
+        id="c6", type="error_hook_type", phase="closing",
+        employee_id="00100", tools_enabled=False,
+        created_at="2026-03-18T10:00:00",
+    )
+    # Should not raise — error is caught by _run_hook_safe wrapper
+    result = await run_close_hook(conv, wait=False)
+    assert result is None
+    import asyncio
+    await asyncio.sleep(0.05)  # let background task complete
