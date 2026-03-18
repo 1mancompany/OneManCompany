@@ -1007,6 +1007,11 @@ class EmployeeManager:
         logger.debug("[TASK LIFECYCLE] employee={} node={} → PROCESSING", employee_id, entry.node_id)
         save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
+
+        # Clear watchdog nudge flag so it can re-nudge if project stalls again
+        if node.project_id:
+            from onemancompany.core.system_cron import clear_watchdog_nudge
+            clear_watchdog_nudge(node.project_id)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
 

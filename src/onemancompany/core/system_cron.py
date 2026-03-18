@@ -235,3 +235,169 @@ async def config_reload_check() -> list | None:
         if updated or added:
             logger.info("[config_reload] {} updated, {} added", len(updated), len(added))
     return None
+
+
+# ---------------------------------------------------------------------------
+# Project progress watchdog — prevent projects from getting stuck
+# ---------------------------------------------------------------------------
+
+# Track projects we've already nudged (cleared when EA picks up the task)
+_watchdog_nudged: set[str] = set()
+
+
+@system_cron("project_progress_watchdog", interval="30s", description="项目进度看门狗 — 防止项目卡死")
+async def project_progress_watchdog() -> list | None:
+    """Scan active projects; nudge EA to continue any that are stuck.
+
+    A project is "stuck" when:
+    - No node is currently in ``processing`` state (nobody is working on it)
+    - Not all active-branch nodes have reached a terminal state
+    - The project hasn't been nudged yet since the last check
+
+    When stuck, a new task node is added under the EA node asking it to
+    review the task tree and drive the project forward.
+    """
+    from pathlib import Path
+
+    from onemancompany.core.config import EA_ID, PROJECTS_DIR
+    from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL
+    from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
+    from onemancompany.core.vessel import employee_manager
+
+    if not PROJECTS_DIR.exists():
+        return None
+
+    nudged_projects: list[str] = []
+
+    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+        tree_path_str = str(tree_path)
+        try:
+            tree = get_tree(tree_path_str)
+        except Exception:
+            logger.debug("[watchdog] Skipping corrupt tree: {}", tree_path)
+            continue
+
+        project_id = tree.project_id
+        if not project_id:
+            continue
+
+        # Skip projects we've already nudged (waiting for EA to pick it up)
+        if project_id in _watchdog_nudged:
+            continue
+
+        # Only look at active-branch nodes (exclude root ceo_prompt)
+        active_nodes = [
+            n for n in tree.all_nodes()
+            if n.branch_active and n.id != tree.root_id
+        ]
+        if not active_nodes:
+            continue
+
+        # Skip if any node is currently being processed — someone is working
+        if any(n.status == TaskPhase.PROCESSING.value for n in active_nodes):
+            continue
+
+        # Skip if all active nodes are terminal (project is done)
+        all_terminal = all(
+            TaskPhase(n.status) in TERMINAL for n in active_nodes
+        )
+        if all_terminal:
+            continue
+
+        # Skip if there are already pending nodes scheduled in EmployeeManager
+        # (the system is about to pick them up)
+        has_scheduled_pending = False
+        for n in active_nodes:
+            if n.status == TaskPhase.PENDING.value:
+                # Check if this node is already in EmployeeManager's schedule
+                for entries in employee_manager._schedule.values():
+                    if any(e.node_id == n.id for e in entries):
+                        has_scheduled_pending = True
+                        break
+            if has_scheduled_pending:
+                break
+        if has_scheduled_pending:
+            continue
+
+        # --- Project is stuck — nudge EA ---
+        ea_node = tree.get_ea_node()
+        if not ea_node:
+            logger.debug("[watchdog] No EA node found for project {}", project_id)
+            continue
+
+        # Build a summary of the current tree state for EA
+        status_summary = _build_tree_status_summary(tree)
+
+        nudge_desc = (
+            f"[项目进度看门狗] 项目 {project_id} 存在未完成的任务节点且当前无人在执行。"
+            f"请查看以下任务树状态，尝试继续推进项目完成：\n\n"
+            f"{status_summary}\n\n"
+            f"请根据当前状态采取适当行动：\n"
+            f"- 如有 completed 状态的子任务，请 accept_child 或 reject_child\n"
+            f"- 如有 failed/blocked 的任务，请决定重试或跳过\n"
+            f"- 如需新增任务，请 dispatch_child\n"
+            f"- 如项目已无法继续，请说明原因"
+        )
+
+        lock = get_tree_lock(tree_path_str)
+        with lock:
+            nudge_node = tree.add_child(
+                parent_id=ea_node.id,
+                employee_id=EA_ID,
+                description=nudge_desc,
+                acceptance_criteria=[],
+            )
+            nudge_node.node_type = "review"
+            nudge_node.project_id = project_id
+            nudge_node.project_dir = ea_node.project_dir or str(tree_path.parent)
+            save_tree_async(tree_path_str)
+
+        employee_manager.schedule_node(EA_ID, nudge_node.id, tree_path_str)
+        if EA_ID not in employee_manager._running_tasks:
+            employee_manager._schedule_next(EA_ID)
+
+        _watchdog_nudged.add(project_id)
+        nudged_projects.append(project_id)
+        logger.info("[watchdog] Nudged EA to continue stuck project {}", project_id)
+
+    if nudged_projects:
+        from onemancompany.core.events import CompanyEvent
+
+        return [CompanyEvent(
+            type="state_snapshot",
+            payload={"watchdog_nudged": nudged_projects},
+            agent="PROJECT_WATCHDOG",
+        )]
+    return None
+
+
+def clear_watchdog_nudge(project_id: str) -> None:
+    """Clear the nudge flag for a project (call when EA starts working on it)."""
+    _watchdog_nudged.discard(project_id)
+
+
+def _build_tree_status_summary(tree) -> str:
+    """Build a concise status summary of all active nodes in the tree."""
+    lines = []
+    active_nodes = [
+        n for n in tree.all_nodes()
+        if n.branch_active and n.id != tree.root_id
+    ]
+    # Group by status
+    by_status: dict[str, list] = {}
+    for n in active_nodes:
+        by_status.setdefault(n.status, []).append(n)
+
+    for status in ["pending", "processing", "holding", "completed", "accepted",
+                    "finished", "failed", "blocked", "cancelled"]:
+        nodes = by_status.get(status, [])
+        if not nodes:
+            continue
+        lines.append(f"【{status}】({len(nodes)}个):")
+        for n in nodes[:5]:  # Cap at 5 per status to keep prompt manageable
+            preview = n.description_preview or n.id
+            lines.append(f"  - [{n.employee_id}] {preview[:100]}")
+        if len(nodes) > 5:
+            lines.append(f"  ... 还有 {len(nodes) - 5} 个")
+
+    return "\n".join(lines)
