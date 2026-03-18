@@ -600,15 +600,34 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
 
 
 def list_project_files(project_id: str) -> list[str]:
-    """List all files in a project workspace (excluding project.yaml and iterations/)."""
+    """List user-facing files in a project workspace.
+
+    Excludes internal infrastructure files (project.yaml, task trees, node content).
+    """
     project_dir = _resolve_workspace(project_id)
+    logger.debug("[list_project_files] project_id={} → workspace={}", project_id, project_dir)
 
     if not project_dir.exists():
+        logger.debug("[list_project_files] workspace does not exist")
         return []
+
+    # Internal paths to exclude from user-facing document listing
+    _INTERNAL_NAMES = {"project.yaml", "task_tree.yaml"}
+    _INTERNAL_DIRS = {"nodes"}
+
     files = []
     for p in sorted(project_dir.rglob("*")):
-        if p.is_file() and p.name != "project.yaml":
-            files.append(str(p.relative_to(project_dir)))
+        if not p.is_file():
+            continue
+        # Skip internal infrastructure files
+        if p.name in _INTERNAL_NAMES or p.name.startswith("task_tree_"):
+            continue
+        # Skip node content directory
+        rel = p.relative_to(project_dir)
+        if rel.parts and rel.parts[0] in _INTERNAL_DIRS:
+            continue
+        files.append(str(rel))
+    logger.debug("[list_project_files] found {} files", len(files))
     return files
 
 

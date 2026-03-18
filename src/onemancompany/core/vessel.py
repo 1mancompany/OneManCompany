@@ -1021,8 +1021,18 @@ class EmployeeManager:
         agent_error = False
         try:
             # 4. Build task context with injections
+            # _effective_dir: guaranteed non-empty workspace path for this task.
+            # Falls back to tree_path parent when node.project_dir is unset
+            # (e.g. root/EA nodes created without explicit project_dir).
             _effective_dir = project_dir or str(Path(entry.tree_path).parent)
             node.load_content(_effective_dir)
+
+            # Backfill node.project_dir so child dispatches inherit the correct workspace
+            if not project_dir:
+                node.project_dir = _effective_dir
+                project_dir = _effective_dir
+                logger.debug("[TASK] Backfilled project_dir for node {} → {}",
+                             entry.node_id, _effective_dir)
 
             # Tree context includes current node description + ancestors + children
             tree_ctx = _build_tree_context(tree, node, _effective_dir)
@@ -1038,8 +1048,8 @@ class EmployeeManager:
                 if identity:
                     task_with_ctx = f"{identity}\n\n{task_with_ctx}"
 
-            if project_dir:
-                task_with_ctx += f"\n\n[Project workspace: {project_dir} — save all outputs here]"
+            if _effective_dir:
+                task_with_ctx += f"\n\n[Project workspace: {_effective_dir} — save all outputs here]"
 
             if project_id:
                 proj_ctx = self._get_project_history_context(project_id)
@@ -1072,7 +1082,7 @@ class EmployeeManager:
 
             context = TaskContext(
                 project_id=project_id,
-                work_dir=project_dir,
+                work_dir=_effective_dir,
                 employee_id=employee_id,
                 task_id=entry.node_id,
             )
