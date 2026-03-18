@@ -19,11 +19,7 @@ const PALETTE = {
   wallBot: '#242040',
   // Tech (vivid cyan glow)
   screenOn: '#22ddff',
-  screenGlow: 'rgba(34, 221, 255, 0.15)',
-  screenOff: '#333355',
   led1: '#33ffaa',
-  led2: '#ff5555',
-  led3: '#ffee44',
   // People — still used by meeting room participant fallback
   skin: ['#f5cc8e', '#eab878', '#d09868', '#b07858', '#8c6048'],
   hair: ['#1a1a24', '#5c3010', '#dd9922', '#cc4444', '#7744aa', '#2255aa', '#884444', '#446644'],
@@ -328,7 +324,7 @@ class OfficeRenderer {
     this.ctx.fillRect(x, y, w, h);
   }
 
-  // ── Floor (tileset with fallback checkerboard) ─────────────────────────────
+  // ── Floor (tileset-only) ─────────────────────────────
 
   drawFloor() {
     const ctx  = this.ctx;
@@ -671,7 +667,7 @@ class OfficeRenderer {
     return `#${(r << 16 | g << 8 | b).toString(16).padStart(6, '0')}`;
   }
 
-  // ── Desk (pixel-art Stardew Valley style) ──────────────────────────────────
+  // ── Desk (tileset furniture) ──────────────────────────────────
 
   drawDesk(gx, gy, hasMonitor = true, chairDef = 'chair_black') {
     const px = gx * TILE;

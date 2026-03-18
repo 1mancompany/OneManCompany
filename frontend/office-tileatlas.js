@@ -65,13 +65,8 @@ const TILE_DEFS = {
 
   // ── Additional furniture (from Modern_Office_32x32.png) ──
   // Calibrate with debugSheet('office', 0, 20)
-  chair_orange:   ['office',  8,  4],
   chair_gold:     ['office',  8,  6],
-  monitor_screen: ['office',  0,  4],   // standalone monitor
-  keyboard_tile:  ['office',  1,  4],   // keyboard on desk
   filing_cabinet: ['office', 12,  0],
-  sofa_l:         ['office', 10,  0],
-  sofa_r:         ['office', 10,  2],
 
   // ── Potted plants (from Modern_Office_32x32.png) ──
   // Plants occupy 1×2 tiles; only top (leafy) tile used for single-row dividers
