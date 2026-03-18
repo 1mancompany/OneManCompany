@@ -1,6 +1,6 @@
 {
   "name": "@1mancompany/onemancompany",
-  "version": "0.2.402",
+  "version": "0.2.403",
   "description": "The AI Operating System for One-Person Companies",
   "bin": {
     "onemancompany": "bin/cli.js"

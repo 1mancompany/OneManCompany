@@ -1951,6 +1951,138 @@ class TestRootNodeCompletion:
 
 
 # ---------------------------------------------------------------------------
+# Project completion — bottom-up subtree resolution
+# ---------------------------------------------------------------------------
+
+class TestProjectCompletionBottomUp:
+    """Tests that retrospective only triggers when the entire project
+    tree is resolved (bottom-up propagation via is_project_complete)."""
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_flat_tree_all_children_accepted_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
+        """CEO → EA → [c1(accepted), c2(accepted)]
+        Last review node completes → EA auto-completes → project complete → retrospective.
+        """
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        ea_launcher = MagicMock(spec=Launcher)
+        mgr.register("00006", ea_launcher)
+
+        tree = TaskTree(project_id="proj1")
+        ceo = tree.create_root("00001", "CEO prompt")
+        ceo.node_type = "ceo_prompt"
+        ceo.status = "processing"
+        ea = tree.add_child(ceo.id, "00006", "Build feature", ["Feature works"])
+        ea.status = "holding"  # Holding while children run
+        c1 = tree.add_child(ea.id, "00010", "Backend", ["API done"])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "00011", "Frontend", ["UI done"])
+        c2.status = "accepted"
+        # Review node auto-skips to FINISHED (system node)
+        review = tree.add_child(ea.id, "00006", "Review children", [])
+        review.node_type = "review"
+        review.status = "finished"
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
+
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+            await mgr._on_child_complete("00006", entry, project_id="proj1")
+
+        # EA should auto-complete (all non-review children accepted)
+        # then is_project_complete() → True → _request_ceo_confirmation called
+        mock_confirm.assert_called_once()
+        call_args = mock_confirm.call_args
+        assert call_args[0][0] == "00006"  # employee_id = EA
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_deep_tree_unresolved_leaf_blocks_retrospective(self, mock_bus, mock_state, tmp_path):
+        """CEO → EA → mid → [leaf1(accepted), leaf2(processing)]
+        mid's children not all done → no auto-complete → project NOT complete.
+        """
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj2")
+        ceo = tree.create_root("00001", "CEO prompt")
+        ceo.node_type = "ceo_prompt"
+        ceo.status = "processing"
+        ea = tree.add_child(ceo.id, "00006", "Build platform", [])
+        ea.status = "holding"
+        mid = tree.add_child(ea.id, "00007", "Backend module", [])
+        mid.status = "holding"
+        leaf1 = tree.add_child(mid.id, "00010", "API endpoints", [])
+        leaf1.status = "accepted"
+        leaf2 = tree.add_child(mid.id, "00011", "Database layer", [])
+        leaf2.status = "processing"  # Still running!
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        # leaf1 just got accepted via accept_child → triggers callback
+        entry = ScheduleEntry(node_id=leaf1.id, tree_path=str(tree_path))
+
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+            await mgr._on_child_complete("00010", entry, project_id="proj2")
+
+        # leaf2 still processing → mid can't auto-complete → project NOT complete
+        mock_confirm.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_mixed_terminal_states_still_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
+        """CEO → EA(completed) → [c1(accepted), c2(failed), c3(cancelled), review(finished)]
+        EA already completed by prior review cycle. All children are RESOLVED
+        (even though not all succeeded) → project complete → retrospective.
+        """
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj3")
+        ceo = tree.create_root("00001", "CEO prompt")
+        ceo.node_type = "ceo_prompt"
+        ceo.status = "processing"
+        ea = tree.add_child(ceo.id, "00006", "Risky project", [])
+        ea.status = "accepted"  # Already accepted after review cycle handled mixed results
+        ea.result = "Mixed results from children"
+        c1 = tree.add_child(ea.id, "00010", "Task A", [])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "00011", "Task B", [])
+        c2.status = "failed"
+        c3 = tree.add_child(ea.id, "00012", "Task C", [])
+        c3.status = "cancelled"
+        # Last review just finished — triggers callback
+        review = tree.add_child(ea.id, "00006", "Review", [])
+        review.node_type = "review"
+        review.status = "finished"
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
+
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+            await mgr._on_child_complete("00006", entry, project_id="proj3")
+
+        # EA is done_executing(completed), all children RESOLVED
+        # is_project_complete() → True → _request_ceo_confirmation called
+        mock_confirm.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # TaskTimeout — TimeoutError handling in _execute_task
 # ---------------------------------------------------------------------------
 
