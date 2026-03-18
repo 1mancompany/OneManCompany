@@ -5735,3 +5735,121 @@ async def update_system_cron(name: str, body: dict) -> dict:
     if not interval:
         return {"status": "error", "message": "interval is required"}
     return system_cron_manager.update_interval(name, interval)
+
+
+# ---------------------------------------------------------------------------
+# Unified Conversation API
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.conversation import ConversationService, Message
+
+_conversation_service = ConversationService()
+
+
+@router.post("/api/conversation/create")
+async def create_conversation(body: dict) -> dict:
+    conv = await _conversation_service.create(
+        type=body["type"],
+        employee_id=body["employee_id"],
+        tools_enabled=body.get("tools_enabled", False),
+        **{k: v for k, v in body.items() if k not in ("type", "employee_id", "tools_enabled")},
+    )
+    return conv.to_dict()
+
+
+@router.get("/api/conversation/{conv_id}")
+async def get_conversation(conv_id: str) -> dict:
+    try:
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv.to_dict()
+
+
+@router.get("/api/conversation/{conv_id}/messages")
+async def get_conversation_messages(conv_id: str) -> dict:
+    try:
+        msgs = _conversation_service.get_messages(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"messages": [m.to_dict() for m in msgs]}
+
+
+@router.post("/api/conversation/{conv_id}/message")
+async def send_conversation_message(conv_id: str, body: dict) -> dict:
+    try:
+        msg = await _conversation_service.send_message(
+            conv_id, sender="ceo", role="CEO", text=body["text"],
+            attachments=body.get("attachments"),
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    # Dispatch to adapter in background (don't await — async reply via WebSocket)
+    asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
+    return {"status": "sent", "message": msg.to_dict()}
+
+
+@router.post("/api/conversation/{conv_id}/upload")
+async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> dict:
+    try:
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    saved_paths = []
+    workspace = Path(conv.metadata.get("project_dir", ".")) / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        dest = workspace / file.filename
+        content = await file.read()
+        dest.write_bytes(content)
+        saved_paths.append(str(dest))
+    return {"attachments": saved_paths}
+
+
+@router.post("/api/conversation/{conv_id}/close")
+async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
+    try:
+        result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    resp = conv.to_dict()
+    if result:
+        resp["hook_result"] = result
+    return resp
+
+
+@router.get("/api/conversations")
+async def list_conversations(type: str | None = None, phase: str | None = None) -> dict:
+    if phase and phase != "active":
+        convs = _conversation_service.list_by_phase(type=type, phase=phase)
+    else:
+        convs = _conversation_service.list_active(type=type)
+    return {"conversations": [c.to_dict() for c in convs]}
+
+
+async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) -> None:
+    """Background task: dispatch CEO message to adapter, persist reply."""
+    try:
+        conv = _conversation_service.get(conv_id)
+        messages = _conversation_service.get_messages(conv_id)
+
+        from onemancompany.core.conversation_adapters import get_adapter, _get_executor_type
+
+        executor_type = _get_executor_type(conv.employee_id)
+        adapter_cls = get_adapter(executor_type)
+        adapter = adapter_cls()
+        reply_text = await adapter.send(conv, messages[:-1], ceo_message)
+
+        # Persist agent reply — get employee name from disk (SSOT)
+        emp_data = _store.load_employee(conv.employee_id)
+        emp_name = emp_data.get("name", conv.employee_id) if emp_data else conv.employee_id
+        await _conversation_service.send_message(
+            conv_id, sender=conv.employee_id, role=emp_name, text=reply_text,
+        )
+    except Exception:
+        logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
+        await _conversation_service.send_message(
+            conv_id, sender="system", role="System",
+            text="Agent is not responding. Please try again.",
+        )

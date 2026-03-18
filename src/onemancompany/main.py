@@ -441,6 +441,11 @@ async def lifespan(app: FastAPI):
     # Restore ephemeral state from a recent snapshot (hot restart)
     _restore_ephemeral_state()
 
+    # Rebuild ConversationService index from disk
+    from onemancompany.api.routes import _conversation_service
+    _conversation_service.rebuild_index()
+    logger.info("[startup] ConversationService index rebuilt: {} conversations", len(_conversation_service._index))
+
     # Register employees with the centralized EmployeeManager
     from onemancompany.core.agent_loop import register_agent, register_self_hosted, start_all_loops, stop_all_loops
     from onemancompany.core.config import HR_ID as _HR_ID, COO_ID as _COO_ID, EA_ID as _EA_ID, CSO_ID as _CSO_ID
