@@ -1249,56 +1249,13 @@ class AppController {
       return this._startGroupMeeting(meetingType);
     }
 
-    // Original 1-on-1 flow
+    // 1-on-1 → use unified conversation module in right panel
     const select = document.getElementById('oneonone-target');
     const empId = select.value;
     if (!empId) return;
 
-    const emp = await fetch(`/api/employee/${empId}`).then(r => r.json()).catch(() => null);
-    if (!emp) return;
-
-    this._oneononeEmployeeId = empId;
-    this._oneononeHistory = [];  // [{role: 'ceo'|'employee', content}]
-    this._oneononeInputHistory = [];
-    this._oneononeHistoryIdx = -1;
-    this._oneononePendingFiles = [];
-
-    // Switch to chat phase
-    document.getElementById('oneonone-setup').classList.add('hidden');
-    document.getElementById('oneonone-chat-phase').classList.remove('hidden');
-    const nn = emp.nickname ? ` (${emp.nickname})` : '';
-    document.getElementById('oneonone-chat-title').textContent =
-      `🎓 1-on-1: ${emp.name}${nn}`;
-
-    // Clear chat
-    const chat = document.getElementById('oneonone-chat');
-    chat.innerHTML = '';
-    this._addOneononeSystemMsg(`1-on-1 meeting with ${emp.name}${nn} started. Chat naturally — when done, click "End Meeting".`);
-
-    // Load previous 1-on-1 history from disk
-    const prevHistory = await fetch(`/api/employee/${empId}/oneonone`).then(r => r.json()).catch(() => []);
-    if (Array.isArray(prevHistory) && prevHistory.length > 0) {
-      const empName = emp.name || 'Employee';
-      for (const entry of prevHistory) {
-        if (entry.role === 'ceo') {
-          this._addOneononeBubble('CEO', entry.content, 'outgoing');
-        } else if (entry.role === 'employee') {
-          this._addOneononeBubble(empName, entry.content, 'incoming');
-        }
-      }
-      this._oneononeHistory = prevHistory;
-      this._addOneononeSystemMsg('── Previous conversation loaded ──');
-    }
-
-    // Reset input
-    const textarea = document.getElementById('oneonone-input');
-    textarea.value = '';
-    textarea.style.height = 'auto';
-    textarea.oninput = () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 80) + 'px';
-    };
-    textarea.focus();
+    this.closeOneononeModal();
+    await this._startOneononeConversation(empId);
   }
 
   async _startGroupMeeting(meetingType) {
@@ -5562,9 +5519,13 @@ class AppController {
   async _openConversation(convId) {
     const chatContainer = document.getElementById('right-panel-chat');
 
-    // Hide normal console sections, show chat
-    for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
-      el.style.display = 'none';
+    // Hide CEO Console + CEO Inbox sections only, keep Activity Log visible
+    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+      const body = document.getElementById(target);
+      if (body) body.style.display = 'none';
+      // Hide the corresponding collapsible header
+      const header = body?.previousElementSibling;
+      if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
     }
     chatContainer.classList.remove('hidden');
 
@@ -5584,9 +5545,7 @@ class AppController {
     } catch (err) {
       console.error('Failed to load conversation:', err);
       chatContainer.classList.add('hidden');
-      for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
-        el.style.display = '';
-      }
+      this._restoreConsoleSections();
       return;
     }
 
@@ -5642,13 +5601,20 @@ class AppController {
     });
     this._chatPanel.setInputEnabled(false);
 
-    // Restore normal console sections
+    // Restore CEO Console + CEO Inbox sections
     const chatContainer = document.getElementById('right-panel-chat');
     chatContainer.classList.add('hidden');
-    for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
-      el.style.display = '';
-    }
+    this._restoreConsoleSections();
     this._chatPanel = null;
+  }
+
+  _restoreConsoleSections() {
+    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+      const body = document.getElementById(target);
+      if (body) body.style.display = '';
+      const header = body?.previousElementSibling;
+      if (header?.classList.contains('collapsible-header')) header.style.display = '';
+    }
   }
 
   _escapeHtml(text) {
