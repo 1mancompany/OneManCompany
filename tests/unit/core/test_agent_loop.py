@@ -1436,6 +1436,7 @@ class TestEmployeeManagerFullCleanup:
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     async def test_full_cleanup_agent_error_label(self, mock_bus, mock_state, mock_store):
+        """On agent error, save_project_status("failed") is called instead of complete_project."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
@@ -1453,8 +1454,9 @@ class TestEmployeeManagerFullCleanup:
                         with patch("onemancompany.core.state.flush_pending_reload", return_value=None):
                             with patch("onemancompany.core.config.FOUNDING_LEVEL", 4):
                                 await mgr._full_cleanup("emp01", node, True, "proj1")
-                                call_args = mock_complete.call_args
-                                assert "with errors" in call_args[0][1]
+                                # On error: save_project_status is called with "failed", not complete_project
+                                mock_complete.assert_not_called()
+                                mock_store.save_project_status.assert_awaited_once_with("proj1", "failed")
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel._store")

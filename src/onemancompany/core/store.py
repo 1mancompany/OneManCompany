@@ -232,16 +232,13 @@ def _rooms_dir() -> Path:
 # ---------------------------------------------------------------------------
 
 def load_project(project_id: str) -> dict:
-    return _read_yaml(PROJECTS_DIR / project_id / "project.yaml")
+    from onemancompany.core.project_archive import load_project as _load_project
+    return _load_project(project_id) or {}
 
 
 async def save_project_status(project_id: str, status: str, **extra) -> None:
-    path = PROJECTS_DIR / project_id / "project.yaml"
-    async with _get_lock(str(path)):
-        data = _read_yaml(path)
-        data["status"] = status
-        data.update(extra)
-        _write_yaml(path, data)
+    from onemancompany.core.project_archive import update_project_status
+    update_project_status(project_id, status, **extra)
     mark_dirty("task_queue")
 
 
