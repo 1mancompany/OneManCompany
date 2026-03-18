@@ -116,8 +116,6 @@ def _build_conversation_prompt(
 class _BaseConversationAdapter:
     """Shared send logic — both executor types use the same prompt + execute flow."""
 
-    _adapter_label: str = "Base"
-
     async def send(
         self, conversation: Conversation, messages: list[Message], new_message: Message,
     ) -> str:
@@ -125,7 +123,7 @@ class _BaseConversationAdapter:
         prompt = _build_conversation_prompt(conversation, messages, new_message)
         logger.debug(
             "[conversation] {}.send: employee={}, project_id={}",
-            self._adapter_label, conversation.employee_id,
+            type(self).__name__, conversation.employee_id,
             conversation.metadata.get("project_id"),
         )
         from onemancompany.core.vessel import TaskContext
@@ -146,9 +144,9 @@ class _BaseConversationAdapter:
 
 @register_adapter("langchain")
 class LangChainAdapter(_BaseConversationAdapter):
-    _adapter_label = "LangChainAdapter"
+    pass
 
 
 @register_adapter("claude_session")
 class ClaudeSessionAdapter(_BaseConversationAdapter):
-    _adapter_label = "ClaudeSessionAdapter"
+    pass

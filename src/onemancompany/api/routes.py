@@ -5739,6 +5739,8 @@ _conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
 
 _VALID_CONV_TYPES = {"ceo_inbox", "oneonone"}
+_VALID_CONV_PHASES = {"active", "closing", "closed"}
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
 
 @router.post("/api/conversation/create")
@@ -5799,15 +5801,20 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
     except ValueError:
         raise HTTPException(status_code=404, detail="Conversation not found")
     saved_paths = []
-    workspace = Path(conv.metadata.get("project_dir", ".")) / "workspace"
+    # Use conversation directory for uploads — never fall back to CWD
+    from onemancompany.core.conversation import _resolve_conv_dir
+    workspace = _resolve_conv_dir(conv) / "uploads"
     workspace.mkdir(parents=True, exist_ok=True)
     for file in files:
         # Sanitize filename to prevent path traversal
         safe_name = Path(file.filename).name
         if not safe_name:
             continue
-        dest = workspace / safe_name
+        # Enforce per-file size limit
         content = await file.read()
+        if len(content) > _MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail=f"File '{safe_name}' exceeds {_MAX_UPLOAD_SIZE // (1024*1024)}MB limit")
+        dest = workspace / safe_name
         dest.write_bytes(content)
         saved_paths.append(str(dest))
     return {"attachments": saved_paths}
@@ -5827,6 +5834,8 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 
 @router.get("/api/conversations")
 async def list_conversations(type: str | None = None, phase: str | None = None) -> dict:
+    if phase and phase not in _VALID_CONV_PHASES:
+        raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
     if phase and phase != "active":
         convs = _conversation_service.list_by_phase(type=type, phase=phase)
     else:
@@ -5855,7 +5864,10 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         )
     except Exception:
         logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
-        await _conversation_service.send_message(
-            conv_id, sender="system", role="System",
-            text="Agent is not responding. Please try again.",
-        )
+        try:
+            await _conversation_service.send_message(
+                conv_id, sender="system", role="System",
+                text="Agent is not responding. Please try again.",
+            )
+        except Exception:
+            logger.exception("[conversation] failed to send error message for {}", conv_id)

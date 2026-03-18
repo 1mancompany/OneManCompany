@@ -253,7 +253,7 @@ class AppController {
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
-      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
+      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
         this._chatPanel.appendMessage(p);
       }
       return;
@@ -5587,9 +5587,13 @@ class AppController {
   }
 
   _resolveEmployeeName(employeeId) {
-    // Try to find from office renderer state
-    const employees = window.officeRenderer?.state?.employees;
-    if (employees) {
+    // Try to find from office renderer state, then company state snapshot
+    const sources = [
+      window.officeRenderer?.state?.employees,
+      window.app?._lastSnapshot?.employees,
+    ];
+    for (const employees of sources) {
+      if (!Array.isArray(employees)) continue;
       const emp = employees.find(e => e.id === employeeId);
       if (emp) return emp.name || emp.nickname || employeeId;
     }
@@ -5609,6 +5613,7 @@ class AppController {
   }
 
   async _sendConversationMessage(convId, text, attachments) {
+    if (!this._chatPanel) return;
     this._chatPanel.showTyping(true);
     await fetch(`/api/conversation/${convId}/message`, {
       method: 'POST',

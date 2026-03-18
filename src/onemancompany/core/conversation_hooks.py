@@ -27,6 +27,11 @@ def register_close_hook(conv_type: str):
     return decorator
 
 
+def _reset_hooks() -> None:
+    """Clear all registered hooks. Only for testing."""
+    _close_hooks.clear()
+
+
 async def run_close_hook(conv: Conversation, wait: bool = False) -> dict | None:
     """Run the close hook for a conversation type."""
     hook = _close_hooks.get(conv.type)
