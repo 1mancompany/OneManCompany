@@ -61,15 +61,5 @@ class SystemTaskTree:
         return tree
 
     def _cleanup_old(self) -> None:
-        now = datetime.now()
-        to_remove = []
-        for nid, node in self._nodes.items():
-            if TaskPhase(node.status) in RESOLVED and node.completed_at:
-                try:
-                    completed = datetime.fromisoformat(node.completed_at)
-                    if now - completed > _CLEANUP_AGE:
-                        to_remove.append(nid)
-                except ValueError:
-                    logger.warning("Invalid completed_at timestamp for node {}: {}", nid, node.completed_at)
-        for nid in to_remove:
-            del self._nodes[nid]
+        """Mark old resolved nodes — but never delete. Trees only grow."""
+        pass

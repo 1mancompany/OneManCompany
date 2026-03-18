@@ -814,6 +814,57 @@ class TestReadFileAdditional:
         assert result["content"] == "content"
 
 
+    def test_read_project_workspace_absolute_path(self, tmp_path, monkeypatch):
+        """read() should resolve absolute paths under PROJECTS_DIR."""
+        from onemancompany.agents import common_tools as ct_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
+
+        # Create a project workspace with a file
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir()
+        proj_file = projects_dir / "my_project" / "iter_001" / "direction.txt"
+        proj_file.parent.mkdir(parents=True)
+        proj_file.write_text("品牌方向文案")
+
+        monkeypatch.setattr(ct_mod, "PROJECTS_DIR", projects_dir)
+
+        result = ct_mod.read.invoke({"file_path": str(proj_file)})
+        assert result["status"] == "ok"
+        assert result["content"] == "品牌方向文案"
+
+    def test_read_absolute_path_outside_projects_denied(self, tmp_path, monkeypatch):
+        """read() should deny absolute paths outside PROJECTS_DIR."""
+        from onemancompany.agents import common_tools as ct_mod
+        from onemancompany.core import state as state_mod
+
+        cs = _make_cs()
+        monkeypatch.setattr(state_mod, "company_state", cs)
+        monkeypatch.setattr(ct_mod, "company_state", cs)
+        _mock_store(monkeypatch, cs)
+
+        projects_dir = tmp_path / "projects"
+        projects_dir.mkdir()
+        monkeypatch.setattr(ct_mod, "PROJECTS_DIR", projects_dir)
+
+        # File outside projects dir
+        other_file = tmp_path / "secrets" / "key.txt"
+        other_file.parent.mkdir()
+        other_file.write_text("secret")
+
+        monkeypatch.setattr(
+            "onemancompany.core.file_editor._resolve_path",
+            lambda p, permissions=None: None,
+        )
+
+        result = ct_mod.read.invoke({"file_path": str(other_file)})
+        assert result["status"] == "error"
+
+
 # ---------------------------------------------------------------------------
 # Additional coverage: list_directory edge cases
 # ---------------------------------------------------------------------------

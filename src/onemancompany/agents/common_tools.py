@@ -61,10 +61,14 @@ def read(file_path: str, employee_id: str = "") -> dict:
     """
     from onemancompany.core.file_editor import _resolve_path
 
+    from pathlib import Path
+
     # Handle "workspace/..." shortcut → resolve to employee's workspace dir
     if file_path.startswith("workspace/") and employee_id:
-        from pathlib import Path
         resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    # Handle absolute project workspace paths
+    elif file_path and Path(file_path).is_absolute() and str(Path(file_path).resolve()).startswith(str(PROJECTS_DIR.resolve())):
+        resolved = Path(file_path).resolve()
     else:
         permissions = []
         if employee_id:

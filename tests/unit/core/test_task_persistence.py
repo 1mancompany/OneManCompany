@@ -177,3 +177,19 @@ class TestRecoverScheduleFromTrees:
         em = _MockEM()
         tp.recover_schedule_from_trees(em, tmp_path / "projects", tmp_path / "employees")
         assert len(em.scheduled) == 0
+
+    def test_system_task_tree_preserves_old_nodes(self, tmp_path):
+        """Finished system task nodes must NOT be deleted on save — trees only grow."""
+        from datetime import datetime, timedelta
+        from onemancompany.core.system_tasks import SystemTaskTree
+
+        sys_tree = SystemTaskTree("emp1")
+        node = sys_tree.create_system_node("emp1", "old task")
+        node.status = "finished"
+        node.completed_at = (datetime.now() - timedelta(hours=48)).isoformat()
+
+        sys_path = tmp_path / "system_tasks.yaml"
+        sys_tree.save(sys_path)
+
+        loaded = SystemTaskTree.load(sys_path, "emp1")
+        assert len(loaded.get_all_nodes()) == 1, "Finished nodes must be preserved on save"
