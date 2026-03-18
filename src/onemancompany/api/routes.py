@@ -5751,6 +5751,8 @@ async def create_conversation(body: dict) -> dict:
         raise HTTPException(status_code=400, detail=f"Invalid type: must be one of {_VALID_CONV_TYPES}")
     if not employee_id:
         raise HTTPException(status_code=400, detail="employee_id is required")
+    if conv_type == "ceo_inbox" and not body.get("project_dir"):
+        raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
     conv = await _conversation_service.create(
         type=conv_type,
         employee_id=employee_id,
@@ -5780,9 +5782,12 @@ async def get_conversation_messages(conv_id: str) -> dict:
 
 @router.post("/api/conversation/{conv_id}/message")
 async def send_conversation_message(conv_id: str, body: dict) -> dict:
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required and must be non-empty")
     try:
         msg = await _conversation_service.send_message(
-            conv_id, sender="ceo", role="CEO", text=body["text"],
+            conv_id, sender="ceo", role="CEO", text=text,
             attachments=body.get("attachments"),
         )
     except ValueError:
@@ -5810,8 +5815,8 @@ async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> di
         safe_name = Path(file.filename).name
         if not safe_name:
             continue
-        # Enforce per-file size limit
-        content = await file.read()
+        # Enforce per-file size limit (read limit+1 bytes to detect overflow without full read)
+        content = await file.read(_MAX_UPLOAD_SIZE + 1)
         if len(content) > _MAX_UPLOAD_SIZE:
             raise HTTPException(status_code=413, detail=f"File '{safe_name}' exceeds {_MAX_UPLOAD_SIZE // (1024*1024)}MB limit")
         dest = workspace / safe_name

@@ -5624,6 +5624,7 @@ class AppController {
   }
 
   async _closeConversation(convId) {
+    if (!this._chatPanel) return;
     const convType = this._chatPanel.getConvType();
     const waitHooks = convType === 'oneonone';
     await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {

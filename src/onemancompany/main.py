@@ -588,6 +588,15 @@ async def lifespan(app: FastAPI):
     await cleanup_sandbox()
     stop_sandbox_server()
 
+    # Cancel active conversation adapter tasks
+    from onemancompany.api.routes import _active_adapter_tasks
+    if _active_adapter_tasks:
+        logger.info("[shutdown] Cancelling {} active adapter task(s)", len(_active_adapter_tasks))
+        for t in _active_adapter_tasks:
+            t.cancel()
+        await asyncio.gather(*_active_adapter_tasks, return_exceptions=True)
+        _active_adapter_tasks.clear()
+
     watcher_task.cancel()
     broadcaster_task.cancel()
     code_watcher_task.cancel()
