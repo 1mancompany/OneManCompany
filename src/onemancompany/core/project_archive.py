@@ -609,7 +609,7 @@ def _is_internal_file(name: str) -> bool:
     if name in _INTERNAL_FILE_NAMES:
         return True
     # Archived task trees: task_tree_iter_NNN.yaml
-    if name.startswith("task_tree_") and name.endswith(".yaml"):
+    if name.startswith("task_tree_iter_") and name.endswith(".yaml"):
         return True
     return False
 

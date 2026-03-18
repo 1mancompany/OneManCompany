@@ -316,22 +316,24 @@ class TestProjectFiles:
         assert "task_tree_iter_001.yaml" not in files
         assert not any("nodes" in f for f in files)
 
-    def test_list_files_excludes_all_task_tree_archives(self, tmp_path):
+    def test_list_files_excludes_all_task_tree_iter_archives(self, tmp_path):
         """task_tree_iter_NNN.yaml variants must all be excluded."""
         slug = pa.create_named_project("Archive Filter")
         pa.create_iteration(slug, "task", "COO")
         ws = Path(pa.get_project_workspace(slug))
 
-        for name in ["task_tree_iter_001.yaml", "task_tree_iter_999.yaml",
-                      "task_tree_backup.yaml"]:
+        for name in ["task_tree_iter_001.yaml", "task_tree_iter_999.yaml"]:
             (ws / name).write_text("data")
-        (ws / "task_tree_notes.txt").write_text("not yaml")  # should NOT be excluded
+        # Non-iter task_tree yamls are user files, NOT excluded
+        (ws / "task_tree_backup.yaml").write_text("data")
+        (ws / "task_tree_notes.txt").write_text("not yaml")
 
         files = pa.list_project_files(slug)
 
-        # All task_tree_*.yaml excluded
-        assert not any(f.startswith("task_tree_") and f.endswith(".yaml") for f in files)
-        # Non-yaml task_tree file kept
+        # task_tree_iter_*.yaml excluded
+        assert not any(f.startswith("task_tree_iter_") and f.endswith(".yaml") for f in files)
+        # Non-iter yaml and non-yaml kept
+        assert "task_tree_backup.yaml" in files
         assert "task_tree_notes.txt" in files
 
 
@@ -350,7 +352,9 @@ class TestIsInternalFile:
         assert pa._is_internal_file("task_tree_iter_001.yaml") is True
         assert pa._is_internal_file("task_tree_iter_999.yaml") is True
 
-    def test_task_tree_non_yaml_not_excluded(self):
+    def test_task_tree_non_iter_yaml_not_excluded(self):
+        """Only task_tree_iter_*.yaml is internal, not arbitrary task_tree_*.yaml."""
+        assert pa._is_internal_file("task_tree_backup.yaml") is False
         assert pa._is_internal_file("task_tree_notes.txt") is False
 
     def test_regular_file_not_excluded(self):

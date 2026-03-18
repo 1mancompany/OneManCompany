@@ -1027,12 +1027,14 @@ class EmployeeManager:
             _effective_dir = project_dir or str(Path(entry.tree_path).parent)
             node.load_content(_effective_dir)
 
-            # Backfill node.project_dir so child dispatches inherit the correct workspace
+            # Backfill node.project_dir so child dispatches inherit the correct workspace.
+            # Persist immediately so restarts / snapshot-restore also pick it up.
             if not project_dir:
                 node.project_dir = _effective_dir
                 project_dir = _effective_dir
                 logger.debug("[TASK] Backfilled project_dir for node {} → {}",
                              entry.node_id, _effective_dir)
+                save_tree_async(entry.tree_path)
 
             # Tree context includes current node description + ancestors + children
             tree_ctx = _build_tree_context(tree, node, _effective_dir)
