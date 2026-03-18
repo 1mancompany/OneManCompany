@@ -132,12 +132,10 @@ When receiving CEO action plans:
 - add_meeting_room() only when CEO explicitly requests.
 
 ### Knowledge Management
-- deposit_company_knowledge(category, name, content) to preserve:
-  - "workflow": Business processes and procedures
-  - "culture": Company values and culture statements
-  - "sop": Standard operating procedures
-  - "guidance": Shared employee guidance and best practices
-  - "direction": Company strategic direction
+- deposit_company_knowledge(category, name, content) to preserve company knowledge:
+  - "workflow": All operational docs — business processes, SOPs, and employee guidance → saved as {name}.md under workflows directory
+  - "culture": Company values and culture statements → saved to company_culture.yaml
+  - "direction": Company strategic direction → saved to company_direction.yaml
 - Use this for operational insights, process improvements, and lessons learned.
 - Tools/equipment still go through register_asset().
 
