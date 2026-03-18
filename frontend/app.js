@@ -5871,7 +5871,6 @@ class AppController {
   _renderProjectDetail(projectId, proj, contentEl) {
     const totalCost = proj.total_cost_usd || 0;
     let headerHtml = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-      <button class="pixel-btn secondary" style="font-size:5px;padding:2px 6px;" onclick="window.app.loadProjectList()">\u25C0 Back</button>
       <span class="project-name-editable" data-project-id="${this._escHtml(projectId)}" title="Click to rename" style="color:var(--pixel-cyan);font-size:8px;cursor:pointer;border-bottom:1px dashed var(--text-dim);">${this._escHtml(proj.name || projectId)}</span>
       <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
       ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
@@ -5968,11 +5967,15 @@ class AppController {
     // Use qualified iteration ID (projectId/iterationId) for unambiguous lookup
     const qualifiedId = (projectId && iterationId && projectId !== iterationId)
       ? `${projectId}/${iterationId}` : iterationId;
+    // Encode each path segment separately so '/' is preserved for FastAPI path params
+    const qualifiedPath = (projectId && iterationId && projectId !== iterationId)
+      ? `${encodeURIComponent(projectId)}/${encodeURIComponent(iterationId)}`
+      : encodeURIComponent(iterationId);
 
     // Fetch project doc + task tree in parallel
     Promise.all([
-      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}`).then(r => r.json()),
-      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/projects/${qualifiedPath}`).then(r => r.json()),
+      fetch(`/api/projects/${qualifiedPath}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([doc, treeData]) => {
         if (doc.error) {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
@@ -6046,7 +6049,7 @@ class AppController {
         </div>`;
 
         const files = doc.files || [];
-        const fileBaseUrl = `/api/projects/${encodeURIComponent(qualifiedId)}/files/`;
+        const fileBaseUrl = `/api/projects/${qualifiedPath}/files/`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
         if (files.length > 0) {
           for (const f of files) {
