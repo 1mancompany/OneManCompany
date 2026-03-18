@@ -1912,7 +1912,10 @@ class TestRootNodeCompletion:
         root.status = "completed"
         root.result = "All done"
 
-        tree_path = tmp_path / "tree.yaml"
+        # Use iterations/ path so it's recognized as a project tree
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
@@ -1922,6 +1925,37 @@ class TestRootNodeCompletion:
 
         # _request_ceo_confirmation should have been called, not _full_cleanup
         mock_confirm.assert_called_once()
+        mock_cleanup.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_adhoc_tree_does_not_trigger_retrospective(self, mock_bus, mock_state, tmp_path):
+        """Adhoc nodes (node_type='adhoc') should NOT trigger project completion."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="real-project/iter_001")
+        root = tree.create_root("00003", "New employee ready notification")
+        root.node_type = "adhoc"
+        root.status = "completed"
+        root.result = "Acknowledged"
+
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
+
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
+             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+            await mgr._on_child_complete("00003", entry, project_id="real-project/iter_001")
+
+        # Should NOT trigger project completion for adhoc nodes
+        mock_confirm.assert_not_called()
         mock_cleanup.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1990,7 +2024,9 @@ class TestProjectCompletionBottomUp:
         review.node_type = "review"
         review.status = "finished"
 
-        tree_path = tmp_path / "task_tree.yaml"
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
 
@@ -2029,7 +2065,9 @@ class TestProjectCompletionBottomUp:
         leaf2 = tree.add_child(mid.id, "00011", "Database layer", [])
         leaf2.status = "processing"  # Still running!
 
-        tree_path = tmp_path / "task_tree.yaml"
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
         tree.save(tree_path)
         # leaf1 just got accepted via accept_child → triggers callback
         entry = ScheduleEntry(node_id=leaf1.id, tree_path=str(tree_path))
@@ -2072,7 +2110,9 @@ class TestProjectCompletionBottomUp:
         review.node_type = "review"
         review.status = "finished"
 
-        tree_path = tmp_path / "task_tree.yaml"
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
 

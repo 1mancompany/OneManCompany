@@ -567,6 +567,8 @@ MAX_HISTORY_ENTRIES = 8
 MAX_HISTORY_CHARS = 3000
 RESULT_SNIPPET_LEN = 300
 
+from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType
+
 
 class EmployeeManager:
     """Central coordinator for all employee task execution.
@@ -1226,7 +1228,7 @@ class EmployeeManager:
                 logger.debug("[TASK LIFECYCLE] employee={} node={} → COMPLETED (type={})",
                              employee_id, entry.node_id, node.node_type)
                 # System nodes auto-skip review: they don't need to be reviewed themselves
-                if node.node_type in ("review", "ceo_request", "watchdog_nudge"):
+                if node.node_type in SYSTEM_NODE_TYPES:
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node)",
@@ -1362,7 +1364,7 @@ class EmployeeManager:
                 node.completed_at = datetime.now().isoformat()
 
                 # System nodes auto-skip review
-                if node.node_type in ("review", "ceo_request"):
+                if node.node_type in SYSTEM_NODE_TYPES:
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node, resumed)", employee_id, task_id)
@@ -1773,11 +1775,11 @@ class EmployeeManager:
                 # Check for active review node (prevent infinite loop)
                 has_active_review = any(
                     c for c in children
-                    if c.node_type == "review"
+                    if c.node_type == NodeType.REVIEW
                     and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
                 )
                 if not has_active_review:
-                    _SKIP_REVIEW_TYPES = {"review", "watchdog_nudge"}
+                    _SKIP_REVIEW_TYPES = {NodeType.REVIEW, NodeType.WATCHDOG_NUDGE}
                     non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
                     if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
                         # All substantive children accepted → auto-complete parent
@@ -1802,10 +1804,8 @@ class EmployeeManager:
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
         # EA done executing + all child subtrees RESOLVED → trigger retrospective.
-        # watchdog_nudge nodes are housekeeping probes — they must NOT trigger
-        # project completion. Their purpose is to nudge stalled projects, not
-        # to be the final event that marks a project done.
-        if node.node_type != "watchdog_nudge" and tree.is_project_complete():
+        # Skip non-project node types (see _SKIP_COMPLETION_TYPES).
+        if node.node_type not in SKIP_COMPLETION_TYPES and tree.is_project_complete():
             ea_node = tree.get_ea_node()
             logger.info(
                 "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
@@ -1830,7 +1830,7 @@ class EmployeeManager:
         """Build review prompt and schedule a review node, or escalate to CEO."""
         from onemancompany.core.task_tree import save_tree_async
 
-        _SKIP_REVIEW_TYPES = {"review", "watchdog_nudge"}
+        _SKIP_REVIEW_TYPES = {NodeType.REVIEW, NodeType.WATCHDOG_NUDGE}
         project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         needs_review = []
         already_accepted = []
@@ -1875,7 +1875,7 @@ class EmployeeManager:
         from onemancompany.core.config import MAX_REVIEW_ROUNDS, CEO_ID
         review_count = sum(
             1 for c in children
-            if c.node_type == "review" and c.employee_id == parent_node.employee_id
+            if c.node_type == NodeType.REVIEW and c.employee_id == parent_node.employee_id
         )
         if review_count >= MAX_REVIEW_ROUNDS:
             logger.warning(
@@ -1885,7 +1885,7 @@ class EmployeeManager:
             # Check if CEO escalation already exists to prevent infinite loop
             existing_escalation = any(
                 c for c in children
-                if c.node_type == "ceo_request" and c.employee_id == CEO_ID
+                if c.node_type == NodeType.CEO_REQUEST and c.employee_id == CEO_ID
                 and c.status not in (TaskPhase.CANCELLED,)
             )
             if existing_escalation:
@@ -1919,7 +1919,7 @@ class EmployeeManager:
                 description=escalation_desc,
                 acceptance_criteria=[],
             )
-            ceo_node.node_type = "ceo_request"
+            ceo_node.node_type = NodeType.CEO_REQUEST
             ceo_node.project_id = project_id
             ceo_node.project_dir = project_dir
             save_tree_async(entry.tree_path)
@@ -1943,7 +1943,7 @@ class EmployeeManager:
             description=review_prompt,
             acceptance_criteria=[],
         )
-        review_node.node_type = "review"
+        review_node.node_type = NodeType.REVIEW
         review_node.project_id = project_id
         review_node.project_dir = project_dir
         save_tree_async(entry.tree_path)
@@ -2092,7 +2092,7 @@ class EmployeeManager:
         await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
 
         # Auto-approve: proceed directly with cleanup
-        is_system_node = node.node_type in ("review", "ceo_request", "ceo_prompt")
+        is_system_node = node.node_type in SYSTEM_NODE_TYPES
         await self._full_cleanup(
             employee_id, node, agent_error=False,
             project_id=project_id,
@@ -2487,7 +2487,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
             if node.status != "completed":
                 continue
             # Skip system nodes (review/ceo_request auto-finish)
-            if node.node_type in ("review", "ceo_request"):
+            if node.node_type in SYSTEM_NODE_TYPES:
                 continue
             if not node.completed_at:
                 continue

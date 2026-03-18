@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, OrgDir, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
@@ -132,12 +132,10 @@ When receiving CEO action plans:
 - add_meeting_room() only when CEO explicitly requests.
 
 ### Knowledge Management
-- deposit_company_knowledge(category, name, content) to preserve:
-  - "workflow": Business processes and procedures
-  - "culture": Company values and culture statements
-  - "sop": Standard operating procedures
-  - "guidance": Shared employee guidance and best practices
-  - "direction": Company strategic direction
+- deposit_company_knowledge(category, name, content) to preserve company knowledge:
+  - "workflow": All operational docs — business processes, SOPs, and employee guidance → saved as {name}.md under workflows directory
+  - "culture": Company values and culture statements → saved to company_culture.yaml
+  - "direction": Company strategic direction → saved to company_direction.yaml
 - Use this for operational insights, process improvements, and lessons learned.
 - Tools/equipment still go through register_asset().
 
@@ -886,36 +884,34 @@ def deposit_company_knowledge(
     Use this to preserve operational insights, processes, and guidelines that
     benefit the entire company — not just tools/equipment (use register_asset for those).
 
+    Categories and their disk locations (use OrgDir enum values):
+      - "workflow": Workflows, SOPs, and operational guidance → saved as {name}.md under the workflows directory
+      - "culture": Company culture values → saved to company_culture.yaml
+      - "direction": Company strategic direction → saved to company_direction.yaml
+
+    The tool will return the exact disk path where the content was saved.
+
     Args:
-        category: Type of knowledge. One of:
-            - "workflow": Business process workflow → company/business/workflows/
-            - "culture": Company culture value → company/company_culture.yaml
-            - "sop": Standard operating procedure → company/operations/sops/
-            - "guidance": Shared employee guidance → company/shared_prompts/
-            - "direction": Company strategic direction → company/company_direction.yaml
-        name: Identifier/title for the knowledge (used as filename for file-based categories).
-        content: The knowledge content (markdown for workflows/sops/guidance, plain text for culture/direction).
+        category: One of: "workflow", "culture", "direction".
+            "workflow" covers all operational docs: workflows, SOPs, and guidance.
+        name: Identifier/title (used as filename: {name}.md for workflow).
+        content: The knowledge content (markdown for workflow, plain text for culture/direction).
 
     Returns:
-        Confirmation with category, name, and storage path.
+        Confirmation with category, name, and storage path (absolute).
     """
-    valid_categories = ("workflow", "culture", "sop", "guidance", "direction")
+    valid_categories = tuple(d.value for d in OrgDir)
     if category not in valid_categories:
         return {
             "status": "error",
             "message": f"Invalid category '{category}'. Must be one of: {', '.join(valid_categories)}",
         }
 
-    if category == "workflow":
+    if category == OrgDir.WORKFLOW:
         save_workflow(name, content)
         path = str(WORKFLOWS_DIR / f"{name}.md")
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "workflow",
-            "name": name,
-        })
 
-    elif category == "culture":
+    elif category == OrgDir.CULTURE:
         culture_item = {"content": content, "added_by": "COO", "name": name}
         from onemancompany.core.store import load_culture as _load_culture, save_culture as _save_culture
         import asyncio as _asyncio
@@ -926,43 +922,17 @@ def deposit_company_knowledge(
             _loop.create_task(_save_culture(items))
         except RuntimeError:
             logger.debug("No event loop for culture persist")
-        path = "company/company_culture.yaml"
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "culture",
-            "name": name,
-        })
+        path = str(OrgDir.CULTURE.disk_path)
 
-    elif category == "sop":
-        SOP_DIR.mkdir(parents=True, exist_ok=True)
-        sop_path = SOP_DIR / f"{name}.md"
-        sop_path.write_text(content, encoding="utf-8")
-        path = str(sop_path)
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "sop",
-            "name": name,
-        })
-
-    elif category == "guidance":
-        SHARED_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-        guidance_path = SHARED_PROMPTS_DIR / f"{name}.md"
-        guidance_path.write_text(content, encoding="utf-8")
-        path = str(guidance_path)
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "guidance",
-            "name": name,
-        })
-
-    elif category == "direction":
+    elif category == OrgDir.DIRECTION:
         save_company_direction(content)
-        path = "company/company_direction.yaml"
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "direction",
-            "name": name,
-        })
+        path = str(OrgDir.DIRECTION.disk_path)
+
+    _append_activity({
+        "type": "knowledge_deposited",
+        "category": category,
+        "name": name,
+    })
 
     return {
         "status": "success",

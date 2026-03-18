@@ -42,7 +42,7 @@ class TaskNode:
     employee_id: str = ""
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
-    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request" | "review"
+    node_type: str = "task"  # See NodeType enum in task_lifecycle.py
 
     model_used: str = ""              # which LLM executed
     project_dir: str = ""             # workspace path
@@ -147,7 +147,8 @@ class TaskNode:
 
     @property
     def is_ceo_node(self) -> bool:
-        return self.node_type in ("ceo_prompt", "ceo_followup", "ceo_request")
+        from onemancompany.core.task_lifecycle import NodeType
+        return self.node_type in (NodeType.CEO_PROMPT, NodeType.CEO_FOLLOWUP, NodeType.CEO_REQUEST)
 
     def to_dict(self) -> dict:
         return {
@@ -157,7 +158,7 @@ class TaskNode:
             "employee_id": self.employee_id,
             "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
-            "node_type": self.node_type,
+            "node_type": str(self.node_type),
             "model_used": self.model_used,
             "project_dir": self.project_dir,
             "status": self.status,
@@ -275,13 +276,14 @@ class TaskTree:
 
     def get_ea_node(self):
         """Get the EA node (first task-type child of the CEO root node)."""
+        from onemancompany.core.task_lifecycle import NodeType
         root = self._nodes.get(self.root_id)
-        if not root or root.node_type != "ceo_prompt":
+        if not root or root.node_type != NodeType.CEO_PROMPT:
             # Legacy tree — root is EA
             return root
         for cid in root.children_ids:
             child = self._nodes.get(cid)
-            if child and child.node_type == "task":
+            if child and child.node_type == NodeType.TASK:
                 return child
         return None
 

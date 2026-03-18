@@ -53,7 +53,7 @@ def read(file_path: str, employee_id: str = "") -> dict:
     - Your workspace: "workspace/..." (your private workspace directory)
     - Company files: "company/..." or relative paths like "human_resource/..."
     - Source code: "src/..." (requires backend_code_maintenance permission)
-    - Project files: full project workspace path
+    - Absolute paths: any absolute file path
 
     Args:
         file_path: File path to read.
@@ -61,10 +61,14 @@ def read(file_path: str, employee_id: str = "") -> dict:
     """
     from onemancompany.core.file_editor import _resolve_path
 
+    from pathlib import Path
+
     # Handle "workspace/..." shortcut → resolve to employee's workspace dir
     if file_path.startswith("workspace/") and employee_id:
-        from pathlib import Path
         resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    # Handle absolute paths — read-only, safe to allow any path
+    elif file_path and Path(file_path).is_absolute():
+        resolved = Path(file_path).resolve()
     else:
         permissions = []
         if employee_id:
@@ -96,7 +100,7 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
     - Your workspace: "workspace" or "workspace/subdir"
     - Company directories: "business/projects", "human_resource/employees", etc.
     - Source code: "src/onemancompany/core" (requires permission)
-    - Project workspace: full project workspace path
+    - Absolute paths: any absolute directory path
 
     Args:
         dir_path: Directory path. Empty = company root.
@@ -109,8 +113,8 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
     if employee_id and (dir_path == "workspace" or dir_path.startswith("workspace/")):
         suffix = dir_path[len("workspace"):].lstrip("/")
         resolved = (get_workspace_dir(employee_id) / suffix).resolve() if suffix else get_workspace_dir(employee_id).resolve()
-    # Handle absolute project workspace paths
-    elif dir_path and Path(dir_path).is_absolute() and str(Path(dir_path).resolve()).startswith(str(PROJECTS_DIR.resolve())):
+    # Handle absolute paths — read-only, safe to allow any path
+    elif dir_path and Path(dir_path).is_absolute():
         resolved = Path(dir_path).resolve()
     else:
         permissions = []

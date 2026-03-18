@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ def _create_standalone_ceo_request(
         "node_id": node_id,
         "employee_id": "00001",
         "description": description,
-        "node_type": "ceo_request",
+        "node_type": NodeType.CEO_REQUEST,
         "ceo_request": True,
         "message": "Task dispatched to CEO inbox. CEO will respond when available.",
     }
@@ -225,7 +225,7 @@ def dispatch_child(
             from onemancompany.core.task_lifecycle import TaskPhase as _TP
             existing = [
                 c for c in tree.get_children(task_id)
-                if c.node_type == "ceo_request"
+                if c.node_type == NodeType.CEO_REQUEST
                 and c.status not in (_TP.FINISHED.value, _TP.CANCELLED.value, _TP.ACCEPTED.value)
             ]
             if existing:
@@ -235,7 +235,7 @@ def dispatch_child(
                     "node_id": dup.id,
                     "employee_id": employee_id,
                     "description": dup.description,
-                    "node_type": "ceo_request",
+                    "node_type": NodeType.CEO_REQUEST,
                     "ceo_request": True,
                     "message": (
                         f"A CEO request ({dup.id}) is already pending. Do NOT create another. "
@@ -257,7 +257,7 @@ def dispatch_child(
         child.project_dir = project_dir
 
         if employee_id == CEO_EMPLOYEE_ID:
-            child.node_type = "ceo_request"
+            child.node_type = NodeType.CEO_REQUEST
             # Signal vessel to auto-HOLD parent after execution (no_watchdog:
             # routes.py handles resume when CEO responds)
             current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
@@ -284,7 +284,7 @@ def dispatch_child(
                 "node_id": child.id,
                 "employee_id": employee_id,
                 "description": description,
-                "node_type": "ceo_request",
+                "node_type": NodeType.CEO_REQUEST,
                 "ceo_request": True,
                 "message": (
                     "Task dispatched to CEO inbox. Your task will automatically pause (HOLDING) "

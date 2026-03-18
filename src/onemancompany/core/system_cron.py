@@ -290,7 +290,7 @@ async def project_progress_watchdog() -> list | None:
     review the task tree and drive the project forward.
     """
     from onemancompany.core.config import EA_ID, PROJECTS_DIR
-    from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED
+    from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED, NodeType
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
     from onemancompany.core.vessel import employee_manager
 
@@ -362,7 +362,7 @@ async def project_progress_watchdog() -> list | None:
                 description=nudge_desc,
                 acceptance_criteria=[],
             )
-            nudge_node.node_type = "watchdog_nudge"
+            nudge_node.node_type = NodeType.WATCHDOG_NUDGE
             nudge_node.project_id = project_id
             nudge_node.project_dir = ea_node.project_dir or str(tree_path.parent)
             save_tree_async(tree_path_str)

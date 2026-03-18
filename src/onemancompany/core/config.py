@@ -40,6 +40,46 @@ SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
+
+# ---------------------------------------------------------------------------
+# OrgDir — enum of organizational knowledge directories
+# ---------------------------------------------------------------------------
+from enum import Enum
+
+
+class OrgDir(str, Enum):
+    """Organizational knowledge directory categories and their disk locations.
+
+    Used by COO's deposit_company_knowledge tool and any code that needs
+    to resolve where company-level knowledge is stored.
+    """
+    WORKFLOW = "workflow"       # Workflows, SOPs, and guidance (all operational docs)
+    CULTURE = "culture"        # Company culture values
+    DIRECTION = "direction"    # Company strategic direction
+
+    @property
+    def disk_path(self) -> Path:
+        """Return the absolute disk path for this category."""
+        return _ORG_DIR_PATHS[self]
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of this category."""
+        return _ORG_DIR_DESCRIPTIONS[self]
+
+
+_ORG_DIR_PATHS: dict["OrgDir", Path] = {
+    OrgDir.WORKFLOW: WORKFLOWS_DIR,
+    OrgDir.CULTURE: COMPANY_CULTURE_FILE,
+    OrgDir.DIRECTION: COMPANY_DIRECTION_FILE,
+}
+
+_ORG_DIR_DESCRIPTIONS: dict["OrgDir", str] = {
+    OrgDir.WORKFLOW: "Workflows, SOPs, and operational guidance (.md files)",
+    OrgDir.CULTURE: "Company culture values (YAML)",
+    OrgDir.DIRECTION: "Company strategic direction (YAML)",
+}
+
 # Talent market — built-in talents (source-relative), cloned talents (runtime)
 TALENT_MARKET_DIR = Path(__file__).parent.parent / "talent_market"
 TALENTS_DIR = TALENT_MARKET_DIR / "talents"  # built-in (general-assistant, etc.)

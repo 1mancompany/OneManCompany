@@ -2478,7 +2478,7 @@ async def _create_project_from_action_points(
     from onemancompany.core.task_tree import TaskTree
     from onemancompany.core.vessel import _save_project_tree
     from onemancompany.core.agent_loop import employee_manager
-    from onemancompany.core.task_lifecycle import TaskPhase
+    from onemancompany.core.task_lifecycle import TaskPhase, NodeType
     from pathlib import Path
 
     meeting_label = "All-Hands" if meeting_type == "all_hands" else "Discussion"
@@ -2493,7 +2493,7 @@ async def _create_project_from_action_points(
 
     tree = TaskTree(project_id=pid)
     ceo_root = tree.create_root(employee_id=CEO_ID, description=task_desc)
-    ceo_root.node_type = "ceo_prompt"
+    ceo_root.node_type = NodeType.CEO_PROMPT
     ceo_root.set_status(TaskPhase.PROCESSING)
 
     ea_task = (
