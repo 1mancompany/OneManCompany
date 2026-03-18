@@ -28,25 +28,6 @@
         ]
       },
       {
-        "id": "cv_hire",
-        "title": "Hire from CV",
-        "fields": [
-          {
-            "key": "_cv_json",
-            "type": "textarea",
-            "label": "CV (JSON)",
-            "placeholder": "Paste talent CV JSON here..."
-          },
-          {
-            "key": "_cv_hire",
-            "type": "action_button",
-            "label": "Hire",
-            "action": "hire_from_cv",
-            "cv_field": "_cv_json"
-          }
-        ]
-      },
-      {
         "id": "llm",
         "title": "LLM Configuration",
         "fields": [
@@ -64,6 +45,25 @@
             "min": 0,
             "max": 2,
             "step": 0.1
+          }
+        ]
+      },
+      {
+        "id": "cv_hire",
+        "title": "Hire from CV",
+        "fields": [
+          {
+            "key": "_cv_json",
+            "type": "textarea",
+            "label": "CV (JSON)",
+            "placeholder": "Paste talent CV JSON here..."
+          },
+          {
+            "key": "_cv_hire",
+            "type": "action_button",
+            "label": "Hire",
+            "action": "hire_from_cv",
+            "cv_field": "_cv_json"
           }
         ]
       }

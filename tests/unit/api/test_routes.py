@@ -6826,3 +6826,86 @@ class TestCleanupSingleHireFailure:
         mock_em.resume_held_task.assert_called_once_with(
             "00002", "node-123", "Hire failed: clone error"
         )
+
+
+# ---------------------------------------------------------------------------
+# POST /api/candidates/hire-from-cv
+# ---------------------------------------------------------------------------
+
+class TestHireFromCV:
+    @pytest.mark.asyncio
+    async def test_missing_cv_field(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/candidates/hire-from-cv", json={})
+            assert resp.status_code == 200
+            assert resp.json()["error"] == "Missing or invalid 'cv' field"
+
+    @pytest.mark.asyncio
+    async def test_missing_name(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/candidates/hire-from-cv", json={"cv": {"role": "Dev"}})
+            assert resp.json()["error"] == "CV missing required field: name"
+
+    @pytest.mark.asyncio
+    async def test_missing_role(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/candidates/hire-from-cv", json={"cv": {"name": "Alice"}})
+            assert resp.json()["error"] == "CV missing required field: role"
+
+    @pytest.mark.asyncio
+    async def test_happy_path(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        mock_emp = MagicMock(id="00010")
+
+        async def fake_nickname(*a, **kw):
+            return "小明"
+
+        async def fake_hire(**kw):
+            return mock_emp
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())), \
+             patch("onemancompany.agents.onboarding.generate_nickname", fake_nickname), \
+             patch("onemancompany.agents.onboarding.execute_hire", fake_hire), \
+             patch("onemancompany.api.routes.spawn_background") as mock_spawn:
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/candidates/hire-from-cv", json={
+                    "cv": {"name": "Alice", "role": "Developer", "skills": ["python"]}
+                })
+                data = resp.json()
+                assert data["status"] == "onboarding"
+                assert data["name"] == "Alice"
+                assert data["role"] == "Developer"
+                mock_spawn.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_temperature_fallback(self):
+        """Non-numeric temperature should fallback to 0.7, not crash."""
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        mock_emp = MagicMock(id="00010")
+
+        async def fake_nickname(*a, **kw):
+            return ""
+
+        async def fake_hire(**kw):
+            assert kw["temperature"] == 0.7  # fallback value
+            return mock_emp
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())), \
+             patch("onemancompany.agents.onboarding.generate_nickname", fake_nickname), \
+             patch("onemancompany.agents.onboarding.execute_hire", fake_hire), \
+             patch("onemancompany.api.routes.spawn_background"):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/candidates/hire-from-cv", json={
+                    "cv": {"name": "Bob", "role": "PM", "temperature": "hot"}
+                })
+                assert resp.json()["status"] == "onboarding"

@@ -2544,8 +2544,9 @@ class AppController {
     }
   }
 
-  async _handleManifestAction(field, empId) {
-    if (field.action === 'hire_from_cv') {
+  /** Registry of manifest action handlers keyed by action name. */
+  _manifestActions = {
+    hire_from_cv: async (field, empId) => {
       const container = document.getElementById('emp-settings-container');
       const cvEl = container.querySelector(`[data-field-key="${field.cv_field}"]`);
       if (!cvEl || !cvEl.value.trim()) {
@@ -2569,18 +2570,27 @@ class AppController {
           body: JSON.stringify({ cv }),
         }).then(r => r.json());
         if (resp.error) {
-          this.logEntry('SYSTEM', `Hire failed: ${resp.error}`, 'system');
+          this.logEntry('SYSTEM', `Hire failed: ${this._escHtml(resp.error)}`, 'system');
         } else {
-          this.logEntry('CEO', `Onboarding started for ${resp.name} (${resp.role})`, 'ceo');
+          this.logEntry('CEO', `Onboarding started for ${this._escHtml(resp.name)} (${this._escHtml(resp.role)})`, 'ceo');
           cvEl.value = '';
         }
       } catch (err) {
-        this.logEntry('SYSTEM', `Hire request failed: ${err.message}`, 'system');
+        this.logEntry('SYSTEM', `Hire request failed: ${this._escHtml(err.message)}`, 'system');
       } finally {
         btn.disabled = false;
         btn.textContent = field.label || 'Hire';
       }
+    },
+  };
+
+  async _handleManifestAction(field, empId) {
+    const handler = this._manifestActions[field.action];
+    if (!handler) {
+      console.error(`[manifest] Unknown action: ${field.action}`);
+      return;
     }
+    await handler(field, empId);
   }
 
   _renderSelfHostedSection(empId, empData, container) {

@@ -4062,6 +4062,13 @@ async def hire_from_cv(body: dict) -> dict:
     is_self = hosting == "self"
     skills = [s if isinstance(s, str) else s.get("name", "") for s in cv.get("skills", [])]
     talent_id = cv.get("talent_id", "")
+    try:
+        temperature = float(cv.get("temperature", 0.7))
+    except (ValueError, TypeError):
+        temperature = 0.7
+
+    logger.debug("[cv_hire] Received CV: name={}, role={}, hosting={}, skills={}, talent_id={}",
+                 name, role, hosting, skills, talent_id)
 
     try:
         nickname = await asyncio.wait_for(
@@ -4069,8 +4076,10 @@ async def hire_from_cv(body: dict) -> dict:
         )
     except asyncio.TimeoutError:
         nickname = ""
+    logger.debug("[cv_hire] Generated nickname={} for {}", nickname, name)
 
-    batch_id = f"cv_{talent_id or name.lower().replace(' ', '_')}_{int(asyncio.get_event_loop().time())}"
+    import time as _time
+    batch_id = f"cv_{talent_id or name.lower().replace(' ', '_')}_{int(_time.time())}"
 
     async def _cv_progress(step, message):
         step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
@@ -4092,7 +4101,7 @@ async def hire_from_cv(body: dict) -> dict:
                 skills=skills,
                 talent_id=talent_id,
                 llm_model="" if is_self else cv.get("llm_model", ""),
-                temperature=float(cv.get("temperature", 0.7)),
+                temperature=temperature,
                 api_provider="" if is_self else cv.get("api_provider", "openrouter"),
                 hosting=hosting,
                 auth_method=cv.get("auth_method", "api_key"),
@@ -4101,6 +4110,8 @@ async def hire_from_cv(body: dict) -> dict:
             )
             await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("[cv_hire] Failed to hire {}", name)
 
