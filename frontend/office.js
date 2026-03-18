@@ -33,6 +33,9 @@ const PALETTE = {
   // Meeting Room
   meetingBooked: '#ff4455',
   meetingFree: '#00ff88',
+  meetingTable: '#5c4420',
+  meetingTableLight: '#7a5c2e',
+  meetingChair: '#445566',
   // Bulletin Board
   boardBg: '#6b4226',
   boardFrame: '#4a2e18',
@@ -72,7 +75,7 @@ class OfficeRenderer {
     this.minimap = new MiniMap(this.officeMap, this.camera);
 
     // Preload tileset sheets (character sheets loaded on-demand per employee)
-    tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room']);
+    tileAtlas.preload(['gen', 'office', 'room_free']);
 
     // Mouse / click events
     this.canvas.addEventListener('mousemove', e => this._onMouseMove(e));
@@ -118,7 +121,7 @@ class OfficeRenderer {
     this.canvas.height = Math.round(cssH * dpr);
 
     if (this.camera) {
-      this.camera.resize(MAP_COLS * TILE, ROWS * TILE);
+      this.camera.resize((MAP_COLS + 2) * TILE, (ROWS + 2) * TILE);
     }
   }
 
@@ -139,7 +142,7 @@ class OfficeRenderer {
       const newRows = this.officeMap.rows;
       if (newRows !== ROWS) {
         ROWS = newRows;
-        this.camera.resize(MAP_COLS * TILE, ROWS * TILE);
+        this.camera.resize((MAP_COLS + 2) * TILE, (ROWS + 2) * TILE);
       }
     }
 
@@ -189,6 +192,9 @@ class OfficeRenderer {
 
   _preloadCharacterSheets() {
     const needed = new Set();
+    // CEO uses hardcoded id 'ceo_boss' — preload its sheet too
+    const ceoSpriteNum = (this._hashStr('ceo_boss') % 20) + 1;
+    needed.add(`char${String(ceoSpriteNum).padStart(2, '0')}`);
     for (const emp of (this.state.employees || [])) {
       const spriteNum = emp.avatar_sprite || ((this._hashStr(emp.id || 'default') % 20) + 1);
       needed.add(`char${String(spriteNum).padStart(2, '0')}`);
@@ -205,11 +211,11 @@ class OfficeRenderer {
     const sheetKey = `char${String(spriteNum).padStart(2, '0')}`;
 
     if (data.current_task || data.status === 'working') {
-      // Sit pose: row 4 (upper half) + row 5 (lower half)
-      return { sheet: sheetKey, row: 4, col: 0, w: 1, h: 2 };
+      // Sit pose: animation row 3 = tile rows 6-7 (Sit variant 1, front-facing)
+      return { sheet: sheetKey, row: 6, col: 0, w: 1, h: 2 };
     }
-    // Idle front: static pose (row 0, col 0)
-    return { sheet: sheetKey, row: 0, col: 0, w: 1, h: 2 };
+    // Idle front-facing: tile rows 2-3, col 18 (direction order: Right/Up/Left/Down, 6 frames each)
+    return { sheet: sheetKey, row: 2, col: 18, w: 1, h: 2 };
   }
 
   // ── Click / hover ──────────────────────────────────────────────────────────
@@ -259,11 +265,11 @@ class OfficeRenderer {
       }
     }
 
-    // Employees — sprite spans ~2 tiles above desk row
+    // Employees — character is 1 tile right of desk_position
     for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       const canvasRow = ey + WALL_ROWS;
-      if (tx === ex && (ty === canvasRow - 1 || ty === canvasRow || ty === canvasRow + 1)) {
+      if (tx === ex + 1 && (ty === canvasRow - 1 || ty === canvasRow || ty === canvasRow + 1)) {
         if (window.app?.openEmployeeDetail) window.app.openEmployeeDetail(emp);
         return;
       }
@@ -329,7 +335,7 @@ class OfficeRenderer {
     const ctx  = this.ctx;
     const vis  = this.camera.getVisibleTiles(COLS, ROWS);
 
-    for (let row = vis.minRow; row <= vis.maxRow; row++) {
+    for (let row = Math.max(WALL_ROWS, vis.minRow); row <= vis.maxRow; row++) {
       for (let col = vis.minCol; col <= vis.maxCol; col++) {
         const x = col * TILE;
         const y = row * TILE;
@@ -340,7 +346,7 @@ class OfficeRenderer {
 
         // Divider plant overlay (fallback green strip if tiles not loaded)
         if (this.officeMap.isDivider(col, row)) {
-          if (!tileAtlas.isReady('office')) {
+          if (!tileAtlas.isReady('gen')) {
             this._rect(x + 12, y, 8, TILE, '#2a5a30');
           }
           const overlay = this.officeMap.getOverlay(col, row);
@@ -349,15 +355,52 @@ class OfficeRenderer {
       }
     }
 
+    // CEO rug (below CEO character position)
+    const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
+    tileAtlas.drawDef(ctx, 'ceo_rug', 10 * TILE, (execRowCanvas + 1) * TILE);
+
     // Ambient floor glow under screen areas
     ctx.globalAlpha = 0.04;
     for (const emp of (this.state.employees || [])) {
       if (emp.remote) continue;
       const [ex, ey] = emp.desk_position || [0, 0];
       ctx.fillStyle = PALETTE.screenOn;
-      ctx.fillRect(ex * TILE - 8, (ey + WALL_ROWS) * TILE + 8, TILE + 16, TILE);
+      ctx.fillRect((ex + 1) * TILE - 8, (ey + WALL_ROWS) * TILE + 8, TILE + 16, TILE);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // ── Office border (wraps entire grid) ────────────────────────────────────
+  drawBorder() {
+    const ctx = this.ctx;
+    const T = TILE;
+    const PI = Math.PI;
+
+    // Left column (col = -1), skip corners
+    for (let row = 0; row < ROWS; row++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', -T, row * T, -PI / 2);
+    }
+
+    // Right column (col = COLS), skip corners
+    for (let row = 0; row < ROWS; row++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', COLS * T, row * T, PI / 2, true);
+    }
+
+    // Top row (row = -1), skip corners
+    for (let col = 0; col < COLS; col++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', col * T, -T);
+    }
+
+    // Bottom row (row = ROWS), skip corners
+    for (let col = 0; col < COLS; col++) {
+      tileAtlas.drawDefTransformed(ctx, 'border_wall', col * T, ROWS * T, PI);
+    }
+
+    // Corners (solid dark tile, no rotation needed)
+    tileAtlas.drawDef(ctx, 'border_corner', -T, -T);
+    tileAtlas.drawDef(ctx, 'border_corner', COLS * T, -T);
+    tileAtlas.drawDef(ctx, 'border_corner', -T, ROWS * T);
+    tileAtlas.drawDef(ctx, 'border_corner', COLS * T, ROWS * T);
   }
 
   // ── Walls ──────────────────────────────────────────────────────────────────
@@ -375,18 +418,19 @@ class OfficeRenderer {
       // and project wall (cols 12-14) are
       const hasWindow = (col % 4 === 0) && !(col >= 4 && col <= 8) && !(col >= 11 && col <= 15);
 
-      // Fallback: draw colored bands FIRST (tile draws on top, silent no-op if not loaded)
-      if (!tileAtlas.isReady('room')) {
-        this._rect(x, 0, TILE, 8, PALETTE.wallTop);
-        this._rect(x, 8, TILE, 16, PALETTE.wallMid);
-        this._rect(x, 24, TILE, 8, PALETTE.wallBot);
-      }
+      // Wall colored bands (always drawn as base)
+      this._rect(x, 0, TILE, TILE, PALETTE.wallTop);
+      this._rect(x, TILE, TILE, TILE, PALETTE.wallMid);
+      this._rect(x, TILE * 2, TILE, TILE, PALETTE.wallBot);
 
-      // Row 0: top wall
-      tileAtlas.drawDef(ctx, hasWindow ? 'wall_window_top' : 'wall_top', x, 0);
-      // Row 1: mid wall (window bottom or solid)
-      tileAtlas.drawDef(ctx, hasWindow ? 'wall_window_bottom' : 'wall_mid', x, TILE);
-      // Row 2: baseboard
+      // Tileset wall panels on top (from office sheet cubicle partitions)
+      if (hasWindow) {
+        tileAtlas.drawDef(ctx, 'wall_window_top', x, 0);
+        tileAtlas.drawDef(ctx, 'wall_window_bottom', x, TILE);
+      } else {
+        tileAtlas.drawDef(ctx, 'wall_top', x, 0);
+        tileAtlas.drawDef(ctx, 'wall_mid', x, TILE);
+      }
       tileAtlas.drawDef(ctx, 'wall_bottom', x, TILE * 2);
 
       // Dynamic sky + stars in window panes (Canvas overlay on top of tile)
@@ -428,7 +472,7 @@ class OfficeRenderer {
     for (const [gx, gy] of plantPositions) {
       const px = gx * TILE, py = gy * TILE;
       // Fallback FIRST (tile draws on top, silent no-op if not loaded)
-      if (!tileAtlas.isReady('office')) {
+      if (!tileAtlas.isReady('gen')) {
         this._rect(px + 8, py + 2, 16, 28, '#2a5a30');
       }
       tileAtlas.drawDef(this.ctx, 'plant_large', px, py);
@@ -441,7 +485,7 @@ class OfficeRenderer {
     const ctx = this.ctx;
 
     // Fallback FIRST for all decoration positions (tile draws on top)
-    if (!tileAtlas.isReady('office')) {
+    if (!tileAtlas.isReady('gen')) {
       this._rect(2 * TILE + 8, 1 * TILE, 16, TILE, '#446688');   // water cooler
       this._rect(8 * TILE, 1 * TILE, TILE * 2, TILE, '#5a3a20'); // bookshelf
       this._rect(16 * TILE, 1 * TILE, TILE, TILE, '#334455');     // server rack
@@ -545,7 +589,7 @@ class OfficeRenderer {
     const bh = TILE - 4;
 
     // Fallback FIRST (tile draws on top, silent no-op if not loaded)
-    if (!tileAtlas.isReady('room')) {
+    if (!tileAtlas.isReady('gen')) {
       this._rect(bx, by, bw, bh, PALETTE.boardBg);
     }
 
@@ -592,8 +636,8 @@ class OfficeRenderer {
       ctx.globalAlpha = 1;
     }
 
-    ctx.fillStyle = PALETTE.boardPaper;
-    ctx.font = '7px monospace';
+    ctx.fillStyle = '#4a2e18';
+    ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('\u{1F4CB} Rules', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
@@ -609,7 +653,7 @@ class OfficeRenderer {
     const bh = TILE - 4;
 
     // Fallback FIRST (tile draws on top, silent no-op if not loaded)
-    if (!tileAtlas.isReady('room')) {
+    if (!tileAtlas.isReady('gen')) {
       this._rect(bx, by, bw, bh, PALETTE.projectBg);
     }
 
@@ -652,8 +696,8 @@ class OfficeRenderer {
       ctx.globalAlpha = 1;
     }
 
-    ctx.fillStyle = PALETTE.projectCard;
-    ctx.font = '7px monospace';
+    ctx.fillStyle = '#0d2a1a';
+    ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('\u{1F4CA} Projects', bx + TILE * 1.5, by + TILE + 4);
     ctx.textAlign = 'left';
@@ -684,35 +728,50 @@ class OfficeRenderer {
     const py = gy * TILE;
     const ctx = this.ctx;
 
-    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
-    if (!tileAtlas.isReady('office')) {
-      this._rect(px + 10, py - 2, 12, 8, '#3c3468');   // chair
-      this._rect(px, py + 12, TILE, 12, '#9a7420');     // desk
-    }
+    // ── L-shaped desk (2×2 from office sheet) ──
+    // Layout: desk surface row (py) and desk front row (py + TILE)
+    //   TL(surface left) TR(surface right/L-ext)
+    //   BL(front left)   BR(front right/L-ext)
+    tileAtlas.drawDef(ctx, 'desk_l_tl', px, py);
+    tileAtlas.drawDef(ctx, 'desk_l_tr', px + TILE, py);
+    tileAtlas.drawDef(ctx, 'desk_l_bl', px, py + TILE);
+    tileAtlas.drawDef(ctx, 'desk_l_br', px + TILE, py + TILE);
 
-    // Chair tile (above desk, offset so it doesn't overlap monitor)
-    tileAtlas.drawDef(ctx, chairDef, px, py);
-
-    // Desk surface tile
-    tileAtlas.drawDef(ctx, 'desk_front_l', px, py + TILE);
-
-    // Monitor on desk (drawn above desk surface, behind character)
+    // ── Computer on desk (1×2 from office sheet) ──
+    // Placed at character position (gx+1), starting at desk surface row
     if (hasMonitor) {
-      tileAtlas.drawDef(ctx, 'monitor_single', px, py - 4);
+      const cx = px + TILE;  // character is 1 tile right of desk origin
+      tileAtlas.drawDef(ctx, 'computer_top', cx, py);
+      tileAtlas.drawDef(ctx, 'computer_bottom', cx, py + TILE);
 
-      // Animated screen glow (Canvas overlay on top of tile)
-      ctx.globalAlpha = 0.15;
+      // Animated screen glow
+      ctx.globalAlpha = 0.12;
       ctx.fillStyle = PALETTE.screenOn;
-      ctx.fillRect(px + 6, py - 2, 20, 12);
-      ctx.globalAlpha = 1;
-
-      // Scanlines on monitor
-      ctx.globalAlpha = 0.08;
-      for (let sy = py - 2; sy < py + 10; sy += 2) {
-        ctx.fillRect(px + 6, sy, 20, 1);
-      }
+      ctx.fillRect(cx + 4, py + 4, 24, 16);
       ctx.globalAlpha = 1;
     }
+
+  }
+
+  // ── Office chair (shown when character is away) ────────────────────────────
+
+  _drawChair(gx, gy, isCEO = false) {
+    const px = gx * TILE;
+    const py = gy * TILE;
+    const topDef = isCEO ? 'ceo_chair_top' : 'office_chair_top';
+    const botDef = isCEO ? 'ceo_chair_bottom' : 'office_chair_bottom';
+    // Chair drawn at character position, 2 tiles tall starting 1 tile up
+    tileAtlas.drawDef(this.ctx, topDef, px, py - TILE);
+    tileAtlas.drawDef(this.ctx, botDef, px, py);
+  }
+
+  // ── Desk files / clutter (drawn on top of everything) ──────────────────────
+
+  _drawDeskFiles(gx, gy) {
+    const px = gx * TILE;
+    const py = gy * TILE;
+    // Files on the desk surface, at the desk origin (left of character)
+    tileAtlas.drawDef(this.ctx, 'desk_files', px, py);
   }
 
   // ── Character (sprite-based with status overlays) ──────────────────────────
@@ -908,54 +967,70 @@ class OfficeRenderer {
     const ctx = this.ctx;
     const px = gx * TILE;
     const py = gy * TILE;
+    const rw = TILE * 2 + 8;
+    const rh = TILE * 2 + 8;
 
-    // Room floor (2×2 area)
-    this._rect(px - 4, py - 4, TILE * 2 + 8, TILE * 2 + 8, '#1c1c36');
-
-    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
-    if (!tileAtlas.isReady('office')) {
-      this._rect(px + 4, py + 4, TILE * 2 - 8, TILE * 2 - 8, '#4a3a20'); // table
-      this._rect(px + 4, py - 8, 8, 6, '#3c3468'); // chairs (simplified)
-      this._rect(px + TILE + 4, py - 8, 8, 6, '#3c3468');
+    // Room background with subtle pattern
+    this._rect(px - 4, py - 4, rw, rh, '#1c1c36');
+    ctx.globalAlpha = 0.04;
+    for (let cy = py - 2; cy < py + rh - 6; cy += 3) {
+      for (let cx = px - 2; cx < px + rw - 4; cx += 3) {
+        if ((cx + cy) % 6 === 0) this._rect(cx, cy, 2, 1, '#fff');
+      }
     }
+    ctx.globalAlpha = 1;
 
-    // Conference table (2×2 tile group, centered)
-    tileAtlas.drawDef(ctx, 'conf_table_tl', px, py);
-    tileAtlas.drawDef(ctx, 'conf_table_tr', px + TILE, py);
-    tileAtlas.drawDef(ctx, 'conf_table_bl', px, py + TILE);
-    tileAtlas.drawDef(ctx, 'conf_table_br', px + TILE, py + TILE);
-
-    // Chairs around table (3 top, 3 bottom — matches original 6-chair capacity)
-    for (let cx = 0; cx < 3; cx++) {
-      tileAtlas.drawDef(ctx, 'conf_chair_top', px - TILE / 2 + cx * TILE, py - TILE);
-      tileAtlas.drawDef(ctx, 'conf_chair_bottom', px - TILE / 2 + cx * TILE, py + TILE * 2);
-    }
-
-    // Wall border
+    // Walls
     const wc = '#3a3a66', wl = '#4a4a88';
-    this._rect(px - 4, py - 4, TILE * 2 + 8, 3, wc);
-    this._rect(px - 4, py - 4, TILE * 2 + 8, 1, wl);
-    this._rect(px - 4, py + TILE * 2 + 1, TILE * 2 + 8, 3, wc);
-    this._rect(px - 4, py - 4, 3, TILE * 2 + 8, wc);
-    this._rect(px + TILE * 2 + 1, py - 4, 3, TILE * 2 + 8, wc);
+    this._rect(px - 4, py - 4, rw, 3, wc);
+    this._rect(px - 4, py - 4, rw, 1, wl);
+    this._rect(px - 4, py + rh - 7, rw, 3, wc);
+    this._rect(px - 4, py - 4, 3, rh, wc);
+    this._rect(px - 4, py - 4, 1, rh, wl);
+    this._rect(px + rw - 7, py - 4, 3, rh, wc);
+    this._rect(px + TILE - 6, py + rh - 7, 14, 3, '#1c1c36');
+
+    // Table
+    const tableX = px + 8, tableY = py + 14;
+    const tableW = TILE + 16, tableH = 18;
+    ctx.globalAlpha = 0.15;
+    this._rect(tableX + 2, tableY + 2, tableW, tableH, '#000');
+    ctx.globalAlpha = 1;
+    this._rect(tableX + 2, tableY, tableW - 4, 1, PALETTE.meetingTable);
+    this._rect(tableX, tableY + 1, tableW, tableH - 2, PALETTE.meetingTable);
+    this._rect(tableX + 2, tableY + tableH - 1, tableW - 4, 1, PALETTE.meetingTable);
+    this._rect(tableX + 2, tableY + 1, tableW - 4, 2, PALETTE.meetingTableLight);
+    ctx.globalAlpha = 0.08;
+    this._rect(tableX + tableW / 2 - 1, tableY + 2, 2, tableH - 4, '#fff');
+    ctx.globalAlpha = 1;
+
+    // Chairs
+    const chairPositions = [
+      [px + 4, py + 8],  [px + 22, py + 8],  [px + 40, py + 8],
+      [px + 4, py + 34], [px + 22, py + 34], [px + 40, py + 34],
+    ];
+    const numChairs = Math.min(roomData.capacity || 6, chairPositions.length);
+    for (let i = 0; i < numChairs; i++) {
+      const [cx, cy] = chairPositions[i];
+      this._rect(cx + 1, cy, 8, 2, this._darken(PALETTE.meetingChair, 15));
+      this._rect(cx, cy + 2, 10, 6, PALETTE.meetingChair);
+      this._rect(cx + 1, cy + 2, 3, 4, this._lighten(PALETTE.meetingChair, 15));
+    }
 
     // Status LED
     const statusColor = roomData.is_booked ? PALETTE.meetingBooked : PALETTE.meetingFree;
     const glowAlpha = roomData.is_booked
       ? Math.sin(this.animFrame * 0.08) * 0.3 + 0.5
       : 0.8;
+    ctx.globalAlpha = glowAlpha * 0.3;
+    this._rect(px + TILE - 4, py - 6, 10, 10, statusColor);
     ctx.globalAlpha = glowAlpha;
     this._rect(px + TILE - 1, py - 3, 4, 4, statusColor);
+    this._rect(px + TILE, py - 2, 2, 2, '#fff');
     ctx.globalAlpha = 1;
 
-    // Participant mini-heads (keep original style — colored shirt/skin/hair)
-    // Using full character sprites at this scale would be unreadable
+    // Participants
     if (roomData.is_booked && roomData.participants) {
-      const chairPositions = [
-        [px + 4, py + 8],  [px + 22, py + 8],  [px + 40, py + 8],
-        [px + 4, py + 34], [px + 22, py + 34], [px + 40, py + 34],
-      ];
-      const numChairs = Math.min(roomData.capacity || 6, chairPositions.length);
       for (let i = 0; i < Math.min(roomData.participants.length, numChairs); i++) {
         const [cx, cy] = chairPositions[i];
         const pHash  = this._hashStr(roomData.participants[i] || '');
@@ -967,21 +1042,39 @@ class OfficeRenderer {
       }
     }
 
-    // Room label
-    const label = (roomData.name || 'Meeting').substring(0, 10);
+    // Room label (auto-wrap)
+    const fullLabel = roomData.name || 'Meeting';
     ctx.font = '7px monospace';
-    const lw = ctx.measureText(label).width + 4;
-    const lx = px + TILE - lw / 2;
+    const maxW = TILE * 2 + 4;
+    const lines = [];
+    let cur = '';
+    for (const ch of fullLabel) {
+      const test = cur + ch;
+      if (ctx.measureText(test).width > maxW && cur) {
+        lines.push(cur);
+        cur = ch;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+
+    const lineH = 9;
+    const totalH = lines.length * lineH + (roomData.is_booked ? 8 : 0);
+    const bgW = Math.max(...lines.map(l => ctx.measureText(l).width)) + 4;
+    const lx = px + TILE - bgW / 2;
     const ly = py + TILE * 2 + 8;
-    this._rect(lx, ly, lw, 9, '#0d0d1a');
-    this._rect(lx, ly, lw, 1, '#2a2a44');
+    this._rect(lx, ly, bgW, totalH, '#0d0d1a');
+    this._rect(lx, ly, bgW, 1, '#2a2a44');
     ctx.fillStyle = statusColor;
     ctx.textAlign = 'center';
-    ctx.fillText(label, px + TILE, ly + 8);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], px + TILE, ly + 8 + i * lineH);
+    }
     if (roomData.is_booked) {
       ctx.fillStyle = PALETTE.meetingBooked;
       ctx.font = '6px monospace';
-      ctx.fillText('IN USE', px + TILE, ly + 16);
+      ctx.fillText('IN USE', px + TILE, ly + 8 + lines.length * lineH);
     }
     ctx.textAlign = 'left';
   }
@@ -1006,8 +1099,11 @@ class OfficeRenderer {
     // CEO
     const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
     this.drawDesk(9, execRowCanvas, true, 'chair_gold');
-    if (!inMeeting['ceo']) {
-      this.drawCharacter(9, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
+    if (inMeeting['ceo']) {
+      // Chair visible when CEO is away
+      this._drawChair(9 + 1, execRowCanvas, true);
+    } else {
+      this.drawCharacter(9 + 1, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
 
     // AI employees
@@ -1016,10 +1112,12 @@ class OfficeRenderer {
       const [gx, gy] = emp.desk_position || [0, 0];
       this.drawDesk(gx, gy + WALL_ROWS, true);
       if (inMeeting[emp.id]) {
+        // Chair visible when employee is in meeting
+        this._drawChair(gx + 1, gy + WALL_ROWS, false);
         const pos = inMeeting[emp.id];
         this.drawCharacter(pos.x, pos.y, emp);
       } else {
-        this.drawCharacter(gx, gy + WALL_ROWS, emp);
+        this.drawCharacter(gx + 1, gy + WALL_ROWS, emp);
       }
     }
 
@@ -1041,6 +1139,14 @@ class OfficeRenderer {
       const pos = inMeeting['ceo'];
       this.drawCharacter(pos.x, pos.y, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
+
+    // ── Desk clutter (files) — drawn last so nothing covers them ──
+    this._drawDeskFiles(9, execRowCanvas);
+    for (const emp of (this.state.employees || [])) {
+      if (emp.remote) continue;
+      const [gx, gy] = emp.desk_position || [0, 0];
+      this._drawDeskFiles(gx, gy + WALL_ROWS);
+    }
   }
 
   // ── Tooltip ────────────────────────────────────────────────────────────────
@@ -1059,7 +1165,7 @@ class OfficeRenderer {
     }
 
     const ceoCanvasRow = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
-    if (x === 9 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
+    if (x === 10 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
       tooltipText = 'CEO (You)\nRole: Chief Executive\nInput tasks below';
     }
 
@@ -1067,7 +1173,7 @@ class OfficeRenderer {
     for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
       const canvasRow = ey + WALL_ROWS;
-      if (x === ex && (y === canvasRow - 1 || y === canvasRow || y === canvasRow + 1)) {
+      if (x === ex + 1 && (y === canvasRow - 1 || y === canvasRow || y === canvasRow + 1)) {
         const nn  = emp.nickname ? ` (${emp.nickname})` : '';
         const lvl = LEVEL_NAMES[emp.level] || `Lv.${emp.level}`;
         const title = emp.title || `${lvl}${emp.role}`;
@@ -1137,6 +1243,7 @@ class OfficeRenderer {
     this.camera.applyTransform(ctx);
 
     this.drawFloor();
+    this.drawBorder();
     this.drawWalls();
     this.drawBulletinBoard();
     this.drawProjectWall();
