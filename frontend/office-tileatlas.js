@@ -54,6 +54,25 @@ const TILE_DEFS = {
   floor_carpet_red:  ['room', 12, 10],   // mauve/pink carpet
   floor_wood_gold:   ['room', 10,  7],   // golden warm wood (exec area)
 
+  // ── Wall tiles (from Room_Builder_Office_32x32.png) ──
+  // Rows 0-3 are wall sections: top edge, mid body, baseboard
+  // Exact row/col must be calibrated with debugSheet('room', 0, 4)
+  wall_top:            ['room',  0,  0],   // top edge of wall
+  wall_mid:            ['room',  1,  0],   // middle wall body
+  wall_bottom:         ['room',  2,  0],   // baseboard / lower wall
+  wall_window_top:     ['room',  0,  3],   // wall with window (upper half)
+  wall_window_bottom:  ['room',  1,  3],   // wall with window (lower half)
+
+  // ── Additional furniture (from Modern_Office_32x32.png) ──
+  // Calibrate with debugSheet('office', 0, 20)
+  chair_orange:   ['office',  8,  4],
+  chair_gold:     ['office',  8,  6],
+  monitor_screen: ['office',  0,  4],   // standalone monitor
+  keyboard_tile:  ['office',  1,  4],   // keyboard on desk
+  filing_cabinet: ['office', 12,  0],
+  sofa_l:         ['office', 10,  0],
+  sofa_r:         ['office', 10,  2],
+
   // ── Potted plants (from Modern_Office_32x32.png) ──
   // Plants occupy 1×2 tiles; only top (leafy) tile used for single-row dividers
   plant_large:  ['office', 10, 6],  // large leafy plant (top tile)
