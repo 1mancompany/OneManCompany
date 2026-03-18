@@ -4051,6 +4051,88 @@ async def _do_hire_single(
         await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, str(e))
 
 
+@router.post("/api/candidates/hire-from-cv")
+async def hire_from_cv(body: dict) -> dict:
+    """Hire an employee directly from a CV JSON (bypasses talent market search).
+
+    The CV JSON format mirrors the Talent Market profile schema. Required fields:
+      name, role. Optional: skills, llm_model, api_provider, hosting, auth_method,
+      temperature, salary_per_1m_tokens, system_prompt_template, talent_id.
+    """
+    from onemancompany.agents.onboarding import execute_hire, generate_nickname
+
+    cv = body.get("cv")
+    if not cv or not isinstance(cv, dict):
+        return {"error": "Missing or invalid 'cv' field"}
+
+    name = cv.get("name", "").strip()
+    role = cv.get("role", "").strip()
+    if not name:
+        return {"error": "CV missing required field: name"}
+    if not role:
+        return {"error": "CV missing required field: role"}
+
+    hosting = cv.get("hosting", "company")
+    is_self = hosting == "self"
+    skills = [s if isinstance(s, str) else s.get("name", "") for s in cv.get("skills", [])]
+    talent_id = cv.get("talent_id", "")
+    try:
+        temperature = float(cv.get("temperature", 0.7))
+    except (ValueError, TypeError):
+        temperature = 0.7
+
+    logger.debug("[cv_hire] Received CV: name={}, role={}, hosting={}, skills={}, talent_id={}",
+                 name, role, hosting, skills, talent_id)
+
+    try:
+        nickname = await asyncio.wait_for(
+            generate_nickname(name, role, is_founding=False), timeout=120
+        )
+    except asyncio.TimeoutError:
+        nickname = ""
+    logger.debug("[cv_hire] Generated nickname={} for {}", nickname, name)
+
+    import time as _time
+    batch_id = f"cv_{talent_id or name.lower().replace(' ', '_')}_{int(_time.time())}"
+
+    async def _cv_progress(step, message):
+        step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
+        step_index = step_order.index(step) if step in step_order else -1
+        await event_bus.publish(CompanyEvent(
+            type="onboarding_progress",
+            payload={"batch_id": batch_id, "candidate_id": talent_id or name,
+                     "name": name, "step": step, "step_index": step_index,
+                     "total_steps": 4, "current": 1, "total": 1, "message": message},
+            agent="HR",
+        ))
+
+    async def _do_cv_hire():
+        try:
+            emp = await execute_hire(
+                name=name,
+                nickname=nickname,
+                role=role,
+                skills=skills,
+                talent_id=talent_id,
+                llm_model="" if is_self else cv.get("llm_model", ""),
+                temperature=temperature,
+                api_provider="" if is_self else cv.get("api_provider", "openrouter"),
+                hosting=hosting,
+                auth_method=cv.get("auth_method", "api_key"),
+                remote=False,
+                progress_callback=_cv_progress,
+            )
+            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            logger.info("[cv_hire] Hired {} ({})", name, emp.id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("[cv_hire] Failed to hire {}", name)
+
+    spawn_background(_do_cv_hire())
+    return {"status": "onboarding", "name": name, "role": role, "message": "Onboarding started in background"}
+
+
 @router.post("/api/candidates/dismiss")
 async def dismiss_shortlist(body: dict) -> dict:
     """CEO dismissed the shortlist — cancel this recruitment round."""

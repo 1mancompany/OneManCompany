@@ -2298,7 +2298,7 @@ class AppController {
             sectionEl.innerHTML = `<div class="emp-settings-title">${this._escHtml(section.title)}</div>`;
           }
           for (const field of section.fields) {
-            const fieldEl = this._renderManifestField(field, empResp);
+            const fieldEl = this._renderManifestField(field, empResp, empId);
             sectionEl.appendChild(fieldEl);
           }
           container.appendChild(sectionEl);
@@ -2320,7 +2320,7 @@ class AppController {
     }
   }
 
-  _renderManifestField(field, empData) {
+  _renderManifestField(field, empData, empId) {
     const row = document.createElement('div');
     row.className = 'emp-settings-field';
     row.style.cssText = 'display:flex;align-items:center;gap:4px;width:100%;margin:2px 0;';
@@ -2425,6 +2425,16 @@ class AppController {
       btn.dataset.fieldType = 'oauth_button';
       btn.addEventListener('click', () => this.startOAuthLogin());
       row.appendChild(btn);
+    } else if (field.type === 'action_button') {
+      const btn = document.createElement('button');
+      btn.className = 'pixel-btn small';
+      btn.textContent = field.label || 'Run';
+      btn.dataset.fieldKey = field.key;
+      btn.dataset.fieldType = 'action_button';
+      btn.dataset.action = field.action || '';
+      btn.dataset.cvField = field.cv_field || '';
+      btn.addEventListener('click', () => this._handleManifestAction(field, empId));
+      row.appendChild(btn);
     } else {
       // Default: text input
       const input = document.createElement('input');
@@ -2466,6 +2476,8 @@ class AppController {
       const key = el.dataset.fieldKey;
       const type = el.dataset.fieldType;
       if (type === 'readonly') continue;
+      if (type === 'action_button') continue;
+      if (key.startsWith('_')) continue;  // internal/ephemeral fields (e.g. _cv_json)
       if (type === 'secret') {
         if (el.value) payload[key] = el.value; // only send if changed
       } else if (type === 'toggle') {
@@ -2533,6 +2545,55 @@ class AppController {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save';
     }
+  }
+
+  /** Registry of manifest action handlers keyed by action name. */
+  _manifestActions = {
+    hire_from_cv: async (field, empId) => {
+      const container = document.getElementById('emp-settings-container');
+      const cvEl = container.querySelector(`[data-field-key="${field.cv_field}"]`);
+      if (!cvEl || !cvEl.value.trim()) {
+        this.logEntry('SYSTEM', 'Please paste a CV JSON before clicking Hire.', 'system');
+        return;
+      }
+      let cv;
+      try {
+        cv = JSON.parse(cvEl.value.trim());
+      } catch {
+        this.logEntry('SYSTEM', 'Invalid JSON in CV field.', 'system');
+        return;
+      }
+      const btn = container.querySelector(`[data-field-key="${field.key}"]`);
+      btn.disabled = true;
+      btn.textContent = 'Hiring...';
+      try {
+        const resp = await fetch('/api/candidates/hire-from-cv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cv }),
+        }).then(r => r.json());
+        if (resp.error) {
+          this.logEntry('SYSTEM', `Hire failed: ${this._escHtml(resp.error)}`, 'system');
+        } else {
+          this.logEntry('CEO', `Onboarding started for ${this._escHtml(resp.name)} (${this._escHtml(resp.role)})`, 'ceo');
+          cvEl.value = '';
+        }
+      } catch (err) {
+        this.logEntry('SYSTEM', `Hire request failed: ${this._escHtml(err.message)}`, 'system');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = field.label || 'Hire';
+      }
+    },
+  };
+
+  async _handleManifestAction(field, empId) {
+    const handler = this._manifestActions[field.action];
+    if (!handler) {
+      console.error(`[manifest] Unknown action: ${field.action}`);
+      return;
+    }
+    await handler(field, empId);
   }
 
   _renderSelfHostedSection(empId, empData, container) {
