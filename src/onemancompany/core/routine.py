@@ -101,13 +101,18 @@ async def _publish(event_type: str, payload: dict) -> None:
 
 
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
-    """Publish a meeting_chat event for real-time meeting chat display."""
-    await _publish("meeting_chat", {
+    """Publish a meeting_chat event and persist to disk."""
+    from datetime import datetime
+    entry = {
         "room_id": room_id,
         "speaker": speaker,
         "role": role,
         "message": message,
-    })
+        "time": datetime.now().strftime("%H:%M:%S"),
+    }
+    await _publish("meeting_chat", entry)
+    from onemancompany.core.store import append_room_chat
+    await append_room_chat(room_id, entry)
 
 
 # ---------------------------------------------------------------------------
