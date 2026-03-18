@@ -17,12 +17,6 @@ const PALETTE = {
   wallTop: '#161428',
   wallMid: '#1e1a34',
   wallBot: '#242040',
-  // Furniture (rich warm wood tones)
-  desk: '#9a7420',
-  deskDark: '#6d5210',
-  deskLight: '#b8901e',
-  chair: '#3c3468',
-  chairDark: '#2c2450',
   // Tech (vivid cyan glow)
   screenOn: '#22ddff',
   screenGlow: 'rgba(34, 221, 255, 0.15)',
@@ -747,52 +741,37 @@ class OfficeRenderer {
 
   // ── Desk (pixel-art Stardew Valley style) ──────────────────────────────────
 
-  drawDesk(gx, gy, hasMonitor = true) {
+  drawDesk(gx, gy, hasMonitor = true, chairDef = 'chair_black') {
     const px = gx * TILE;
     const py = gy * TILE;
-    const P = 2;
+    const ctx = this.ctx;
 
-    this._rect(px + 10, py - 2, 12, P, PALETTE.chair);
-    this._rect(px + 8, py, 16, P, PALETTE.chair);
-    this._rect(px + 8, py + 2, 16, P * 2, PALETTE.chair);
-    this._rect(px + 10, py - 2, 12, 1, this._lighten(PALETTE.chair, 30));
-    this._rect(px + 10, py + 6, 12, P * 2, PALETTE.chairDark);
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('office')) {
+      this._rect(px + 10, py - 2, 12, 8, '#3c3468');   // chair
+      this._rect(px, py + 12, TILE, 12, '#9a7420');     // desk
+    }
 
-    this._rect(px, py + 12, TILE, P, PALETTE.deskLight);
-    this._rect(px, py + 14, TILE, 10, PALETTE.desk);
-    this._rect(px, py + 24, TILE, P, PALETTE.deskDark);
-    this._rect(px, py + 14, P, 10, this._lighten(PALETTE.desk, 15));
-    this._rect(px + TILE - P, py + 14, P, 10, this._darken(PALETTE.desk, 20));
+    // Chair tile (above desk, offset so it doesn't overlap monitor)
+    tileAtlas.drawDef(ctx, chairDef, px, py);
 
-    this._rect(px + 2, py + 26, P * 2, 6, PALETTE.deskDark);
-    this._rect(px + TILE - 6, py + 26, P * 2, 6, PALETTE.deskDark);
+    // Desk surface tile
+    tileAtlas.drawDef(ctx, 'desk_front_l', px, py + TILE);
 
+    // Monitor on desk (drawn above desk surface, behind character)
     if (hasMonitor) {
-      this._rect(px + 6, py - 2, 20, P, '#111');
-      this._rect(px + 6, py - 2, P, 14, '#111');
-      this._rect(px + 24, py - 2, P, 14, '#111');
-      this._rect(px + 6, py + 10, 20, P, '#111');
-      this._rect(px + 8, py, 16, 10, '#222233');
-      this._rect(px + 8, py, 16, 10, PALETTE.screenOn);
-      const ctx = this.ctx;
+      tileAtlas.drawDef(ctx, 'monitor_single', px, py - 4);
+
+      // Animated screen glow (Canvas overlay on top of tile)
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = PALETTE.screenOn;
+      ctx.fillRect(px + 6, py - 2, 20, 12);
+      ctx.globalAlpha = 1;
+
+      // Scanlines on monitor
       ctx.globalAlpha = 0.08;
-      for (let sy = py; sy < py + 10; sy += 2) {
-        this._rect(px + 8, sy, 16, 1, '#000');
-      }
-      ctx.globalAlpha = 1;
-      ctx.globalAlpha = 0.2;
-      this._rect(px + 9, py + 1, 6, 3, '#fff');
-      ctx.globalAlpha = 1;
-      ctx.globalAlpha = 0.12;
-      this._rect(px + 6, py + 12, 20, P, PALETTE.screenOn);
-      ctx.globalAlpha = 1;
-      this._rect(px + 14, py + 10, 4, P * 2, '#333');
-      this._rect(px + 12, py + 13, 8, P, '#444');
-      this._rect(px + 10, py + 16, 12, 3, '#3a3a4e');
-      this._rect(px + 10, py + 16, 12, 1, '#4a4a5e');
-      ctx.globalAlpha = 0.4;
-      for (let kx = px + 11; kx < px + 21; kx += 2) {
-        this._rect(kx, py + 17, 1, 1, '#888');
+      for (let sy = py - 2; sy < py + 10; sy += 2) {
+        ctx.fillRect(px + 6, sy, 20, 1);
       }
       ctx.globalAlpha = 1;
     }
@@ -1236,7 +1215,7 @@ class OfficeRenderer {
 
     // CEO
     const execRowCanvas = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
-    this.drawDesk(9, execRowCanvas, true);
+    this.drawDesk(9, execRowCanvas, true, 'chair_gold');
     if (!inMeeting['ceo']) {
       this.drawCharacter(9, execRowCanvas, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
