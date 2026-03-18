@@ -305,8 +305,16 @@ class TaskTree:
         return [c for c in self.get_children(node_id) if c.branch_active]
 
     def all_children_done(self, node_id: str) -> bool:
-        """All active children have finished executing (DONE_EXECUTING set)."""
-        children = self.get_active_children(node_id)
+        """All substantive active children have finished executing.
+
+        System node types (REVIEW, CEO_REQUEST, WATCHDOG_NUDGE, ADHOC, SYSTEM)
+        are excluded — they must not block parent completion.
+        """
+        from onemancompany.core.task_lifecycle import SYSTEM_NODE_TYPES
+        children = [
+            c for c in self.get_active_children(node_id)
+            if c.node_type not in SYSTEM_NODE_TYPES
+        ]
         if not children:
             return True
         return all(c.is_done_executing for c in children)

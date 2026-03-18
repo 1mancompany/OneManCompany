@@ -357,7 +357,7 @@ async def project_progress_watchdog() -> list | None:
         lock = get_tree_lock(tree_path_str)
         with lock:
             nudge_node = tree.add_child(
-                parent_id=ea_node.id,
+                parent_id=tree.root_id,
                 employee_id=EA_ID,
                 description=nudge_desc,
                 acceptance_criteria=[],
