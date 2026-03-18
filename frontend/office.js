@@ -427,8 +427,12 @@ class OfficeRenderer {
   drawPlants() {
     const plantPositions = [[0, 1], [19, 1], [10, 1]];
     for (const [gx, gy] of plantPositions) {
-      // Plant is 1×2 tiles (leafy top + pot bottom)
-      tileAtlas.drawDef(this.ctx, 'plant_large', gx * TILE, gy * TILE);
+      const px = gx * TILE, py = gy * TILE;
+      // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+      if (!tileAtlas.isReady('office')) {
+        this._rect(px + 8, py + 2, 16, 28, '#2a5a30');
+      }
+      tileAtlas.drawDef(this.ctx, 'plant_large', px, py);
     }
   }
 
@@ -437,8 +441,15 @@ class OfficeRenderer {
   drawDecorations() {
     const ctx = this.ctx;
 
+    // Fallback FIRST for all decoration positions (tile draws on top)
+    if (!tileAtlas.isReady('office')) {
+      this._rect(2 * TILE + 8, 1 * TILE, 16, TILE, '#446688');   // water cooler
+      this._rect(8 * TILE, 1 * TILE, TILE * 2, TILE, '#5a3a20'); // bookshelf
+      this._rect(16 * TILE, 1 * TILE, TILE, TILE, '#334455');     // server rack
+      this._rect(17 * TILE, 1 * TILE, TILE, TILE, '#554433');     // coffee machine
+    }
+
     // Tile-based decorations (positions match original placements)
-    // Original: water_cooler(2,1), bookshelf(8,1), server_rack(16,1), coffee_machine(17,1)
     tileAtlas.drawDef(ctx, 'plant_small', 2 * TILE, 1 * TILE);   // water cooler area
     tileAtlas.drawDef(ctx, 'bookshelf', 8 * TILE, 1 * TILE);     // bookshelf (2×2)
     tileAtlas.drawDef(ctx, 'filing_cabinet', 16 * TILE, 1 * TILE); // server rack area
@@ -913,6 +924,13 @@ class OfficeRenderer {
 
     // Room floor (2×2 area)
     this._rect(px - 4, py - 4, TILE * 2 + 8, TILE * 2 + 8, '#1c1c36');
+
+    // Fallback FIRST (tile draws on top, silent no-op if not loaded)
+    if (!tileAtlas.isReady('office')) {
+      this._rect(px + 4, py + 4, TILE * 2 - 8, TILE * 2 - 8, '#4a3a20'); // table
+      this._rect(px + 4, py - 8, 8, 6, '#3c3468'); // chairs (simplified)
+      this._rect(px + TILE + 4, py - 8, 8, 6, '#3c3468');
+    }
 
     // Conference table (2×2 tile group, centered)
     tileAtlas.drawDef(ctx, 'conf_table_tl', px, py);
