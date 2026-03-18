@@ -4908,6 +4908,14 @@ body {
 .ceo-conv-complete { background: #4a3a1a !important; border-color: #8a6a2a !important; }
 .ceo-conv-complete:hover { background: #5a4a2a !important; }
 
+/* ----- ChatPanel in right panel ----- */
+#right-panel-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+#right-panel-chat.hidden { display: none; }
+
 /* ===== ChatPanel Component ===== */
 .chat-panel { display: flex; flex-direction: column; height: 100%; }
 .chat-panel-header {
@@ -4951,3 +4959,9 @@ body {
     background: var(--pixel-green); color: #000; border: none; padding: 2px 8px;
 }
 .chat-panel-upload-label { cursor: pointer; font-size: 7px; text-align: center; }
+.chat-panel-send-btn:disabled,
+.chat-panel-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.chat-panel-typing.hidden { display: none; }
