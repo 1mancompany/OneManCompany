@@ -3390,9 +3390,9 @@ async def get_project_file(project_id: str, file_path: str):
 
     from fastapi.responses import Response
 
-    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.project_archive import get_project_workspace
 
-    workspace = Path(get_project_dir(project_id))
+    workspace = Path(get_project_workspace(project_id))
     target = (workspace / file_path).resolve()
     # Security: ensure path stays within workspace
     if not str(target).startswith(str(workspace.resolve())):
