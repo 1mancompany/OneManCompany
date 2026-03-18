@@ -659,41 +659,43 @@ class TestDepositCompanyKnowledge:
         assert len(saved_items_captured) == 1
         assert saved_items_captured[0]["content"] == "We value innovation above all"
 
-    def test_deposit_sop(self, tmp_path, monkeypatch):
+    def test_deposit_sop_as_workflow(self, tmp_path, monkeypatch):
+        """SOPs are now saved as workflows (unified category)."""
         from onemancompany.agents import coo_agent as coo_mod
+        from onemancompany.core import config as config_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
-        monkeypatch.setattr(coo_mod, "SOP_DIR", tmp_path / "sops")
+        wf_dir = tmp_path / "workflows"
+        monkeypatch.setattr(coo_mod, "WORKFLOWS_DIR", wf_dir)
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", wf_dir)
 
         result = coo_mod.deposit_company_knowledge.invoke({
-            "category": "sop",
+            "category": "workflow",
             "name": "deploy_process",
             "content": "# Deploy SOP\n1. Build\n2. Test\n3. Deploy",
         })
 
         assert result["status"] == "success"
-        assert (tmp_path / "sops" / "deploy_process.md").exists()
+        assert (wf_dir / "deploy_process.md").exists()
 
-    def test_deposit_guidance(self, tmp_path, monkeypatch):
+    def test_deposit_invalid_category(self, monkeypatch):
+        """Invalid categories (e.g. old 'sop', 'guidance') are rejected."""
         from onemancompany.agents import coo_agent as coo_mod
         from onemancompany.core import state as state_mod
 
         cs = _make_cs()
         monkeypatch.setattr(state_mod, "company_state", cs)
         monkeypatch.setattr(coo_mod, "company_state", cs)
-        monkeypatch.setattr(coo_mod, "SHARED_PROMPTS_DIR", tmp_path / "shared")
 
         result = coo_mod.deposit_company_knowledge.invoke({
-            "category": "guidance",
-            "name": "code_review",
-            "content": "Always review code carefully",
+            "category": "sop",
+            "name": "test",
+            "content": "test",
         })
-
-        assert result["status"] == "success"
-        assert (tmp_path / "shared" / "code_review.md").exists()
+        assert result["status"] == "error"
 
     def test_deposit_direction(self, monkeypatch):
         from onemancompany.agents import coo_agent as coo_mod
