@@ -3348,6 +3348,16 @@ async def get_project_plugin_data(project_id: str, plugin_id: str) -> dict:
     return plugin_registry.transform(plugin_id, dispatches, ctx)
 
 
+@router.get("/api/projects/{project_id}/{iteration_id}")
+async def get_iteration_detail(project_id: str, iteration_id: str) -> dict:
+    """Get iteration detail via qualified path: /api/projects/{slug}/{iter_id}."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    qualified = f"{project_id}/{iteration_id}"
+    return await get_project_detail(qualified)
+
+
 @router.get("/api/projects/{project_id}")
 async def get_project_detail(project_id: str) -> dict:
     """Get full project detail including timeline and workspace files."""
