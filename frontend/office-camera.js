@@ -50,6 +50,7 @@ class Camera {
     this._dragCamStartY = 0;
 
     this._bindEvents();
+    this._updateMinZoom();
   }
 
   _bindEvents() {
@@ -80,7 +81,7 @@ class Camera {
     this._didDrag = true;
     this._tx = this._dragCamStartX - dx / this._tz;
     this._ty = this._dragCamStartY - dy / this._tz;
-    this._clamp();
+    this._clamp(this.canvas.getBoundingClientRect());
   }
 
   _onUp() {

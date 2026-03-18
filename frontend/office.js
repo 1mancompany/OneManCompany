@@ -1058,6 +1058,7 @@ class OfficeRenderer {
       }
     }
     if (cur) lines.push(cur);
+    if (lines.length === 0) return;
 
     const lineH = 9;
     const totalH = lines.length * lineH + (roomData.is_booked ? 8 : 0);
