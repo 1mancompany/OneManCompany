@@ -208,9 +208,8 @@ class OfficeRenderer {
       // Sit pose: row 4 (upper half) + row 5 (lower half)
       return { sheet: sheetKey, row: 4, col: 0, w: 1, h: 2 };
     }
-    // Idle front: row 0, 3-frame animation
-    const frame = Math.floor(this.animFrame * 0.02) % 3;
-    return { sheet: sheetKey, row: 0, col: frame, w: 1, h: 2 };
+    // Idle front: static pose (row 0, col 0)
+    return { sheet: sheetKey, row: 0, col: 0, w: 1, h: 2 };
   }
 
   // ── Click / hover ──────────────────────────────────────────────────────────
@@ -735,18 +734,6 @@ class OfficeRenderer {
       ctx.globalAlpha = 0.3;
       this._rect(px + 8, py + 4, 16, 28, '#888');
       ctx.globalAlpha = 1;
-    }
-
-    // ── Avatar image overlay (if available, draw on top of sprite head area) ──
-    const avatarImg = this._avatarImages?.[data.id];
-    if (avatarImg) {
-      const hx = px + 4, hy = py + 2;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(hx + 12, hy + 10, 9, 0, Math.PI * 2);
-      ctx.clip();
-      ctx.drawImage(avatarImg, hx + 3, hy + 1, 18, 18);
-      ctx.restore();
     }
 
     // ── CEO crown (drawn above sprite) ──
