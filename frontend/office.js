@@ -35,9 +35,6 @@ const PALETTE = {
   eaGreen: '#44ddaa',
   csoPurple: '#bb55ff',
   // Meeting Room
-  meetingTable: '#5c4420',
-  meetingTableLight: '#7a5c2e',
-  meetingChair: '#445566',
   meetingBooked: '#ff4455',
   meetingFree: '#00ff88',
   // Bulletin Board
@@ -52,12 +49,6 @@ const PALETTE = {
   projectCard: '#d4e8d0',
   projectCardAlt: '#c0dcc0',
   projectPin: '#ffdd00',
-  // Environment
-  plant: '#22aa44',
-  plantPot: '#884422',
-  windowFrame: '#4444aa',
-  windowGlass: '#1a1a55',
-  windowSky: '#2244aa',
 };
 
 
@@ -84,7 +75,7 @@ class OfficeRenderer {
     );
     this.minimap = new MiniMap(this.officeMap, this.camera);
 
-    // Preload tileset sheets (character sheets excluded until Task 8 spritesheet rendering)
+    // Preload tileset sheets (character sheets loaded on-demand per employee)
     tileAtlas.preload(['room', 'office', 'interiors', 'interiors_room']);
 
     // Mouse / click events
