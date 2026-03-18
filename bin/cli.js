@@ -392,10 +392,22 @@ ${green("What gets installed automatically:")}
   if (isInitCmd || !initComplete) {
     if (isAutoInit) {
       // ── Auto-init: read .env, confirm with user, then run ──────────
-      const envPath = path.join(installDir, ".env");
-      if (!fs.existsSync(envPath)) {
+      // Search .env: user CWD first, then installDir
+      const cwdEnvPath = path.join(process.cwd(), ".env");
+      const installEnvPath = path.join(installDir, ".env");
+      let envPath;
+      if (fs.existsSync(cwdEnvPath)) {
+        envPath = cwdEnvPath;
+        // Copy to installDir so Python onboard.py can find it
+        if (cwdEnvPath !== installEnvPath) {
+          fs.copyFileSync(cwdEnvPath, installEnvPath);
+          info(`Copied .env from ${process.cwd()} to ${installDir}`);
+        }
+      } else if (fs.existsSync(installEnvPath)) {
+        envPath = installEnvPath;
+      } else {
         fail(
-          `.env file not found at ${envPath}\n` +
+          `.env file not found in ${process.cwd()} or ${installDir}\n` +
           "  Auto-init requires a .env file with your configuration.\n" +
           "  Run interactive setup instead:  npx @1mancompany/onemancompany init"
         );
@@ -461,7 +473,9 @@ ${green("What gets installed automatically:")}
       }
 
       info("Running auto-init from .env...\n");
-      const initResult = spawnSync(pythonBin, ["-m", "onemancompany.onboard", "--auto"], {
+      // Always pass -y: JS already handled confirmation (or user passed -y)
+      const initArgs = ["-m", "onemancompany.onboard", "--auto", "-y"];
+      const initResult = spawnSync(pythonBin, initArgs, {
         cwd: installDir,
         stdio: "inherit",
       });
