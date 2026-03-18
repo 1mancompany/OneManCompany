@@ -95,3 +95,4 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/1mancompany/OneManCompany
   homepage: https://1mancompany.github.io/OneManCompany/
+  generator: false
