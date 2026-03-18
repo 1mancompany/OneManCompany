@@ -125,6 +125,9 @@
           <div id="log-entries"></div>
         </div>
       </div>
+
+      <!-- Unified Conversation Chat -->
+      <div id="right-panel-chat" class="hidden"></div>
     </div>
   </div>
 
@@ -273,6 +276,7 @@
               <div id="emp-settings-container" class="emp-detail-section emp-model-section-wrap">
                 <!-- Dynamically rendered from manifest.json settings -->
               </div>
+              <button id="emp-oneonone-btn" class="pixel-btn emp-fire-btn">&#127891; Start 1-on-1</button>
               <button id="emp-fire-btn" class="pixel-btn danger emp-fire-btn" style="display:none;">
                 &#128308; Dismiss Employee
               </button>
@@ -642,6 +646,7 @@
   </div>
 
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="conversation.js"></script>
   <script src="office-tileatlas.js"></script>
   <script src="office-camera.js"></script>
   <script src="office-map.js"></script>

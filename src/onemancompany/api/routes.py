@@ -5727,3 +5727,152 @@ async def update_system_cron(name: str, body: dict) -> dict:
     if not interval:
         return {"status": "error", "message": "interval is required"}
     return system_cron_manager.update_interval(name, interval)
+
+
+# ---------------------------------------------------------------------------
+# Unified Conversation API
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.conversation import ConversationService, Message
+
+_conversation_service = ConversationService()
+_active_adapter_tasks: set[asyncio.Task] = set()
+
+_VALID_CONV_TYPES = {"ceo_inbox", "oneonone"}
+_VALID_CONV_PHASES = {"active", "closing", "closed"}
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
+
+
+@router.post("/api/conversation/create")
+async def create_conversation(body: dict) -> dict:
+    conv_type = body.get("type", "")
+    employee_id = body.get("employee_id", "")
+    if conv_type not in _VALID_CONV_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid type: must be one of {_VALID_CONV_TYPES}")
+    if not employee_id:
+        raise HTTPException(status_code=400, detail="employee_id is required")
+    if conv_type == "ceo_inbox" and not body.get("project_dir"):
+        raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
+    conv = await _conversation_service.create(
+        type=conv_type,
+        employee_id=employee_id,
+        tools_enabled=body.get("tools_enabled", False),
+        **{k: v for k, v in body.items() if k not in ("type", "employee_id", "tools_enabled")},
+    )
+    return conv.to_dict()
+
+
+@router.get("/api/conversation/{conv_id}")
+async def get_conversation(conv_id: str) -> dict:
+    try:
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv.to_dict()
+
+
+@router.get("/api/conversation/{conv_id}/messages")
+async def get_conversation_messages(conv_id: str) -> dict:
+    try:
+        msgs = _conversation_service.get_messages(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"messages": [m.to_dict() for m in msgs]}
+
+
+@router.post("/api/conversation/{conv_id}/message")
+async def send_conversation_message(conv_id: str, body: dict) -> dict:
+    text = body.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required and must be non-empty")
+    try:
+        msg = await _conversation_service.send_message(
+            conv_id, sender="ceo", role="CEO", text=text,
+            attachments=body.get("attachments"),
+        )
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    # Dispatch to adapter in background (don't await — async reply via WebSocket)
+    task = asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
+    _active_adapter_tasks.add(task)
+    task.add_done_callback(_active_adapter_tasks.discard)
+    return {"status": "sent", "message": msg.to_dict()}
+
+
+@router.post("/api/conversation/{conv_id}/upload")
+async def upload_conversation_files(conv_id: str, files: list[UploadFile]) -> dict:
+    try:
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    saved_paths = []
+    # Use conversation directory for uploads — never fall back to CWD
+    from onemancompany.core.conversation import _resolve_conv_dir
+    workspace = _resolve_conv_dir(conv) / "uploads"
+    workspace.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        # Sanitize filename to prevent path traversal
+        safe_name = Path(file.filename).name
+        if not safe_name:
+            continue
+        # Enforce per-file size limit (read limit+1 bytes to detect overflow without full read)
+        content = await file.read(_MAX_UPLOAD_SIZE + 1)
+        if len(content) > _MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail=f"File '{safe_name}' exceeds {_MAX_UPLOAD_SIZE // (1024*1024)}MB limit")
+        dest = workspace / safe_name
+        dest.write_bytes(content)
+        saved_paths.append(str(dest))
+    return {"attachments": saved_paths}
+
+
+@router.post("/api/conversation/{conv_id}/close")
+async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
+    try:
+        conv, hook_result = await _conversation_service.close(conv_id, wait_hooks=wait_hooks)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    resp = conv.to_dict()
+    if hook_result:
+        resp["hook_result"] = hook_result
+    return resp
+
+
+@router.get("/api/conversations")
+async def list_conversations(type: str | None = None, phase: str | None = None) -> dict:
+    if phase and phase not in _VALID_CONV_PHASES:
+        raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
+    if phase and phase != "active":
+        convs = _conversation_service.list_by_phase(type=type, phase=phase)
+    else:
+        convs = _conversation_service.list_active(type=type)
+    return {"conversations": [c.to_dict() for c in convs]}
+
+
+async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) -> None:
+    """Background task: dispatch CEO message to adapter, persist reply."""
+    try:
+        conv = _conversation_service.get(conv_id)
+        messages = _conversation_service.get_messages(conv_id)
+
+        from onemancompany.core.conversation_adapters import get_adapter, _get_executor_type
+
+        executor_type = _get_executor_type(conv.employee_id)
+        adapter_cls = get_adapter(executor_type)
+        adapter = adapter_cls()
+        reply_text = await adapter.send(conv, messages[:-1], ceo_message)
+
+        # Persist agent reply — get employee name from disk (SSOT)
+        emp_data = _store.load_employee(conv.employee_id)
+        emp_name = emp_data.get("name", conv.employee_id) if emp_data else conv.employee_id
+        await _conversation_service.send_message(
+            conv_id, sender=conv.employee_id, role=emp_name, text=reply_text,
+        )
+    except Exception:
+        logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
+        try:
+            await _conversation_service.send_message(
+                conv_id, sender="system", role="System",
+                text="Agent is not responding. Please try again.",
+            )
+        except Exception:
+            logger.exception("[conversation] failed to send error message for {}", conv_id)

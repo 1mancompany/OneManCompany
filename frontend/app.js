@@ -250,6 +250,22 @@ class AppController {
       return;
     }
 
+    // Unified conversation events
+    if (msg.type === 'conversation_message') {
+      const p = msg.payload || msg;
+      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
+        this._chatPanel.appendMessage(p);
+      }
+      return;
+    }
+    if (msg.type === 'conversation_phase') {
+      const p = msg.payload || msg;
+      if (p.phase === 'closed' && this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
+        this._chatPanel.setInputEnabled(false);
+      }
+      return;
+    }
+
     // Log the event
     const formatters = {
       'state_snapshot':     () => {
@@ -1710,6 +1726,15 @@ class AppController {
       }
     } else {
       guidanceEl.innerHTML = '<span class="empty-hint">No 1-on-1 notes yet</span>';
+    }
+
+    // 1-on-1 button
+    const oneononeBtn = document.getElementById('emp-oneonone-btn');
+    if (oneononeBtn) {
+      oneononeBtn.onclick = () => {
+        this.closeEmployeeDetail();
+        this._startOneononeConversation(emp.id);
+      };
     }
 
     // Fire button — hidden for founding employees (Lv.4+)
@@ -5530,6 +5555,100 @@ class AppController {
     overlay.querySelector('#alert-modal-title').textContent = title;
     overlay.querySelector('#alert-modal-body').innerHTML = htmlContent;
     overlay.classList.remove('hidden');
+  }
+
+  // ----------- Unified Conversation Methods -----------
+
+  async _openConversation(convId) {
+    const chatContainer = document.getElementById('right-panel-chat');
+
+    // Hide normal console sections, show chat
+    for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
+      el.style.display = 'none';
+    }
+    chatContainer.classList.remove('hidden');
+
+    if (!this._chatPanel) {
+      this._chatPanel = new ChatPanel(chatContainer);
+      this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
+      this._chatPanel.onClose((id) => this._closeConversation(id));
+    }
+
+    // Fetch conversation + messages
+    let convResp, msgsResp;
+    try {
+      [convResp, msgsResp] = await Promise.all([
+        fetch(`/api/conversation/${convId}`).then(r => r.json()),
+        fetch(`/api/conversation/${convId}/messages`).then(r => r.json()),
+      ]);
+    } catch (err) {
+      console.error('Failed to load conversation:', err);
+      chatContainer.classList.add('hidden');
+      for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
+        el.style.display = '';
+      }
+      return;
+    }
+
+    const empName = this._resolveEmployeeName(convResp.employee_id);
+    this._chatPanel.setConversation(convId, convResp.type, empName);
+    this._chatPanel.renderMessages(msgsResp.messages);
+    this._chatPanel.setInputEnabled(convResp.phase === 'active');
+  }
+
+  _resolveEmployeeName(employeeId) {
+    // Try to find from office renderer state, then company state snapshot
+    const sources = [
+      window.officeRenderer?.state?.employees,
+      window.app?._lastSnapshot?.employees,
+    ];
+    for (const employees of sources) {
+      if (!Array.isArray(employees)) continue;
+      const emp = employees.find(e => e.id === employeeId);
+      if (emp) return emp.name || emp.nickname || employeeId;
+    }
+    return employeeId;
+  }
+
+  async _startOneononeConversation(employeeId) {
+    const resp = await fetch('/api/conversation/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        type: 'oneonone', employee_id: employeeId, tools_enabled: true,
+      }),
+    });
+    const conv = await resp.json();
+    await this._openConversation(conv.id);
+  }
+
+  async _sendConversationMessage(convId, text, attachments) {
+    if (!this._chatPanel) return;
+    this._chatPanel.showTyping(true);
+    await fetch(`/api/conversation/${convId}/message`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ text, attachments }),
+    });
+    // Reply arrives via WebSocket conversation_message event
+  }
+
+  async _closeConversation(convId) {
+    if (!this._chatPanel) return;
+    const convType = this._chatPanel.getConvType();
+    const waitHooks = convType === 'oneonone';
+    await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
+      method: 'POST',
+    });
+    this._chatPanel.setInputEnabled(false);
+
+    // Restore normal console sections
+    const chatContainer = document.getElementById('right-panel-chat');
+    chatContainer.classList.add('hidden');
+    for (const el of document.querySelectorAll('#console-panel > .collapsible-header, #console-panel > .collapsible-body')) {
+      el.style.display = '';
+    }
+    this._chatPanel = null;
   }
 
   _escapeHtml(text) {

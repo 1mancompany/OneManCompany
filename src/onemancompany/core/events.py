@@ -57,6 +57,8 @@ EventType = Literal[
     "request_credentials",
     "credentials_submitted",
     "tree_update",
+    "conversation_message",
+    "conversation_phase",
 ]
 
 
