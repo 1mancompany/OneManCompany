@@ -4924,7 +4924,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/main.py")
@@ -4943,7 +4943,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/index.html")
@@ -4962,7 +4962,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/data.json")
@@ -4981,7 +4981,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/README.md")
@@ -5000,7 +5000,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/image.png")
@@ -5019,7 +5019,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/photo.jpg")
@@ -5038,7 +5038,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/anim.gif")
@@ -5057,7 +5057,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/icon.svg")
@@ -5076,7 +5076,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/doc.pdf")
@@ -5095,7 +5095,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/data.bin")
@@ -5113,7 +5113,7 @@ class TestProjectFileServing:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/nonexistent.py")
@@ -5718,7 +5718,7 @@ class TestProjectFileTraversal:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/../secret.txt")
@@ -6011,7 +6011,7 @@ class TestProjectFilePathEscape:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.core.project_archive.get_project_dir", return_value=str(ws)):
+             patch("onemancompany.core.project_archive.get_project_workspace", return_value=str(ws)):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/proj1/files/escape/secret.txt")

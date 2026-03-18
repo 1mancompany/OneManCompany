@@ -2788,37 +2788,14 @@ async def rename_project(project_id: str, body: dict) -> dict:
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(400, "Name required")
-    from onemancompany.core.project_archive import get_project_dir, load_named_project
+    from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
+    from onemancompany.core.project_archive import update_project_name
 
-    # Try named project first
-    proj = load_named_project(project_id)
-    if proj:
-        proj_dir = Path(proj["project_dir"]) if "project_dir" in proj else None
-        proj_yaml = (proj_dir or Path(get_project_dir(project_id))) / "project.yaml" if proj_dir else None
-        # Update the name in the named project doc
-        import yaml as _yaml
-        for candidate in [Path(get_project_dir(project_id)) / "project.yaml"]:
-            if candidate.exists():
-                data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-                data["name"] = name
-                candidate.write_text(
-                    _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-                )
-                return {"status": "ok", "name": name}
-
-    # Try v1 project
-    pdir = get_project_dir(project_id)
-    project_yaml = Path(pdir) / "project.yaml"
-    if project_yaml.exists():
-        import yaml as _yaml
-        data = _yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
-        data["name"] = name
-        project_yaml.write_text(
-            _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-        )
-        return {"status": "ok", "name": name}
-
-    raise HTTPException(404, "Project not found")
+    candidate = _PROJ_DIR / project_id / "project.yaml"
+    if not candidate.exists():
+        raise HTTPException(404, "Project not found")
+    update_project_name(project_id, name)
+    return {"status": "ok", "name": name}
 
 
 @router.post("/api/projects/continue")
@@ -3390,9 +3367,9 @@ async def get_project_file(project_id: str, file_path: str):
 
     from fastapi.responses import Response
 
-    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.project_archive import get_project_workspace
 
-    workspace = Path(get_project_dir(project_id))
+    workspace = Path(get_project_workspace(project_id))
     target = (workspace / file_path).resolve()
     # Security: ensure path stays within workspace
     if not str(target).startswith(str(workspace.resolve())):
@@ -3531,9 +3508,9 @@ async def download_project_workspace(project_id: str):
 
     from pathlib import Path
 
-    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.project_archive import get_project_workspace
 
-    pdir = Path(get_project_dir(project_id))
+    pdir = Path(get_project_workspace(project_id))
     if not pdir.is_dir():
         from fastapi.responses import Response
         return Response(content="Project workspace not found", status_code=404)
