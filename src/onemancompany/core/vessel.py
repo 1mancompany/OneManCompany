@@ -2135,11 +2135,10 @@ class EmployeeManager:
             label = node.description or "Task completed"
             if agent_error:
                 label = f"{label} (with errors)"
-            complete_project(project_id, label)
-            status = "failed" if agent_error else "completed"
-            await _store.save_project_status(
-                project_id, status, completed_at=datetime.now().isoformat()
-            )
+            if agent_error:
+                await _store.save_project_status(project_id, "failed")
+            else:
+                complete_project(project_id, label)
 
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()

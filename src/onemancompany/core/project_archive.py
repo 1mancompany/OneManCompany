@@ -516,6 +516,17 @@ def complete_project(project_id: str, output: str = "") -> None:
     mark_dirty("task_queue")
 
 
+def update_project_status(project_id: str, status: str, **extra) -> None:
+    """Update status (and optional extra fields) on a project/iteration via resolve."""
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        logger.debug("[update_project_status] No doc found for {}", project_id)
+        return
+    doc["status"] = status
+    doc.update(extra)
+    _save_resolved(version, key, doc)
+
+
 def load_project(project_id: str) -> dict | None:
     """Load a project or iteration record."""
     version, doc, _key = _resolve_and_load(project_id)

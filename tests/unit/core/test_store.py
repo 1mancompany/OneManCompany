@@ -122,13 +122,18 @@ def test_read_yaml_list_non_list_returns_empty(tmp_path):
 
 @pytest.mark.asyncio
 async def test_save_project_status_updates_yaml(tmp_path, monkeypatch):
-    from onemancompany.core import store
+    from onemancompany.core import store, project_archive
     monkeypatch.setattr(store, "PROJECTS_DIR", tmp_path)
+    monkeypatch.setattr(project_archive, "PROJECTS_DIR", tmp_path)
     pdir = tmp_path / "proj-001"
     pdir.mkdir()
-    (pdir / "project.yaml").write_text("task: Build thing\nstatus: in_progress\n")
+    # Set up as a v2 named project with an iteration
+    (pdir / "project.yaml").write_text("name: Test\nstatus: active\niterations: [iter_001]\n")
+    iter_dir = pdir / "iterations"
+    iter_dir.mkdir()
+    (iter_dir / "iter_001.yaml").write_text("task: Build thing\nstatus: in_progress\n")
     await store.save_project_status("proj-001", "completed", completed_at="2026-03-11")
-    data = yaml.safe_load((pdir / "project.yaml").read_text())
+    data = yaml.safe_load((iter_dir / "iter_001.yaml").read_text())
     assert data["status"] == "completed"
     assert data["completed_at"] == "2026-03-11"
     assert data["task"] == "Build thing"
