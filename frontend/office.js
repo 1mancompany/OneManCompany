@@ -13,9 +13,6 @@ const COLS = MAP_COLS;    // 20
 let ROWS = 18;            // updated from office_layout.canvas_rows
 
 const PALETTE = {
-  // Floor (warm-tinted dark tiles, not grey)
-  floor1: '#2c2840',
-  floor2: '#262238',
   // Walls (deep indigo with subtle warmth)
   wallTop: '#161428',
   wallMid: '#1e1a34',
@@ -69,15 +66,6 @@ const PALETTE = {
   windowSky: '#2244aa',
 };
 
-// Floor fallback colors keyed by floor style (used while tileset loads)
-const FLOOR_FALLBACK = {
-  floor_stone_gray: ['#2c2840', '#262238'],
-  floor_stone_blue: ['#1a2840', '#162238'],
-  floor_wood_warm:  ['#3a2810', '#2e2008'],
-  floor_tile_green: ['#1a3020', '#142818'],
-  floor_carpet_red: ['#3a1a1a', '#2e1212'],
-  floor_wood_gold:  ['#3a2c10', '#2e2208'],
-};
 
 class OfficeRenderer {
   constructor(canvasId) {
@@ -349,43 +337,25 @@ class OfficeRenderer {
 
     for (let row = vis.minRow; row <= vis.maxRow; row++) {
       for (let col = vis.minCol; col <= vis.maxCol; col++) {
-        const x        = col * TILE;
-        const y        = row * TILE;
+        const x = col * TILE;
+        const y = row * TILE;
         const floorKey = this.officeMap.getFloor(col, row);
 
-        // Fallback color fill (visible while tileset loads, and for unrecognized keys)
-        const fb = FLOOR_FALLBACK[floorKey] || FLOOR_FALLBACK.floor_stone_gray;
-        ctx.fillStyle = (row + col) % 2 === 0 ? fb[0] : fb[1];
-        ctx.fillRect(x, y, TILE, TILE);
-
-        // Subtle tile groove lines (mimic old floor detail)
-        ctx.globalAlpha = 0.05;
-        ctx.fillStyle = '#000';
-        ctx.fillRect(x, y, TILE, 1);
-        ctx.fillRect(x, y, 1, TILE);
-        ctx.globalAlpha = 0.04;
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(x + TILE - 1, y, 1, TILE);
-        ctx.fillRect(x, y + TILE - 1, TILE, 1);
-        ctx.globalAlpha = 1;
-
-        // Tileset floor tile drawn on top (silent no-op until loaded)
+        // Draw tileset floor tile (silent no-op if not loaded)
         tileAtlas.drawDef(ctx, floorKey, x, y);
 
-        // Divider plant overlay: solid green fallback always drawn first,
-        // tileset sprite drawn on top once loaded (same pattern as floor tiles).
+        // Divider plant overlay (fallback green strip if tiles not loaded)
         if (this.officeMap.isDivider(col, row)) {
-          ctx.fillStyle = (row % 2 === 0) ? '#2a5a2a' : '#224a22';
-          ctx.fillRect(x + 4, y, TILE - 8, TILE);
-          ctx.fillStyle = '#1a3a1a';
-          ctx.fillRect(x + 10, y + 4, TILE - 20, TILE - 8);
+          if (!tileAtlas.isReady('office')) {
+            this._rect(x + 12, y, 8, TILE, '#2a5a30');
+          }
           const overlay = this.officeMap.getOverlay(col, row);
           if (overlay) tileAtlas.drawDef(ctx, overlay, x, y);
         }
       }
     }
 
-    // Ambient floor glow under screen areas (blueish light cast)
+    // Ambient floor glow under screen areas
     ctx.globalAlpha = 0.04;
     for (const emp of (this.state.employees || [])) {
       if (emp.remote) continue;
