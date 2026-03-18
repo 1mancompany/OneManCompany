@@ -562,7 +562,7 @@ class AppController {
     fetch('/api/task-queue')
       .then(r => r.json())
       .then(t => this._renderTaskPanel(t))
-      .catch(() => {});
+      .catch(err => console.error('[loadTaskQueue] failed:', err));
   }
 
   _renderTaskPanel(tasks) {
@@ -901,7 +901,7 @@ class AppController {
             // Will auto-restart when tasks complete; reconnect logic handles the rest
           }
         })
-        .catch(() => {});
+        .catch(err => console.error('[apply-code-update] failed:', err));
     });
     document.getElementById('code-update-dismiss-btn').addEventListener('click', () => {
       document.getElementById('code-update-banner').classList.add('hidden');
@@ -2031,7 +2031,8 @@ class AppController {
           });
         });
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadProjectList] failed:', err);
         container.innerHTML = '<span class="empty-hint">Failed to load</span>';
       });
   }
@@ -2112,7 +2113,7 @@ class AppController {
 
   _escHtml(str) {
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = String(str ?? '');
     return div.innerHTML;
   }
 
@@ -3983,7 +3984,7 @@ class AppController {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(values),
-        }).catch(() => {});
+        }).catch(err => console.error('[credentials submit] failed:', err));
         this.closePopup();
       };
       const cancelBtn = document.createElement('button');
@@ -4007,7 +4008,7 @@ class AppController {
           el.onclick = () => this.closePopup();
         } else if (btn.callback_url) {
           el.onclick = () => {
-            fetch(btn.callback_url, { method: 'POST' }).catch(() => {});
+            fetch(btn.callback_url, { method: 'POST' }).catch(err => console.error('[button callback] failed:', err));
             this.closePopup();
           };
         }
@@ -4174,7 +4175,8 @@ class AppController {
           }
         }
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadChat] failed:', err);
         chatEl.innerHTML = '<div class="chat-empty">Failed to load chat</div>';
       });
   }
@@ -4844,7 +4846,7 @@ class AppController {
       }
 
       content.insertAdjacentHTML('beforeend', costHtml);
-    }).catch(() => {});
+    }).catch(err => console.error('[loadCostPanel] failed:', err));
   }
 
   // ===== Company Culture =====
@@ -4885,7 +4887,8 @@ class AppController {
           btn.addEventListener('click', () => this.removeCultureItem(parseInt(btn.dataset.index)));
         });
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadCulture] failed:', err);
         list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">Failed to load culture.</div>';
       });
   }
@@ -4943,7 +4946,7 @@ class AppController {
         input.value = data.direction || '';
         this._renderCurrentDirection(data.direction || '');
       })
-      .catch(() => { input.value = ''; });
+      .catch(err => { console.error('[addCultureItem] failed:', err); input.value = ''; });
   }
 
   closeCompanyDirection() {
@@ -5827,7 +5830,7 @@ class AppController {
           panel.appendChild(card);
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[updateProjectsPanel] failed:', err));
   }
 
   _openTaskInBoard(projectId, nodeId) {
@@ -5890,7 +5893,7 @@ class AppController {
       </div>`;
     }
     if (proj.status === 'active') {
-      iterListHtml += `<div style="margin-top:8px;"><button class="pixel-btn secondary" style="font-size:6px;padding:4px 8px;" onclick="window.app._archiveProject('${projectId}')">Archive</button></div>`;
+      iterListHtml += `<div style="margin-top:8px;"><button class="pixel-btn secondary archive-project-btn" style="font-size:6px;padding:4px 8px;">Archive</button></div>`;
     }
 
     contentEl.innerHTML = `${headerHtml}
@@ -5900,6 +5903,12 @@ class AppController {
           <div style="color:var(--text-dim);font-size:6px;padding:12px;">Select an iteration to view details</div>
         </div>
       </div>`;
+
+    // Bind archive button
+    const archiveBtn = contentEl.querySelector('.archive-project-btn');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', () => this._archiveProject(projectId));
+    }
 
     // Bind click on iteration cards
     contentEl.querySelectorAll('.project-iter-card').forEach(card => {
@@ -6205,7 +6214,7 @@ class AppController {
                 stopBtn.textContent = `■ Stopped (${data.cancelled || 0})`;
                 this._loadIterationDetail(projectId, iterationId);
               })
-              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ Stop All Tasks'; });
+              .catch(err => { console.error('[stopTasks] failed:', err); stopBtn.disabled = false; stopBtn.textContent = '■ Stop All Tasks'; });
           });
         }
 
@@ -6306,7 +6315,7 @@ class AppController {
         .then(text => {
           this._showFileViewer(filename, `<pre style="font-size:6px;color:var(--pixel-white);white-space:pre-wrap;word-break:break-all;max-height:65vh;overflow-y:auto;margin:0;padding:6px;background:var(--bg-dark);border:1px solid var(--border);">${this._escHtml(text)}</pre>`);
         })
-        .catch(() => { window.open(url, '_blank'); });
+        .catch(err => { console.error('[viewFile] failed, opening in new tab:', err); window.open(url, '_blank'); });
     } else if (ext === 'pdf') {
       window.open(url, '_blank');
     } else {
@@ -6355,7 +6364,7 @@ class AppController {
           document.getElementById('project-modal').classList.add('hidden');
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[archiveProject] failed:', err));
   }
 
   loadActiveProjects() {
@@ -6379,7 +6388,7 @@ class AppController {
           select.value = currentVal;
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[loadActiveProjects] failed:', err));
   }
 
   // ===== Admin Reload =====

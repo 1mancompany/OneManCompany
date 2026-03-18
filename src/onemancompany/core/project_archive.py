@@ -480,9 +480,16 @@ def get_project_workspace(project_id: str) -> str:
             if latest_doc and latest_doc.get("project_dir"):
                 iter_dir = _rebase_project_dir(latest_doc["project_dir"])
                 ws = iter_dir / "workspace"
+                if ws.exists():
+                    return str(ws)
+                # Backward compat: old iterations stored files directly in iter_dir
+                if iter_dir.exists() and any(iter_dir.iterdir()):
+                    logger.debug("get_project_workspace: legacy layout, using iter_dir as workspace for {}", project_id)
+                    return str(iter_dir)
                 ws.mkdir(parents=True, exist_ok=True)
                 return str(ws)
-    # Fallback: create workspace under project dir directly
+    # Fallback: project has no iterations — log warning
+    logger.warning("get_project_workspace fallback: project {} has no iterations", project_id)
     ws = PROJECTS_DIR / project_id / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     return str(ws)
@@ -555,6 +562,11 @@ def _resolve_workspace(project_id: str) -> Path:
             if iter_doc and iter_doc.get("project_dir"):
                 iter_dir = _rebase_project_dir(iter_doc["project_dir"])
                 ws = iter_dir / "workspace"
+                if ws.exists():
+                    return ws
+                # Backward compat: old iterations stored files directly in iter_dir
+                if iter_dir.exists() and any(iter_dir.iterdir()):
+                    return iter_dir
                 ws.mkdir(parents=True, exist_ok=True)
                 return ws
             # Fallback for old iterations without per-iter workspace

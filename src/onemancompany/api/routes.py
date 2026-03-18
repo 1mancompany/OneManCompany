@@ -2788,34 +2788,14 @@ async def rename_project(project_id: str, body: dict) -> dict:
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(400, "Name required")
-    import yaml as _yaml
     from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
-    from onemancompany.core.project_archive import load_named_project
+    from onemancompany.core.project_archive import _update_project_name
 
-    # Try named project first
-    proj = load_named_project(project_id)
-    if proj:
-        candidate = _PROJ_DIR / project_id / "project.yaml"
-        if candidate.exists():
-            data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-            data["name"] = name
-            candidate.write_text(
-                _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-            )
-            return {"status": "ok", "name": name}
-
-    # Try v1 project — project.yaml at project root
-    project_yaml = _PROJ_DIR / project_id / "project.yaml"
-    if project_yaml.exists():
-        import yaml as _yaml
-        data = _yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
-        data["name"] = name
-        project_yaml.write_text(
-            _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-        )
-        return {"status": "ok", "name": name}
-
-    raise HTTPException(404, "Project not found")
+    candidate = _PROJ_DIR / project_id / "project.yaml"
+    if not candidate.exists():
+        raise HTTPException(404, "Project not found")
+    _update_project_name(project_id, name)
+    return {"status": "ok", "name": name}
 
 
 @router.post("/api/projects/continue")
