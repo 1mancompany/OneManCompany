@@ -4,6 +4,9 @@ url: https://1mancompany.github.io
 baseurl: /OneManCompany
 theme: null
 
+include:
+  - robots.txt
+
 exclude:
   - "*.md"
   - README.md
