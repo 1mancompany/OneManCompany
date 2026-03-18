@@ -4912,12 +4912,14 @@ body {
 #right-panel-chat {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 #right-panel-chat.hidden { display: none; }
 
 /* ===== ChatPanel Component ===== */
-.chat-panel { display: flex; flex-direction: column; height: 100%; }
+.chat-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .chat-panel-header {
     display: flex; align-items: center; gap: 8px;
     padding: 4px 8px; border-bottom: 1px solid var(--border);
