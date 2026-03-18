@@ -74,7 +74,7 @@ class Message:
     role: str                  # "CEO" | employee display name
     text: str
     timestamp: str             # ISO 8601
-    attachments: list[str]     # file paths
+    attachments: list[str]     # file paths (supports multiple files per message)
 ```
 
 ### Legacy Field Mapping
@@ -246,7 +246,7 @@ POST   /api/conversation/create             # Create conversation
 GET    /api/conversation/{conv_id}           # Get conversation metadata
 GET    /api/conversation/{conv_id}/messages  # Get message history
 POST   /api/conversation/{conv_id}/message   # Send message (returns immediately, reply via WebSocket)
-POST   /api/conversation/{conv_id}/upload    # Upload file attachment (multipart)
+POST   /api/conversation/{conv_id}/upload    # Upload file attachments (multipart, multiple files)
 POST   /api/conversation/{conv_id}/close     # End conversation (?wait_hooks=true for blocking)
 GET    /api/conversations?type=&phase=       # List (filter by type/phase)
 ```
