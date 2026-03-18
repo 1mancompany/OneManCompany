@@ -164,3 +164,54 @@ async def test_list_active_filter_by_type(svc, tmp_path, monkeypatch):
     active = svc.list_active(type="ceo_inbox")
     assert len(active) == 1
     assert active[0].type == "ceo_inbox"
+
+
+@pytest.mark.asyncio
+async def test_send_message_publishes_event(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+
+    published_events = []
+    async def mock_publish(event):
+        published_events.append(event)
+
+    monkeypatch.setattr("onemancompany.core.conversation.event_bus.publish", mock_publish)
+
+    msg = await svc.send_message(conv.id, sender="ceo", role="CEO", text="hi")
+    assert len(published_events) == 1
+    assert published_events[0].type == "conversation_message"
+    assert published_events[0].payload["conv_id"] == conv.id
+    assert published_events[0].payload["text"] == "hi"
+
+
+@pytest.mark.asyncio
+async def test_close_publishes_phase_event(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+
+    published_events = []
+    async def mock_publish(event):
+        published_events.append(event)
+
+    monkeypatch.setattr("onemancompany.core.conversation.event_bus.publish", mock_publish)
+
+    await svc.close(conv.id)
+    phase_events = [e for e in published_events if e.type == "conversation_phase"]
+    assert len(phase_events) >= 1
+    assert phase_events[-1].payload["phase"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_create_publishes_phase_event(svc, tmp_path, monkeypatch):
+    published_events = []
+    async def mock_publish(event):
+        published_events.append(event)
+
+    monkeypatch.setattr("onemancompany.core.conversation.event_bus.publish", mock_publish)
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+
+    conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+    phase_events = [e for e in published_events if e.type == "conversation_phase"]
+    assert len(phase_events) == 1
+    assert phase_events[0].payload["phase"] == "active"
+    assert phase_events[0].payload["conv_id"] == conv.id

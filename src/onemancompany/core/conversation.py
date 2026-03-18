@@ -21,6 +21,7 @@ import yaml
 from loguru import logger
 
 from onemancompany.core.config import PROJECTS_DIR, EMPLOYEES_DIR
+from onemancompany.core.events import event_bus, CompanyEvent
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +152,10 @@ class ConversationService:
             metadata=metadata, created_at=now,
         )
         save_conversation_meta(conv)
+        await event_bus.publish(CompanyEvent(
+            type="conversation_phase",
+            payload={"conv_id": conv.id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
+        ))
         conv_dir = _resolve_conv_dir(conv)
         self._index[conv_id] = conv_dir
         logger.debug("[conversation] created: id={}, type={}, employee={}", conv_id, type, employee_id)
@@ -209,6 +214,10 @@ class ConversationService:
         conv.phase = "closed"
         conv.closed_at = datetime.now(timezone.utc).isoformat()
         save_conversation_meta(conv)
+        await event_bus.publish(CompanyEvent(
+            type="conversation_phase",
+            payload={"conv_id": conv_id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
+        ))
         logger.debug("[conversation] closed: id={}", conv_id)
         return hook_result
 
@@ -225,6 +234,16 @@ class ConversationService:
             timestamp=now, attachments=attachments or [],
         )
         await append_message(conv_dir, msg)
+        await event_bus.publish(CompanyEvent(
+            type="conversation_message",
+            payload={
+                "conv_id": conv_id,
+                "sender": msg.sender,
+                "role": msg.role,
+                "text": msg.text,
+                "timestamp": msg.timestamp,
+            },
+        ))
         return msg
 
     def rebuild_index(self) -> None:
