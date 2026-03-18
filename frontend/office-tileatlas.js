@@ -55,7 +55,7 @@ for (let i = 1; i <= 20; i++) {
  */
 const TILE_DEFS = {
   // ── Floor tiles ──
-  floor_gray:         ['gen',  6, 0],  // gray stone tiles
+  floor_stone_gray:   ['gen',  6, 0],  // gray stone (default)
   floor_gray_dark:    ['gen',  6, 1],  // gray stone (variant)
   floor_brown:        ['gen',  4, 0],  // light oak wood
   floor_brown_dark:   ['gen',  5, 0],  // dark walnut wood
@@ -64,7 +64,6 @@ const TILE_DEFS = {
   floor_teal:         ['gen', 10, 0],  // teal decorative
   floor_herringbone:  ['gen',  9, 0],  // herringbone wood
   floor_wood_gold:    ['gen', 11, 0],  // exec carpet (gold)
-  floor_stone_gray:   ['gen',  6, 0],  // gray stone (default)
   floor_wood_warm:    ['gen',  4, 1],  // warm wood (task board bg)
   floor_stone_blue:   ['gen',  6, 2],  // stone variant (project wall bg)
 
@@ -80,8 +79,8 @@ const TILE_DEFS = {
 
   // ── Wall tiles ──
   wall_top:            ['gen', 0, 0],  // warm wall (upper)
-  wall_mid:            ['gen', 1, 0],  // warm wall (baseboard)
-  wall_bottom:         ['gen', 1, 0],  // baseboard
+  wall_mid:            ['gen', 1, 0],  // warm wall (baseboard, row 1)
+  wall_bottom:         ['gen', 1, 0],  // alias of wall_mid (row 2 draws same tile)
   wall_window_top:     ['gen', 2, 0],  // cool wall (upper)
   wall_window_bottom:  ['gen', 3, 0],  // cool wall (baseboard)
 

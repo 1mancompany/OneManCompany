@@ -29,6 +29,7 @@ class Camera {
     this.canvas    = canvas;
     this.mapPixelW = mapPixelW;
     this.mapPixelH = mapPixelH;
+    this._minZoom  = 0.5;  // updated by _updateMinZoom()
 
     // Current state (lerped toward target)
     this.x    = 0;
@@ -87,14 +88,14 @@ class Camera {
     this.canvas.style.cursor = 'default';
   }
 
-  /** Minimum zoom = fit entire office (with border) in viewport */
-  _getMinZoom() {
+  /** Minimum zoom = fit entire office (with border) in viewport. Cached on resize. */
+  _updateMinZoom() {
     const rect = this.canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return 0.5;
-    const margin = TILE_SIZE;  // border tile on each side
+    if (!rect.width || !rect.height) { this._minZoom = 0.5; return; }
+    const margin = TILE_SIZE;
     const totalW = this.mapPixelW + margin * 2;
     const totalH = this.mapPixelH + margin * 2;
-    return Math.min(rect.width / totalW, rect.height / totalH);
+    this._minZoom = Math.min(rect.width / totalW, rect.height / totalH);
   }
 
   _onWheel(e) {
@@ -109,20 +110,19 @@ class Camera {
     const wx = this._tx + sx / this._tz;
     const wy = this._ty + sy / this._tz;
 
-    const minZoom = this._getMinZoom();
-    this._tz = Math.max(minZoom,
+    this._tz = Math.max(this._minZoom,
                Math.min(CAMERA_ZOOM_MAX, this._tz + (e.deltaY < 0 ? CAMERA_ZOOM_STEP : -CAMERA_ZOOM_STEP)));
 
     // Adjust so cursor stays fixed in world space
     this._tx = wx - sx / this._tz;
     this._ty = wy - sy / this._tz;
-    this._clamp();
+    this._clamp(rect);
   }
 
-  _clamp() {
-    const rect = this.canvas.getBoundingClientRect();
+  _clamp(rect) {
+    if (!rect) rect = this.canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
-    const margin = TILE_SIZE;  // border tile on each side
+    const margin = TILE_SIZE;
     const vw = rect.width  / this._tz;
     const vh = rect.height / this._tz;
     const totalW = this.mapPixelW + margin * 2;
@@ -159,9 +159,8 @@ class Camera {
    */
   centerOn(wx, wy, targetZoom = null) {
     const rect = this.canvas.getBoundingClientRect();
-    const minZoom = this._getMinZoom();
     if (targetZoom !== null) {
-      this._tz = Math.max(minZoom, Math.min(CAMERA_ZOOM_MAX, targetZoom));
+      this._tz = Math.max(this._minZoom, Math.min(CAMERA_ZOOM_MAX, targetZoom));
     }
     const vw = (rect.width  || 640) / this._tz;
     const vh = (rect.height || 480) / this._tz;
@@ -240,9 +239,8 @@ class Camera {
   resize(mapPixelW, mapPixelH) {
     this.mapPixelW = mapPixelW;
     this.mapPixelH = mapPixelH;
-    // Ensure current zoom respects new min zoom
-    const minZoom = this._getMinZoom();
-    if (this._tz < minZoom) this._tz = minZoom;
+    this._updateMinZoom();
+    if (this._tz < this._minZoom) this._tz = this._minZoom;
     this._clamp();
   }
 
