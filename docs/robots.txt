@@ -7,4 +7,5 @@
 User-agent: *
 Allow: /
 
+Sitemap: https://1mancompany.github.io/OneManCompany/sitemap.xml
 Sitemap: https://1mancompany.github.io/OneManCompany/docs/sitemap.xml
