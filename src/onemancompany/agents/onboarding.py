@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json as _json
+import random
 import shutil
 import subprocess
 from pathlib import Path
@@ -855,6 +856,7 @@ async def execute_hire(
         "auth_method": auth_method,
         "probation": True,
         "onboarding_completed": False,
+        "avatar_sprite": random.randint(1, 20),
     })
     await _store.save_employee_runtime(emp_num, status="idle")
 
