@@ -3692,11 +3692,11 @@ class AppController {
           const name = p.name || p.task || p.project_id;
           card.innerHTML = `
             <div class="project-card-header">
-              <span>${statusIcon} ${name.substring(0, 50)}${name.length > 50 ? '...' : ''}</span>
+              <span>${statusIcon} ${this._escHtml(name.substring(0, 50))}${name.length > 50 ? '...' : ''}</span>
               <span class="project-card-date">${date}</span>
             </div>
             <div class="project-card-meta">
-              ${p.iteration_count || 0} iteration(s) | ${p.file_count || 0} files${costStr}${p.current_owner ? ' · ' + p.current_owner : ''}
+              ${p.iteration_count || 0} iteration(s) | ${p.file_count || 0} files${costStr}${p.current_owner ? ' · ' + this._escHtml(p.current_owner) : ''}
             </div>
           `;
           card.style.cursor = 'pointer';
@@ -3725,13 +3725,13 @@ class AppController {
       .then(r => r.json())
       .then(proj => {
         if (proj.error) {
-          contentEl.innerHTML = `<div style="color:var(--pixel-red);">${proj.error}</div>`;
+          contentEl.innerHTML = `<div style="color:var(--pixel-red);">${this._escHtml(proj.error)}</div>`;
           return;
         }
         this._renderProjectDetail(projectId, proj, contentEl);
       })
       .catch(err => {
-        contentEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -3814,7 +3814,7 @@ class AppController {
           for (const f of files) {
             const url = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(f)}`;
             html += `<div style="font-size:6px;margin:2px 0;">`;
-            html += `<a href="${url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${f}</a>`;
+            html += `<a href="${url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${this._escHtml(f)}</a>`;
             html += `</div>`;
           }
         }
@@ -5932,7 +5932,7 @@ class AppController {
                 nameEl.textContent = newName;
                 this.loadActiveProjects();
               }
-            }).catch(() => {});
+            }).catch(err => console.error('[rename project] failed:', err));
           }
           input.replaceWith(nameEl);
         };

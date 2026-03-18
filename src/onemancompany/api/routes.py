@@ -2788,16 +2788,13 @@ async def rename_project(project_id: str, body: dict) -> dict:
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(400, "Name required")
-    from onemancompany.core.project_archive import get_project_dir, load_named_project
+    import yaml as _yaml
+    from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
+    from onemancompany.core.project_archive import load_named_project
 
     # Try named project first
     proj = load_named_project(project_id)
     if proj:
-        proj_dir = Path(proj["project_dir"]) if "project_dir" in proj else None
-        proj_yaml = (proj_dir or Path(get_project_dir(project_id))) / "project.yaml" if proj_dir else None
-        # Update the name in the named project doc
-        import yaml as _yaml
-        from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
         candidate = _PROJ_DIR / project_id / "project.yaml"
         if candidate.exists():
             data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
@@ -2808,8 +2805,7 @@ async def rename_project(project_id: str, body: dict) -> dict:
             return {"status": "ok", "name": name}
 
     # Try v1 project — project.yaml at project root
-    from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR2
-    project_yaml = _PROJ_DIR2 / project_id / "project.yaml"
+    project_yaml = _PROJ_DIR / project_id / "project.yaml"
     if project_yaml.exists():
         import yaml as _yaml
         data = _yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
