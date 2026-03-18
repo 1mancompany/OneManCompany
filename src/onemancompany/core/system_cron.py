@@ -258,7 +258,7 @@ async def project_progress_watchdog() -> list | None:
     review the task tree and drive the project forward.
     """
     from onemancompany.core.config import EA_ID, PROJECTS_DIR
-    from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL
+    from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
     from onemancompany.core.vessel import employee_manager
 
@@ -295,11 +295,11 @@ async def project_progress_watchdog() -> list | None:
         if any(n.status == TaskPhase.PROCESSING.value for n in active_nodes):
             continue
 
-        # Skip if all active nodes are terminal (project is done)
-        all_terminal = all(
-            TaskPhase(n.status) in TERMINAL for n in active_nodes
+        # Skip if all active nodes are resolved (project is done)
+        all_resolved = all(
+            TaskPhase(n.status) in RESOLVED for n in active_nodes
         )
-        if all_terminal:
+        if all_resolved:
             continue
 
         # --- Project is stuck — nudge EA ---

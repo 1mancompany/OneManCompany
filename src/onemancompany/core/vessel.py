@@ -1761,7 +1761,12 @@ class EmployeeManager:
             return
 
         # --- Propagate upward: review / auto-complete parent ---
+        # CEO prompt nodes are containers — they don't need review or auto-complete.
+        # Their child (EA) completing is handled by the project completion check below.
         parent_node = tree.get_node(node.parent_id) if node.parent_id else None
+        if parent_node and parent_node.is_ceo_node:
+            logger.debug("[ON_CHILD_COMPLETE] parent {} is CEO node — skipping review/auto-complete", parent_node.id)
+            parent_node = None  # Skip propagation, fall through to project completion check
         if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
             children = tree.get_active_children(parent_node.id)
             if tree.all_children_done(parent_node.id):
@@ -1797,7 +1802,10 @@ class EmployeeManager:
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
         # EA done executing + all child subtrees RESOLVED → trigger retrospective.
-        if tree.is_project_complete():
+        # watchdog_nudge nodes are housekeeping probes — they must NOT trigger
+        # project completion. Their purpose is to nudge stalled projects, not
+        # to be the final event that marks a project done.
+        if node.node_type != "watchdog_nudge" and tree.is_project_complete():
             ea_node = tree.get_ea_node()
             logger.info(
                 "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
