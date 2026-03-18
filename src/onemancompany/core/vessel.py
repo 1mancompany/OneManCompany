@@ -1729,23 +1729,67 @@ class EmployeeManager:
             return
 
         # Root node or child of CEO node completed — request CEO confirmation
+        # but ONLY if all descendants are terminal (no pending work remains).
         parent_node = tree.get_node(node.parent_id) if node.parent_id else None
         is_child_of_ceo = parent_node and parent_node.is_ceo_node if parent_node else False
 
+        # Find the EA anchor: root node or child-of-CEO that owns this project subtree.
+        # Only these nodes trigger project-level completion & retrospective.
+        ea_node = None
         if is_root or is_child_of_ceo:
-            logger.info("EA node {} completed (root or child of CEO) — requesting CEO confirmation", entry.node_id)
-            if is_child_of_ceo:
-                if parent_node.status != TaskPhase.COMPLETED.value:
-                    if parent_node.status == TaskPhase.PENDING.value:
-                        parent_node.set_status(TaskPhase.PROCESSING)
-                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child of CEO completing)", parent_node.id)
-                    parent_node.set_status(TaskPhase.COMPLETED)
-                    logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (child of CEO completed)", parent_node.id)
-                save_tree_async(entry.tree_path)
-            await self._request_ceo_confirmation(
-                employee_id, node, tree, entry, project_id
-            )
-            return
+            ea_node = node
+        else:
+            # Walk up to find ancestor that is root or child-of-CEO
+            cur = node
+            while cur and cur.parent_id:
+                p = tree.get_node(cur.parent_id)
+                if not p:
+                    break
+                if p.is_ceo_node:
+                    ea_node = cur
+                    break
+                if not p.parent_id:
+                    # p is root; if p is CEO node, cur is the EA anchor
+                    # otherwise p itself is the EA anchor (root = EA)
+                    ea_node = p
+                    break
+                cur = p
+
+        if ea_node and ea_node.status in (TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value):
+            # All descendants of EA must be terminal before triggering
+            # project completion and retrospective.
+            _TERMINAL = {TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value,
+                         TaskPhase.FINISHED.value, TaskPhase.FAILED.value,
+                         TaskPhase.CANCELLED.value, TaskPhase.BLOCKED.value}
+
+            def _collect_descendants(nid):
+                result = []
+                for child in tree.get_children(nid):
+                    result.append(child)
+                    result.extend(_collect_descendants(child.id))
+                return result
+
+            descendants = _collect_descendants(ea_node.id)
+            non_terminal = [d for d in descendants if d.status not in _TERMINAL]
+            if non_terminal:
+                logger.debug("[ON_CHILD_COMPLETE] EA node {} complete but {} descendants still active — deferring project completion",
+                             ea_node.id, len(non_terminal))
+                # Fall through to normal parent-child logic below
+            else:
+                logger.info("EA node {} and all descendants terminal — requesting CEO confirmation", ea_node.id)
+                ea_parent = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+                if ea_parent and ea_parent.is_ceo_node:
+                    if ea_parent.status != TaskPhase.COMPLETED.value:
+                        if ea_parent.status == TaskPhase.PENDING.value:
+                            ea_parent.set_status(TaskPhase.PROCESSING)
+                            logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child of CEO completing)", ea_parent.id)
+                        ea_parent.set_status(TaskPhase.COMPLETED)
+                        logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (child of CEO completed)", ea_parent.id)
+                    save_tree_async(entry.tree_path)
+                await self._request_ceo_confirmation(
+                    ea_node.employee_id, ea_node, tree, entry, project_id
+                )
+                return
 
         parent_node = tree.get_node(node.parent_id)
         if not parent_node:
