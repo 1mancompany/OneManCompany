@@ -27,6 +27,8 @@ class AppController {
     this._historyDraft = '';
     // Task attachment files
     this._taskPendingFiles = [];
+    // Cooldown: prevent accidental double-submit (key → timestamp)
+    this._actionCooldowns = {};
     // Board view: track which project's plugin tab is being viewed
     this._viewingBoardProjectId = null;
     // Initialize plugin system before connecting
@@ -4980,6 +4982,7 @@ class AppController {
       this.logEntry('SYSTEM', 'Please write a draft direction first.', 'system');
       return;
     }
+    if (!this._checkCooldown('enrichDirection')) return;
     btn.disabled = true;
     btn.textContent = '⏳ Sending...';
 
@@ -5698,10 +5701,20 @@ class AppController {
     return html;
   }
 
+  /** Returns true if the action is allowed (not in cooldown). Sets a 5s cooldown on first call. */
+  _checkCooldown(actionKey, cooldownMs = 5000) {
+    const now = Date.now();
+    const last = this._actionCooldowns[actionKey] || 0;
+    if (now - last < cooldownMs) return false;
+    this._actionCooldowns[actionKey] = now;
+    return true;
+  }
+
   async submitTask() {
     const input = document.getElementById('task-input');
     const task = input.value.trim();
     if (!task) return;
+    if (!this._checkCooldown('submitTask')) return;
 
     // Read project selector
     const projectSelect = document.getElementById('project-select');
@@ -6218,6 +6231,7 @@ class AppController {
   }
 
   _continueIteration(projectId, iterationId) {
+    if (!this._checkCooldown('continueIteration')) return;
     const btn = document.getElementById('continue-iter-btn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Submitting...'; }
 
@@ -6244,6 +6258,7 @@ class AppController {
   }
 
   _submitFollowup(projectId, instructions) {
+    if (!this._checkCooldown('submitFollowup')) return;
     const submitBtn = document.getElementById('followup-submit');
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ Submitting...'; }
 
