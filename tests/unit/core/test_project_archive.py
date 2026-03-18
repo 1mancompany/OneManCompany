@@ -284,6 +284,83 @@ class TestProjectFiles:
         files = pa.list_project_files("does_not_exist")
         assert files == []
 
+    def test_list_files_excludes_internal_files(self, tmp_path):
+        """Internal infrastructure files must not appear in user-facing listing."""
+        slug = pa.create_named_project("Filter Test")
+        pa.create_iteration(slug, "task", "COO")
+        ws = Path(pa.get_project_workspace(slug))
+
+        # Create internal files that should be excluded
+        (ws / "project.yaml").write_text("status: active")
+        (ws / "task_tree.yaml").write_text("tree: []")
+        (ws / "task_tree_iter_001.yaml").write_text("archive: []")
+        (ws / "nodes").mkdir(exist_ok=True)
+        (ws / "nodes" / "abc.yaml").write_text("node: data")
+
+        # Create user files that should be included
+        (ws / "output.txt").write_text("result")
+        (ws / "report.md").write_text("# Report")
+        (ws / "subdir").mkdir(exist_ok=True)
+        (ws / "subdir" / "data.csv").write_text("a,b,c")
+
+        files = pa.list_project_files(slug)
+
+        # User files included
+        assert "output.txt" in files
+        assert "report.md" in files
+        assert str(Path("subdir") / "data.csv") in files
+
+        # Internal files excluded
+        assert "project.yaml" not in files
+        assert "task_tree.yaml" not in files
+        assert "task_tree_iter_001.yaml" not in files
+        assert not any("nodes" in f for f in files)
+
+    def test_list_files_excludes_all_task_tree_iter_archives(self, tmp_path):
+        """task_tree_iter_NNN.yaml variants must all be excluded."""
+        slug = pa.create_named_project("Archive Filter")
+        pa.create_iteration(slug, "task", "COO")
+        ws = Path(pa.get_project_workspace(slug))
+
+        for name in ["task_tree_iter_001.yaml", "task_tree_iter_999.yaml"]:
+            (ws / name).write_text("data")
+        # Non-iter task_tree yamls are user files, NOT excluded
+        (ws / "task_tree_backup.yaml").write_text("data")
+        (ws / "task_tree_notes.txt").write_text("not yaml")
+
+        files = pa.list_project_files(slug)
+
+        # task_tree_iter_*.yaml excluded
+        assert not any(f.startswith("task_tree_iter_") and f.endswith(".yaml") for f in files)
+        # Non-iter yaml and non-yaml kept
+        assert "task_tree_backup.yaml" in files
+        assert "task_tree_notes.txt" in files
+
+
+# ---------------------------------------------------------------------------
+# _is_internal_file helper
+# ---------------------------------------------------------------------------
+
+class TestIsInternalFile:
+    def test_project_yaml(self):
+        assert pa._is_internal_file("project.yaml") is True
+
+    def test_task_tree_yaml(self):
+        assert pa._is_internal_file("task_tree.yaml") is True
+
+    def test_task_tree_iter_yaml(self):
+        assert pa._is_internal_file("task_tree_iter_001.yaml") is True
+        assert pa._is_internal_file("task_tree_iter_999.yaml") is True
+
+    def test_task_tree_non_iter_yaml_not_excluded(self):
+        """Only task_tree_iter_*.yaml is internal, not arbitrary task_tree_*.yaml."""
+        assert pa._is_internal_file("task_tree_backup.yaml") is False
+        assert pa._is_internal_file("task_tree_notes.txt") is False
+
+    def test_regular_file_not_excluded(self):
+        assert pa._is_internal_file("output.txt") is False
+        assert pa._is_internal_file("report.yaml") is False
+
 
 # ---------------------------------------------------------------------------
 # get_project_workspace / get_project_dir

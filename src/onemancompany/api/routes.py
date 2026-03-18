@@ -2752,17 +2752,9 @@ async def get_named_project_detail(project_id: str) -> dict:
         if iter_doc:
             iter_cost = iter_doc.get("cost", {}).get("actual_cost_usd", 0.0)
             total_cost_usd += iter_cost
-            # Resolve files for this iteration
-            iter_project_dir = iter_doc.get("project_dir", "")
-            iter_files = []
-            if iter_project_dir:
-                ws = Path(iter_project_dir)
-                if ws.is_dir():
-                    iter_files = [
-                        str(p.relative_to(ws))
-                        for p in sorted(ws.rglob("*"))
-                        if p.is_file()
-                    ]
+            # Use qualified iteration ID for consistent file listing
+            qualified_iter = f"{project_id}/{iter_id}"
+            iter_files = list_project_files(qualified_iter)
             iterations.append({
                 "iteration_id": iter_doc.get("iteration_id", iter_id),
                 "task": iter_doc.get("task", ""),
@@ -2771,7 +2763,7 @@ async def get_named_project_detail(project_id: str) -> dict:
                 "completed_at": iter_doc.get("completed_at"),
                 "current_owner": iter_doc.get("current_owner", ""),
                 "cost_usd": round(iter_cost, 4),
-                "project_dir": iter_project_dir,
+                "project_dir": iter_doc.get("project_dir", ""),
                 "files": iter_files,
             })
     proj["iteration_details"] = iterations

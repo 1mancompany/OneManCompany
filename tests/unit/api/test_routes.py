@@ -5940,7 +5940,7 @@ class TestNamedProjectDetailWithIterations:
              patch("onemancompany.api.routes.event_bus", EventBus()), \
              patch("onemancompany.core.project_archive.load_named_project", return_value=proj), \
              patch("onemancompany.core.project_archive.load_iteration", return_value=iter_doc), \
-             patch("onemancompany.core.project_archive.list_project_files", return_value=[]):
+             patch("onemancompany.core.project_archive.list_project_files", return_value=["main.py", "README.md"]):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/projects/named/test-project")
