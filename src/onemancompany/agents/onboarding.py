@@ -814,6 +814,9 @@ async def execute_hire(
     if not nickname:
         nickname = await generate_nickname(name, role, is_founding=False)
 
+    # Random character sprite (1-20) for pixel-art office rendering
+    avatar_sprite_num = random.randint(1, 20)
+
     emp = Employee(
         id=emp_num,
         name=name,
@@ -831,6 +834,7 @@ async def execute_hire(
         salary_per_1m_tokens=salary,
         probation=True,
         onboarding_completed=False,
+        avatar_sprite=avatar_sprite_num,
     )
     logger.debug("[execute_hire] Created Employee object: id={}, nickname={}, dept={}", emp_num, nickname, department)
     # Persist profile via store (single source of truth)
@@ -856,7 +860,7 @@ async def execute_hire(
         "auth_method": auth_method,
         "probation": True,
         "onboarding_completed": False,
-        "avatar_sprite": random.randint(1, 20),
+        "avatar_sprite": avatar_sprite_num,
     })
     await _store.save_employee_runtime(emp_num, status="idle")
 
