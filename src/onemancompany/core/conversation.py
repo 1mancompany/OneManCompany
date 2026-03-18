@@ -12,7 +12,9 @@ Each conversation directory contains:
 from __future__ import annotations
 
 import asyncio
+import uuid
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -125,3 +127,123 @@ def load_messages(conv_dir: Path) -> list[Message]:
     with open(msg_path) as f:
         data = yaml.safe_load(f) or []
     return [Message.from_dict(m) for m in data]
+
+
+# ---------------------------------------------------------------------------
+# ConversationService — lifecycle management
+# ---------------------------------------------------------------------------
+
+
+class ConversationService:
+    """Manages conversation lifecycle. Stateless reads — always from disk."""
+
+    def __init__(self) -> None:
+        self._index: dict[str, Path] = {}
+
+    async def create(
+        self, type: str, employee_id: str, tools_enabled: bool = False, **metadata
+    ) -> Conversation:
+        conv_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        conv = Conversation(
+            id=conv_id, type=type, phase="active",
+            employee_id=employee_id, tools_enabled=tools_enabled,
+            metadata=metadata, created_at=now,
+        )
+        save_conversation_meta(conv)
+        conv_dir = _resolve_conv_dir(conv)
+        self._index[conv_id] = conv_dir
+        logger.debug("[conversation] created: id={}, type={}, employee={}", conv_id, type, employee_id)
+        return conv
+
+    def get(self, conv_id: str) -> Conversation:
+        conv_dir = self._index.get(conv_id)
+        if not conv_dir:
+            raise ValueError(f"Conversation {conv_id} not found")
+        return load_conversation_meta(conv_id, conv_dir)
+
+    def get_messages(self, conv_id: str) -> list[Message]:
+        conv_dir = self._index.get(conv_id)
+        if not conv_dir:
+            raise ValueError(f"Conversation {conv_id} not found")
+        return load_messages(conv_dir)
+
+    def list_active(self, type: str | None = None) -> list[Conversation]:
+        return self.list_by_phase(type=type, phase=None)
+
+    def list_by_phase(self, type: str | None = None, phase: str | None = None) -> list[Conversation]:
+        result = []
+        for conv_id, conv_dir in self._index.items():
+            try:
+                conv = load_conversation_meta(conv_id, conv_dir)
+            except Exception:
+                logger.warning("[conversation] failed to load meta for {}", conv_id)
+                continue
+            if phase is None:
+                if conv.phase not in ("active", "created"):
+                    continue
+            elif conv.phase != phase:
+                continue
+            if type is not None and conv.type != type:
+                continue
+            result.append(conv)
+        return result
+
+    async def close(self, conv_id: str, wait_hooks: bool = False) -> dict | None:
+        conv = self.get(conv_id)
+        conv.phase = "closing"
+        save_conversation_meta(conv)
+        logger.debug("[conversation] closing: id={}", conv_id)
+
+        # Run close hooks (imported lazily to avoid circular deps)
+        # conversation_hooks.py may not exist yet — handle gracefully
+        hook_result = None
+        try:
+            from onemancompany.core.conversation_hooks import run_close_hook
+            hook_result = await run_close_hook(conv, wait=wait_hooks)
+        except ImportError:
+            logger.debug("[conversation] conversation_hooks not yet available, skipping close hook")
+        except Exception:
+            logger.exception("[conversation] close hook failed for {}", conv_id)
+
+        conv.phase = "closed"
+        conv.closed_at = datetime.now(timezone.utc).isoformat()
+        save_conversation_meta(conv)
+        logger.debug("[conversation] closed: id={}", conv_id)
+        return hook_result
+
+    async def send_message(
+        self, conv_id: str, sender: str, role: str, text: str, attachments: list[str] | None = None,
+    ) -> Message:
+        """Persist a message (CEO or agent). Does NOT dispatch to adapter — caller handles that."""
+        conv_dir = self._index.get(conv_id)
+        if not conv_dir:
+            raise ValueError(f"Conversation {conv_id} not found")
+        now = datetime.now(timezone.utc).isoformat()
+        msg = Message(
+            sender=sender, role=role, text=text,
+            timestamp=now, attachments=attachments or [],
+        )
+        await append_message(conv_dir, msg)
+        return msg
+
+    def rebuild_index(self) -> None:
+        """Rebuild in-memory index from disk on startup."""
+        self._index.clear()
+        if EMPLOYEES_DIR.exists():
+            for emp_dir in EMPLOYEES_DIR.iterdir():
+                conv_base = emp_dir / "conversations"
+                if conv_base.exists():
+                    for conv_dir in conv_base.iterdir():
+                        meta = conv_dir / "meta.yaml"
+                        if meta.exists():
+                            self._index[conv_dir.name] = conv_dir
+        if PROJECTS_DIR.exists():
+            for proj_dir in PROJECTS_DIR.iterdir():
+                conv_base = proj_dir / "conversations"
+                if conv_base.exists():
+                    for conv_dir in conv_base.iterdir():
+                        meta = conv_dir / "meta.yaml"
+                        if meta.exists():
+                            self._index[conv_dir.name] = conv_dir
+        logger.debug("[conversation] rebuilt index: {} conversations", len(self._index))

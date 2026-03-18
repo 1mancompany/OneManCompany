@@ -102,3 +102,65 @@ async def test_append_and_load_messages(tmp_path, monkeypatch):
     assert len(messages) == 2
     assert messages[0].sender == "ceo"
     assert messages[1].text == "hi back"
+
+
+# ---------------------------------------------------------------------------
+# ConversationService tests
+# ---------------------------------------------------------------------------
+
+from onemancompany.core.conversation import ConversationService
+
+
+@pytest.fixture
+def svc(tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.PROJECTS_DIR", tmp_path / "projects")
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    return ConversationService()
+
+
+@pytest.mark.asyncio
+async def test_create_conversation(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    conv = await svc.create(
+        type="oneonone", employee_id="00100", tools_enabled=True,
+    )
+    assert conv.phase == "active"
+    assert conv.type == "oneonone"
+    assert conv.employee_id == "00100"
+    # Verify persisted to disk
+    loaded = svc.get(conv.id)
+    assert loaded.id == conv.id
+
+
+@pytest.mark.asyncio
+async def test_close_conversation(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    conv = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+    result = await svc.close(conv.id, wait_hooks=False)
+    closed = svc.get(conv.id)
+    assert closed.phase == "closed"
+
+
+@pytest.mark.asyncio
+async def test_list_active(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    c1 = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+    c2 = await svc.create(type="oneonone", employee_id="00101", tools_enabled=True)
+    await svc.close(c2.id)
+    active = svc.list_active()
+    assert len(active) == 1
+    assert active[0].id == c1.id
+
+
+@pytest.mark.asyncio
+async def test_list_active_filter_by_type(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
+    monkeypatch.setattr("onemancompany.core.conversation.PROJECTS_DIR", tmp_path / "projects")
+    c1 = await svc.create(type="oneonone", employee_id="00100", tools_enabled=True)
+    c2 = await svc.create(
+        type="ceo_inbox", employee_id="00100", tools_enabled=False,
+        project_dir=str(tmp_path / "projects" / "p1"), node_id="n1",
+    )
+    active = svc.list_active(type="ceo_inbox")
+    assert len(active) == 1
+    assert active[0].type == "ceo_inbox"
