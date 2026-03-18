@@ -591,6 +591,9 @@ class EmployeeManager:
         # ScheduleEntry-based scheduling (replaces boards for new code paths)
         self._schedule: dict[str, list[ScheduleEntry]] = {}  # employee_id → scheduled nodes
         self._task_logs: dict[str, list[dict]] = {}  # node_id → temporary log buffer
+        # Tree completion event queue — serializes all child-complete callbacks
+        self._completion_queue: asyncio.Queue | None = None
+        self._completion_consumer: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # ScheduleEntry-based node scheduling
@@ -1693,12 +1696,41 @@ class EmployeeManager:
     # Task tree child-completion callback
     # ------------------------------------------------------------------
 
+    def _ensure_completion_queue(self) -> None:
+        """Lazily create the completion queue and its consumer task."""
+        if self._completion_queue is not None:
+            return
+        self._completion_queue = asyncio.Queue()
+        self._completion_consumer = asyncio.ensure_future(self._completion_consumer_loop())
+
+    async def _completion_consumer_loop(self) -> None:
+        """Serial consumer for tree completion events.
+
+        All child-complete callbacks are funnelled through this single consumer
+        so that tree mutations (派生 new children, status changes, review spawning)
+        are fully serialised — no concurrent modification races.
+        """
+        while True:
+            employee_id, entry, project_id, done_event = await self._completion_queue.get()
+            try:
+                from onemancompany.core.task_tree import get_tree_lock
+                lock = get_tree_lock(entry.tree_path)
+                with lock:
+                    await self._on_child_complete_inner(employee_id, entry, project_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.error("Completion consumer error for node {}: {}", entry.node_id, e)
+            finally:
+                done_event.set()
+                self._completion_queue.task_done()
+
     async def _on_child_complete(self, employee_id: str, entry: ScheduleEntry, project_id: str = "") -> None:
-        """Update TaskTree node when a task completes, wake parent if all siblings done."""
-        from onemancompany.core.task_tree import get_tree_lock
-        lock = get_tree_lock(entry.tree_path)
-        with lock:
-            await self._on_child_complete_inner(employee_id, entry, project_id)
+        """Enqueue a child-complete event and wait for serial processing."""
+        self._ensure_completion_queue()
+        done_event = asyncio.Event()
+        await self._completion_queue.put((employee_id, entry, project_id, done_event))
+        await done_event.wait()
 
     async def _on_child_complete_inner(self, employee_id: str, entry: ScheduleEntry, project_id: str = "") -> None:
         """Inner implementation of _on_child_complete, called under tree lock.
@@ -1728,110 +1760,69 @@ class EmployeeManager:
             await _store.save_project_status(project_id, "failed")
             return
 
-        # Root node or child of CEO node completed — request CEO confirmation
-        # but ONLY if all descendants are terminal (no pending work remains).
+        # --- Propagate upward: review / auto-complete parent ---
         parent_node = tree.get_node(node.parent_id) if node.parent_id else None
-        is_child_of_ceo = parent_node and parent_node.is_ceo_node if parent_node else False
-
-        # Find the EA anchor: root node or child-of-CEO that owns this project subtree.
-        # Only these nodes trigger project-level completion & retrospective.
-        ea_node = None
-        if is_root or is_child_of_ceo:
-            ea_node = node
-        else:
-            # Walk up to find ancestor that is root or child-of-CEO
-            cur = node
-            while cur and cur.parent_id:
-                p = tree.get_node(cur.parent_id)
-                if not p:
-                    break
-                if p.is_ceo_node:
-                    ea_node = cur
-                    break
-                if not p.parent_id:
-                    # p is root; if p is CEO node, cur is the EA anchor
-                    # otherwise p itself is the EA anchor (root = EA)
-                    ea_node = p
-                    break
-                cur = p
-
-        if ea_node and ea_node.status in (TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value):
-            # All descendants of EA must be terminal before triggering
-            # project completion and retrospective.
-            _TERMINAL = {TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value,
-                         TaskPhase.FINISHED.value, TaskPhase.FAILED.value,
-                         TaskPhase.CANCELLED.value, TaskPhase.BLOCKED.value}
-
-            def _collect_descendants(nid):
-                result = []
-                for child in tree.get_children(nid):
-                    result.append(child)
-                    result.extend(_collect_descendants(child.id))
-                return result
-
-            descendants = _collect_descendants(ea_node.id)
-            non_terminal = [d for d in descendants if d.status not in _TERMINAL]
-            if non_terminal:
-                logger.debug("[ON_CHILD_COMPLETE] EA node {} complete but {} descendants still active — deferring project completion",
-                             ea_node.id, len(non_terminal))
-                # Fall through to normal parent-child logic below
-            else:
-                logger.info("EA node {} and all descendants terminal — requesting CEO confirmation", ea_node.id)
-                ea_parent = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
-                if ea_parent and ea_parent.is_ceo_node:
-                    if ea_parent.status != TaskPhase.COMPLETED.value:
-                        if ea_parent.status == TaskPhase.PENDING.value:
-                            ea_parent.set_status(TaskPhase.PROCESSING)
-                            logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child of CEO completing)", ea_parent.id)
-                        ea_parent.set_status(TaskPhase.COMPLETED)
-                        logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (child of CEO completed)", ea_parent.id)
-                    save_tree_async(entry.tree_path)
-                await self._request_ceo_confirmation(
-                    ea_node.employee_id, ea_node, tree, entry, project_id
+        if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
+            children = tree.get_active_children(parent_node.id)
+            if tree.all_children_done(parent_node.id):
+                # Check for active review node (prevent infinite loop)
+                has_active_review = any(
+                    c for c in children
+                    if c.node_type == "review"
+                    and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
                 )
-                return
+                if not has_active_review:
+                    _SKIP_REVIEW_TYPES = {"review", "watchdog_nudge"}
+                    non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
+                    if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
+                        # All substantive children accepted → auto-complete parent
+                        if parent_node.status != TaskPhase.COMPLETED.value:
+                            logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
+                            if parent_node.status == TaskPhase.HOLDING.value:
+                                parent_node.set_status(TaskPhase.PROCESSING)
+                                logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (resuming from HOLDING for auto-complete)", parent_node.id)
+                            parent_node.set_status(TaskPhase.COMPLETED)
+                            logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children accepted)", parent_node.id)
+                            parent_node.result = "All child tasks accepted."
+                            save_tree_async(entry.tree_path)
+                            self._publish_node_update(parent_node.employee_id, parent_node)
+                    else:
+                        # Not all accepted yet → spawn review or escalate
+                        await self._spawn_review_or_escalate(
+                            tree, node, parent_node, children, entry, project_id
+                        )
+            else:
+                logger.debug("[ON_CHILD_COMPLETE] not all children done for parent={} → waiting", parent_node.id)
 
-        parent_node = tree.get_node(node.parent_id)
-        if not parent_node:
-            return
+        # --- Bottom-up project completion check ---
+        # After any status change, check if the entire project tree is resolved.
+        # EA done executing + all child subtrees RESOLVED → trigger retrospective.
+        if tree.is_project_complete():
+            ea_node = tree.get_ea_node()
+            logger.info(
+                "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
+                ea_node.id,
+            )
+            # Advance CEO parent node if present
+            ea_parent = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+            if ea_parent and ea_parent.is_ceo_node:
+                if ea_parent.status != TaskPhase.COMPLETED.value:
+                    if ea_parent.status == TaskPhase.PENDING.value:
+                        ea_parent.set_status(TaskPhase.PROCESSING)
+                    ea_parent.set_status(TaskPhase.COMPLETED)
+                    logger.debug("[TASK LIFECYCLE] CEO parent={} → COMPLETED", ea_parent.id)
+                save_tree_async(entry.tree_path)
+            await self._request_ceo_confirmation(
+                ea_node.employee_id, ea_node, tree, entry, project_id
+            )
 
-        # Skip if parent is already resolved (failed/cancelled/accepted/finished)
-        if TaskPhase(parent_node.status) in RESOLVED:
-            logger.debug("Parent {} is {} — skipping review spawn", parent_node.id, parent_node.status)
-            return
+    async def _spawn_review_or_escalate(
+        self, tree, node, parent_node, children, entry: ScheduleEntry, project_id: str
+    ) -> None:
+        """Build review prompt and schedule a review node, or escalate to CEO."""
+        from onemancompany.core.task_tree import save_tree_async
 
-        # Check all children of parent — are they all done executing?
-        children = tree.get_active_children(parent_node.id)
-        if not tree.all_children_done(parent_node.id):
-            logger.debug("[ON_CHILD_COMPLETE] not all children done for parent={} → waiting", parent_node.id)
-            return
-
-        # Skip if there's already a pending/processing review node for this parent
-        # (prevents infinite review loop when review node itself completes)
-        for child in children:
-            if child.node_type == "review":
-                if child.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
-                    logger.debug("Review node {} already active for parent {} — skipping", child.id, parent_node.id)
-                    return
-
-        # If all children that need review are already accepted, auto-complete the parent
         _SKIP_REVIEW_TYPES = {"review", "watchdog_nudge"}
-        non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
-        if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
-            logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
-            if parent_node.status == TaskPhase.COMPLETED.value:
-                return  # Already completed (e.g. from a previous review cycle)
-            if parent_node.status == TaskPhase.HOLDING.value:
-                parent_node.set_status(TaskPhase.PROCESSING)
-                logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (resuming from HOLDING for auto-complete)", parent_node.id)
-            parent_node.set_status(TaskPhase.COMPLETED)
-            logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children accepted)", parent_node.id)
-            parent_node.result = "All child tasks accepted."
-            save_tree_async(entry.tree_path)
-            self._publish_node_update(parent_node.employee_id, parent_node)
-            return
-
-        # Build review prompt for parent employee
         project_dir = node.project_dir or str(Path(entry.tree_path).parent)
         needs_review = []
         already_accepted = []

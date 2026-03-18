@@ -555,6 +555,111 @@ class TestTaskNodeContentExternalization:
         assert node.description_preview == "new task"
 
 
+class TestSubtreeResolved:
+    """Tests for is_subtree_resolved() and is_project_complete()."""
+
+    def _make_tree(self):
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("ceo", "CEO prompt")
+        root.node_type = "ceo_prompt"
+        ea = tree.add_child(root.id, "ea", "EA task", [])
+        ea.node_type = "task"
+        return tree, root, ea
+
+    def test_leaf_resolved(self):
+        tree, root, ea = self._make_tree()
+        child = tree.add_child(ea.id, "e1", "leaf", [])
+        child.status = "accepted"
+        assert tree.is_subtree_resolved(child.id) is True
+
+    def test_leaf_not_resolved(self):
+        tree, root, ea = self._make_tree()
+        child = tree.add_child(ea.id, "e1", "leaf", [])
+        child.status = "completed"
+        assert tree.is_subtree_resolved(child.id) is False
+
+    def test_subtree_with_unresolved_descendant(self):
+        tree, root, ea = self._make_tree()
+        mid = tree.add_child(ea.id, "e1", "mid", [])
+        mid.status = "accepted"
+        leaf = tree.add_child(mid.id, "e2", "leaf", [])
+        leaf.status = "processing"
+        assert tree.is_subtree_resolved(mid.id) is False
+
+    def test_subtree_fully_resolved(self):
+        tree, root, ea = self._make_tree()
+        mid = tree.add_child(ea.id, "e1", "mid", [])
+        mid.status = "accepted"
+        leaf = tree.add_child(mid.id, "e2", "leaf", [])
+        leaf.status = "finished"
+        assert tree.is_subtree_resolved(mid.id) is True
+
+    def test_project_complete_all_resolved(self):
+        tree, root, ea = self._make_tree()
+        ea.status = "completed"  # done executing
+        c1 = tree.add_child(ea.id, "e1", "c1", [])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "e2", "c2", [])
+        c2.status = "finished"
+        assert tree.is_project_complete() is True
+
+    def test_project_not_complete_child_pending(self):
+        tree, root, ea = self._make_tree()
+        ea.status = "completed"
+        c1 = tree.add_child(ea.id, "e1", "c1", [])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "e2", "c2", [])
+        c2.status = "pending"
+        assert tree.is_project_complete() is False
+
+    def test_project_not_complete_ea_still_processing(self):
+        tree, root, ea = self._make_tree()
+        ea.status = "processing"
+        c1 = tree.add_child(ea.id, "e1", "c1", [])
+        c1.status = "accepted"
+        assert tree.is_project_complete() is False
+
+    def test_project_complete_with_failed_child(self):
+        """Failed children are RESOLVED — project should still complete."""
+        tree, root, ea = self._make_tree()
+        ea.status = "completed"
+        c1 = tree.add_child(ea.id, "e1", "c1", [])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "e2", "c2", [])
+        c2.status = "failed"
+        assert tree.is_project_complete() is True
+
+    def test_project_complete_deep_tree(self):
+        """Deep tree: all descendants must be resolved."""
+        tree, root, ea = self._make_tree()
+        ea.status = "completed"
+        mid = tree.add_child(ea.id, "e1", "mid", [])
+        mid.status = "accepted"
+        leaf = tree.add_child(mid.id, "e2", "leaf", [])
+        leaf.status = "accepted"
+        assert tree.is_project_complete() is True
+
+    def test_project_not_complete_deep_unresolved(self):
+        """Deep tree: one unresolved leaf blocks completion."""
+        tree, root, ea = self._make_tree()
+        ea.status = "completed"
+        mid = tree.add_child(ea.id, "e1", "mid", [])
+        mid.status = "accepted"
+        leaf = tree.add_child(mid.id, "e2", "leaf", [])
+        leaf.status = "completed"  # not yet accepted
+        assert tree.is_project_complete() is False
+
+    def test_legacy_tree_root_is_ea(self):
+        """Legacy tree where root is the EA (no CEO prompt node)."""
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("ea", "EA is root")
+        root.node_type = "task"
+        root.status = "completed"
+        child = tree.add_child(root.id, "e1", "child", [])
+        child.status = "accepted"
+        assert tree.is_project_complete() is True
+
+
 class TestTaskTreeContentExternalization:
     def test_save_creates_node_content_files(self, tmp_path):
         tree = TaskTree(project_id="proj1")
