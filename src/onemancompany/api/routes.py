@@ -560,7 +560,7 @@ async def ceo_submit_task(body: dict) -> dict:
         async_create_project_from_task,
         create_iteration,
         create_named_project,
-        get_project_workspace,
+        get_project_dir,
     )
 
     task = body.get("task", "")
@@ -586,7 +586,7 @@ async def ceo_submit_task(body: dict) -> dict:
         # Auto-create named project from task description (LLM-powered naming)
         pid, iter_id = await async_create_project_from_task(task, "pending")
 
-    pdir = get_project_workspace(pid)
+    pdir = get_project_dir(pid)
 
     await event_bus.publish(
         CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
@@ -2788,37 +2788,14 @@ async def rename_project(project_id: str, body: dict) -> dict:
     name = body.get("name", "").strip()
     if not name:
         raise HTTPException(400, "Name required")
-    from onemancompany.core.project_archive import get_project_dir, load_named_project
+    from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
+    from onemancompany.core.project_archive import update_project_name
 
-    # Try named project first
-    proj = load_named_project(project_id)
-    if proj:
-        proj_dir = Path(proj["project_dir"]) if "project_dir" in proj else None
-        proj_yaml = (proj_dir or Path(get_project_dir(project_id))) / "project.yaml" if proj_dir else None
-        # Update the name in the named project doc
-        import yaml as _yaml
-        for candidate in [Path(get_project_dir(project_id)) / "project.yaml"]:
-            if candidate.exists():
-                data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-                data["name"] = name
-                candidate.write_text(
-                    _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-                )
-                return {"status": "ok", "name": name}
-
-    # Try v1 project
-    pdir = get_project_dir(project_id)
-    project_yaml = Path(pdir) / "project.yaml"
-    if project_yaml.exists():
-        import yaml as _yaml
-        data = _yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
-        data["name"] = name
-        project_yaml.write_text(
-            _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-        )
-        return {"status": "ok", "name": name}
-
-    raise HTTPException(404, "Project not found")
+    candidate = _PROJ_DIR / project_id / "project.yaml"
+    if not candidate.exists():
+        raise HTTPException(404, "Project not found")
+    update_project_name(project_id, name)
+    return {"status": "ok", "name": name}
 
 
 @router.post("/api/projects/continue")
@@ -3196,7 +3173,16 @@ def _load_project_tree_for_api(project_id: str):
     return get_tree(path, project_id=project_id)
 
 
-@router.get("/api/projects/{project_id:path}/tree")
+@router.get("/api/projects/{project_id}/{iteration_id}/tree")
+async def get_iteration_tree(project_id: str, iteration_id: str) -> dict:
+    """Get the task tree for a qualified iteration (slug/iter_NNN/tree)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await get_project_tree(f"{project_id}/{iteration_id}")
+
+
+@router.get("/api/projects/{project_id}/tree")
 async def get_project_tree(project_id: str) -> dict:
     """Get the task tree for a project."""
     tree = _load_project_tree_for_api(project_id)
@@ -3371,6 +3357,16 @@ async def get_project_plugin_data(project_id: str, plugin_id: str) -> dict:
     return plugin_registry.transform(plugin_id, dispatches, ctx)
 
 
+@router.get("/api/projects/{project_id}/{iteration_id}")
+async def get_iteration_detail(project_id: str, iteration_id: str) -> dict:
+    """Get iteration detail via qualified path: /api/projects/{slug}/{iter_id}."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    qualified = f"{project_id}/{iteration_id}"
+    return await get_project_detail(qualified)
+
+
 @router.get("/api/projects/{project_id}")
 async def get_project_detail(project_id: str) -> dict:
     """Get full project detail including timeline and workspace files."""
@@ -3381,6 +3377,15 @@ async def get_project_detail(project_id: str) -> dict:
     doc["project_dir"] = get_project_dir(project_id)
     doc["files"] = list_project_files(project_id)
     return doc
+
+
+@router.get("/api/projects/{project_id}/{iteration_id}/files/{file_path:path}")
+async def get_iteration_file(project_id: str, iteration_id: str, file_path: str):
+    """Read a file from an iteration workspace (slug/iter_NNN/files/...)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await get_project_file(f"{project_id}/{iteration_id}", file_path)
 
 
 @router.get("/api/projects/{project_id}/files/{file_path:path}")
@@ -3519,6 +3524,15 @@ async def download_employee_workspace(employee_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{name}_workspace.zip"'},
     )
+
+
+@router.get("/api/projects/{project_id}/{iteration_id}/download")
+async def download_iteration_workspace(project_id: str, iteration_id: str):
+    """Download an iteration workspace as a zip file (slug/iter_NNN/download)."""
+    import re
+    if not re.match(r"^iter_\d+$", iteration_id):
+        raise HTTPException(404, "Not found")
+    return await download_project_workspace(f"{project_id}/{iteration_id}")
 
 
 @router.get("/api/projects/{project_id}/download")

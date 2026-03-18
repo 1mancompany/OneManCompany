@@ -27,6 +27,8 @@ class AppController {
     this._historyDraft = '';
     // Task attachment files
     this._taskPendingFiles = [];
+    // Cooldown: prevent accidental double-submit (key → timestamp)
+    this._actionCooldowns = {};
     // Board view: track which project's plugin tab is being viewed
     this._viewingBoardProjectId = null;
     // Initialize plugin system before connecting
@@ -560,7 +562,7 @@ class AppController {
     fetch('/api/task-queue')
       .then(r => r.json())
       .then(t => this._renderTaskPanel(t))
-      .catch(() => {});
+      .catch(err => console.error('[loadTaskQueue] failed:', err));
   }
 
   _renderTaskPanel(tasks) {
@@ -899,7 +901,7 @@ class AppController {
             // Will auto-restart when tasks complete; reconnect logic handles the rest
           }
         })
-        .catch(() => {});
+        .catch(err => console.error('[apply-code-update] failed:', err));
     });
     document.getElementById('code-update-dismiss-btn').addEventListener('click', () => {
       document.getElementById('code-update-banner').classList.add('hidden');
@@ -2029,7 +2031,8 @@ class AppController {
           });
         });
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadProjectList] failed:', err);
         container.innerHTML = '<span class="empty-hint">Failed to load</span>';
       });
   }
@@ -2110,7 +2113,7 @@ class AppController {
 
   _escHtml(str) {
     const div = document.createElement('div');
-    div.textContent = str;
+    div.textContent = String(str ?? '');
     return div.innerHTML;
   }
 
@@ -3733,7 +3736,7 @@ class AppController {
     listEl.classList.remove('hidden');
     document.getElementById('project-detail').classList.add('hidden');
 
-    fetch('/api/projects')
+    fetch('/api/projects/named')
       .then(r => r.json())
       .then(data => {
         const projects = data.projects || [];
@@ -3745,25 +3748,52 @@ class AppController {
         for (const p of projects) {
           const card = document.createElement('div');
           card.className = 'project-card';
-          const statusIcon = p.status === 'completed' ? '\u2705' : '\uD83D\uDD04';
+          const statusIcon = p.status === 'completed' ? '\u2705' : (p.status === 'archived' ? '\uD83D\uDCE6' : '\uD83D\uDD04');
           const date = p.created_at ? p.created_at.substring(0, 10) : '';
           const costStr = p.cost_usd ? ` · $${p.cost_usd.toFixed(3)}` : '';
+          const name = p.name || p.task || p.project_id;
           card.innerHTML = `
             <div class="project-card-header">
-              <span>${statusIcon} ${p.task.substring(0, 40)}${p.task.length > 40 ? '...' : ''}</span>
+              <span>${statusIcon} ${this._escHtml(name.substring(0, 50))}${name.length > 50 ? '...' : ''}</span>
               <span class="project-card-date">${date}</span>
             </div>
             <div class="project-card-meta">
-              ${p.routed_to}${p.current_owner && p.status !== 'completed' ? ' · Current: ' + p.current_owner : ''} | ${p.participant_count} participants | ${p.action_count} entries${costStr}
+              ${p.iteration_count || 0} iteration(s) | ${p.file_count || 0} files${costStr}${p.current_owner ? ' · ' + this._escHtml(p.current_owner) : ''}
             </div>
           `;
           card.style.cursor = 'pointer';
-          card.addEventListener('click', () => this.loadProjectDetail(p.project_id));
+          card.addEventListener('click', () => {
+            // Show iteration split view (same as sidebar)
+            this._showProjectInModal(p.project_id);
+          });
           listEl.appendChild(card);
         }
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
+      });
+  }
+
+  _showProjectInModal(projectId) {
+    // Reuse _openProjectDetail logic but stay inside the already-open modal
+    const listEl = document.getElementById('project-list');
+    const detailEl = document.getElementById('project-detail');
+    const contentEl = document.getElementById('project-detail-content');
+    listEl.classList.add('hidden');
+    detailEl.classList.remove('hidden');
+    contentEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">Loading...</div>';
+
+    fetch(`/api/projects/named/${encodeURIComponent(projectId)}`)
+      .then(r => r.json())
+      .then(proj => {
+        if (proj.error) {
+          contentEl.innerHTML = `<div style="color:var(--pixel-red);">${this._escHtml(proj.error)}</div>`;
+          return;
+        }
+        this._renderProjectDetail(projectId, proj, contentEl);
+      })
+      .catch(err => {
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -3839,10 +3869,22 @@ class AppController {
           html += `<div style="font-size:6px;color:var(--pixel-white);background:var(--bg-dark);padding:6px;border:1px solid var(--border);">${doc.output}</div>`;
         }
 
+        // Documents
+        const files = doc.files || [];
+        if (files.length > 0) {
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents (${files.length}):</div>`;
+          for (const f of files) {
+            const url = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(f)}`;
+            html += `<div style="font-size:6px;margin:2px 0;">`;
+            html += `<a href="${url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${this._escHtml(f)}</a>`;
+            html += `</div>`;
+          }
+        }
+
         contentEl.innerHTML = html;
       })
       .catch(err => {
-        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${err.message}</div>`;
+        contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -4003,7 +4045,7 @@ class AppController {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(values),
-        }).catch(() => {});
+        }).catch(err => console.error('[credentials submit] failed:', err));
         this.closePopup();
       };
       const cancelBtn = document.createElement('button');
@@ -4027,7 +4069,7 @@ class AppController {
           el.onclick = () => this.closePopup();
         } else if (btn.callback_url) {
           el.onclick = () => {
-            fetch(btn.callback_url, { method: 'POST' }).catch(() => {});
+            fetch(btn.callback_url, { method: 'POST' }).catch(err => console.error('[button callback] failed:', err));
             this.closePopup();
           };
         }
@@ -4194,7 +4236,8 @@ class AppController {
           }
         }
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadChat] failed:', err);
         chatEl.innerHTML = '<div class="chat-empty">Failed to load chat</div>';
       });
   }
@@ -4380,7 +4423,7 @@ class AppController {
         this._renderExEmployees(list);
       })
       .catch(err => {
-        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${err.message}</div>`;
+        listEl.innerHTML = `<div style="color:var(--pixel-red);font-size:7px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
@@ -4864,7 +4907,7 @@ class AppController {
       }
 
       content.insertAdjacentHTML('beforeend', costHtml);
-    }).catch(() => {});
+    }).catch(err => console.error('[loadCostPanel] failed:', err));
   }
 
   // ===== Company Culture =====
@@ -4905,7 +4948,8 @@ class AppController {
           btn.addEventListener('click', () => this.removeCultureItem(parseInt(btn.dataset.index)));
         });
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[loadCulture] failed:', err);
         list.innerHTML = '<div style="color:var(--text-dim);font-size:7px;padding:12px;">Failed to load culture.</div>';
       });
   }
@@ -4963,7 +5007,7 @@ class AppController {
         input.value = data.direction || '';
         this._renderCurrentDirection(data.direction || '');
       })
-      .catch(() => { input.value = ''; });
+      .catch(err => { console.error('[addCultureItem] failed:', err); input.value = ''; });
   }
 
   closeCompanyDirection() {
@@ -5002,6 +5046,7 @@ class AppController {
       this.logEntry('SYSTEM', 'Please write a draft direction first.', 'system');
       return;
     }
+    if (!this._checkCooldown('enrichDirection')) return;
     btn.disabled = true;
     btn.textContent = '⏳ Sending...';
 
@@ -5720,10 +5765,23 @@ class AppController {
     return html;
   }
 
+  /** Returns true if the action is allowed (not in cooldown). Sets a 5s cooldown on first call. */
+  _checkCooldown(actionKey, cooldownMs = 5000) {
+    const now = Date.now();
+    const last = this._actionCooldowns[actionKey] || 0;
+    if (now - last < cooldownMs) {
+      console.debug(`[cooldown] ${actionKey} blocked, ${cooldownMs - (now - last)}ms remaining`);
+      return false;
+    }
+    this._actionCooldowns[actionKey] = now;
+    return true;
+  }
+
   async submitTask() {
     const input = document.getElementById('task-input');
     const task = input.value.trim();
     if (!task) return;
+    if (!this._checkCooldown('submitTask')) return;
 
     // Read project selector
     const projectSelect = document.getElementById('project-select');
@@ -5833,7 +5891,7 @@ class AppController {
           panel.appendChild(card);
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[updateProjectsPanel] failed:', err));
   }
 
   _openTaskInBoard(projectId, nodeId) {
@@ -5864,91 +5922,102 @@ class AppController {
         modal.classList.remove('hidden');
         listEl.classList.add('hidden');
         detailEl.classList.remove('hidden');
-
-        const totalCost = proj.total_cost_usd || 0;
-        let headerHtml = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
-          <span class="project-name-editable" data-project-id="${this._escHtml(projectId)}" title="Click to rename" style="color:var(--pixel-cyan);font-size:8px;cursor:pointer;border-bottom:1px dashed var(--text-dim);">${this._escHtml(proj.name || projectId)}</span>
-          <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
-          ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
-        </div>`;
-
-        // Build split layout: iteration list (left) + detail (right)
-        let iterListHtml = '';
-        const iters = proj.iteration_details || [];
-        if (iters.length === 0) {
-          iterListHtml = '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
-        }
-        for (const it of iters) {
-          const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
-          const iterCost = it.cost_usd ? ` · $${it.cost_usd.toFixed(4)}` : '';
-          iterListHtml += `<div class="project-iter-card" data-iter-id="${it.iteration_id}" data-project-id="${projectId}">
-            <div style="color:${statusColor};">${it.status === 'completed' ? '\u2705' : '\uD83D\uDD04'} ${it.iteration_id}${iterCost}</div>
-            <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml((it.task || '').substring(0, 60))}</div>
-            <div style="color:var(--text-dim);margin-top:1px;">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
-          </div>`;
-        }
-        if (proj.status === 'active') {
-          iterListHtml += `<div style="margin-top:8px;"><button class="pixel-btn secondary" style="font-size:6px;padding:4px 8px;" onclick="window.app._archiveProject('${projectId}')">Archive</button></div>`;
-        }
-
-        contentEl.innerHTML = `${headerHtml}
-          <div class="project-detail-split">
-            <div class="project-iter-list">${iterListHtml}</div>
-            <div class="project-iter-detail" id="project-iter-detail">
-              <div style="color:var(--text-dim);font-size:6px;padding:12px;">Select an iteration to view details</div>
-            </div>
-          </div>`;
-
-        // Bind click on iteration cards
-        contentEl.querySelectorAll('.project-iter-card').forEach(card => {
-          card.addEventListener('click', () => {
-            contentEl.querySelectorAll('.project-iter-card').forEach(c => c.classList.remove('active'));
-            card.classList.add('active');
-            this._loadIterationDetail(card.dataset.projectId, card.dataset.iterId);
-          });
-        });
-
-        // Bind click-to-edit on project name
-        const nameEl = contentEl.querySelector('.project-name-editable');
-        if (nameEl) {
-          nameEl.addEventListener('click', () => {
-            const pid = nameEl.dataset.projectId;
-            const current = nameEl.textContent;
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = current;
-            input.style.cssText = 'font-size:8px;color:var(--pixel-cyan);background:var(--bg-dark);border:1px solid var(--pixel-cyan);padding:1px 4px;width:160px;';
-            const save = () => {
-              const newName = input.value.trim();
-              if (newName && newName !== current) {
-                fetch(`/api/projects/${encodeURIComponent(pid)}/name`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ name: newName }),
-                }).then(r => r.json()).then(d => {
-                  if (d.status === 'ok') {
-                    nameEl.textContent = newName;
-                    this.loadActiveProjects();
-                  }
-                }).catch(() => {});
-              }
-              input.replaceWith(nameEl);
-            };
-            input.addEventListener('blur', save);
-            input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') input.replaceWith(nameEl); });
-            nameEl.replaceWith(input);
-            input.focus();
-            input.select();
-          });
-        }
-
-        // Auto-select first iteration
-        if (iters.length > 0) {
-          const firstCard = contentEl.querySelector('.project-iter-card');
-          if (firstCard) firstCard.click();
-        }
+        this._renderProjectDetail(projectId, proj, contentEl);
       })
-      .catch(() => {});
+      .catch(err => {
+        console.error('[_openProjectDetail] failed:', err);
+      });
+  }
+
+  _renderProjectDetail(projectId, proj, contentEl) {
+    const totalCost = proj.total_cost_usd || 0;
+    let headerHtml = `<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+      <span class="project-name-editable" data-project-id="${this._escHtml(projectId)}" title="Click to rename" style="color:var(--pixel-cyan);font-size:8px;cursor:pointer;border-bottom:1px dashed var(--text-dim);">${this._escHtml(proj.name || projectId)}</span>
+      <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
+      ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
+    </div>`;
+
+    // Build split layout: iteration list (left) + detail (right)
+    let iterListHtml = '';
+    const iters = proj.iteration_details || [];
+    if (iters.length === 0) {
+      iterListHtml = '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
+    }
+    for (const it of iters) {
+      const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
+      const iterCost = it.cost_usd ? ` · $${it.cost_usd.toFixed(4)}` : '';
+      iterListHtml += `<div class="project-iter-card" data-iter-id="${it.iteration_id}" data-project-id="${projectId}">
+        <div style="color:${statusColor};">${it.status === 'completed' ? '\u2705' : '\uD83D\uDD04'} ${it.iteration_id}${iterCost}</div>
+        <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml((it.task || '').substring(0, 60))}</div>
+        <div style="color:var(--text-dim);margin-top:1px;">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
+      </div>`;
+    }
+    if (proj.status === 'active') {
+      iterListHtml += `<div style="margin-top:8px;"><button class="pixel-btn secondary archive-project-btn" style="font-size:6px;padding:4px 8px;">Archive</button></div>`;
+    }
+
+    contentEl.innerHTML = `${headerHtml}
+      <div class="project-detail-split">
+        <div class="project-iter-list">${iterListHtml}</div>
+        <div class="project-iter-detail" id="project-iter-detail">
+          <div style="color:var(--text-dim);font-size:6px;padding:12px;">Select an iteration to view details</div>
+        </div>
+      </div>`;
+
+    // Bind archive button
+    const archiveBtn = contentEl.querySelector('.archive-project-btn');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', () => this._archiveProject(projectId));
+    }
+
+    // Bind click on iteration cards
+    contentEl.querySelectorAll('.project-iter-card').forEach(card => {
+      card.addEventListener('click', () => {
+        contentEl.querySelectorAll('.project-iter-card').forEach(c => c.classList.remove('active'));
+        card.classList.add('active');
+        this._loadIterationDetail(card.dataset.projectId, card.dataset.iterId);
+      });
+    });
+
+    // Bind click-to-edit on project name
+    const nameEl = contentEl.querySelector('.project-name-editable');
+    if (nameEl) {
+      nameEl.addEventListener('click', () => {
+        const pid = nameEl.dataset.projectId;
+        const current = nameEl.textContent;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = current;
+        input.style.cssText = 'font-size:8px;color:var(--pixel-cyan);background:var(--bg-dark);border:1px solid var(--pixel-cyan);padding:1px 4px;width:160px;';
+        const save = () => {
+          const newName = input.value.trim();
+          if (newName && newName !== current) {
+            fetch(`/api/projects/${encodeURIComponent(pid)}/name`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: newName }),
+            }).then(r => r.json()).then(d => {
+              if (d.status === 'ok') {
+                nameEl.textContent = newName;
+                this.loadActiveProjects();
+              }
+            }).catch(err => console.error('[rename project] failed:', err));
+          }
+          input.replaceWith(nameEl);
+        };
+        input.addEventListener('blur', save);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') input.replaceWith(nameEl); });
+        nameEl.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+    }
+
+    // Auto-select first iteration
+    if (iters.length > 0) {
+      const firstCard = contentEl.querySelector('.project-iter-card');
+      if (firstCard) firstCard.click();
+    }
   }
 
   _loadIterationDetail(projectId, iterationId) {
@@ -5959,11 +6028,15 @@ class AppController {
     // Use qualified iteration ID (projectId/iterationId) for unambiguous lookup
     const qualifiedId = (projectId && iterationId && projectId !== iterationId)
       ? `${projectId}/${iterationId}` : iterationId;
+    // Encode each path segment separately so '/' is preserved for FastAPI path params
+    const qualifiedPath = (projectId && iterationId && projectId !== iterationId)
+      ? `${encodeURIComponent(projectId)}/${encodeURIComponent(iterationId)}`
+      : encodeURIComponent(iterationId);
 
     // Fetch project doc + task tree in parallel
     Promise.all([
-      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}`).then(r => r.json()),
-      fetch(`/api/projects/${encodeURIComponent(qualifiedId)}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/projects/${qualifiedPath}`).then(r => r.json()),
+      fetch(`/api/projects/${qualifiedPath}/tree`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([doc, treeData]) => {
         if (doc.error) {
           panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">${doc.error}</div>`;
@@ -6037,7 +6110,7 @@ class AppController {
         </div>`;
 
         const files = doc.files || [];
-        const fileBaseUrl = `/api/projects/${encodeURIComponent(qualifiedId)}/files/`;
+        const fileBaseUrl = `/api/projects/${qualifiedPath}/files/`;
         detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
         if (files.length > 0) {
           for (const f of files) {
@@ -6205,7 +6278,7 @@ class AppController {
                 stopBtn.textContent = `■ Stopped (${data.cancelled || 0})`;
                 this._loadIterationDetail(projectId, iterationId);
               })
-              .catch(() => { stopBtn.disabled = false; stopBtn.textContent = '■ Stop All Tasks'; });
+              .catch(err => { console.error('[stopTasks] failed:', err); stopBtn.disabled = false; stopBtn.textContent = '■ Stop All Tasks'; });
           });
         }
 
@@ -6231,11 +6304,12 @@ class AppController {
         }
       })
       .catch(err => {
-        panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${err.message}</div>`;
+        panel.innerHTML = `<div style="color:var(--pixel-red);font-size:6px;">Load failed: ${this._escHtml(err.message)}</div>`;
       });
   }
 
   _continueIteration(projectId, iterationId) {
+    if (!this._checkCooldown('continueIteration')) return;
     const btn = document.getElementById('continue-iter-btn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Submitting...'; }
 
@@ -6262,6 +6336,7 @@ class AppController {
   }
 
   _submitFollowup(projectId, instructions) {
+    if (!this._checkCooldown('submitFollowup')) return;
     const submitBtn = document.getElementById('followup-submit');
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '⏳ Submitting...'; }
 
@@ -6304,7 +6379,7 @@ class AppController {
         .then(text => {
           this._showFileViewer(filename, `<pre style="font-size:6px;color:var(--pixel-white);white-space:pre-wrap;word-break:break-all;max-height:65vh;overflow-y:auto;margin:0;padding:6px;background:var(--bg-dark);border:1px solid var(--border);">${this._escHtml(text)}</pre>`);
         })
-        .catch(() => { window.open(url, '_blank'); });
+        .catch(err => { console.error('[viewFile] failed, opening in new tab:', err); window.open(url, '_blank'); });
     } else if (ext === 'pdf') {
       window.open(url, '_blank');
     } else {
@@ -6353,7 +6428,7 @@ class AppController {
           document.getElementById('project-modal').classList.add('hidden');
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[archiveProject] failed:', err));
   }
 
   loadActiveProjects() {
@@ -6377,7 +6452,7 @@ class AppController {
           select.value = currentVal;
         }
       })
-      .catch(() => {});
+      .catch(err => console.error('[loadActiveProjects] failed:', err));
   }
 
   // ===== Admin Reload =====

@@ -1223,7 +1223,7 @@ class EmployeeManager:
                 logger.debug("[TASK LIFECYCLE] employee={} node={} → COMPLETED (type={})",
                              employee_id, entry.node_id, node.node_type)
                 # System nodes auto-skip review: they don't need to be reviewed themselves
-                if node.node_type in ("review", "ceo_request"):
+                if node.node_type in ("review", "ceo_request", "watchdog_nudge"):
                     node.set_status(TaskPhase.ACCEPTED)
                     node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] employee={} node={} → auto FINISHED (system node)",
@@ -1619,8 +1619,8 @@ class EmployeeManager:
                 parts.append(f"  {f}")
             if len(files) > self._CTX_MAX_WORKSPACE_FILES:
                 parts.append(f"  ... and {len(files) - self._CTX_MAX_WORKSPACE_FILES} more")
-            from onemancompany.core.project_archive import get_project_workspace
-            ws_path = get_project_workspace(slug)
+            from onemancompany.core.project_archive import get_project_dir
+            ws_path = get_project_dir(slug)
             parts.append(f'\nUse read("{ws_path}/{{filename}}") to read file contents.')
 
         return "\n".join(parts)
@@ -1771,7 +1771,8 @@ class EmployeeManager:
                     return
 
         # If all children that need review are already accepted, auto-complete the parent
-        non_review_children = [c for c in children if c.node_type != "review"]
+        _SKIP_REVIEW_TYPES = {"review", "watchdog_nudge"}
+        non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
         if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
             logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
             if parent_node.status == TaskPhase.COMPLETED.value:
@@ -1791,7 +1792,7 @@ class EmployeeManager:
         needs_review = []
         already_accepted = []
         for child in children:
-            if child.is_ceo_node:
+            if child.is_ceo_node or child.node_type in _SKIP_REVIEW_TYPES:
                 continue
             if child.status == "accepted":
                 already_accepted.append(child)
