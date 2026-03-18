@@ -245,7 +245,7 @@ async def config_reload_check() -> list | None:
 _watchdog_nudged: set[str] = set()
 
 
-@system_cron("project_progress_watchdog", interval="30s", description="项目进度看门狗 — 防止项目卡死")
+@system_cron("project_progress_watchdog", interval="1m", description="项目进度看门狗 — 防止项目卡死")
 async def project_progress_watchdog() -> list | None:
     """Scan active projects; nudge EA to continue any that are stuck.
 

@@ -1251,7 +1251,7 @@ class TestEmployeeManagerProjectHistoryContext:
                 "iterations": [], "name": "Test Project", "status": "active"
             }):
                 with patch("onemancompany.core.project_archive.list_project_files", return_value=["file1.py", "file2.txt"]):
-                    with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/workspace"):
+                    with patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/workspace"):
                         result = mgr._get_project_history_context("my-project")
                         assert "Workspace files" in result
                         assert "file1.py" in result
@@ -1562,7 +1562,7 @@ class TestEmployeeManagerProjectContextTimeline:
                 "iterations": [], "name": "Test", "status": "active"
             }):
                 with patch("onemancompany.core.project_archive.list_project_files", return_value=many_files):
-                    with patch("onemancompany.core.project_archive.get_project_workspace", return_value="/tmp/ws"):
+                    with patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/ws"):
                         result = mgr._get_project_history_context("my-project")
                         assert "and" in result and "more" in result
 

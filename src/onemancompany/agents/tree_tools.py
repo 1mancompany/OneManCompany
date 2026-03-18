@@ -356,11 +356,13 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         # Normalize status to string for comparison (TaskNode.status is str)
         current = node.status.value if hasattr(node.status, "value") else node.status
 
-        # Idempotent: already accepted → return success without re-transitioning
+        # Idempotent: already accepted/finished/cancelled → return success without re-transitioning
         if current == TaskPhase.ACCEPTED.value:
             return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
         if current == TaskPhase.FINISHED.value:
             return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
+        if current == TaskPhase.CANCELLED.value:
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_cancelled": True}
 
         # Only completed tasks can be accepted
         if current != TaskPhase.COMPLETED.value:
