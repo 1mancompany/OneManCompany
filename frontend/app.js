@@ -5705,7 +5705,10 @@ class AppController {
   _checkCooldown(actionKey, cooldownMs = 5000) {
     const now = Date.now();
     const last = this._actionCooldowns[actionKey] || 0;
-    if (now - last < cooldownMs) return false;
+    if (now - last < cooldownMs) {
+      console.debug(`[cooldown] ${actionKey} blocked, ${cooldownMs - (now - last)}ms remaining`);
+      return false;
+    }
     this._actionCooldowns[actionKey] = now;
     return true;
   }
@@ -5857,7 +5860,9 @@ class AppController {
         detailEl.classList.remove('hidden');
         this._renderProjectDetail(projectId, proj, contentEl);
       })
-      .catch(() => {});
+      .catch(err => {
+        console.error('[_openProjectDetail] failed:', err);
+      });
   }
 
   _renderProjectDetail(projectId, proj, contentEl) {

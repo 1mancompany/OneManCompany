@@ -2797,18 +2797,19 @@ async def rename_project(project_id: str, body: dict) -> dict:
         proj_yaml = (proj_dir or Path(get_project_dir(project_id))) / "project.yaml" if proj_dir else None
         # Update the name in the named project doc
         import yaml as _yaml
-        for candidate in [Path(get_project_dir(project_id)) / "project.yaml"]:
-            if candidate.exists():
-                data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-                data["name"] = name
-                candidate.write_text(
-                    _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-                )
-                return {"status": "ok", "name": name}
+        from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR
+        candidate = _PROJ_DIR / project_id / "project.yaml"
+        if candidate.exists():
+            data = _yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+            data["name"] = name
+            candidate.write_text(
+                _yaml.dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+            )
+            return {"status": "ok", "name": name}
 
-    # Try v1 project
-    pdir = get_project_dir(project_id)
-    project_yaml = Path(pdir) / "project.yaml"
+    # Try v1 project — project.yaml at project root
+    from onemancompany.core.config import PROJECTS_DIR as _PROJ_DIR2
+    project_yaml = _PROJ_DIR2 / project_id / "project.yaml"
     if project_yaml.exists():
         import yaml as _yaml
         data = _yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
@@ -3531,9 +3532,9 @@ async def download_project_workspace(project_id: str):
 
     from pathlib import Path
 
-    from onemancompany.core.project_archive import get_project_dir
+    from onemancompany.core.project_archive import get_project_workspace
 
-    pdir = Path(get_project_dir(project_id))
+    pdir = Path(get_project_workspace(project_id))
     if not pdir.is_dir():
         from fastapi.responses import Response
         return Response(content="Project workspace not found", status_code=404)
