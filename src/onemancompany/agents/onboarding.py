@@ -603,7 +603,8 @@ def _assign_default_avatar(emp_dir: Path, emp_num: str) -> None:
             logger.debug("Employee {} already has avatar, skipping default", emp_num)
             return
 
-    avatars_dir = settings.company_dir / "human_resource" / "avatars"
+    from onemancompany.core.config import COMPANY_DIR
+    avatars_dir = COMPANY_DIR / "human_resource" / "avatars"
     if not avatars_dir.exists():
         logger.debug("No avatars directory found at {}", avatars_dir)
         return
