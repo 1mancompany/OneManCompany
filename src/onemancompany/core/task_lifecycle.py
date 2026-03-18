@@ -86,6 +86,32 @@ TERMINAL = frozenset({TaskPhase.FINISHED, TaskPhase.CANCELLED})
 
 
 # ---------------------------------------------------------------------------
+# Node type — classifies task tree nodes
+# ---------------------------------------------------------------------------
+
+class NodeType(str, Enum):
+    """Classifies task tree nodes for dispatch and lifecycle decisions."""
+    TASK = "task"                       # Regular work task assigned to an employee
+    REVIEW = "review"                   # Supervisor review of children results
+    CEO_PROMPT = "ceo_prompt"           # CEO's original task prompt (container root)
+    CEO_FOLLOWUP = "ceo_followup"       # CEO follow-up message in existing tree
+    CEO_REQUEST = "ceo_request"         # CEO confirmation request
+    WATCHDOG_NUDGE = "watchdog_nudge"   # System watchdog probe for stuck projects
+    ADHOC = "adhoc"                     # Ad-hoc notification/system task (not project work)
+    SYSTEM = "system"                   # Infrastructure system task
+
+
+# System node types that auto-skip COMPLETED → ACCEPTED → FINISHED
+SYSTEM_NODE_TYPES = frozenset({
+    NodeType.REVIEW, NodeType.CEO_REQUEST, NodeType.WATCHDOG_NUDGE,
+    NodeType.ADHOC, NodeType.SYSTEM,
+})
+
+# Node types that should NOT trigger project completion checks
+SKIP_COMPLETION_TYPES = frozenset({NodeType.WATCHDOG_NUDGE, NodeType.ADHOC, NodeType.SYSTEM})
+
+
+# ---------------------------------------------------------------------------
 # State transition helpers
 # ---------------------------------------------------------------------------
 

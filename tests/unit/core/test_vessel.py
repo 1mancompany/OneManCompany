@@ -398,7 +398,9 @@ class TestCeoConfirmation:
         child.status = "accepted"
         child.result = "child done"
 
-        tree_path = tmp_path / "tree.yaml"
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
         tree.save(tree_path)
         return tree, tree_path
 

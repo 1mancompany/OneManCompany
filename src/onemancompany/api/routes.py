@@ -26,7 +26,7 @@ from onemancompany.core.config import (
     STATUS_IDLE,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
@@ -126,6 +126,7 @@ def _push_adhoc_task(
     sys_project_id = project_id or f"_sys_{_uuid.uuid4().hex[:8]}"
     tree = TaskTree(project_id=sys_project_id)
     root = tree.create_root(employee_id=employee_id, description=description)
+    root.node_type = NodeType.ADHOC
     root.project_id = sys_project_id
     if project_dir:
         root.project_dir = project_dir
@@ -642,7 +643,7 @@ async def ceo_submit_task(body: dict) -> dict:
             tree = TaskTree(project_id=ctx_id)
             # CEO root node — records original prompt
             ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
-            ceo_root.node_type = "ceo_prompt"
+            ceo_root.node_type = NodeType.CEO_PROMPT
             ceo_root.set_status(TaskPhase.PROCESSING)
             # EA node as child of CEO
             ea_node = tree.add_child(
@@ -751,7 +752,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
             description=instructions,
             acceptance_criteria=[],
         )
-        followup_node.node_type = "ceo_followup"
+        followup_node.node_type = NodeType.CEO_FOLLOWUP
         followup_node.status = TaskPhase.ACCEPTED.value
 
         # Create a new EA node under the followup node for execution
@@ -764,12 +765,12 @@ async def task_followup(project_id: str, body: dict) -> dict:
         schedule_node_id = ea_child.id
 
         # Keep CEO root in PROCESSING while new subtree runs
-        if root and root.node_type == "ceo_prompt":
+        if root and root.node_type == NodeType.CEO_PROMPT:
             root.status = TaskPhase.PROCESSING.value
     else:
         # No root yet — create CEO root + EA child
         ceo_root = tree.create_root(employee_id=CEO_ID, description=instructions)
-        ceo_root.node_type = "ceo_prompt"
+        ceo_root.node_type = NodeType.CEO_PROMPT
         ceo_root.set_status(TaskPhase.PROCESSING)
         ea_child = tree.add_child(
             parent_id=ceo_root.id,
@@ -2892,7 +2893,7 @@ async def continue_iteration(body: dict) -> dict:
                 description=f"[Continue] {feedback_text}",
                 acceptance_criteria=[],
             )
-            continue_node.node_type = "ceo_followup"
+            continue_node.node_type = NodeType.CEO_FOLLOWUP
             continue_node.status = TaskPhase.ACCEPTED.value
 
             # Add new EA child under the continue node
@@ -2904,7 +2905,7 @@ async def continue_iteration(body: dict) -> dict:
             )
 
             # Keep CEO root in PROCESSING
-            if root and root.node_type == "ceo_prompt":
+            if root and root.node_type == NodeType.CEO_PROMPT:
                 root.status = TaskPhase.PROCESSING.value
 
             save_tree_async(tree_path)
@@ -2913,7 +2914,7 @@ async def continue_iteration(body: dict) -> dict:
             # No tree yet — create fresh (shouldn't happen for continue)
             tree = TaskTree(project_id=ctx_id)
             ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
-            ceo_root.node_type = "ceo_prompt"
+            ceo_root.node_type = NodeType.CEO_PROMPT
             ceo_root.set_status(TaskPhase.PROCESSING)
             ea_child = tree.add_child(
                 parent_id=ceo_root.id,
@@ -2985,7 +2986,7 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
     dispatches = []
     for node in nodes:
         # Skip system nodes (ceo_prompt, ceo_followup) — they aren't real tasks
-        if node.node_type in ("ceo_prompt", "ceo_followup"):
+        if node.node_type in (NodeType.CEO_PROMPT, NodeType.CEO_FOLLOWUP):
             continue
         dispatches.append({
             "dispatch_id": node.id,
@@ -5609,7 +5610,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
     for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
         tree = get_tree(tree_path)
         for node in tree.all_nodes():
-            if node.node_type != "ceo_request":
+            if node.node_type != NodeType.CEO_REQUEST:
                 continue
             if TaskPhase(node.status) in (TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.CANCELLED):
                 continue
@@ -5645,7 +5646,7 @@ def _find_ceo_node(node_id: str):
         for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
             tree = get_tree(tree_path)
             node = tree.get_node(node_id)
-            if node and node.node_type == "ceo_request":
+            if node and node.node_type == NodeType.CEO_REQUEST:
                 return node, tree, str(tree_path.parent)
     raise HTTPException(status_code=404, detail=f"CEO request node {node_id} not found")
 

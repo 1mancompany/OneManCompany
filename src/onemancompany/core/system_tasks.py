@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase, RESOLVED
 from onemancompany.core.task_tree import TaskNode
 
 _CLEANUP_AGE = timedelta(hours=24)
@@ -28,7 +28,7 @@ class SystemTaskTree:
         node = TaskNode(
             employee_id=employee_id,
             description=description,
-            node_type="system",
+            node_type=NodeType.SYSTEM,
         )
         self._nodes[node.id] = node
         return node
