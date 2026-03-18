@@ -1838,8 +1838,22 @@ class EmployeeManager:
                 "Review circuit breaker: {} rounds for parent {} — escalating to CEO",
                 review_count, parent_node.id,
             )
-            parent_node.set_status(TaskPhase.HOLDING)
-            logger.debug("[TASK LIFECYCLE] parent={} → HOLDING (review circuit breaker, {} rounds)", parent_node.id, review_count)
+            # Check if CEO escalation already exists to prevent infinite loop
+            existing_escalation = any(
+                c for c in children
+                if c.node_type == "ceo_request" and c.employee_id == CEO_ID
+                and c.status not in (TaskPhase.CANCELLED,)
+            )
+            if existing_escalation:
+                logger.debug(
+                    "[CIRCUIT BREAKER] CEO escalation already exists for parent {} — skipping duplicate",
+                    parent_node.id,
+                )
+                return
+
+            if parent_node.status != TaskPhase.HOLDING:
+                parent_node.set_status(TaskPhase.HOLDING)
+                logger.debug("[TASK LIFECYCLE] parent={} → HOLDING (review circuit breaker, {} rounds)", parent_node.id, review_count)
             save_tree_async(entry.tree_path)
 
             # Build escalation summary
