@@ -6685,3 +6685,144 @@ class TestUpdateEmployeeHostingManifest:
         assert "connection" in final_ids, "connection should be restored on switch back to self"
         assert "llm" not in final_ids, "llm should be removed on switch back to self"
         assert final["hosting"] == "self"
+
+
+# ---------------------------------------------------------------------------
+# _check_talent_required_fields
+# ---------------------------------------------------------------------------
+
+class TestCheckTalentRequiredFields:
+    @staticmethod
+    def _check(data):
+        from onemancompany.api.routes import _check_talent_required_fields
+        return _check_talent_required_fields(data)
+
+    def test_complete_company_profile(self):
+        assert self._check({"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"}) == []
+
+    def test_complete_self_profile(self):
+        assert self._check({"hosting": "self"}) == []
+
+    def test_missing_hosting(self):
+        missing = self._check({"llm_model": "gpt-4o", "api_provider": "openrouter", "auth_method": "api_key"})
+        assert "hosting" in missing
+
+    def test_missing_llm_model_for_company(self):
+        missing = self._check({"hosting": "company", "api_provider": "openrouter", "auth_method": "api_key"})
+        assert "llm_model" in missing
+        assert "hosting" not in missing
+
+    def test_missing_auth_method_for_company(self):
+        missing = self._check({"hosting": "company", "llm_model": "gpt-4o", "api_provider": "openrouter"})
+        assert "auth_method" in missing
+
+    def test_missing_api_provider_for_company(self):
+        missing = self._check({"hosting": "company", "llm_model": "gpt-4o", "auth_method": "api_key"})
+        assert "api_provider" in missing
+
+    def test_self_hosted_skips_llm_and_auth(self):
+        missing = self._check({"hosting": "self"})
+        assert "llm_model" not in missing
+        assert "api_provider" not in missing
+        assert "auth_method" not in missing
+
+    def test_empty_dict(self):
+        assert "hosting" in self._check({})
+
+    def test_empty_string_values_treated_as_missing(self):
+        assert "hosting" in self._check({"hosting": "", "llm_model": "", "api_provider": "", "auth_method": ""})
+
+
+# ---------------------------------------------------------------------------
+# _publish_talent_profile_error
+# ---------------------------------------------------------------------------
+
+class TestPublishTalentProfileError:
+    @pytest.mark.asyncio
+    async def test_missing_profile_default_message(self):
+        from onemancompany.api.routes import _publish_talent_profile_error
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        with patch("onemancompany.api.routes.event_bus", mock_bus):
+            await _publish_talent_profile_error("t1", [], "", is_missing=True)
+        event = mock_bus.publish.call_args[0][0]
+        assert event.type == "talent_profile_error"
+        assert "not found on disk" in event.payload["summary"]
+        assert "may have failed to clone" in event.payload["summary"]
+
+    @pytest.mark.asyncio
+    async def test_missing_profile_with_clone_error(self):
+        from onemancompany.api.routes import _publish_talent_profile_error
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        with patch("onemancompany.api.routes.event_bus", mock_bus):
+            await _publish_talent_profile_error("t1", [], "", is_missing=True, clone_error="404 Not Found")
+        event = mock_bus.publish.call_args[0][0]
+        assert "Clone failed: 404 Not Found" in event.payload["summary"]
+        assert "may have failed" not in event.payload["summary"]
+
+    @pytest.mark.asyncio
+    async def test_missing_fields_message(self):
+        from onemancompany.api.routes import _publish_talent_profile_error
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        with patch("onemancompany.api.routes.event_bus", mock_bus):
+            await _publish_talent_profile_error("t1", ["llm_model", "auth_method"], "https://repo.example")
+        p = mock_bus.publish.call_args[0][0].payload
+        assert "llm_model" in p["summary"]
+        assert p["talent_link"] == "https://repo.example"
+        assert p["missing_fields"] == ["llm_model", "auth_method"]
+
+
+# ---------------------------------------------------------------------------
+# _cleanup_single_hire_failure
+# ---------------------------------------------------------------------------
+
+class TestCleanupSingleHireFailure:
+    @pytest.mark.asyncio
+    async def test_clears_pending_and_publishes(self):
+        from onemancompany.api.routes import _cleanup_single_hire_failure
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        pending = {"b1": [{"id": "c1", "name": "Alice"}]}
+        persist_called = []
+
+        mock_em = MagicMock()
+        mock_em.find_holding_task.return_value = None
+
+        with patch("onemancompany.api.routes.event_bus", mock_bus), \
+             patch("onemancompany.agents.recruitment.pending_candidates", pending), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: persist_called.append(1)), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
+            await _cleanup_single_hire_failure("b1", "c1", {"name": "Alice"}, "test error")
+
+        # pending_candidates cleared
+        assert "b1" not in pending
+        # persist called
+        assert persist_called
+        # event published
+        event = mock_bus.publish.call_args[0][0]
+        assert event.payload["step"] == "failed"
+        assert event.payload["message"] == "test error"
+
+    @pytest.mark.asyncio
+    async def test_resumes_hr_holding_task(self):
+        from onemancompany.api.routes import _cleanup_single_hire_failure
+        mock_bus = MagicMock()
+        mock_bus.publish = AsyncMock()
+        pending = {"b1": []}
+
+        mock_em = MagicMock()
+        mock_em.find_holding_task.return_value = "node-123"
+        mock_em.resume_held_task = AsyncMock(return_value=True)
+
+        with patch("onemancompany.api.routes.event_bus", mock_bus), \
+             patch("onemancompany.agents.recruitment.pending_candidates", pending), \
+             patch("onemancompany.agents.recruitment._persist_candidates", lambda: None), \
+             patch("onemancompany.core.vessel.employee_manager", mock_em):
+            await _cleanup_single_hire_failure("b1", "c1", {"name": "Bob"}, "clone error")
+
+        mock_em.find_holding_task.assert_called_once()
+        mock_em.resume_held_task.assert_called_once_with(
+            "00002", "node-123", "Hire failed: clone error"
+        )

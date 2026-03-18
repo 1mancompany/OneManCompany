@@ -268,6 +268,18 @@ class AppController {
       'okr_updated':        (p) => ({ text: `🎯 OKRs updated for #${p.employee_id}`, cls: 'hr', agent: 'HR' }),
       'onboarding_started': (p) => ({ text: `📋 Onboarding started: ${p.name}`, cls: 'hr', agent: 'HR' }),
       'onboarding_completed': (p) => ({ text: `✅ Onboarding completed: ${p.name}`, cls: 'hr', agent: 'HR' }),
+      'talent_profile_error': (p) => {
+        // Show modal alert for talent profile issues
+        const link = p.talent_link ? `<a href="${this._escapeHtml(p.talent_link)}" target="_blank" rel="noopener">${this._escapeHtml(p.talent_link)}</a>` : '';
+        const fields = (p.missing_fields || []).join(', ');
+        let detail = `<b>Talent:</b> ${this._escapeHtml(p.talent_id || '')}<br>`;
+        if (fields) detail += `<b>Missing fields:</b> ${this._escapeHtml(fields)}<br>`;
+        if (link) detail += `<b>Repo:</b> ${link}<br>`;
+        detail += `<br>Please contact the talent uploader to fix this issue.`;
+        if (link) detail += ` You can file an issue on the talent repo.`;
+        this._showAlertModal('Talent Profile Error', detail);
+        return { text: `⚠️ Talent profile error: ${p.talent_id}`, cls: 'hr', agent: 'HR' };
+      },
       'probation_review':   (p) => ({ text: `📋 Probation review: #${p.id} — ${p.passed ? 'Passed' : 'Failed'}`, cls: 'hr', agent: 'HR' }),
       'pip_started':        (p) => ({ text: `⚠️ PIP started for #${p.id}`, cls: 'hr', agent: 'HR' }),
       'pip_resolved':       (p) => ({ text: `✅ PIP resolved for #${p.id}`, cls: 'hr', agent: 'HR' }),
@@ -3024,17 +3036,27 @@ class AppController {
           </div>
         `;
 
-        // Click card to show detail panel (or toggle selection with Ctrl/Cmd)
+        // Click card to toggle selection; detail button opens detail panel
         card.addEventListener('click', (e) => {
           if (e.target.closest('.pixel-btn')) return;
-          if (e.ctrlKey || e.metaKey || e.shiftKey) {
-            this._toggleCandidateSelection(cid, c, roleGroup.role, card);
-            return;
-          }
+          this._toggleCandidateSelection(cid, c, roleGroup.role, card);
+        });
+
+        // "Details" button below the card
+        const detailBtn = document.createElement('button');
+        detailBtn.className = 'pixel-btn card-detail-btn';
+        detailBtn.textContent = '📋 Details';
+        detailBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
           this._showCandidateDetail(cid, c, roleGroup.role, card);
         });
 
-        cardsContainer.appendChild(card);
+        // Wrap card + detail button in a container
+        const cardWrapper = document.createElement('div');
+        cardWrapper.className = 'candidate-card-wrapper';
+        cardWrapper.appendChild(card);
+        cardWrapper.appendChild(detailBtn);
+        cardsContainer.appendChild(cardWrapper);
       }
 
       rolesEl.appendChild(section);
@@ -3131,7 +3153,21 @@ class AppController {
     const newCloseBtn = document.getElementById('detail-panel-close');
     newSelectBtn.textContent = isSelected ? '✗ Deselect' : '✔ Select';
     newSelectBtn.className = isSelected ? 'pixel-btn danger' : 'pixel-btn secondary';
-    newInterviewBtn.addEventListener('click', () => this.startInterview(c));
+    // Only remote (self-hosted) candidates support interview
+    const isRemote = (c.hosting === 'self');
+    if (!isRemote) {
+      newInterviewBtn.disabled = true;
+      newInterviewBtn.title = 'For security reasons, only remote (self-hosted) employees support interview';
+      newInterviewBtn.textContent = '🔒 Interview';
+    } else {
+      newInterviewBtn.disabled = false;
+      newInterviewBtn.title = '';
+      newInterviewBtn.textContent = '💬 Interview';
+    }
+    newInterviewBtn.addEventListener('click', () => {
+      if (!isRemote) return;
+      this.startInterview(c);
+    });
     newSelectBtn.addEventListener('click', () => {
       this._toggleCandidateSelection(candidateId, c, role, cardEl);
       const nowSelected = this._selectedCandidates.has(candidateId);
@@ -5466,6 +5502,34 @@ class AppController {
           <button class="pixel-btn small" onclick="window.app.openToolDetail('${esc(toolId)}')">Cancel</button>
         </div>
       </div>`;
+  }
+
+  /** Show a simple alert modal. htmlContent must be pre-sanitized (use _escapeHtml). */
+  _showAlertModal(title, htmlContent) {
+    let overlay = document.getElementById('alert-modal-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'alert-modal-overlay';
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal-content alert-modal-content">
+          <div class="modal-header">
+            <h3 class="pixel-title" id="alert-modal-title"></h3>
+            <button class="modal-close" id="alert-modal-close">✕</button>
+          </div>
+          <div id="alert-modal-body" class="alert-modal-body"></div>
+          <div class="alert-modal-footer">
+            <button class="pixel-btn" id="alert-modal-ok">OK</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      const close = () => overlay.classList.add('hidden');
+      overlay.querySelector('#alert-modal-close').addEventListener('click', close);
+      overlay.querySelector('#alert-modal-ok').addEventListener('click', close);
+    }
+    overlay.querySelector('#alert-modal-title').textContent = title;
+    overlay.querySelector('#alert-modal-body').innerHTML = htmlContent;
+    overlay.classList.remove('hidden');
   }
 
   _escapeHtml(text) {

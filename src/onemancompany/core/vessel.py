@@ -603,7 +603,11 @@ class EmployeeManager:
         append_task_index_entry(employee_id, node_id, tree_path)
 
         if employee_id not in self.executors:
-            logger.debug("Skipping schedule_node for {} (no executor, e.g. CEO)", employee_id)
+            logger.warning(
+                "[SCHEDULE] schedule_node for {} but no executor registered yet — "
+                "task {} saved to index, will be recovered on register()",
+                employee_id, node_id,
+            )
             return
         entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
         self._schedule.setdefault(employee_id, []).append(entry)
@@ -665,7 +669,42 @@ class EmployeeManager:
                 self._history_summaries[employee_id] = summary
         vessel = Vessel(self, employee_id)
         self.vessels[employee_id] = vessel
+
+        # Recover orphaned tasks: schedule_node() may have been called before
+        # the executor was registered, adding tasks to task_index on disk but
+        # not to the in-memory _schedule.  Re-add them now.
+        self._recover_orphaned_tasks(employee_id)
+
         return vessel
+
+    def _recover_orphaned_tasks(self, employee_id: str) -> None:
+        """Re-add PENDING tasks from task_index that are missing from _schedule."""
+        from onemancompany.core.store import load_task_index
+        from onemancompany.core.task_tree import get_tree
+
+        index_entries = load_task_index(employee_id)
+        scheduled_ids = {e.node_id for e in self._schedule.get(employee_id, [])}
+        recovered = 0
+        for entry in index_entries:
+            node_id = entry.get("node_id")
+            tree_path = entry.get("tree_path")
+            if not node_id or not tree_path or node_id in scheduled_ids:
+                continue
+            # Only recover tasks that are still PENDING
+            tp = Path(tree_path)
+            if not tp.exists():
+                continue
+            tree = get_tree(tp)
+            node = tree.get_node(node_id)
+            if not node or TaskPhase(node.status) != TaskPhase.PENDING:
+                continue
+            self._schedule.setdefault(employee_id, []).append(
+                ScheduleEntry(node_id=node_id, tree_path=tree_path)
+            )
+            recovered += 1
+        if recovered:
+            logger.info("[REGISTER] Recovered {} orphaned PENDING tasks for {}", recovered, employee_id)
+            self._schedule_next(employee_id)
 
     def register_hooks(self, employee_id: str, hooks: dict[str, Callable]) -> None:
         """Register lifecycle hooks (pre_task, post_task) for an employee."""
@@ -1047,7 +1086,7 @@ class EmployeeManager:
                     if isinstance(result, str):
                         task_with_ctx = result
                 except Exception:
-                    logger.warning("Pre-task hook failed for %s", employee_id)
+                    logger.warning("Pre-task hook failed for {}", employee_id)
 
             # Universal timeout — asyncio.wait_for wraps ALL executor types.
             task_timeout = node.timeout_seconds or 3600
@@ -1193,7 +1232,7 @@ class EmployeeManager:
                 try:
                     post_task_hook(node, node.result or "")
                 except Exception:
-                    logger.warning("Post-task hook failed for %s", employee_id)
+                    logger.warning("Post-task hook failed for {}", employee_id)
 
             await _store.save_employee_runtime(employee_id, current_task_summary="")
 
@@ -1261,6 +1300,19 @@ class EmployeeManager:
         result = _start_cron(employee_id, cron_name, interval, task_desc)
         if result.get("status") != "ok":
             logger.error("Failed to start holding watchdog for {}: {}", task_id, result)
+
+    def find_holding_task(self, employee_id: str, match_text: str) -> str | None:
+        """Find a HOLDING task whose result contains match_text. Returns node_id or None."""
+        from onemancompany.core.task_tree import get_tree
+        for entry in self._schedule.get(employee_id, []):
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            tree = get_tree(tp)
+            node = tree.get_node(entry.node_id)
+            if node and node.status == "holding" and node.result and match_text in node.result:
+                return entry.node_id
+        return None
 
     async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
         """Resume a HOLDING task with the provided result.
@@ -1441,6 +1493,7 @@ class EmployeeManager:
         if _is_iteration(project_id):
             found = _find_project_for_iteration(project_id)
             if not found:
+                logger.warning("_get_project_history_context: iteration {} has no matching project", project_id)
                 return ""
             slug = found
             _, bare_iter = _split_qualified_iter(project_id)
@@ -1448,6 +1501,7 @@ class EmployeeManager:
 
         proj = load_named_project(slug)
         if not proj:
+            logger.warning("_get_project_history_context: project '{}' not found in store", slug)
             return ""
 
         iterations = proj.get("iterations", [])
@@ -2209,13 +2263,15 @@ class EmployeeManager:
 
     def _get_role(self, employee_id: str) -> str:
         emp_data = _store.load_employee(employee_id)
+        if not emp_data:
+            logger.warning("_get_role: employee {} not found in store, defaulting to 'Employee'", employee_id)
         return (emp_data or {}).get("role", "Employee")
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
             spawn_background(_store.save_employee_runtime(employee_id, status=status))
         except RuntimeError:
-            logger.debug("No event loop for runtime persist of {}", employee_id)
+            logger.warning("No event loop for runtime persist of {}", employee_id)
 
     def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str) -> None:
         """Log an event for a node (ScheduleEntry path)."""
@@ -2245,7 +2301,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            logger.debug("No event loop for log publish (%s)", employee_id)
+            logger.warning("No event loop for log publish ({})", employee_id)
 
     def _publish_node_update(self, employee_id: str, node) -> None:
         """Publish a task update event for a TaskNode (ScheduleEntry path)."""
@@ -2262,7 +2318,7 @@ class EmployeeManager:
                 )
             ))
         except RuntimeError:
-            logger.debug("No event loop for node update publish (%s)", employee_id)
+            logger.warning("No event loop for node update publish ({})", employee_id)
 
 
 # ---------------------------------------------------------------------------

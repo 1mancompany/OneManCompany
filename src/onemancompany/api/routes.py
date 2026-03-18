@@ -3812,6 +3812,89 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
+# Required fields in talent profile.yaml for hiring
+_TALENT_REQUIRED_FIELDS = ["hosting"]
+
+
+def _check_talent_required_fields(talent_data: dict) -> list[str]:
+    """Return list of required fields missing from talent profile."""
+    missing = []
+    for field in _TALENT_REQUIRED_FIELDS:
+        if not talent_data.get(field):
+            missing.append(field)
+    # Self-hosted talents don't need llm_model/api_provider/auth_method
+    if talent_data.get("hosting") != "self":
+        if not talent_data.get("llm_model"):
+            missing.append("llm_model")
+        if not talent_data.get("api_provider"):
+            missing.append("api_provider")
+        if not talent_data.get("auth_method"):
+            missing.append("auth_method")
+    return missing
+
+
+async def _publish_talent_profile_error(
+    talent_id: str, missing_fields: list[str], source_repo: str = "",
+    *, is_missing: bool = False, clone_error: str = "",
+) -> None:
+    """Publish an error event to the frontend about talent profile issues."""
+    if is_missing:
+        message = f"Talent '{talent_id}' profile not found on disk."
+        if clone_error:
+            message += f" Clone failed: {clone_error}"
+        else:
+            message += " The talent repo may have failed to clone."
+    else:
+        message = (
+            f"Talent '{talent_id}' profile is missing required fields: "
+            f"{', '.join(missing_fields)}. "
+            f"Please contact the talent uploader to fix."
+        )
+
+    # Build talent market link if source_repo is available
+    talent_link = source_repo or ""
+    payload: dict = {
+        "role": "HR",
+        "summary": message,
+    }
+    if talent_link:
+        payload["talent_link"] = talent_link
+        payload["summary"] += f"\n\nTalent repo: {talent_link}"
+    payload["missing_fields"] = missing_fields
+    payload["talent_id"] = talent_id
+
+    logger.warning("[hiring] {}", message)
+    await event_bus.publish(CompanyEvent(
+        type="talent_profile_error",
+        payload=payload,
+        agent="HR",
+    ))
+
+
+async def _cleanup_single_hire_failure(
+    batch_id: str, candidate_id: str, candidate: dict, error_msg: str,
+) -> None:
+    """Clean up hiring state when single-hire fails before execute_hire."""
+    from onemancompany.agents.recruitment import pending_candidates, _persist_candidates
+
+    _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", error_msg, 1)
+    await event_bus.publish(CompanyEvent(
+        type="onboarding_progress",
+        payload={"batch_id": batch_id, "candidate_id": candidate_id,
+                 "name": candidate.get("name", ""), "step": "failed",
+                 "message": error_msg},
+        agent="HR",
+    ))
+    pending_candidates.pop(batch_id, None)
+    _persist_candidates()
+
+    # Resume HR's HOLDING task
+    from onemancompany.core.vessel import employee_manager as _em_hr
+    held_node_id = _em_hr.find_holding_task(HR_ID, f"batch_id={batch_id}")
+    if held_node_id:
+        await _em_hr.resume_held_task(HR_ID, held_node_id, f"Hire failed: {error_msg}")
+
+
 async def _do_hire_single(
     batch_id: str, candidate_id: str, nickname: str,
     candidate: dict, coo_ctx: dict,
@@ -3834,12 +3917,46 @@ async def _do_hire_single(
                 logger.warning("[hiring] Nickname generation timed out for {}", candidate["name"])
                 nickname = ""
 
-        # Read authoritative fields from the talent profile
+        # Clone talent repo if sourced from Talent Market (batch-hire does this
+        # before _do_batch_hire, but single-hire was missing this step).
         talent_id = candidate.get("talent_id", "") or candidate.get("id", "")
+        clone_error: str = ""
+        if talent_id and candidate.get("source_repo"):
+            from onemancompany.agents.onboarding import clone_talent_repo
+            from onemancompany.agents.recruitment import talent_market
+            try:
+                onboard_result = await talent_market.onboard(talent_id)
+                repo_url = onboard_result.get("repo_url", "") or candidate.get("source_repo", "")
+                if repo_url:
+                    await clone_talent_repo(repo_url, talent_id)
+            except Exception as e:
+                clone_error = str(e)
+                logger.warning("[hiring] Failed to clone talent {}: {}", talent_id, e)
+
+        # Read authoritative fields from the talent profile
         talent_data: dict = {}
         if talent_id:
             from onemancompany.core.config import load_talent_profile
             talent_data = load_talent_profile(talent_id)
+
+        # Validate required fields from talent profile
+        if talent_id and not talent_data:
+            source_repo = candidate.get("source_repo", "")
+            detail = f"Talent profile not found: {talent_id}"
+            if clone_error:
+                detail += f" (clone failed: {clone_error})"
+            await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True, clone_error=clone_error)
+            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, detail)
+            return
+        if talent_id:
+            missing = _check_talent_required_fields(talent_data)
+            if missing:
+                source_repo = candidate.get("source_repo", "")
+                await _publish_talent_profile_error(talent_id, missing, source_repo)
+                await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile missing fields: {', '.join(missing)}")
+                return
+        if not talent_data:
+            talent_data = candidate
 
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
 
@@ -3872,16 +3989,17 @@ async def _do_hire_single(
                 agent="HR",
             ))
 
+        is_self = talent_data.get("hosting") == "self"
         emp = await execute_hire(
             name=cand_name,
             nickname=nickname or "",
             role=hire_role,
             skills=skill_names,
             talent_id=talent_id,
-            llm_model=talent_data.get("llm_model", "") or candidate.get("llm_model", ""),
+            llm_model="" if is_self else talent_data.get("llm_model", ""),
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
-            api_provider=talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter"),
+            api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
             hosting=talent_data.get("hosting", "company"),
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
@@ -3912,16 +4030,9 @@ async def _do_hire_single(
 
         # Resume HR's HOLDING task
         from onemancompany.core.vessel import employee_manager as _em_hr
-        from onemancompany.core.task_tree import get_tree as _get_tree_hr
-        for entry in _em_hr._schedule.get(HR_ID, []):
-            tp = Path(entry.tree_path)
-            if not tp.exists():
-                continue
-            tree = _get_tree_hr(tp)
-            node = tree.get_node(entry.node_id)
-            if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-                await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hired {candidate['name']} (ID: {emp.id})")
-                break
+        held_node_id = _em_hr.find_holding_task(HR_ID, f"batch_id={batch_id}")
+        if held_node_id:
+            await _em_hr.resume_held_task(HR_ID, held_node_id, f"Hired {candidate['name']} (ID: {emp.id})")
 
         # Broadcast state update
         await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
@@ -3931,14 +4042,7 @@ async def _do_hire_single(
         raise
     except Exception as e:
         logger.exception("[hiring] Background hire failed for {}", candidate.get("name"))
-        _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", str(e), 1)
-        await event_bus.publish(CompanyEvent(
-            type="onboarding_progress",
-            payload={"batch_id": batch_id, "candidate_id": candidate_id,
-                     "name": candidate.get("name", ""), "step": "failed",
-                     "message": str(e)},
-            agent="HR",
-        ))
+        await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, str(e))
 
 
 @router.post("/api/candidates/dismiss")
@@ -3959,17 +4063,10 @@ async def dismiss_shortlist(body: dict) -> dict:
 
     # Resume HR's HOLDING task so it doesn't hang forever
     from onemancompany.core.vessel import employee_manager as _em
-    from onemancompany.core.task_tree import get_tree as _get_tree
     dismiss_reason = "CEO认为这次招聘是不需要的或者错误的，已取消本轮招聘"
-    for entry in _em._schedule.get(HR_ID, []):
-        tp = Path(entry.tree_path)
-        if not tp.exists():
-            continue
-        tree = _get_tree(tp)
-        node = tree.get_node(entry.node_id)
-        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-            await _em.resume_held_task(HR_ID, entry.node_id, dismiss_reason)
-            break
+    held_node_id = _em.find_holding_task(HR_ID, f"batch_id={batch_id}")
+    if held_node_id:
+        await _em.resume_held_task(HR_ID, held_node_id, dismiss_reason)
 
     await event_bus.publish(CompanyEvent(
         type="activity",
@@ -4140,6 +4237,22 @@ async def _do_batch_hire(
             talent_data: dict = {}
             if talent_id:
                 talent_data = load_talent_profile(talent_id)
+
+            # Validate required fields from talent profile
+            if talent_id and not talent_data:
+                source_repo = candidate.get("source_repo", "")
+                await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
+                results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
+                                "error": f"Talent profile not found for {talent_id}"})
+                continue
+            if talent_id:
+                missing = _check_talent_required_fields(talent_data)
+                if missing:
+                    source_repo = candidate.get("source_repo", "")
+                    await _publish_talent_profile_error(talent_id, missing, source_repo)
+                    results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
+                                    "error": f"Talent profile missing fields: {', '.join(missing)}"})
+                    continue
             if not talent_data:
                 talent_data = candidate
 
@@ -4187,10 +4300,10 @@ async def _do_batch_hire(
                     role=final_role,
                     skills=skill_names,
                     talent_id=talent_id,
-                    llm_model="" if talent_data.get("hosting") == "self" else (talent_data.get("llm_model", "") or candidate.get("llm_model", "")),
+                    llm_model="" if talent_data.get("hosting") == "self" else talent_data.get("llm_model", ""),
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
-                    api_provider="" if talent_data.get("hosting") == "self" else (talent_data.get("api_provider", "openrouter") or candidate.get("api_provider", "openrouter")),
+                    api_provider="" if talent_data.get("hosting") == "self" else talent_data.get("api_provider", "openrouter"),
                     hosting=talent_data.get("hosting", "company"),
                     auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),
@@ -4208,6 +4321,10 @@ async def _do_batch_hire(
                         _notify_coo_hire_ready(emp.id, coo_ctx)
 
             except Exception as e:
+                # NOTE: We do NOT use _cleanup_single_hire_failure() here because
+                # batch-hire has different lifecycle semantics: pending_candidates
+                # is already cleared at the top, HR task resume happens in `finally`,
+                # and we need per-candidate progress with idx/total counters.
                 logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
@@ -4258,17 +4375,10 @@ async def _do_batch_hire(
         resume_msg = f"Batch hired: {', '.join(hired_names)}" if hired_names else "Batch hire completed (no candidates hired)"
         try:
             from onemancompany.core.vessel import employee_manager as _em_batch
-            from onemancompany.core.task_tree import get_tree as _get_tree_batch
-            for entry in _em_batch._schedule.get(HR_ID, []):
-                tp = Path(entry.tree_path)
-                if not tp.exists():
-                    continue
-                tree = _get_tree_batch(tp)
-                node = tree.get_node(entry.node_id)
-                if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-                    await _em_batch.resume_held_task(HR_ID, entry.node_id, resume_msg)
-                    logger.info("[hiring] Resumed HR holding task {}", entry.node_id)
-                    break
+            held_node_id = _em_batch.find_holding_task(HR_ID, f"batch_id={batch_id}")
+            if held_node_id:
+                await _em_batch.resume_held_task(HR_ID, held_node_id, resume_msg)
+                logger.info("[hiring] Resumed HR holding task {}", held_node_id)
             else:
                 logger.debug("[hiring] No matching HR holding task found for batch_id={}", batch_id)
         except Exception as resume_exc:
