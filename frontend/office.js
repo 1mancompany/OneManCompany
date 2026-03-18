@@ -923,64 +923,47 @@ class OfficeRenderer {
     const ctx = this.ctx;
     const px = gx * TILE;
     const py = gy * TILE;
-    const rw = TILE * 2 + 8;
-    const rh = TILE * 2 + 8;
 
-    this._rect(px - 4, py - 4, rw, rh, '#1c1c36');
-    ctx.globalAlpha = 0.04;
-    for (let cy = py - 2; cy < py + rh - 6; cy += 3) {
-      for (let cx = px - 2; cx < px + rw - 4; cx += 3) {
-        if ((cx + cy) % 6 === 0) this._rect(cx, cy, 2, 1, '#fff');
-      }
+    // Room floor (2×2 area)
+    this._rect(px - 4, py - 4, TILE * 2 + 8, TILE * 2 + 8, '#1c1c36');
+
+    // Conference table (2×2 tile group, centered)
+    tileAtlas.drawDef(ctx, 'conf_table_tl', px, py);
+    tileAtlas.drawDef(ctx, 'conf_table_tr', px + TILE, py);
+    tileAtlas.drawDef(ctx, 'conf_table_bl', px, py + TILE);
+    tileAtlas.drawDef(ctx, 'conf_table_br', px + TILE, py + TILE);
+
+    // Chairs around table (3 top, 3 bottom — matches original 6-chair capacity)
+    for (let cx = 0; cx < 3; cx++) {
+      tileAtlas.drawDef(ctx, 'conf_chair_top', px - TILE / 2 + cx * TILE, py - TILE);
+      tileAtlas.drawDef(ctx, 'conf_chair_bottom', px - TILE / 2 + cx * TILE, py + TILE * 2);
     }
-    ctx.globalAlpha = 1;
 
+    // Wall border
     const wc = '#3a3a66', wl = '#4a4a88';
-    this._rect(px - 4, py - 4, rw, 3, wc);
-    this._rect(px - 4, py - 4, rw, 1, wl);
-    this._rect(px - 4, py + rh - 7, rw, 3, wc);
-    this._rect(px - 4, py - 4, 3, rh, wc);
-    this._rect(px - 4, py - 4, 1, rh, wl);
-    this._rect(px + rw - 7, py - 4, 3, rh, wc);
-    this._rect(px + TILE - 6, py + rh - 7, 14, 3, '#1c1c36');
+    this._rect(px - 4, py - 4, TILE * 2 + 8, 3, wc);
+    this._rect(px - 4, py - 4, TILE * 2 + 8, 1, wl);
+    this._rect(px - 4, py + TILE * 2 + 1, TILE * 2 + 8, 3, wc);
+    this._rect(px - 4, py - 4, 3, TILE * 2 + 8, wc);
+    this._rect(px + TILE * 2 + 1, py - 4, 3, TILE * 2 + 8, wc);
 
-    const tableX = px + 8, tableY = py + 14;
-    const tableW = TILE + 16, tableH = 18;
-    ctx.globalAlpha = 0.15;
-    this._rect(tableX + 2, tableY + 2, tableW, tableH, '#000');
-    ctx.globalAlpha = 1;
-    this._rect(tableX + 2, tableY, tableW - 4, 1, PALETTE.meetingTable);
-    this._rect(tableX, tableY + 1, tableW, tableH - 2, PALETTE.meetingTable);
-    this._rect(tableX + 2, tableY + tableH - 1, tableW - 4, 1, PALETTE.meetingTable);
-    this._rect(tableX + 2, tableY + 1, tableW - 4, 2, PALETTE.meetingTableLight);
-    ctx.globalAlpha = 0.08;
-    this._rect(tableX + tableW / 2 - 1, tableY + 2, 2, tableH - 4, '#fff');
-    ctx.globalAlpha = 1;
-
-    const chairPositions = [
-      [px + 4, py + 8],  [px + 22, py + 8],  [px + 40, py + 8],
-      [px + 4, py + 34], [px + 22, py + 34], [px + 40, py + 34],
-    ];
-    const numChairs = Math.min(roomData.capacity || 6, chairPositions.length);
-    for (let i = 0; i < numChairs; i++) {
-      const [cx, cy] = chairPositions[i];
-      this._rect(cx + 1, cy, 8, 2, this._darken(PALETTE.meetingChair, 15));
-      this._rect(cx, cy + 2, 10, 6, PALETTE.meetingChair);
-      this._rect(cx + 1, cy + 2, 3, 4, this._lighten(PALETTE.meetingChair, 15));
-    }
-
+    // Status LED
     const statusColor = roomData.is_booked ? PALETTE.meetingBooked : PALETTE.meetingFree;
     const glowAlpha = roomData.is_booked
       ? Math.sin(this.animFrame * 0.08) * 0.3 + 0.5
       : 0.8;
-    ctx.globalAlpha = glowAlpha * 0.3;
-    this._rect(px + TILE - 4, py - 6, 10, 10, statusColor);
     ctx.globalAlpha = glowAlpha;
     this._rect(px + TILE - 1, py - 3, 4, 4, statusColor);
-    this._rect(px + TILE, py - 2, 2, 2, '#fff');
     ctx.globalAlpha = 1;
 
+    // Participant mini-heads (keep original style — colored shirt/skin/hair)
+    // Using full character sprites at this scale would be unreadable
     if (roomData.is_booked && roomData.participants) {
+      const chairPositions = [
+        [px + 4, py + 8],  [px + 22, py + 8],  [px + 40, py + 8],
+        [px + 4, py + 34], [px + 22, py + 34], [px + 40, py + 34],
+      ];
+      const numChairs = Math.min(roomData.capacity || 6, chairPositions.length);
       for (let i = 0; i < Math.min(roomData.participants.length, numChairs); i++) {
         const [cx, cy] = chairPositions[i];
         const pHash  = this._hashStr(roomData.participants[i] || '');
@@ -992,6 +975,7 @@ class OfficeRenderer {
       }
     }
 
+    // Room label
     const label = (roomData.name || 'Meeting').substring(0, 10);
     ctx.font = '7px monospace';
     const lw = ctx.measureText(label).width + 4;
