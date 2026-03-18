@@ -2207,3 +2207,53 @@ class TestRecoverOrphanedTasks:
 
         # No crash, schedule empty or only has what register() adds
         assert mgr.executors.get("emp01") is not None
+
+
+# ---------------------------------------------------------------------------
+# EmployeeManager — find_holding_task
+# ---------------------------------------------------------------------------
+
+class TestFindHoldingTask:
+    def _make_holding_tree(self, tmp_path, status, result_text):
+        """Create a tree with given status and result, registered in cache."""
+        from onemancompany.core.task_tree import register_tree
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root(employee_id="emp01", description="Test task")
+        root.status = status
+        root.result = result_text
+        tree_path = tmp_path / f"tree_{id(result_text)}.yaml"
+        tree.save(tree_path)
+        register_tree(tree_path, tree)
+        return root, tree_path
+
+    def test_finds_matching_holding_task(self, tmp_path):
+        """Returns node_id when a HOLDING task with matching text is found."""
+        mgr = EmployeeManager()
+        root, tree_path = self._make_holding_tree(tmp_path, "holding", "waiting for batch_id=b1")
+
+        mgr._schedule["emp01"] = [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]
+        result = mgr.find_holding_task("emp01", "batch_id=b1")
+        assert result == root.id
+
+    def test_returns_none_for_no_match(self, tmp_path):
+        """Returns None when no holding task matches."""
+        mgr = EmployeeManager()
+        root, tree_path = self._make_holding_tree(tmp_path, "holding", "waiting for batch_id=b2")
+
+        mgr._schedule["emp01"] = [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]
+        result = mgr.find_holding_task("emp01", "batch_id=b1")
+        assert result is None
+
+    def test_skips_non_holding_tasks(self, tmp_path):
+        """Completed tasks are not returned even if result matches."""
+        mgr = EmployeeManager()
+        root, tree_path = self._make_holding_tree(tmp_path, "completed", "batch_id=b1")
+
+        mgr._schedule["emp01"] = [ScheduleEntry(node_id=root.id, tree_path=str(tree_path))]
+        result = mgr.find_holding_task("emp01", "batch_id=b1")
+        assert result is None
+
+    def test_returns_none_for_empty_schedule(self):
+        """Returns None when employee has no scheduled tasks."""
+        mgr = EmployeeManager()
+        assert mgr.find_holding_task("emp01", "batch_id=b1") is None

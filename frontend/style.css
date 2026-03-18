@@ -2128,9 +2128,9 @@ body {
   align-items: center;
   gap: 4px;
 }
-.card-detail-btn {
-  font-size: 9px !important;
-  padding: 2px 8px !important;
+.candidate-card-wrapper .card-detail-btn {
+  font-size: 9px;
+  padding: 2px 8px;
   width: 100%;
   max-width: 105px;
 }

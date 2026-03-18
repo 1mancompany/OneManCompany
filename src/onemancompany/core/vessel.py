@@ -1086,7 +1086,7 @@ class EmployeeManager:
                     if isinstance(result, str):
                         task_with_ctx = result
                 except Exception:
-                    logger.warning("Pre-task hook failed for %s", employee_id)
+                    logger.warning("Pre-task hook failed for {}", employee_id)
 
             # Universal timeout — asyncio.wait_for wraps ALL executor types.
             task_timeout = node.timeout_seconds or 3600
@@ -1232,7 +1232,7 @@ class EmployeeManager:
                 try:
                     post_task_hook(node, node.result or "")
                 except Exception:
-                    logger.warning("Post-task hook failed for %s", employee_id)
+                    logger.warning("Post-task hook failed for {}", employee_id)
 
             await _store.save_employee_runtime(employee_id, current_task_summary="")
 
@@ -1300,6 +1300,19 @@ class EmployeeManager:
         result = _start_cron(employee_id, cron_name, interval, task_desc)
         if result.get("status") != "ok":
             logger.error("Failed to start holding watchdog for {}: {}", task_id, result)
+
+    def find_holding_task(self, employee_id: str, match_text: str) -> str | None:
+        """Find a HOLDING task whose result contains match_text. Returns node_id or None."""
+        from onemancompany.core.task_tree import get_tree
+        for entry in self._schedule.get(employee_id, []):
+            tp = Path(entry.tree_path)
+            if not tp.exists():
+                continue
+            tree = get_tree(tp)
+            node = tree.get_node(entry.node_id)
+            if node and node.status == "holding" and node.result and match_text in node.result:
+                return entry.node_id
+        return None
 
     async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
         """Resume a HOLDING task with the provided result.

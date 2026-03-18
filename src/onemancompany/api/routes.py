@@ -3826,6 +3826,8 @@ def _check_talent_required_fields(talent_data: dict) -> list[str]:
     if talent_data.get("hosting") != "self":
         if not talent_data.get("llm_model"):
             missing.append("llm_model")
+        if not talent_data.get("api_provider"):
+            missing.append("api_provider")
         if not talent_data.get("auth_method"):
             missing.append("auth_method")
     return missing
@@ -3890,16 +3892,9 @@ async def _cleanup_single_hire_failure(
 
     # Resume HR's HOLDING task
     from onemancompany.core.vessel import employee_manager as _em_hr
-    from onemancompany.core.task_tree import get_tree as _get_tree_hr
-    for entry in _em_hr._schedule.get(HR_ID, []):
-        tp = Path(entry.tree_path)
-        if not tp.exists():
-            continue
-        tree = _get_tree_hr(tp)
-        node = tree.get_node(entry.node_id)
-        if node and node.status == "holding" and node.result and f"batch_id={batch_id}" in node.result:
-            await _em_hr.resume_held_task(HR_ID, entry.node_id, f"Hire failed: {error_msg}")
-            break
+    held_node_id = _em_hr.find_holding_task(HR_ID, f"batch_id={batch_id}")
+    if held_node_id:
+        await _em_hr.resume_held_task(HR_ID, held_node_id, f"Hire failed: {error_msg}")
 
 
 async def _do_hire_single(
