@@ -45,8 +45,29 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     await append_room_chat(room_id, entry)
 
 
+# Track files read in current agent session — write/edit safety check
+_files_read_in_session: set[str] = set()
+
+
+def _resolve_employee_path(file_path: str, employee_id: str = ""):
+    """Resolve a file path using employee permissions. Returns Path or None."""
+    from pathlib import Path
+    from onemancompany.core.file_editor import _resolve_path
+
+    if file_path.startswith("workspace/") and employee_id:
+        return (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    if file_path and Path(file_path).is_absolute():
+        return Path(file_path).resolve()
+    permissions = []
+    if employee_id:
+        emp_data = load_employee(employee_id)
+        if emp_data:
+            permissions = emp_data.get("permissions", [])
+    return _resolve_path(file_path, permissions=permissions)
+
+
 @tool
-def read(file_path: str, employee_id: str = "") -> dict:
+def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0) -> dict:
     """Read the contents of a file.
 
     Accessible paths:
@@ -58,24 +79,10 @@ def read(file_path: str, employee_id: str = "") -> dict:
     Args:
         file_path: File path to read.
         employee_id: Your employee ID.
+        offset: Line number to start reading from (1-based). 0 = start of file.
+        limit: Max number of lines to read. 0 = read all.
     """
-    from onemancompany.core.file_editor import _resolve_path
-
-    from pathlib import Path
-
-    # Handle "workspace/..." shortcut → resolve to employee's workspace dir
-    if file_path.startswith("workspace/") and employee_id:
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    # Handle absolute paths — read-only, safe to allow any path
-    elif file_path and Path(file_path).is_absolute():
-        resolved = Path(file_path).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
@@ -85,7 +92,22 @@ def read(file_path: str, employee_id: str = "") -> dict:
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
         content = resolved.read_text(encoding="utf-8")
-        return {"status": "ok", "path": file_path, "content": content}
+        lines = content.splitlines(keepends=True)
+        total_lines = len(lines)
+
+        if offset > 0 or limit > 0:
+            start = max(0, offset - 1) if offset > 0 else 0
+            end = start + limit if limit > 0 else total_lines
+            lines = lines[start:end]
+            content = "".join(lines)
+
+        _files_read_in_session.add(str(resolved))
+        return {
+            "status": "ok",
+            "path": file_path,
+            "content": content,
+            "total_lines": total_lines,
+        }
     except Exception as e:
         return {"status": "error", "message": f"Read failed: {e}"}
 
@@ -153,6 +175,9 @@ async def write(
 ) -> dict:
     """Write content to a file. Creates the file if it doesn't exist.
 
+    If the file already exists, you MUST read it first using the read() tool.
+    This prevents accidental overwrites. Prefer edit() for modifying existing files.
+
     Args:
         file_path: File path to write.
         content: The text content to write.
@@ -160,34 +185,40 @@ async def write(
         project_dir: Current project workspace path (auto-filled from task context).
     """
     from pathlib import Path
-    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
 
-    # Resolve path
-    if file_path.startswith("workspace/") and employee_id:
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    elif Path(file_path).is_absolute():
-        resolved = Path(file_path).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
 
-    # Check if in free zone → direct write
-    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return {"status": "ok", "path": str(resolved)}
+    is_update = resolved.exists()
+    original_content = ""
 
-    # Not in free zone → direct write (no approval needed)
+    # Safety: must read before overwriting existing files
+    if is_update:
+        if str(resolved) not in _files_read_in_session:
+            return {
+                "status": "error",
+                "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
+            }
+        original_content = resolved.read_text(encoding="utf-8")
+
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(content, encoding="utf-8")
-    return {"status": "ok", "path": str(resolved)}
+    _files_read_in_session.add(str(resolved))
+
+    result: dict = {
+        "status": "ok",
+        "path": str(resolved),
+        "type": "update" if is_update else "create",
+    }
+    if is_update and original_content != content:
+        # Compute a simple line-level diff summary
+        old_lines = original_content.splitlines()
+        new_lines = content.splitlines()
+        result["lines_before"] = len(old_lines)
+        result["lines_after"] = len(new_lines)
+    return result
 
 
 
@@ -195,67 +226,93 @@ async def write(
 @tool
 async def edit(
     file_path: str,
-    new_content: str,
-    reason: str = "",
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
     employee_id: str = "",
-    project_dir: str = "",
 ) -> dict:
-    """Edit (overwrite) an existing file.
+    """Perform exact string replacement in a file.
+
+    You MUST read the file first using read() before editing.
+    The old_string must match exactly (including whitespace/indentation).
+    If old_string appears multiple times, either provide more context to make
+    it unique, or set replace_all=True.
 
     Args:
         file_path: File path to edit.
-        new_content: The complete new file content.
-        reason: Explanation for the edit.
+        old_string: The exact text to find and replace.
+        new_string: The replacement text (must differ from old_string).
+        replace_all: If True, replace all occurrences. Default False.
         employee_id: Your employee ID.
-        project_dir: Current project workspace path (auto-filled from task context).
     """
-    from pathlib import Path
-    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
-
-    # Resolve path
-    if file_path.startswith("workspace/") and employee_id:
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    elif Path(file_path).is_absolute():
-        resolved = Path(file_path).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+    if not resolved.exists():
+        return {"status": "error", "message": f"File not found: {file_path}"}
 
-    # Check if in free zone → direct write
-    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(new_content, encoding="utf-8")
-        return {"status": "ok", "path": str(resolved)}
+    # Safety: must read before editing
+    if str(resolved) not in _files_read_in_session:
+        return {
+            "status": "error",
+            "message": f"You must read '{file_path}' before editing it. Use read() first.",
+        }
 
-    # Not in free zone → direct write (no approval needed)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
+    if old_string == new_string:
+        return {"status": "error", "message": "old_string and new_string are identical."}
+
+    content = resolved.read_text(encoding="utf-8")
+    count = content.count(old_string)
+
+    if count == 0:
+        return {"status": "error", "message": "old_string not found in the file."}
+    if count > 1 and not replace_all:
+        return {
+            "status": "error",
+            "message": f"old_string appears {count} times. Provide more context to make "
+                       f"it unique, or set replace_all=True.",
+        }
+
+    if replace_all:
+        new_content = content.replace(old_string, new_string)
+        replacements = count
+    else:
+        new_content = content.replace(old_string, new_string, 1)
+        replacements = 1
+
     resolved.write_text(new_content, encoding="utf-8")
-    return {"status": "ok", "path": str(resolved)}
+    return {
+        "status": "ok",
+        "path": str(resolved),
+        "replacements": replacements,
+    }
 
 
 @tool
-async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -> dict:
+async def bash(
+    command: str,
+    employee_id: str = "",
+    timeout_seconds: int = 120,
+    description: str = "",
+) -> dict:
     """Execute a shell command and return stdout/stderr.
 
     Use for running scripts, checking system state, or executing build commands.
     Commands run in the project root directory.
+    Prefer dedicated tools (read, ls, edit, grep, glob) over shell equivalents
+    (cat, find, sed, awk) when possible.
 
     Args:
         command: The shell command to execute.
         employee_id: Your employee ID.
-        timeout_seconds: Max execution time in seconds (default 30, max 120).
+        timeout_seconds: Max execution time in seconds (default 120, max 600).
+        description: Brief human-readable description of what the command does.
     """
     import subprocess
     from onemancompany.core.config import SOURCE_ROOT
 
-    timeout_seconds = min(timeout_seconds, 120)
+    timeout_seconds = min(timeout_seconds, 600)
 
     try:
         proc = await asyncio.get_event_loop().run_in_executor(
@@ -279,6 +336,134 @@ async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -
         return {"status": "error", "message": f"Command timed out after {timeout_seconds}s"}
     except Exception as e:
         return {"status": "error", "message": f"Execution failed: {e}"}
+
+
+@tool
+def glob_files(pattern: str, path: str = "", employee_id: str = "") -> dict:
+    """Fast file search by glob pattern. Returns matching file paths sorted by modification time.
+
+    Supports patterns like "**/*.py", "src/**/*.yaml", "*.md".
+
+    Args:
+        pattern: Glob pattern to match files against (e.g. "**/*.py").
+        path: Directory to search in. Defaults to company root if empty.
+        employee_id: Your employee ID.
+    """
+    from pathlib import Path
+
+    if path:
+        resolved = _resolve_employee_path(path, employee_id)
+    else:
+        from onemancompany.core.config import COMPANY_DIR
+        resolved = COMPANY_DIR
+
+    if resolved is None or not resolved.is_dir():
+        return {"status": "error", "message": f"Directory not found: {path}"}
+
+    try:
+        matches = sorted(resolved.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+        MAX_RESULTS = 100
+        truncated = len(matches) > MAX_RESULTS
+        filenames = [str(m) for m in matches[:MAX_RESULTS]]
+        return {
+            "status": "ok",
+            "num_files": len(matches),
+            "filenames": filenames,
+            "truncated": truncated,
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Glob failed: {e}"}
+
+
+@tool
+def grep_search(
+    pattern: str,
+    path: str = "",
+    glob: str = "",
+    case_insensitive: bool = False,
+    context_lines: int = 0,
+    output_mode: str = "files_with_matches",
+    max_results: int = 50,
+    employee_id: str = "",
+) -> dict:
+    """Search file contents using regex patterns.
+
+    Args:
+        pattern: Regex pattern to search for (Python re syntax).
+        path: File or directory to search in. Defaults to company root.
+        glob: Glob pattern to filter files (e.g. "*.py", "*.yaml").
+        case_insensitive: Case insensitive search. Default False.
+        context_lines: Number of lines to show before and after each match.
+        output_mode: "files_with_matches" (file paths only), "content" (matching lines), "count" (match counts).
+        max_results: Max number of results to return. Default 50.
+        employee_id: Your employee ID.
+    """
+    from pathlib import Path
+
+    if path:
+        resolved = _resolve_employee_path(path, employee_id)
+    else:
+        from onemancompany.core.config import COMPANY_DIR
+        resolved = COMPANY_DIR
+
+    if resolved is None:
+        return {"status": "error", "message": f"Access denied or invalid path: {path}"}
+    if not resolved.exists():
+        return {"status": "error", "message": f"Path not found: {path}"}
+
+    flags = re.IGNORECASE if case_insensitive else 0
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as e:
+        return {"status": "error", "message": f"Invalid regex: {e}"}
+
+    # Collect files to search
+    if resolved.is_file():
+        files = [resolved]
+    else:
+        file_glob = glob or "**/*"
+        files = [f for f in sorted(resolved.glob(file_glob)) if f.is_file()]
+
+    results: list = []
+    match_files: list[str] = []
+    count_map: dict[str, int] = {}
+
+    for fpath in files:
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            logger.debug("grep_search: skipping unreadable file {}: {}", fpath, e)
+            continue
+
+        lines = text.splitlines()
+        file_matches: list[dict] = []
+
+        for i, line in enumerate(lines):
+            if compiled.search(line):
+                if output_mode == "content":
+                    start = max(0, i - context_lines)
+                    end = min(len(lines), i + context_lines + 1)
+                    ctx = [{"line": start + j + 1, "text": lines[start + j]} for j in range(end - start)]
+                    file_matches.append({"match_line": i + 1, "context": ctx})
+                else:
+                    file_matches.append({"line": i + 1})
+
+        if file_matches:
+            fpath_str = str(fpath)
+            match_files.append(fpath_str)
+            count_map[fpath_str] = len(file_matches)
+            if output_mode == "content":
+                results.append({"file": fpath_str, "matches": file_matches})
+
+        if len(match_files) >= max_results:
+            break
+
+    if output_mode == "files_with_matches":
+        return {"status": "ok", "num_files": len(match_files), "filenames": match_files}
+    elif output_mode == "count":
+        return {"status": "ok", "num_files": len(match_files), "counts": count_map}
+    else:
+        return {"status": "ok", "num_files": len(match_files), "results": results}
 
 
 @tool
@@ -1090,6 +1275,7 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
+        glob_files, grep_search,
         load_skill,
         resume_held_task, update_project_team,
         read_node_detail,
