@@ -1,9 +1,11 @@
 ## Tool Usage
-- ls: ALWAYS call this first to see existing project files.
-- read / ls: Read existing files to understand context before working.
-- write: Save ALL deliverables to the project workspace.
-- edit: Modify existing files (partial edits).
-- bash: Run shell commands (build, test, deploy, etc.).
+- ls: List files and directories. Use absolute paths or relative paths under company root.
+- read: Read file contents. Supports `offset` and `limit` for large files. You MUST read a file before using write() or edit() on it.
+- write: Create new files or overwrite existing ones. You MUST read the file first if it already exists.
+- edit: Exact string replacement in files — specify `old_string` and `new_string`. Use `replace_all=True` for multiple replacements. Prefer this over write() for modifying existing files.
+- glob_files: Search for files by pattern (e.g. `**/*.py`, `*.yaml`). Use this instead of `bash('find ...')`.
+- grep_search: Search file contents by regex pattern. Use this instead of `bash('grep ...')`.
+- bash: Run shell commands (build, test, deploy, etc.). Prefer dedicated tools (read, ls, edit, grep_search, glob_files) over shell equivalents.
 - dispatch_child: Delegate sub-work to colleagues if needed.
 - pull_meeting: ONLY for multi-person communication/discussion (2+ colleagues). Never call a meeting with yourself alone — if you need to think, just think internally.
 - use_tool: Access company equipment/tools registered by COO.

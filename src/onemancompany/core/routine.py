@@ -834,7 +834,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
 
         coo_task = (
             "EA has approved the following action plan. Please assign execution based on the source field:\n"
-            "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+            f"- source=HR actions: Use dispatch_child() to assign to HR (employee_id='{HR_ID}')\n"
             "- source=COO actions: Execute yourself\n\n"
             "Action plan:\n" + "\n".join(action_lines)
         )
@@ -1417,7 +1417,7 @@ async def _ea_auto_approve_actions(
             action_lines = [f"- [{a.get('source', 'COO')}] {a['description']}" for a in remaining]
             coo_task = (
                 "EA has approved the following action plan. Please assign execution based on the source field:\n"
-                "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+                f"- source=HR actions: Use dispatch_child() to assign to HR (employee_id='{HR_ID}')\n"
                 "- source=COO actions: Execute yourself\n\n"
                 "Action plan:\n" + "\n".join(action_lines)
             )
@@ -1935,7 +1935,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
 
     coo_task = (
         "CEO has approved the following action plan. Please assign execution based on the source field:\n"
-        "- source=HR actions: Use dispatch_child() to assign to HR (employee_id='00002')\n"
+        f"- source=HR actions: Use dispatch_child() to assign to HR (employee_id='{HR_ID}')\n"
         "- source=COO actions: Execute yourself\n\n"
         "Action plan:\n" + "\n".join(action_lines)
     )

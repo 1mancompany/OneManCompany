@@ -11,6 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
+from onemancompany.core.config import CEO_ID
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -97,7 +98,7 @@ def _create_standalone_ceo_request(
     return {
         "status": "dispatched",
         "node_id": node_id,
-        "employee_id": "00001",
+        "employee_id": CEO_ID,
         "description": description,
         "node_type": NodeType.CEO_REQUEST,
         "ceo_request": True,
@@ -145,8 +146,7 @@ def dispatch_child(
 
     if not project_dir or not tree_path_str:
         # --- Standalone CEO request (no tree context, e.g. system/adhoc tasks) ---
-        CEO_EMPLOYEE_ID = "00001"
-        if employee_id == CEO_EMPLOYEE_ID:
+        if employee_id == CEO_ID:
             return _create_standalone_ceo_request(
                 description=description,
                 requester_task_id=task_id,
@@ -220,8 +220,7 @@ def dispatch_child(
                 }
 
         # --- CEO request interception (idempotency check BEFORE creating child) ---
-        CEO_EMPLOYEE_ID = "00001"
-        if employee_id == CEO_EMPLOYEE_ID:
+        if employee_id == CEO_ID:
             from onemancompany.core.task_lifecycle import TaskPhase as _TP
             existing = [
                 c for c in tree.get_children(task_id)
@@ -256,7 +255,7 @@ def dispatch_child(
         child.project_id = current_node.project_id
         child.project_dir = project_dir
 
-        if employee_id == CEO_EMPLOYEE_ID:
+        if employee_id == CEO_ID:
             child.node_type = NodeType.CEO_REQUEST
             # Signal vessel to auto-HOLD parent after execution (no_watchdog:
             # routes.py handles resume when CEO responds)
