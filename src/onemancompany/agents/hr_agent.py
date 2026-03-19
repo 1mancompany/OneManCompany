@@ -287,7 +287,7 @@ class HRAgent(BaseAgentRunner):
                     temperature=float(emp_data.get("temperature", 0.7)),
                     image_model=emp_data.get("image_model", ""),
                     api_provider=emp_data.get("api_provider", "openrouter"),
-                    hosting=emp_data.get("hosting", HostingMode.COMPANY),
+                    hosting=emp_data.get("hosting", HostingMode.COMPANY.value),
                     auth_method=emp_data.get("auth_method", "api_key"),
                     sprite=emp_data.get("sprite", "employee_default"),
                     remote=emp_data.get("remote", False),
