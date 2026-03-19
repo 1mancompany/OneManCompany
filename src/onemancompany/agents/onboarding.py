@@ -670,7 +670,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
 
     # Copy everything from the talent dir that doesn't already exist in emp_dir,
     # skipping files handled specially below and ones that shouldn't transfer.
-    _SKIP_FILES = {"profile.yaml"}  # employee-specific, generated separately
+    _SKIP_FILES = {"profile.yaml", LAUNCH_SCRIPT, HEARTBEAT_SCRIPT}  # scripts handled below with chmod
     _SKIP_DIRS = {".git", "tools", "skills"}  # tools→assets/tools/, skills handled by loop below
     for src in talent_dir.iterdir():
         if src.name in _SKIP_FILES or src.name in _SKIP_DIRS:
@@ -722,11 +722,12 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
                     logger.info("Installed tool '{}' from talent {} to assets/tools/", entry.name, talent_dir.name)
                 register_tool_user(entry.name, employee_id)
             elif entry.is_file() and entry.suffix not in (".py", ".pyc"):
-                # Loose files (e.g. tool.yaml) at tools/ root — copy to assets/tools/{stem}/
-                dst_tool_dir = TOOLS_DIR / entry.stem
-                if not dst_tool_dir.exists():
-                    dst_tool_dir.mkdir(parents=True)
-                    shutil.copy2(str(entry), str(dst_tool_dir / entry.name))
+                # Loose non-Python files (e.g. config.yaml) stay in emp/tools/
+                emp_tools = emp_dir / "tools"
+                emp_tools.mkdir(exist_ok=True)
+                dst = emp_tools / entry.name
+                if not dst.exists():
+                    shutil.copy2(str(entry), str(dst))
 
         # Register employee for any custom_tools listed in manifest.yaml by name
         for tool_name in custom_tools:
