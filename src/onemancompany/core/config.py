@@ -93,6 +93,7 @@ PF_TEMPERATURE = "temperature"
 PF_TALENT_ID = "talent_id"
 PF_SPRITE = "sprite"
 PF_ID = "id"
+PF_CURRENT_TASK_SUMMARY = "current_task_summary"
 
 # ---------------------------------------------------------------------------
 # Common identifiers — canonical strings for sender/role/scope fields

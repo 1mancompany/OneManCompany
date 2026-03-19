@@ -28,6 +28,7 @@ from onemancompany.core.config import (
     PF_ROLE,
     PF_RUNTIME,
     PF_STATUS,
+    PF_CURRENT_TASK_SUMMARY,
     PROMPTS_DIR_NAME,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
@@ -689,8 +690,8 @@ class BaseAgentRunner:
             if eid == self.employee_id:
                 continue
             runtime = edata.get(PF_RUNTIME, {})
-            status = runtime.get("status", STATUS_IDLE)
-            task_summary = runtime.get("current_task_summary", "")
+            status = runtime.get(PF_STATUS, STATUS_IDLE)
+            task_summary = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
             status_tag = f"[{status}]" if status != STATUS_IDLE else ""
             task_hint = f" — {task_summary}" if task_summary else ""
             team_lines.append(

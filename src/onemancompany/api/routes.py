@@ -26,6 +26,7 @@ from onemancompany.core.config import (
     HR_ID,
     MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
+    PF_CURRENT_TASK_SUMMARY,
     STATUS_IDLE,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
@@ -5560,7 +5561,7 @@ async def list_employees():
         data["employee_number"] = emp_id
         data["status"] = runtime.get("status", STATUS_IDLE)
         data["is_listening"] = runtime.get("is_listening", False)
-        data["current_task_summary"] = runtime.get("current_task_summary", "")
+        data[PF_CURRENT_TASK_SUMMARY] = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
         data["api_online"] = runtime.get("api_online", True)
         data["needs_setup"] = runtime.get("needs_setup", False)
         result.append(data)

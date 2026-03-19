@@ -6,6 +6,7 @@ from datetime import datetime
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     FOUNDING_LEVEL,
+    PF_CURRENT_TASK_SUMMARY,
     STATUS_IDLE,
 )
 from loguru import logger
@@ -215,7 +216,7 @@ class Employee:
             "onboarding_completed": self.onboarding_completed,
             "status": self.status,
             "is_listening": self.is_listening,
-            "current_task_summary": self.current_task_summary,
+            PF_CURRENT_TASK_SUMMARY: self.current_task_summary,
             "api_online": self.api_online,
             "needs_setup": self.needs_setup,
             "avatar_sprite": self.avatar_sprite,
