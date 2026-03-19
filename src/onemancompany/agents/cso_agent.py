@@ -11,17 +11,17 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, CSO_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
+from onemancompany.core.config import COO_ID, CSO_ID, HR_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 from onemancompany.core.store import append_activity_sync as _append_activity
 from onemancompany.core import store as _store
 
-CSO_SYSTEM_PROMPT = """You are the CSO (Chief Sales Officer) of "One Man Company".
+CSO_SYSTEM_PROMPT = f"""You are the CSO (Chief Sales Officer) of "One Man Company".
 You manage the sales pipeline, client relationships, and external task delivery.
 
 ## CORE PRINCIPLE — Delegate, Don't Execute
 Your job is to SELL, REVIEW, COORDINATE — NOT to implement.
 - dispatch_child() implementation work to employees.
-- No suitable employee? → dispatch_child("00002", "Hire a [role]...") via HR.
+- No suitable employee? → dispatch_child("{HR_ID}", "Hire a [role]...") via HR.
 - Only do work yourself as an absolute LAST RESORT.
 
 ## Sales Pipeline (follow this lifecycle)

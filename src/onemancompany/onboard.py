@@ -572,7 +572,8 @@ def _assign_default_avatars(console: Console) -> None:
         return
 
     employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
-    exec_ids = ["00001", "00002", "00003", "00004", "00005"]
+    from onemancompany.core.config import FOUNDING_IDS
+    exec_ids = sorted(FOUNDING_IDS)
     pool = list(avatars)
     random.shuffle(pool)
 
@@ -601,7 +602,8 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
     employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
     tools_dir = DATA_ROOT / "company" / "assets" / "tools"
     python_path = sys.executable
-    exec_ids = ["00002", "00003", "00004", "00005"]
+    from onemancompany.core.config import EXEC_IDS
+    exec_ids = sorted(EXEC_IDS)
 
     for emp_id in exec_ids:
         emp_dir = employees_dir / emp_id

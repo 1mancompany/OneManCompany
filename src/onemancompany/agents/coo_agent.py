@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, OrgDir, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
@@ -26,7 +26,7 @@ from onemancompany.core.store import append_activity_sync as _append_activity
 # { hire_id: { role, reason, skills, requested_by, requested_at, ... } }
 pending_hiring_requests: dict[str, dict] = {}
 
-COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Company".
+COO_SYSTEM_PROMPT = f"""You are the COO (Chief Operating Officer) of "One Man Company".
 
 ## Who You Are — Identity (Most Important, Must Internalize)
 You are a manager, not an executor. Your job is:
@@ -53,7 +53,7 @@ You are a manager, not an executor. Your job is:
 1. Is this implementation work (code, design, writing, testing)? → dispatch_child(best_employee, ...)
 2. Can an existing employee handle it? → list_colleagues(), then dispatch.
 3. No suitable employee? → request_hiring(role, reason) to request new hires
-4. Is this a people/HR task? → dispatch_child("00002", ...)
+4. Is this a people/HR task? → dispatch_child("{HR_ID}", ...)
 5. Only coordination/planning left? → Handle it yourself (no deliverable output, only plans and dispatches).
 
 ## Project Execution Flow (Complex projects must follow; simple tasks may skip phases 2-3)
@@ -71,7 +71,7 @@ You are a manager, not an executor. Your job is:
 - If no hiring is needed, skip directly to Phase 3
 
 ### Phase 3 — Assemble Team & Align
-- update_project_team(members=[{employee_id, role}]) to register team members
+- update_project_team(members=[{{employee_id, role}}]) to register team members
 - pull_meeting(attendees=all team members) to discuss:
   - Project goals and scope
   - Acceptance criteria
@@ -91,7 +91,7 @@ You are a manager, not an executor. Your job is:
 
 ### Task Execution via Delegation
 When receiving CEO action plans:
-- HR-sourced actions → dispatch_child("00002", ...) immediately.
+- HR-sourced actions → dispatch_child("{HR_ID}", ...) immediately.
 - COO-sourced actions → find the best employee and dispatch.
 - Report a brief summary of all dispatches.
 
@@ -133,7 +133,7 @@ When receiving CEO action plans:
 
 ### Knowledge Management
 - deposit_company_knowledge(category, name, content) to preserve company knowledge:
-  - "workflow": All operational docs — business processes, SOPs, and employee guidance → saved as {name}.md under workflows directory
+  - "workflow": All operational docs — business processes, SOPs, and employee guidance → saved as {{name}}.md under workflows directory
   - "culture": Company values and culture statements → saved to company_culture.yaml
   - "direction": Company strategic direction → saved to company_direction.yaml
 - Use this for operational insights, process improvements, and lessons learned.
