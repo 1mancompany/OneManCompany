@@ -854,7 +854,7 @@ wheels = [
 
 [[package]]
 name = "onemancompany"
-version = "0.2.45"
+version = "0.2.383"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -867,8 +867,6 @@ dependencies = [
     { name = "langgraph" },
     { name = "loguru" },
     { name = "mcp" },
-    { name = "opensandbox" },
-    { name = "opensandbox-code-interpreter" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -877,6 +875,12 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
     { name = "websockets" },
+]
+
+[package.optional-dependencies]
+sandbox = [
+    { name = "opensandbox" },
+    { name = "opensandbox-code-interpreter" },
 ]
 
 [package.dev-dependencies]
@@ -899,8 +903,8 @@ requires-dist = [
     { name = "langgraph", specifier = ">=0.3" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "mcp", specifier = ">=1.0" },
-    { name = "opensandbox", specifier = ">=0.1" },
-    { name = "opensandbox-code-interpreter", specifier = ">=0.1" },
+    { name = "opensandbox", marker = "extra == 'sandbox'", specifier = ">=0.1" },
+    { name = "opensandbox-code-interpreter", marker = "extra == 'sandbox'", specifier = ">=0.1" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-dotenv", specifier = ">=1.0" },
@@ -910,6 +914,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=4.0" },
     { name = "websockets", specifier = ">=13" },
 ]
+provides-extras = ["sandbox"]
 
 [package.metadata.requires-dev]
 dev = [
