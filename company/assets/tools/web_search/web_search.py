@@ -39,10 +39,20 @@ _API_URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-sonnet-4-20250514"
 _API_VERSION = "2025-01-01"
 _USER_AGENT = "OneManCompany-WebSearch/1.0"
+_TOOL_TYPE = "web_search_20250305"
+
+# Claude API response block types
 _BLOCK_TYPE_SEARCH_RESULT = "web_search_tool_result"
 _BLOCK_TYPE_RESULT_ITEM = "web_search_result"
 _BLOCK_TYPE_TEXT = "text"
-_TOOL_TYPE = "web_search_20250305"
+
+# Response field keys
+_FIELD_CONTENT = "content"
+_FIELD_TYPE = "type"
+_FIELD_TEXT = "text"
+_FIELD_TITLE = "title"
+_FIELD_URL = "url"
+_FIELD_PAGE_SNIPPET = "page_snippet"
 
 
 def _post_json(url: str, headers: dict, payload: dict, timeout: int = 30) -> tuple[dict | None, str | None]:
@@ -69,14 +79,14 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: int = 30) -> tup
 def _extract_search_results(response: dict) -> list[dict]:
     """Extract web search results from Claude API response content blocks."""
     results = []
-    for block in response.get("content", []):
-        if block.get("type") == _BLOCK_TYPE_SEARCH_RESULT:
-            for item in block.get("content", []):
-                if item.get("type") == _BLOCK_TYPE_RESULT_ITEM:
+    for block in response.get(_FIELD_CONTENT, []):
+        if block.get(_FIELD_TYPE) == _BLOCK_TYPE_SEARCH_RESULT:
+            for item in block.get(_FIELD_CONTENT, []):
+                if item.get(_FIELD_TYPE) == _BLOCK_TYPE_RESULT_ITEM:
                     results.append({
-                        "title": item.get("title", ""),
-                        "url": item.get("url", ""),
-                        "snippet": item.get("page_snippet", ""),
+                        _FIELD_TITLE: item.get(_FIELD_TITLE, ""),
+                        _FIELD_URL: item.get(_FIELD_URL, ""),
+                        _FIELD_PAGE_SNIPPET: item.get(_FIELD_PAGE_SNIPPET, ""),
                     })
     return results
 
@@ -84,9 +94,9 @@ def _extract_search_results(response: dict) -> list[dict]:
 def _extract_text_answer(response: dict) -> str:
     """Extract the text summary from Claude's response."""
     parts = []
-    for block in response.get("content", []):
-        if block.get("type") == _BLOCK_TYPE_TEXT:
-            parts.append(block.get("text", ""))
+    for block in response.get(_FIELD_CONTENT, []):
+        if block.get(_FIELD_TYPE) == _BLOCK_TYPE_TEXT:
+            parts.append(block.get(_FIELD_TEXT, ""))
     return "\n".join(parts).strip()
 
 
