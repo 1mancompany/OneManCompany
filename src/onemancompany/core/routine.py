@@ -35,6 +35,7 @@ from onemancompany.core.config import (
     MEETING_REPORTS_DIR,
     STATUS_IDLE,
     STATUS_IN_MEETING,
+    TASK_TREE_FILENAME,
     TASKS_PER_QUARTER,
     load_workflows,
 )
@@ -2510,7 +2511,7 @@ async def _create_project_from_action_points(
     )
     _save_project_tree(pdir, tree)
 
-    tree_path = str(Path(pdir) / "task_tree.yaml")
+    tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
     employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
     employee_manager._schedule_next(EA_ID)
 

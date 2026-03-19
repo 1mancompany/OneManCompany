@@ -11,6 +11,7 @@ from pathlib import Path
 
 from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, SOURCE_ROOT
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import DecisionStatus
 
 # Backup subfolder name (created alongside the modified file)
 BACKUP_FOLDER_NAME = ".backups"
@@ -162,7 +163,7 @@ def reject_edit(edit_id: str) -> dict:
     edit = pending_file_edits.pop(edit_id, None)
     if not edit:
         return {"status": "error", "message": "Edit request not found or expired"}
-    return {"status": "rejected", "rel_path": edit["rel_path"]}
+    return {"status": DecisionStatus.REJECTED.value, "rel_path": edit["rel_path"]}
 
 
 def list_pending_edits() -> list[dict]:

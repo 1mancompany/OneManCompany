@@ -41,6 +41,27 @@ class Department(str, Enum):
     MARKETING = "Marketing"
 
 
+class ConversationType(str, Enum):
+    """Types of conversation channels."""
+    CEO_INBOX = "ceo_inbox"
+    ONE_ON_ONE = "oneonone"
+
+
+class ConversationPhase(str, Enum):
+    """Lifecycle phases of a conversation."""
+    ACTIVE = "active"
+    CLOSING = "closing"
+    CLOSED = "closed"
+
+
+class ToolCategory(str, Enum):
+    """Tool permission categories."""
+    BASE = "base"
+    GATED = "gated"
+    ROLE = "role"
+    ASSET = "asset"
+
+
 from onemancompany.core.task_lifecycle import TaskPhase
 
 
@@ -55,6 +76,24 @@ class HostingMode(str, Enum):
     COMPANY = "company"
     SELF = "self"
     REMOTE = "remote"
+
+
+class ConversationType(str, Enum):
+    CEO_INBOX = "ceo_inbox"
+    ONE_ON_ONE = "oneonone"
+
+
+class ConversationPhase(str, Enum):
+    ACTIVE = "active"
+    CLOSING = "closing"
+    CLOSED = "closed"
+
+
+class ToolCategory(str, Enum):
+    BASE = "base"
+    GATED = "gated"
+    ROLE = "role"
+    ASSET = "asset"
 
 
 # ---------------------------------------------------------------------------

@@ -22,10 +22,14 @@ from onemancompany.core.config import (
     DATA_ROOT,
     EA_ID,
     HR_ID,
+    MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
     STATUS_IDLE,
+    TASK_TREE_FILENAME,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import DecisionStatus
+from onemancompany.core.project_archive import ITER_STATUS_CANCELLED, ITER_STATUS_COMPLETED, ITER_STATUS_FAILED
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
@@ -289,7 +293,7 @@ async def admin_apply_code_update() -> dict:
     else:
         # Tasks running — defer restart
         employee_manager._restart_pending = True
-        return {"status": "deferred", "message": "Restart scheduled after current tasks complete"}
+        return {"status": DecisionStatus.DEFERRED.value, "message": "Restart scheduled after current tasks complete"}
 
 
 @router.post("/api/admin/clear-tasks")
@@ -621,7 +625,7 @@ async def ceo_submit_task(body: dict) -> dict:
             from onemancompany.core.vessel import _save_project_tree
             from onemancompany.core.agent_loop import employee_manager
 
-            tree_path = Path(pdir) / "task_tree.yaml"
+            tree_path = Path(pdir) / TASK_TREE_FILENAME
 
             # For new iterations on existing projects: archive old tree
             if iter_id and tree_path.exists():
@@ -699,7 +703,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     original_task = doc.get("task", "")
 
     # Load task tree for context
-    tree_path = Path(pdir) / "task_tree.yaml"
+    tree_path = Path(pdir) / TASK_TREE_FILENAME
     previous_result = ""
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
@@ -729,7 +733,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     followup_task = "\n".join(context_parts)
 
     # Append to existing tree (or create new if none exists)
-    tree_path = Path(pdir) / "task_tree.yaml"
+    tree_path = Path(pdir) / TASK_TREE_FILENAME
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
     else:
@@ -784,7 +788,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
 
     # Schedule the EA node for execution
     if schedule_node_id:
-        tree_path = str(Path(pdir) / "task_tree.yaml")
+        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
         from onemancompany.core.agent_loop import employee_manager
         employee_manager.schedule_node(EA_ID, schedule_node_id, tree_path)
         employee_manager._schedule_next(EA_ID)
@@ -1636,7 +1640,7 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
         if not tree:
             continue
         node = tree.get_node(node_id)
-        if node and node.status not in ("accepted", "failed", "cancelled"):
+        if node and node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
             # CEO cancellation — force status bypass for terminal override
             node.status = TaskPhase.CANCELLED.value
             node.result = "Cancelled by CEO"
@@ -1644,7 +1648,7 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
             await event_bus.publish(_CE(
                 type="tree_update",
                 payload={"project_id": tree.project_id, "event_type": "node_updated",
-                         "node_id": node_id, "data": {"status": "cancelled"}},
+                         "node_id": node_id, "data": {"status": TaskPhase.CANCELLED.value}},
                 agent="SYSTEM",
             ))
     # Save modified trees
@@ -1673,11 +1677,11 @@ async def abort_task(project_id: str) -> dict:
 
     pdir = get_project_dir(project_id)
     if pdir:
-        tree_path = _Path(pdir) / "task_tree.yaml"
+        tree_path = _Path(pdir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=project_id)
             for node in tree.all_nodes():
-                if node.status not in ("accepted", "failed", "cancelled"):
+                if node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
                     # CEO abort — force status bypass for terminal override
                     node.status = TaskPhase.CANCELLED.value
                     node.result = "Cancelled by CEO (project aborted)"
@@ -1687,9 +1691,9 @@ async def abort_task(project_id: str) -> dict:
     # Trigger 4: CEO aborts → cancelled (via store for mark_dirty)
     from onemancompany.core import store as _store
     proj_doc = _lp(project_id)
-    if proj_doc and proj_doc.get("status") not in ("completed", "cancelled", "failed"):
+    if proj_doc and proj_doc.get("status") not in (ITER_STATUS_COMPLETED, ITER_STATUS_CANCELLED, ITER_STATUS_FAILED):
         await _store.save_project_status(
-            project_id, "cancelled", completed_at=_dt.now().isoformat()
+            project_id, ITER_STATUS_CANCELLED, completed_at=_dt.now().isoformat()
         )
 
     # Broadcast state
@@ -1761,10 +1765,10 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     if not node:
         return {"status": "error", "message": "Node not found in tree"}
 
-    if node.status not in ("pending", "processing", "holding"):
+    if node.status not in (TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOLDING):
         return {"status": "error", "message": f"Task already {node.status}"}
 
-    was_in_progress = node.status == "processing"
+    was_in_progress = node.status == TaskPhase.PROCESSING
 
     # Force cancel — bypass transition validation
     node.status = TaskPhase.CANCELLED.value
@@ -1900,7 +1904,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     await _store.save_employee(employee_id, hosting_updates)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
-    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if manifest_path.exists():
         manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["hosting"] = new_hosting
@@ -2824,7 +2828,7 @@ async def continue_iteration(body: dict) -> dict:
     if not doc:
         return {"error": "Iteration not found"}
 
-    if doc.get("status") == "completed":
+    if doc.get("status") == ITER_STATUS_COMPLETED:
         return {"error": "Iteration already completed"}
 
     task = doc.get("task", "")
@@ -2881,7 +2885,7 @@ async def continue_iteration(body: dict) -> dict:
         from onemancompany.core.vessel import _save_project_tree
         from onemancompany.core.agent_loop import employee_manager
 
-        tree_path = Path(project_dir) / "task_tree.yaml"
+        tree_path = Path(project_dir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=ctx_id)
             root = tree.get_node(tree.root_id)
@@ -2964,7 +2968,7 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return []
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return []
     tree = get_tree(path, project_id=project_id)
@@ -2972,15 +2976,15 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
 
     # Map TaskPhase statuses to kanban-compatible statuses
     status_map = {
-        "pending": "pending",
-        "processing": "in_progress",
-        "holding": "in_progress",
-        "completed": "completed",
-        "accepted": "completed",
-        "finished": "completed",
-        "failed": "completed",
-        "blocked": "pending",
-        "cancelled": "completed",
+        TaskPhase.PENDING.value: "pending",
+        TaskPhase.PROCESSING.value: "in_progress",
+        TaskPhase.HOLDING.value: "in_progress",
+        TaskPhase.COMPLETED.value: "completed",
+        TaskPhase.ACCEPTED.value: "completed",
+        TaskPhase.FINISHED.value: "completed",
+        TaskPhase.FAILED.value: "completed",
+        TaskPhase.BLOCKED.value: "pending",
+        TaskPhase.CANCELLED.value: "completed",
     }
 
     dispatches = []
@@ -3041,7 +3045,7 @@ def _tree_summary(project_id: str) -> dict | None:
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return None
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return None
     tree = get_tree(path, project_id=project_id)
@@ -3054,9 +3058,9 @@ def _tree_summary(project_id: str) -> dict | None:
     for n in nodes:
         by_status[n.status] = by_status.get(n.status, 0) + 1
 
-    terminal = sum(by_status.get(s, 0) for s in ("accepted", "failed", "cancelled"))
-    processing = by_status.get("processing", 0)
-    completed = by_status.get("completed", 0)
+    terminal = sum(by_status.get(s, 0) for s in (TaskPhase.ACCEPTED.value, TaskPhase.FAILED.value, TaskPhase.CANCELLED.value))
+    processing = by_status.get(TaskPhase.PROCESSING.value, 0)
+    completed = by_status.get(TaskPhase.COMPLETED.value, 0)
 
     # Collect actively working nodes (non-terminal)
     active_nodes = []
@@ -3065,7 +3069,7 @@ def _tree_summary(project_id: str) -> dict | None:
         # For multi-node trees, skip root (it's the coordinator)
         if has_children and n.id == tree.root_id:
             continue
-        if n.status in ("processing", "completed", "pending"):
+        if n.status in (TaskPhase.PROCESSING, TaskPhase.COMPLETED, TaskPhase.PENDING):
             active_nodes.append({
                 "id": n.id,
                 "employee_id": n.employee_id,
@@ -3161,14 +3165,14 @@ def _load_project_tree_for_api(project_id: str):
         slug = _find_project_for_iteration(project_id)
         if slug:
             _, bare_id = _split_qualified_iter(project_id)
-            iter_tree = PROJECTS_DIR / slug / "iterations" / bare_id / "task_tree.yaml"
+            iter_tree = PROJECTS_DIR / slug / "iterations" / bare_id / TASK_TREE_FILENAME
             if iter_tree.exists():
                 return get_tree(iter_tree, project_id=project_id)
 
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return None
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return None
     return get_tree(path, project_id=project_id)
@@ -3220,7 +3224,7 @@ async def get_project_tree(project_id: str) -> dict:
         d["result"] = n.result or ""
         # Compute dependency_status
         if n.depends_on:
-            if n.status == "blocked":
+            if n.status == TaskPhase.BLOCKED:
                 d["dependency_status"] = "blocked"
             elif tree.all_deps_resolved(n.id):
                 d["dependency_status"] = "resolved"
@@ -3614,7 +3618,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         "sprite": ex_data.get("sprite", "employee_default"),
         "remote": is_remote,
     })
-    await _store.save_employee_runtime(employee_id, status="idle")
+    await _store.save_employee_runtime(employee_id, status=STATUS_IDLE)
 
     # Recompute layout
     compute_layout(company_state)
@@ -3722,7 +3726,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
         from onemancompany.core.task_tree import get_tree
         tree = get_tree(entry.tree_path)
         node = tree.get_node(entry.node_id)
-        if not node or node.status != "holding":
+        if not node or node.status != TaskPhase.HOLDING.value:
             continue
         # Match by hire_id in HOLDING metadata
         holding_meta = _parse_holding_metadata(node.result)
@@ -3779,7 +3783,7 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         # TODO: cancel HR task if already dispatched
 
     return {
-        "status": "approved" if approved else "rejected",
+        "status": DecisionStatus.APPROVED.value if approved else DecisionStatus.REJECTED.value,
         "hire_id": request_id,
         "role": req["role"],
     }
@@ -4537,7 +4541,7 @@ async def remote_register(body: dict) -> dict:
     _remote_workers[reg.employee_id] = {
         "worker_url": reg.worker_url,
         "capabilities": reg.capabilities,
-        "status": "idle",
+        "status": STATUS_IDLE,
         "current_task_id": None,
     }
     # Ensure task queue exists
@@ -4582,7 +4586,7 @@ async def remote_submit_results(body: dict) -> dict:
     result = TaskResult(**body)
     # Update worker status
     if result.employee_id in _remote_workers:
-        _remote_workers[result.employee_id]["status"] = "idle"
+        _remote_workers[result.employee_id]["status"] = STATUS_IDLE
         _remote_workers[result.employee_id]["current_task_id"] = None
 
     # Record token usage from remote worker if provided
@@ -5550,7 +5554,7 @@ async def list_employees():
         runtime = data.pop("runtime", {})
         data["id"] = emp_id
         data["employee_number"] = emp_id
-        data["status"] = runtime.get("status", "idle")
+        data["status"] = runtime.get("status", STATUS_IDLE)
         data["is_listening"] = runtime.get("is_listening", False)
         data["current_task_summary"] = runtime.get("current_task_summary", "")
         data["api_online"] = runtime.get("api_online", True)
@@ -5607,7 +5611,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
         return results
 
     # Recursively find all task_tree.yaml files under projects/
-    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
         tree = get_tree(tree_path)
         for node in tree.all_nodes():
             if node.node_type != NodeType.CEO_REQUEST:
@@ -5643,7 +5647,7 @@ def _find_ceo_node(node_id: str):
     from onemancompany.core.task_tree import get_tree
 
     if PROJECTS_DIR.exists():
-        for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+        for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
             tree = get_tree(tree_path)
             node = tree.get_node(node_id)
             if node and node.node_type == NodeType.CEO_REQUEST:
@@ -5676,7 +5680,7 @@ async def open_ceo_conversation(node_id: str):
         transition(node.id, TaskPhase.PENDING, TaskPhase.PROCESSING)
         node.status = TaskPhase.PROCESSING.value
         from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / "task_tree.yaml")
+        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
 
     # Find the dispatching employee (parent node's employee)
     parent = tree.get_node(node.parent_id) if node.parent_id else None
@@ -5727,7 +5731,7 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
         node.status = TaskPhase.ACCEPTED.value
         from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / "task_tree.yaml")
+        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
         _trigger_dep_resolution(project_dir, tree, node)
 
         # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
@@ -5831,12 +5835,13 @@ async def update_system_cron(name: str, body: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 from onemancompany.core.conversation import ConversationService, Message
+from onemancompany.core.models import ConversationType, ConversationPhase
 
 _conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
 
-_VALID_CONV_TYPES = {"ceo_inbox", "oneonone"}
-_VALID_CONV_PHASES = {"active", "closing", "closed"}
+_VALID_CONV_TYPES = {t.value for t in ConversationType}
+_VALID_CONV_PHASES = {p.value for p in ConversationPhase}
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
 
@@ -5848,7 +5853,7 @@ async def create_conversation(body: dict) -> dict:
         raise HTTPException(status_code=400, detail=f"Invalid type: must be one of {_VALID_CONV_TYPES}")
     if not employee_id:
         raise HTTPException(status_code=400, detail="employee_id is required")
-    if conv_type == "ceo_inbox" and not body.get("project_dir"):
+    if conv_type == ConversationType.CEO_INBOX.value and not body.get("project_dir"):
         raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
     conv = await _conversation_service.create(
         type=conv_type,
@@ -5938,7 +5943,7 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
 async def list_conversations(type: str | None = None, phase: str | None = None) -> dict:
     if phase and phase not in _VALID_CONV_PHASES:
         raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
-    if phase and phase != "active":
+    if phase and phase != ConversationPhase.ACTIVE.value:
         convs = _conversation_service.list_by_phase(type=type, phase=phase)
     else:
         convs = _conversation_service.list_active(type=type)

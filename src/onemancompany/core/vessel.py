@@ -37,9 +37,12 @@ from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     MAX_SUMMARY_LEN,
+    SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
+    TASK_TREE_FILENAME,
 )
+from onemancompany.core.project_archive import ITER_STATUS_FAILED
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
 from onemancompany.core import store as _store
@@ -73,7 +76,7 @@ _current_task_id: ContextVar[str] = ContextVar("_current_task_id", default="")
 def _load_project_tree(project_dir: str):
     """Get TaskTree from memory cache (loading from disk if needed)."""
     from onemancompany.core.task_tree import get_tree
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return None
     return get_tree(path)
@@ -85,7 +88,7 @@ def _save_project_tree(project_dir: str, tree):
     First call creates the file synchronously; subsequent saves are async.
     """
     from onemancompany.core.task_tree import register_tree, save_tree_async
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     register_tree(path, tree)
     if not path.exists():
         tree.save(path)  # sync: create file on disk
@@ -115,7 +118,7 @@ def _build_dependency_context(tree, node, project_dir: str = "") -> str:
         result = dep.result or "(no result)"
         if len(result) > max_per_dep:
             result = "..." + result[-max_per_dep:]
-        status_label = "completed" if dep.status == "accepted" else dep.status
+        status_label = "completed" if dep.status == TaskPhase.ACCEPTED else dep.status
         sections.append(f"{dep.employee_id} {status_label} \"{dep.description}\":\n{result}")
     if not sections:
         return ""
@@ -177,7 +180,7 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
         for child in children:
             if child.is_ceo_node:
                 continue
-            if child.status == "accepted":
+            if child.status == TaskPhase.ACCEPTED:
                 parts.append(f"  [ACCEPTED] {child.id} ({child.employee_id}): {child.description_preview[:100]}")
             elif child.is_done_executing:
                 child.load_content(project_dir)
@@ -1332,7 +1335,7 @@ class EmployeeManager:
                 continue
             tree = get_tree(tp)
             node = tree.get_node(entry.node_id)
-            if node and node.status == "holding" and node.result and match_text in node.result:
+            if node and node.status == TaskPhase.HOLDING and node.result and match_text in node.result:
                 return entry.node_id
         return None
 
@@ -1759,7 +1762,7 @@ class EmployeeManager:
                      employee_id, entry.node_id, node.status, is_root, node.parent_id)
         if is_root and task_failed:
             logger.debug("[ON_CHILD_COMPLETE] root node {} failed → project {} marked failed", entry.node_id, project_id)
-            await _store.save_project_status(project_id, "failed")
+            await _store.save_project_status(project_id, ITER_STATUS_FAILED)
             return
 
         # --- Propagate upward: review / auto-complete parent ---
@@ -1837,7 +1840,7 @@ class EmployeeManager:
         for child in children:
             if child.is_ceo_node or child.node_type in _SKIP_REVIEW_TYPES:
                 continue
-            if child.status == "accepted":
+            if child.status == TaskPhase.ACCEPTED:
                 already_accepted.append(child)
             else:
                 needs_review.append(child)
@@ -1961,7 +1964,7 @@ class EmployeeManager:
     async def _resolve_dependencies(self, tree, completed_node, project_dir: str) -> None:
         """Check if completing this node unlocks any dependent tasks."""
         project_id = completed_node.project_id or tree.project_id
-        tree_path = str(Path(project_dir) / "task_tree.yaml")
+        tree_path = str(Path(project_dir) / TASK_TREE_FILENAME)
         from onemancompany.core.task_tree import get_tree_lock
         lock = get_tree_lock(tree_path)
         with lock:
@@ -1974,7 +1977,7 @@ class EmployeeManager:
             cascade_cancelled: list = []  # nodes that were cascade-cancelled
 
             for dep_node in dependents:
-                if dep_node.status != "pending":
+                if dep_node.status != TaskPhase.PENDING.value:
                     continue
 
                 if tree.has_failed_deps(dep_node.id):
@@ -2040,14 +2043,14 @@ class EmployeeManager:
 
             # Check if all tree nodes are now terminal or blocked → project failed
             all_stuck = all(
-                n.status in ("blocked", "failed", "cancelled", "accepted", "finished")
+                n.status in (TaskPhase.BLOCKED, TaskPhase.FAILED, TaskPhase.CANCELLED, TaskPhase.ACCEPTED, TaskPhase.FINISHED)
                 for n in tree._nodes.values()
                 if n.id != tree.root_id
             )
             if all_stuck and any(
-                n.status in ("blocked", "failed") for n in tree._nodes.values()
+                n.status in (TaskPhase.BLOCKED, TaskPhase.FAILED) for n in tree._nodes.values()
             ):
-                await _store.save_project_status(project_id, "failed")
+                await _store.save_project_status(project_id, ITER_STATUS_FAILED)
 
             for emp_id in to_schedule:
                 if emp_id not in self._running_tasks:
@@ -2072,7 +2075,7 @@ class EmployeeManager:
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
         lines = [f"Project Completion Report — {node.description_preview[:100]}", ""]
         for i, child in enumerate(children, 1):
-            status_icon = "✓" if child.status == "accepted" else "●"
+            status_icon = "✓" if child.status == TaskPhase.ACCEPTED else "●"
             lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.description_preview[:80]}")
             child.load_content(_pdir)
             lines.append(f"  Result: {(child.result or 'None')[:200]}")
@@ -2136,7 +2139,7 @@ class EmployeeManager:
             if agent_error:
                 label = f"{label} (with errors)"
             if agent_error:
-                await _store.save_project_status(project_id, "failed")
+                await _store.save_project_status(project_id, ITER_STATUS_FAILED)
             else:
                 complete_project(project_id, label)
 
@@ -2225,7 +2228,7 @@ class EmployeeManager:
         if not node_result:
             return
 
-        soul_path = get_workspace_dir(employee_id) / "SOUL.md"
+        soul_path = get_workspace_dir(employee_id) / SOUL_FILENAME
         soul_path.parent.mkdir(parents=True, exist_ok=True)
 
         existing = ""
@@ -2474,7 +2477,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
     for project_dir in sorted(PROJECTS_DIR.iterdir()):
         if not project_dir.is_dir():
             continue
-        tree_path = project_dir / "task_tree.yaml"
+        tree_path = project_dir / TASK_TREE_FILENAME
         if not tree_path.exists():
             continue
         try:
@@ -2484,7 +2487,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
             continue
 
         for node in tree.all_nodes():
-            if node.status != "completed":
+            if node.status != TaskPhase.COMPLETED.value:
                 continue
             # Skip system nodes (review/ceo_request auto-finish)
             if node.node_type in SYSTEM_NODE_TYPES:

@@ -23,11 +23,16 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
+from onemancompany.core.config import NODES_DIR_NAME
 from onemancompany.core.task_lifecycle import (
     TaskPhase, transition,
     RESOLVED, DONE_EXECUTING, UNBLOCKS_DEPENDENTS, WILL_NOT_DELIVER,
 )
 
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+NODES_DIR = NODES_DIR_NAME
 _STATUS_MIGRATION = {"complete": "completed"}
 
 
@@ -47,7 +52,7 @@ class TaskNode:
     model_used: str = ""              # which LLM executed
     project_dir: str = ""             # workspace path
 
-    status: str = "pending"  # pending → processing → completed → accepted / failed / cancelled
+    status: str = TaskPhase.PENDING.value  # pending → processing → completed → accepted / failed / cancelled
     result: str = ""
     acceptance_result: dict | None = None  # {passed: bool, notes: str}
 
@@ -104,7 +109,7 @@ class TaskNode:
         """Write description/result to a separate content file."""
         if not self._content_dirty:
             return
-        nodes_dir = Path(project_dir) / "nodes"
+        nodes_dir = Path(project_dir) / NODES_DIR
         nodes_dir.mkdir(parents=True, exist_ok=True)
         content = {"description": self.description, "result": self.result}
         (nodes_dir / f"{self.id}.yaml").write_text(
@@ -117,7 +122,7 @@ class TaskNode:
         """Load description/result from content file (idempotent)."""
         if self._content_loaded:
             return
-        content_path = Path(project_dir) / "nodes" / f"{self.id}.yaml"
+        content_path = Path(project_dir) / NODES_DIR / f"{self.id}.yaml"
         if content_path.exists():
             data = yaml.safe_load(content_path.read_text(encoding="utf-8")) or {}
             # Use object.__setattr__ to avoid marking dirty
@@ -321,7 +326,7 @@ class TaskTree:
 
 
     def has_failed_children(self, node_id: str) -> bool:
-        return any(c.status == "failed" for c in self.get_active_children(node_id))
+        return any(c.status == TaskPhase.FAILED for c in self.get_active_children(node_id))
 
     def find_dependents(self, node_id: str) -> list[TaskNode]:
         """Find all nodes that depend on the given node."""

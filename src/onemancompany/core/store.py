@@ -12,17 +12,37 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any  # noqa: F401 — used by callers re-exporting
 
 import yaml
 from loguru import logger
 
 from onemancompany.core.config import (
+    COMPANY_CULTURE_FILE,
+    COMPANY_DIRECTION_FILE,
     COMPANY_DIR,
-    DATA_ROOT,
+    DATA_ROOT,  # noqa: F401 — re-exported, used by test fixtures
+    PROJECTS_DIR,  # noqa: F401 — re-exported, used by test fixtures
+    DirtyCategory,
     EMPLOYEES_DIR,
-    PROJECTS_DIR,
+    EX_EMPLOYEES_DIR,
+    GUIDANCE_FILENAME,
+    PROFILE_FILENAME,
+    ROOMS_DIR,
+    TASK_TREE_FILENAME,
+    TOOLS_DIR,
 )
+
+# ---------------------------------------------------------------------------
+# Filename constants (single-file, used only in store.py)
+# ---------------------------------------------------------------------------
+WORK_PRINCIPLES_FILENAME = "work_principles.md"
+ACTIVITY_LOG_FILENAME = "activity_log.yaml"
+OVERHEAD_FILENAME = "overhead.yaml"
+TASK_INDEX_FILENAME = "task_index.yaml"
+ONEONONE_HISTORY_FILENAME = "oneonone_history.yaml"
+SALES_TASKS_PATH = COMPANY_DIR / "sales" / "tasks.yaml"
+CANDIDATES_DIR = COMPANY_DIR / "candidates"
 
 # ---------------------------------------------------------------------------
 # Low-level YAML I/O
@@ -105,11 +125,11 @@ def flush_dirty() -> list[str]:
 # ---------------------------------------------------------------------------
 
 def _employee_profile_path(emp_id: str) -> Path:
-    return EMPLOYEES_DIR / emp_id / "profile.yaml"
+    return EMPLOYEES_DIR / emp_id / PROFILE_FILENAME
 
 
 def _ex_employee_profile_path(emp_id: str) -> Path:
-    return DATA_ROOT / "company" / "human_resource" / "ex-employees" / emp_id / "profile.yaml"
+    return EX_EMPLOYEES_DIR / emp_id / PROFILE_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +149,7 @@ def load_all_employees() -> dict[str, dict]:
     for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if profile_path.exists():
             result[emp_dir.name] = _read_yaml(profile_path)
     return result
@@ -137,14 +157,14 @@ def load_all_employees() -> dict[str, dict]:
 
 def load_ex_employees() -> dict[str, dict]:
     """Read all ex-employee profile.yamls."""
-    ex_dir = DATA_ROOT / "company" / "human_resource" / "ex-employees"
+    ex_dir = EX_EMPLOYEES_DIR
     result: dict[str, dict] = {}
     if not ex_dir.exists():
         return result
     for emp_dir in sorted(ex_dir.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if profile_path.exists():
             result[emp_dir.name] = _read_yaml(profile_path)
     return result
@@ -152,7 +172,7 @@ def load_ex_employees() -> dict[str, dict]:
 
 def load_employee_guidance(emp_id: str) -> list[str]:
     """Read guidance.yaml for an employee. Returns list of guidance notes."""
-    path = EMPLOYEES_DIR / emp_id / "guidance.yaml"
+    path = EMPLOYEES_DIR / emp_id / GUIDANCE_FILENAME
     data = _read_yaml(path)
     if not data:
         return []
@@ -163,7 +183,7 @@ def load_employee_guidance(emp_id: str) -> list[str]:
 
 def load_employee_work_principles(emp_id: str) -> str:
     """Read work_principles.md for an employee."""
-    path = EMPLOYEES_DIR / emp_id / "work_principles.md"
+    path = EMPLOYEES_DIR / emp_id / WORK_PRINCIPLES_FILENAME
     try:
         return path.read_text(encoding="utf-8") if path.exists() else ""
     except Exception:
@@ -181,7 +201,7 @@ async def save_employee(emp_id: str, updates: dict) -> None:
         data = _read_yaml(path)
         data.update(updates)
         _write_yaml(path, data)
-    mark_dirty("employees")
+    mark_dirty(DirtyCategory.EMPLOYEES)
 
 
 async def save_employee_runtime(emp_id: str, **fields) -> None:
@@ -192,7 +212,7 @@ async def save_employee_runtime(emp_id: str, **fields) -> None:
         runtime = data.setdefault("runtime", {})
         runtime.update(fields)
         _write_yaml(path, data)
-    mark_dirty("employees")
+    mark_dirty(DirtyCategory.EMPLOYEES)
 
 
 async def save_ex_employee(emp_id: str, data: dict) -> None:
@@ -200,23 +220,23 @@ async def save_ex_employee(emp_id: str, data: dict) -> None:
     path = _ex_employee_profile_path(emp_id)
     async with _get_lock(str(path)):
         _write_yaml(path, data)
-    mark_dirty("ex_employees")
+    mark_dirty(DirtyCategory.EX_EMPLOYEES)
 
 
 async def save_guidance(emp_id: str, notes: list[str]) -> None:
     """Write guidance.yaml for an employee."""
-    path = EMPLOYEES_DIR / emp_id / "guidance.yaml"
+    path = EMPLOYEES_DIR / emp_id / GUIDANCE_FILENAME
     async with _get_lock(str(path)):
         _write_yaml(path, {"notes": notes})
-    mark_dirty("employees")
+    mark_dirty(DirtyCategory.EMPLOYEES)
 
 
 async def save_work_principles(emp_id: str, text: str) -> None:
     """Write work_principles.md for an employee."""
-    path = EMPLOYEES_DIR / emp_id / "work_principles.md"
+    path = EMPLOYEES_DIR / emp_id / WORK_PRINCIPLES_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    mark_dirty("employees")
+    mark_dirty(DirtyCategory.EMPLOYEES)
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +244,7 @@ async def save_work_principles(emp_id: str, text: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _rooms_dir() -> Path:
-    return DATA_ROOT / "company" / "assets" / "rooms"
+    return ROOMS_DIR
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +259,7 @@ def load_project(project_id: str) -> dict:
 async def save_project_status(project_id: str, status: str, **extra) -> None:
     from onemancompany.core.project_archive import update_project_status
     update_project_status(project_id, status, **extra)
-    mark_dirty("task_queue")
+    mark_dirty(DirtyCategory.TASK_QUEUE)
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +292,7 @@ async def save_room(room_id: str, updates: dict) -> None:
         data = _read_yaml(path)
         data.update(updates)
         _write_yaml(path, data)
-    mark_dirty("rooms")
+    mark_dirty(DirtyCategory.ROOMS)
 
 
 def load_room_chat(room_id: str) -> list[dict]:
@@ -286,7 +306,7 @@ async def append_room_chat(room_id: str, message: dict) -> None:
         messages.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(messages, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("rooms")
+    mark_dirty(DirtyCategory.ROOMS)
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +332,7 @@ async def save_tool(slug: str, data: dict) -> None:
     path = tools_dir / slug / "tool.yaml"
     async with _get_lock(str(path)):
         _write_yaml(path, data)
-    mark_dirty("tools")
+    mark_dirty(DirtyCategory.TOOLS)
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +340,10 @@ async def save_tool(slug: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 async def save_tree(project_dir: str, tree_data: dict) -> None:
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     async with _get_lock(str(path)):
         _write_yaml(path, tree_data)
-    mark_dirty("task_queue")
+    mark_dirty(DirtyCategory.TASK_QUEUE)
 
 
 # ---------------------------------------------------------------------------
@@ -331,11 +351,11 @@ async def save_tree(project_dir: str, tree_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def load_activity_log() -> list[dict]:
-    return _read_yaml_list(COMPANY_DIR / "activity_log.yaml")
+    return _read_yaml_list(COMPANY_DIR / ACTIVITY_LOG_FILENAME)
 
 
 async def append_activity(entry: dict) -> None:
-    path = COMPANY_DIR / "activity_log.yaml"
+    path = COMPANY_DIR / ACTIVITY_LOG_FILENAME
     async with _get_lock(str(path)):
         log = _read_yaml_list(path)
         log.append(entry)
@@ -343,19 +363,19 @@ async def append_activity(entry: dict) -> None:
             log = log[-200:]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("activity_log")
+    mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
 def append_activity_sync(entry: dict) -> None:
     """Synchronous version of append_activity for use in non-async contexts (e.g., LangChain tools)."""
-    path = COMPANY_DIR / "activity_log.yaml"
+    path = COMPANY_DIR / ACTIVITY_LOG_FILENAME
     log = _read_yaml_list(path)
     log.append(entry)
     if len(log) > 200:
         log = log[-200:]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("activity_log")
+    mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
 def load_culture() -> list[dict]:
@@ -367,39 +387,39 @@ async def save_culture(items: list[dict]) -> None:
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(items, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("culture")
+    mark_dirty(DirtyCategory.CULTURE)
 
 
 def load_direction() -> str:
-    data = _read_yaml(COMPANY_DIR / "company_direction.yaml")
+    data = _read_yaml(COMPANY_DIRECTION_FILE)
     return data.get("direction", "") if data else ""
 
 
 async def save_direction(text: str) -> None:
-    path = COMPANY_DIR / "company_direction.yaml"
+    path = COMPANY_DIRECTION_FILE
     async with _get_lock(str(path)):
         _write_yaml(path, {"direction": text})
-    mark_dirty("direction")
+    mark_dirty(DirtyCategory.DIRECTION)
 
 
 def load_sales_tasks() -> list[dict]:
-    return _read_yaml_list(COMPANY_DIR / "sales" / "tasks.yaml")
+    return _read_yaml_list(SALES_TASKS_PATH)
 
 
 async def save_sales_tasks(tasks: list[dict]) -> None:
-    path = COMPANY_DIR / "sales" / "tasks.yaml"
+    path = SALES_TASKS_PATH
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("sales_tasks")
+    mark_dirty(DirtyCategory.SALES_TASKS)
 
 
 def save_sales_tasks_sync(tasks: list[dict]) -> None:
     """Synchronous version of save_sales_tasks for use in non-async contexts (e.g., LangChain tools)."""
-    path = COMPANY_DIR / "sales" / "tasks.yaml"
+    path = SALES_TASKS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("sales_tasks")
+    mark_dirty(DirtyCategory.SALES_TASKS)
 
 
 # ---------------------------------------------------------------------------
@@ -412,13 +432,13 @@ def load_task_index(employee_id: str) -> list[dict]:
 
     Returns list of dicts: [{node_id, tree_path}, ...]
     """
-    path = EMPLOYEES_DIR / employee_id / "task_index.yaml"
+    path = EMPLOYEES_DIR / employee_id / TASK_INDEX_FILENAME
     return _read_yaml_list(path)
 
 
 def save_task_index(employee_id: str, entries: list[dict]) -> None:
     """Overwrite the task index for an employee (sync)."""
-    path = EMPLOYEES_DIR / employee_id / "task_index.yaml"
+    path = EMPLOYEES_DIR / employee_id / TASK_INDEX_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         yaml.dump(entries, allow_unicode=True, default_flow_style=False),
@@ -452,7 +472,7 @@ async def save_candidates(batch_id: str, data: dict) -> None:
     path = COMPANY_DIR / "candidates" / f"{batch_id}.yaml"
     async with _get_lock(str(path)):
         _write_yaml(path, data)
-    mark_dirty("candidates")
+    mark_dirty(DirtyCategory.CANDIDATES)
 
 
 # ---------------------------------------------------------------------------
@@ -460,17 +480,17 @@ async def save_candidates(batch_id: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def load_oneonone(emp_id: str) -> list[dict]:
-    return _read_yaml_list(EMPLOYEES_DIR / emp_id / "oneonone_history.yaml")
+    return _read_yaml_list(EMPLOYEES_DIR / emp_id / ONEONONE_HISTORY_FILENAME)
 
 
 async def append_oneonone(emp_id: str, message: dict) -> None:
-    path = EMPLOYEES_DIR / emp_id / "oneonone_history.yaml"
+    path = EMPLOYEES_DIR / emp_id / ONEONONE_HISTORY_FILENAME
     async with _get_lock(str(path)):
         history = _read_yaml_list(path)
         history.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.dump(history, allow_unicode=True, default_flow_style=False), encoding="utf-8")
-    mark_dirty("employees")
+    mark_dirty(DirtyCategory.EMPLOYEES)
 
 
 # ---------------------------------------------------------------------------
@@ -478,18 +498,18 @@ async def append_oneonone(emp_id: str, message: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def load_overhead() -> dict:
-    return _read_yaml(COMPANY_DIR / "overhead.yaml")
+    return _read_yaml(COMPANY_DIR / OVERHEAD_FILENAME)
 
 
 async def save_overhead(data: dict) -> None:
-    path = COMPANY_DIR / "overhead.yaml"
+    path = COMPANY_DIR / OVERHEAD_FILENAME
     async with _get_lock(str(path)):
         _write_yaml(path, data)
-    mark_dirty("overhead")
+    mark_dirty(DirtyCategory.OVERHEAD)
 
 
 def save_overhead_sync(data: dict) -> None:
     """Synchronous version of save_overhead for use in non-async contexts (e.g., LangChain tools)."""
-    path = COMPANY_DIR / "overhead.yaml"
+    path = COMPANY_DIR / OVERHEAD_FILENAME
     _write_yaml(path, data)
-    mark_dirty("overhead")
+    mark_dirty(DirtyCategory.OVERHEAD)

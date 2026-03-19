@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, CSO_ID, HR_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
+from onemancompany.core.models import DecisionStatus
 from onemancompany.core.store import append_activity_sync as _append_activity
 from onemancompany.core import store as _store
 
@@ -162,12 +163,12 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
             "notes": notes,
         })
         return {
-            "status": "approved",
+            "status": DecisionStatus.APPROVED.value,
             "task_id": task_id,
             "message": f"Contract approved. Task dispatched to COO for production.",
         }
     else:
-        _update_sales_task_sync(task_id, {"status": "rejected"})
+        _update_sales_task_sync(task_id, {"status": DecisionStatus.REJECTED.value})
         _append_activity({
             "type": "contract_rejected",
             "task_id": task_id,
@@ -175,7 +176,7 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
             "notes": notes,
         })
         return {
-            "status": "rejected",
+            "status": DecisionStatus.REJECTED.value,
             "task_id": task_id,
             "message": f"Contract rejected. Reason: {notes}",
         }

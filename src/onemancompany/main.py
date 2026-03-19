@@ -16,19 +16,32 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-# Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
-_debug_mode = os.environ.get("OMC_DEBUG", "0") == "1"
-logger.remove()
-logger.add(sys.stderr, level="DEBUG" if _debug_mode else "INFO")
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+from onemancompany.core.config import ENV_OMC_DEBUG, LogLevel
 
-# Always write logs to file; DEBUG level when debug mode, else INFO
-_log_dir = Path.cwd() / ".onemancompany" / "logs"
+LOG_DIR_NAME = "logs"
+LOG_FILE_PATTERN = "omc_{time:YYYY-MM-DD}.log"
+LOG_ROTATION = "00:00"
+LOG_RETENTION = "7 days"
+
+# ---------------------------------------------------------------------------
+
+# Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
+_debug_mode = os.environ.get(ENV_OMC_DEBUG, "0") == "1"
+_log_level = LogLevel.DEBUG if _debug_mode else LogLevel.INFO
+logger.remove()
+logger.add(sys.stderr, level=_log_level)
+
+# Always write logs to file
+_log_dir = Path.cwd() / ".onemancompany" / LOG_DIR_NAME
 _log_dir.mkdir(parents=True, exist_ok=True)
 logger.add(
-    _log_dir / "omc_{time:YYYY-MM-DD}.log",
-    level="DEBUG" if _debug_mode else "INFO",
-    rotation="00:00",
-    retention="7 days",
+    _log_dir / LOG_FILE_PATTERN,
+    level=_log_level,
+    rotation=LOG_ROTATION,
+    retention=LOG_RETENTION,
     encoding="utf-8",
 )
 
@@ -112,6 +125,7 @@ async def _start_file_watcher() -> None:
     from watchdog.events import FileSystemEventHandler
 
     from onemancompany.core.config import APP_CONFIG_PATH, COMPANY_DIR, is_hot_reload_enabled
+    from onemancompany.core.models import DecisionStatus
     from onemancompany.core.state import request_reload
 
     DEBOUNCE_SECONDS = 0.5
@@ -131,7 +145,7 @@ async def _start_file_watcher() -> None:
             self._pending = None
             try:
                 result = request_reload()
-                if result.get("status") == "deferred":
+                if result.get("status") == DecisionStatus.DEFERRED:
                     print("[hot-reload] Deferred: agents are busy, will reload when idle")
                 else:
                     updated = result.get("employees_updated", [])
@@ -218,9 +232,9 @@ async def _start_code_watcher() -> None:
     BACKEND_EXTENSIONS = {".py"}
 
     # Build set of founding employee manifest paths to watch
-    from onemancompany.core.config import EMPLOYEES_DIR, EXEC_IDS, invalidate_manifest_cache
+    from onemancompany.core.config import EMPLOYEES_DIR, EXEC_IDS, MANIFEST_FILENAME, invalidate_manifest_cache
     _founding_manifest_paths = {
-        str(EMPLOYEES_DIR / eid / "manifest.json") for eid in EXEC_IDS
+        str(EMPLOYEES_DIR / eid / MANIFEST_FILENAME) for eid in EXEC_IDS
     }
 
     class _CodeChangeHandler(FileSystemEventHandler):

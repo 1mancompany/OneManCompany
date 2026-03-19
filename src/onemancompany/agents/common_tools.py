@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, get_workspace_dir
+from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, STATUS_IDLE, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -497,7 +497,7 @@ def list_colleagues() -> list[dict]:
             "level": emp_data.get("level", 1),
             "skills": emp_data.get("skills", []),
             "tools": tool_names,
-            "status": runtime.get("status", emp_data.get("status", "idle")),
+            "status": runtime.get("status", emp_data.get("status", STATUS_IDLE)),
             "current_task": runtime.get("current_task_summary", "") or None,
         })
     return results

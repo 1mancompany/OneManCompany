@@ -112,7 +112,8 @@ async def _build_agent_and_invoke(
         context_parts = []
         proj_path = Path(project_dir)
         # Load the task node description
-        tree_path = proj_path / "task_tree.yaml"
+        from onemancompany.core.config import TASK_TREE_FILENAME
+        tree_path = proj_path / TASK_TREE_FILENAME
         if tree_path.exists():
             try:
                 from onemancompany.core.task_tree import get_tree

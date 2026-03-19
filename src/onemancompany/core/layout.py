@@ -27,6 +27,7 @@ from onemancompany.core.config import (
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
+    PROFILE_FILENAME,
 )
 
 # CEO + executives — all handled separately from department zones
@@ -125,8 +126,9 @@ def compute_layout(company_state) -> dict:
     _persist_positions(position_updates)
 
     # Notify frontend that office layout changed (dept zones, colors, etc.)
+    from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty("office_layout")
+    mark_dirty(DirtyCategory.OFFICE_LAYOUT)
 
     return layout
 
@@ -148,7 +150,7 @@ def _persist_positions(position_updates: dict[str, list[int]]) -> None:
     from onemancompany.core.config import EMPLOYEES_DIR
 
     for emp_id, pos in position_updates.items():
-        profile_path = EMPLOYEES_DIR / emp_id / "profile.yaml"
+        profile_path = EMPLOYEES_DIR / emp_id / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:

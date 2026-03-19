@@ -40,11 +40,33 @@ SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
+# ---------------------------------------------------------------------------
+# Common filenames used across modules
+# ---------------------------------------------------------------------------
+PROFILE_FILENAME = "profile.yaml"
+TASK_TREE_FILENAME = "task_tree.yaml"
+GUIDANCE_FILENAME = "guidance.yaml"
+MANIFEST_FILENAME = "manifest.json"
+NODES_DIR_NAME = "nodes"
+SOUL_FILENAME = "SOUL.md"
+
+
+# ---------------------------------------------------------------------------
+# Environment & logging
+# ---------------------------------------------------------------------------
+from enum import Enum
+
+ENV_OMC_DEBUG = "OMC_DEBUG"
+
+
+class LogLevel(str, Enum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+
 
 # ---------------------------------------------------------------------------
 # OrgDir — enum of organizational knowledge directories
 # ---------------------------------------------------------------------------
-from enum import Enum
 
 
 class OrgDir(str, Enum):
@@ -122,9 +144,31 @@ PROBATION_TASKS = 2                            # tasks to complete during probat
 # ---------------------------------------------------------------------------
 # Employee status
 # ---------------------------------------------------------------------------
-STATUS_IDLE = "idle"
-STATUS_WORKING = "working"
-STATUS_IN_MEETING = "in_meeting"
+class EmployeeStatus(str, Enum):
+    IDLE = "idle"
+    WORKING = "working"
+    IN_MEETING = "in_meeting"
+
+STATUS_IDLE = EmployeeStatus.IDLE
+STATUS_WORKING = EmployeeStatus.WORKING
+STATUS_IN_MEETING = EmployeeStatus.IN_MEETING
+
+
+class DirtyCategory(str, Enum):
+    """Resource categories for sync tick dirty tracking."""
+    EMPLOYEES = "employees"
+    EX_EMPLOYEES = "ex_employees"
+    ROOMS = "rooms"
+    TOOLS = "tools"
+    TASK_QUEUE = "task_queue"
+    CULTURE = "culture"
+    ACTIVITY_LOG = "activity_log"
+    SALES_TASKS = "sales_tasks"
+    DIRECTION = "direction"
+    CANDIDATES = "candidates"
+    OVERHEAD = "overhead"
+    OFFICE_LAYOUT = "office_layout"
+
 
 # ---------------------------------------------------------------------------
 # Role-to-department mapping
@@ -468,7 +512,7 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
     for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:
@@ -503,7 +547,7 @@ def load_employee_skills(employee_id: str) -> dict[str, str]:
 
 def load_employee_profile_yaml(employee_id: str) -> dict:
     """Load an employee's profile.yaml from disk. Returns empty dict if missing."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     if not profile_path.exists():
         return {}
     with open(profile_path) as f:
@@ -512,7 +556,7 @@ def load_employee_profile_yaml(employee_id: str) -> dict:
 
 def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
     """Write a full profile dict to employees/{id}/profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     with open(profile_path, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
@@ -622,7 +666,7 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
     for emp_dir in sorted(EX_EMPLOYEES_DIR.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         emp_id = emp_dir.name
@@ -714,7 +758,7 @@ def load_manifest(employee_id: str) -> dict | None:
     """Load manifest.json for an employee, with caching."""
     if employee_id in MANIFEST_CACHE:
         return MANIFEST_CACHE[employee_id]
-    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if not manifest_path.exists():
         return None
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -761,7 +805,7 @@ def load_talent_profile(talent_id: str) -> dict:
     Returns the parsed YAML as a dict, or empty dict if not found.
     """
     for base in (TALENTS_RUNTIME_DIR, TALENTS_DIR):
-        profile_path = base / talent_id / "profile.yaml"
+        profile_path = base / talent_id / PROFILE_FILENAME
         if profile_path.exists():
             with open(profile_path) as f:
                 return yaml.safe_load(f) or {}
@@ -811,7 +855,7 @@ def list_available_talents() -> list[dict]:
     for talent_dir in sorted(TALENTS_DIR.iterdir()):
         if not talent_dir.is_dir():
             continue
-        profile_path = talent_dir / "profile.yaml"
+        profile_path = talent_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:

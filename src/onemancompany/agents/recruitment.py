@@ -114,11 +114,12 @@ def _persist_candidates() -> None:
         loop.create_task(_store.save_candidates("pending", data))
     except RuntimeError:
         # No event loop — write synchronously
+        from onemancompany.core.config import DirtyCategory
         from onemancompany.core.store import _write_yaml, COMPANY_DIR
         from onemancompany.core.store import mark_dirty
         path = COMPANY_DIR / "candidates" / "pending.yaml"
         _write_yaml(path, data)
-        mark_dirty("candidates")
+        mark_dirty(DirtyCategory.CANDIDATES)
 
 
 def _load_candidates_from_disk() -> None:

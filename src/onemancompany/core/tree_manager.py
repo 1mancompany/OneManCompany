@@ -12,6 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from onemancompany.core.config import TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -52,7 +53,7 @@ class TaskTreeManager:
 
     def load(self) -> TaskTree:
         """Load tree from disk."""
-        path = Path(self.project_dir) / "task_tree.yaml"
+        path = Path(self.project_dir) / TASK_TREE_FILENAME
         if path.exists():
             self._tree = TaskTree.load(path, project_id=self.project_id)
         else:
@@ -124,7 +125,7 @@ class TaskTreeManager:
     def _save(self) -> None:
         """Persist tree to disk."""
         if self._tree:
-            path = Path(self.project_dir) / "task_tree.yaml"
+            path = Path(self.project_dir) / TASK_TREE_FILENAME
             self._tree.save(path)
 
     async def _broadcast(self, event: TreeEvent) -> None:

@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from onemancompany.core.config import RESOLUTIONS_DIR
+from onemancompany.core.models import DecisionStatus
 
 # ---------------------------------------------------------------------------
 # Context variable: tracks the current project_id during agent execution
@@ -77,7 +78,7 @@ def create_resolution(project_id: str, task_description: str) -> dict | None:
         "project_id": project_id,
         "task": task_description,
         "created_at": datetime.now().isoformat(),
-        "status": "pending",
+        "status": DecisionStatus.PENDING.value,
         "edits": resolution_edits,
     }
 
@@ -213,7 +214,7 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
 
         elif decision == "reject":
             edit["executed"] = False
-            results.append({"edit_id": eid, "decision": "reject", "status": "rejected"})
+            results.append({"edit_id": eid, "decision": "reject", "status": DecisionStatus.REJECTED.value})
 
         elif decision == "defer":
             edit["executed"] = False
@@ -223,15 +224,15 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
                 edit["original_md5"] = _compute_md5(
                     file_path.read_text(encoding="utf-8")
                 )
-            results.append({"edit_id": eid, "decision": "defer", "status": "deferred"})
+            results.append({"edit_id": eid, "decision": "defer", "status": DecisionStatus.DEFERRED.value})
 
     # Update status: decided if all edits have a decision
     all_decided = all(e.get("decision") is not None for e in resolution.get("edits", []))
     if all_decided:
         has_deferred = any(e.get("decision") == "defer" for e in resolution.get("edits", []))
-        resolution["status"] = "pending" if has_deferred else "decided"
+        resolution["status"] = DecisionStatus.PENDING.value if has_deferred else "decided"
     else:
-        resolution["status"] = "pending"
+        resolution["status"] = DecisionStatus.PENDING.value
 
     _save_resolution(resolution)
     return {"status": "ok", "results": results}

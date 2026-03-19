@@ -289,7 +289,7 @@ async def project_progress_watchdog() -> list | None:
     When stuck, a new task node is added under the EA node asking it to
     review the task tree and drive the project forward.
     """
-    from onemancompany.core.config import EA_ID, PROJECTS_DIR
+    from onemancompany.core.config import EA_ID, PROJECTS_DIR, TASK_TREE_FILENAME
     from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED, NodeType
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
     from onemancompany.core.vessel import employee_manager
@@ -299,7 +299,7 @@ async def project_progress_watchdog() -> list | None:
 
     nudged_projects: list[str] = []
 
-    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
         tree_path_str = str(tree_path)
         try:
             tree = get_tree(tree_path_str)
@@ -403,8 +403,8 @@ def _build_tree_status_summary(tree) -> str:
     for n in active_nodes:
         by_status.setdefault(n.status, []).append(n)
 
-    for status in ["pending", "processing", "holding", "completed", "accepted",
-                    "finished", "failed", "blocked", "cancelled"]:
+    from onemancompany.core.task_lifecycle import TaskPhase
+    for status in [p.value for p in TaskPhase]:
         nodes = by_status.get(status, [])
         if not nodes:
             continue

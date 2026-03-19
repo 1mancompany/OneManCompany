@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.config import CEO_ID
+from onemancompany.core.config import CEO_ID, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -22,7 +22,7 @@ from onemancompany.core.task_tree import TaskTree
 def _load_tree(project_dir: str) -> TaskTree:
     """Get TaskTree from memory cache (loading from disk if needed)."""
     from onemancompany.core.task_tree import get_tree
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         logger.warning("task_tree.yaml not found at %s", path)
         return TaskTree(project_id="")
@@ -54,7 +54,7 @@ def _find_entry_for_task(task_id: str) -> tuple[str, str]:
 def _save_tree(project_dir: str, tree: TaskTree) -> None:
     """Schedule async save of the TaskTree."""
     from onemancompany.core.task_tree import save_tree_async
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     save_tree_async(path)
 
 
@@ -357,11 +357,11 @@ def accept_child(node_id: str, notes: str = "") -> dict:
 
         # Idempotent: already accepted/finished/cancelled → return success without re-transitioning
         if current == TaskPhase.ACCEPTED.value:
-            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_accepted": True}
         if current == TaskPhase.FINISHED.value:
-            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_finished": True}
         if current == TaskPhase.CANCELLED.value:
-            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_cancelled": True}
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_cancelled": True}
 
         # Only completed tasks can be accepted
         if current != TaskPhase.COMPLETED.value:
@@ -378,7 +378,7 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": "accepted", "node_id": node_id, "notes": notes}
+        return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes}
 
 
 @tool
@@ -531,7 +531,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": "cancelled", "node_id": node_id}
+        return {"status": TaskPhase.CANCELLED.value, "node_id": node_id}
 
 
 @tool

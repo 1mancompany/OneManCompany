@@ -23,7 +23,11 @@ from onemancompany.core.config import (
     DEFAULT_TOOL_PERMISSIONS_FALLBACK,
     DEFAULT_DEPARTMENT,
     HR_ID,
+    MANIFEST_FILENAME,
+    PROFILE_FILENAME,
     ROLE_DEPARTMENT_MAP,
+    SOUL_FILENAME,
+    STATUS_IDLE,
     TOOLS_DIR,
     EmployeeConfig,
     ensure_employee_dir,
@@ -558,7 +562,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
             raise subprocess.CalledProcessError(proc.returncode, f"git clone {repo_url}", stderr=stderr)
 
         # Check if repo itself is a single talent (has profile.yaml at root)
-        if (tmp_clone / "profile.yaml").exists():
+        if (tmp_clone / PROFILE_FILENAME).exists():
             dest = _TALENTS_CLONE_DIR / talent_id
             if dest.exists():
                 shutil.rmtree(dest)
@@ -566,7 +570,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
         else:
             # Multi-talent repo: each subdir with profile.yaml is a talent
             for sub in tmp_clone.iterdir():
-                if sub.is_dir() and (sub / "profile.yaml").exists():
+                if sub.is_dir() and (sub / PROFILE_FILENAME).exists():
                     dest = _TALENTS_CLONE_DIR / sub.name
                     if dest.exists():
                         shutil.rmtree(dest)
@@ -678,7 +682,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
                     shutil.copy2(str(src_file), str(dst_file))
 
     # Copy talent persona (system_prompt_template → prompts/talent_persona.md)
-    talent_profile_path = talent_dir / "profile.yaml"
+    talent_profile_path = talent_dir / PROFILE_FILENAME
     if talent_profile_path.exists():
         with open(talent_profile_path) as f:
             talent_data = yaml.safe_load(f) or {}
@@ -696,9 +700,9 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
             shutil.copy2(str(talent_claude_md), str(dst_claude_md))
 
     # Copy manifest.json (frontend UI config — OAuth buttons, settings sections)
-    talent_manifest_json = talent_dir / "manifest.json"
+    talent_manifest_json = talent_dir / MANIFEST_FILENAME
     if talent_manifest_json.exists():
-        dst_manifest_json = emp_dir / "manifest.json"
+        dst_manifest_json = emp_dir / MANIFEST_FILENAME
         if not dst_manifest_json.exists():
             shutil.copy2(str(talent_manifest_json), str(dst_manifest_json))
 
@@ -862,7 +866,7 @@ async def execute_hire(
         "onboarding_completed": False,
         "avatar_sprite": avatar_sprite_num,
     })
-    await _store.save_employee_runtime(emp_num, status="idle")
+    await _store.save_employee_runtime(emp_num, status=STATUS_IDLE)
 
     if progress_callback:
         await progress_callback("copying_skills", "Copying skill packages...")
@@ -924,7 +928,7 @@ async def execute_hire(
     # Create initial SOUL.md in workspace
     workspace_dir = emp_dir / "workspace"
     workspace_dir.mkdir(exist_ok=True)
-    soul_path = workspace_dir / "SOUL.md"
+    soul_path = workspace_dir / SOUL_FILENAME
     if not soul_path.exists():
         soul_path.write_text(
             f"# {name} ({nickname}) — Personal Knowledge\n\n"

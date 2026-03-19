@@ -16,6 +16,7 @@ from onemancompany.core.config import (
     MAX_SUMMARY_LEN,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
+    SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
     employee_configs,
@@ -659,9 +660,9 @@ class BaseAgentRunner:
             if eid == self.employee_id:
                 continue
             runtime = edata.get("runtime", {})
-            status = runtime.get("status", "idle")
+            status = runtime.get("status", STATUS_IDLE)
             task_summary = runtime.get("current_task_summary", "")
-            status_tag = f"[{status}]" if status != "idle" else ""
+            status_tag = f"[{status}]" if status != STATUS_IDLE else ""
             task_hint = f" — {task_summary}" if task_summary else ""
             team_lines.append(
                 f"  - {edata.get('name', '')}({edata.get('nickname', '')}) ID:{eid} {edata.get('role', '')} Lv.{edata.get('level', 1)}{status_tag}{task_hint}"
@@ -716,7 +717,7 @@ class BaseAgentRunner:
 
     def _get_soul_section(self) -> str:
         """Load the employee's self-maintained SOUL.md knowledge file."""
-        soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / "SOUL.md"
+        soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / SOUL_FILENAME
         if soul_path.exists():
             try:
                 content = soul_path.read_text(encoding="utf-8").strip()

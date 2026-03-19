@@ -13,6 +13,7 @@ from typing import Protocol, runtime_checkable
 from loguru import logger
 
 from onemancompany.core.conversation import Conversation, Message
+from onemancompany.core.models import ConversationType
 
 
 @runtime_checkable
@@ -93,9 +94,9 @@ def _build_conversation_prompt(
     """Build a prompt with conversation history for the executor."""
     lines = []
     lines.append("You are in a conversation with the CEO.")
-    if conversation.type == "oneonone":
+    if conversation.type == ConversationType.ONE_ON_ONE:
         lines.append("This is a 1-on-1 meeting. Be direct and professional.")
-    elif conversation.type == "ceo_inbox":
+    elif conversation.type == ConversationType.CEO_INBOX:
         lines.append("The CEO is responding to your request. Answer their questions.")
 
     if messages:

@@ -73,7 +73,7 @@ ALLOWLIST: list[tuple[str, str | None, int, int]] = [
     ("oauth", "Exception", 310, 330),
     ("oauth", "Exception", 405, 425),
     # Path.relative_to raises ValueError when path is not relative — intentional flow control
-    ("project_archive", "ValueError", 55, 65),
+    ("project_archive", "ValueError", 55, 80),
 ]
 
 

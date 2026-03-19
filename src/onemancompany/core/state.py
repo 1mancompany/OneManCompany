@@ -9,7 +9,8 @@ from onemancompany.core.config import (
     STATUS_IDLE,
 )
 from loguru import logger
-from onemancompany.core.models import OverheadCosts
+from onemancompany.core.models import DecisionStatus, OverheadCosts
+from onemancompany.core.task_lifecycle import TaskPhase
 
 
 @dataclass
@@ -28,7 +29,7 @@ class TaskEntry:
     iteration_id: str = ""  # v2 = iter_XXX, v1 = empty
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
-    status: str = "pending"  # follows TaskPhase values
+    status: str = TaskPhase.PENDING.value  # follows TaskPhase values
     result: str = ""       # task output / report on completion
     created_at: str = ""
     completed_at: str = ""
@@ -325,7 +326,7 @@ def request_reload() -> dict:
         return reload_all_from_disk()
     else:
         _reload_pending = True
-        return {"status": "deferred", "reason": "agents are busy"}
+        return {"status": DecisionStatus.DEFERRED.value, "reason": "agents are busy"}
 
 
 def flush_pending_reload() -> dict | None:
@@ -348,14 +349,16 @@ def reload_all_from_disk() -> dict:
     3. Refresh the employee counter (in-memory counter for ID generation).
     4. Recompute office layout.
     """
-    from onemancompany.core.config import invalidate_manifest_cache, reload_app_config
+    from onemancompany.core.config import DirtyCategory, invalidate_manifest_cache, reload_app_config
     from onemancompany.core.store import mark_dirty
 
     reload_app_config()
 
     mark_dirty(
-        "employees", "ex_employees", "rooms", "tools", "task_queue",
-        "culture", "activity_log", "sales_tasks", "direction",
+        DirtyCategory.EMPLOYEES, DirtyCategory.EX_EMPLOYEES,
+        DirtyCategory.ROOMS, DirtyCategory.TOOLS, DirtyCategory.TASK_QUEUE,
+        DirtyCategory.CULTURE, DirtyCategory.ACTIVITY_LOG,
+        DirtyCategory.SALES_TASKS, DirtyCategory.DIRECTION,
     )
     invalidate_manifest_cache()
 
