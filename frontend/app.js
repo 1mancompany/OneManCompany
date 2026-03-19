@@ -3875,13 +3875,25 @@ class AppController {
           html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Documents (${files.length}):</div>`;
           for (const f of files) {
             const url = `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(f)}`;
+            const safeUrl = this._escHtml(url);
+            const safeFile = this._escHtml(f);
+            const encodedUrl = encodeURIComponent(url);
+            const encodedFile = encodeURIComponent(f);
             html += `<div style="font-size:6px;margin:2px 0;">`;
-            html += `<a href="${url}" target="_blank" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${this._escHtml(f)}</a>`;
+            html += `<a href="${safeUrl}" class="project-doc-link" data-url="${encodedUrl}" data-file="${encodedFile}" style="color:var(--pixel-green);text-decoration:underline;cursor:pointer;">${safeFile}</a>`;
             html += `</div>`;
           }
         }
 
         contentEl.innerHTML = html;
+        contentEl.querySelectorAll('.project-doc-link').forEach((link) => {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const rawUrl = decodeURIComponent(link.dataset.url || '');
+            const rawFile = decodeURIComponent(link.dataset.file || '');
+            window._ceoViewFile(rawUrl, rawFile);
+          });
+        });
       })
       .catch(err => {
         contentEl.innerHTML = `<div style="color:var(--pixel-red);">Load failed: ${this._escHtml(err.message)}</div>`;
@@ -5638,6 +5650,7 @@ class AppController {
     if (!this._chatPanel) {
       this._chatPanel = new ChatPanel(chatContainer);
       this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
+      this._chatPanel.onClear((id) => this._clearConversationHistory(id));
       this._chatPanel.onClose((id) => this._closeConversation(id));
     }
 
@@ -5690,12 +5703,46 @@ class AppController {
   async _sendConversationMessage(convId, text, attachments) {
     if (!this._chatPanel) return;
     this._chatPanel.showTyping(true);
-    await fetch(`/api/conversation/${convId}/message`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ text, attachments }),
-    });
+    try {
+      const resp = await fetch(`/api/conversation/${convId}/message`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ text, attachments }),
+      });
+      if (!resp.ok) {
+        const errText = await resp.text().catch(() => '');
+        throw new Error(`Server error (${resp.status})${errText ? `: ${errText}` : ''}`);
+      }
+    } catch (err) {
+      this._chatPanel.showTyping(false);
+      alert(`Failed to send message: ${err.message}`);
+    }
     // Reply arrives via WebSocket conversation_message event
+  }
+
+  async _clearConversationHistory(convId) {
+    if (!this._chatPanel || !convId) return;
+    if (this._chatPanel.getConvType() !== 'oneonone') return;
+
+    const confirmed = confirm('Clear all 1-on-1 history for this employee? This cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      const resp = await fetch(`/api/conversation/${convId}/clear`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.detail || data.error || `Server error (${resp.status})`);
+      }
+
+      const msgsResp = await fetch(`/api/conversation/${convId}/messages`).then(r => r.json());
+      this._chatPanel.renderMessages(msgsResp.messages || []);
+      this._chatPanel.showTyping(false);
+
+      const empName = this._resolveEmployeeName(data.employee_id || '');
+      this.logEntry('SYSTEM', `🧹 Cleared 1-on-1 history for ${empName}.`, 'system');
+    } catch (err) {
+      alert(`Failed to clear history: ${err.message}`);
+    }
   }
 
   async _closeConversation(convId) {
@@ -6364,24 +6411,43 @@ class AppController {
 
   _openProjectFile(filename, url, ext) {
     const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'svg'];
-    const textExts = ['txt', 'md', 'py', 'js', 'html', 'css', 'yaml', 'yml', 'json', 'csv',
+    const textExts = ['txt', 'py', 'js', 'css', 'yaml', 'yml', 'json', 'csv',
                       'tsv', 'xml', 'sh', 'toml', 'cfg', 'ini', 'log', 'rst', 'tex', 'sql',
                       'r', 'rb', 'go', 'java', 'c', 'cpp', 'h', 'hpp', 'rs', 'swift', 'kt',
                       'ts', 'tsx', 'jsx'];
+    const fileExt = (ext || '').toLowerCase();
 
-    if (imageExts.includes(ext)) {
+    if (fileExt === 'html' || fileExt === 'htm') {
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+
+    if (fileExt === 'md' || fileExt === 'markdown') {
+      fetch(url)
+        .then(r => r.text())
+        .then(text => {
+          this._showFileViewer(
+            filename,
+            `<div style="max-height:65vh;overflow-y:auto;margin:0;padding:8px;background:var(--bg-dark);border:1px solid var(--border);"><div class="md-rendered">${this._renderMarkdown(text)}</div></div>`,
+          );
+        })
+        .catch(err => { console.error('[viewMarkdown] failed, opening in new tab:', err); window.open(url, '_blank', 'noopener'); });
+      return;
+    }
+
+    if (imageExts.includes(fileExt)) {
       // Open image in a simple overlay
       this._showFileViewer(filename, `<img src="${url}" style="max-width:100%;max-height:70vh;" />`);
-    } else if (textExts.includes(ext)) {
+    } else if (textExts.includes(fileExt)) {
       // Fetch text content and display
       fetch(url)
         .then(r => r.text())
         .then(text => {
           this._showFileViewer(filename, `<pre style="font-size:6px;color:var(--pixel-white);white-space:pre-wrap;word-break:break-all;max-height:65vh;overflow-y:auto;margin:0;padding:6px;background:var(--bg-dark);border:1px solid var(--border);">${this._escHtml(text)}</pre>`);
         })
-        .catch(err => { console.error('[viewFile] failed, opening in new tab:', err); window.open(url, '_blank'); });
-    } else if (ext === 'pdf') {
-      window.open(url, '_blank');
+        .catch(err => { console.error('[viewFile] failed, opening in new tab:', err); window.open(url, '_blank', 'noopener'); });
+    } else if (fileExt === 'pdf') {
+      window.open(url, '_blank', 'noopener');
     } else {
       // Download other files
       const a = document.createElement('a');
@@ -6553,46 +6619,14 @@ window._abortAgentTask = async function(employeeId, taskId) {
 };
 
 // Global file viewer for CEO report workspace files
-window._ceoViewFile = async function(url, filename) {
+window._ceoViewFile = function(url, filename) {
   try {
-    const resp = await fetch(url);
-    const contentType = resp.headers.get('content-type') || '';
-
-    let overlay = document.getElementById('ceo-file-viewer');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'ceo-file-viewer';
-      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10001;display:flex;align-items:center;justify-content:center;';
-      document.body.appendChild(overlay);
-    }
-
-    let bodyHtml;
-    if (contentType.startsWith('image/')) {
-      const blob = await resp.blob();
-      const objUrl = URL.createObjectURL(blob);
-      bodyHtml = `<img src="${objUrl}" style="max-width:100%;max-height:60vh;" />`;
+    const ext = (String(filename || '').split('.').pop() || '').toLowerCase();
+    if (window.app && typeof window.app._openProjectFile === 'function') {
+      window.app._openProjectFile(filename, url, ext);
     } else {
-      const text = await resp.text();
-      const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      bodyHtml = `<pre style="white-space:pre-wrap;word-break:break-all;max-height:60vh;overflow-y:auto;margin:0;font-size:6.5px;line-height:1.4;">${escaped}</pre>`;
+      window.open(url, '_blank', 'noopener');
     }
-
-    overlay.innerHTML = `
-      <div style="background:var(--bg-panel,#1a1a2e);border:2px solid var(--accent,#4fc3f7);border-radius:4px;padding:12px;max-width:700px;width:90%;font-family:var(--font-mono,monospace);color:var(--text,#e0e0e0);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-size:8px;font-weight:bold;color:var(--accent,#4fc3f7);">📄 ${filename.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</span>
-          <div>
-            <a href="${url}" download="${filename}" style="font-size:6px;color:#4fc3f7;margin-right:8px;text-decoration:underline;">⬇ Download</a>
-            <button class="pixel-btn small" id="ceo-file-viewer-close">Close</button>
-          </div>
-        </div>
-        ${bodyHtml}
-      </div>
-    `;
-    overlay.style.display = 'flex';
-    document.getElementById('ceo-file-viewer-close').onclick = () => {
-      overlay.style.display = 'none';
-    };
   } catch (err) {
     console.error('Failed to view file:', err);
   }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid as _uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -5887,7 +5888,14 @@ async def update_system_cron(name: str, body: dict) -> dict:
 # Unified Conversation API
 # ---------------------------------------------------------------------------
 
-from onemancompany.core.conversation import ConversationService, Message
+from onemancompany.core.conversation import (
+    Conversation,
+    ConversationService,
+    Message,
+    load_conversation_meta as load_conv_meta,
+    load_messages as load_conv_messages,
+    save_conversation_meta,
+)
 from onemancompany.core.models import ConversationType, ConversationPhase
 
 _conversation_service = ConversationService()
@@ -5895,6 +5903,63 @@ _active_adapter_tasks: set[asyncio.Task] = set()
 
 _VALID_CONV_TYPES = {t.value for t in ConversationType}
 _VALID_CONV_PHASES = {p.value for p in ConversationPhase}
+
+
+def _parse_iso_timestamp(ts: str | None) -> float:
+    """Parse ISO timestamp to unix seconds; invalid values sort as 0."""
+    if not ts:
+        return 0.0
+    try:
+        return datetime.fromisoformat(ts).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation, Path] | None:
+    """Pick best historical 1-on-1 conversation for this employee.
+
+    Priority:
+    1) Conversations that already have messages
+    2) Most recently active (last message timestamp, fallback to created_at)
+    """
+    import onemancompany.core.conversation as conversation_core
+
+    conv_base = conversation_core.EMPLOYEES_DIR / employee_id / "conversations"
+    if not conv_base.exists():
+        return None
+
+    best: tuple[tuple[int, float, float], Conversation, Path] | None = None
+    for conv_dir in conv_base.iterdir():
+        if not conv_dir.is_dir():
+            continue
+        meta_path = conv_dir / "meta.yaml"
+        if not meta_path.exists():
+            continue
+        try:
+            conv = load_conv_meta(conv_dir.name, conv_dir)
+        except Exception:
+            logger.warning("[conversation] failed to load meta from {}", conv_dir)
+            continue
+        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
+            continue
+
+        try:
+            msgs = load_conv_messages(conv_dir)
+        except Exception:
+            logger.warning("[conversation] failed to load messages from {}", conv_dir)
+            msgs = []
+
+        has_messages = 1 if msgs else 0
+        last_msg_ts = _parse_iso_timestamp(msgs[-1].timestamp) if msgs else 0.0
+        created_ts = _parse_iso_timestamp(conv.created_at)
+        score = (has_messages, max(last_msg_ts, created_ts), created_ts)
+
+        if best is None or score > best[0]:
+            best = (score, conv, conv_dir)
+
+    if not best:
+        return None
+    return best[1], best[2]
 
 
 @router.post("/api/conversation/create")
@@ -5907,11 +5972,36 @@ async def create_conversation(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="employee_id is required")
     if conv_type == ConversationType.CEO_INBOX.value and not body.get("project_dir"):
         raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
+
+    # Reuse prior one-on-one thread per employee so restarting meeting preserves history.
+    if conv_type == ConversationType.ONE_ON_ONE.value and body.get("reuse_existing", True):
+        reusable = _pick_reusable_oneonone_conversation(employee_id)
+        if reusable:
+            conv, conv_dir = reusable
+            _conversation_service.ensure_indexed(conv.id, conv_dir)
+            if conv.phase != ConversationPhase.ACTIVE.value:
+                conv.phase = ConversationPhase.ACTIVE.value
+                conv.closed_at = None
+                save_conversation_meta(conv)
+                await event_bus.publish(CompanyEvent(
+                    type="conversation_phase",
+                    payload={
+                        "conv_id": conv.id,
+                        "phase": conv.phase,
+                        "type": conv.type,
+                        "employee_id": conv.employee_id,
+                    },
+                ))
+            return conv.to_dict()
+
     conv = await _conversation_service.create(
         type=conv_type,
         employee_id=employee_id,
         tools_enabled=body.get("tools_enabled", False),
-        **{k: v for k, v in body.items() if k not in ("type", "employee_id", "tools_enabled")},
+        **{
+            k: v for k, v in body.items()
+            if k not in ("type", "employee_id", "tools_enabled", "reuse_existing")
+        },
     )
     return conv.to_dict()
 
@@ -5989,6 +6079,64 @@ async def close_conversation(conv_id: str, wait_hooks: bool = False) -> dict:
     if hook_result:
         resp["hook_result"] = hook_result
     return resp
+
+
+@router.post("/api/conversation/{conv_id}/clear")
+async def clear_conversation_history(conv_id: str) -> dict:
+    """Clear all 1-on-1 message history for the current conversation's employee."""
+    try:
+        conv = _conversation_service.get(conv_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conv.type != "oneonone":
+        raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone conversations")
+    if not conv.employee_id:
+        raise HTTPException(status_code=400, detail="Conversation has no employee_id")
+
+    import onemancompany.core.conversation as conversation_core
+
+    conv_base = conversation_core.EMPLOYEES_DIR / conv.employee_id / "conversations"
+    if not conv_base.exists():
+        return {
+            "status": "cleared",
+            "employee_id": conv.employee_id,
+            "conversations_scanned": 0,
+            "conversations_cleared": 0,
+        }
+
+    scanned = 0
+    cleared = 0
+    for conv_dir in conv_base.iterdir():
+        if not conv_dir.is_dir():
+            continue
+        meta_path = conv_dir / "meta.yaml"
+        if not meta_path.exists():
+            continue
+        try:
+            c = load_conv_meta(conv_dir.name, conv_dir)
+        except Exception:
+            logger.warning("[conversation] skip unreadable meta when clearing history: {}", conv_dir)
+            continue
+        if c.type != "oneonone" or c.employee_id != conv.employee_id:
+            continue
+        scanned += 1
+        msg_path = conv_dir / "messages.yaml"
+        if msg_path.exists():
+            msg_path.write_text("[]\n", encoding="utf-8")
+            cleared += 1
+
+    # Keep legacy 1-on-1 history endpoint consistent.
+    legacy_history_path = conversation_core.EMPLOYEES_DIR / conv.employee_id / "oneonone_history.yaml"
+    if legacy_history_path.exists():
+        legacy_history_path.write_text("[]\n", encoding="utf-8")
+
+    return {
+        "status": "cleared",
+        "employee_id": conv.employee_id,
+        "conversations_scanned": scanned,
+        "conversations_cleared": cleared,
+    }
 
 
 @router.get("/api/conversations")

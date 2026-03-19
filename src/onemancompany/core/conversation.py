@@ -150,6 +150,10 @@ class ConversationService:
     def __init__(self) -> None:
         self._index: dict[str, Path] = {}
 
+    def ensure_indexed(self, conv_id: str, conv_dir: Path) -> None:
+        """Register a conversation directory in the in-memory index."""
+        self._index[conv_id] = conv_dir
+
     async def create(
         self, type: str, employee_id: str, tools_enabled: bool = False, **metadata
     ) -> Conversation:
