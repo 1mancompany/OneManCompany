@@ -40,7 +40,16 @@
     "url": "https://1mancompany.github.io/OneManCompany/",
     "applicationCategory": "DeveloperApplication",
     "operatingSystem": "macOS, Windows, Linux",
+    "datePublished": "2026-01-01",
     "dateModified": "2026-03-18",
+    "about": [
+      {"@type": "Thing", "name": "Multi-agent systems", "sameAs": "https://en.wikipedia.org/wiki/Multi-agent_system"},
+      {"@type": "Thing", "name": "Artificial intelligence", "sameAs": "https://en.wikipedia.org/wiki/Artificial_intelligence"}
+    ],
+    "mentions": [
+      {"@type": "ComputerLanguage", "name": "Python", "sameAs": "https://en.wikipedia.org/wiki/Python_(programming_language)"},
+      {"@type": "SoftwareApplication", "name": "LangChain", "sameAs": "https://www.langchain.com/"}
+    ],
     "offers": {
       "@type": "Offer",
       "price": "0",
@@ -101,12 +110,82 @@
           "@type": "Answer",
           "text": "The Talent Market (one-man-company.com) is where you find, hire, and onboard community-verified AI employees. Each talent comes as a capability package with skills, knowledge, personality, and specialized tools — plugged into a Vessel (execution container) to form a complete employee."
         }
+      },
+      {
+        "@type": "Question",
+        "name": "Is OneManCompany free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, OneManCompany is fully open-source and free to use under the Apache 2.0 license. You can install it with a single command, and there are no usage fees for the platform itself. You only need your own API keys for the AI models you choose to use."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What AI models does OneManCompany support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany works with multiple AI model providers including Anthropic Claude, OpenAI GPT-4, and other LLMs. Each AI employee can be configured to use different models depending on the task requirements and cost considerations."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How many AI employees can OneManCompany manage?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany scales to full organizational charts with multiple departments and reporting lines. You can hire as many AI employees as needed from the Talent Market, organized into departments like Engineering, Design, QA, and Operations."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can OneManCompany replace a development team?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany is designed for solo founders and small teams who want to operate like a full company. It handles engineering, design, QA, and operations through autonomous AI agents, allowing one person to produce work that would traditionally require an entire team."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What programming languages does OneManCompany use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "OneManCompany is built with Python for the backend and JavaScript for the frontend pixel-art office UI. The AI employees can work with any programming language depending on their talent configuration and the task requirements."
+        }
       }
     ]
   }
   </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "OneManCompany",
+    "url": "https://1mancompany.github.io/OneManCompany/",
+    "logo": "https://1mancompany.github.io/OneManCompany/img/og-cover.png",
+    "sameAs": [
+      "https://github.com/1mancompany/OneManCompany"
+    ],
+    "description": "Open-source AI operating system for one-person companies."
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "OneManCompany",
+    "url": "https://1mancompany.github.io/OneManCompany/"
+  }
+  </script>
+
+  <!-- Sitemap discovery (GitHub Pages subdirectory workaround) -->
+  <link rel="sitemap" type="application/xml" href="/OneManCompany/sitemap.xml" />
+
+  <!-- Hreflang -->
+  <link rel="alternate" hreflang="en" href="https://1mancompany.github.io/OneManCompany/" />
+  <link rel="alternate" hreflang="x-default" href="https://1mancompany.github.io/OneManCompany/" />
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>" />
+  <!-- Cover image is below the fold — lazy-loaded, no preload needed -->
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -504,7 +583,7 @@
       <span class="prompt">$</span> npx @1mancompany/onemancompany
     </div>
     <div style="margin-top: 40px;">
-      <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="3014" height="1558" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
+      <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="3014" height="1558" loading="lazy" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
     </div>
   </div>
 </header>
@@ -714,7 +793,7 @@
     </div>
     <div style="margin-top: 40px; text-align: center;">
       <a href="https://one-man-company.com">
-        <img src="img/talent-market.png" alt="Talent Market" width="3022" height="1660" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
+        <img src="img/talent-market.png" alt="Talent Market" width="3022" height="1660" loading="lazy" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
       </a>
       <p style="color: var(--text-dim); font-size: 13px; margin-top: 12px;">
         <a href="https://one-man-company.com">Talent Market</a> — find, hire, and onboard community-verified AI employees.
@@ -794,6 +873,23 @@
   license = {Apache-2.0}
 }</code>
     </div>
+  </div>
+</section>
+
+<!-- ── About (GEO: factual prose for AI discovery) ────────── -->
+<section id="about" aria-labelledby="about-heading">
+  <div class="container">
+    <div class="section-label">About</div>
+    <h2 id="about-heading" class="section-title">About OneManCompany</h2>
+    <p class="section-desc" style="max-width: 800px;">
+      OneManCompany is an open-source AI operating system released in 2026 that enables a single person to operate a complete software company by delegating work to autonomous AI agents. The system faithfully models real corporate operations — hierarchical org charts, hiring and firing through a Talent Market, task delegation with quality gates, performance reviews, meeting rooms, and per-project cost tracking.
+    </p>
+    <p class="section-desc" style="max-width: 800px;">
+      Built with Python and JavaScript, it provides a pixel-art office UI where the user acts as CEO — the only human — while AI employees across engineering, design, QA, and operations departments collaborate autonomously to produce production-grade deliverables such as games, apps, comics, and research reports.
+    </p>
+    <p class="section-desc" style="max-width: 800px;">
+      OneManCompany uses a Vessel + Talent architecture inspired by mecha anime: a Vessel provides the execution container, while a Talent brings the skills, knowledge, and personality. Together they form a complete AI employee.
+    </p>
   </div>
 </section>
 
