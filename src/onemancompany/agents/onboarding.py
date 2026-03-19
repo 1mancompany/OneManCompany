@@ -671,7 +671,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
     # Copy everything from the talent dir that doesn't already exist in emp_dir,
     # skipping files handled specially below and ones that shouldn't transfer.
     _SKIP_FILES = {"profile.yaml"}  # employee-specific, generated separately
-    _SKIP_DIRS = {".git", "tools"}   # tools are installed centrally to assets/tools/
+    _SKIP_DIRS = {".git", "tools", "skills"}  # tools→assets/tools/, skills handled by loop below
     for src in talent_dir.iterdir():
         if src.name in _SKIP_FILES or src.name in _SKIP_DIRS:
             continue
