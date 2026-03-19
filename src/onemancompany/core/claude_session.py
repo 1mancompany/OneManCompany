@@ -28,15 +28,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8
+from onemancompany.core.config import EMPLOYEES_DIR
 
-# Single-file constants
-SESSIONS_FILENAME = "sessions.json"
-_KEY_SESSION_ID = "session_id"
-_KEY_WORK_DIR = "work_dir"
-_KEY_CREATED = "created"
-_KEY_USED = "used"
-_KEY_RUNNING_PID = "running_pid"
 
 # ---------------------------------------------------------------------------
 # Per-employee locks — prevent concurrent sends on the same daemon
@@ -56,7 +49,7 @@ def _get_session_lock(employee_id: str, project_id: str) -> asyncio.Lock:
 # ---------------------------------------------------------------------------
 
 def _sessions_file(employee_id: str) -> Path:
-    return EMPLOYEES_DIR / employee_id / SESSIONS_FILENAME
+    return EMPLOYEES_DIR / employee_id / "sessions.json"
 
 
 def _load_sessions(employee_id: str) -> dict:
@@ -64,7 +57,7 @@ def _load_sessions(employee_id: str) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding=ENCODING_UTF8))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -72,7 +65,7 @@ def _load_sessions(employee_id: str) -> dict:
 def _save_sessions(employee_id: str, data: dict) -> None:
     path = _sessions_file(employee_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def get_or_create_session(
@@ -81,17 +74,17 @@ def get_or_create_session(
     """Return (session_id, is_new)."""
     sessions = _load_sessions(employee_id)
     entry = sessions.get(project_id)
-    if entry and entry.get(_KEY_SESSION_ID):
-        if entry.get(_KEY_USED):
-            return entry[_KEY_SESSION_ID], False
-        return entry[_KEY_SESSION_ID], True
+    if entry and entry.get("session_id"):
+        if entry.get("used"):
+            return entry["session_id"], False
+        return entry["session_id"], True
 
     session_id = str(uuid.uuid4())
     sessions[project_id] = {
-        _KEY_SESSION_ID: session_id,
-        _KEY_WORK_DIR: work_dir,
-        _KEY_CREATED: datetime.now(timezone.utc).isoformat(),
-        _KEY_USED: False,
+        "session_id": session_id,
+        "work_dir": work_dir,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "used": False,
     }
     _save_sessions(employee_id, sessions)
     return session_id, True
@@ -100,8 +93,8 @@ def get_or_create_session(
 def _mark_session_used(employee_id: str, project_id: str) -> None:
     sessions = _load_sessions(employee_id)
     entry = sessions.get(project_id)
-    if entry and not entry.get(_KEY_USED):
-        entry[_KEY_USED] = True
+    if entry and not entry.get("used"):
+        entry["used"] = True
         _save_sessions(employee_id, sessions)
 
 
@@ -109,15 +102,15 @@ def _save_running_pid(employee_id: str, project_id: str, pid: int) -> None:
     sessions = _load_sessions(employee_id)
     entry = sessions.get(project_id)
     if entry:
-        entry[_KEY_RUNNING_PID] = pid
+        entry["running_pid"] = pid
         _save_sessions(employee_id, sessions)
 
 
 def _clear_running_pid(employee_id: str, project_id: str) -> None:
     sessions = _load_sessions(employee_id)
     entry = sessions.get(project_id)
-    if entry and _KEY_RUNNING_PID in entry:
-        del entry[_KEY_RUNNING_PID]
+    if entry and "running_pid" in entry:
+        del entry["running_pid"]
         _save_sessions(employee_id, sessions)
 
 
@@ -163,7 +156,7 @@ class ClaudeDaemon:
                 line = await self.proc.stderr.readline()
                 if not line:
                     break
-                text = line.decode(ENCODING_UTF8, errors="replace").strip()
+                text = line.decode("utf-8", errors="replace").strip()
                 if text:
                     logger.debug(f"[claude-daemon:stderr] {self.employee_id}: {text[:300]}")
         except asyncio.CancelledError:
@@ -240,7 +233,7 @@ class ClaudeDaemon:
                     # EOF — process exited during drain
                     break
                 drained += 1
-                line_str = line.decode(ENCODING_UTF8, errors="replace").strip()
+                line_str = line.decode("utf-8", errors="replace").strip()
                 if line_str:
                     try:
                         msg = json.loads(line_str)
@@ -273,7 +266,7 @@ class ClaudeDaemon:
             "type": "user",
             "message": {"role": "user", "content": prompt},
         })
-        self.proc.stdin.write(msg.encode(ENCODING_UTF8) + b"\n")
+        self.proc.stdin.write(msg.encode("utf-8") + b"\n")
         await self.proc.stdin.drain()
 
         # Collect response
@@ -290,7 +283,7 @@ class ClaudeDaemon:
                     if not line:
                         # Process exited
                         break
-                    line_str = line.decode(ENCODING_UTF8, errors="replace").strip()
+                    line_str = line.decode("utf-8", errors="replace").strip()
                     if not line_str:
                         continue
                     try:
@@ -319,8 +312,8 @@ class ClaudeDaemon:
                         message = msg_data.get("message", {})
                         content = message.get("content", [])
                         for block in content:
-                            if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
-                                text_parts.append(block.get(BLOCK_KEY_TEXT, ""))
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text_parts.append(block.get("text", ""))
                         # Extract usage
                         usage = message.get("usage", {})
                         if usage.get("input_tokens"):
@@ -437,10 +430,10 @@ async def _get_or_start_daemon(
         new_session_id = str(uuid.uuid4())
         sessions = _load_sessions(employee_id)
         sessions[project_id] = {
-            _KEY_SESSION_ID: new_session_id,
-            _KEY_WORK_DIR: work_dir,
-            _KEY_CREATED: datetime.now(timezone.utc).isoformat(),
-            _KEY_USED: False,
+            "session_id": new_session_id,
+            "work_dir": work_dir,
+            "created": datetime.now(timezone.utc).isoformat(),
+            "used": False,
         }
         _save_sessions(employee_id, sessions)
 
@@ -537,7 +530,7 @@ def cleanup_orphan_sessions() -> int:
         sessions = _load_sessions(employee_id)
         dirty = False
         for project_id, entry in sessions.items():
-            pid = entry.get(_KEY_RUNNING_PID)
+            pid = entry.get("running_pid")
             if pid is None:
                 continue
             try:
@@ -558,7 +551,7 @@ def cleanup_orphan_sessions() -> int:
                     f"[session-cleanup] No permission to kill PID {pid} "
                     f"(employee={employee_id})"
                 )
-            del entry[_KEY_RUNNING_PID]
+            del entry["running_pid"]
             dirty = True
         if dirty:
             _save_sessions(employee_id, sessions)
@@ -577,10 +570,10 @@ def list_sessions(employee_id: str) -> list[dict]:
     for pid, entry in sessions.items():
         result.append({
             "project_id": pid,
-            _KEY_SESSION_ID: entry.get(_KEY_SESSION_ID, ""),
-            _KEY_WORK_DIR: entry.get(_KEY_WORK_DIR, ""),
-            _KEY_CREATED: entry.get(_KEY_CREATED, ""),
-            _KEY_USED: entry.get(_KEY_USED, False),
+            "session_id": entry.get("session_id", ""),
+            "work_dir": entry.get("work_dir", ""),
+            "created": entry.get("created", ""),
+            "used": entry.get("used", False),
         })
     return result
 

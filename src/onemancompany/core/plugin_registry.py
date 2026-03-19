@@ -10,10 +10,9 @@ from typing import Any, Callable
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import PLUGINS_DIR
+from onemancompany.core.config import ASSETS_DIR
 
-# Single-file constants
-PLUGIN_YAML_FILENAME = "plugin.yaml"
+PLUGINS_DIR = ASSETS_DIR / "plugins"
 
 
 @dataclass
@@ -80,7 +79,7 @@ class PluginRegistry:
         for plugin_dir in sorted(PLUGINS_DIR.iterdir()):
             if not plugin_dir.is_dir():
                 continue
-            manifest_path = plugin_dir / PLUGIN_YAML_FILENAME
+            manifest_path = plugin_dir / "plugin.yaml"
             if not manifest_path.exists():
                 continue
             try:

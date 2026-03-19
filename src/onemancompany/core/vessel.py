@@ -36,43 +36,16 @@ from langgraph.errors import GraphRecursionError
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
-    ENCODING_UTF8,
-    LAUNCH_SH_FILENAME,
     MAX_SUMMARY_LEN,
-    PF_NAME,
-    PF_NICKNAME,
-    PF_ROLE,
-    PROGRESS_LOG_FILENAME,
-    SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
-    SYSTEM_AGENT,
-    TASK_TREE_FILENAME,
 )
-from onemancompany.core.project_archive import ITER_STATUS_FAILED
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.models import EventType
 from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
 from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-EXECUTION_LOG_FILENAME = "execution.log"
-TASK_HISTORY_FILENAME = "task_history.json"
-PROGRESS_LOG_MAX_LINES = 30
-EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
-MAX_SUBTASK_ITERATIONS = 3
-MAX_SUBTASK_DEPTH = 2
-MAX_RETRIES = 3
-RETRY_DELAYS = [5, 15, 30]
-MAX_HISTORY_ENTRIES = 8
-MAX_HISTORY_CHARS = 3000
-RESULT_SNIPPET_LEN = 300
 
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
@@ -100,7 +73,7 @@ _current_task_id: ContextVar[str] = ContextVar("_current_task_id", default="")
 def _load_project_tree(project_dir: str):
     """Get TaskTree from memory cache (loading from disk if needed)."""
     from onemancompany.core.task_tree import get_tree
-    path = Path(project_dir) / TASK_TREE_FILENAME
+    path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         return None
     return get_tree(path)
@@ -112,7 +85,7 @@ def _save_project_tree(project_dir: str, tree):
     First call creates the file synchronously; subsequent saves are async.
     """
     from onemancompany.core.task_tree import register_tree, save_tree_async
-    path = Path(project_dir) / TASK_TREE_FILENAME
+    path = Path(project_dir) / "task_tree.yaml"
     register_tree(path, tree)
     if not path.exists():
         tree.save(path)  # sync: create file on disk
@@ -142,7 +115,7 @@ def _build_dependency_context(tree, node, project_dir: str = "") -> str:
         result = dep.result or "(no result)"
         if len(result) > max_per_dep:
             result = "..." + result[-max_per_dep:]
-        status_label = "completed" if dep.status == TaskPhase.ACCEPTED else dep.status
+        status_label = "completed" if dep.status == "accepted" else dep.status
         sections.append(f"{dep.employee_id} {status_label} \"{dep.description}\":\n{result}")
     if not sections:
         return ""
@@ -204,7 +177,7 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
         for child in children:
             if child.is_ceo_node:
                 continue
-            if child.status == TaskPhase.ACCEPTED:
+            if child.status == "accepted":
                 parts.append(f"  [ACCEPTED] {child.id} ({child.employee_id}): {child.description_preview[:100]}")
             elif child.is_done_executing:
                 child.load_content(project_dir)
@@ -255,7 +228,7 @@ from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL, RESOLVED
 
 def _history_path(employee_id: str) -> Path:
     """Return path to employee's task history file."""
-    return EMPLOYEES_DIR / employee_id / TASK_HISTORY_FILENAME
+    return EMPLOYEES_DIR / employee_id / "task_history.json"
 
 
 def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
@@ -264,7 +237,7 @@ def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
     if not path.exists():
         return [], ""
     try:
-        data = json.loads(path.read_text(encoding=ENCODING_UTF8))
+        data = json.loads(path.read_text(encoding="utf-8"))
         return data.get("entries", []), data.get("summary", "")
     except Exception as e:
         logger.warning("Failed to load task history for {}: {}", employee_id, e)
@@ -279,7 +252,7 @@ def _save_task_history(employee_id: str, entries: list[dict], summary: str) -> N
         path.write_text(json.dumps({
             "entries": entries,
             "summary": summary,
-        }, ensure_ascii=False, indent=2), encoding=ENCODING_UTF8)
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         logger.warning("Failed to save task history for {}: {}", employee_id, e)
 
@@ -427,7 +400,7 @@ class ScriptExecutor(Launcher):
 
     def __init__(self, employee_id: str, script_path: str = "") -> None:
         self.employee_id = employee_id
-        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / LAUNCH_SH_FILENAME)
+        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / "launch.sh")
 
     async def execute(
         self,
@@ -453,9 +426,9 @@ class ScriptExecutor(Launcher):
                 proc.communicate(input=task_description.encode()),
                 timeout=600,
             )
-            output = stdout.decode(ENCODING_UTF8, errors="replace").strip()
+            output = stdout.decode("utf-8", errors="replace").strip()
             if proc.returncode != 0 and not output:
-                err = stderr.decode(ENCODING_UTF8, errors="replace").strip()
+                err = stderr.decode("utf-8", errors="replace").strip()
                 output = f"[script error] exit={proc.returncode}\n{err[:2000]}"
             if on_log:
                 on_log("result", output[:500])
@@ -482,7 +455,7 @@ class _VesselRef:
     def role(self) -> str:
         from onemancompany.core.store import load_employee
         emp_data = load_employee(self.employee_id)
-        return (emp_data or {}).get(PF_ROLE, "Employee")
+        return (emp_data or {}).get("role", "Employee")
 
 
 
@@ -530,17 +503,23 @@ class Vessel:
 # Progress log — file-based cross-task context (ralph-inspired)
 # ---------------------------------------------------------------------------
 
+PROGRESS_LOG_MAX_LINES = 30
+
+
 def _append_progress(employee_id: str, entry: str) -> None:
     """Append an entry to the employee's progress log (persistent across tasks)."""
-    path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
+    path = EMPLOYEES_DIR / employee_id / "progress.log"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding=ENCODING_UTF8) as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
+
+
+EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
 
 
 def _append_execution_log(employee_id: str, node_id: str, log_type: str, content: str) -> None:
     """Append a structured entry to the employee's execution log (persistent, per-agent debug file)."""
-    path = EMPLOYEES_DIR / employee_id / EXECUTION_LOG_FILENAME
+    path = EMPLOYEES_DIR / employee_id / "execution.log"
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         # Size-based rotation: rename current log and start fresh (no large reads)
@@ -550,7 +529,7 @@ def _append_execution_log(employee_id: str, node_id: str, log_type: str, content
         ts = datetime.now().isoformat()[:23]
         # Truncate content to keep log readable
         short = content[:500].replace("\n", "\\n") if content else ""
-        with open(path, "a", encoding=ENCODING_UTF8) as f:
+        with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{ts}] [{log_type:12s}] node={node_id[:12]} | {short}\n")
     except Exception as exc:
         logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
@@ -564,11 +543,11 @@ def _trunc(s: str | None, limit: int = 3000) -> str:
 
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
     """Load recent entries from the employee's progress log."""
-    path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
+    path = EMPLOYEES_DIR / employee_id / "progress.log"
     if not path.exists():
         return ""
     try:
-        lines = path.read_text(encoding=ENCODING_UTF8).strip().split("\n")
+        lines = path.read_text(encoding="utf-8").strip().split("\n")
         return "\n".join(lines[-max_lines:])
     except Exception:
         return ""
@@ -577,6 +556,16 @@ def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) ->
 # ---------------------------------------------------------------------------
 # Employee Manager — centralized task coordinator
 # ---------------------------------------------------------------------------
+
+MAX_SUBTASK_ITERATIONS = 3
+MAX_SUBTASK_DEPTH = 2
+MAX_RETRIES = 3
+RETRY_DELAYS = [5, 15, 30]
+
+# Task history constants
+MAX_HISTORY_ENTRIES = 8
+MAX_HISTORY_CHARS = 3000
+RESULT_SNIPPET_LEN = 300
 
 from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType
 
@@ -1343,7 +1332,7 @@ class EmployeeManager:
                 continue
             tree = get_tree(tp)
             node = tree.get_node(entry.node_id)
-            if node and node.status == TaskPhase.HOLDING and node.result and match_text in node.result:
+            if node and node.status == "holding" and node.result and match_text in node.result:
                 return entry.node_id
         return None
 
@@ -1650,7 +1639,7 @@ class EmployeeManager:
         from onemancompany.core.workflow_engine import parse_workflow
 
         emp_data = _store.load_employee(employee_id) or {}
-        role = emp_data.get(PF_ROLE, "Employee").upper()
+        role = emp_data.get("role", "Employee").upper()
         is_manager = role in ("COO", "CSO", "EA", "HR")
 
         if is_manager and role in ("COO", "CSO"):
@@ -1770,7 +1759,7 @@ class EmployeeManager:
                      employee_id, entry.node_id, node.status, is_root, node.parent_id)
         if is_root and task_failed:
             logger.debug("[ON_CHILD_COMPLETE] root node {} failed → project {} marked failed", entry.node_id, project_id)
-            await _store.save_project_status(project_id, ITER_STATUS_FAILED)
+            await _store.save_project_status(project_id, "failed")
             return
 
         # --- Propagate upward: review / auto-complete parent ---
@@ -1848,7 +1837,7 @@ class EmployeeManager:
         for child in children:
             if child.is_ceo_node or child.node_type in _SKIP_REVIEW_TYPES:
                 continue
-            if child.status == TaskPhase.ACCEPTED:
+            if child.status == "accepted":
                 already_accepted.append(child)
             else:
                 needs_review.append(child)
@@ -1939,9 +1928,9 @@ class EmployeeManager:
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(event_bus.publish(CompanyEvent(
-                    type=EventType.CEO_INBOX_UPDATED,
+                    type="ceo_inbox_updated",
                     payload={"node_id": ceo_node.id, "description": escalation_desc},
-                    agent=SYSTEM_AGENT,
+                    agent="SYSTEM",
                 )))
             except RuntimeError:
                 logger.debug("No event loop for circuit breaker CEO escalation publish")
@@ -1972,7 +1961,7 @@ class EmployeeManager:
     async def _resolve_dependencies(self, tree, completed_node, project_dir: str) -> None:
         """Check if completing this node unlocks any dependent tasks."""
         project_id = completed_node.project_id or tree.project_id
-        tree_path = str(Path(project_dir) / TASK_TREE_FILENAME)
+        tree_path = str(Path(project_dir) / "task_tree.yaml")
         from onemancompany.core.task_tree import get_tree_lock
         lock = get_tree_lock(tree_path)
         with lock:
@@ -1985,7 +1974,7 @@ class EmployeeManager:
             cascade_cancelled: list = []  # nodes that were cascade-cancelled
 
             for dep_node in dependents:
-                if dep_node.status != TaskPhase.PENDING.value:
+                if dep_node.status != "pending":
                     continue
 
                 if tree.has_failed_deps(dep_node.id):
@@ -2051,14 +2040,14 @@ class EmployeeManager:
 
             # Check if all tree nodes are now terminal or blocked → project failed
             all_stuck = all(
-                n.status in (TaskPhase.BLOCKED, TaskPhase.FAILED, TaskPhase.CANCELLED, TaskPhase.ACCEPTED, TaskPhase.FINISHED)
+                n.status in ("blocked", "failed", "cancelled", "accepted", "finished")
                 for n in tree._nodes.values()
                 if n.id != tree.root_id
             )
             if all_stuck and any(
-                n.status in (TaskPhase.BLOCKED, TaskPhase.FAILED) for n in tree._nodes.values()
+                n.status in ("blocked", "failed") for n in tree._nodes.values()
             ):
-                await _store.save_project_status(project_id, ITER_STATUS_FAILED)
+                await _store.save_project_status(project_id, "failed")
 
             for emp_id in to_schedule:
                 if emp_id not in self._running_tasks:
@@ -2083,7 +2072,7 @@ class EmployeeManager:
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
         lines = [f"Project Completion Report — {node.description_preview[:100]}", ""]
         for i, child in enumerate(children, 1):
-            status_icon = "✓" if child.status == TaskPhase.ACCEPTED else "●"
+            status_icon = "✓" if child.status == "accepted" else "●"
             lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.description_preview[:80]}")
             child.load_content(_pdir)
             lines.append(f"  Result: {(child.result or 'None')[:200]}")
@@ -2099,8 +2088,8 @@ class EmployeeManager:
         }
         emp_data = _store.load_employee(employee_id)
         if emp_data:
-            payload["employee_name"] = emp_data.get(PF_NAME, "")
-        await event_bus.publish(CompanyEvent(type=EventType.CEO_REPORT, payload=payload, agent=SYSTEM_AGENT))
+            payload["employee_name"] = emp_data.get("name", "")
+        await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
 
         # Auto-approve: proceed directly with cleanup
         is_system_node = node.node_type in SYSTEM_NODE_TYPES
@@ -2126,7 +2115,7 @@ class EmployeeManager:
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
                     CompanyEvent(
-                        type=EventType.AGENT_DONE,
+                        type="agent_done",
                         payload={"role": "ROUTINE", "summary": f"Routine error: {e!s}"},
                         agent="ROUTINE",
                     )
@@ -2147,7 +2136,7 @@ class EmployeeManager:
             if agent_error:
                 label = f"{label} (with errors)"
             if agent_error:
-                await _store.save_project_status(project_id, ITER_STATUS_FAILED)
+                await _store.save_project_status(project_id, "failed")
             else:
                 complete_project(project_id, label)
 
@@ -2165,14 +2154,14 @@ class EmployeeManager:
             summary = f"(with errors) {summary}"
         await event_bus.publish(
             CompanyEvent(
-                type=EventType.AGENT_DONE,
+                type="agent_done",
                 payload={"role": role, "summary": summary, "employee_id": employee_id, "project_id": project_id},
                 agent=role,
             )
         )
 
         await event_bus.publish(
-            CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
         )
 
         if self._restart_pending and self.is_idle(exclude=employee_id):
@@ -2208,9 +2197,9 @@ class EmployeeManager:
 
         await event_bus.publish(
             CompanyEvent(
-                type=EventType.BACKEND_RESTART_SCHEDULED,
+                type="backend_restart_scheduled",
                 payload={"reason": "Code changes applied", "immediate": True},
-                agent=SYSTEM_AGENT,
+                agent="SYSTEM",
             )
         )
         # Brief delay to let the WebSocket message reach clients
@@ -2236,13 +2225,13 @@ class EmployeeManager:
         if not node_result:
             return
 
-        soul_path = get_workspace_dir(employee_id) / SOUL_FILENAME
+        soul_path = get_workspace_dir(employee_id) / "SOUL.md"
         soul_path.parent.mkdir(parents=True, exist_ok=True)
 
         existing = ""
         if soul_path.exists():
             try:
-                existing = soul_path.read_text(encoding=ENCODING_UTF8)
+                existing = soul_path.read_text(encoding="utf-8")
             except Exception as exc:
                 logger.debug("Failed to read SOUL.md for {}: {}", employee_id, exc)
 
@@ -2253,7 +2242,7 @@ class EmployeeManager:
         try:
             llm = make_llm(employee_id)
             prompt = (
-                f"You are {emp_data.get(PF_NAME, '')} ({emp_data.get(PF_NICKNAME, '')}), {emp_data.get(PF_ROLE, '')}.\n"
+                f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), {emp_data.get('role', '')}.\n"
                 f"You just completed a task: {node_desc[:500]}\n"
                 f"Task result summary: {node_result[:1000]}\n\n"
                 f"Your current SOUL.md (your personal knowledge file):\n"
@@ -2273,7 +2262,7 @@ class EmployeeManager:
             )
             new_content = result.content.strip()
             if new_content and len(new_content) > 10:
-                soul_path.write_text(new_content, encoding=ENCODING_UTF8)
+                soul_path.write_text(new_content, encoding="utf-8")
                 logger.info(f"[soul] Updated SOUL.md for employee {employee_id}")
         except Exception as e:
             logger.debug(f"[soul] Failed to update SOUL.md for {employee_id}: {e}")
@@ -2312,7 +2301,7 @@ class EmployeeManager:
                 traceback.print_exc()
                 await event_bus.publish(
                     CompanyEvent(
-                        type=EventType.AGENT_DONE,
+                        type="agent_done",
                         payload={"role": task_name, "summary": f"Error: {e!s}"},
                         agent=task_name,
                     )
@@ -2324,7 +2313,7 @@ class EmployeeManager:
 
             # Broadcast updated state
             await event_bus.publish(
-                CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
+                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
             )
 
         async def _wrapper() -> None:
@@ -2350,7 +2339,7 @@ class EmployeeManager:
         emp_data = _store.load_employee(employee_id)
         if not emp_data:
             logger.warning("_get_role: employee {} not found in store, defaulting to 'Employee'", employee_id)
-        return (emp_data or {}).get(PF_ROLE, "Employee")
+        return (emp_data or {}).get("role", "Employee")
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
@@ -2376,7 +2365,7 @@ class EmployeeManager:
             loop = asyncio.get_running_loop()
             loop.create_task(event_bus.publish(
                 CompanyEvent(
-                    type=EventType.AGENT_LOG,
+                    type="agent_log",
                     payload={
                         "employee_id": employee_id,
                         "task_id": task_id,
@@ -2394,7 +2383,7 @@ class EmployeeManager:
             loop = asyncio.get_running_loop()
             loop.create_task(event_bus.publish(
                 CompanyEvent(
-                    type=EventType.AGENT_TASK_UPDATE,
+                    type="agent_task_update",
                     payload={
                         "employee_id": employee_id,
                         "task": node.to_dict(),
@@ -2485,7 +2474,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
     for project_dir in sorted(PROJECTS_DIR.iterdir()):
         if not project_dir.is_dir():
             continue
-        tree_path = project_dir / TASK_TREE_FILENAME
+        tree_path = project_dir / "task_tree.yaml"
         if not tree_path.exists():
             continue
         try:
@@ -2495,7 +2484,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
             continue
 
         for node in tree.all_nodes():
-            if node.status != TaskPhase.COMPLETED.value:
+            if node.status != "completed":
                 continue
             # Skip system nodes (review/ceo_request auto-finish)
             if node.node_type in SYSTEM_NODE_TYPES:

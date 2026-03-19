@@ -11,8 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, SYSTEM_AGENT, TASK_TREE_FILENAME
-from onemancompany.core.models import EventType
+from onemancompany.core.config import CEO_ID
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -23,7 +22,7 @@ from onemancompany.core.task_tree import TaskTree
 def _load_tree(project_dir: str) -> TaskTree:
     """Get TaskTree from memory cache (loading from disk if needed)."""
     from onemancompany.core.task_tree import get_tree
-    path = Path(project_dir) / TASK_TREE_FILENAME
+    path = Path(project_dir) / "task_tree.yaml"
     if not path.exists():
         logger.warning("task_tree.yaml not found at %s", path)
         return TaskTree(project_id="")
@@ -55,7 +54,7 @@ def _find_entry_for_task(task_id: str) -> tuple[str, str]:
 def _save_tree(project_dir: str, tree: TaskTree) -> None:
     """Schedule async save of the TaskTree."""
     from onemancompany.core.task_tree import save_tree_async
-    path = Path(project_dir) / TASK_TREE_FILENAME
+    path = Path(project_dir) / "task_tree.yaml"
     save_tree_async(path)
 
 
@@ -81,14 +80,14 @@ def _create_standalone_ceo_request(
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.vessel import employee_manager
     coro = event_bus.publish(CompanyEvent(
-        type=EventType.CEO_INBOX_UPDATED,
+        type="ceo_inbox_updated",
         payload={
             "node_id": node_id,
             "description": description,
             "source_task_id": requester_task_id,
             "source_employee": vessel.employee_id if vessel else "unknown",
         },
-        agent=SYSTEM_AGENT,
+        agent="SYSTEM",
     ))
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
@@ -270,9 +269,9 @@ def dispatch_child(
             from onemancompany.core.events import CompanyEvent, event_bus
             from onemancompany.core.vessel import employee_manager
             coro = event_bus.publish(CompanyEvent(
-                type=EventType.CEO_INBOX_UPDATED,
+                type="ceo_inbox_updated",
                 payload={"node_id": child.id, "description": description},
-                agent=SYSTEM_AGENT,
+                agent="SYSTEM",
             ))
             main_loop = getattr(employee_manager, "_event_loop", None)
             if main_loop and main_loop.is_running():
@@ -358,11 +357,11 @@ def accept_child(node_id: str, notes: str = "") -> dict:
 
         # Idempotent: already accepted/finished/cancelled → return success without re-transitioning
         if current == TaskPhase.ACCEPTED.value:
-            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_accepted": True}
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
         if current == TaskPhase.FINISHED.value:
-            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_finished": True}
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
         if current == TaskPhase.CANCELLED.value:
-            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_cancelled": True}
+            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_cancelled": True}
 
         # Only completed tasks can be accepted
         if current != TaskPhase.COMPLETED.value:
@@ -379,7 +378,7 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes}
+        return {"status": "accepted", "node_id": node_id, "notes": notes}
 
 
 @tool
@@ -532,7 +531,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": TaskPhase.CANCELLED.value, "node_id": node_id}
+        return {"status": "cancelled", "node_id": node_id}
 
 
 @tool
@@ -556,14 +555,14 @@ def set_project_name(name: str) -> dict:
         return {"status": "error", "message": "No project context."}
 
     # Update project.yaml name field
-    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
+    project_yaml = Path(project_dir) / "project.yaml"
     if project_yaml.exists():
         import yaml
-        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
+        data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
         data["name"] = name.strip()
         project_yaml.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding=ENCODING_UTF8,
+            encoding="utf-8",
         )
         return {"status": "ok", "name": name.strip()}
 

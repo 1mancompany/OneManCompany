@@ -25,15 +25,7 @@ from typing import Any, Callable, Coroutine, Literal, TypedDict
 
 from loguru import logger
 
-from onemancompany.core.config import SYSTEM_SENDER
 from onemancompany.core.interval import parse_interval
-from onemancompany.core.models import EventType
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
 
 
 @dataclass
@@ -161,7 +153,7 @@ class SystemCronManager:
                 "interval": defn.current_interval,
                 "description": defn.description,
                 "running": running,
-                "scope": SYSTEM_SENDER,
+                "scope": "system",
                 "employee_id": None,
                 "last_run": defn.last_run.isoformat() if defn.last_run else None,
                 "run_count": defn.run_count,
@@ -203,6 +195,9 @@ system_cron_manager = SystemCronManager()
 # Handler implementations
 # ---------------------------------------------------------------------------
 
+REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
+
+
 @system_cron("heartbeat", interval="1m", description="员工 API 连接检测")
 async def heartbeat_check() -> list | None:
     from onemancompany.core.heartbeat import run_heartbeat_cycle
@@ -210,7 +205,7 @@ async def heartbeat_check() -> list | None:
 
     changed = await run_heartbeat_cycle()
     if changed:
-        return [CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="HEARTBEAT")]
+        return [CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")]
     return None
 
 
@@ -222,7 +217,7 @@ async def review_reminder_check() -> list | None:
     overdue = scan_overdue_reviews(threshold_seconds=REVIEW_REMINDER_THRESHOLD_SECONDS)
     if overdue:
         return [CompanyEvent(
-            type=EventType.REVIEW_REMINDER,
+            type="review_reminder",
             payload={"overdue_nodes": overdue},
             agent="REVIEW_REMINDER",
         )]
@@ -294,7 +289,7 @@ async def project_progress_watchdog() -> list | None:
     When stuck, a new task node is added under the EA node asking it to
     review the task tree and drive the project forward.
     """
-    from onemancompany.core.config import EA_ID, PROJECTS_DIR, TASK_TREE_FILENAME
+    from onemancompany.core.config import EA_ID, PROJECTS_DIR
     from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED, NodeType
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
     from onemancompany.core.vessel import employee_manager
@@ -304,7 +299,7 @@ async def project_progress_watchdog() -> list | None:
 
     nudged_projects: list[str] = []
 
-    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
+    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
         tree_path_str = str(tree_path)
         try:
             tree = get_tree(tree_path_str)
@@ -384,7 +379,7 @@ async def project_progress_watchdog() -> list | None:
         from onemancompany.core.events import CompanyEvent
 
         return [CompanyEvent(
-            type=EventType.STATE_SNAPSHOT,
+            type="state_snapshot",
             payload={"watchdog_nudged": nudged_projects},
             agent="PROJECT_WATCHDOG",
         )]
@@ -408,8 +403,8 @@ def _build_tree_status_summary(tree) -> str:
     for n in active_nodes:
         by_status.setdefault(n.status, []).append(n)
 
-    from onemancompany.core.task_lifecycle import TaskPhase
-    for status in [p.value for p in TaskPhase]:
+    for status in ["pending", "processing", "holding", "completed", "accepted",
+                    "finished", "failed", "blocked", "cancelled"]:
         nodes = by_status.get(status, [])
         if not nodes:
             continue

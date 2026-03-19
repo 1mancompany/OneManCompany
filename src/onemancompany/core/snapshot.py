@@ -30,15 +30,6 @@ from typing import Protocol
 
 from loguru import logger
 
-from onemancompany.core.config import COMPANY_DIR as _COMPANY_DIR, ENCODING_UTF8
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-SNAPSHOT_PATH = _COMPANY_DIR / ".state_snapshot.json"
-SNAPSHOT_MAX_AGE_SECONDS = 300  # 5 minutes — graceful restarts may take time
-
 
 class SnapshotProvider(Protocol):
     """Protocol for modules that want to persist ephemeral state."""
@@ -80,6 +71,11 @@ def snapshot_provider(name: str):
 # Save / Restore
 # ---------------------------------------------------------------------------
 
+from onemancompany.core.config import COMPANY_DIR as _COMPANY_DIR
+SNAPSHOT_PATH = _COMPANY_DIR / ".state_snapshot.json"
+SNAPSHOT_MAX_AGE_SECONDS = 300  # 5 minutes — graceful restarts may take time
+
+
 def save_snapshot() -> None:
     """Collect state from all registered providers and write to disk."""
     snapshot: dict = {"saved_at": time.time(), "providers": {}}
@@ -94,7 +90,7 @@ def save_snapshot() -> None:
 
     try:
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SNAPSHOT_PATH.write_text(json.dumps(snapshot, default=str), encoding=ENCODING_UTF8)
+        SNAPSHOT_PATH.write_text(json.dumps(snapshot, default=str), encoding="utf-8")
         provider_names = [n for n in snapshot["providers"]]
         logger.info("Saved snapshot: {} provider(s) [{}]", len(provider_names), ", ".join(provider_names))
     except Exception as e:
@@ -106,7 +102,7 @@ def restore_snapshot() -> None:
     if not SNAPSHOT_PATH.exists():
         return
     try:
-        raw = json.loads(SNAPSHOT_PATH.read_text(encoding=ENCODING_UTF8))
+        raw = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
         saved_at = raw.get("saved_at", 0)
         age = time.time() - saved_at
         if age > SNAPSHOT_MAX_AGE_SECONDS:

@@ -12,18 +12,8 @@ from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, CSO_ID, HR_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
-from onemancompany.core.models import DecisionStatus
 from onemancompany.core.store import append_activity_sync as _append_activity
 from onemancompany.core import store as _store
-
-# ---------------------------------------------------------------------------
-# Single-file constants — sales pipeline statuses
-# ---------------------------------------------------------------------------
-SALES_STATUS_PENDING = "pending"
-SALES_STATUS_ACCEPTED = "accepted"
-SALES_STATUS_IN_PRODUCTION = "in_production"
-SALES_STATUS_DELIVERED = "delivered"
-SALES_STATUS_SETTLED = "settled"
 
 CSO_SYSTEM_PROMPT = f"""You are the CSO (Chief Sales Officer) of "One Man Company".
 You manage the sales pipeline, client relationships, and external task delivery.
@@ -145,11 +135,11 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task["status"] != SALES_STATUS_PENDING and task["status"] != SALES_STATUS_ACCEPTED:
+    if task["status"] != "pending" and task["status"] != "accepted":
         return {"status": "error", "message": f"Task is already '{task['status']}', cannot review."}
 
     if approved:
-        _update_sales_task_sync(task_id, {"contract_approved": True, "status": SALES_STATUS_IN_PRODUCTION})
+        _update_sales_task_sync(task_id, {"contract_approved": True, "status": "in_production"})
         # Dispatch to COO for production
         from onemancompany.core.agent_loop import get_agent_loop
         coo_loop = get_agent_loop(COO_ID)
@@ -172,12 +162,12 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
             "notes": notes,
         })
         return {
-            "status": DecisionStatus.APPROVED.value,
+            "status": "approved",
             "task_id": task_id,
             "message": f"Contract approved. Task dispatched to COO for production.",
         }
     else:
-        _update_sales_task_sync(task_id, {"status": DecisionStatus.REJECTED.value})
+        _update_sales_task_sync(task_id, {"status": "rejected"})
         _append_activity({
             "type": "contract_rejected",
             "task_id": task_id,
@@ -185,7 +175,7 @@ def review_contract(task_id: str, approved: bool, notes: str = "") -> dict:
             "notes": notes,
         })
         return {
-            "status": DecisionStatus.REJECTED.value,
+            "status": "rejected",
             "task_id": task_id,
             "message": f"Contract rejected. Reason: {notes}",
         }
@@ -206,17 +196,17 @@ def complete_delivery(task_id: str, delivery_summary: str) -> dict:
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task["status"] != SALES_STATUS_IN_PRODUCTION:
-        return {"status": "error", "message": f"Task is '{task['status']}', expected '{SALES_STATUS_IN_PRODUCTION}'."}
+    if task["status"] != "in_production":
+        return {"status": "error", "message": f"Task is '{task['status']}', expected 'in_production'."}
 
-    _update_sales_task_sync(task_id, {"status": SALES_STATUS_DELIVERED, "delivery": delivery_summary})
+    _update_sales_task_sync(task_id, {"status": "delivered", "delivery": delivery_summary})
     _append_activity({
         "type": "task_delivered",
         "task_id": task_id,
         "client": task["client_name"],
     })
     return {
-        "status": SALES_STATUS_DELIVERED,
+        "status": "delivered",
         "task_id": task_id,
         "message": f"Task marked as delivered. Ready for settlement.",
     }
@@ -236,13 +226,13 @@ def settle_task(task_id: str) -> dict:
     if not task:
         return {"status": "error", "message": f"Sales task '{task_id}' not found."}
 
-    if task["status"] != SALES_STATUS_DELIVERED:
-        return {"status": "error", "message": f"Task is '{task['status']}', must be '{SALES_STATUS_DELIVERED}' to settle."}
+    if task["status"] != "delivered":
+        return {"status": "error", "message": f"Task is '{task['status']}', must be 'delivered' to settle."}
 
     tokens = task.get("budget_tokens", 0)
     _update_sales_task_sync(task_id, {
         "settlement_tokens": tokens,
-        "status": SALES_STATUS_SETTLED,
+        "status": "settled",
     })
     current_tokens = _load_overhead_tokens()
     new_total = current_tokens + tokens
@@ -255,7 +245,7 @@ def settle_task(task_id: str) -> dict:
         "company_total": new_total,
     })
     return {
-        "status": SALES_STATUS_SETTLED,
+        "status": "settled",
         "task_id": task_id,
         "tokens_earned": tokens,
         "company_total_tokens": new_total,

@@ -13,8 +13,6 @@ Usage:
 
 from pathlib import Path
 
-from onemancompany.core.config import ENCODING_UTF8
-
 
 TEMPLATE = r'''#!/usr/bin/env python3
 """Standalone agent runner for {employee_name} ({employee_id}).
@@ -307,6 +305,6 @@ def generate_run_py(employee_dir: str | Path, employee_name: str, employee_id: s
     """Generate a standalone run.py in the employee directory."""
     dest = Path(employee_dir) / "run.py"
     content = TEMPLATE.format(employee_name=employee_name, employee_id=employee_id)
-    dest.write_text(content, encoding=ENCODING_UTF8)
+    dest.write_text(content, encoding="utf-8")
     dest.chmod(0o755)
     return dest

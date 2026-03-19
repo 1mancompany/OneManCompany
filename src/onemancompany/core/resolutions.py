@@ -14,8 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR
-from onemancompany.core.models import DecisionStatus
+from onemancompany.core.config import RESOLUTIONS_DIR
 
 # ---------------------------------------------------------------------------
 # Context variable: tracks the current project_id during agent execution
@@ -31,7 +30,7 @@ _task_edits: dict[str, list[dict]] = {}
 
 
 def _compute_md5(content: str) -> str:
-    return hashlib.md5(content.encode(ENCODING_UTF8)).hexdigest()
+    return hashlib.md5(content.encode("utf-8")).hexdigest()
 
 
 def collect_edit(project_id: str, edit: dict) -> None:
@@ -78,7 +77,7 @@ def create_resolution(project_id: str, task_description: str) -> dict | None:
         "project_id": project_id,
         "task": task_description,
         "created_at": datetime.now().isoformat(),
-        "status": DecisionStatus.PENDING.value,
+        "status": "pending",
         "edits": resolution_edits,
     }
 
@@ -154,7 +153,7 @@ def list_deferred_edits() -> list[dict]:
             # Check staleness
             file_path = Path(edit.get("file_path", ""))
             if file_path.exists():
-                current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
+                current_md5 = _compute_md5(file_path.read_text(encoding="utf-8"))
                 edit["expired"] = current_md5 != edit.get("original_md5", "")
             else:
                 edit["expired"] = True
@@ -214,7 +213,7 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
 
         elif decision == "reject":
             edit["executed"] = False
-            results.append({"edit_id": eid, "decision": "reject", "status": DecisionStatus.REJECTED.value})
+            results.append({"edit_id": eid, "decision": "reject", "status": "rejected"})
 
         elif decision == "defer":
             edit["executed"] = False
@@ -222,17 +221,17 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
             file_path = Path(edit["file_path"])
             if file_path.exists():
                 edit["original_md5"] = _compute_md5(
-                    file_path.read_text(encoding=ENCODING_UTF8)
+                    file_path.read_text(encoding="utf-8")
                 )
-            results.append({"edit_id": eid, "decision": "defer", "status": DecisionStatus.DEFERRED.value})
+            results.append({"edit_id": eid, "decision": "defer", "status": "deferred"})
 
     # Update status: decided if all edits have a decision
     all_decided = all(e.get("decision") is not None for e in resolution.get("edits", []))
     if all_decided:
         has_deferred = any(e.get("decision") == "defer" for e in resolution.get("edits", []))
-        resolution["status"] = DecisionStatus.PENDING.value if has_deferred else "decided"
+        resolution["status"] = "pending" if has_deferred else "decided"
     else:
-        resolution["status"] = DecisionStatus.PENDING.value
+        resolution["status"] = "pending"
 
     _save_resolution(resolution)
     return {"status": "ok", "results": results}
@@ -262,7 +261,7 @@ def execute_deferred_edit(resolution_id: str, edit_id: str) -> dict:
     # Check staleness
     file_path = Path(edit["file_path"])
     if file_path.exists():
-        current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
+        current_md5 = _compute_md5(file_path.read_text(encoding="utf-8"))
         if current_md5 != edit.get("original_md5", ""):
             edit["expired"] = True
             _save_resolution(resolution)

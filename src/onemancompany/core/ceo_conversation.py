@@ -12,10 +12,6 @@ from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, ENCODING_UTF8
-
-CEO_SENDER = "ceo"
-CEO_CONVERSATION_CATEGORY = "ceo_conversation"
 
 # ---------------------------------------------------------------------------
 # Message persistence (SSOT = disk)
@@ -61,7 +57,7 @@ def append_message(
 
     path.write_text(
         _yaml.dump(messages, allow_unicode=True, default_flow_style=False),
-        encoding=ENCODING_UTF8,
+        encoding="utf-8",
     )
     return msg
 
@@ -104,10 +100,10 @@ async def _build_agent_and_invoke(
 
     # Load talent persona if available
     from onemancompany.core.config import EMPLOYEES_DIR
-    persona_path = EMPLOYEES_DIR / employee_id / AGENT_DIR_NAME / "system_prompt.md"
+    persona_path = EMPLOYEES_DIR / employee_id / "agent" / "system_prompt.md"
     if persona_path.exists():
         try:
-            builder.add("persona", persona_path.read_text(encoding=ENCODING_UTF8), priority=15)
+            builder.add("persona", persona_path.read_text(encoding="utf-8"), priority=15)
         except Exception as exc:
             logger.debug("Failed to load persona for {}: {}", employee_id, exc)
 
@@ -116,8 +112,7 @@ async def _build_agent_and_invoke(
         context_parts = []
         proj_path = Path(project_dir)
         # Load the task node description
-        from onemancompany.core.config import TASK_TREE_FILENAME
-        tree_path = proj_path / TASK_TREE_FILENAME
+        tree_path = proj_path / "task_tree.yaml"
         if tree_path.exists():
             try:
                 from onemancompany.core.task_tree import get_tree
@@ -143,7 +138,7 @@ async def _build_agent_and_invoke(
 
     messages = [SystemMessage(content=system_prompt)]
     for m in chat_history:
-        if m["sender"] == CEO_SENDER:
+        if m["sender"] == "ceo":
             messages.append(HumanMessage(content=m["text"]))
         else:
             messages.append(AIMessage(content=m["text"]))
@@ -151,7 +146,7 @@ async def _build_agent_and_invoke(
 
     result = await tracked_ainvoke(
         llm, messages,
-        category=CEO_CONVERSATION_CATEGORY,
+        category="ceo_conversation",
         employee_id=employee_id,
     )
     return _extract_text(result.content)
@@ -166,13 +161,13 @@ class ConversationSession:
         self.project_dir = project_dir
         self._broadcast = broadcast_fn
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._conv_dir = Path(project_dir) / CONVERSATIONS_DIR_NAME
+        self._conv_dir = Path(project_dir) / "conversations"
 
     async def send(self, text: str, attachments=None) -> dict:
         """Queue a CEO message for processing."""
         msg = append_message(
             self._conv_dir, self.node_id,
-            sender=CEO_SENDER, text=text, attachments=attachments,
+            sender="ceo", text=text, attachments=attachments,
         )
         await self._queue.put(msg)
         return msg
@@ -217,7 +212,7 @@ class ConversationSession:
                 sender=self.employee_id, text=response_text,
             )
             await self._broadcast({
-                "type": CEO_CONVERSATION_CATEGORY,
+                "type": "ceo_conversation",
                 "node_id": self.node_id,
                 "sender": self.employee_id,
                 "text": response_text,

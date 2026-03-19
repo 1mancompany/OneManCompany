@@ -5638,6 +5638,7 @@ class AppController {
     if (!this._chatPanel) {
       this._chatPanel = new ChatPanel(chatContainer);
       this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
+      this._chatPanel.onClear((id) => this._clearConversationHistory(id));
       this._chatPanel.onClose((id) => this._closeConversation(id));
     }
 
@@ -5696,6 +5697,31 @@ class AppController {
       body: JSON.stringify({ text, attachments }),
     });
     // Reply arrives via WebSocket conversation_message event
+  }
+
+  async _clearConversationHistory(convId) {
+    if (!this._chatPanel || !convId) return;
+    if (this._chatPanel.getConvType() !== 'oneonone') return;
+
+    const confirmed = confirm('Clear all 1-on-1 history for this employee? This cannot be undone.');
+    if (!confirmed) return;
+
+    try {
+      const resp = await fetch(`/api/conversation/${convId}/clear`, { method: 'POST' });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.detail || data.error || `Server error (${resp.status})`);
+      }
+
+      const msgsResp = await fetch(`/api/conversation/${convId}/messages`).then(r => r.json());
+      this._chatPanel.renderMessages(msgsResp.messages || []);
+      this._chatPanel.showTyping(false);
+
+      const empName = this._resolveEmployeeName(data.employee_id || '');
+      this.logEntry('SYSTEM', `🧹 Cleared 1-on-1 history for ${empName}.`, 'system');
+    } catch (err) {
+      alert(`Failed to clear history: ${err.message}`);
+    }
   }
 
   async _closeConversation(convId) {

@@ -4930,6 +4930,10 @@ body {
     padding: 1px 4px; font-weight: bold;
 }
 .chat-panel-employee { flex: 1; }
+.chat-panel-clear-btn {
+    font-size: 7px; font-family: 'Press Start 2P', monospace; cursor: pointer;
+    background: #355; color: #fff; border: 1px solid #688; padding: 1px 6px;
+}
 .chat-panel-close-btn {
     font-size: 7px; font-family: 'Press Start 2P', monospace; cursor: pointer;
     background: #633; color: #fff; border: 1px solid #966; padding: 1px 6px;

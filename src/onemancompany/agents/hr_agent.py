@@ -43,12 +43,6 @@ from onemancompany.core.config import (
     MAX_NORMAL_LEVEL,
     MAX_PERFORMANCE_HISTORY,
     MAX_SUMMARY_LEN,
-    PF_CURRENT_QUARTER_TASKS,
-    PF_LEVEL,
-    PF_NAME,
-    PF_NICKNAME,
-    PF_PERFORMANCE_HISTORY,
-    PF_ROLE,
     PROBATION_TASKS,
     QUARTERS_FOR_PROMOTION,
     SCORE_EXCELLENT,
@@ -59,7 +53,6 @@ from onemancompany.core.config import (
     VALID_SCORES,
 )
 from onemancompany.core import store as _store
-from onemancompany.core.models import HostingMode
 from onemancompany.core.layout import compute_layout
 from onemancompany.core.routine import run_performance_meeting
 from onemancompany.core.state import LEVEL_NAMES, company_state
@@ -207,18 +200,18 @@ class HRAgent(BaseAgentRunner):
         from onemancompany.core.state import make_title
         all_emps = _store.load_all_employees()
         for eid, edata in all_emps.items():
-            perf = edata.get(PF_PERFORMANCE_HISTORY, [])
+            perf = edata.get("performance_history", [])
             hist_str = ", ".join(
                 f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
             ) or "no history"
-            level = edata.get(PF_LEVEL, 1)
+            level = edata.get("level", 1)
             info = (
-                f"- {edata.get(PF_NAME, '')} (nickname: {edata.get(PF_NICKNAME, '')}, ID: {eid}, "
-                f"Title: {make_title(level, edata.get(PF_ROLE, ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
-                f"Q tasks: {edata.get(PF_CURRENT_QUARTER_TASKS, 0)}/3, "
+                f"- {edata.get('name', '')} (nickname: {edata.get('nickname', '')}, ID: {eid}, "
+                f"Title: {make_title(level, edata.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
+                f"Q tasks: {edata.get('current_quarter_tasks', 0)}/3, "
                 f"Performance history: [{hist_str}])"
             )
-            if edata.get(PF_CURRENT_QUARTER_TASKS, 0) >= TASKS_PER_QUARTER:
+            if edata.get("current_quarter_tasks", 0) >= TASKS_PER_QUARTER:
                 reviewable.append(info)
             else:
                 not_ready.append(info)
@@ -287,7 +280,7 @@ class HRAgent(BaseAgentRunner):
                     temperature=float(emp_data.get("temperature", 0.7)),
                     image_model=emp_data.get("image_model", ""),
                     api_provider=emp_data.get("api_provider", "openrouter"),
-                    hosting=emp_data.get("hosting", HostingMode.COMPANY),
+                    hosting=emp_data.get("hosting", "company"),
                     auth_method=emp_data.get("auth_method", "api_key"),
                     sprite=emp_data.get("sprite", "employee_default"),
                     remote=emp_data.get("remote", False),
@@ -299,13 +292,13 @@ class HRAgent(BaseAgentRunner):
                     emp_data = _store.load_employee(emp_id) if emp_id else {}
                     if emp_id and emp_data:
                         # Only review if quarter tasks >= threshold
-                        if emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) < TASKS_PER_QUARTER:
+                        if emp_data.get("current_quarter_tasks", 0) < TASKS_PER_QUARTER:
                             continue
                         raw_score = review.get("score", 3.5)
                         # Snap to nearest valid tier
                         score = min(VALID_SCORES, key=lambda s: abs(s - raw_score))
                         # Record quarter and reset task counter
-                        perf_history = list(emp_data.get(PF_PERFORMANCE_HISTORY, []))
+                        perf_history = list(emp_data.get("performance_history", []))
                         perf_history.append({"score": score, "tasks": TASKS_PER_QUARTER})
                         # Keep only recent quarters
                         if len(perf_history) > MAX_PERFORMANCE_HISTORY:
@@ -394,12 +387,12 @@ class HRAgent(BaseAgentRunner):
         from onemancompany.core.state import make_title
         all_emps = _store.load_all_employees()
         for eid, edata in all_emps.items():
-            level = edata.get(PF_LEVEL, 1)
+            level = edata.get("level", 1)
             if level >= MAX_NORMAL_LEVEL and level < FOUNDING_LEVEL:
                 continue  # already at max normal level
             if level >= FOUNDING_LEVEL:
                 continue  # founding/CEO can't be promoted this way
-            perf = edata.get(PF_PERFORMANCE_HISTORY, [])
+            perf = edata.get("performance_history", [])
             if len(perf) < QUARTERS_FOR_PROMOTION:
                 continue
             last_n = perf[-QUARTERS_FOR_PROMOTION:]
@@ -408,15 +401,15 @@ class HRAgent(BaseAgentRunner):
                 new_level = min(level + 1, MAX_NORMAL_LEVEL)
                 if new_level == old_level:
                     continue  # no actual promotion
-                new_title = make_title(new_level, edata.get(PF_ROLE, ""))
+                new_title = make_title(new_level, edata.get("role", ""))
                 # Persist new level/title via store
                 await _store.save_employee(eid, {"level": new_level, "title": new_title})
                 # Recompute layout (level change affects vertical ordering)
                 compute_layout(company_state)
                 _append_activity({
                     "type": "promotion",
-                    "name": edata.get(PF_NAME, ""),
-                    "nickname": edata.get(PF_NICKNAME, ""),
+                    "name": edata.get("name", ""),
+                    "nickname": edata.get("nickname", ""),
                     "old_level": old_level,
                     "new_level": new_level,
                     "new_title": new_title,
@@ -424,7 +417,7 @@ class HRAgent(BaseAgentRunner):
                 await self._publish(
                     "agent_done",
                     {"role": "HR",
-                     "summary": f"Promotion: {edata.get(PF_NAME, '')} ({edata.get(PF_NICKNAME, '')}) {LEVEL_NAMES.get(old_level, '')} -> {new_title}"},
+                     "summary": f"Promotion: {edata.get('name', '')} ({edata.get('nickname', '')}) {LEVEL_NAMES.get(old_level, '')} -> {new_title}"},
                 )
 
 

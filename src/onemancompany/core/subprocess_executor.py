@@ -11,7 +11,7 @@ from typing import Callable
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, LAUNCH_SH_FILENAME
+from onemancompany.core.config import EMPLOYEES_DIR
 from onemancompany.core.vessel import Launcher, LaunchResult, TaskContext
 
 _KILL_POLL_INTERVAL = 5
@@ -28,7 +28,7 @@ class SubprocessExecutor(Launcher):
         timeout_seconds: int = 3600,
     ) -> None:
         self.employee_id = employee_id
-        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / LAUNCH_SH_FILENAME)
+        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / "launch.sh")
         self.timeout_seconds = timeout_seconds
         self._process: asyncio.subprocess.Process | None = None
 

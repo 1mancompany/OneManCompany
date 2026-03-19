@@ -13,11 +13,6 @@ from typing import Protocol, runtime_checkable
 from loguru import logger
 
 from onemancompany.core.conversation import Conversation, Message
-from onemancompany.core.models import ConversationType
-
-# Single-file constants
-EXECUTOR_TYPE_LANGCHAIN = "langchain"
-EXECUTOR_TYPE_CLAUDE_SESSION = "claude_session"
 
 
 @runtime_checkable
@@ -72,9 +67,9 @@ def _get_employee_executor(employee_id: str):
 
 
 _EXECUTOR_CLASS_MAP: dict[str, str] = {
-    "ClaudeSessionExecutor": EXECUTOR_TYPE_CLAUDE_SESSION,
-    "LangChainExecutor": EXECUTOR_TYPE_LANGCHAIN,
-    "EmployeeAgent": EXECUTOR_TYPE_LANGCHAIN,
+    "ClaudeSessionExecutor": "claude_session",
+    "LangChainExecutor": "langchain",
+    "EmployeeAgent": "langchain",
 }
 
 
@@ -88,7 +83,7 @@ def _get_executor_type(employee_id: str) -> str:
             "[conversation] unknown executor class '{}' for employee {}, defaulting to langchain",
             cls_name, employee_id,
         )
-        executor_type = EXECUTOR_TYPE_LANGCHAIN
+        executor_type = "langchain"
     return executor_type
 
 
@@ -98,9 +93,9 @@ def _build_conversation_prompt(
     """Build a prompt with conversation history for the executor."""
     lines = []
     lines.append("You are in a conversation with the CEO.")
-    if conversation.type == ConversationType.ONE_ON_ONE:
+    if conversation.type == "oneonone":
         lines.append("This is a 1-on-1 meeting. Be direct and professional.")
-    elif conversation.type == ConversationType.CEO_INBOX:
+    elif conversation.type == "ceo_inbox":
         lines.append("The CEO is responding to your request. Answer their questions.")
 
     if messages:
@@ -147,11 +142,11 @@ class _BaseConversationAdapter:
         pass
 
 
-@register_adapter(EXECUTOR_TYPE_LANGCHAIN)
+@register_adapter("langchain")
 class LangChainAdapter(_BaseConversationAdapter):
     pass
 
 
-@register_adapter(EXECUTOR_TYPE_CLAUDE_SESSION)
+@register_adapter("claude_session")
 class ClaudeSessionAdapter(_BaseConversationAdapter):
     pass

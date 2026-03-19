@@ -2,16 +2,71 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import Literal
 
-from onemancompany.core.config import SYSTEM_SENDER
-from onemancompany.core.models import EventType
+EventType = Literal[
+    "employee_hired",
+    "employee_fired",
+    "employee_reviewed",
+    "employee_rehired",
+    "tool_added",
+    "ceo_task_submitted",
+    "agent_thinking",
+    "agent_done",
+    "agent_log",
+    "agent_task_update",
+    "state_snapshot",
+    "guidance_start",
+    "guidance_noted",
+    "guidance_end",
+    "meeting_booked",
+    "meeting_released",
+    "meeting_denied",
+    "meeting_chat",
+    "meeting_report_ready",
+    "routine_phase",
+    "workflow_updated",
+    "candidates_ready",
+    "company_culture_updated",
+    "file_edit_proposed",
+    "file_edit_applied",
+    "file_edit_rejected",
+    "resolution_ready",
+    "resolution_decided",
+    "inquiry_started",
+    "inquiry_ended",
+    "okr_updated",
+    "onboarding_started",
+    "onboarding_completed",
+    "probation_review",
+    "pip_started",
+    "pip_resolved",
+    "exit_interview_started",
+    "exit_interview_completed",
+    "interview_round_completed",
+    "hiring_request_ready",
+    "hiring_request_decided",
+    "code_update_available",
+    "frontend_update_available",
+    "backend_restart_scheduled",
+    "ceo_report",
+    "meeting_report_complete",
+    "recurring_action_items",
+    "dispatch_status_change",
+    "open_popup",
+    "request_credentials",
+    "credentials_submitted",
+    "tree_update",
+    "conversation_message",
+    "conversation_phase",
+]
 
 
 @dataclass
 class CompanyEvent:
     type: EventType
     payload: dict
-    agent: str = SYSTEM_SENDER
+    agent: str = "system"
 
 
 class EventBus:
@@ -67,4 +122,4 @@ async def open_popup(
         payload["confirm_label"] = confirm_label
         if callback_url:
             payload["callback_url"] = callback_url
-    await event_bus.publish(CompanyEvent(type=EventType.OPEN_POPUP, payload=payload, agent=agent))
+    await event_bus.publish(CompanyEvent(type="open_popup", payload=payload, agent=agent))

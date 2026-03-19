@@ -18,9 +18,6 @@ from loguru import logger
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
-    PF_LEVEL,
-    PROVIDER_ANTHROPIC,
-    PROVIDER_OPENROUTER,
     PROVIDER_REGISTRY,
     employee_configs,
     get_provider,
@@ -29,21 +26,6 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
 )
 from onemancompany.core import store as _store
-from onemancompany.core.models import AuthMethod, HostingMode
-
-# Single-file constants
-WORKER_PID_FILENAME = "worker.pid"
-HEARTBEAT_SCRIPT_FILENAME = "heartbeat.sh"
-_KEY_RUNTIME = "runtime"
-_KEY_API_ONLINE = "api_online"
-_KEY_NEEDS_SETUP = "needs_setup"
-# Heartbeat method identifiers
-_METHOD_CLAUDE_CLI = "claude_cli"
-_METHOD_PROVIDER_KEY = "provider_key"
-_METHOD_ALWAYS_ONLINE = "always_online"
-_METHOD_PID = "pid"
-_METHOD_SCRIPT = "script"
-_METHOD_ANTHROPIC_KEY = "anthropic_key"
 
 
 def _get_heartbeat_method(emp_id: str, cfg) -> str:
@@ -63,11 +45,11 @@ def _get_heartbeat_method(emp_id: str, cfg) -> str:
                 return method
 
     # Self-hosted employees use Claude CLI — check via `claude --version`
-    if cfg.hosting == HostingMode.SELF:
-        return _METHOD_CLAUDE_CLI
+    if cfg.hosting == "self":
+        return "claude_cli"
 
     # Fallback: use provider registry to determine health check method
-    return _METHOD_PROVIDER_KEY
+    return "provider_key"
 
 
 def _resolve_provider_key(cfg) -> str:
@@ -86,7 +68,7 @@ def check_needs_setup(emp_id: str) -> bool:
     if not cfg:
         return False  # founding employees without config don't need setup
 
-    if cfg.hosting == HostingMode.SELF:
+    if cfg.hosting == "self":
         return False
 
     prov = get_provider(cfg.api_provider)
@@ -94,7 +76,7 @@ def check_needs_setup(emp_id: str) -> bool:
         return True  # unknown provider → needs setup
 
     # OpenRouter uses company key — no per-employee setup needed
-    if cfg.api_provider == PROVIDER_OPENROUTER:
+    if cfg.api_provider == "openrouter":
         return False
 
     # Other providers need either employee key or company-level key
@@ -116,7 +98,7 @@ async def _check_provider_online(provider: str, api_key: str, model: str) -> boo
 
 def _check_self_hosted_pid(emp_id: str) -> bool:
     """Check if the self-hosted worker process is alive via PID file."""
-    pid_file = EMPLOYEES_DIR / emp_id / WORKER_PID_FILENAME
+    pid_file = EMPLOYEES_DIR / emp_id / "worker.pid"
     if not pid_file.exists():
         return False
     try:
@@ -143,7 +125,7 @@ async def _check_claude_cli() -> bool:
 
 async def _check_script(emp_id: str) -> bool:
     """Run {employee_dir}/heartbeat.sh and return True if exit 0."""
-    script = EMPLOYEES_DIR / emp_id / HEARTBEAT_SCRIPT_FILENAME
+    script = EMPLOYEES_DIR / emp_id / "heartbeat.sh"
     if not script.exists():
         return False
     try:
@@ -163,7 +145,7 @@ def _update_online(emp_id: str, online: bool, changed: list[str]) -> None:
     emp_data = _store.load_employee(emp_id)
     if not emp_data:
         return
-    current = emp_data.get(_KEY_RUNTIME, {}).get(_KEY_API_ONLINE, False)
+    current = emp_data.get("runtime", {}).get("api_online", False)
     if current != online:
         try:
             spawn_background(_store.save_employee_runtime(emp_id, api_online=online))
@@ -180,9 +162,9 @@ async def run_heartbeat_cycle() -> list[str]:
 
     # 1. Update needs_setup for all employees
     for emp_id, emp_data in all_employees.items():
-        runtime = emp_data.get(_KEY_RUNTIME, {})
+        runtime = emp_data.get("runtime", {})
         new_needs_setup = check_needs_setup(emp_id)
-        if runtime.get(_KEY_NEEDS_SETUP, False) != new_needs_setup:
+        if runtime.get("needs_setup", False) != new_needs_setup:
             await _store.save_employee_runtime(emp_id, needs_setup=new_needs_setup)
             changed.append(emp_id)
 
@@ -197,10 +179,10 @@ async def run_heartbeat_cycle() -> list[str]:
     # Re-read after needs_setup updates
     all_employees = _store.load_all_employees()
     for emp_id, emp_data in all_employees.items():
-        runtime = emp_data.get(_KEY_RUNTIME, {})
-        if runtime.get(_KEY_NEEDS_SETUP, False):
+        runtime = emp_data.get("runtime", {})
+        if runtime.get("needs_setup", False):
             # Skip heartbeat for employees needing setup — needs_setup takes priority
-            if runtime.get(_KEY_API_ONLINE, False):
+            if runtime.get("api_online", False):
                 await _store.save_employee_runtime(emp_id, api_online=False)
                 if emp_id not in changed:
                     changed.append(emp_id)
@@ -209,7 +191,7 @@ async def run_heartbeat_cycle() -> list[str]:
         cfg = employee_configs.get(emp_id)
         if not cfg:
             # Founding employees without config — assume always online
-            if not runtime.get(_KEY_API_ONLINE, False):
+            if not runtime.get("api_online", False):
                 await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
@@ -218,30 +200,30 @@ async def run_heartbeat_cycle() -> list[str]:
         method = _get_heartbeat_method(emp_id, cfg)
 
         # Founding employees skip heartbeat unless self-hosted (need CLI check)
-        level = emp_data.get(PF_LEVEL, 0)
-        if level >= FOUNDING_LEVEL and method != _METHOD_CLAUDE_CLI:
+        level = emp_data.get("level", 0)
+        if level >= FOUNDING_LEVEL and method != "claude_cli":
             continue
 
-        if method == _METHOD_ALWAYS_ONLINE:
-            if not runtime.get(_KEY_API_ONLINE, False):
+        if method == "always_online":
+            if not runtime.get("api_online", False):
                 await _store.save_employee_runtime(emp_id, api_online=True)
                 if emp_id not in changed:
                     changed.append(emp_id)
             continue
-        elif method == _METHOD_CLAUDE_CLI:
+        elif method == "claude_cli":
             claude_cli_employees.append(emp_id)
-        elif method == _METHOD_PID:
+        elif method == "pid":
             pid_employees.append(emp_id)
-        elif method == _METHOD_SCRIPT:
+        elif method == "script":
             script_employees.append(emp_id)
-        elif method == _METHOD_PROVIDER_KEY:
+        elif method == "provider_key":
             provider = cfg.api_provider
             key = _resolve_provider_key(cfg)
 
             # OAuth tokens can't be validated via health endpoint — just check existence
-            if provider == PROVIDER_ANTHROPIC:
-                auth_method = cfg.auth_method if cfg.auth_method == AuthMethod.OAUTH else settings.anthropic_auth_method
-                if auth_method == AuthMethod.OAUTH:
+            if provider == "anthropic":
+                auth_method = cfg.auth_method if cfg.auth_method == "oauth" else settings.anthropic_auth_method
+                if auth_method == "oauth":
                     _update_online(emp_id, bool(key), changed)
                     continue
 
@@ -252,11 +234,11 @@ async def run_heartbeat_cycle() -> list[str]:
                 # Company-level key → batch by provider
                 provider_groups.setdefault(provider, []).append(emp_id)
         # Legacy method names from manifest.json
-        elif method == _METHOD_ANTHROPIC_KEY:
+        elif method == "anthropic_key":
             key = _resolve_provider_key(cfg)
-            per_employee_checks.append((emp_id, PROVIDER_ANTHROPIC, key))
+            per_employee_checks.append((emp_id, "anthropic", key))
         else:  # openrouter_key or unknown
-            provider_groups.setdefault(PROVIDER_OPENROUTER, []).append(emp_id)
+            provider_groups.setdefault("openrouter", []).append(emp_id)
 
     # 3. Batched provider checks — one request per company-level key
     for provider, emp_ids in provider_groups.items():

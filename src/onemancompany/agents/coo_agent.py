@@ -17,9 +17,8 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PF_DEPARTMENT, PF_NAME, PF_REMOTE, PF_ROLE, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOL_YAML_FILENAME, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.models import EventType
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
@@ -291,7 +290,7 @@ def _persist_tool(t: OfficeTool) -> None:
         t.folder_name = slugify_tool_name(t.name)
     folder = TOOLS_DIR / t.folder_name
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / TOOL_YAML_FILENAME
+    path = folder / "tool.yaml"
     with open(path, "w") as f:
         yaml.dump(
             {
@@ -854,7 +853,7 @@ def request_hiring(
 
     # Publish event for frontend notification (informational, no approval needed)
     coro = event_bus.publish(CompanyEvent(
-        type=EventType.HIRING_REQUEST_READY,
+        type="hiring_request_ready",
         payload={"hire_id": hire_id, **req},
         agent="COO",
     ))
@@ -973,8 +972,8 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     if not emp_data:
         return {"status": "error", "error": f"Employee {employee_id} not found"}
 
-    old_dept = emp_data.get(PF_DEPARTMENT, "General")
-    old_role = emp_data.get(PF_ROLE, "")
+    old_dept = emp_data.get("department", "General")
+    old_role = emp_data.get("role", "")
     no_dept_change = old_dept == department
     no_role_change = not role or old_role == role
 
@@ -984,14 +983,14 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
             "employee_id": employee_id,
             "department": department,
             "role": old_role,
-            "message": f"{emp_data.get(PF_NAME, employee_id)} already has department={department}, role={old_role}",
+            "message": f"{emp_data.get('name', employee_id)} already has department={department}, role={old_role}",
         }
 
     updates: dict = {}
 
     if not no_dept_change:
         # Compute new desk position within the target department zone
-        is_remote = emp_data.get(PF_REMOTE, False)
+        is_remote = emp_data.get("remote", False)
         if is_remote:
             desk_pos = [-1, -1]
         else:
@@ -1022,7 +1021,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     _append_activity({
         "type": activity_type,
         "employee_id": employee_id,
-        "name": emp_data.get(PF_NAME, employee_id),
+        "name": emp_data.get("name", employee_id),
         "from_department": old_dept,
         "to_department": department,
         "from_role": old_role,
@@ -1030,7 +1029,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     })
 
     await event_bus.publish(CompanyEvent(
-        type=EventType.STATE_SNAPSHOT, payload={}, agent="COO",
+        type="state_snapshot", payload={}, agent="COO",
     ))
 
     final_role = role or old_role
@@ -1040,7 +1039,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     result = {
         "status": "ok",
         "employee_id": employee_id,
-        "name": emp_data.get(PF_NAME, ""),
+        "name": emp_data.get("name", ""),
         "department": department,
         "role": final_role,
     }

@@ -21,11 +21,6 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from onemancompany.core.config import COMPANY_DIR, ENCODING_UTF8
-
-# Single-file constants
-JOURNAL_DIR_NAME = "journal"
-
 
 class EvidenceKind(str, Enum):
     TASK_DISPATCH = "task_dispatch"
@@ -52,8 +47,8 @@ class EvidenceRecord(BaseModel):
 class Journal:
     """Append-only evidence store with SHA256 content-addressing."""
 
-    def __init__(self, base_dir: Path | str | None = None) -> None:
-        self.base = Path(base_dir) if base_dir else COMPANY_DIR / JOURNAL_DIR_NAME
+    def __init__(self, base_dir: str = "company/journal") -> None:
+        self.base = Path(base_dir)
 
     def write_sync(self, record: EvidenceRecord) -> str:
         """Write a record to disk. Returns the file path."""
@@ -66,7 +61,7 @@ class Journal:
         filename = f"{record.kind.value}-{ts}-{digest}.json"
 
         file_path = dir_path / filename
-        file_path.write_text(content, encoding=ENCODING_UTF8)
+        file_path.write_text(content, encoding="utf-8")
         return str(file_path)
 
     def query(
@@ -85,7 +80,7 @@ class Journal:
             if kind and not f.name.startswith(kind.value):
                 continue
             try:
-                record = EvidenceRecord.model_validate_json(f.read_text(encoding=ENCODING_UTF8))
+                record = EvidenceRecord.model_validate_json(f.read_text(encoding="utf-8"))
                 results.append(record)
             except Exception as _e:
                 logger.debug("Skipping corrupted evidence record {}: {}", f.name, _e)

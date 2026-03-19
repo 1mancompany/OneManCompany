@@ -13,20 +13,15 @@ import yaml
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     FOUNDING_LEVEL,
-    MANIFEST_YAML_FILENAME,
-    SYSTEM_AGENT,
-    TOOL_YAML_FILENAME,
     TOOLS_DIR,
     move_employee_to_ex,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.models import EventType
 from onemancompany.core.layout import compute_layout
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 
 from loguru import logger
-
 
 
 async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
@@ -65,14 +60,14 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
     try:
         from onemancompany.agents.onboarding import unregister_tool_user
 
-        manifest_path = EMPLOYEES_DIR / employee_id / "tools" / MANIFEST_YAML_FILENAME
+        manifest_path = EMPLOYEES_DIR / employee_id / "tools" / "manifest.yaml"
         if manifest_path.exists():
             with open(manifest_path) as f:
                 mdata = yaml.safe_load(f) or {}
             for tool_name in mdata.get("custom_tools", []):
                 unregister_tool_user(tool_name, employee_id)
                 # Clean up orphaned personal tools (no remaining users)
-                tool_yaml_path = TOOLS_DIR / tool_name / TOOL_YAML_FILENAME
+                tool_yaml_path = TOOLS_DIR / tool_name / "tool.yaml"
                 if tool_yaml_path.exists():
                     with open(tool_yaml_path) as f:
                         tool_data = yaml.safe_load(f) or {}
@@ -107,7 +102,7 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
         })
 
         await event_bus.publish(CompanyEvent(
-            type=EventType.EMPLOYEE_FIRED,
+            type="employee_fired",
             payload={
                 "id": employee_id,
                 "name": name,
@@ -119,7 +114,7 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
         ))
 
         await event_bus.publish(
-            CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
+            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
         )
     except Exception as e:
         logger.warning("Post-fire event publishing failed for {}: {}", employee_id, e)

@@ -6,24 +6,10 @@ from datetime import datetime
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     FOUNDING_LEVEL,
-    PF_CURRENT_TASK_SUMMARY,
     STATUS_IDLE,
 )
 from loguru import logger
-from onemancompany.core.models import DecisionStatus, OverheadCosts
-from onemancompany.core.task_lifecycle import TaskPhase
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
-
-ROLE_TITLES = {
-    "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
-    "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
-    "HR": "HR", "COO": "COO", "EA": "EA", "CSO": "CSO",
-}
+from onemancompany.core.models import OverheadCosts
 
 
 @dataclass
@@ -42,7 +28,7 @@ class TaskEntry:
     iteration_id: str = ""  # v2 = iter_XXX, v1 = empty
     project_dir: str = ""  # absolute path to project workspace
     current_owner: str = ""  # employee_id of current owner
-    status: str = TaskPhase.PENDING.value  # follows TaskPhase values
+    status: str = "pending"  # follows TaskPhase values
     result: str = ""       # task output / report on completion
     created_at: str = ""
     completed_at: str = ""
@@ -138,6 +124,15 @@ class MeetingRoom:
         }
 
 
+LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
+
+ROLE_TITLES = {
+    "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
+    "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
+    "HR": "HR", "COO": "COO", "EA": "EA", "CSO": "CSO",
+}
+
+
 def make_title(level: int, role: str) -> str:
     """Generate title like 'Junior Engineer', 'Mid Analyst'."""
     if level >= FOUNDING_LEVEL:
@@ -216,7 +211,7 @@ class Employee:
             "onboarding_completed": self.onboarding_completed,
             "status": self.status,
             "is_listening": self.is_listening,
-            PF_CURRENT_TASK_SUMMARY: self.current_task_summary,
+            "current_task_summary": self.current_task_summary,
             "api_online": self.api_online,
             "needs_setup": self.needs_setup,
             "avatar_sprite": self.avatar_sprite,
@@ -330,7 +325,7 @@ def request_reload() -> dict:
         return reload_all_from_disk()
     else:
         _reload_pending = True
-        return {"status": DecisionStatus.DEFERRED.value, "reason": "agents are busy"}
+        return {"status": "deferred", "reason": "agents are busy"}
 
 
 def flush_pending_reload() -> dict | None:
@@ -353,16 +348,14 @@ def reload_all_from_disk() -> dict:
     3. Refresh the employee counter (in-memory counter for ID generation).
     4. Recompute office layout.
     """
-    from onemancompany.core.config import DirtyCategory, invalidate_manifest_cache, reload_app_config
+    from onemancompany.core.config import invalidate_manifest_cache, reload_app_config
     from onemancompany.core.store import mark_dirty
 
     reload_app_config()
 
     mark_dirty(
-        DirtyCategory.EMPLOYEES, DirtyCategory.EX_EMPLOYEES,
-        DirtyCategory.ROOMS, DirtyCategory.TOOLS, DirtyCategory.TASK_QUEUE,
-        DirtyCategory.CULTURE, DirtyCategory.ACTIVITY_LOG,
-        DirtyCategory.SALES_TASKS, DirtyCategory.DIRECTION,
+        "employees", "ex_employees", "rooms", "tools", "task_queue",
+        "culture", "activity_log", "sales_tasks", "direction",
     )
     invalidate_manifest_cache()
 

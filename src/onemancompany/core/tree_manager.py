@@ -12,9 +12,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import SYSTEM_AGENT, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import TaskPhase
-from onemancompany.core.models import EventType
 from onemancompany.core.task_tree import TaskTree
 
 
@@ -54,7 +52,7 @@ class TaskTreeManager:
 
     def load(self) -> TaskTree:
         """Load tree from disk."""
-        path = Path(self.project_dir) / TASK_TREE_FILENAME
+        path = Path(self.project_dir) / "task_tree.yaml"
         if path.exists():
             self._tree = TaskTree.load(path, project_id=self.project_id)
         else:
@@ -126,7 +124,7 @@ class TaskTreeManager:
     def _save(self) -> None:
         """Persist tree to disk."""
         if self._tree:
-            path = Path(self.project_dir) / TASK_TREE_FILENAME
+            path = Path(self.project_dir) / "task_tree.yaml"
             self._tree.save(path)
 
     async def _broadcast(self, event: TreeEvent) -> None:
@@ -135,7 +133,7 @@ class TaskTreeManager:
 
         await event_bus.publish(
             CompanyEvent(
-                type=EventType.TREE_UPDATE,
+                type="tree_update",
                 payload={
                     "project_id": self.project_id,
                     "event_type": event.type,
@@ -143,6 +141,6 @@ class TaskTreeManager:
                     "data": event.data,
                     "timestamp": event.timestamp,
                 },
-                agent=SYSTEM_AGENT,
+                agent="SYSTEM",
             )
         )
