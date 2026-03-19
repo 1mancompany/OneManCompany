@@ -23,11 +23,16 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
+from onemancompany.core.config import ENCODING_UTF8, NODES_DIR_NAME
 from onemancompany.core.task_lifecycle import (
     TaskPhase, transition,
     RESOLVED, DONE_EXECUTING, UNBLOCKS_DEPENDENTS, WILL_NOT_DELIVER,
 )
 
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+NODES_DIR = NODES_DIR_NAME
 _STATUS_MIGRATION = {"complete": "completed"}
 
 
@@ -42,12 +47,12 @@ class TaskNode:
     employee_id: str = ""
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
-    node_type: str = "task"  # "task" | "ceo_prompt" | "ceo_followup" | "ceo_request" | "review"
+    node_type: str = "task"  # See NodeType enum in task_lifecycle.py
 
     model_used: str = ""              # which LLM executed
     project_dir: str = ""             # workspace path
 
-    status: str = "pending"  # pending → processing → completed → accepted / failed / cancelled
+    status: str = TaskPhase.PENDING.value  # pending → processing → completed → accepted / failed / cancelled
     result: str = ""
     acceptance_result: dict | None = None  # {passed: bool, notes: str}
 
@@ -104,12 +109,12 @@ class TaskNode:
         """Write description/result to a separate content file."""
         if not self._content_dirty:
             return
-        nodes_dir = Path(project_dir) / "nodes"
+        nodes_dir = Path(project_dir) / NODES_DIR
         nodes_dir.mkdir(parents=True, exist_ok=True)
         content = {"description": self.description, "result": self.result}
         (nodes_dir / f"{self.id}.yaml").write_text(
             yaml.dump(content, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
         self._content_dirty = False
 
@@ -117,9 +122,9 @@ class TaskNode:
         """Load description/result from content file (idempotent)."""
         if self._content_loaded:
             return
-        content_path = Path(project_dir) / "nodes" / f"{self.id}.yaml"
+        content_path = Path(project_dir) / NODES_DIR / f"{self.id}.yaml"
         if content_path.exists():
-            data = yaml.safe_load(content_path.read_text(encoding="utf-8")) or {}
+            data = yaml.safe_load(content_path.read_text(encoding=ENCODING_UTF8)) or {}
             # Use object.__setattr__ to avoid marking dirty
             desc = data.get("description", "")
             object.__setattr__(self, "description", desc)
@@ -147,7 +152,8 @@ class TaskNode:
 
     @property
     def is_ceo_node(self) -> bool:
-        return self.node_type in ("ceo_prompt", "ceo_followup", "ceo_request")
+        from onemancompany.core.task_lifecycle import NodeType
+        return self.node_type in (NodeType.CEO_PROMPT, NodeType.CEO_FOLLOWUP, NodeType.CEO_REQUEST)
 
     def to_dict(self) -> dict:
         return {
@@ -157,7 +163,7 @@ class TaskNode:
             "employee_id": self.employee_id,
             "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
-            "node_type": self.node_type,
+            "node_type": str(self.node_type),
             "model_used": self.model_used,
             "project_dir": self.project_dir,
             "status": self.status,
@@ -275,13 +281,14 @@ class TaskTree:
 
     def get_ea_node(self):
         """Get the EA node (first task-type child of the CEO root node)."""
+        from onemancompany.core.task_lifecycle import NodeType
         root = self._nodes.get(self.root_id)
-        if not root or root.node_type != "ceo_prompt":
+        if not root or root.node_type != NodeType.CEO_PROMPT:
             # Legacy tree — root is EA
             return root
         for cid in root.children_ids:
             child = self._nodes.get(cid)
-            if child and child.node_type == "task":
+            if child and child.node_type == NodeType.TASK:
                 return child
         return None
 
@@ -303,15 +310,23 @@ class TaskTree:
         return [c for c in self.get_children(node_id) if c.branch_active]
 
     def all_children_done(self, node_id: str) -> bool:
-        """All active children have finished executing (DONE_EXECUTING set)."""
-        children = self.get_active_children(node_id)
+        """All substantive active children have finished executing.
+
+        System node types (REVIEW, CEO_REQUEST, WATCHDOG_NUDGE, ADHOC, SYSTEM)
+        are excluded — they must not block parent completion.
+        """
+        from onemancompany.core.task_lifecycle import SYSTEM_NODE_TYPES
+        children = [
+            c for c in self.get_active_children(node_id)
+            if c.node_type not in SYSTEM_NODE_TYPES
+        ]
         if not children:
             return True
         return all(c.is_done_executing for c in children)
 
 
     def has_failed_children(self, node_id: str) -> bool:
-        return any(c.status == "failed" for c in self.get_active_children(node_id))
+        return any(c.status == TaskPhase.FAILED for c in self.get_active_children(node_id))
 
     def find_dependents(self, node_id: str) -> list[TaskNode]:
         """Find all nodes that depend on the given node."""
@@ -328,6 +343,43 @@ class TaskTree:
                 return False
         return True
 
+
+    def is_subtree_resolved(self, node_id: str) -> bool:
+        """Check if node AND all descendants are in RESOLVED state.
+
+        Bottom-up semantic: a subtree is resolved when the node itself
+        is resolved and every child subtree is also resolved.
+        """
+        node = self._nodes.get(node_id)
+        if not node:
+            return False
+        if not node.is_resolved:
+            return False
+        return all(
+            self.is_subtree_resolved(cid)
+            for cid in node.children_ids
+            if cid in self._nodes
+        )
+
+    def is_project_complete(self) -> bool:
+        """Check if the project is fully complete — ready for retrospective.
+
+        Condition: EA anchor has finished executing (DONE_EXECUTING) and
+        every child subtree of the EA anchor is fully resolved (RESOLVED).
+        The EA anchor itself may still be COMPLETED (not yet ACCEPTED)
+        because acceptance happens as part of the project completion flow.
+        """
+        ea = self.get_ea_node()
+        if not ea:
+            return False
+        if not ea.is_done_executing:
+            return False
+        # All children subtrees must be fully resolved
+        return all(
+            self.is_subtree_resolved(cid)
+            for cid in ea.children_ids
+            if cid in self._nodes
+        )
 
     def has_failed_deps(self, node_id: str) -> bool:
         """Check if any depends_on node will not deliver (failed/blocked/cancelled)."""
@@ -356,12 +408,12 @@ class TaskTree:
         }
         path.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
 
     @classmethod
     def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = True) -> TaskTree:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(path.read_text(encoding=ENCODING_UTF8))
         tree = cls(project_id=project_id or data.get("project_id", ""))
         tree.root_id = data.get("root_id", "")
         tree.current_branch = data.get("current_branch", 0)

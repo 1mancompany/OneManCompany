@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -45,33 +45,45 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     await append_room_chat(room_id, entry)
 
 
+# Track files read per employee — write/edit safety check
+# Key: employee_id, Value: set of resolved file paths
+_files_read_by_employee: dict[str, set[str]] = {}
+
+
+def _resolve_employee_path(file_path: str, employee_id: str = ""):
+    """Resolve a file path using employee permissions. Returns Path or None."""
+    from pathlib import Path
+    from onemancompany.core.file_editor import _resolve_path
+
+    if file_path.startswith("workspace/") and employee_id:
+        return (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
+    if file_path and Path(file_path).is_absolute():
+        return Path(file_path).resolve()
+    permissions = []
+    if employee_id:
+        emp_data = load_employee(employee_id)
+        if emp_data:
+            permissions = emp_data.get(PF_PERMISSIONS, [])
+    return _resolve_path(file_path, permissions=permissions)
+
+
 @tool
-def read(file_path: str, employee_id: str = "") -> dict:
+def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0) -> dict:
     """Read the contents of a file.
 
     Accessible paths:
     - Your workspace: "workspace/..." (your private workspace directory)
     - Company files: "company/..." or relative paths like "human_resource/..."
     - Source code: "src/..." (requires backend_code_maintenance permission)
-    - Project files: full project workspace path
+    - Absolute paths: any absolute file path
 
     Args:
         file_path: File path to read.
         employee_id: Your employee ID.
+        offset: Line number to start reading from (1-based). 0 = start of file.
+        limit: Max number of lines to read. 0 = read all.
     """
-    from onemancompany.core.file_editor import _resolve_path
-
-    # Handle "workspace/..." shortcut → resolve to employee's workspace dir
-    if file_path.startswith("workspace/") and employee_id:
-        from pathlib import Path
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
@@ -80,8 +92,23 @@ def read(file_path: str, employee_id: str = "") -> dict:
     if not resolved.is_file():
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
-        content = resolved.read_text(encoding="utf-8")
-        return {"status": "ok", "path": file_path, "content": content}
+        content = resolved.read_text(encoding=ENCODING_UTF8)
+        lines = content.splitlines(keepends=True)
+        total_lines = len(lines)
+
+        if offset > 0 or limit > 0:
+            start = max(0, offset - 1) if offset > 0 else 0
+            end = start + limit if limit > 0 else total_lines
+            lines = lines[start:end]
+            content = "".join(lines)
+
+        _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
+        return {
+            "status": "ok",
+            "path": file_path,
+            "content": content,
+            "total_lines": total_lines,
+        }
     except Exception as e:
         return {"status": "error", "message": f"Read failed: {e}"}
 
@@ -96,7 +123,7 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
     - Your workspace: "workspace" or "workspace/subdir"
     - Company directories: "business/projects", "human_resource/employees", etc.
     - Source code: "src/onemancompany/core" (requires permission)
-    - Project workspace: full project workspace path
+    - Absolute paths: any absolute directory path
 
     Args:
         dir_path: Directory path. Empty = company root.
@@ -109,15 +136,15 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
     if employee_id and (dir_path == "workspace" or dir_path.startswith("workspace/")):
         suffix = dir_path[len("workspace"):].lstrip("/")
         resolved = (get_workspace_dir(employee_id) / suffix).resolve() if suffix else get_workspace_dir(employee_id).resolve()
-    # Handle absolute project workspace paths
-    elif dir_path and Path(dir_path).is_absolute() and str(Path(dir_path).resolve()).startswith(str(PROJECTS_DIR.resolve())):
+    # Handle absolute paths — read-only, safe to allow any path
+    elif dir_path and Path(dir_path).is_absolute():
         resolved = Path(dir_path).resolve()
     else:
         permissions = []
         if employee_id:
             emp_data = load_employee(employee_id)
             if emp_data:
-                permissions = emp_data.get("permissions", [])
+                permissions = emp_data.get(PF_PERMISSIONS, [])
         resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
     if resolved is None:
@@ -149,6 +176,9 @@ async def write(
 ) -> dict:
     """Write content to a file. Creates the file if it doesn't exist.
 
+    If the file already exists, you MUST read it first using the read() tool.
+    This prevents accidental overwrites. Prefer edit() for modifying existing files.
+
     Args:
         file_path: File path to write.
         content: The text content to write.
@@ -156,34 +186,40 @@ async def write(
         project_dir: Current project workspace path (auto-filled from task context).
     """
     from pathlib import Path
-    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
 
-    # Resolve path
-    if file_path.startswith("workspace/") and employee_id:
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    elif Path(file_path).is_absolute():
-        resolved = Path(file_path).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
 
-    # Check if in free zone → direct write
-    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return {"status": "ok", "path": str(resolved)}
+    is_update = resolved.exists()
+    original_content = ""
 
-    # Not in free zone → direct write (no approval needed)
+    # Safety: must read before overwriting existing files
+    if is_update:
+        if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
+            return {
+                "status": "error",
+                "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
+            }
+        original_content = resolved.read_text(encoding=ENCODING_UTF8)
+
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding="utf-8")
-    return {"status": "ok", "path": str(resolved)}
+    resolved.write_text(content, encoding=ENCODING_UTF8)
+    _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
+
+    result: dict = {
+        "status": "ok",
+        "path": str(resolved),
+        "type": "update" if is_update else "create",
+    }
+    if is_update and original_content != content:
+        # Compute a simple line-level diff summary
+        old_lines = original_content.splitlines()
+        new_lines = content.splitlines()
+        result["lines_before"] = len(old_lines)
+        result["lines_after"] = len(new_lines)
+    return result
 
 
 
@@ -191,67 +227,93 @@ async def write(
 @tool
 async def edit(
     file_path: str,
-    new_content: str,
-    reason: str = "",
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
     employee_id: str = "",
-    project_dir: str = "",
 ) -> dict:
-    """Edit (overwrite) an existing file.
+    """Perform exact string replacement in a file.
+
+    You MUST read the file first using read() before editing.
+    The old_string must match exactly (including whitespace/indentation).
+    If old_string appears multiple times, either provide more context to make
+    it unique, or set replace_all=True.
 
     Args:
         file_path: File path to edit.
-        new_content: The complete new file content.
-        reason: Explanation for the edit.
+        old_string: The exact text to find and replace.
+        new_string: The replacement text (must differ from old_string).
+        replace_all: If True, replace all occurrences. Default False.
         employee_id: Your employee ID.
-        project_dir: Current project workspace path (auto-filled from task context).
     """
-    from pathlib import Path
-    from onemancompany.core.file_editor import _resolve_path, is_in_free_zone
-
-    # Resolve path
-    if file_path.startswith("workspace/") and employee_id:
-        resolved = (get_workspace_dir(employee_id) / file_path[len("workspace/"):]).resolve()
-    elif Path(file_path).is_absolute():
-        resolved = Path(file_path).resolve()
-    else:
-        permissions = []
-        if employee_id:
-            emp_data = load_employee(employee_id)
-            if emp_data:
-                permissions = emp_data.get("permissions", [])
-        resolved = _resolve_path(file_path, permissions=permissions)
+    resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+    if not resolved.exists():
+        return {"status": "error", "message": f"File not found: {file_path}"}
 
-    # Check if in free zone → direct write
-    if is_in_free_zone(resolved, employee_id=employee_id, project_dir=project_dir):
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(new_content, encoding="utf-8")
-        return {"status": "ok", "path": str(resolved)}
+    # Safety: must read before editing
+    if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
+        return {
+            "status": "error",
+            "message": f"You must read '{file_path}' before editing it. Use read() first.",
+        }
 
-    # Not in free zone → direct write (no approval needed)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(new_content, encoding="utf-8")
-    return {"status": "ok", "path": str(resolved)}
+    if old_string == new_string:
+        return {"status": "error", "message": "old_string and new_string are identical."}
+
+    content = resolved.read_text(encoding=ENCODING_UTF8)
+    count = content.count(old_string)
+
+    if count == 0:
+        return {"status": "error", "message": "old_string not found in the file."}
+    if count > 1 and not replace_all:
+        return {
+            "status": "error",
+            "message": f"old_string appears {count} times. Provide more context to make "
+                       f"it unique, or set replace_all=True.",
+        }
+
+    if replace_all:
+        new_content = content.replace(old_string, new_string)
+        replacements = count
+    else:
+        new_content = content.replace(old_string, new_string, 1)
+        replacements = 1
+
+    resolved.write_text(new_content, encoding=ENCODING_UTF8)
+    return {
+        "status": "ok",
+        "path": str(resolved),
+        "replacements": replacements,
+    }
 
 
 @tool
-async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -> dict:
+async def bash(
+    command: str,
+    employee_id: str = "",
+    timeout_seconds: int = 120,
+    description: str = "",
+) -> dict:
     """Execute a shell command and return stdout/stderr.
 
     Use for running scripts, checking system state, or executing build commands.
     Commands run in the project root directory.
+    Prefer dedicated tools (read, ls, edit, grep, glob) over shell equivalents
+    (cat, find, sed, awk) when possible.
 
     Args:
         command: The shell command to execute.
         employee_id: Your employee ID.
-        timeout_seconds: Max execution time in seconds (default 30, max 120).
+        timeout_seconds: Max execution time in seconds (default 120, max 600).
+        description: Brief human-readable description of what the command does.
     """
     import subprocess
     from onemancompany.core.config import SOURCE_ROOT
 
-    timeout_seconds = min(timeout_seconds, 120)
+    timeout_seconds = min(timeout_seconds, 600)
 
     try:
         proc = await asyncio.get_event_loop().run_in_executor(
@@ -278,6 +340,134 @@ async def bash(command: str, employee_id: str = "", timeout_seconds: int = 30) -
 
 
 @tool
+def glob_files(pattern: str, path: str = "", employee_id: str = "") -> dict:
+    """Fast file search by glob pattern. Returns matching file paths sorted by modification time.
+
+    Supports patterns like "**/*.py", "src/**/*.yaml", "*.md".
+
+    Args:
+        pattern: Glob pattern to match files against (e.g. "**/*.py").
+        path: Directory to search in. Defaults to company root if empty.
+        employee_id: Your employee ID.
+    """
+    from pathlib import Path
+
+    if path:
+        resolved = _resolve_employee_path(path, employee_id)
+    else:
+        from onemancompany.core.config import COMPANY_DIR
+        resolved = COMPANY_DIR
+
+    if resolved is None or not resolved.is_dir():
+        return {"status": "error", "message": f"Directory not found: {path}"}
+
+    try:
+        matches = sorted(resolved.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+        MAX_RESULTS = 100
+        truncated = len(matches) > MAX_RESULTS
+        filenames = [str(m) for m in matches[:MAX_RESULTS]]
+        return {
+            "status": "ok",
+            "num_files": len(matches),
+            "filenames": filenames,
+            "truncated": truncated,
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Glob failed: {e}"}
+
+
+@tool
+def grep_search(
+    pattern: str,
+    path: str = "",
+    glob: str = "",
+    case_insensitive: bool = False,
+    context_lines: int = 0,
+    output_mode: str = "files_with_matches",
+    max_results: int = 50,
+    employee_id: str = "",
+) -> dict:
+    """Search file contents using regex patterns.
+
+    Args:
+        pattern: Regex pattern to search for (Python re syntax).
+        path: File or directory to search in. Defaults to company root.
+        glob: Glob pattern to filter files (e.g. "*.py", "*.yaml").
+        case_insensitive: Case insensitive search. Default False.
+        context_lines: Number of lines to show before and after each match.
+        output_mode: "files_with_matches" (file paths only), "content" (matching lines), "count" (match counts).
+        max_results: Max number of results to return. Default 50.
+        employee_id: Your employee ID.
+    """
+    from pathlib import Path
+
+    if path:
+        resolved = _resolve_employee_path(path, employee_id)
+    else:
+        from onemancompany.core.config import COMPANY_DIR
+        resolved = COMPANY_DIR
+
+    if resolved is None:
+        return {"status": "error", "message": f"Access denied or invalid path: {path}"}
+    if not resolved.exists():
+        return {"status": "error", "message": f"Path not found: {path}"}
+
+    flags = re.IGNORECASE if case_insensitive else 0
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as e:
+        return {"status": "error", "message": f"Invalid regex: {e}"}
+
+    # Collect files to search
+    if resolved.is_file():
+        files = [resolved]
+    else:
+        file_glob = glob or "**/*"
+        files = [f for f in sorted(resolved.glob(file_glob)) if f.is_file()]
+
+    results: list = []
+    match_files: list[str] = []
+    count_map: dict[str, int] = {}
+
+    for fpath in files:
+        try:
+            text = fpath.read_text(encoding=ENCODING_UTF8, errors="replace")
+        except Exception as e:
+            logger.debug("grep_search: skipping unreadable file {}: {}", fpath, e)
+            continue
+
+        lines = text.splitlines()
+        file_matches: list[dict] = []
+
+        for i, line in enumerate(lines):
+            if compiled.search(line):
+                if output_mode == "content":
+                    start = max(0, i - context_lines)
+                    end = min(len(lines), i + context_lines + 1)
+                    ctx = [{"line": start + j + 1, "text": lines[start + j]} for j in range(end - start)]
+                    file_matches.append({"match_line": i + 1, "context": ctx})
+                else:
+                    file_matches.append({"line": i + 1})
+
+        if file_matches:
+            fpath_str = str(fpath)
+            match_files.append(fpath_str)
+            count_map[fpath_str] = len(file_matches)
+            if output_mode == "content":
+                results.append({"file": fpath_str, "matches": file_matches})
+
+        if len(match_files) >= max_results:
+            break
+
+    if output_mode == "files_with_matches":
+        return {"status": "ok", "num_files": len(match_files), "filenames": match_files}
+    elif output_mode == "count":
+        return {"status": "ok", "num_files": len(match_files), "counts": count_map}
+    else:
+        return {"status": "ok", "num_files": len(match_files), "results": results}
+
+
+@tool
 def list_colleagues() -> list[dict]:
     """List information about all colleagues including their roles, skills, tools, and current status.
 
@@ -289,7 +479,7 @@ def list_colleagues() -> list[dict]:
     all_emps = load_all_employees()
     for emp_id, emp_data in all_emps.items():
         # Gather authorized tool names for this colleague
-        tool_perms = emp_data.get("tool_permissions", [])
+        tool_perms = emp_data.get(PF_TOOL_PERMISSIONS, [])
         tool_names: list[str] = list(tool_perms) if tool_perms else []
         # Also include equipment room tools they have access to
         for t in company_state.tools.values():
@@ -297,35 +487,35 @@ def list_colleagues() -> list[dict]:
                 if t.name not in tool_names:
                     tool_names.append(t.name)
 
-        runtime = emp_data.get("runtime", {})
+        runtime = emp_data.get(PF_RUNTIME, {})
         results.append({
             "id": emp_id,
-            "name": emp_data.get("name", ""),
-            "nickname": emp_data.get("nickname", ""),
-            "role": emp_data.get("role", ""),
-            "department": emp_data.get("department", ""),
-            "level": emp_data.get("level", 1),
-            "skills": emp_data.get("skills", []),
+            "name": emp_data.get(PF_NAME, ""),
+            "nickname": emp_data.get(PF_NICKNAME, ""),
+            "role": emp_data.get(PF_ROLE, ""),
+            "department": emp_data.get(PF_DEPARTMENT, ""),
+            "level": emp_data.get(PF_LEVEL, 1),
+            "skills": emp_data.get(PF_SKILLS, []),
             "tools": tool_names,
-            "status": runtime.get("status", emp_data.get("status", "idle")),
-            "current_task": runtime.get("current_task_summary", "") or None,
+            "status": runtime.get("status", emp_data.get(PF_STATUS, STATUS_IDLE)),
+            "current_task": runtime.get(PF_CURRENT_TASK_SUMMARY, "") or None,
         })
     return results
 
 
 def _build_employee_context(emp_data: dict, emp_id: str = "") -> str:
     """Build identity + skills + tools context string for an employee (dict from store)."""
-    eid = emp_id or emp_data.get("id", emp_data.get("employee_number", ""))
-    work_principles = emp_data.get("work_principles", "")
+    eid = emp_id or emp_data.get(PF_ID, emp_data.get(PF_EMPLOYEE_NUMBER, ""))
+    work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
     principles_ctx = ""
     if work_principles:
         principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
     skills_ctx = get_employee_skills_prompt(eid)
     tools_ctx = get_employee_tools_prompt(eid)
     return (
-        f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}, "
-        f"Department: {emp_data.get('department', '')}, {emp_data.get('role', '')}, "
-        f"Lv.{emp_data.get('level', 1)}).\n"
+        f"You are {emp_data.get(PF_NAME, '')} ({emp_data.get(PF_NICKNAME, '')}, "
+        f"Department: {emp_data.get(PF_DEPARTMENT, '')}, {emp_data.get(PF_ROLE, '')}, "
+        f"Lv.{emp_data.get(PF_LEVEL, 1)}).\n"
         f"{principles_ctx}{skills_ctx}{tools_ctx}"
     )
 
@@ -518,7 +708,7 @@ async def pull_meeting(
             ]
 
             if not willing:
-                await _chat(room.id, "Meeting System", "system", "All participants have finished speaking. Meeting concluded.")
+                await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All participants have finished speaking. Meeting concluded.")
                 break
 
             # Token grab — sort by timestamp, fastest wins
@@ -545,7 +735,7 @@ async def pull_meeting(
             })
         else:
             # max_rounds reached
-            await _chat(room.id, "Meeting System", "system", "Meeting has reached the maximum number of rounds. Auto-concluded.")
+            await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "Meeting has reached the maximum number of rounds. Auto-concluded.")
 
         # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(
@@ -554,7 +744,7 @@ async def pull_meeting(
         )
         summary_llm = make_llm(initiator_id or HR_ID)
         participant_names = ", ".join(
-            edata.get("nickname", "") or edata.get("name", "")
+            edata.get(PF_NICKNAME, "") or edata.get(PF_NAME, "")
             for _, edata in valid_participants
         )
         summary_prompt = (
@@ -596,7 +786,7 @@ async def pull_meeting(
             "room": room.name,
             "topic": topic,
             "participants": [
-                edata.get("nickname", "") or edata.get("name", "")
+                edata.get(PF_NICKNAME, "") or edata.get(PF_NAME, "")
                 for _, edata in valid_participants
             ],
             "discussion": discussion_entries,
@@ -684,7 +874,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
                     continue
                 # Skip binary files — just report size
                 try:
-                    content = fpath.read_text(encoding="utf-8")
+                    content = fpath.read_text(encoding=ENCODING_UTF8)
                     result["files"][fname] = content
                 except (UnicodeDecodeError, ValueError):
                     result["files"][fname] = f"[binary file, {fpath.stat().st_size} bytes]"
@@ -739,7 +929,7 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if not emp_data:
         return {"status": "error", "message": "Employee not found."}
 
-    tool_perms = emp_data.get("tool_permissions", [])
+    tool_perms = emp_data.get(PF_TOOL_PERMISSIONS, [])
     if tool_name in (tool_perms or []):
         return {"status": "already_granted", "message": f"You already have access to '{tool_name}'."}
 
@@ -756,10 +946,10 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if not loop:
         return {"status": "error", "message": "COO agent not available."}
 
-    emp_name = emp_data.get("name", employee_id)
-    emp_dept = emp_data.get("department", "")
-    emp_role = emp_data.get("role", "")
-    emp_level = emp_data.get("level", 1)
+    emp_name = emp_data.get(PF_NAME, employee_id)
+    emp_dept = emp_data.get(PF_DEPARTMENT, "")
+    emp_role = emp_data.get(PF_ROLE, "")
+    emp_level = emp_data.get(PF_LEVEL, 1)
     task_desc = (
         f"Tool access request: Employee {emp_name} (ID: {employee_id}, {emp_dept}/{emp_role}, Lv.{emp_level}) "
         f"requests access to tool '{tool_name}'. Reason: {reason}. "
@@ -791,7 +981,7 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     if not emp_data:
         return {"status": "error", "message": f"Employee {employee_id} not found."}
 
-    current_perms = list(emp_data.get("tool_permissions", []) or [])
+    current_perms = list(emp_data.get(PF_TOOL_PERMISSIONS, []) or [])
 
     if action == "grant":
         if tool_name not in current_perms:
@@ -1047,11 +1237,11 @@ def update_project_team(members: list[dict]) -> dict:
     from datetime import datetime
     import yaml
 
-    project_yaml = Path(task.project_dir) / "project.yaml"
+    project_yaml = Path(task.project_dir) / PROJECT_YAML_FILENAME
     if not project_yaml.exists():
         return {"status": "error", "message": "project.yaml not found."}
 
-    data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
     team = data.get("team", [])
 
     now = datetime.now().isoformat()
@@ -1065,7 +1255,7 @@ def update_project_team(members: list[dict]) -> dict:
     data["team"] = team
     project_yaml.write_text(
         yaml.dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
+        encoding=ENCODING_UTF8,
     )
 
     return {"status": "ok", "added": len(members), "total": len(team)}
@@ -1086,6 +1276,7 @@ def _register_all_internal_tools() -> None:
 
     _base = [
         list_colleagues, read, ls, write, edit, pull_meeting,
+        glob_files, grep_search,
         load_skill,
         resume_held_task, update_project_team,
         read_node_detail,

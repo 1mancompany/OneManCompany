@@ -21,6 +21,8 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from onemancompany.core.config import TOOL_YAML_FILENAME
+
 
 
 
@@ -154,7 +156,7 @@ class ToolRegistry:
             if not entry.is_dir():
                 continue
 
-            tool_yaml_path = entry / "tool.yaml"
+            tool_yaml_path = entry / TOOL_YAML_FILENAME
             if not tool_yaml_path.exists():
                 continue
 

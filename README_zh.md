@@ -373,7 +373,7 @@ npx @1mancompany/onemancompany init
 npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
-这会停止正在运行的服务，并删除整个安装目录（包括 `.onemancompany/` 配置和所有公司数据）。需要确认后才会执行。
+卸载会删除所有生成的文件。如需保留业务数据，请在卸载前将 `.onemancompany/company/business/` 导出备份。
 
 ### 配置文件
 
@@ -453,7 +453,7 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 ```bibtex
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Meng Fang, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},

@@ -1,9 +1,10 @@
 """Project Archive — project record and workspace system.
 
 Named projects with multiple iterations:
-  projects/{slug}/project.yaml    — project metadata
-  projects/{slug}/workspace/      — shared workspace for all iterations
-  projects/{slug}/iterations/     — per-iteration YAML files
+  projects/{slug}/project.yaml              — project metadata
+  projects/{slug}/iterations/iter_NNN.yaml  — per-iteration metadata
+  projects/{slug}/iterations/iter_NNN/      — per-iteration directory
+  projects/{slug}/iterations/iter_NNN/workspace/  — per-iteration workspace
 
 Employees can save artifacts to their project workspace via save_project_file().
 """
@@ -19,7 +20,21 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import PROJECTS_DIR
+from onemancompany.core.config import ENCODING_UTF8, NODES_DIR_NAME, PROJECT_YAML_FILENAME, PROJECTS_DIR, TASK_TREE_FILENAME
+
+ITERATIONS_DIR_NAME = "iterations"
+
+# Internal infrastructure files excluded from user-facing document listing
+_INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
+_INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
+
+# Project / iteration status strings (NOT TaskPhase — project-level lifecycle)
+PROJECT_STATUS_ACTIVE = "active"
+PROJECT_STATUS_ARCHIVED = "archived"
+ITER_STATUS_IN_PROGRESS = "in_progress"
+ITER_STATUS_COMPLETED = "completed"
+ITER_STATUS_FAILED = "failed"
+ITER_STATUS_CANCELLED = "cancelled"
 
 # Per-project write locks to prevent concurrent YAML corruption
 _project_locks: dict[str, threading.Lock] = {}
@@ -113,7 +128,7 @@ def _find_project_for_iteration(iter_id: str) -> str | None:
     slug, bare_id = _split_qualified_iter(iter_id)
     if slug:
         # Verify it exists
-        iter_path = PROJECTS_DIR / slug / "iterations" / f"{bare_id}.yaml"
+        iter_path = PROJECTS_DIR / slug / ITERATIONS_DIR_NAME / f"{bare_id}.yaml"
         if iter_path.exists():
             return slug
         # Slug was given but file doesn't exist — still return slug
@@ -125,7 +140,7 @@ def _find_project_for_iteration(iter_id: str) -> str | None:
     for d in PROJECTS_DIR.iterdir():
         if not d.is_dir():
             continue
-        iter_path = d / "iterations" / f"{bare_id}.yaml"
+        iter_path = d / ITERATIONS_DIR_NAME / f"{bare_id}.yaml"
         if iter_path.exists():
             return d.name
     return None
@@ -150,7 +165,7 @@ def _resolve_and_load(pid: str) -> tuple[str, dict | None, str]:
     # Assume it's a project slug — load latest iteration or project itself
     proj = load_named_project(pid)
     if proj:
-        iters = proj.get("iterations", [])
+        iters = proj.get(ITERATIONS_DIR_NAME, [])
         if iters:
             latest = iters[-1]
             doc = load_iteration(pid, latest)
@@ -238,19 +253,20 @@ async def async_create_project_from_task(
             logger.warning("LLM project naming timed out for {}, keeping fallback", project_id)
             return
         if llm_name and llm_name != fallback_name:
-            _update_project_name(project_id, llm_name)
+            update_project_name(project_id, llm_name)
             logger.info("Project {} renamed: '{}' → '{}'", project_id, fallback_name, llm_name)
             # Notify frontend via store dirty so next sync tick picks it up
+            from onemancompany.core.config import DirtyCategory
             from onemancompany.core.store import mark_dirty
-            mark_dirty("task_queue")
+            mark_dirty(DirtyCategory.TASK_QUEUE)
 
     spawn_background(_rename_when_ready())
     return project_id, iter_id
 
 
-def _update_project_name(project_id: str, new_name: str) -> None:
+def update_project_name(project_id: str, new_name: str) -> None:
     """Update the display name of an existing named project."""
-    path = PROJECTS_DIR / project_id / "project.yaml"
+    path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     lock = _get_project_lock(project_id)
     with lock:
         if not path.exists():
@@ -288,18 +304,17 @@ def create_named_project(name: str) -> str:
 
     proj_dir = PROJECTS_DIR / slug
     proj_dir.mkdir(parents=True, exist_ok=True)
-    (proj_dir / "workspace").mkdir(exist_ok=True)
-    (proj_dir / "iterations").mkdir(exist_ok=True)
+    (proj_dir / ITERATIONS_DIR_NAME).mkdir(exist_ok=True)
 
     doc = {
         "project_id": slug,
         "name": name,
-        "status": "active",
+        "status": PROJECT_STATUS_ACTIVE,
         "created_at": datetime.now().isoformat(),
         "archived_at": None,
-        "iterations": [],
+        ITERATIONS_DIR_NAME: [],
     }
-    path = proj_dir / "project.yaml"
+    path = proj_dir / PROJECT_YAML_FILENAME
     lock = _get_project_lock(slug)
     with lock, open(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
@@ -312,37 +327,32 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     if not proj:
         raise ValueError(f"Project '{project_id}' not found")
 
-    existing = proj.get("iterations", [])
+    existing = proj.get(ITERATIONS_DIR_NAME, [])
     iter_num = len(existing) + 1
     iter_id = f"iter_{iter_num:03d}"
 
-    iterations_dir = PROJECTS_DIR / project_id / "iterations"
+    iterations_dir = PROJECTS_DIR / project_id / ITERATIONS_DIR_NAME
     iterations_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- per-iteration workspace ---
-    # Determine previous iteration's workspace to copy from
-    prev_workspace: Path | None = None
+    # --- per-iteration directory ---
+    # Determine previous iteration's directory to copy files from
+    prev_iter: Path | None = None
     if existing:
         prev_iter_id = existing[-1]
         prev_doc = load_iteration(project_id, prev_iter_id)
         if prev_doc and prev_doc.get("project_dir"):
-            candidate = _rebase_project_dir(prev_doc["project_dir"])
-            if candidate.is_dir():
-                prev_workspace = candidate
-    if prev_workspace is None:
-        # Fallback to shared workspace/
-        fallback = PROJECTS_DIR / project_id / "workspace"
-        if fallback.is_dir():
-            prev_workspace = fallback
+            prev_iter = _rebase_project_dir(prev_doc["project_dir"])
 
-    # Create the new iteration workspace directory
-    new_workspace = iterations_dir / iter_id
-    new_workspace.mkdir(parents=True, exist_ok=True)
+    # Create the new iteration directory
+    iter_dir = iterations_dir / iter_id
+    iter_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy files from previous workspace
-    if prev_workspace is not None and prev_workspace.is_dir():
-        for item in prev_workspace.iterdir():
-            dest = new_workspace / item.name
+    # Copy user files from previous iteration (skip infrastructure)
+    if prev_iter is not None and prev_iter.is_dir():
+        for item in prev_iter.iterdir():
+            if _is_internal_file(item.name) or item.name in _INTERNAL_DIR_NAMES:
+                continue
+            dest = iter_dir / item.name
             if item.is_dir():
                 shutil.copytree(item, dest, dirs_exist_ok=True)
             else:
@@ -352,7 +362,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
         "iteration_id": iter_id,
         "project_id": project_id,
         "task": task,
-        "status": "in_progress",
+        "status": ITER_STATUS_IN_PROGRESS,
         "routed_to": routed_to,
         "current_owner": routed_to.lower() if routed_to else "",
         "created_at": datetime.now().isoformat(),
@@ -370,27 +380,28 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
             "token_usage": {"input": 0, "output": 0, "total": 0},
             "breakdown": [],
         },
-        "project_dir": str(new_workspace),
+        "project_dir": str(iter_dir),
     }
     _save_iteration(project_id, iter_id, doc)
 
     # Update project.yaml iterations list
-    proj["iterations"] = existing + [iter_id]
-    path = PROJECTS_DIR / project_id / "project.yaml"
+    proj[ITERATIONS_DIR_NAME] = existing + [iter_id]
+    path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     lock = _get_project_lock(project_id)
     with lock, open(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
     # Trigger 1: dispatch → in_progress — notify sync tick
+    from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty("task_queue")
+    mark_dirty(DirtyCategory.TASK_QUEUE)
 
     return iter_id
 
 
 def load_iteration(project_id: str, iteration_id: str) -> dict | None:
     """Load an iteration YAML."""
-    path = PROJECTS_DIR / project_id / "iterations" / f"{iteration_id}.yaml"
+    path = PROJECTS_DIR / project_id / ITERATIONS_DIR_NAME / f"{iteration_id}.yaml"
     if not path.exists():
         return None
     lock_key = f"{project_id}/{iteration_id}"
@@ -401,7 +412,7 @@ def load_iteration(project_id: str, iteration_id: str) -> dict | None:
 
 def _save_iteration(project_id: str, iteration_id: str, doc: dict) -> None:
     """Save an iteration YAML."""
-    iter_dir = PROJECTS_DIR / project_id / "iterations"
+    iter_dir = PROJECTS_DIR / project_id / ITERATIONS_DIR_NAME
     iter_dir.mkdir(parents=True, exist_ok=True)
     path = iter_dir / f"{iteration_id}.yaml"
     lock_key = f"{project_id}/{iteration_id}"
@@ -412,14 +423,14 @@ def _save_iteration(project_id: str, iteration_id: str, doc: dict) -> None:
 
 def load_named_project(project_id: str) -> dict | None:
     """Load a named project's project.yaml."""
-    path = PROJECTS_DIR / project_id / "project.yaml"
+    path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     if not path.exists():
         return None
     lock = _get_project_lock(project_id)
     with lock, open(path) as f:
         doc = yaml.safe_load(f) or {}
     # Distinguish v2 by checking for 'iterations' key
-    if "iterations" not in doc:
+    if ITERATIONS_DIR_NAME not in doc:
         return None
     return doc
 
@@ -431,7 +442,7 @@ def list_named_projects() -> list[dict]:
     for d in sorted(PROJECTS_DIR.iterdir(), reverse=True):
         if not d.is_dir():
             continue
-        yaml_path = d / "project.yaml"
+        yaml_path = d / PROJECT_YAML_FILENAME
         if not yaml_path.exists():
             continue
         try:
@@ -441,13 +452,13 @@ def list_named_projects() -> list[dict]:
             logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
         # Only v2 projects have 'iterations' key
-        if "iterations" not in doc:
+        if ITERATIONS_DIR_NAME not in doc:
             continue
-        iterations = doc.get("iterations", [])
+        iterations = doc.get(ITERATIONS_DIR_NAME, [])
         projects.append({
             "project_id": doc.get("project_id", d.name),
             "name": doc.get("name", d.name),
-            "status": doc.get("status", "active"),
+            "status": doc.get("status", PROJECT_STATUS_ACTIVE),
             "created_at": doc.get("created_at", ""),
             "archived_at": doc.get("archived_at"),
             "iteration_count": len(iterations),
@@ -461,33 +472,17 @@ def archive_project(project_id: str) -> None:
     proj = load_named_project(project_id)
     if not proj:
         return
-    proj["status"] = "archived"
+    proj["status"] = PROJECT_STATUS_ARCHIVED
     proj["archived_at"] = datetime.now().isoformat()
-    path = PROJECTS_DIR / project_id / "project.yaml"
+    path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     lock = _get_project_lock(project_id)
     with lock, open(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
 
 def get_project_workspace(project_id: str) -> str:
-    """Return the workspace directory path for a v2 named project.
-
-    Prefers the latest iteration's per-iteration workspace if available,
-    otherwise falls back to the shared workspace/ directory.
-    """
-    proj = load_named_project(project_id)
-    if proj:
-        iters = proj.get("iterations", [])
-        if iters:
-            latest_doc = load_iteration(project_id, iters[-1])
-            if latest_doc and latest_doc.get("project_dir"):
-                ws = _rebase_project_dir(latest_doc["project_dir"])
-                ws.mkdir(parents=True, exist_ok=True)
-                return str(ws)
-    # Fallback to shared workspace/
-    ws = PROJECTS_DIR / project_id / "workspace"
-    ws.mkdir(parents=True, exist_ok=True)
-    return str(ws)
+    """Alias for get_project_dir — workspace IS the iteration directory."""
+    return get_project_dir(project_id)
 
 
 # ─────────────────────────────────────────────
@@ -515,7 +510,7 @@ def complete_project(project_id: str, output: str = "") -> None:
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
         return
-    doc["status"] = "completed"
+    doc["status"] = ITER_STATUS_COMPLETED
     doc["completed_at"] = datetime.now().isoformat()
     doc["output"] = output
     doc["current_owner"] = ""
@@ -533,8 +528,20 @@ def complete_project(project_id: str, output: str = "") -> None:
 
     _save_resolved(version, key, doc)
     # Signal sync tick that task queue changed
+    from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty("task_queue")
+    mark_dirty(DirtyCategory.TASK_QUEUE)
+
+
+def update_project_status(project_id: str, status: str, **extra) -> None:
+    """Update status (and optional extra fields) on a project/iteration via resolve."""
+    version, doc, key = _resolve_and_load(project_id)
+    if not doc:
+        logger.debug("[update_project_status] No doc found for {}", project_id)
+        return
+    doc["status"] = status
+    doc.update(extra)
+    _save_resolved(version, key, doc)
 
 
 def load_project(project_id: str) -> dict | None:
@@ -543,13 +550,18 @@ def load_project(project_id: str) -> dict | None:
     return doc
 
 
-def _resolve_workspace(project_id: str) -> Path:
-    """Resolve the workspace directory for any project identifier.
-
-    - v2 project slug: latest iteration's per-iteration workspace (via get_project_workspace)
-    - v2 iteration ID: that iteration's project_dir from its YAML
+def _resolve_project_path(project_id: str) -> Path:
+    """Resolve the project/iteration directory for any project identifier.
 
     Supports qualified iteration IDs like "first-game/iter_002".
+    """
+    return Path(get_project_dir(project_id))
+
+
+def get_project_dir(project_id: str) -> str:
+    """Return the absolute path of a project's iteration directory.
+
+    All files (task_tree.yaml, nodes/, user documents) live here.
     """
     if _is_iteration(project_id):
         slug = _find_project_for_iteration(project_id)
@@ -557,30 +569,33 @@ def _resolve_workspace(project_id: str) -> Path:
         if slug:
             iter_doc = load_iteration(slug, bare_id)
             if iter_doc and iter_doc.get("project_dir"):
-                ws = _rebase_project_dir(iter_doc["project_dir"])
-                ws.mkdir(parents=True, exist_ok=True)
-                return ws
-            # Fallback for old iterations without per-iter workspace
-            ws = PROJECTS_DIR / slug / "workspace"
-            ws.mkdir(parents=True, exist_ok=True)
-            return ws
-    return Path(get_project_workspace(project_id))
+                d = _rebase_project_dir(iter_doc["project_dir"])
+                d.mkdir(parents=True, exist_ok=True)
+                return str(d)
+            # Fallback
+            d = PROJECTS_DIR / slug / ITERATIONS_DIR_NAME / bare_id
+            d.mkdir(parents=True, exist_ok=True)
+            return str(d)
 
-
-def get_project_dir(project_id: str) -> str:
-    """Return the absolute path of a project's workspace directory.
-
-    iteration: returns that iteration's workspace
-    slug: returns latest iteration's workspace (or shared workspace/)
-    """
-    ws = _resolve_workspace(project_id)
-    ws.mkdir(parents=True, exist_ok=True)
-    return str(ws)
+    # Project slug — resolve to latest iteration dir
+    proj = load_named_project(project_id)
+    if proj:
+        iters = proj.get(ITERATIONS_DIR_NAME, [])
+        if iters:
+            latest_doc = load_iteration(project_id, iters[-1])
+            if latest_doc and latest_doc.get("project_dir"):
+                d = _rebase_project_dir(latest_doc["project_dir"])
+                d.mkdir(parents=True, exist_ok=True)
+                return str(d)
+    # Fallback
+    d = PROJECTS_DIR / project_id
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 def save_project_file(project_id: str, filename: str, content: str | bytes) -> dict:
     """Save a file into the project workspace directory."""
-    project_dir = _resolve_workspace(project_id)
+    project_dir = _resolve_project_path(project_id)
     project_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = project_dir / filename
@@ -594,14 +609,9 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
     if isinstance(content, bytes):
         file_path.write_bytes(content)
     else:
-        file_path.write_text(content, encoding="utf-8")
+        file_path.write_text(content, encoding=ENCODING_UTF8)
 
     return {"status": "ok", "path": str(file_path), "relative": filename}
-
-
-# Internal infrastructure files excluded from user-facing document listing
-_INTERNAL_FILE_NAMES = frozenset({"project.yaml", "task_tree.yaml"})
-_INTERNAL_DIR_NAMES = frozenset({"nodes"})
 
 
 def _is_internal_file(name: str) -> bool:
@@ -619,7 +629,7 @@ def list_project_files(project_id: str) -> list[str]:
 
     Excludes internal infrastructure files (project.yaml, task trees, node content).
     """
-    project_dir = _resolve_workspace(project_id)
+    project_dir = _resolve_project_path(project_id)
     logger.debug("[list_project_files] project_id={} → workspace={}", project_id, project_dir)
 
     if not project_dir.exists():
@@ -656,7 +666,7 @@ def list_projects() -> list[dict]:
     for d in sorted(PROJECTS_DIR.iterdir(), reverse=True):
         if not d.is_dir():
             continue
-        yaml_path = d / "project.yaml"
+        yaml_path = d / PROJECT_YAML_FILENAME
         if not yaml_path.exists():
             continue
         try:
@@ -666,12 +676,12 @@ def list_projects() -> list[dict]:
             logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
 
-        if "iterations" not in doc:
+        if ITERATIONS_DIR_NAME not in doc:
             continue
 
-        iterations = doc.get("iterations", [])
+        iterations = doc.get(ITERATIONS_DIR_NAME, [])
         latest_task = ""
-        project_status = doc.get("status", "active")
+        project_status = doc.get("status", PROJECT_STATUS_ACTIVE)
         latest_iter_status = ""
         latest_owner = ""
         total_cost = 0.0
@@ -775,7 +785,7 @@ def get_cost_summary() -> dict:
     for d in all_dirs:
         if not d.is_dir():
             continue
-        yaml_path = d / "project.yaml"
+        yaml_path = d / PROJECT_YAML_FILENAME
         if not yaml_path.exists():
             continue
         try:
@@ -785,11 +795,11 @@ def get_cost_summary() -> dict:
             logger.warning("Failed to load {}: {}", yaml_path, _e)
             continue
 
-        if "iterations" not in doc:
+        if ITERATIONS_DIR_NAME not in doc:
             continue
 
         # Aggregate cost from iterations
-        for iter_id in doc.get("iterations", []):
+        for iter_id in doc.get(ITERATIONS_DIR_NAME, []):
             iter_doc = load_iteration(d.name, iter_id)
             if not iter_doc:
                 continue
@@ -822,7 +832,7 @@ def get_cost_summary() -> dict:
                 "input_tokens": total_input,
                 "output_tokens": total_output,
                 "total_tokens": total_input + total_output,
-                "status": doc.get("status", "active"),
+                "status": doc.get("status", PROJECT_STATUS_ACTIVE),
             })
 
     return {

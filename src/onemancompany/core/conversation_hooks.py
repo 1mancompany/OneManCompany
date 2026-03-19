@@ -14,6 +14,7 @@ from typing import Awaitable, Callable
 from loguru import logger
 
 from onemancompany.core.conversation import Conversation
+from onemancompany.core.models import ConversationType
 
 _close_hooks: dict[str, Callable[..., Awaitable[dict | None]]] = {}
 
@@ -60,7 +61,7 @@ async def _run_hook_safe(hook, conv: Conversation) -> None:
 # ---------------------------------------------------------------------------
 
 
-@register_close_hook("ceo_inbox")
+@register_close_hook(ConversationType.CEO_INBOX)
 async def _close_ceo_inbox(conv: Conversation) -> dict | None:
     """Close hook for CEO inbox conversations.
 
@@ -77,7 +78,7 @@ async def _close_ceo_inbox(conv: Conversation) -> dict | None:
     return {"summary": "", "node_id": node_id}
 
 
-@register_close_hook("oneonone")
+@register_close_hook(ConversationType.ONE_ON_ONE)
 async def _close_oneonone(conv: Conversation) -> dict | None:
     """Close hook for 1-on-1 conversations.
 

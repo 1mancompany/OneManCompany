@@ -19,17 +19,33 @@ import yaml
 from loguru import logger
 
 from onemancompany.core.config import (
+    AGENT_DIR_NAME,
     DEFAULT_TOOL_PERMISSIONS,
     DEFAULT_TOOL_PERMISSIONS_FALLBACK,
     DEFAULT_DEPARTMENT,
+    ENCODING_UTF8,
     HR_ID,
+    MANIFEST_FILENAME,
+    MANIFEST_YAML_FILENAME,
+    PROFILE_FILENAME,
+    PROMPTS_DIR_NAME,
+    PROJECT_YAML_FILENAME,
     ROLE_DEPARTMENT_MAP,
+    SOUL_FILENAME,
+    STATUS_IDLE,
+    TALENT_PERSONA_FILENAME,
+    TOOL_YAML_FILENAME,
     TOOLS_DIR,
+    LAUNCH_SH_FILENAME,
+    VESSEL_DIR_NAME,
+    VESSEL_YAML_FILENAME,
+    WORKSPACE_DIR_NAME,
     EmployeeConfig,
     ensure_employee_dir,
     settings,
 )
 from onemancompany.core import store as _store
+from onemancompany.core.models import EventType, HostingMode
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.layout import (
     compute_layout,
@@ -37,6 +53,19 @@ from onemancompany.core.layout import (
     persist_all_desk_positions,
 )
 from onemancompany.core.state import Employee, company_state, make_title
+
+# ---------------------------------------------------------------------------
+# Single-file constants — filenames used during onboarding/talent installation
+# ---------------------------------------------------------------------------
+SKILL_FILENAME = "SKILL.md"
+CLAUDE_MD_FILENAME = "CLAUDE.md"
+CONNECTION_JSON_FILENAME = "connection.json"
+LAUNCH_SCRIPT = LAUNCH_SH_FILENAME
+HEARTBEAT_SCRIPT = "heartbeat.sh"
+
+# Default skills injected for every new employee
+_DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
+_DEFAULT_SKILL_NAMES = ["ontology", "proactive-agent", "self-improving-agent"]
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +103,7 @@ def _load_nickname_pool() -> list[str]:
 
     if src.exists():
         pool = [
-            line.strip() for line in src.read_text("utf-8").splitlines() if line.strip()
+            line.strip() for line in src.read_text(encoding=ENCODING_UTF8).splitlines() if line.strip()
         ]
         logger.debug("Loaded {} nicknames from {}", len(pool), src)
         return pool
@@ -128,7 +157,7 @@ def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -
     Employee-brought tools are personal — only the owning employee may use them.
     This function maintains the whitelist in ``tool.yaml``.
     """
-    tool_yaml = TOOLS_DIR / tool_name / "tool.yaml"
+    tool_yaml = TOOLS_DIR / tool_name / TOOL_YAML_FILENAME
     if not tool_yaml.exists():
         logger.warning("_update_tool_allowed_users: tool.yaml not found for '{}', skipping", tool_name)
         return
@@ -192,7 +221,7 @@ def install_talent_functions(talent_dir: Path, emp_dir, employee_id: str) -> lis
     Returns a list of successfully installed function names.
     """
     fn_dir = talent_dir / "functions"
-    fn_manifest_path = fn_dir / "manifest.yaml"
+    fn_manifest_path = fn_dir / MANIFEST_YAML_FILENAME
     if not fn_manifest_path.exists():
         return []
 
@@ -249,7 +278,7 @@ def install_talent_functions(talent_dir: Path, emp_dir, employee_id: str) -> lis
                 tool_meta["allowed_users"] = [employee_id]
             # scope == "company" → omit allowed_users entirely → unrestricted
 
-            with open(tool_dir / "tool.yaml", "w") as f:
+            with open(tool_dir / TOOL_YAML_FILENAME, "w") as f:
                 yaml.dump(tool_meta, f, default_flow_style=False, allow_unicode=True)
 
         # Ensure the bringing employee has access
@@ -271,13 +300,13 @@ def install_talent_agent_config(talent_dir: Path, emp_dir, employee_id: str) -> 
 
     Returns the parsed manifest dict on success, or None if no agent config exists.
     """
-    agent_dir = talent_dir / "agent"
-    manifest_path = agent_dir / "manifest.yaml"
+    agent_dir = talent_dir / AGENT_DIR_NAME
+    manifest_path = agent_dir / MANIFEST_YAML_FILENAME
     if not manifest_path.exists():
         return None
 
     # Copy agent/ directory to employee
-    dst_agent_dir = Path(emp_dir) / "agent"
+    dst_agent_dir = Path(emp_dir) / AGENT_DIR_NAME
     if dst_agent_dir.exists():
         shutil.rmtree(str(dst_agent_dir))
     shutil.copytree(str(agent_dir), str(dst_agent_dir))
@@ -362,7 +391,7 @@ def _create_agent_runner(employee_id: str, emp_dir) -> "BaseAgentRunner":
 
     if mod_name and cls_name:
         # Look for runner .py in vessel/ first, then agent/
-        for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+        for search_dir in [emp_path / VESSEL_DIR_NAME, emp_path / AGENT_DIR_NAME]:
             runner_py = search_dir / f"{mod_name}.py"
             if runner_py.exists():
                 try:
@@ -409,7 +438,7 @@ def _load_hooks_from_config(emp_dir) -> dict[str, "Callable"]:
 
     # Look for hooks .py in vessel/ first, then agent/
     hooks_py = None
-    for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+    for search_dir in [emp_path / VESSEL_DIR_NAME, emp_path / AGENT_DIR_NAME]:
         candidate = search_dir / f"{hooks_mod_name}.py"
         if candidate.exists():
             hooks_py = candidate
@@ -465,18 +494,18 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
     )
 
     emp_path = Path(emp_dir)
-    vessel_dir = emp_path / "vessel"
+    vessel_dir = emp_path / VESSEL_DIR_NAME
 
     # Already installed
-    if (vessel_dir / "vessel.yaml").exists():
+    if (vessel_dir / VESSEL_YAML_FILENAME).exists():
         return
 
     # 1. talent has vessel/vessel.yaml
-    talent_vessel = talent_dir / "vessel"
-    talent_vessel_yaml = talent_vessel / "vessel.yaml"
+    talent_vessel = talent_dir / VESSEL_DIR_NAME
+    talent_vessel_yaml = talent_vessel / VESSEL_YAML_FILENAME
     if talent_vessel_yaml.exists():
         vessel_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(talent_vessel_yaml), str(vessel_dir / "vessel.yaml"))
+        shutil.copy2(str(talent_vessel_yaml), str(vessel_dir / VESSEL_YAML_FILENAME))
 
         # Copy prompt_sections/
         ps_src = talent_vessel / "prompt_sections"
@@ -558,7 +587,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
             raise subprocess.CalledProcessError(proc.returncode, f"git clone {repo_url}", stderr=stderr)
 
         # Check if repo itself is a single talent (has profile.yaml at root)
-        if (tmp_clone / "profile.yaml").exists():
+        if (tmp_clone / PROFILE_FILENAME).exists():
             dest = _TALENTS_CLONE_DIR / talent_id
             if dest.exists():
                 shutil.rmtree(dest)
@@ -569,9 +598,9 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
             # resolve_talent_dir(talent_id) can find it by its canonical ID.
             import yaml as _yaml
             for sub in tmp_clone.iterdir():
-                if sub.is_dir() and (sub / "profile.yaml").exists():
+                if sub.is_dir() and (sub / PROFILE_FILENAME).exists():
                     try:
-                        profile_id = (_yaml.safe_load((sub / "profile.yaml").read_text()) or {}).get("id", "")
+                        profile_id = (_yaml.safe_load((sub / PROFILE_FILENAME).read_text()) or {}).get("id", "")
                     except Exception:
                         profile_id = ""
                     dest_name = profile_id or sub.name
@@ -589,15 +618,6 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
 
     resolved = _TALENTS_CLONE_DIR / talent_id
     return resolved if resolved.exists() else _TALENTS_CLONE_DIR
-
-
-# ---------------------------------------------------------------------------
-# Default skills injected for every new employee
-# ---------------------------------------------------------------------------
-
-# These are package-level resources, not tied to any specific talent
-_DEFAULT_SKILLS_DIR = Path(__file__).resolve().parent.parent / "default_skills"
-_DEFAULT_SKILL_NAMES = ["ontology", "proactive-agent", "self-improving-agent"]
 
 
 def _inject_default_skills(skills_dir: Path) -> None:
@@ -667,7 +687,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
         emp_skills = emp_dir / "skills"
         emp_skills.mkdir(exist_ok=True)
         for entry in talent_skills.iterdir():
-            if entry.is_dir() and (entry / "SKILL.md").exists():
+            if entry.is_dir() and (entry / SKILL_FILENAME).exists():
                 # Folder-based skill: copy entire folder
                 dst_dir = emp_skills / entry.name
                 if not dst_dir.exists():
@@ -676,14 +696,14 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
                 # Legacy plain .md: convert to folder/SKILL.md
                 dst_dir = emp_skills / entry.stem
                 dst_dir.mkdir(exist_ok=True)
-                dst_file = dst_dir / "SKILL.md"
+                dst_file = dst_dir / SKILL_FILENAME
                 if not dst_file.exists():
                     shutil.copy2(str(entry), str(dst_file))
 
     talent_tools = talent_dir / "tools"
     if talent_tools.exists():
         employee_id = emp_dir.name
-        manifest = talent_tools / "manifest.yaml"
+        manifest = talent_tools / MANIFEST_YAML_FILENAME
         custom_tools: list[str] = []
         if manifest.exists():
             with open(manifest) as f:
@@ -714,41 +734,41 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
 
     # Copy talent persona — prefer prompts/talent_persona.md from repo,
     # fall back to system_prompt_template from profile.yaml
-    prompts_dir = emp_dir / "prompts"
-    talent_persona_src = talent_dir / "prompts" / "talent_persona.md"
+    prompts_dir = emp_dir / PROMPTS_DIR_NAME
+    talent_persona_src = talent_dir / PROMPTS_DIR_NAME / TALENT_PERSONA_FILENAME
     if talent_persona_src.exists():
         prompts_dir.mkdir(exist_ok=True)
-        dst_persona = prompts_dir / "talent_persona.md"
+        dst_persona = prompts_dir / TALENT_PERSONA_FILENAME
         if not dst_persona.exists():
             shutil.copy2(str(talent_persona_src), str(dst_persona))
     else:
-        talent_profile_path = talent_dir / "profile.yaml"
+        talent_profile_path = talent_dir / PROFILE_FILENAME
         if talent_profile_path.exists():
             with open(talent_profile_path) as f:
                 talent_data = yaml.safe_load(f) or {}
             spt = talent_data.get("system_prompt_template", "")
             if spt and spt.strip():
                 prompts_dir.mkdir(exist_ok=True)
-                dst_persona = prompts_dir / "talent_persona.md"
+                dst_persona = prompts_dir / TALENT_PERSONA_FILENAME
                 if not dst_persona.exists():
-                    dst_persona.write_text(spt.strip() + "\n", encoding="utf-8")
+                    dst_persona.write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
 
     # Copy CLAUDE.md for Claude CLI discovery
-    talent_claude_md = talent_dir / "CLAUDE.md"
+    talent_claude_md = talent_dir / CLAUDE_MD_FILENAME
     if talent_claude_md.exists():
-        dst_claude_md = emp_dir / "CLAUDE.md"
+        dst_claude_md = emp_dir / CLAUDE_MD_FILENAME
         if not dst_claude_md.exists():
             shutil.copy2(str(talent_claude_md), str(dst_claude_md))
 
     # Copy manifest.json (frontend UI config — OAuth buttons, settings sections)
-    talent_manifest_json = talent_dir / "manifest.json"
+    talent_manifest_json = talent_dir / MANIFEST_FILENAME
     if talent_manifest_json.exists():
-        dst_manifest_json = emp_dir / "manifest.json"
+        dst_manifest_json = emp_dir / MANIFEST_FILENAME
         if not dst_manifest_json.exists():
             shutil.copy2(str(talent_manifest_json), str(dst_manifest_json))
 
     # Copy launch.sh / heartbeat.sh for self-hosted employees
-    for script_name in ("launch.sh", "heartbeat.sh"):
+    for script_name in (LAUNCH_SCRIPT, HEARTBEAT_SCRIPT):
         talent_script = talent_dir / script_name
         if talent_script.exists():
             dst_script = emp_dir / script_name
@@ -769,7 +789,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
         # Append to employee's tools/manifest.yaml custom_tools
         emp_tools = emp_dir / "tools"
         emp_tools.mkdir(exist_ok=True)
-        emp_manifest = emp_tools / "manifest.yaml"
+        emp_manifest = emp_tools / MANIFEST_YAML_FILENAME
         if emp_manifest.exists():
             with open(emp_manifest) as f:
                 emp_mdata = yaml.safe_load(f) or {}
@@ -907,7 +927,7 @@ async def execute_hire(
         "onboarding_completed": False,
         "avatar_sprite": avatar_sprite_num,
     })
-    await _store.save_employee_runtime(emp_num, status="idle")
+    await _store.save_employee_runtime(emp_num, status=STATUS_IDLE)
 
     if progress_callback:
         await progress_callback("copying_skills", "Copying skill packages...")
@@ -919,14 +939,14 @@ async def execute_hire(
     _assign_default_avatar(emp_dir, emp_num)
 
     # Connection config for remote and self-hosted employees
-    if remote or hosting == "self":
+    if remote or hosting == HostingMode.SELF:
         connection = {
             "employee_id": emp_num,
             "company_url": f"http://{settings.host}:{settings.port}",
             "talent_id": talent_id,
         }
-        (emp_dir / "connection.json").write_text(
-            _json.dumps(connection, indent=2, ensure_ascii=False), encoding="utf-8",
+        (emp_dir / CONNECTION_JSON_FILENAME).write_text(
+            _json.dumps(connection, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8,
         )
 
     # Copy talent skills + tools
@@ -934,19 +954,19 @@ async def execute_hire(
         copy_talent_assets(talent_dir, emp_dir)
 
     # Copy launch.sh for self-hosted employees
-    if talent_dir and hosting == "self":
-        talent_launch = talent_dir / "launch.sh"
+    if talent_dir and hosting == HostingMode.SELF:
+        talent_launch = talent_dir / LAUNCH_SCRIPT
         if talent_launch.exists():
-            dst_launch = emp_dir / "launch.sh"
+            dst_launch = emp_dir / LAUNCH_SCRIPT
             if not dst_launch.exists():
                 shutil.copy2(str(talent_launch), str(dst_launch))
                 dst_launch.chmod(dst_launch.stat().st_mode | 0o111)  # ensure executable
 
     # Copy heartbeat.sh for employees with custom heartbeat scripts
     if talent_dir:
-        talent_hb = talent_dir / "heartbeat.sh"
+        talent_hb = talent_dir / HEARTBEAT_SCRIPT
         if talent_hb.exists():
-            dst_hb = emp_dir / "heartbeat.sh"
+            dst_hb = emp_dir / HEARTBEAT_SCRIPT
             if not dst_hb.exists():
                 shutil.copy2(str(talent_hb), str(dst_hb))
                 dst_hb.chmod(dst_hb.stat().st_mode | 0o111)
@@ -955,21 +975,21 @@ async def execute_hire(
     for skill_name in skills:
         skill_dir = skills_dir / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_file = skill_dir / "SKILL.md"
+        skill_file = skill_dir / SKILL_FILENAME
         if not skill_file.exists():
             skill_file.write_text(
                 f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
                 f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n",
-                encoding="utf-8",
+                encoding=ENCODING_UTF8,
             )
 
     # Inject default skills (ontology, proactive-agent, self-improving-agent)
     _inject_default_skills(skills_dir)
 
     # Create initial SOUL.md in workspace
-    workspace_dir = emp_dir / "workspace"
+    workspace_dir = emp_dir / WORKSPACE_DIR_NAME
     workspace_dir.mkdir(exist_ok=True)
-    soul_path = workspace_dir / "SOUL.md"
+    soul_path = workspace_dir / SOUL_FILENAME
     if not soul_path.exists():
         soul_path.write_text(
             f"# {name} ({nickname}) — Personal Knowledge\n\n"
@@ -977,13 +997,13 @@ async def execute_hire(
             f"**Department**: {department}\n\n"
             f"## Lessons Learned\n\n"
             f"(Will be updated automatically after each task.)\n",
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
 
     # Generate work principles as a skill (autoloaded)
     wp_dir = skills_dir / "work-principles"
     wp_dir.mkdir(parents=True, exist_ok=True)
-    wp_file = wp_dir / "SKILL.md"
+    wp_file = wp_dir / SKILL_FILENAME
     if not wp_file.exists():
         wp_file.write_text(
             f"---\nname: work-principles\nautoload: true\n"
@@ -997,11 +1017,11 @@ async def execute_hire(
             f"2. Actively collaborate with the team and communicate progress promptly\n"
             f"3. Continuously learn and improve professional skills\n"
             f"4. Follow company rules and guidelines\n",
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
 
     # Generate standalone run.py for company-hosted employees
-    if hosting == "company":
+    if hosting == HostingMode.COMPANY:
         from onemancompany.core.standalone_runner import generate_run_py
         generate_run_py(emp_dir, name, emp_num)
 
@@ -1015,7 +1035,7 @@ async def execute_hire(
         {"type": "employee_hired", "name": name, "nickname": nickname, "role": role}
     )
     hired_data = _store.load_employee(emp_num)
-    await event_bus.publish(CompanyEvent(type="employee_hired", payload=hired_data, agent="HR"))
+    await event_bus.publish(CompanyEvent(type=EventType.EMPLOYEE_HIRED, payload=hired_data, agent="HR"))
 
     if progress_callback:
         await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")
@@ -1025,13 +1045,13 @@ async def execute_hire(
     if not remote:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(emp_num):
-            if hosting == "self":
+            if hosting == HostingMode.SELF:
                 register_self_hosted(emp_num)
-            elif (emp_dir / "launch.sh").exists():
+            elif (emp_dir / LAUNCH_SCRIPT).exists():
                 # Company-hosted with launch.sh → SubprocessExecutor
                 from onemancompany.core.subprocess_executor import SubprocessExecutor
                 from onemancompany.core.vessel import employee_manager
-                _executor = SubprocessExecutor(emp_num, script_path=str(emp_dir / "launch.sh"))
+                _executor = SubprocessExecutor(emp_num, script_path=str(emp_dir / LAUNCH_SCRIPT))
                 employee_manager.register(emp_num, _executor)
             else:
                 agent_runner = _create_agent_runner(emp_num, emp_dir)

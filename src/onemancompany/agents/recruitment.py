@@ -21,6 +21,7 @@ from typing import Literal
 from loguru import logger
 
 from onemancompany.core import store as _store
+from onemancompany.core.models import EventType, HostingMode
 
 # --- Pydantic models (migrated from talent_market/boss_online.py) ---
 
@@ -114,11 +115,12 @@ def _persist_candidates() -> None:
         loop.create_task(_store.save_candidates("pending", data))
     except RuntimeError:
         # No event loop — write synchronously
+        from onemancompany.core.config import DirtyCategory
         from onemancompany.core.store import _write_yaml, COMPANY_DIR
         from onemancompany.core.store import mark_dirty
         path = COMPANY_DIR / "candidates" / "pending.yaml"
         _write_yaml(path, data)
-        mark_dirty("candidates")
+        mark_dirty(DirtyCategory.CANDIDATES)
 
 
 def _load_candidates_from_disk() -> None:
@@ -229,7 +231,7 @@ def _normalize_market_candidate(candidate: dict) -> dict:
         "remote": profile.get("remote", False),
         "talent_id": talent_id,
         "api_provider": api_provider,
-        "hosting": profile.get("hosting", "company"),
+        "hosting": profile.get("hosting", HostingMode.COMPANY),
         "auth_method": profile.get("auth_method", "api_key"),
         "cost_per_1m_tokens": round(cost_per_1m, 2),
         "hiring_fee": float(profile.get("hiring_fee", 0.0)),
@@ -289,7 +291,7 @@ def _talent_to_candidate(talent: dict) -> dict:
         "remote": talent.get("remote", False),
         "talent_id": talent_id,
         "api_provider": api_provider,
-        "hosting": talent.get("hosting", "company"),
+        "hosting": talent.get("hosting", HostingMode.COMPANY),
         "auth_method": talent.get("auth_method", "api_key"),
         "cost_per_1m_tokens": round(cost_per_1m, 2),
         "hiring_fee": float(talent.get("hiring_fee", 0.0)),
@@ -549,7 +551,7 @@ async def _create_and_publish_batch(jd: str, candidates: list[dict], roles: list
     _persist_candidates()
 
     await event_bus.publish(CompanyEvent(
-        type="candidates_ready",
+        type=EventType.CANDIDATES_READY,
         payload={
             "batch_id": batch_id,
             "jd": jd,

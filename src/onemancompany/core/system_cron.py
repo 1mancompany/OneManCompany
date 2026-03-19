@@ -25,7 +25,15 @@ from typing import Any, Callable, Coroutine, Literal, TypedDict
 
 from loguru import logger
 
+from onemancompany.core.config import SYSTEM_SENDER
 from onemancompany.core.interval import parse_interval
+from onemancompany.core.models import EventType
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
 
 
 @dataclass
@@ -153,7 +161,7 @@ class SystemCronManager:
                 "interval": defn.current_interval,
                 "description": defn.description,
                 "running": running,
-                "scope": "system",
+                "scope": SYSTEM_SENDER,
                 "employee_id": None,
                 "last_run": defn.last_run.isoformat() if defn.last_run else None,
                 "run_count": defn.run_count,
@@ -195,9 +203,6 @@ system_cron_manager = SystemCronManager()
 # Handler implementations
 # ---------------------------------------------------------------------------
 
-REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
-
-
 @system_cron("heartbeat", interval="1m", description="员工 API 连接检测")
 async def heartbeat_check() -> list | None:
     from onemancompany.core.heartbeat import run_heartbeat_cycle
@@ -205,7 +210,7 @@ async def heartbeat_check() -> list | None:
 
     changed = await run_heartbeat_cycle()
     if changed:
-        return [CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")]
+        return [CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="HEARTBEAT")]
     return None
 
 
@@ -217,7 +222,7 @@ async def review_reminder_check() -> list | None:
     overdue = scan_overdue_reviews(threshold_seconds=REVIEW_REMINDER_THRESHOLD_SECONDS)
     if overdue:
         return [CompanyEvent(
-            type="review_reminder",
+            type=EventType.REVIEW_REMINDER,
             payload={"overdue_nodes": overdue},
             agent="REVIEW_REMINDER",
         )]
@@ -238,6 +243,38 @@ async def config_reload_check() -> list | None:
 
 
 # ---------------------------------------------------------------------------
+# Talent Market keepalive — maintain MCP connection
+# ---------------------------------------------------------------------------
+
+
+@system_cron("talent_market_keepalive", interval="15s", description="Talent Market MCP 连接保活")
+async def talent_market_keepalive() -> list | None:
+    """Ping the Talent Market MCP server; reconnect if the session is dead."""
+    from onemancompany.agents.recruitment import talent_market, start_talent_market
+
+    if not talent_market.connected:
+        return None
+
+    try:
+        await talent_market._session.send_ping()
+        logger.debug("[talent_market_keepalive] ping OK")
+    except Exception as e:
+        logger.warning("[talent_market_keepalive] ping failed ({}), reconnecting...", e)
+        try:
+            await talent_market.disconnect()
+        except Exception:
+            # Force-clear stale state even if disconnect fails
+            talent_market._session = None
+            talent_market._stack = None
+        try:
+            await start_talent_market()
+            logger.info("[talent_market_keepalive] reconnected successfully")
+        except Exception as e2:
+            logger.error("[talent_market_keepalive] reconnect failed: {}", e2)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Project progress watchdog — prevent projects from getting stuck
 # ---------------------------------------------------------------------------
 
@@ -245,7 +282,7 @@ async def config_reload_check() -> list | None:
 _watchdog_nudged: set[str] = set()
 
 
-@system_cron("project_progress_watchdog", interval="30s", description="项目进度看门狗 — 防止项目卡死")
+@system_cron("project_progress_watchdog", interval="1m", description="项目进度看门狗 — 防止项目卡死")
 async def project_progress_watchdog() -> list | None:
     """Scan active projects; nudge EA to continue any that are stuck.
 
@@ -257,8 +294,8 @@ async def project_progress_watchdog() -> list | None:
     When stuck, a new task node is added under the EA node asking it to
     review the task tree and drive the project forward.
     """
-    from onemancompany.core.config import EA_ID, PROJECTS_DIR
-    from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL
+    from onemancompany.core.config import EA_ID, PROJECTS_DIR, TASK_TREE_FILENAME
+    from onemancompany.core.task_lifecycle import TaskPhase, RESOLVED, NodeType
     from onemancompany.core.task_tree import get_tree, get_tree_lock, save_tree_async
     from onemancompany.core.vessel import employee_manager
 
@@ -267,7 +304,7 @@ async def project_progress_watchdog() -> list | None:
 
     nudged_projects: list[str] = []
 
-    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
         tree_path_str = str(tree_path)
         try:
             tree = get_tree(tree_path_str)
@@ -295,11 +332,11 @@ async def project_progress_watchdog() -> list | None:
         if any(n.status == TaskPhase.PROCESSING.value for n in active_nodes):
             continue
 
-        # Skip if all active nodes are terminal (project is done)
-        all_terminal = all(
-            TaskPhase(n.status) in TERMINAL for n in active_nodes
+        # Skip if all active nodes are resolved (project is done)
+        all_resolved = all(
+            TaskPhase(n.status) in RESOLVED for n in active_nodes
         )
-        if all_terminal:
+        if all_resolved:
             continue
 
         # --- Project is stuck — nudge EA ---
@@ -325,12 +362,12 @@ async def project_progress_watchdog() -> list | None:
         lock = get_tree_lock(tree_path_str)
         with lock:
             nudge_node = tree.add_child(
-                parent_id=ea_node.id,
+                parent_id=tree.root_id,
                 employee_id=EA_ID,
                 description=nudge_desc,
                 acceptance_criteria=[],
             )
-            nudge_node.node_type = "watchdog_nudge"
+            nudge_node.node_type = NodeType.WATCHDOG_NUDGE
             nudge_node.project_id = project_id
             nudge_node.project_dir = ea_node.project_dir or str(tree_path.parent)
             save_tree_async(tree_path_str)
@@ -347,7 +384,7 @@ async def project_progress_watchdog() -> list | None:
         from onemancompany.core.events import CompanyEvent
 
         return [CompanyEvent(
-            type="state_snapshot",
+            type=EventType.STATE_SNAPSHOT,
             payload={"watchdog_nudged": nudged_projects},
             agent="PROJECT_WATCHDOG",
         )]
@@ -371,8 +408,8 @@ def _build_tree_status_summary(tree) -> str:
     for n in active_nodes:
         by_status.setdefault(n.status, []).append(n)
 
-    for status in ["pending", "processing", "holding", "completed", "accepted",
-                    "finished", "failed", "blocked", "cancelled"]:
+    from onemancompany.core.task_lifecycle import TaskPhase
+    for status in [p.value for p in TaskPhase]:
         nodes = by_status.get(status, [])
         if not nodes:
             continue

@@ -23,15 +23,16 @@ def test_save_and_load(tmp_path):
     assert len(loaded.get_all_nodes()) == 1
 
 
-def test_auto_cleanup_old_finished(tmp_path):
+def test_old_finished_nodes_preserved(tmp_path):
+    """Trees only grow — finished nodes must never be deleted, even after 24h+."""
     tree = SystemTaskTree("emp1")
     node = tree.create_system_node("emp1", "old task")
     node.status = TaskPhase.FINISHED.value
     node.completed_at = (datetime.now() - timedelta(hours=25)).isoformat()
     path = tmp_path / "system_tasks.yaml"
-    tree.save(path)  # should auto-clean
+    tree.save(path)
     loaded = SystemTaskTree.load(path, "emp1")
-    assert len(loaded.get_all_nodes()) == 0
+    assert len(loaded.get_all_nodes()) == 1
 
 
 def test_keeps_recent_finished(tmp_path):

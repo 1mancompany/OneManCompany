@@ -17,8 +17,9 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, MAX_SUMMARY_LEN, PROJECTS_DIR, ROOMS_DIR, SHARED_PROMPTS_DIR, SOP_DIR, STATUS_IDLE, STATUS_WORKING, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PF_DEPARTMENT, PF_NAME, PF_REMOTE, PF_ROLE, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOL_YAML_FILENAME, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import EventType
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
@@ -26,7 +27,7 @@ from onemancompany.core.store import append_activity_sync as _append_activity
 # { hire_id: { role, reason, skills, requested_by, requested_at, ... } }
 pending_hiring_requests: dict[str, dict] = {}
 
-COO_SYSTEM_PROMPT = """You are the COO (Chief Operating Officer) of "One Man Company".
+COO_SYSTEM_PROMPT = f"""You are the COO (Chief Operating Officer) of "One Man Company".
 
 ## Who You Are — Identity (Most Important, Must Internalize)
 You are a manager, not an executor. Your job is:
@@ -53,7 +54,7 @@ You are a manager, not an executor. Your job is:
 1. Is this implementation work (code, design, writing, testing)? → dispatch_child(best_employee, ...)
 2. Can an existing employee handle it? → list_colleagues(), then dispatch.
 3. No suitable employee? → request_hiring(role, reason) to request new hires
-4. Is this a people/HR task? → dispatch_child("00002", ...)
+4. Is this a people/HR task? → dispatch_child("{HR_ID}", ...)
 5. Only coordination/planning left? → Handle it yourself (no deliverable output, only plans and dispatches).
 
 ## Project Execution Flow (Complex projects must follow; simple tasks may skip phases 2-3)
@@ -71,7 +72,7 @@ You are a manager, not an executor. Your job is:
 - If no hiring is needed, skip directly to Phase 3
 
 ### Phase 3 — Assemble Team & Align
-- update_project_team(members=[{employee_id, role}]) to register team members
+- update_project_team(members=[{{employee_id, role}}]) to register team members
 - pull_meeting(attendees=all team members) to discuss:
   - Project goals and scope
   - Acceptance criteria
@@ -91,7 +92,7 @@ You are a manager, not an executor. Your job is:
 
 ### Task Execution via Delegation
 When receiving CEO action plans:
-- HR-sourced actions → dispatch_child("00002", ...) immediately.
+- HR-sourced actions → dispatch_child("{HR_ID}", ...) immediately.
 - COO-sourced actions → find the best employee and dispatch.
 - Report a brief summary of all dispatches.
 
@@ -132,12 +133,10 @@ When receiving CEO action plans:
 - add_meeting_room() only when CEO explicitly requests.
 
 ### Knowledge Management
-- deposit_company_knowledge(category, name, content) to preserve:
-  - "workflow": Business processes and procedures
-  - "culture": Company values and culture statements
-  - "sop": Standard operating procedures
-  - "guidance": Shared employee guidance and best practices
-  - "direction": Company strategic direction
+- deposit_company_knowledge(category, name, content) to preserve company knowledge:
+  - "workflow": All operational docs — business processes, SOPs, and employee guidance → saved as {{name}}.md under workflows directory
+  - "culture": Company values and culture statements → saved to company_culture.yaml
+  - "direction": Company strategic direction → saved to company_direction.yaml
 - Use this for operational insights, process improvements, and lessons learned.
 - Tools/equipment still go through register_asset().
 
@@ -292,7 +291,7 @@ def _persist_tool(t: OfficeTool) -> None:
         t.folder_name = slugify_tool_name(t.name)
     folder = TOOLS_DIR / t.folder_name
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / "tool.yaml"
+    path = folder / TOOL_YAML_FILENAME
     with open(path, "w") as f:
         yaml.dump(
             {
@@ -855,7 +854,7 @@ def request_hiring(
 
     # Publish event for frontend notification (informational, no approval needed)
     coro = event_bus.publish(CompanyEvent(
-        type="hiring_request_ready",
+        type=EventType.HIRING_REQUEST_READY,
         payload={"hire_id": hire_id, **req},
         agent="COO",
     ))
@@ -886,36 +885,34 @@ def deposit_company_knowledge(
     Use this to preserve operational insights, processes, and guidelines that
     benefit the entire company — not just tools/equipment (use register_asset for those).
 
+    Categories and their disk locations (use OrgDir enum values):
+      - "workflow": Workflows, SOPs, and operational guidance → saved as {name}.md under the workflows directory
+      - "culture": Company culture values → saved to company_culture.yaml
+      - "direction": Company strategic direction → saved to company_direction.yaml
+
+    The tool will return the exact disk path where the content was saved.
+
     Args:
-        category: Type of knowledge. One of:
-            - "workflow": Business process workflow → company/business/workflows/
-            - "culture": Company culture value → company/company_culture.yaml
-            - "sop": Standard operating procedure → company/operations/sops/
-            - "guidance": Shared employee guidance → company/shared_prompts/
-            - "direction": Company strategic direction → company/company_direction.yaml
-        name: Identifier/title for the knowledge (used as filename for file-based categories).
-        content: The knowledge content (markdown for workflows/sops/guidance, plain text for culture/direction).
+        category: One of: "workflow", "culture", "direction".
+            "workflow" covers all operational docs: workflows, SOPs, and guidance.
+        name: Identifier/title (used as filename: {name}.md for workflow).
+        content: The knowledge content (markdown for workflow, plain text for culture/direction).
 
     Returns:
-        Confirmation with category, name, and storage path.
+        Confirmation with category, name, and storage path (absolute).
     """
-    valid_categories = ("workflow", "culture", "sop", "guidance", "direction")
+    valid_categories = tuple(d.value for d in OrgDir)
     if category not in valid_categories:
         return {
             "status": "error",
             "message": f"Invalid category '{category}'. Must be one of: {', '.join(valid_categories)}",
         }
 
-    if category == "workflow":
+    if category == OrgDir.WORKFLOW:
         save_workflow(name, content)
         path = str(WORKFLOWS_DIR / f"{name}.md")
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "workflow",
-            "name": name,
-        })
 
-    elif category == "culture":
+    elif category == OrgDir.CULTURE:
         culture_item = {"content": content, "added_by": "COO", "name": name}
         from onemancompany.core.store import load_culture as _load_culture, save_culture as _save_culture
         import asyncio as _asyncio
@@ -926,43 +923,17 @@ def deposit_company_knowledge(
             _loop.create_task(_save_culture(items))
         except RuntimeError:
             logger.debug("No event loop for culture persist")
-        path = "company/company_culture.yaml"
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "culture",
-            "name": name,
-        })
+        path = str(OrgDir.CULTURE.disk_path)
 
-    elif category == "sop":
-        SOP_DIR.mkdir(parents=True, exist_ok=True)
-        sop_path = SOP_DIR / f"{name}.md"
-        sop_path.write_text(content, encoding="utf-8")
-        path = str(sop_path)
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "sop",
-            "name": name,
-        })
-
-    elif category == "guidance":
-        SHARED_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-        guidance_path = SHARED_PROMPTS_DIR / f"{name}.md"
-        guidance_path.write_text(content, encoding="utf-8")
-        path = str(guidance_path)
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "guidance",
-            "name": name,
-        })
-
-    elif category == "direction":
+    elif category == OrgDir.DIRECTION:
         save_company_direction(content)
-        path = "company/company_direction.yaml"
-        _append_activity({
-            "type": "knowledge_deposited",
-            "category": "direction",
-            "name": name,
-        })
+        path = str(OrgDir.DIRECTION.disk_path)
+
+    _append_activity({
+        "type": "knowledge_deposited",
+        "category": category,
+        "name": name,
+    })
 
     return {
         "status": "success",
@@ -1002,8 +973,8 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     if not emp_data:
         return {"status": "error", "error": f"Employee {employee_id} not found"}
 
-    old_dept = emp_data.get("department", "General")
-    old_role = emp_data.get("role", "")
+    old_dept = emp_data.get(PF_DEPARTMENT, "General")
+    old_role = emp_data.get(PF_ROLE, "")
     no_dept_change = old_dept == department
     no_role_change = not role or old_role == role
 
@@ -1013,14 +984,14 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
             "employee_id": employee_id,
             "department": department,
             "role": old_role,
-            "message": f"{emp_data.get('name', employee_id)} already has department={department}, role={old_role}",
+            "message": f"{emp_data.get(PF_NAME, employee_id)} already has department={department}, role={old_role}",
         }
 
     updates: dict = {}
 
     if not no_dept_change:
         # Compute new desk position within the target department zone
-        is_remote = emp_data.get("remote", False)
+        is_remote = emp_data.get(PF_REMOTE, False)
         if is_remote:
             desk_pos = [-1, -1]
         else:
@@ -1051,7 +1022,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     _append_activity({
         "type": activity_type,
         "employee_id": employee_id,
-        "name": emp_data.get("name", employee_id),
+        "name": emp_data.get(PF_NAME, employee_id),
         "from_department": old_dept,
         "to_department": department,
         "from_role": old_role,
@@ -1059,7 +1030,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     })
 
     await event_bus.publish(CompanyEvent(
-        type="state_snapshot", payload={}, agent="COO",
+        type=EventType.STATE_SNAPSHOT, payload={}, agent="COO",
     ))
 
     final_role = role or old_role
@@ -1069,7 +1040,7 @@ async def assign_department(employee_id: str, department: str, role: str = "") -
     result = {
         "status": "ok",
         "employee_id": employee_id,
-        "name": emp_data.get("name", ""),
+        "name": emp_data.get(PF_NAME, ""),
         "department": department,
         "role": final_role,
     }

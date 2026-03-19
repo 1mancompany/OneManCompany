@@ -281,7 +281,9 @@ npx @1mancompany/onemancompany init
 # Custom port
 npx @1mancompany/onemancompany --port 8080
 
-# Uninstall (stops service + deletes installation)
+# Uninstall (stops service + deletes all generated files)
+# This will remove everything. To preserve your business data,
+# back up .onemancompany/company/business/ before uninstalling.
 npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
@@ -438,7 +440,7 @@ If you use OneManCompany in your research or project, please cite it:
 ```bibtex
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Meng Fang, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},

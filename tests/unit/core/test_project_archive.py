@@ -82,8 +82,8 @@ class TestCreateNamedProject:
         slug = pa.create_named_project("My App")
         proj_dir = tmp_path / slug
         assert proj_dir.exists()
-        assert (proj_dir / "workspace").exists()
         assert (proj_dir / "iterations").exists()
+        # workspace is now per-iteration, not at project root
         assert (proj_dir / "project.yaml").exists()
 
     def test_project_yaml_content(self, tmp_path):
@@ -145,19 +145,38 @@ class TestCreateIteration:
         ws = Path(doc["project_dir"])
         assert ws.exists()
 
-    def test_iteration_copies_previous_workspace(self, tmp_path):
+    def test_iteration_copies_previous_files(self, tmp_path):
         slug = pa.create_named_project("CopyWS")
         iter_id1 = pa.create_iteration(slug, "task1", "COO")
-        # Write a file to iter_001 workspace
+        # Write a user file directly in iter_001
         doc1 = pa.load_iteration(slug, iter_id1)
-        ws1 = Path(doc1["project_dir"])
-        (ws1 / "hello.txt").write_text("hello")
+        iter_dir1 = Path(doc1["project_dir"])
+        (iter_dir1 / "hello.txt").write_text("hello")
         # Create second iteration — should copy hello.txt
         iter_id2 = pa.create_iteration(slug, "task2", "COO")
         doc2 = pa.load_iteration(slug, iter_id2)
-        ws2 = Path(doc2["project_dir"])
-        assert (ws2 / "hello.txt").exists()
-        assert (ws2 / "hello.txt").read_text() == "hello"
+        iter_dir2 = Path(doc2["project_dir"])
+        assert (iter_dir2 / "hello.txt").exists()
+        assert (iter_dir2 / "hello.txt").read_text() == "hello"
+
+    def test_iteration_skips_internal_files_on_copy(self, tmp_path):
+        """Internal files (task_tree.yaml, nodes/) should NOT be copied to next iteration."""
+        slug = pa.create_named_project("SkipInternal")
+        iter_id1 = pa.create_iteration(slug, "task1", "COO")
+        doc1 = pa.load_iteration(slug, iter_id1)
+        iter_dir1 = Path(doc1["project_dir"])
+        # Place both user and internal files
+        (iter_dir1 / "output.txt").write_text("keep-me")
+        (iter_dir1 / "task_tree.yaml").write_text("tree: []")
+        (iter_dir1 / "nodes").mkdir(exist_ok=True)
+        (iter_dir1 / "nodes" / "n1.yaml").write_text("node")
+        # Create second iteration
+        iter_id2 = pa.create_iteration(slug, "task2", "COO")
+        doc2 = pa.load_iteration(slug, iter_id2)
+        iter_dir2 = Path(doc2["project_dir"])
+        assert (iter_dir2 / "output.txt").exists()
+        assert not (iter_dir2 / "task_tree.yaml").exists()
+        assert not (iter_dir2 / "nodes").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +307,7 @@ class TestProjectFiles:
         """Internal infrastructure files must not appear in user-facing listing."""
         slug = pa.create_named_project("Filter Test")
         pa.create_iteration(slug, "task", "COO")
-        ws = Path(pa.get_project_workspace(slug))
+        ws = Path(pa.get_project_dir(slug))
 
         # Create internal files that should be excluded
         (ws / "project.yaml").write_text("status: active")
@@ -320,7 +339,7 @@ class TestProjectFiles:
         """task_tree_iter_NNN.yaml variants must all be excluded."""
         slug = pa.create_named_project("Archive Filter")
         pa.create_iteration(slug, "task", "COO")
-        ws = Path(pa.get_project_workspace(slug))
+        ws = Path(pa.get_project_dir(slug))
 
         for name in ["task_tree_iter_001.yaml", "task_tree_iter_999.yaml"]:
             (ws / name).write_text("data")
@@ -363,23 +382,21 @@ class TestIsInternalFile:
 
 
 # ---------------------------------------------------------------------------
-# get_project_workspace / get_project_dir
+# get_project_dir
 # ---------------------------------------------------------------------------
 
 class TestGetProjectDir:
-    def test_v2_named_project_workspace(self, tmp_path):
-        slug = pa.create_named_project("WS Test")
-        ws = pa.get_project_workspace(slug)
-        assert Path(ws).exists()
-        # With no iteration, falls back to shared workspace/
-        assert "workspace" in ws
-
-    def test_v2_named_project_with_iteration(self, tmp_path):
+    def test_named_project_with_iteration(self, tmp_path):
         slug = pa.create_named_project("WS Iter")
         pa.create_iteration(slug, "task", "COO")
-        ws = pa.get_project_workspace(slug)
-        assert Path(ws).exists()
-        assert "iter_001" in ws
+        d = pa.get_project_dir(slug)
+        assert Path(d).exists()
+        assert "iter_001" in d
+
+    def test_get_project_workspace_is_alias(self, tmp_path):
+        slug = pa.create_named_project("Alias Test")
+        pa.create_iteration(slug, "task", "COO")
+        assert pa.get_project_workspace(slug) == pa.get_project_dir(slug)
 
 
 # ---------------------------------------------------------------------------
@@ -673,10 +690,10 @@ class TestNoopOnMissing:
 
 
 # ---------------------------------------------------------------------------
-# _resolve_workspace
+# _resolve_project_path
 # ---------------------------------------------------------------------------
 
-class TestResolveWorkspace:
+class TestResolveProjectPath:
     def test_iteration_workspace(self, tmp_path):
         """Lines 451-461: iteration ID resolves to iteration workspace."""
         slug = pa.create_named_project("WS Test")
@@ -685,7 +702,7 @@ class TestResolveWorkspace:
         assert "iter_001" in d
 
     def test_iteration_without_project_dir(self, tmp_path):
-        """Fallback to shared workspace when iteration has no project_dir."""
+        """Fallback to iteration dir when iteration has no project_dir."""
         slug = pa.create_named_project("Fallback WS")
         iter_id = pa.create_iteration(slug, "task", "COO")
         # Remove project_dir from iteration doc
@@ -694,7 +711,7 @@ class TestResolveWorkspace:
         pa._save_iteration(slug, iter_id, doc)
 
         d = pa.get_project_dir(iter_id)
-        assert "workspace" in d
+        assert "iter_001" in d
 
 
 
@@ -748,7 +765,7 @@ class TestCreateIterationCopytree:
 
         # Add a directory with files to the first iteration workspace
         doc1 = pa.load_iteration(slug, iter_id1)
-        ws1 = Path(doc1["project_dir"])
+        ws1 = Path(doc1["project_dir"]) / "workspace"
         sub_dir = ws1 / "src" / "components"
         sub_dir.mkdir(parents=True)
         (sub_dir / "main.py").write_text("print('hello')")
@@ -757,7 +774,7 @@ class TestCreateIterationCopytree:
         # Create second iteration — should copy both files and directories
         iter_id2 = pa.create_iteration(slug, "task2", "COO")
         doc2 = pa.load_iteration(slug, iter_id2)
-        ws2 = Path(doc2["project_dir"])
+        ws2 = Path(doc2["project_dir"]) / "workspace"
 
         assert (ws2 / "src" / "components" / "main.py").exists()
         assert (ws2 / "src" / "components" / "main.py").read_text() == "print('hello')"
@@ -771,9 +788,9 @@ class TestCreateIterationCopytree:
 class TestListProjectFilesNonexistent:
     def test_nonexistent_project_returns_empty(self, tmp_path, monkeypatch):
         """Line 506: list_project_files returns [] when project_dir doesn't exist."""
-        # Patch _resolve_workspace to return a path that doesn't exist
+        # Patch _resolve_project_path to return a path that doesn't exist
         fake_path = tmp_path / "does_not_exist"
-        monkeypatch.setattr(pa, "_resolve_workspace", lambda pid: fake_path)
+        monkeypatch.setattr(pa, "_resolve_project_path", lambda pid: fake_path)
         files = pa.list_project_files("anything")
         assert files == []
 

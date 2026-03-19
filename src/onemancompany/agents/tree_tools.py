@@ -11,7 +11,9 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, SYSTEM_AGENT, TASK_TREE_FILENAME
+from onemancompany.core.models import EventType
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
 # ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ from onemancompany.core.task_tree import TaskTree
 def _load_tree(project_dir: str) -> TaskTree:
     """Get TaskTree from memory cache (loading from disk if needed)."""
     from onemancompany.core.task_tree import get_tree
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         logger.warning("task_tree.yaml not found at %s", path)
         return TaskTree(project_id="")
@@ -53,7 +55,7 @@ def _find_entry_for_task(task_id: str) -> tuple[str, str]:
 def _save_tree(project_dir: str, tree: TaskTree) -> None:
     """Schedule async save of the TaskTree."""
     from onemancompany.core.task_tree import save_tree_async
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     save_tree_async(path)
 
 
@@ -79,14 +81,14 @@ def _create_standalone_ceo_request(
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.vessel import employee_manager
     coro = event_bus.publish(CompanyEvent(
-        type="ceo_inbox_updated",
+        type=EventType.CEO_INBOX_UPDATED,
         payload={
             "node_id": node_id,
             "description": description,
             "source_task_id": requester_task_id,
             "source_employee": vessel.employee_id if vessel else "unknown",
         },
-        agent="SYSTEM",
+        agent=SYSTEM_AGENT,
     ))
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
@@ -97,9 +99,9 @@ def _create_standalone_ceo_request(
     return {
         "status": "dispatched",
         "node_id": node_id,
-        "employee_id": "00001",
+        "employee_id": CEO_ID,
         "description": description,
-        "node_type": "ceo_request",
+        "node_type": NodeType.CEO_REQUEST,
         "ceo_request": True,
         "message": "Task dispatched to CEO inbox. CEO will respond when available.",
     }
@@ -145,8 +147,7 @@ def dispatch_child(
 
     if not project_dir or not tree_path_str:
         # --- Standalone CEO request (no tree context, e.g. system/adhoc tasks) ---
-        CEO_EMPLOYEE_ID = "00001"
-        if employee_id == CEO_EMPLOYEE_ID:
+        if employee_id == CEO_ID:
             return _create_standalone_ceo_request(
                 description=description,
                 requester_task_id=task_id,
@@ -220,12 +221,11 @@ def dispatch_child(
                 }
 
         # --- CEO request interception (idempotency check BEFORE creating child) ---
-        CEO_EMPLOYEE_ID = "00001"
-        if employee_id == CEO_EMPLOYEE_ID:
+        if employee_id == CEO_ID:
             from onemancompany.core.task_lifecycle import TaskPhase as _TP
             existing = [
                 c for c in tree.get_children(task_id)
-                if c.node_type == "ceo_request"
+                if c.node_type == NodeType.CEO_REQUEST
                 and c.status not in (_TP.FINISHED.value, _TP.CANCELLED.value, _TP.ACCEPTED.value)
             ]
             if existing:
@@ -235,7 +235,7 @@ def dispatch_child(
                     "node_id": dup.id,
                     "employee_id": employee_id,
                     "description": dup.description,
-                    "node_type": "ceo_request",
+                    "node_type": NodeType.CEO_REQUEST,
                     "ceo_request": True,
                     "message": (
                         f"A CEO request ({dup.id}) is already pending. Do NOT create another. "
@@ -256,8 +256,8 @@ def dispatch_child(
         child.project_id = current_node.project_id
         child.project_dir = project_dir
 
-        if employee_id == CEO_EMPLOYEE_ID:
-            child.node_type = "ceo_request"
+        if employee_id == CEO_ID:
+            child.node_type = NodeType.CEO_REQUEST
             # Signal vessel to auto-HOLD parent after execution (no_watchdog:
             # routes.py handles resume when CEO responds)
             current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
@@ -270,9 +270,9 @@ def dispatch_child(
             from onemancompany.core.events import CompanyEvent, event_bus
             from onemancompany.core.vessel import employee_manager
             coro = event_bus.publish(CompanyEvent(
-                type="ceo_inbox_updated",
+                type=EventType.CEO_INBOX_UPDATED,
                 payload={"node_id": child.id, "description": description},
-                agent="SYSTEM",
+                agent=SYSTEM_AGENT,
             ))
             main_loop = getattr(employee_manager, "_event_loop", None)
             if main_loop and main_loop.is_running():
@@ -284,7 +284,7 @@ def dispatch_child(
                 "node_id": child.id,
                 "employee_id": employee_id,
                 "description": description,
-                "node_type": "ceo_request",
+                "node_type": NodeType.CEO_REQUEST,
                 "ceo_request": True,
                 "message": (
                     "Task dispatched to CEO inbox. Your task will automatically pause (HOLDING) "
@@ -356,11 +356,13 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         # Normalize status to string for comparison (TaskNode.status is str)
         current = node.status.value if hasattr(node.status, "value") else node.status
 
-        # Idempotent: already accepted → return success without re-transitioning
+        # Idempotent: already accepted/finished/cancelled → return success without re-transitioning
         if current == TaskPhase.ACCEPTED.value:
-            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_accepted": True}
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_accepted": True}
         if current == TaskPhase.FINISHED.value:
-            return {"status": "accepted", "node_id": node_id, "notes": notes, "already_finished": True}
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_finished": True}
+        if current == TaskPhase.CANCELLED.value:
+            return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes, "already_cancelled": True}
 
         # Only completed tasks can be accepted
         if current != TaskPhase.COMPLETED.value:
@@ -377,7 +379,7 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": "accepted", "node_id": node_id, "notes": notes}
+        return {"status": TaskPhase.ACCEPTED.value, "node_id": node_id, "notes": notes}
 
 
 @tool
@@ -530,7 +532,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
         from onemancompany.core.vessel import _trigger_dep_resolution
         _trigger_dep_resolution(project_dir, tree, node)
 
-        return {"status": "cancelled", "node_id": node_id}
+        return {"status": TaskPhase.CANCELLED.value, "node_id": node_id}
 
 
 @tool
@@ -554,14 +556,14 @@ def set_project_name(name: str) -> dict:
         return {"status": "error", "message": "No project context."}
 
     # Update project.yaml name field
-    project_yaml = Path(project_dir) / "project.yaml"
+    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
     if project_yaml.exists():
         import yaml
-        data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
         data["name"] = name.strip()
         project_yaml.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
         return {"status": "ok", "name": name.strip()}
 

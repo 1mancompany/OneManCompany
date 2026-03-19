@@ -11,7 +11,11 @@ import json
 import sys
 from pathlib import Path
 
-from onemancompany.core.config import EMPLOYEES_DIR, TOOLS_DIR
+from onemancompany.core.config import (
+    EMPLOYEES_DIR, ENCODING_UTF8, ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR,
+    ENV_OMC_PROJECT_ID, ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID,
+    MCP_CONFIG_FILENAME, TOOLS_DIR, WORKSPACE_DIR_NAME,
+)
 
 
 def build_mcp_config(
@@ -33,11 +37,11 @@ def build_mcp_config(
             "command": python_path,
             "args": ["-m", "onemancompany.tools.mcp.server"],
             "env": {
-                "OMC_EMPLOYEE_ID": employee_id,
-                "OMC_TASK_ID": task_id,
-                "OMC_PROJECT_ID": project_id,
-                "OMC_PROJECT_DIR": project_dir,
-                "OMC_SERVER_URL": server_url,
+                ENV_OMC_EMPLOYEE_ID: employee_id,
+                ENV_OMC_TASK_ID: task_id,
+                ENV_OMC_PROJECT_ID: project_id,
+                ENV_OMC_PROJECT_DIR: project_dir,
+                ENV_OMC_SERVER_URL: server_url,
             },
         },
     }
@@ -55,7 +59,7 @@ def build_mcp_config(
     if settings.skillsmp_api_key:
         emp_dir = EMPLOYEES_DIR / employee_id
         skills_dir = emp_dir / "skills"
-        workdir = emp_dir / "workspace"
+        workdir = emp_dir / WORKSPACE_DIR_NAME
         servers["fastskills"] = {
             "command": "uvx",
             "args": [
@@ -83,7 +87,7 @@ def write_mcp_config(
     Returns the path to the written config file.
     """
     config = build_mcp_config(employee_id, task_id, project_id, project_dir, server_url)
-    config_path = EMPLOYEES_DIR / employee_id / "mcp_config.json"
+    config_path = EMPLOYEES_DIR / employee_id / MCP_CONFIG_FILENAME
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    config_path.write_text(json.dumps(config, indent=2), encoding=ENCODING_UTF8)
     return config_path
