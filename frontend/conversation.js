@@ -6,10 +6,12 @@ class ChatPanel {
         this._messagesEl = null;
         this._inputEl = null;
         this._sendBtn = null;
+        this._clearBtn = null;
         this._closeBtn = null;
         this._typingEl = null;
         this._fileInput = null;
         this._onSendCb = null;
+        this._onClearCb = null;
         this._onCloseCb = null;
         this._convId = null;
         this._convType = null;
@@ -22,10 +24,15 @@ class ChatPanel {
                 <div class="chat-panel-header">
                     <span class="chat-panel-type"></span>
                     <span class="chat-panel-employee"></span>
+                    <button class="chat-panel-clear-btn">Clear</button>
                     <button class="chat-panel-close-btn">End</button>
                 </div>
                 <div class="chat-panel-messages"></div>
-                <div class="chat-panel-typing hidden">typing...</div>
+                <div class="chat-panel-typing hidden" aria-label="Agent thinking">
+                    <span class="chat-panel-typing-dot">.</span>
+                    <span class="chat-panel-typing-dot">.</span>
+                    <span class="chat-panel-typing-dot">.</span>
+                </div>
                 <div class="chat-panel-input-row">
                     <textarea class="chat-panel-input" rows="2" placeholder="Type a message..."></textarea>
                     <div class="chat-panel-actions">
@@ -41,11 +48,15 @@ class ChatPanel {
         this._messagesEl = this._container.querySelector('.chat-panel-messages');
         this._inputEl = this._container.querySelector('.chat-panel-input');
         this._sendBtn = this._container.querySelector('.chat-panel-send-btn');
+        this._clearBtn = this._container.querySelector('.chat-panel-clear-btn');
         this._closeBtn = this._container.querySelector('.chat-panel-close-btn');
         this._typingEl = this._container.querySelector('.chat-panel-typing');
         this._fileInput = this._container.querySelector('.chat-panel-file');
 
         this._sendBtn.addEventListener('click', () => this._handleSend());
+        this._clearBtn.addEventListener('click', () => {
+            if (this._onClearCb) this._onClearCb(this._convId);
+        });
         this._closeBtn.addEventListener('click', () => {
             if (this._onCloseCb) this._onCloseCb(this._convId);
         });
@@ -89,6 +100,7 @@ class ChatPanel {
         this._container.querySelector('.chat-panel-type').textContent =
             convType === 'oneonone' ? '1-on-1' : 'Inbox';
         this._container.querySelector('.chat-panel-employee').textContent = employeeName;
+        this._clearBtn.style.display = convType === 'oneonone' ? '' : 'none';
     }
 
     renderMessages(messages) {
@@ -97,12 +109,16 @@ class ChatPanel {
             this._appendMessageEl(msg);
         }
         this._messagesEl.scrollTop = this._messagesEl.scrollHeight;
+        this.showTyping(false);
     }
 
     appendMessage(msg) {
         this._appendMessageEl(msg);
         this._messagesEl.scrollTop = this._messagesEl.scrollHeight;
-        this.showTyping(false);
+        // Keep showing "..." after CEO's own echo message; stop only when agent/system replies.
+        if ((msg?.sender || '').toLowerCase() !== 'ceo') {
+            this.showTyping(false);
+        }
     }
 
     _appendMessageEl(msg) {
@@ -134,6 +150,7 @@ class ChatPanel {
     getConvId() { return this._convId; }
     getConvType() { return this._convType; }
     onSend(cb) { this._onSendCb = cb; }
+    onClear(cb) { this._onClearCb = cb; }
     onClose(cb) { this._onCloseCb = cb; }
 
     _escapeHtml(str) {

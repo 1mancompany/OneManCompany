@@ -251,3 +251,7 @@ talent-template-*/
 
 # Tileset source assets (full packs, not redistributable)
 /assets/
+
+# Local PR notes / scratch workspace
+PR_1on1_history_update.md
+workspace/
