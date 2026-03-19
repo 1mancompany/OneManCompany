@@ -4947,8 +4947,38 @@ body {
 .chat-msg-agent { align-self: flex-start; background: #342; border: 1px solid #564; }
 .chat-msg-role { font-weight: bold; margin-bottom: 2px; font-size: 6px; opacity: 0.7; }
 .chat-msg-text { white-space: pre-wrap; word-break: break-word; }
-.chat-msg-attachments { margin-top: 2px; font-size: 6px; opacity: 0.6; }
-.chat-msg-attachment { margin-right: 4px; }
+.chat-msg-attachments {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+.chat-msg-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    color: var(--pixel-cyan);
+    font-size: 6px;
+    text-decoration: none;
+}
+.chat-msg-attachment-link:hover {
+    border-color: var(--pixel-cyan);
+}
+.chat-msg-image-link {
+    display: inline-flex;
+}
+.chat-msg-image {
+    max-width: 180px;
+    max-height: 140px;
+    border: 1px solid var(--border);
+    image-rendering: pixelated;
+}
+.chat-msg-image:hover {
+    border-color: var(--pixel-cyan);
+}
 .chat-panel-typing {
     padding: 4px 8px;
     display: flex;

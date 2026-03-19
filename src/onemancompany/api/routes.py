@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -5962,6 +5963,106 @@ def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation
     return best[1], best[2]
 
 
+_WORKSPACE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+
+def _snapshot_workspace_images(employee_id: str) -> dict[str, tuple[int, int]]:
+    """Return {relative_path: (mtime_ns, size)} for image files in employee workspace."""
+    from onemancompany.core.config import get_workspace_dir
+
+    ws = get_workspace_dir(employee_id).resolve()
+    if not ws.exists():
+        return {}
+    snapshot: dict[str, tuple[int, int]] = {}
+    for p in ws.rglob("*"):
+        if not p.is_file() or p.suffix.lower() not in _WORKSPACE_IMAGE_SUFFIXES:
+            continue
+        try:
+            st = p.stat()
+            rel = p.relative_to(ws).as_posix()
+            snapshot[rel] = (int(st.st_mtime_ns), int(st.st_size))
+        except Exception:
+            logger.debug("[workspace] skip unreadable file: {}", p)
+            continue
+    return snapshot
+
+
+def _workspace_image_url(employee_id: str, rel_path: str) -> str:
+    """Build a frontend-usable URL for an employee workspace file."""
+    from urllib.parse import quote
+
+    emp = quote(employee_id, safe="")
+    rel = quote(rel_path, safe="/")
+    return f"/api/employee/{emp}/workspace/files/{rel}"
+
+
+def _collect_new_workspace_image_urls(
+    employee_id: str,
+    before: dict[str, tuple[int, int]],
+    limit: int = 8,
+) -> list[str]:
+    """Collect URLs for image files created/modified since snapshot `before`."""
+    after = _snapshot_workspace_images(employee_id)
+    changed: list[tuple[int, str]] = []
+    for rel, state in after.items():
+        if before.get(rel) != state:
+            changed.append((state[0], rel))
+    changed.sort(key=lambda x: x[0], reverse=True)
+    return [_workspace_image_url(employee_id, rel) for _, rel in changed[:limit]]
+
+
+def _extract_workspace_image_urls_from_text(employee_id: str, text: str, limit: int = 8) -> list[str]:
+    """Extract image file refs from reply text and convert to workspace file URLs."""
+    from onemancompany.core.config import get_workspace_dir
+
+    if not text:
+        return []
+
+    ws = get_workspace_dir(employee_id).resolve()
+    # Absolute paths + "workspace/..." paths.
+    candidates: list[str] = []
+    candidates.extend(
+        m.group(1) for m in re.finditer(
+            r"(/[^\s'\"<>]+\.(?:png|jpg|jpeg|gif|webp|svg))",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    candidates.extend(
+        m.group(1) for m in re.finditer(
+            r"(workspace/[^\s'\"<>]+\.(?:png|jpg|jpeg|gif|webp|svg))",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    urls: list[str] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        try:
+            if raw.startswith("workspace/"):
+                resolved = (ws / raw[len("workspace/"):]).resolve()
+            else:
+                resolved = Path(raw).expanduser().resolve()
+        except Exception:
+            logger.debug("[workspace] skip unresolvable image path: {}", raw)
+            continue
+
+        if not resolved.is_relative_to(ws):
+            continue
+        if not resolved.is_file() or resolved.suffix.lower() not in _WORKSPACE_IMAGE_SUFFIXES:
+            continue
+        rel = resolved.relative_to(ws).as_posix()
+        url = _workspace_image_url(employee_id, rel)
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
 @router.post("/api/conversation/create")
 async def create_conversation(body: dict) -> dict:
     conv_type = body.get("type", "")
@@ -6155,19 +6256,41 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
     try:
         conv = _conversation_service.get(conv_id)
         messages = _conversation_service.get_messages(conv_id)
+        workspace_before = (
+            _snapshot_workspace_images(conv.employee_id)
+            if conv.type == "oneonone" else {}
+        )
 
         from onemancompany.core.conversation_adapters import get_adapter, _get_executor_type
 
         executor_type = _get_executor_type(conv.employee_id)
         adapter_cls = get_adapter(executor_type)
         adapter = adapter_cls()
-        reply_text = await adapter.send(conv, messages[:-1], ceo_message)
+        reply = await adapter.send(conv, messages[:-1], ceo_message)
+        reply_text = reply if isinstance(reply, str) else str(reply)
+        attachment_urls: list[str] = []
+        if conv.type == "oneonone":
+            # Prefer files created/updated during this reply.
+            attachment_urls = _collect_new_workspace_image_urls(
+                conv.employee_id,
+                workspace_before,
+            )
+            # Fallback: parse explicit file paths mentioned in the reply text.
+            if not attachment_urls:
+                attachment_urls = _extract_workspace_image_urls_from_text(
+                    conv.employee_id,
+                    reply_text,
+                )
 
         # Persist agent reply — get employee name from disk (SSOT)
         emp_data = _store.load_employee(conv.employee_id)
         emp_name = emp_data.get("name", conv.employee_id) if emp_data else conv.employee_id
         await _conversation_service.send_message(
-            conv_id, sender=conv.employee_id, role=emp_name, text=reply_text,
+            conv_id,
+            sender=conv.employee_id,
+            role=emp_name,
+            text=reply_text,
+            attachments=attachment_urls,
         )
     except Exception:
         logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
