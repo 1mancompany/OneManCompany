@@ -281,7 +281,9 @@ npx @1mancompany/onemancompany init
 # Custom port
 npx @1mancompany/onemancompany --port 8080
 
-# Uninstall (stops service + deletes installation)
+# Uninstall (stops service + deletes all generated files)
+# This will remove everything. To preserve your business data,
+# back up .onemancompany/company/business/ before uninstalling.
 npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
