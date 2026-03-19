@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid as _uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -5962,64 +5963,6 @@ def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation
     return best[1], best[2]
 
 
-def _parse_iso_timestamp(ts: str | None) -> float:
-    """Parse ISO timestamp to unix seconds; invalid values sort as 0."""
-    if not ts:
-        return 0.0
-    try:
-        from datetime import datetime
-        return datetime.fromisoformat(ts).timestamp()
-    except Exception:
-        return 0.0
-
-
-def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation, Path] | None:
-    """Pick best historical 1-on-1 conversation for this employee.
-
-    Priority:
-    1) Conversations that already have messages
-    2) Most recently active (last message timestamp, fallback to created_at)
-    """
-    import onemancompany.core.conversation as conversation_core
-
-    conv_base = conversation_core.EMPLOYEES_DIR / employee_id / "conversations"
-    if not conv_base.exists():
-        return None
-
-    best: tuple[tuple[int, float, float], Conversation, Path] | None = None
-    for conv_dir in conv_base.iterdir():
-        if not conv_dir.is_dir():
-            continue
-        meta_path = conv_dir / "meta.yaml"
-        if not meta_path.exists():
-            continue
-        try:
-            conv = load_conv_meta(conv_dir.name, conv_dir)
-        except Exception:
-            logger.warning("[conversation] failed to load meta from {}", conv_dir)
-            continue
-        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == "closing":
-            continue
-
-        try:
-            msgs = load_conv_messages(conv_dir)
-        except Exception:
-            logger.warning("[conversation] failed to load messages from {}", conv_dir)
-            msgs = []
-
-        has_messages = 1 if msgs else 0
-        last_msg_ts = _parse_iso_timestamp(msgs[-1].timestamp) if msgs else 0.0
-        created_ts = _parse_iso_timestamp(conv.created_at)
-        score = (has_messages, max(last_msg_ts, created_ts), created_ts)
-
-        if best is None or score > best[0]:
-            best = (score, conv, conv_dir)
-
-    if not best:
-        return None
-    return best[1], best[2]
-
-
 _WORKSPACE_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 
@@ -6105,7 +6048,7 @@ def _extract_workspace_image_urls_from_text(employee_id: str, text: str, limit: 
             logger.debug("[workspace] skip unresolvable image path: {}", raw)
             continue
 
-        if not str(resolved).startswith(str(ws)):
+        if not resolved.is_relative_to(ws):
             continue
         if not resolved.is_file() or resolved.suffix.lower() not in _WORKSPACE_IMAGE_SUFFIXES:
             continue

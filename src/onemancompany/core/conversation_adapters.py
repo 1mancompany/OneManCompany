@@ -139,7 +139,7 @@ def _load_oneonone_workspace_shared_prompt() -> str:
         try:
             if path.exists():
                 return path.read_text(encoding="utf-8").strip()
-        except Exception:
+        except OSError:
             logger.warning("[conversation] failed to read workspace policy prompt: {}", path)
     return ""
 
@@ -149,7 +149,7 @@ def _resolve_conversation_work_dir(conversation: Conversation) -> str:
     from onemancompany.core.config import get_workspace_dir
 
     # 1-on-1 should always use employee private workspace.
-    if conversation.type == "oneonone":
+    if conversation.type == ConversationType.ONE_ON_ONE:
         ws = get_workspace_dir(conversation.employee_id).resolve()
         ws.mkdir(parents=True, exist_ok=True)
         return str(ws)
