@@ -11,6 +11,7 @@ Reads always go to disk. No caching.
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 from pathlib import Path
 from typing import Any  # noqa: F401 — used by callers re-exporting
 
@@ -64,12 +65,22 @@ def _read_yaml(path: Path) -> dict:
         return {}
 
 
+def _enum_representer(dumper: yaml.Dumper, data: Enum) -> yaml.ScalarNode:
+    """Serialize str enums as plain strings to avoid !!python/object tags."""
+    return dumper.represent_str(str(data.value))
+
+
+# Register for all str+Enum subclasses used in the codebase
+_yaml_dumper = yaml.Dumper
+_yaml_dumper.add_multi_representer(Enum, _enum_representer)
+
+
 def _write_yaml(path: Path, data: dict) -> None:
     """Write dict to YAML file. Creates parent dirs if needed."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+            yaml.dump(data, Dumper=_yaml_dumper, allow_unicode=True, default_flow_style=False, sort_keys=False),
             encoding=ENCODING_UTF8,
         )
     except Exception as e:
