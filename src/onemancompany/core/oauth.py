@@ -37,7 +37,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 # Avoid importing heavy deps at module level
-from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, ENCODING_UTF8
+from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, ENCODING_UTF8, SYSTEM_AGENT
 _TOKEN_DIR = _ASSETS_DIR / ".oauth_cache"
 
 # Track active authorization flows to avoid duplicate popups
@@ -345,7 +345,7 @@ def _trigger_oauth_popup(config: OAuthServiceConfig) -> str:
                             f"Click 'Authorize' to log in and grant access.",
                     popup_type="oauth",
                     url=auth_url,
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 ),
                 loop,
             )
@@ -429,18 +429,19 @@ def request_credentials(
     try:
         import asyncio
         from onemancompany.core.events import event_bus, CompanyEvent
+        from onemancompany.core.models import EventType
         loop = asyncio.get_event_loop()
         if loop.is_running():
             asyncio.run_coroutine_threadsafe(
                 event_bus.publish(CompanyEvent(
-                    type="request_credentials",
+                    type=EventType.REQUEST_CREDENTIALS,
                     payload={
                         "service_name": service_name,
                         "title": title,
                         "message": message,
                         "fields": fields,
                     },
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )),
                 loop,
             )

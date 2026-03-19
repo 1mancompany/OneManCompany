@@ -37,15 +37,21 @@ from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     ENCODING_UTF8,
+    LAUNCH_SH_FILENAME,
     MAX_SUMMARY_LEN,
+    PF_NAME,
+    PF_NICKNAME,
+    PF_ROLE,
     PROGRESS_LOG_FILENAME,
     SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
+    SYSTEM_AGENT,
     TASK_TREE_FILENAME,
 )
 from onemancompany.core.project_archive import ITER_STATUS_FAILED
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import EventType
 from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
 from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
@@ -421,7 +427,7 @@ class ScriptExecutor(Launcher):
 
     def __init__(self, employee_id: str, script_path: str = "") -> None:
         self.employee_id = employee_id
-        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / "launch.sh")
+        self.script_path = script_path or str(EMPLOYEES_DIR / employee_id / LAUNCH_SH_FILENAME)
 
     async def execute(
         self,
@@ -476,7 +482,7 @@ class _VesselRef:
     def role(self) -> str:
         from onemancompany.core.store import load_employee
         emp_data = load_employee(self.employee_id)
-        return (emp_data or {}).get("role", "Employee")
+        return (emp_data or {}).get(PF_ROLE, "Employee")
 
 
 
@@ -1644,7 +1650,7 @@ class EmployeeManager:
         from onemancompany.core.workflow_engine import parse_workflow
 
         emp_data = _store.load_employee(employee_id) or {}
-        role = emp_data.get("role", "Employee").upper()
+        role = emp_data.get(PF_ROLE, "Employee").upper()
         is_manager = role in ("COO", "CSO", "EA", "HR")
 
         if is_manager and role in ("COO", "CSO"):
@@ -1933,9 +1939,9 @@ class EmployeeManager:
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(event_bus.publish(CompanyEvent(
-                    type="ceo_inbox_updated",
+                    type=EventType.CEO_INBOX_UPDATED,
                     payload={"node_id": ceo_node.id, "description": escalation_desc},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )))
             except RuntimeError:
                 logger.debug("No event loop for circuit breaker CEO escalation publish")
@@ -2093,8 +2099,8 @@ class EmployeeManager:
         }
         emp_data = _store.load_employee(employee_id)
         if emp_data:
-            payload["employee_name"] = emp_data.get("name", "")
-        await event_bus.publish(CompanyEvent(type="ceo_report", payload=payload, agent="SYSTEM"))
+            payload["employee_name"] = emp_data.get(PF_NAME, "")
+        await event_bus.publish(CompanyEvent(type=EventType.CEO_REPORT, payload=payload, agent=SYSTEM_AGENT))
 
         # Auto-approve: proceed directly with cleanup
         is_system_node = node.node_type in SYSTEM_NODE_TYPES
@@ -2120,7 +2126,7 @@ class EmployeeManager:
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
                     CompanyEvent(
-                        type="agent_done",
+                        type=EventType.AGENT_DONE,
                         payload={"role": "ROUTINE", "summary": f"Routine error: {e!s}"},
                         agent="ROUTINE",
                     )
@@ -2159,14 +2165,14 @@ class EmployeeManager:
             summary = f"(with errors) {summary}"
         await event_bus.publish(
             CompanyEvent(
-                type="agent_done",
+                type=EventType.AGENT_DONE,
                 payload={"role": role, "summary": summary, "employee_id": employee_id, "project_id": project_id},
                 agent=role,
             )
         )
 
         await event_bus.publish(
-            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+            CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
         )
 
         if self._restart_pending and self.is_idle(exclude=employee_id):
@@ -2202,9 +2208,9 @@ class EmployeeManager:
 
         await event_bus.publish(
             CompanyEvent(
-                type="backend_restart_scheduled",
+                type=EventType.BACKEND_RESTART_SCHEDULED,
                 payload={"reason": "Code changes applied", "immediate": True},
-                agent="SYSTEM",
+                agent=SYSTEM_AGENT,
             )
         )
         # Brief delay to let the WebSocket message reach clients
@@ -2247,7 +2253,7 @@ class EmployeeManager:
         try:
             llm = make_llm(employee_id)
             prompt = (
-                f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}), {emp_data.get('role', '')}.\n"
+                f"You are {emp_data.get(PF_NAME, '')} ({emp_data.get(PF_NICKNAME, '')}), {emp_data.get(PF_ROLE, '')}.\n"
                 f"You just completed a task: {node_desc[:500]}\n"
                 f"Task result summary: {node_result[:1000]}\n\n"
                 f"Your current SOUL.md (your personal knowledge file):\n"
@@ -2306,7 +2312,7 @@ class EmployeeManager:
                 traceback.print_exc()
                 await event_bus.publish(
                     CompanyEvent(
-                        type="agent_done",
+                        type=EventType.AGENT_DONE,
                         payload={"role": task_name, "summary": f"Error: {e!s}"},
                         agent=task_name,
                     )
@@ -2318,7 +2324,7 @@ class EmployeeManager:
 
             # Broadcast updated state
             await event_bus.publish(
-                CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+                CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
             )
 
         async def _wrapper() -> None:
@@ -2344,7 +2350,7 @@ class EmployeeManager:
         emp_data = _store.load_employee(employee_id)
         if not emp_data:
             logger.warning("_get_role: employee {} not found in store, defaulting to 'Employee'", employee_id)
-        return (emp_data or {}).get("role", "Employee")
+        return (emp_data or {}).get(PF_ROLE, "Employee")
 
     def _set_employee_status(self, employee_id: str, status: str) -> None:
         try:
@@ -2370,7 +2376,7 @@ class EmployeeManager:
             loop = asyncio.get_running_loop()
             loop.create_task(event_bus.publish(
                 CompanyEvent(
-                    type="agent_log",
+                    type=EventType.AGENT_LOG,
                     payload={
                         "employee_id": employee_id,
                         "task_id": task_id,
@@ -2388,7 +2394,7 @@ class EmployeeManager:
             loop = asyncio.get_running_loop()
             loop.create_task(event_bus.publish(
                 CompanyEvent(
-                    type="agent_task_update",
+                    type=EventType.AGENT_TASK_UPDATE,
                     payload={
                         "employee_id": employee_id,
                         "task": node.to_dict(),

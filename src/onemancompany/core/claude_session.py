@@ -28,7 +28,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8
 
 # Single-file constants
 SESSIONS_FILENAME = "sessions.json"
@@ -319,8 +319,8 @@ class ClaudeDaemon:
                         message = msg_data.get("message", {})
                         content = message.get("content", [])
                         for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text_parts.append(block.get("text", ""))
+                            if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
+                                text_parts.append(block.get(BLOCK_KEY_TEXT, ""))
                         # Extract usage
                         usage = message.get("usage", {})
                         if usage.get("input_tokens"):

@@ -22,7 +22,7 @@ from loguru import logger
 
 from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR
 from onemancompany.core.events import event_bus, CompanyEvent
-from onemancompany.core.models import ConversationType, ConversationPhase
+from onemancompany.core.models import ConversationType, ConversationPhase, EventType
 
 CONVERSATION_META_FILENAME = "meta.yaml"
 CONVERSATION_MESSAGES_FILENAME = "messages.yaml"
@@ -162,7 +162,7 @@ class ConversationService:
         )
         save_conversation_meta(conv)
         await event_bus.publish(CompanyEvent(
-            type="conversation_phase",
+            type=EventType.CONVERSATION_PHASE,
             payload={"conv_id": conv.id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
         conv_dir = _resolve_conv_dir(conv)
@@ -225,7 +225,7 @@ class ConversationService:
         conv.closed_at = datetime.now(timezone.utc).isoformat()
         save_conversation_meta(conv)
         await event_bus.publish(CompanyEvent(
-            type="conversation_phase",
+            type=EventType.CONVERSATION_PHASE,
             payload={"conv_id": conv_id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
 
@@ -251,7 +251,7 @@ class ConversationService:
         )
         await append_message(conv_dir, msg)
         await event_bus.publish(CompanyEvent(
-            type="conversation_message",
+            type=EventType.CONVERSATION_MESSAGE,
             payload={
                 "conv_id": conv_id,
                 "sender": msg.sender,

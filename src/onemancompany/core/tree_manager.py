@@ -12,8 +12,9 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import TASK_TREE_FILENAME
+from onemancompany.core.config import SYSTEM_AGENT, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.models import EventType
 from onemancompany.core.task_tree import TaskTree
 
 
@@ -134,7 +135,7 @@ class TaskTreeManager:
 
         await event_bus.publish(
             CompanyEvent(
-                type="tree_update",
+                type=EventType.TREE_UPDATE,
                 payload={
                     "project_id": self.project_id,
                     "event_type": event.type,
@@ -142,6 +143,6 @@ class TaskTreeManager:
                     "data": event.data,
                     "timestamp": event.timestamp,
                 },
-                agent="SYSTEM",
+                agent=SYSTEM_AGENT,
             )
         )

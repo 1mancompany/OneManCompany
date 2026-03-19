@@ -14,11 +14,13 @@ from onemancompany.core.config import (
     EMPLOYEES_DIR,
     FOUNDING_LEVEL,
     MANIFEST_YAML_FILENAME,
+    SYSTEM_AGENT,
     TOOL_YAML_FILENAME,
     TOOLS_DIR,
     move_employee_to_ex,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import EventType
 from onemancompany.core.layout import compute_layout
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
@@ -105,7 +107,7 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
         })
 
         await event_bus.publish(CompanyEvent(
-            type="employee_fired",
+            type=EventType.EMPLOYEE_FIRED,
             payload={
                 "id": employee_id,
                 "name": name,
@@ -117,7 +119,7 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
         ))
 
         await event_bus.publish(
-            CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+            CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
         )
     except Exception as e:
         logger.warning("Post-fire event publishing failed for {}: {}", employee_id, e)

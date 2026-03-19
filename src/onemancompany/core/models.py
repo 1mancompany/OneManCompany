@@ -78,27 +78,78 @@ class HostingMode(str, Enum):
     REMOTE = "remote"
 
 
-class ConversationType(str, Enum):
-    CEO_INBOX = "ceo_inbox"
-    ONE_ON_ONE = "oneonone"
-
-
-class ConversationPhase(str, Enum):
-    ACTIVE = "active"
-    CLOSING = "closing"
-    CLOSED = "closed"
-
-
-class ToolCategory(str, Enum):
-    BASE = "base"
-    GATED = "gated"
-    ROLE = "role"
-    ASSET = "asset"
-
-
 class AuthMethod(str, Enum):
     API_KEY = "api_key"
     OAUTH = "oauth"
+
+
+class EventType(str, Enum):
+    """CompanyEvent type identifiers — single source of truth."""
+    STATE_SNAPSHOT = "state_snapshot"
+    FRONTEND_UPDATE_AVAILABLE = "frontend_update_available"
+    CODE_UPDATE_AVAILABLE = "code_update_available"
+    BACKEND_RESTART_SCHEDULED = "backend_restart_scheduled"
+    CEO_TASK_SUBMITTED = "ceo_task_submitted"
+    CEO_INBOX_UPDATED = "ceo_inbox_updated"
+    CEO_QA = "ceo_qa"
+    CEO_REPORT = "ceo_report"
+    AGENT_DONE = "agent_done"
+    AGENT_LOG = "agent_log"
+    AGENT_TASK_UPDATE = "agent_task_update"
+    TREE_UPDATE = "tree_update"
+    MEETING_BOOKED = "meeting_booked"
+    MEETING_CHAT = "meeting_chat"
+    MEETING_RELEASED = "meeting_released"
+    INQUIRY_STARTED = "inquiry_started"
+    INQUIRY_ENDED = "inquiry_ended"
+    GUIDANCE_START = "guidance_start"
+    GUIDANCE_END = "guidance_end"
+    EMPLOYEE_HIRED = "employee_hired"
+    EMPLOYEE_FIRED = "employee_fired"
+    EMPLOYEE_REHIRED = "employee_rehired"
+    HIRING_REQUEST_READY = "hiring_request_ready"
+    HIRING_REQUEST_DECIDED = "hiring_request_decided"
+    CANDIDATES_READY = "candidates_ready"
+    ONBOARDING_PROGRESS = "onboarding_progress"
+    WORKFLOW_UPDATED = "workflow_updated"
+    OKR_UPDATED = "okr_updated"
+    COMPANY_CULTURE_UPDATED = "company_culture_updated"
+    COMPANY_DIRECTION_UPDATED = "company_direction_updated"
+    FILE_EDIT_APPLIED = "file_edit_applied"
+    FILE_EDIT_REJECTED = "file_edit_rejected"
+    REVIEW_REMINDER = "review_reminder"
+    OPEN_POPUP = "open_popup"
+    REQUEST_CREDENTIALS = "request_credentials"
+    CREDENTIALS_SUBMITTED = "credentials_submitted"
+    CONVERSATION_PHASE = "conversation_phase"
+    CONVERSATION_MESSAGE = "conversation_message"
+    REMOTE_WORKER_REGISTERED = "remote_worker_registered"
+    REMOTE_TASK_COMPLETED = "remote_task_completed"
+    SALES_TASK_SUBMITTED = "sales_task_submitted"
+    TALENT_PROFILE_ERROR = "talent_profile_error"
+    ACTIVITY = "activity"
+    # Additional types from legacy Literal definition
+    EMPLOYEE_REVIEWED = "employee_reviewed"
+    TOOL_ADDED = "tool_added"
+    AGENT_THINKING = "agent_thinking"
+    GUIDANCE_NOTED = "guidance_noted"
+    MEETING_DENIED = "meeting_denied"
+    MEETING_REPORT_READY = "meeting_report_ready"
+    ROUTINE_PHASE = "routine_phase"
+    FILE_EDIT_PROPOSED = "file_edit_proposed"
+    RESOLUTION_READY = "resolution_ready"
+    RESOLUTION_DECIDED = "resolution_decided"
+    ONBOARDING_STARTED = "onboarding_started"
+    ONBOARDING_COMPLETED = "onboarding_completed"
+    PROBATION_REVIEW = "probation_review"
+    PIP_STARTED = "pip_started"
+    PIP_RESOLVED = "pip_resolved"
+    EXIT_INTERVIEW_STARTED = "exit_interview_started"
+    EXIT_INTERVIEW_COMPLETED = "exit_interview_completed"
+    INTERVIEW_ROUND_COMPLETED = "interview_round_completed"
+    MEETING_REPORT_COMPLETE = "meeting_report_complete"
+    RECURRING_ACTION_ITEMS = "recurring_action_items"
+    DISPATCH_STATUS_CHANGE = "dispatch_status_change"
 
 
 # ---------------------------------------------------------------------------

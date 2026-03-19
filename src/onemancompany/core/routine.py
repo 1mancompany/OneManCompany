@@ -33,13 +33,23 @@ from onemancompany.core.config import (
     MAX_SUMMARY_LEN,
     MAX_WORKFLOW_CONTEXT_LEN,
     MEETING_REPORTS_DIR,
+    PF_CURRENT_QUARTER_TASKS,
+    PF_DEPARTMENT,
+    PF_LEVEL,
+    PF_NAME,
+    PF_NICKNAME,
+    PF_PERFORMANCE_HISTORY,
+    PF_ROLE,
+    PF_WORK_PRINCIPLES,
     STATUS_IDLE,
     STATUS_IN_MEETING,
+    SYSTEM_AGENT,
     TASK_TREE_FILENAME,
     TASKS_PER_QUARTER,
     load_workflows,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import EventType
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee, load_all_employees
@@ -159,7 +169,7 @@ class StepContext:
             emp_id = entry.get("employee_id", "?")
             # Resolve name from store
             emp_data = load_employee(emp_id)
-            name = f"{emp_data.get('name', emp_id)}({emp_data.get('nickname', '')})" if emp_data else emp_id
+            name = f"{emp_data.get(PF_NAME, emp_id)}({emp_data.get(PF_NICKNAME, '')})" if emp_data else emp_id
             action = entry.get("action", "")
             detail = entry.get("detail", "")[:200]
             lines.append(f"- [{name}] {action}: {detail}")
@@ -244,7 +254,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -256,11 +266,11 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
         culture_ctx = ctx.format_company_culture()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
-        emp_role = emp_data.get("role", "")
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
+        emp_role = emp_data.get(PF_ROLE, "")
 
         prompt = (
             f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
@@ -311,16 +321,16 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         edata = load_employee(eid)
         if edata:
             participant_data.append((eid, edata))
-    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+    participant_data.sort(key=lambda x: x[1].get(PF_LEVEL, 1), reverse=True)
 
     for senior_id, senior_data in participant_data:
-        senior_level = senior_data.get("level", 1)
-        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
+        senior_level = senior_data.get(PF_LEVEL, 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get(PF_LEVEL, 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
+            f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
                 (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == jid),
                 "No self-evaluation",
@@ -338,7 +348,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         culture_ctx = ctx.format_company_culture()
 
         prompt = (
-            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
+            f"You are {senior_data.get(PF_NAME, '')} (nickname: {senior_data.get(PF_NICKNAME, '')}, Lv.{senior_level}, {senior_data.get(PF_ROLE, '')}).\n"
             f"{culture_ctx}"
             f"Task summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
@@ -359,15 +369,15 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         ctx.senior_reviews.append({
-            "reviewer": senior_data.get("name", ""),
+            "reviewer": senior_data.get(PF_NAME, ""),
             "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior_data.get("nickname", "") or senior_data.get("name", "")
+        display = senior_data.get(PF_NICKNAME, "") or senior_data.get(PF_NAME, "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(ctx.room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
+        await _chat(ctx.room_id, display, senior_data.get(PF_ROLE, ""), f"[Peer Review] {review_summary}")
 
     await _publish("routine_phase", {"phase": step.title, "message": "Peer review completed"})
     return {"senior_reviews": ctx.senior_reviews}
@@ -468,7 +478,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
             cost_lines.append(f"Token usage: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
             for entry in breakdown:
                 emp_data = load_employee(entry.get("employee_id", ""))
-                name = emp_data.get("name", entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
+                name = emp_data.get(PF_NAME, entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
                 cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
             cost_ctx = "\n\nProject cost data:\n" + "\n".join(cost_lines) + "\n"
 
@@ -562,7 +572,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -579,11 +589,11 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
         culture_ctx = ctx.format_company_culture()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_role = emp_data.get("role", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_role = emp_data.get(PF_ROLE, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         prompt = (
             f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
@@ -981,15 +991,15 @@ def _auto_trigger_hr_review(employee_id: str) -> None:
         if not emp_data:
             return
         from onemancompany.core.state import LEVEL_NAMES, make_title
-        perf = emp_data.get("performance_history", [])
+        perf = emp_data.get(PF_PERFORMANCE_HISTORY, [])
         hist_str = ", ".join(
             f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
         ) or "no history"
-        level = emp_data.get("level", 1)
+        level = emp_data.get(PF_LEVEL, 1)
         info = (
-            f"- {emp_data.get('name', '')} (nickname: {emp_data.get('nickname', '')}, ID: {employee_id}, "
-            f"Title: {make_title(level, emp_data.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
-            f"Q tasks: {emp_data.get('current_quarter_tasks', 0)}/3, "
+            f"- {emp_data.get(PF_NAME, '')} (nickname: {emp_data.get(PF_NICKNAME, '')}, ID: {employee_id}, "
+            f"Title: {make_title(level, emp_data.get(PF_ROLE, ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
+            f"Q tasks: {emp_data.get(PF_CURRENT_QUARTER_TASKS, 0)}/3, "
             f"Performance history: [{hist_str}])"
         )
         review_task = (
@@ -1045,9 +1055,9 @@ async def run_post_task_routine(
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
         emp_data = load_employee(pid)
-        if emp_data and emp_data.get("level", 1) < FOUNDING_LEVEL:  # only track for normal employees
-            new_count = emp_data.get("current_quarter_tasks", 0) + 1
-            perf_history = emp_data.get("performance_history", [])
+        if emp_data and emp_data.get(PF_LEVEL, 1) < FOUNDING_LEVEL:  # only track for normal employees
+            new_count = emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) + 1
+            perf_history = emp_data.get(PF_PERFORMANCE_HISTORY, [])
             await _store.save_employee(pid, {
                 "current_quarter_tasks": new_count,
                 "performance_history": perf_history,
@@ -1554,7 +1564,7 @@ async def _run_review_phase1(
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -1562,11 +1572,11 @@ async def _run_review_phase1(
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
-        emp_role = emp_data.get("role", "")
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
+        emp_role = emp_data.get(PF_ROLE, "")
 
         prompt = (
             f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
@@ -1601,16 +1611,16 @@ async def _run_review_phase1(
         edata = load_employee(eid)
         if edata:
             participant_data.append((eid, edata))
-    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+    participant_data.sort(key=lambda x: x[1].get(PF_LEVEL, 1), reverse=True)
 
     for senior_id, senior_data in participant_data:
-        senior_level = senior_data.get("level", 1)
-        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
+        senior_level = senior_data.get(PF_LEVEL, 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get(PF_LEVEL, 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
+            f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
                 (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == jid),
                 "No self-evaluation",
@@ -1619,7 +1629,7 @@ async def _run_review_phase1(
         )
 
         prompt = (
-            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
+            f"You are {senior_data.get(PF_NAME, '')} (nickname: {senior_data.get(PF_NICKNAME, '')}, Lv.{senior_level}, {senior_data.get(PF_ROLE, '')}).\n"
             f"Task summary: {task_summary}\n\n"
             f"Below are the self-evaluations from junior colleagues:\n{junior_info}\n\n"
             f"Please provide a brief review for each junior colleague (1-2 sentences each), focusing on:\n"
@@ -1632,15 +1642,15 @@ async def _run_review_phase1(
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         result["senior_reviews"].append({
-            "reviewer": senior_data.get("name", ""),
+            "reviewer": senior_data.get(PF_NAME, ""),
             "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior_data.get("nickname", "") or senior_data.get("name", "")
+        display = senior_data.get(PF_NICKNAME, "") or senior_data.get(PF_NAME, "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
+        await _chat(room_id, display, senior_data.get(PF_ROLE, ""), f"[Peer Review] {review_summary}")
 
     await _publish("routine_phase", {"phase": "Phase 1", "message": "Peer review complete, HR summarizing improvement points"})
 
@@ -1726,7 +1736,7 @@ async def _run_review_phase2(
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -1734,11 +1744,11 @@ async def _run_review_phase2(
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_role = emp_data.get("role", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_role = emp_data.get(PF_ROLE, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         prompt = (
             f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
@@ -2020,7 +2030,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         llm = make_llm(HR_ID)
 
         for emp_id, emp_data in all_emps.items():
-            work_principles = emp_data.get("work_principles", "")
+            work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
             principles_ctx = ""
             if work_principles:
                 principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -2028,12 +2038,12 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             skills_ctx = get_employee_skills_prompt(emp_id)
             tools_ctx = get_employee_tools_prompt(emp_id)
 
-            emp_name = emp_data.get("name", "")
-            emp_nickname = emp_data.get("nickname", "")
+            emp_name = emp_data.get(PF_NAME, "")
+            emp_nickname = emp_data.get(PF_NICKNAME, "")
 
             prompt = (
-                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
-                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get(PF_DEPARTMENT, '')}, "
+                f"Lv.{emp_data.get(PF_LEVEL, 1)}, {emp_data.get(PF_ROLE, '')}).\n"
                 f"{principles_ctx}"
                 f"{skills_ctx}"
                 f"{tools_ctx}"
@@ -2046,7 +2056,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             summary_text = resp.content
 
             display = emp_nickname or emp_name
-            await _chat(room.id, display, emp_data.get("role", ""), summary_text)
+            await _chat(room.id, display, emp_data.get(PF_ROLE, ""), summary_text)
 
             await _publish("guidance_noted", {
                 "employee_id": emp_id,
@@ -2153,7 +2163,7 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
         "room_id": room.id,
         "room_name": room.name,
         "participants": [
-            {"id": eid, "name": edata.get("name", ""), "nickname": edata.get("nickname", "")}
+            {"id": eid, "name": edata.get(PF_NAME, ""), "nickname": edata.get(PF_NICKNAME, "")}
             for eid, edata in all_emps.items()
         ],
     }
@@ -2193,14 +2203,14 @@ async def ceo_meeting_chat(message: str) -> dict:
             if not emp_data:
                 continue
 
-            emp_name = emp_data.get("name", "")
-            emp_nickname = emp_data.get("nickname", "")
-            work_principles = emp_data.get("work_principles", "")
+            emp_name = emp_data.get(PF_NAME, "")
+            emp_nickname = emp_data.get(PF_NICKNAME, "")
+            work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n" if work_principles else ""
 
             prompt = (
-                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
-                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get(PF_DEPARTMENT, '')}, "
+                f"Lv.{emp_data.get(PF_LEVEL, 1)}, {emp_data.get(PF_ROLE, '')}).\n"
                 f"{principles_ctx}"
                 f"The CEO just delivered the following at the all-hands meeting:\n\n"
                 f'"{message}"\n\n'
@@ -2210,7 +2220,7 @@ async def ceo_meeting_chat(message: str) -> dict:
             summary_text = resp.content
 
             display = emp_nickname or emp_name
-            await _chat(room_id, display, emp_data.get("role", ""), summary_text)
+            await _chat(room_id, display, emp_data.get(PF_ROLE, ""), summary_text)
             meeting["chat_history"].append({"speaker": display, "message": summary_text})
 
             responses.append({
@@ -2312,14 +2322,14 @@ async def ceo_meeting_chat(message: str) -> dict:
             resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
             last_speaker_id = winner_id
 
-            display = winner_data.get("nickname", "") or winner_data.get("name", "")
-            await _chat(room_id, display, winner_data.get("role", ""), resp.content)
+            display = winner_data.get(PF_NICKNAME, "") or winner_data.get(PF_NAME, "")
+            await _chat(room_id, display, winner_data.get(PF_ROLE, ""), resp.content)
             meeting["chat_history"].append({"speaker": display, "message": resp.content})
 
             responses.append({
                 "employee_id": winner_id,
-                "name": winner_data.get("name", ""),
-                "nickname": winner_data.get("nickname", ""),
+                "name": winner_data.get(PF_NAME, ""),
+                "nickname": winner_data.get(PF_NICKNAME, ""),
                 "message": resp.content,
             })
 
@@ -2366,13 +2376,13 @@ async def end_ceo_meeting() -> dict:
             logger.warning("Failed to save guidance for {}: {}", emp_id, e)
 
         # Reflect on work principles update
-        work_principles = emp_data.get("work_principles", "") or "(No work principles yet)"
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "") or "(No work principles yet)"
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
 
         try:
             reflection_prompt = (
-                f"You are {emp_name} ({emp_nickname}, {emp_data.get('role', '')}).\n\n"
+                f"You are {emp_name} ({emp_nickname}, {emp_data.get(PF_ROLE, '')}).\n\n"
                 f"You just attended a {meeting_label} meeting. Here is the transcript:\n\n"
                 f"{full_transcript[:2000]}\n\n"
                 f"Your current work principles:\n{work_principles}\n\n"
@@ -2521,7 +2531,7 @@ async def _create_project_from_action_points(
     })
     # Broadcast so frontend sees project immediately
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     logger.info("Created project {} from meeting action points", pid)
@@ -2542,8 +2552,8 @@ async def run_onboarding_routine(employee_id: str) -> None:
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
     await _publish("onboarding_started", {"id": employee_id, "name": emp_name})
     await _publish("routine_phase", {
@@ -2558,12 +2568,12 @@ async def run_onboarding_routine(employee_id: str) -> None:
     })
 
     # Generate work principles if empty — persist via store
-    if not emp_data.get("work_principles", ""):
+    if not emp_data.get(PF_WORK_PRINCIPLES, ""):
         from onemancompany.core.state import make_title
         principles = (
             f"# {emp_name} ({emp_nickname}) Work Principles\n\n"
-            f"**Department**: {emp_data.get('department', '')}\n"
-            f"**Title**: {make_title(emp_data.get('level', 1), emp_data.get('role', ''))}\n\n"
+            f"**Department**: {emp_data.get(PF_DEPARTMENT, '')}\n"
+            f"**Title**: {make_title(emp_data.get(PF_LEVEL, 1), emp_data.get(PF_ROLE, ''))}\n\n"
             f"## Core Principles\n"
             f"1. Complete assigned work diligently\n"
             f"2. Collaborate with the team\n"
@@ -2588,8 +2598,8 @@ async def run_offboarding_routine(employee_id: str, reason: str) -> None:
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
     await _publish("exit_interview_started", {
         "id": employee_id, "name": emp_name, "reason": reason,
@@ -2627,8 +2637,8 @@ async def run_performance_meeting(employee_id: str, score: float, feedback: str)
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
     await _publish("routine_phase", {
         "phase": "performance_meeting",

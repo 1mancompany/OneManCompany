@@ -27,6 +27,7 @@ from loguru import logger
 
 from onemancompany.core.config import SYSTEM_SENDER
 from onemancompany.core.interval import parse_interval
+from onemancompany.core.models import EventType
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -209,7 +210,7 @@ async def heartbeat_check() -> list | None:
 
     changed = await run_heartbeat_cycle()
     if changed:
-        return [CompanyEvent(type="state_snapshot", payload={}, agent="HEARTBEAT")]
+        return [CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="HEARTBEAT")]
     return None
 
 
@@ -221,7 +222,7 @@ async def review_reminder_check() -> list | None:
     overdue = scan_overdue_reviews(threshold_seconds=REVIEW_REMINDER_THRESHOLD_SECONDS)
     if overdue:
         return [CompanyEvent(
-            type="review_reminder",
+            type=EventType.REVIEW_REMINDER,
             payload={"overdue_nodes": overdue},
             agent="REVIEW_REMINDER",
         )]
@@ -383,7 +384,7 @@ async def project_progress_watchdog() -> list | None:
         from onemancompany.core.events import CompanyEvent
 
         return [CompanyEvent(
-            type="state_snapshot",
+            type=EventType.STATE_SNAPSHOT,
             payload={"watchdog_nudged": nudged_projects},
             agent="PROJECT_WATCHDOG",
         )]

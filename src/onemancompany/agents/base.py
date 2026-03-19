@@ -13,8 +13,20 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
+    BLOCK_KEY_TEXT,
+    BLOCK_KEY_TYPE,
+    BLOCK_TYPE_TEXT,
+    CHAT_CLASS_ANTHROPIC,
+    CHAT_CLASS_OPENAI,
     ENCODING_UTF8,
     MAX_SUMMARY_LEN,
+    PF_DEPARTMENT,
+    PF_LEVEL,
+    PF_NAME,
+    PF_NICKNAME,
+    PF_ROLE,
+    PF_RUNTIME,
+    PF_STATUS,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
     SOUL_FILENAME,
@@ -26,6 +38,7 @@ from onemancompany.core.config import (
     load_employee_skills,
     settings,
 )
+from onemancompany.core.models import AuthMethod
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
@@ -34,6 +47,11 @@ EFFICIENCY_PROMPT_FILENAME = "efficiency.md"
 WORK_APPROACH_PROMPT_FILENAME = "work_approach.md"
 TOOL_USAGE_PROMPT_FILENAME = "tool_usage.md"
 ROLE_PROMPT_FILENAME = "role.md"
+_LG_MESSAGES_KEY = "messages"  # LangGraph result dict key
+_TC_NAME_KEY = "name"  # tool_call dict key
+_TC_ATTR = "tool_calls"  # AIMessage attribute name
+_UNKNOWN_TOOL = "unknown"
+_NO_OUTPUT = "(no output)"
 
 
 def _extract_text(content) -> str:
@@ -48,8 +66,8 @@ def _extract_text(content) -> str:
     if isinstance(content, list):
         parts = []
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
+            if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
+                parts.append(block.get(BLOCK_KEY_TEXT, ""))
             elif isinstance(block, str):
                 parts.append(block)
         return "\n".join(parts)
@@ -67,7 +85,7 @@ def extract_final_content(result: dict) -> str:
     """
     from langchain_core.messages import AIMessage, ToolMessage
 
-    messages = result.get("messages", [])
+    messages = result.get(_LG_MESSAGES_KEY, [])
     if not messages:
         return ""
 
@@ -87,8 +105,8 @@ def extract_final_content(result: dict) -> str:
             tool_results.append(_extract_text(msg.content))
         elif isinstance(msg, AIMessage):
             # This AIMessage had tool_calls but no text — grab the tool names
-            for tc in getattr(msg, "tool_calls", []) or []:
-                tool_names.append(tc.get("name", "unknown"))
+            for tc in getattr(msg, _TC_ATTR, []) or []:
+                tool_names.append(tc.get(_TC_NAME_KEY, _UNKNOWN_TOOL))
             break
 
     if tool_names:
@@ -99,7 +117,7 @@ def extract_final_content(result: dict) -> str:
         return "\n".join(parts)
 
     # 3. Last resort
-    return _extract_text(messages[-1].content) or "(no output)"
+    return _extract_text(messages[-1].content) or _NO_OUTPUT
 
 
 def _resolve_provider_key(provider_name: str, employee_api_key: str) -> str:
@@ -141,7 +159,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     prov = get_provider(api_provider)
 
     # --- Anthropic (non-OpenAI-compatible) ---
-    if prov and prov.chat_class == "anthropic":
+    if prov and prov.chat_class == CHAT_CLASS_ANTHROPIC:
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             from langchain_anthropic import ChatAnthropic
@@ -153,7 +171,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 auth_method = settings.anthropic_auth_method
 
             extra_headers = {}
-            if auth_method == "oauth" or effective_key.startswith("sk-ant-oat"):
+            if auth_method == AuthMethod.OAUTH or effective_key.startswith("sk-ant-oat"):
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
             return ChatAnthropic(
                 model=model,
@@ -164,7 +182,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             )
 
     # --- OpenAI-compatible providers (openrouter, openai, kimi, deepseek, etc.) ---
-    if prov and prov.chat_class == "openai":
+    if prov and prov.chat_class == CHAT_CLASS_OPENAI:
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             base_url = prov.base_url
@@ -547,7 +565,7 @@ class BaseAgentRunner:
         total_input = 0
         total_output = 0
         model = ""
-        for msg in result.get("messages", []):
+        for msg in result.get(_LG_MESSAGES_KEY, []):
             if not isinstance(msg, AIMessage):
                 continue
             meta = getattr(msg, "response_metadata", {}) or {}
@@ -666,13 +684,13 @@ class BaseAgentRunner:
         for eid, edata in all_emps.items():
             if eid == self.employee_id:
                 continue
-            runtime = edata.get("runtime", {})
+            runtime = edata.get(PF_RUNTIME, {})
             status = runtime.get("status", STATUS_IDLE)
             task_summary = runtime.get("current_task_summary", "")
             status_tag = f"[{status}]" if status != STATUS_IDLE else ""
             task_hint = f" — {task_summary}" if task_summary else ""
             team_lines.append(
-                f"  - {edata.get('name', '')}({edata.get('nickname', '')}) ID:{eid} {edata.get('role', '')} Lv.{edata.get('level', 1)}{status_tag}{task_hint}"
+                f"  - {edata.get(PF_NAME, '')}({edata.get(PF_NICKNAME, '')}) ID:{eid} {edata.get(PF_ROLE, '')} Lv.{edata.get(PF_LEVEL, 1)}{status_tag}{task_hint}"
             )
         if team_lines:
             parts.append("- Team:\n" + "\n".join(team_lines))
@@ -818,7 +836,7 @@ class EmployeeAgent(BaseAgentRunner):
         self.employee_id = employee_id
         from onemancompany.core.store import load_employee as _load_emp
         emp_data = _load_emp(employee_id) or {}
-        self.role = emp_data.get("role", "Employee")
+        self.role = emp_data.get(PF_ROLE, "Employee")
 
         proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
         self._authorized_tool_names: list[str] = [t.name for t in proxied_tools]
@@ -836,11 +854,11 @@ class EmployeeAgent(BaseAgentRunner):
 
         pb = self._build_prompt_builder()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_role = emp_data.get("role", "Employee")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_role = emp_data.get(PF_ROLE, "Employee")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         # 1. Role header: try employee's custom role.md, else default
         role_prompt = self._load_prompt_file(ROLE_PROMPT_FILENAME)

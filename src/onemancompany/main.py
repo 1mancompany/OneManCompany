@@ -19,8 +19,8 @@ from starlette.responses import Response
 # ---------------------------------------------------------------------------
 # Single-file constants
 # ---------------------------------------------------------------------------
-from onemancompany.core.config import ENCODING_UTF8, ENV_OMC_DEBUG, LogLevel, DATA_DIR_NAME, DOT_ENV_FILENAME
-from onemancompany.core.models import HostingMode
+from onemancompany.core.config import ENCODING_UTF8, ENV_OMC_DEBUG, LAUNCH_SH_FILENAME, LogLevel, DATA_DIR_NAME, DOT_ENV_FILENAME, PF_LEVEL, PF_REMOTE, SRC_DIR_NAME, SYSTEM_AGENT
+from onemancompany.core.models import EventType, HostingMode
 
 LOG_DIR_NAME = "logs"
 FRONTEND_DIR_NAME = "frontend"
@@ -287,9 +287,9 @@ async def _start_code_watcher() -> None:
                 return
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="frontend_update_available",
+                    type=EventType.FRONTEND_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files)},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
             print(f"[code-watcher] {len(files)} frontend file(s) changed, notifying browser")
@@ -310,9 +310,9 @@ async def _start_code_watcher() -> None:
             # Notify and schedule graceful restart (same as backend changes)
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="code_update_available",
+                    type=EventType.CODE_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files), "reason": "Founding employee manifest changed"},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
             if employee_manager.is_idle():
@@ -323,9 +323,9 @@ async def _start_code_watcher() -> None:
                 print(f"[code-watcher] Founding manifest changed, restart deferred (tasks running)")
                 asyncio.ensure_future(event_bus.publish(
                     CompanyEvent(
-                        type="backend_restart_scheduled",
+                        type=EventType.BACKEND_RESTART_SCHEDULED,
                         payload={"reason": "Founding employee config changed, waiting for tasks to complete", "immediate": False},
-                        agent="SYSTEM",
+                        agent=SYSTEM_AGENT,
                     )
                 ))
 
@@ -339,9 +339,9 @@ async def _start_code_watcher() -> None:
             # Notify CEO of pending changes
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="code_update_available",
+                    type=EventType.CODE_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files)},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
 
@@ -354,9 +354,9 @@ async def _start_code_watcher() -> None:
                 print(f"[code-watcher] {len(files)} backend file(s) changed, restart deferred (tasks running)")
                 asyncio.ensure_future(event_bus.publish(
                     CompanyEvent(
-                        type="backend_restart_scheduled",
+                        type=EventType.BACKEND_RESTART_SCHEDULED,
                         payload={"reason": "Waiting for tasks to complete", "immediate": False},
-                        agent="SYSTEM",
+                        agent=SYSTEM_AGENT,
                     )
                 ))
 
@@ -374,7 +374,7 @@ async def _start_code_watcher() -> None:
     handler = _CodeChangeHandler(loop)
     observer = Observer()
 
-    src_dir = str(SOURCE_ROOT / "src")
+    src_dir = str(SOURCE_ROOT / SRC_DIR_NAME)
     frontend_dir = str(FRONTEND_DIR)
     employees_dir = str(EMPLOYEES_DIR)
     observer.schedule(handler, src_dir, recursive=True)
@@ -514,9 +514,9 @@ async def lifespan(app: FastAPI):
     for emp_id, emp_data in _store_mod.load_all_employees().items():
         if emp_id in FOUNDING_IDS:
             continue
-        if emp_data.get("level", 0) >= FOUNDING_LEVEL:
+        if emp_data.get(PF_LEVEL, 0) >= FOUNDING_LEVEL:
             continue
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue
 
         # Load VesselConfig for per-employee DNA
@@ -531,7 +531,7 @@ async def lifespan(app: FastAPI):
             continue
 
         # Company-hosted with launch.sh → SubprocessExecutor (foreground per-task)
-        _launch_sh = _emp_dir / "launch.sh"
+        _launch_sh = _emp_dir / LAUNCH_SH_FILENAME
         if _launch_sh.exists():
             from onemancompany.core.subprocess_executor import SubprocessExecutor
             from onemancompany.core.vessel import employee_manager as _em_mgr

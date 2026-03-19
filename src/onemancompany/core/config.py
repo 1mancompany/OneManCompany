@@ -59,12 +59,48 @@ TALENT_PERSONA_FILENAME = "talent_persona.md"
 MCP_CONFIG_FILENAME = "mcp_config.json"
 CONVERSATIONS_DIR_NAME = "conversations"
 PROGRESS_LOG_FILENAME = "progress.log"
+SRC_DIR_NAME = "src"
+LAUNCH_SH_FILENAME = "launch.sh"
+
+# ---------------------------------------------------------------------------
+# Profile field keys — canonical YAML field names for employee profiles
+# ---------------------------------------------------------------------------
+PF_NAME = "name"
+PF_NICKNAME = "nickname"
+PF_ROLE = "role"
+PF_DEPARTMENT = "department"
+PF_LEVEL = "level"
+PF_SKILLS = "skills"
+PF_REMOTE = "remote"
+PF_WORK_PRINCIPLES = "work_principles"
+PF_TOOL_PERMISSIONS = "tool_permissions"
+PF_PERMISSIONS = "permissions"
+PF_PERFORMANCE_HISTORY = "performance_history"
+PF_CURRENT_QUARTER_TASKS = "current_quarter_tasks"
+PF_EMPLOYEE_NUMBER = "employee_number"
+PF_DESK_POSITION = "desk_position"
+PF_STATUS = "status"
+PF_RUNTIME = "runtime"
+PF_HOSTING = "hosting"
+PF_API_PROVIDER = "api_provider"
+PF_AUTH_METHOD = "auth_method"
+PF_LLM_MODEL = "llm_model"
+PF_TEMPERATURE = "temperature"
+PF_TALENT_ID = "talent_id"
+PF_SPRITE = "sprite"
+PF_ID = "id"
 
 # ---------------------------------------------------------------------------
 # Common identifiers — canonical strings for sender/role/scope fields
 # ---------------------------------------------------------------------------
 SYSTEM_SENDER = "system"
+SYSTEM_AGENT = "SYSTEM"  # agent field in CompanyEvent for system-originated events
 MEETING_SYSTEM_SENDER = "Meeting System"
+
+# LLM content block field keys (Anthropic/OpenAI response parsing)
+BLOCK_KEY_TYPE = "type"
+BLOCK_KEY_TEXT = "text"
+BLOCK_TYPE_TEXT = "text"  # value of type field for text blocks
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +130,10 @@ ENV_KEY_ANTHROPIC_AUTH = "ANTHROPIC_AUTH_METHOD"
 # Provider name constants
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_ANTHROPIC = "anthropic"
+
+# LangChain chat class identifiers (used in ProviderInfo.chat_class)
+CHAT_CLASS_ANTHROPIC = "anthropic"
+CHAT_CLASS_OPENAI = "openai"
 
 # Template directory name
 COMPANY_TEMPLATE_DIR = "company"

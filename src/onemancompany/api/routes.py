@@ -27,11 +27,12 @@ from onemancompany.core.config import (
     MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
     STATUS_IDLE,
+    SYSTEM_AGENT,
     SYSTEM_SENDER,
     TASK_TREE_FILENAME,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.models import DecisionStatus, HostingMode
+from onemancompany.core.models import AuthMethod, DecisionStatus, EventType, HostingMode
 from onemancompany.core.project_archive import ITER_STATUS_CANCELLED, ITER_STATUS_COMPLETED, ITER_STATUS_FAILED
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
@@ -332,7 +333,7 @@ async def admin_clear_tasks() -> dict:
     for eid in all_emps:
         await _store.save_employee_runtime(eid, status=STATUS_IDLE)
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "cleared", "tasks_removed": cleared}
 
@@ -400,7 +401,7 @@ async def _start_inquiry(task: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_booked",
+            type=EventType.MEETING_BOOKED,
             payload={"room_id": room.id, "room_name": room.name, "participants": participants},
             agent="CEO",
         )
@@ -441,7 +442,7 @@ async def _start_inquiry(task: str) -> dict:
     # Publish CEO question as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": room.id, "speaker": "CEO", "role": "CEO", "message": task},
             agent="CEO",
         )
@@ -459,7 +460,7 @@ async def _start_inquiry(task: str) -> dict:
     speaker_name = emp_name
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": room.id, "speaker": speaker_name, "role": agent_role, "message": answer},
             agent=agent_role,
         )
@@ -484,7 +485,7 @@ async def _start_inquiry(task: str) -> dict:
     # Publish inquiry_started event
     await event_bus.publish(
         CompanyEvent(
-            type="inquiry_started",
+            type=EventType.INQUIRY_STARTED,
             payload={
                 "session_id": session_id,
                 "room_id": room.id,
@@ -497,7 +498,7 @@ async def _start_inquiry(task: str) -> dict:
 
     # Broadcast state so frontend sees the booked room
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {
@@ -564,7 +565,7 @@ async def ceo_qa(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="ceo_qa",
+            type=EventType.CEO_QA,
             payload={"question": question, "answer": answer},
             agent="CEO",
         )
@@ -611,11 +612,11 @@ async def ceo_submit_task(body: dict) -> dict:
     pdir = get_project_dir(pid)
 
     await event_bus.publish(
-        CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
+        CompanyEvent(type=EventType.CEO_TASK_SUBMITTED, payload={"task": task}, agent="CEO")
     )
     # Broadcast so frontend sees the queued task immediately
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     # Use qualified iteration ID to avoid cross-project collisions
@@ -820,7 +821,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     append_action(project_id, "ceo", "follow-up instructions", instructions[:200])
 
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok", "project_id": project_id}
@@ -862,7 +863,7 @@ async def oneonone_chat(body: dict) -> dict:
         await _store.save_employee_runtime(employee_id, is_listening=True)
         await event_bus.publish(
             CompanyEvent(
-                type="guidance_start",
+                type=EventType.GUIDANCE_START,
                 payload={"employee_id": employee_id, "name": emp_data.get("name", "")},
                 agent="CEO",
             )
@@ -1016,7 +1017,7 @@ async def oneonone_end(body: dict) -> dict:
             await _store.save_employee_runtime(employee_id, is_listening=False)
             await event_bus.publish(
                 CompanyEvent(
-                    type="guidance_end",
+                    type=EventType.GUIDANCE_END,
                     payload={"employee_id": employee_id, "name": emp_name,
                              "principles_updated": False, "note_saved": False},
                     agent="CEO",
@@ -1057,7 +1058,7 @@ async def oneonone_end(body: dict) -> dict:
     await _store.save_employee_runtime(employee_id, is_listening=False)
     await event_bus.publish(
         CompanyEvent(
-            type="guidance_end",
+            type=EventType.GUIDANCE_END,
             payload={
                 "employee_id": employee_id,
                 "name": emp_name,
@@ -1140,7 +1141,7 @@ async def release_meeting(body: dict) -> dict:
     })
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_released",
+            type=EventType.MEETING_RELEASED,
             payload={"room_id": room_id, "room_name": room.name},
             agent="COO",
         )
@@ -1174,7 +1175,7 @@ async def inquiry_chat(body: dict) -> dict:
     # Publish CEO message as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": session.room_id, "speaker": "CEO", "role": "CEO", "message": message},
             agent="CEO",
         )
@@ -1197,7 +1198,7 @@ async def inquiry_chat(body: dict) -> dict:
     # Publish agent response as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": session.room_id, "speaker": speaker_name, "role": session.agent_role, "message": answer},
             agent=session.agent_role,
         )
@@ -1238,7 +1239,7 @@ async def inquiry_end(body: dict) -> dict:
         })
         await event_bus.publish(
             CompanyEvent(
-                type="meeting_released",
+                type=EventType.MEETING_RELEASED,
                 payload={"room_id": room.id, "room_name": room.name},
                 agent="CEO",
             )
@@ -1247,7 +1248,7 @@ async def inquiry_end(body: dict) -> dict:
     # Publish inquiry_ended event
     await event_bus.publish(
         CompanyEvent(
-            type="inquiry_ended",
+            type=EventType.INQUIRY_ENDED,
             payload={"session_id": session_id, "room_id": session.room_id, "agent_role": session.agent_role},
             agent="CEO",
         )
@@ -1258,7 +1259,7 @@ async def inquiry_end(body: dict) -> dict:
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ended", "session_id": session_id}
@@ -1435,7 +1436,7 @@ async def update_workflow(name: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="workflow_updated",
+            type=EventType.WORKFLOW_UPDATED,
             payload={"name": name},
             agent="CEO",
         )
@@ -1492,7 +1493,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
-    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == "oauth" else False
+    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
 
     # Include manifest if available
@@ -1565,7 +1566,7 @@ async def update_employee_okrs(employee_id: str, body: dict) -> dict:
     await _store.save_employee(employee_id, {"okrs": okrs})
 
     await event_bus.publish(CompanyEvent(
-        type="okr_updated",
+        type=EventType.OKR_UPDATED,
         payload={"employee_id": employee_id, "okrs": okrs},
         agent="CEO",
     ))
@@ -1663,10 +1664,10 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
             node.result = "Cancelled by CEO"
             from onemancompany.core.events import CompanyEvent as _CE
             await event_bus.publish(_CE(
-                type="tree_update",
+                type=EventType.TREE_UPDATE,
                 payload={"project_id": tree.project_id, "event_type": "node_updated",
                          "node_id": node_id, "data": {"status": TaskPhase.CANCELLED.value}},
-                agent="SYSTEM",
+                agent=SYSTEM_AGENT,
             ))
     # Save modified trees
     for tree_path_str, tree in trees.items():
@@ -1715,7 +1716,7 @@ async def abort_task(project_id: str) -> dict:
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok", "cancelled": cancelled_count, "tree_nodes_cancelled": cancelled_tree_nodes}
@@ -1728,7 +1729,7 @@ async def abort_employee_tasks(employee_id: str) -> dict:
 
     count = employee_manager.abort_employee(employee_id)
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "ok", "cancelled": count, "employee_id": employee_id}
 
@@ -1740,7 +1741,7 @@ async def abort_all_tasks() -> dict:
 
     count = await employee_manager.abort_all()
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "ok", "cancelled": count}
 
@@ -1814,7 +1815,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok"}
@@ -1870,7 +1871,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={
                 "role": "CEO",
                 "summary": f"Updated {emp.get('name', '')} ({emp.get('nickname', '')})'s model to {model_id}, salary=${new_salary}/1M",
@@ -1962,7 +1963,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     hosting_label = "Self-hosted (Claude Code)" if new_hosting == HostingMode.SELF else "Company-hosted (LangChain)"
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={
                 "role": "CEO",
                 "summary": f"Switched {emp['name']} to {hosting_label}. Restart required to take effect.",
@@ -2343,7 +2344,7 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
             agent="CEO",
         )
@@ -2414,7 +2415,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
 
         await event_bus.publish(
             CompanyEvent(
-                type="agent_done",
+                type=EventType.AGENT_DONE,
                 payload={"role": "CEO", "summary": "Company Anthropic OAuth login successful."},
                 agent="CEO",
             )
@@ -2447,7 +2448,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
             agent="CEO",
         )
@@ -2569,7 +2570,7 @@ async def add_culture_item(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_culture_updated",
+            type=EventType.COMPANY_CULTURE_UPDATED,
             payload={"item": item, "total": len(items)},
             agent="CEO",
         )
@@ -2590,7 +2591,7 @@ async def remove_culture_item(index: int) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_culture_updated",
+            type=EventType.COMPANY_CULTURE_UPDATED,
             payload={"removed": removed, "total": len(items)},
             agent="CEO",
         )
@@ -2614,7 +2615,7 @@ async def update_company_direction(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_direction_updated",
+            type=EventType.COMPANY_DIRECTION_UPDATED,
             payload={"direction": direction},
             agent="CEO",
         )
@@ -2663,7 +2664,7 @@ async def approve_file_edit(edit_id: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="file_edit_applied",
+            type=EventType.FILE_EDIT_APPLIED,
             payload={
                 "edit_id": edit_id,
                 "rel_path": result["rel_path"],
@@ -2686,7 +2687,7 @@ async def reject_file_edit(edit_id: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="file_edit_rejected",
+            type=EventType.FILE_EDIT_REJECTED,
             payload={"edit_id": edit_id, "rel_path": result["rel_path"]},
             agent="CEO",
         )
@@ -2947,7 +2948,7 @@ async def continue_iteration(body: dict) -> dict:
     append_action(iteration_id, CEO_ID, "continue", f"CEO requested continuation of current iteration")
 
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {
@@ -3656,7 +3657,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     rehired_data = _store.load_employee(employee_id)
     await event_bus.publish(
         CompanyEvent(
-            type="employee_rehired",
+            type=EventType.EMPLOYEE_REHIRED,
             payload=rehired_data,
             agent="CEO",
         )
@@ -3786,7 +3787,7 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         # CEO rejects — remove from pending and cancel
         pending_hiring_requests.pop(request_id, None)
         await event_bus.publish(CompanyEvent(
-            type="hiring_request_decided",
+            type=EventType.HIRING_REQUEST_DECIDED,
             payload={"hire_id": request_id, "approved": False, "role": req["role"], "note": note},
             agent="CEO",
         ))
@@ -3882,7 +3883,7 @@ async def _publish_talent_profile_error(
 
     logger.warning("[hiring] {}", message)
     await event_bus.publish(CompanyEvent(
-        type="talent_profile_error",
+        type=EventType.TALENT_PROFILE_ERROR,
         payload=payload,
         agent="HR",
     ))
@@ -3896,7 +3897,7 @@ async def _cleanup_single_hire_failure(
 
     _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", error_msg, 1)
     await event_bus.publish(CompanyEvent(
-        type="onboarding_progress",
+        type=EventType.ONBOARDING_PROGRESS,
         payload={"batch_id": batch_id, "candidate_id": candidate_id,
                  "name": candidate.get("name", ""), "step": "failed",
                  "message": error_msg},
@@ -3996,7 +3997,7 @@ async def _do_hire_single(
             _track_onboarding_progress(batch_id, candidate_id, cand_name, cand_role, step, message, 1)
             step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
             await event_bus.publish(CompanyEvent(
-                type="onboarding_progress",
+                type=EventType.ONBOARDING_PROGRESS,
                 payload={"batch_id": batch_id, "candidate_id": candidate_id,
                          "name": cand_name, "step": step,
                          "step_index": step_index,
@@ -4027,7 +4028,7 @@ async def _do_hire_single(
         # Notify COO that the hire is ready (or stash for OAuth completion)
         if coo_ctx.get("project_id"):
             auth_method = talent_data.get("auth_method", "api_key")
-            if auth_method == "oauth":
+            if auth_method == AuthMethod.OAUTH:
                 _pending_oauth_hire[emp.id] = coo_ctx
             else:
                 _notify_coo_hire_ready(emp.id, coo_ctx)
@@ -4051,7 +4052,7 @@ async def _do_hire_single(
             await _em_hr.resume_held_task(HR_ID, held_node_id, f"Hired {candidate['name']} (ID: {emp.id})")
 
         # Broadcast state update
-        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
         logger.info("[hiring] Background hire completed: {} ({})", candidate["name"], emp.id)
 
     except asyncio.CancelledError:
@@ -4108,7 +4109,7 @@ async def hire_from_cv(body: dict) -> dict:
     async def _cv_progress(step, message):
         step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
         await event_bus.publish(CompanyEvent(
-            type="onboarding_progress",
+            type=EventType.ONBOARDING_PROGRESS,
             payload={"batch_id": batch_id, "candidate_id": talent_id or name,
                      "name": name, "step": step, "step_index": step_index,
                      "total_steps": 4, "current": 1, "total": 1, "message": message},
@@ -4131,7 +4132,7 @@ async def hire_from_cv(body: dict) -> dict:
                 remote=False,
                 progress_callback=_cv_progress,
             )
-            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
         except asyncio.CancelledError:
             raise
@@ -4166,11 +4167,11 @@ async def dismiss_shortlist(body: dict) -> dict:
         await _em.resume_held_task(HR_ID, held_node_id, dismiss_reason)
 
     await event_bus.publish(CompanyEvent(
-        type="activity",
+        type=EventType.ACTIVITY,
         payload={"text": "CEO dismissed the shortlist — this recruitment round is cancelled.", "cls": "ceo"},
         agent="CEO",
     ))
-    await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+    await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
 
     return {"status": "ok", "message": "Shortlist dismissed"}
 
@@ -4318,7 +4319,7 @@ async def _do_batch_hire(
             if not candidate:
                 _track_onboarding_progress(batch_id, candidate_id, candidate_id, "", "failed", "Candidate not found", total)
                 await event_bus.publish(CompanyEvent(
-                    type="onboarding_progress",
+                    type=EventType.ONBOARDING_PROGRESS,
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
                              "name": candidate_id, "step": "failed",
                              "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
@@ -4374,7 +4375,7 @@ async def _do_batch_hire(
                     step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
                     _track_onboarding_progress(batch_id, cid, name, role, step, message, total)
                     await event_bus.publish(CompanyEvent(
-                        type="onboarding_progress",
+                        type=EventType.ONBOARDING_PROGRESS,
                         payload={"batch_id": batch_id, "candidate_id": cid,
                                  "name": name, "step": step,
                                  "step_index": step_index,
@@ -4411,7 +4412,7 @@ async def _do_batch_hire(
 
                 if coo_ctx.get("project_id"):
                     auth_method = talent_data.get("auth_method", "api_key")
-                    if auth_method == "oauth":
+                    if auth_method == AuthMethod.OAUTH:
                         _pending_oauth_hire[emp.id] = coo_ctx
                     else:
                         _notify_coo_hire_ready(emp.id, coo_ctx)
@@ -4424,7 +4425,7 @@ async def _do_batch_hire(
                 logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
-                    type="onboarding_progress",
+                    type=EventType.ONBOARDING_PROGRESS,
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
                              "name": cand_name, "step": "failed",
                              "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
@@ -4481,7 +4482,7 @@ async def _do_batch_hire(
             logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
 
         try:
-            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
         except Exception as pub_exc:
             logger.debug("[hiring] Could not publish state_snapshot in finally: {}", pub_exc)
 
@@ -4553,9 +4554,9 @@ async def remote_register(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="remote_worker_registered",
+            type=EventType.REMOTE_WORKER_REGISTERED,
             payload={"employee_id": reg.employee_id, "capabilities": reg.capabilities},
-            agent="SYSTEM",
+            agent=SYSTEM_AGENT,
         )
     )
     return {"status": "registered", "employee_id": reg.employee_id}
@@ -4608,14 +4609,14 @@ async def remote_submit_results(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="remote_task_completed",
+            type=EventType.REMOTE_TASK_COMPLETED,
             payload={
                 "task_id": result.task_id,
                 "employee_id": result.employee_id,
                 "status": result.status,
                 "output": result.output[:MAX_SUMMARY_LEN],
             },
-            agent="SYSTEM",
+            agent=SYSTEM_AGENT,
         )
     )
     return {"status": "received", "task_id": result.task_id}
@@ -5145,7 +5146,7 @@ async def sales_submit_task(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="sales_task_submitted",
+            type=EventType.SALES_TASK_SUBMITTED,
             payload=sales_task_dict,
             agent="SALES",
         )
@@ -5312,7 +5313,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
     env_path.write_text("\n".join(result_lines) + "\n")
 
     await event_bus.publish(CompanyEvent(
-        type="credentials_submitted",
+        type=EventType.CREDENTIALS_SUBMITTED,
         payload={"service": service_name, "fields": list(body.keys())},
         agent="CEO",
     ))

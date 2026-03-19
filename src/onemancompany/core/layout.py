@@ -27,6 +27,11 @@ from onemancompany.core.config import (
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
+    PF_DEPARTMENT,
+    PF_DESK_POSITION,
+    PF_EMPLOYEE_NUMBER,
+    PF_LEVEL,
+    PF_REMOTE,
     PROFILE_FILENAME,
 )
 
@@ -84,14 +89,14 @@ def compute_layout(company_state) -> dict:
     for emp_id, emp_data in employees.items():
         if emp_id in _SKIP_IDS:
             continue  # executives handled separately
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue  # remote employees don't occupy office desks
-        dept = emp_data.get("department") or "General"
+        dept = emp_data.get(PF_DEPARTMENT) or "General"
         entry = {
             "id": emp_id,
-            "level": emp_data.get("level", 1),
-            "employee_number": emp_data.get("employee_number", emp_id),
-            "desk_position": tuple(emp_data.get("desk_position", [0, 0])),
+            "level": emp_data.get(PF_LEVEL, 1),
+            "employee_number": emp_data.get(PF_EMPLOYEE_NUMBER, emp_id),
+            "desk_position": tuple(emp_data.get(PF_DESK_POSITION, [0, 0])),
         }
         dept_groups.setdefault(dept, []).append(entry)
 
@@ -165,8 +170,8 @@ def _persist_positions(position_updates: dict[str, list[int]]) -> None:
             continue
         with open(profile_path) as f:
             data = yaml.safe_load(f) or {}
-        if data.get("desk_position") != pos:
-            data["desk_position"] = pos
+        if data.get(PF_DESK_POSITION) != pos:
+            data[PF_DESK_POSITION] = pos
             with open(profile_path, "w") as f:
                 yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
@@ -297,12 +302,12 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
     for emp_id, emp_data in employees.items():
         if emp_id in _SKIP_IDS:
             continue
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue  # remote employees don't occupy office desks
-        dept = emp_data.get("department") or "General"
+        dept = emp_data.get(PF_DEPARTMENT) or "General"
         dept_groups.setdefault(dept, []).append({
             "id": emp_id,
-            "desk_position": tuple(emp_data.get("desk_position", [0, 0])),
+            "desk_position": tuple(emp_data.get(PF_DESK_POSITION, [0, 0])),
         })
 
     # Ensure the target department exists in groups (even if empty)

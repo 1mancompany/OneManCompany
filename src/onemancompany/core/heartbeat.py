@@ -18,6 +18,7 @@ from loguru import logger
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
+    PF_LEVEL,
     PROVIDER_REGISTRY,
     employee_configs,
     get_provider,
@@ -218,7 +219,7 @@ async def run_heartbeat_cycle() -> list[str]:
         method = _get_heartbeat_method(emp_id, cfg)
 
         # Founding employees skip heartbeat unless self-hosted (need CLI check)
-        level = emp_data.get("level", 0)
+        level = emp_data.get(PF_LEVEL, 0)
         if level >= FOUNDING_LEVEL and method != _METHOD_CLAUDE_CLI:
             continue
 

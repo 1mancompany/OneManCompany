@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR, SOURCE_ROOT
+from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR, SOURCE_ROOT, SRC_DIR_NAME
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import DecisionStatus
 
@@ -53,7 +53,7 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
 
         # backend_code_maintenance allows access to src/
         if permissions and _PERM_BACKEND_CODE in permissions:
-            src_dir = (SOURCE_ROOT / "src").resolve()
+            src_dir = (SOURCE_ROOT / SRC_DIR_NAME).resolve()
             if str(p).startswith(str(src_dir)):
                 return p
 

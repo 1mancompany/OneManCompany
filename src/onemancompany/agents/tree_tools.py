@@ -11,7 +11,8 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME
+from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, SYSTEM_AGENT, TASK_TREE_FILENAME
+from onemancompany.core.models import EventType
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -80,14 +81,14 @@ def _create_standalone_ceo_request(
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.vessel import employee_manager
     coro = event_bus.publish(CompanyEvent(
-        type="ceo_inbox_updated",
+        type=EventType.CEO_INBOX_UPDATED,
         payload={
             "node_id": node_id,
             "description": description,
             "source_task_id": requester_task_id,
             "source_employee": vessel.employee_id if vessel else "unknown",
         },
-        agent="SYSTEM",
+        agent=SYSTEM_AGENT,
     ))
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
@@ -269,9 +270,9 @@ def dispatch_child(
             from onemancompany.core.events import CompanyEvent, event_bus
             from onemancompany.core.vessel import employee_manager
             coro = event_bus.publish(CompanyEvent(
-                type="ceo_inbox_updated",
+                type=EventType.CEO_INBOX_UPDATED,
                 payload={"node_id": child.id, "description": description},
-                agent="SYSTEM",
+                agent=SYSTEM_AGENT,
             ))
             main_loop = getattr(employee_manager, "_event_loop", None)
             if main_loop and main_loop.is_running():

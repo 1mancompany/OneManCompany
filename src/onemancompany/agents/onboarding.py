@@ -34,13 +34,14 @@ from onemancompany.core.config import (
     TALENT_PERSONA_FILENAME,
     TOOL_YAML_FILENAME,
     TOOLS_DIR,
+    LAUNCH_SH_FILENAME,
     VESSEL_YAML_FILENAME,
     EmployeeConfig,
     ensure_employee_dir,
     settings,
 )
 from onemancompany.core import store as _store
-from onemancompany.core.models import HostingMode
+from onemancompany.core.models import EventType, HostingMode
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.layout import (
     compute_layout,
@@ -55,7 +56,7 @@ from onemancompany.core.state import Employee, company_state, make_title
 SKILL_FILENAME = "SKILL.md"
 CLAUDE_MD_FILENAME = "CLAUDE.md"
 CONNECTION_JSON_FILENAME = "connection.json"
-LAUNCH_SCRIPT = "launch.sh"
+LAUNCH_SCRIPT = LAUNCH_SH_FILENAME
 HEARTBEAT_SCRIPT = "heartbeat.sh"
 
 # Default skills injected for every new employee
@@ -985,7 +986,7 @@ async def execute_hire(
         {"type": "employee_hired", "name": name, "nickname": nickname, "role": role}
     )
     hired_data = _store.load_employee(emp_num)
-    await event_bus.publish(CompanyEvent(type="employee_hired", payload=hired_data, agent="HR"))
+    await event_bus.publish(CompanyEvent(type=EventType.EMPLOYEE_HIRED, payload=hired_data, agent="HR"))
 
     if progress_callback:
         await progress_callback("completed", f"{name} ({nickname}) onboarded as #{emp_num}")
