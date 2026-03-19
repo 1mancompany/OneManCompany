@@ -1,0 +1,12 @@
+id: web_search
+name: Web Search
+description: >
+  Search the web for real-time information using Claude's built-in web search.
+  USE THIS whenever a task requires current information, market research, competitor
+  analysis, technical documentation lookup, news, pricing data, or any knowledge
+  that may be newer than your training data. Call web_search(query) or
+  web_search(query, max_results=10) for more results.
+  Automatically uses the ANTHROPIC_API_KEY from your company .env file.
+added_by: CEO
+type: langchain_module
+sprite: desk_equipment
