@@ -448,6 +448,18 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 
 ---
 
+## Star History
+
+<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+ </picture>
+</a>
+
+---
+
 ## 引用
 
 如果你在研究或项目中使用了本项目，请引用：

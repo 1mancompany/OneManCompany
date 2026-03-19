@@ -435,6 +435,18 @@ See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ---
 
+## Star History
+
+<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+ </picture>
+</a>
+
+---
+
 ## Citation
 
 If you use OneManCompany in your research or project, please cite it:
