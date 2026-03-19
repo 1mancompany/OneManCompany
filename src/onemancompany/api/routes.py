@@ -1492,7 +1492,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_provider"] = api_provider
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
-    result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY
+    result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
     result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
@@ -4018,7 +4018,7 @@ async def _do_hire_single(
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
             api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
-            hosting=talent_data.get("hosting", HostingMode.COMPANY),
+            hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
@@ -4084,7 +4084,7 @@ async def hire_from_cv(body: dict) -> dict:
     if not role:
         return {"error": "CV missing required field: role"}
 
-    hosting = cv.get("hosting", HostingMode.COMPANY)
+    hosting = cv.get("hosting", HostingMode.COMPANY.value)
     is_self = hosting == HostingMode.SELF
     skills = [s if isinstance(s, str) else s.get("name", "") for s in cv.get("skills", [])]
     talent_id = cv.get("talent_id", "")
@@ -4402,7 +4402,7 @@ async def _do_batch_hire(
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
                     api_provider="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("api_provider", "openrouter"),
-                    hosting=talent_data.get("hosting", HostingMode.COMPANY),
+                    hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
                     auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),
                     remote=candidate.get("remote", False),
