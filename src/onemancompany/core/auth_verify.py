@@ -10,6 +10,8 @@ import asyncio
 
 from loguru import logger
 
+from onemancompany.core.config import CHAT_CLASS_ANTHROPIC, CHAT_CLASS_OPENAI
+
 
 def _make_openai_client(api_key: str, base_url: str):
     """Create an async OpenAI client."""
@@ -40,10 +42,10 @@ async def probe_chat(
 
     provider_cfg = get_provider(provider)
     resolved_base_url = base_url or (provider_cfg.base_url if provider_cfg else "")
-    resolved_chat_class = chat_class or (provider_cfg.chat_class if provider_cfg else "openai")
+    resolved_chat_class = chat_class or (provider_cfg.chat_class if provider_cfg else CHAT_CLASS_OPENAI)
 
     try:
-        if resolved_chat_class == "anthropic":
+        if resolved_chat_class == CHAT_CLASS_ANTHROPIC:
             client = _make_anthropic_client(api_key)
             await asyncio.wait_for(
                 client.messages.create(

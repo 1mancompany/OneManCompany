@@ -1,3 +1,7 @@
+---
+description: "How CEO task delegation, quality gates, and the task lifecycle work in OneManCompany."
+---
+
 # Task Management
 
 OneManCompany uses a hierarchical task system with dependency tracking, quality gates, and CEO approval at every level.

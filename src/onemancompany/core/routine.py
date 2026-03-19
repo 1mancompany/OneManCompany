@@ -33,12 +33,23 @@ from onemancompany.core.config import (
     MAX_SUMMARY_LEN,
     MAX_WORKFLOW_CONTEXT_LEN,
     MEETING_REPORTS_DIR,
+    PF_CURRENT_QUARTER_TASKS,
+    PF_DEPARTMENT,
+    PF_LEVEL,
+    PF_NAME,
+    PF_NICKNAME,
+    PF_PERFORMANCE_HISTORY,
+    PF_ROLE,
+    PF_WORK_PRINCIPLES,
     STATUS_IDLE,
     STATUS_IN_MEETING,
+    SYSTEM_AGENT,
+    TASK_TREE_FILENAME,
     TASKS_PER_QUARTER,
     load_workflows,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import EventType
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee, load_all_employees
@@ -52,6 +63,7 @@ from onemancompany.core.workflow_engine import (
 from loguru import logger
 
 REPORTS_DIR = MEETING_REPORTS_DIR
+_AGENT_ROUTINE = "ROUTINE"
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +108,8 @@ pending_reports: dict[str, dict] = {}
 # Event helpers (public — used by other modules)
 # ---------------------------------------------------------------------------
 
-async def _publish(event_type: str, payload: dict) -> None:
-    await event_bus.publish(CompanyEvent(type=event_type, payload=payload, agent="ROUTINE"))
+async def _publish(event_type: EventType, payload: dict) -> None:
+    await event_bus.publish(CompanyEvent(type=event_type, payload=payload, agent=_AGENT_ROUTINE))
 
 
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
@@ -110,7 +122,7 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
         "message": message,
         "time": datetime.now().strftime("%H:%M:%S"),
     }
-    await _publish("meeting_chat", entry)
+    await _publish(EventType.MEETING_CHAT, entry)
     from onemancompany.core.store import append_room_chat
     await append_room_chat(room_id, entry)
 
@@ -158,7 +170,7 @@ class StepContext:
             emp_id = entry.get("employee_id", "?")
             # Resolve name from store
             emp_data = load_employee(emp_id)
-            name = f"{emp_data.get('name', emp_id)}({emp_data.get('nickname', '')})" if emp_data else emp_id
+            name = f"{emp_data.get(PF_NAME, emp_id)}({emp_data.get(PF_NICKNAME, '')})" if emp_data else emp_id
             action = entry.get("action", "")
             detail = entry.get("detail", "")[:200]
             lines.append(f"- [{name}] {action}: {detail}")
@@ -216,7 +228,7 @@ async def _handle_meeting_prep(step: WorkflowStep, ctx: StepContext) -> dict:
     """Handle the meeting preparation step (booking, notification)."""
     # This step is handled before the workflow loop in run_post_task_routine,
     # so if we reach here during dynamic execution, just acknowledge it.
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": step.title,
         "message": "Meeting room is ready, participants have been notified"
     })
@@ -229,7 +241,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
     workflow_ctx = _format_workflow_context(step)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Employee self-evaluation started"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Employee self-evaluation started"})
     await _chat(ctx.room_id, "HR", "HR", f"{step.title} has begun. Please proceed with self-evaluations in turn.")
 
     # Format project timeline for context
@@ -243,7 +255,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -255,11 +267,11 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
 
         culture_ctx = ctx.format_company_culture()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
-        emp_role = emp_data.get("role", "")
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
+        emp_role = emp_data.get(PF_ROLE, "")
 
         prompt = (
             f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
@@ -294,7 +306,7 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         display = emp_nickname or emp_name
         await _chat(ctx.room_id, display, emp_role, eval_text)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Employee self-evaluation completed"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Employee self-evaluation completed"})
     return {"self_evaluations": ctx.self_evaluations}
 
 
@@ -302,7 +314,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
     """Higher-level employees review lower-level employees' work."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Senior employees begin peer review"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Senior employees begin peer review"})
 
     # Load participant data from store and sort by level
     participant_data: list[tuple[str, dict]] = []
@@ -310,16 +322,16 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         edata = load_employee(eid)
         if edata:
             participant_data.append((eid, edata))
-    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+    participant_data.sort(key=lambda x: x[1].get(PF_LEVEL, 1), reverse=True)
 
     for senior_id, senior_data in participant_data:
-        senior_level = senior_data.get("level", 1)
-        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
+        senior_level = senior_data.get(PF_LEVEL, 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get(PF_LEVEL, 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
+            f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
                 (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == jid),
                 "No self-evaluation",
@@ -337,7 +349,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         culture_ctx = ctx.format_company_culture()
 
         prompt = (
-            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
+            f"You are {senior_data.get(PF_NAME, '')} (nickname: {senior_data.get(PF_NICKNAME, '')}, Lv.{senior_level}, {senior_data.get(PF_ROLE, '')}).\n"
             f"{culture_ctx}"
             f"Task summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
@@ -358,17 +370,17 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         ctx.senior_reviews.append({
-            "reviewer": senior_data.get("name", ""),
+            "reviewer": senior_data.get(PF_NAME, ""),
             "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior_data.get("nickname", "") or senior_data.get("name", "")
+        display = senior_data.get(PF_NICKNAME, "") or senior_data.get(PF_NAME, "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(ctx.room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
+        await _chat(ctx.room_id, display, senior_data.get(PF_ROLE, ""), f"[Peer Review] {review_summary}")
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Peer review completed"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Peer review completed"})
     return {"senior_reviews": ctx.senior_reviews}
 
 
@@ -376,7 +388,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     """HR summarizes improvement points per employee."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "HR is summarizing improvement points"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "HR is summarizing improvement points"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -428,7 +440,7 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     )
     await _chat(ctx.room_id, "HR", "HR", f"[Summary] {hr_msg}")
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": step.title,
         "message": "HR review meeting summary completed"
     })
@@ -439,7 +451,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO produces a company operations report."""
     llm = make_llm(COO_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO is producing operations report"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "COO is producing operations report"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -467,7 +479,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
             cost_lines.append(f"Token usage: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
             for entry in breakdown:
                 emp_data = load_employee(entry.get("employee_id", ""))
-                name = emp_data.get("name", entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
+                name = emp_data.get(PF_NAME, entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
                 cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
             cost_ctx = "\n\nProject cost data:\n" + "\n".join(cost_lines) + "\n"
 
@@ -490,7 +502,7 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     ctx.coo_report = resp.content
     await _chat(ctx.room_id, "COO", "COO", ctx.coo_report)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO report completed"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "COO report completed"})
     return {"coo_report": ctx.coo_report}
 
 
@@ -503,7 +515,7 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
         await _chat(ctx.room_id, "COO", "COO", "[Asset Consolidation] No project ID, skipping asset consolidation.")
         return {"asset_suggestions": []}
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO is reviewing project deliverables"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "COO is reviewing project deliverables"})
 
     files = list_project_files(project_id)
     if not files:
@@ -544,7 +556,7 @@ async def _handle_asset_consolidation(step: WorkflowStep, ctx: StepContext) -> d
     else:
         await _chat(ctx.room_id, "COO", "COO", "[Asset Consolidation] No assets to preserve from this project.")
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Asset consolidation review completed"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Asset consolidation review completed"})
     return {"asset_suggestions": suggestions}
 
 
@@ -552,7 +564,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
     """Employee open discussion — everyone speaks freely."""
     llm = make_llm(HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Employee open floor started"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Employee open floor started"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -561,7 +573,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -578,11 +590,11 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
 
         culture_ctx = ctx.format_company_culture()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_role = emp_data.get("role", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_role = emp_data.get(PF_ROLE, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         prompt = (
             f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
@@ -614,7 +626,7 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
         display = emp_nickname or emp_name
         await _chat(ctx.room_id, display, emp_role, feedback_content)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "Open floor concluded"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "Open floor concluded"})
     return {"employee_feedback": ctx.employee_feedback}
 
 
@@ -622,7 +634,7 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     """COO + HR summarize action items from the meeting."""
     llm = make_llm(COO_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": "COO and HR are compiling the action plan"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": "COO and HR are compiling the action plan"})
 
     workflow_ctx = _format_workflow_context(step)
 
@@ -684,7 +696,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
     from onemancompany.core.agent_loop import get_agent_loop
 
     if not ctx.action_items:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": step.title,
             "message": "No action items pending approval, skipping EA approval"
         })
@@ -698,7 +710,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
         dup_descs = "; ".join(d.get("description", "")[:40] for d in dup_items)
         await _chat(ctx.room_id, "EA", "EA",
                     f"[Dedup] Skipping {len(dup_items)} previously proposed improvements: {dup_descs}")
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": step.title,
             "message": f"Dedup skipped {len(dup_items)} duplicate improvements"
         })
@@ -708,7 +720,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
         recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
         await _chat(ctx.room_id, "EA", "EA",
                     f"[Warning] The following {len(recurring_items)} improvements have been proposed multiple times without resolution, requiring CEO attention:\n{recurring_descs}")
-        await _publish("recurring_action_items", {
+        await _publish(EventType.RECURRING_ACTION_ITEMS, {
             "items": [r.get("description", "") for r in recurring_items],
             "message": f"{len(recurring_items)} improvements keep recurring and may not be resolvable through normal means; CEO decision needed",
         })
@@ -759,7 +771,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
         f"Only return JSON, no other content.{workflow_ctx}"
     )
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": step.title,
         "message": "EA is reviewing the action plan"
     })
@@ -794,7 +806,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
                 f"[Approval Result] Approved {len(approved)} items, rejected {len(rejected)} items. {ea_reason}")
 
     if not approved:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": step.title,
             "message": "EA did not approve any action plans"
         })
@@ -820,7 +832,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
             remaining_actions.append(a)
 
     if asset_results:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "Asset Consolidation",
             "message": f"Registered {len(asset_results)} company assets"
         })
@@ -845,7 +857,7 @@ async def _handle_ea_approval(step: WorkflowStep, ctx: StepContext) -> dict:
             await _chat(ctx.room_id, "EA", "EA",
                         f"Pushed {len(remaining_actions)} approved actions to COO task board")
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": step.title,
         "message": f"EA approval completed: approved {len(approved)} items, rejected {len(rejected)} items"
     })
@@ -881,7 +893,7 @@ async def _handle_generic_step(step: WorkflowStep, ctx: StepContext) -> dict:
     )
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=HR_ID)
 
-    await _publish("routine_phase", {"phase": step.title, "message": resp.content[:200]})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": step.title, "message": resp.content[:200]})
     await _chat(ctx.room_id, step.owner or "Facilitator", "HR", resp.content)
 
     return {"generic_output": resp.content}
@@ -956,7 +968,7 @@ async def _run_workflow(workflow: WorkflowDefinition, ctx: StepContext) -> dict:
         logger.info("Workflow [%s] executing step %d: %s (handler=%s)",
                      workflow.name, step.index, step.title, handler.__name__)
 
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": step.title,
             "message": f"Starting execution: {step.title}"
         })
@@ -980,15 +992,15 @@ def _auto_trigger_hr_review(employee_id: str) -> None:
         if not emp_data:
             return
         from onemancompany.core.state import LEVEL_NAMES, make_title
-        perf = emp_data.get("performance_history", [])
+        perf = emp_data.get(PF_PERFORMANCE_HISTORY, [])
         hist_str = ", ".join(
             f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
         ) or "no history"
-        level = emp_data.get("level", 1)
+        level = emp_data.get(PF_LEVEL, 1)
         info = (
-            f"- {emp_data.get('name', '')} (nickname: {emp_data.get('nickname', '')}, ID: {employee_id}, "
-            f"Title: {make_title(level, emp_data.get('role', ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
-            f"Q tasks: {emp_data.get('current_quarter_tasks', 0)}/3, "
+            f"- {emp_data.get(PF_NAME, '')} (nickname: {emp_data.get(PF_NICKNAME, '')}, ID: {employee_id}, "
+            f"Title: {make_title(level, emp_data.get(PF_ROLE, ''))}, Lv.{level} {LEVEL_NAMES.get(level, '')}, "
+            f"Q tasks: {emp_data.get(PF_CURRENT_QUARTER_TASKS, 0)}/3, "
             f"Performance history: [{hist_str}])"
         )
         review_task = (
@@ -1044,9 +1056,9 @@ async def run_post_task_routine(
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
         emp_data = load_employee(pid)
-        if emp_data and emp_data.get("level", 1) < FOUNDING_LEVEL:  # only track for normal employees
-            new_count = emp_data.get("current_quarter_tasks", 0) + 1
-            perf_history = emp_data.get("performance_history", [])
+        if emp_data and emp_data.get(PF_LEVEL, 1) < FOUNDING_LEVEL:  # only track for normal employees
+            new_count = emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) + 1
+            perf_history = emp_data.get(PF_PERFORMANCE_HISTORY, [])
             await _store.save_employee(pid, {
                 "current_quarter_tasks": new_count,
                 "performance_history": perf_history,
@@ -1090,7 +1102,7 @@ async def run_post_task_routine(
     }
 
     # ===== Book a meeting room (always the first operational step) =====
-    await _publish("routine_phase", {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
 
     room = None
     for r in company_state.meeting_rooms.values():
@@ -1108,13 +1120,13 @@ async def run_post_task_routine(
             break
 
     if not room:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "Preparation",
             "message": "No available meeting rooms. Meeting postponed. Employees continue with current work."
         })
         return
 
-    await _publish("meeting_booked", {
+    await _publish(EventType.MEETING_BOOKED, {
         "room_id": room.id,
         "room_name": room.name,
         "participants": room.participants,
@@ -1144,7 +1156,7 @@ async def run_post_task_routine(
             logger.info("Workflow [%s] executing step %d: %s (handler=%s)",
                          workflow.name, step.index, step.title, handler.__name__)
 
-            await _publish("routine_phase", {
+            await _publish(EventType.ROUTINE_PHASE, {
                 "phase": step.title,
                 "message": f"Starting execution: {step.title}"
             })
@@ -1174,7 +1186,7 @@ async def run_post_task_routine(
         # Publish informational event (EA already handled approval in workflow)
         summary_text = _build_summary(meeting_doc)
 
-        await _publish("meeting_report_complete", {
+        await _publish(EventType.MEETING_REPORT_COMPLETE, {
             "report_id": report_id,
             "summary": summary_text,
         })
@@ -1203,7 +1215,7 @@ async def run_post_task_routine(
             "booked_by": "",
             "participants": [],
         })
-        await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+        await _publish(EventType.MEETING_RELEASED, {"room_id": room.id, "room_name": room.name})
 
 
 # ---------------------------------------------------------------------------
@@ -1329,7 +1341,7 @@ async def _ea_auto_approve_actions(
         recurring_descs = "\n".join(f"  - {r.get('description', '')[:80]}" for r in recurring_items)
         await _chat(room_id, "EA", "EA",
                     f"[Warning] The following {len(recurring_items)} improvements have been proposed multiple times without resolution, requiring CEO attention:\n{recurring_descs}")
-        await _publish("recurring_action_items", {
+        await _publish(EventType.RECURRING_ACTION_ITEMS, {
             "items": [r.get("description", "") for r in recurring_items],
             "message": f"{len(recurring_items)} improvements keep recurring and may not be resolvable through normal means; CEO decision needed",
         })
@@ -1371,7 +1383,7 @@ async def _ea_auto_approve_actions(
         "Only return JSON, no other content."
     )
 
-    await _publish("routine_phase", {"phase": "EA Approval", "message": "EA is reviewing the action plan"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "EA Approval", "message": "EA is reviewing the action plan"})
 
     resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=EA_ID)
     raw = resp.content
@@ -1425,7 +1437,7 @@ async def _ea_auto_approve_actions(
             if coo_loop:
                 coo_loop.push_task(coo_task)
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "EA Approval",
         "message": f"EA approval completed: approved {len(approved)} items, rejected {len(rejected_indices)} items"
     })
@@ -1458,7 +1470,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
     }
 
     # Book a meeting room
-    await _publish("routine_phase", {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Preparation", "message": "HR is requesting a meeting room from COO..."})
 
     room = None
     for r in company_state.meeting_rooms.values():
@@ -1476,13 +1488,13 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
             break
 
     if not room:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "Preparation",
             "message": "No available meeting rooms. Meeting postponed. Employees continue with current work."
         })
         return
 
-    await _publish("meeting_booked", {
+    await _publish(EventType.MEETING_BOOKED, {
         "room_id": room.id,
         "room_name": room.name,
         "participants": room.participants,
@@ -1491,13 +1503,13 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
 
     try:
         # PHASE 1: Review Meeting
-        await _publish("routine_phase", {"phase": "Phase 1", "message": "Review meeting begins — employee self-evaluation"})
+        await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 1", "message": "Review meeting begins — employee self-evaluation"})
         await _chat(room.id, "HR", "HR", "The review meeting has officially begun. Please proceed with self-evaluations in turn.")
         phase1_result = await _run_review_phase1(task_summary, participants, workflow_doc, room.id)
         meeting_doc["phase1"] = phase1_result
 
         # PHASE 2: Operations Review
-        await _publish("routine_phase", {"phase": "Phase 2", "message": "Operations review — COO producing report"})
+        await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 2", "message": "Operations review — COO producing report"})
         await _chat(room.id, "HR", "HR", "Phase 2 begins. COO, please report on operations.")
         phase2_result = await _run_review_phase2(
             task_summary, participants, phase1_result, workflow_doc, room.id
@@ -1518,7 +1530,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
 
         summary_text = _build_summary(meeting_doc)
 
-        await _publish("meeting_report_complete", {
+        await _publish(EventType.MEETING_REPORT_COMPLETE, {
             "report_id": report_id,
             "summary": summary_text,
         })
@@ -1533,7 +1545,7 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
             "booked_by": "",
             "participants": [],
         })
-        await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+        await _publish(EventType.MEETING_RELEASED, {"room_id": room.id, "room_name": room.name})
 
 
 async def _run_review_phase1(
@@ -1553,7 +1565,7 @@ async def _run_review_phase1(
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -1561,11 +1573,11 @@ async def _run_review_phase1(
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
-        emp_role = emp_data.get("role", "")
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
+        emp_role = emp_data.get(PF_ROLE, "")
 
         prompt = (
             f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_dept}, "
@@ -1592,7 +1604,7 @@ async def _run_review_phase1(
         display = emp_nickname or emp_name
         await _chat(room_id, display, emp_role, eval_text)
 
-    await _publish("routine_phase", {"phase": "Phase 1", "message": "Employee self-evaluation complete, senior employees begin peer review"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 1", "message": "Employee self-evaluation complete, senior employees begin peer review"})
 
     # Step 2: Senior employees review junior employees
     participant_data: list[tuple[str, dict]] = []
@@ -1600,16 +1612,16 @@ async def _run_review_phase1(
         edata = load_employee(eid)
         if edata:
             participant_data.append((eid, edata))
-    participant_data.sort(key=lambda x: x[1].get("level", 1), reverse=True)
+    participant_data.sort(key=lambda x: x[1].get(PF_LEVEL, 1), reverse=True)
 
     for senior_id, senior_data in participant_data:
-        senior_level = senior_data.get("level", 1)
-        juniors = [(jid, jd) for jid, jd in participant_data if jd.get("level", 1) < senior_level and jid != senior_id]
+        senior_level = senior_data.get(PF_LEVEL, 1)
+        juniors = [(jid, jd) for jid, jd in participant_data if jd.get(PF_LEVEL, 1) < senior_level and jid != senior_id]
         if not juniors:
             continue
 
         junior_info = "\n".join(
-            f"- {jd.get('name', '')}（{jd.get('nickname', '')}，Lv.{jd.get('level', 1)}）: "
+            f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
                 (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == jid),
                 "No self-evaluation",
@@ -1618,7 +1630,7 @@ async def _run_review_phase1(
         )
 
         prompt = (
-            f"You are {senior_data.get('name', '')} (nickname: {senior_data.get('nickname', '')}, Lv.{senior_level}, {senior_data.get('role', '')}).\n"
+            f"You are {senior_data.get(PF_NAME, '')} (nickname: {senior_data.get(PF_NICKNAME, '')}, Lv.{senior_level}, {senior_data.get(PF_ROLE, '')}).\n"
             f"Task summary: {task_summary}\n\n"
             f"Below are the self-evaluations from junior colleagues:\n{junior_info}\n\n"
             f"Please provide a brief review for each junior colleague (1-2 sentences each), focusing on:\n"
@@ -1631,17 +1643,17 @@ async def _run_review_phase1(
         reviews = _parse_json_array(review_text, [{"name": "all", "review": review_text}])
 
         result["senior_reviews"].append({
-            "reviewer": senior_data.get("name", ""),
+            "reviewer": senior_data.get(PF_NAME, ""),
             "reviewer_level": senior_level,
             "reviews": reviews,
         })
-        display = senior_data.get("nickname", "") or senior_data.get("name", "")
+        display = senior_data.get(PF_NICKNAME, "") or senior_data.get(PF_NAME, "")
         review_summary = "; ".join(
             f"{r.get('name','')}: {r.get('review','')[:60]}" for r in reviews
         )
-        await _chat(room_id, display, senior_data.get("role", ""), f"[Peer Review] {review_summary}")
+        await _chat(room_id, display, senior_data.get(PF_ROLE, ""), f"[Peer Review] {review_summary}")
 
-    await _publish("routine_phase", {"phase": "Phase 1", "message": "Peer review complete, HR summarizing improvement points"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 1", "message": "Peer review complete, HR summarizing improvement points"})
 
     # Step 3: HR summarizes improvement points
     all_evals = "\n".join(
@@ -1678,7 +1690,7 @@ async def _run_review_phase1(
     )
     await _chat(room_id, "HR", "HR", f"[Summary] {hr_msg}")
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "Phase 1",
         "message": "HR review meeting summary completed, Phase 1 ends"
     })
@@ -1717,7 +1729,7 @@ async def _run_review_phase2(
     result["coo_report"] = resp.content
     await _chat(room_id, "COO", "COO", result["coo_report"])
 
-    await _publish("routine_phase", {"phase": "Phase 2", "message": "COO report complete, employee open floor"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 2", "message": "COO report complete, employee open floor"})
 
     # Step 2: Employee open floor
     for emp_id in participants:
@@ -1725,7 +1737,7 @@ async def _run_review_phase2(
         if not emp_data:
             continue
 
-        work_principles = emp_data.get("work_principles", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
         principles_ctx = ""
         if work_principles:
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -1733,11 +1745,11 @@ async def _run_review_phase2(
         skills_ctx = get_employee_skills_prompt(emp_id)
         tools_ctx = get_employee_tools_prompt(emp_id)
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_dept = emp_data.get("department", "")
-        emp_role = emp_data.get("role", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_role = emp_data.get(PF_ROLE, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         prompt = (
             f"You are {emp_name} ({emp_nickname}, department: {emp_dept}, "
@@ -1763,7 +1775,7 @@ async def _run_review_phase2(
         display = emp_nickname or emp_name
         await _chat(room_id, display, emp_role, feedback_content)
 
-    await _publish("routine_phase", {"phase": "Phase 2", "message": "Open floor concluded, COO and HR compiling action plan"})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Phase 2", "message": "Open floor concluded, COO and HR compiling action plan"})
 
     # Step 3: COO + HR summarize action items
     feedback_text = "\n".join(
@@ -1880,7 +1892,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     if not approved:
         return "No actions to execute."
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "Execution",
         "message": f"CEO approved {len(approved)} improvements, HR and COO begin execution"
     })
@@ -1904,14 +1916,14 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
             remaining_actions.append(a)
 
     if asset_results:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "Asset Consolidation",
             "message": f"Registered {len(asset_results)} company assets"
         })
 
     if not remaining_actions:
         summary = f"Executed {len(asset_results)} asset consolidations, no other action plans"
-        await _publish("routine_phase", {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
+        await _publish(EventType.ROUTINE_PHASE, {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
         doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
         _save_report(doc["id"], doc)
         return summary
@@ -1950,7 +1962,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
     if asset_results:
         summary += f", registered {len(asset_results)} company assets"
 
-    await _publish("routine_phase", {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
+    await _publish(EventType.ROUTINE_PHASE, {"phase": "Execution Complete", "message": summary[:MAX_SUMMARY_LEN]})
 
     doc["execution"] = {"approved": approved, "results": [summary], "asset_results": asset_results}
     _save_report(doc["id"], doc)
@@ -1991,13 +2003,13 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             break
 
     if not room:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "All-Hands Meeting",
             "message": "No large meeting hall available. All-hands meeting postponed."
         })
         return
 
-    await _publish("meeting_booked", {
+    await _publish(EventType.MEETING_BOOKED, {
         "room_id": room.id,
         "room_name": room.name,
         "participants": room.participants,
@@ -2005,12 +2017,12 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
     await _set_participants_status(room.participants, STATUS_IN_MEETING)
 
     try:
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "All-Hands Meeting",
             "message": f"CEO convened an all-hands meeting in {room.name}"
         })
 
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "All-Hands Meeting",
             "message": f"CEO issued directive: {ceo_message[:100]}"
         })
@@ -2019,7 +2031,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
         llm = make_llm(HR_ID)
 
         for emp_id, emp_data in all_emps.items():
-            work_principles = emp_data.get("work_principles", "")
+            work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
             principles_ctx = ""
             if work_principles:
                 principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
@@ -2027,12 +2039,12 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             skills_ctx = get_employee_skills_prompt(emp_id)
             tools_ctx = get_employee_tools_prompt(emp_id)
 
-            emp_name = emp_data.get("name", "")
-            emp_nickname = emp_data.get("nickname", "")
+            emp_name = emp_data.get(PF_NAME, "")
+            emp_nickname = emp_data.get(PF_NICKNAME, "")
 
             prompt = (
-                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
-                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get(PF_DEPARTMENT, '')}, "
+                f"Lv.{emp_data.get(PF_LEVEL, 1)}, {emp_data.get(PF_ROLE, '')}).\n"
                 f"{principles_ctx}"
                 f"{skills_ctx}"
                 f"{tools_ctx}"
@@ -2045,16 +2057,16 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             summary_text = resp.content
 
             display = emp_nickname or emp_name
-            await _chat(room.id, display, emp_data.get("role", ""), summary_text)
+            await _chat(room.id, display, emp_data.get(PF_ROLE, ""), summary_text)
 
-            await _publish("guidance_noted", {
+            await _publish(EventType.GUIDANCE_NOTED, {
                 "employee_id": emp_id,
                 "name": emp_name,
                 "guidance": ceo_message[:80],
                 "acknowledgment": summary_text,
             })
 
-        await _publish("routine_phase", {
+        await _publish(EventType.ROUTINE_PHASE, {
             "phase": "All-Hands Meeting",
             "message": f"All-hands meeting concluded, {len(all_emps)} employees have absorbed the meeting directives"
         })
@@ -2080,7 +2092,7 @@ async def run_all_hands_meeting(ceo_message: str) -> None:
             "booked_by": "",
             "participants": [],
         })
-        await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+        await _publish(EventType.MEETING_RELEASED, {"room_id": room.id, "room_name": room.name})
 
 
 # ---------------------------------------------------------------------------
@@ -2126,7 +2138,7 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
     if not room:
         return {"error": "No meeting room available"}
 
-    await _publish("meeting_booked", {
+    await _publish(EventType.MEETING_BOOKED, {
         "room_id": room.id,
         "room_name": room.name,
         "participants": room.participants,
@@ -2141,7 +2153,7 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
         "chat_history": [],
     }
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "CEO Meeting",
         "message": f"CEO convened a {'all-hands' if meeting_type == 'all_hands' else 'discussion'} meeting in {room.name}",
     })
@@ -2152,7 +2164,7 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
         "room_id": room.id,
         "room_name": room.name,
         "participants": [
-            {"id": eid, "name": edata.get("name", ""), "nickname": edata.get("nickname", "")}
+            {"id": eid, "name": edata.get(PF_NAME, ""), "nickname": edata.get(PF_NICKNAME, "")}
             for eid, edata in all_emps.items()
         ],
     }
@@ -2176,7 +2188,7 @@ async def ceo_meeting_chat(message: str) -> dict:
     await _chat(room_id, "CEO", "CEO", message)
     meeting["chat_history"].append({"speaker": "CEO", "message": message})
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "CEO Meeting",
         "message": f"CEO: {message[:100]}",
     })
@@ -2192,14 +2204,14 @@ async def ceo_meeting_chat(message: str) -> dict:
             if not emp_data:
                 continue
 
-            emp_name = emp_data.get("name", "")
-            emp_nickname = emp_data.get("nickname", "")
-            work_principles = emp_data.get("work_principles", "")
+            emp_name = emp_data.get(PF_NAME, "")
+            emp_nickname = emp_data.get(PF_NICKNAME, "")
+            work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
             principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n" if work_principles else ""
 
             prompt = (
-                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get('department', '')}, "
-                f"Lv.{emp_data.get('level', 1)}, {emp_data.get('role', '')}).\n"
+                f"You are {emp_name} (nickname: {emp_nickname}, department: {emp_data.get(PF_DEPARTMENT, '')}, "
+                f"Lv.{emp_data.get(PF_LEVEL, 1)}, {emp_data.get(PF_ROLE, '')}).\n"
                 f"{principles_ctx}"
                 f"The CEO just delivered the following at the all-hands meeting:\n\n"
                 f'"{message}"\n\n'
@@ -2209,7 +2221,7 @@ async def ceo_meeting_chat(message: str) -> dict:
             summary_text = resp.content
 
             display = emp_nickname or emp_name
-            await _chat(room_id, display, emp_data.get("role", ""), summary_text)
+            await _chat(room_id, display, emp_data.get(PF_ROLE, ""), summary_text)
             meeting["chat_history"].append({"speaker": display, "message": summary_text})
 
             responses.append({
@@ -2219,7 +2231,7 @@ async def ceo_meeting_chat(message: str) -> dict:
                 "message": summary_text,
             })
 
-            await _publish("guidance_noted", {
+            await _publish(EventType.GUIDANCE_NOTED, {
                 "employee_id": emp_id,
                 "name": emp_name,
                 "guidance": message[:80],
@@ -2311,14 +2323,14 @@ async def ceo_meeting_chat(message: str) -> dict:
             resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
             last_speaker_id = winner_id
 
-            display = winner_data.get("nickname", "") or winner_data.get("name", "")
-            await _chat(room_id, display, winner_data.get("role", ""), resp.content)
+            display = winner_data.get(PF_NICKNAME, "") or winner_data.get(PF_NAME, "")
+            await _chat(room_id, display, winner_data.get(PF_ROLE, ""), resp.content)
             meeting["chat_history"].append({"speaker": display, "message": resp.content})
 
             responses.append({
                 "employee_id": winner_id,
-                "name": winner_data.get("name", ""),
-                "nickname": winner_data.get("nickname", ""),
+                "name": winner_data.get(PF_NAME, ""),
+                "nickname": winner_data.get(PF_NICKNAME, ""),
                 "message": resp.content,
             })
 
@@ -2339,7 +2351,7 @@ async def end_ceo_meeting() -> dict:
     meeting_type = meeting["type"]
     chat_history = meeting["chat_history"]
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "CEO Meeting",
         "message": "Meeting ending — summarizing action points...",
     })
@@ -2365,13 +2377,13 @@ async def end_ceo_meeting() -> dict:
             logger.warning("Failed to save guidance for {}: {}", emp_id, e)
 
         # Reflect on work principles update
-        work_principles = emp_data.get("work_principles", "") or "(No work principles yet)"
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
+        work_principles = emp_data.get(PF_WORK_PRINCIPLES, "") or "(No work principles yet)"
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
 
         try:
             reflection_prompt = (
-                f"You are {emp_name} ({emp_nickname}, {emp_data.get('role', '')}).\n\n"
+                f"You are {emp_name} ({emp_nickname}, {emp_data.get(PF_ROLE, '')}).\n\n"
                 f"You just attended a {meeting_label} meeting. Here is the transcript:\n\n"
                 f"{full_transcript[:2000]}\n\n"
                 f"Your current work principles:\n{work_principles}\n\n"
@@ -2420,7 +2432,7 @@ async def end_ceo_meeting() -> dict:
         summary_msg += "\n" + "\n".join(f"• {ap}" for ap in action_points)
     await _chat(room_id, "EA", "EA", summary_msg)
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "CEO Meeting",
         "message": summary_msg[:200],
     })
@@ -2458,7 +2470,7 @@ async def end_ceo_meeting() -> dict:
         await _store.save_room(room.id, {
             "is_booked": False, "booked_by": "", "participants": [],
         })
-        await _publish("meeting_released", {"room_id": room.id, "room_name": room.name})
+        await _publish(EventType.MEETING_RELEASED, {"room_id": room.id, "room_name": room.name})
 
     _active_ceo_meeting = None
     _ceo_meeting_cancel = None
@@ -2510,17 +2522,17 @@ async def _create_project_from_action_points(
     )
     _save_project_tree(pdir, tree)
 
-    tree_path = str(Path(pdir) / "task_tree.yaml")
+    tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
     employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)
     employee_manager._schedule_next(EA_ID)
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "CEO Meeting",
         "message": f"Created project {pid} with {len(action_points)} action points",
     })
     # Broadcast so frontend sees project immediately
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     logger.info("Created project {} from meeting action points", pid)
@@ -2541,28 +2553,28 @@ async def run_onboarding_routine(employee_id: str) -> None:
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
-    await _publish("onboarding_started", {"id": employee_id, "name": emp_name})
-    await _publish("routine_phase", {
+    await _publish(EventType.ONBOARDING_STARTED, {"id": employee_id, "name": emp_name})
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "onboarding",
         "message": f"Welcome {emp_name} ({emp_nickname}) to the team! Starting onboarding...",
     })
 
     # Brief the new hire on probation
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "onboarding",
         "message": f"{emp_name} has been briefed on the probation period (complete {PROBATION_TASKS} tasks to pass).",
     })
 
     # Generate work principles if empty — persist via store
-    if not emp_data.get("work_principles", ""):
+    if not emp_data.get(PF_WORK_PRINCIPLES, ""):
         from onemancompany.core.state import make_title
         principles = (
             f"# {emp_name} ({emp_nickname}) Work Principles\n\n"
-            f"**Department**: {emp_data.get('department', '')}\n"
-            f"**Title**: {make_title(emp_data.get('level', 1), emp_data.get('role', ''))}\n\n"
+            f"**Department**: {emp_data.get(PF_DEPARTMENT, '')}\n"
+            f"**Title**: {make_title(emp_data.get(PF_LEVEL, 1), emp_data.get(PF_ROLE, ''))}\n\n"
             f"## Core Principles\n"
             f"1. Complete assigned work diligently\n"
             f"2. Collaborate with the team\n"
@@ -2574,7 +2586,7 @@ async def run_onboarding_routine(employee_id: str) -> None:
     # Mark onboarding complete
     await _store.save_employee(employee_id, {"onboarding_completed": True})
 
-    await _publish("onboarding_completed", {"id": employee_id, "name": emp_name})
+    await _publish(EventType.ONBOARDING_COMPLETED, {"id": employee_id, "name": emp_name})
 
 
 # ---------------------------------------------------------------------------
@@ -2587,14 +2599,14 @@ async def run_offboarding_routine(employee_id: str, reason: str) -> None:
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
-    await _publish("exit_interview_started", {
+    await _publish(EventType.EXIT_INTERVIEW_STARTED, {
         "id": employee_id, "name": emp_name, "reason": reason,
     })
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "offboarding",
         "message": f"Exit interview with {emp_name} ({emp_nickname}). Reason: {reason}",
     })
@@ -2611,7 +2623,7 @@ async def run_offboarding_routine(employee_id: str, reason: str) -> None:
     }
     _save_report(report_id, doc)
 
-    await _publish("exit_interview_completed", {
+    await _publish(EventType.EXIT_INTERVIEW_COMPLETED, {
         "id": employee_id, "name": emp_name, "report_id": report_id,
     })
 
@@ -2626,15 +2638,15 @@ async def run_performance_meeting(employee_id: str, score: float, feedback: str)
     if not emp_data:
         return
 
-    emp_name = emp_data.get("name", "")
-    emp_nickname = emp_data.get("nickname", "")
+    emp_name = emp_data.get(PF_NAME, "")
+    emp_nickname = emp_data.get(PF_NICKNAME, "")
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "performance_meeting",
         "message": f"Performance meeting with {emp_name} ({emp_nickname}): score {score}",
     })
 
-    await _publish("routine_phase", {
+    await _publish(EventType.ROUTINE_PHASE, {
         "phase": "performance_meeting",
         "message": f"Feedback for {emp_name}: {feedback}",
     })

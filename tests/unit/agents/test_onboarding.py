@@ -172,7 +172,8 @@ class TestCopyTalentAssets:
 
         assert (emp_dir / "skills" / "python" / "SKILL.md").exists()
         assert (emp_dir / "skills" / "python" / "SKILL.md").read_text() == "# Python skill"
-        assert (emp_dir / "tools" / "manifest.yaml").exists()
+        # tools/ is installed centrally to assets/tools/, not kept locally in the employee dir
+        assert not (emp_dir / "tools").exists()
 
     def test_skips_existing_skills(self, tmp_path, monkeypatch):
         from onemancompany.agents import onboarding

@@ -9,6 +9,7 @@ site_dir: docs/docs
 
 theme:
   name: material
+  custom_dir: mkdocs-docs/overrides
   language: en
   palette:
     - media: "(prefers-color-scheme: dark)"

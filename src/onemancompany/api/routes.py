@@ -20,12 +20,21 @@ from onemancompany.core.config import (
     COO_ID,
     CSO_ID,
     DATA_ROOT,
+    DOT_ENV_FILENAME,
     EA_ID,
+    ENCODING_UTF8,
     HR_ID,
+    MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
+    PF_CURRENT_TASK_SUMMARY,
     STATUS_IDLE,
+    SYSTEM_AGENT,
+    SYSTEM_SENDER,
+    TASK_TREE_FILENAME,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.models import AuthMethod, DecisionStatus, EventType, HostingMode
+from onemancompany.core.project_archive import ITER_STATUS_CANCELLED, ITER_STATUS_COMPLETED, ITER_STATUS_FAILED
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
 from onemancompany.core.state import company_state
@@ -37,6 +46,20 @@ from onemancompany.core.ceo_conversation import (
 )
 from onemancompany.core.errors import ErrorCode, classify_exception
 
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", "completed"]
+
+ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
+ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
+ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
+ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
+ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+
+_TALENT_REQUIRED_FIELDS = ["hosting"]
+
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
 # ---------------------------------------------------------------------------
 # LLM invocation with retry
@@ -170,7 +193,7 @@ def _scan_employee_projects(employee_id: str, projects_dir: str = "") -> list[di
         if not pyaml.exists():
             continue
         try:
-            data = yaml.safe_load(pyaml.read_text(encoding="utf-8")) or {}
+            data = yaml.safe_load(pyaml.read_text(encoding=ENCODING_UTF8)) or {}
         except Exception:
             logger.warning("Failed to parse {}", pyaml)
             continue
@@ -289,7 +312,7 @@ async def admin_apply_code_update() -> dict:
     else:
         # Tasks running — defer restart
         employee_manager._restart_pending = True
-        return {"status": "deferred", "message": "Restart scheduled after current tasks complete"}
+        return {"status": DecisionStatus.DEFERRED.value, "message": "Restart scheduled after current tasks complete"}
 
 
 @router.post("/api/admin/clear-tasks")
@@ -311,7 +334,7 @@ async def admin_clear_tasks() -> dict:
     for eid in all_emps:
         await _store.save_employee_runtime(eid, status=STATUS_IDLE)
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "cleared", "tasks_removed": cleared}
 
@@ -379,7 +402,7 @@ async def _start_inquiry(task: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_booked",
+            type=EventType.MEETING_BOOKED,
             payload={"room_id": room.id, "room_name": room.name, "participants": participants},
             agent="CEO",
         )
@@ -420,7 +443,7 @@ async def _start_inquiry(task: str) -> dict:
     # Publish CEO question as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": room.id, "speaker": "CEO", "role": "CEO", "message": task},
             agent="CEO",
         )
@@ -438,7 +461,7 @@ async def _start_inquiry(task: str) -> dict:
     speaker_name = emp_name
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": room.id, "speaker": speaker_name, "role": agent_role, "message": answer},
             agent=agent_role,
         )
@@ -463,7 +486,7 @@ async def _start_inquiry(task: str) -> dict:
     # Publish inquiry_started event
     await event_bus.publish(
         CompanyEvent(
-            type="inquiry_started",
+            type=EventType.INQUIRY_STARTED,
             payload={
                 "session_id": session_id,
                 "room_id": room.id,
@@ -476,7 +499,7 @@ async def _start_inquiry(task: str) -> dict:
 
     # Broadcast state so frontend sees the booked room
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {
@@ -543,7 +566,7 @@ async def ceo_qa(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="ceo_qa",
+            type=EventType.CEO_QA,
             payload={"question": question, "answer": answer},
             agent="CEO",
         )
@@ -590,11 +613,11 @@ async def ceo_submit_task(body: dict) -> dict:
     pdir = get_project_dir(pid)
 
     await event_bus.publish(
-        CompanyEvent(type="ceo_task_submitted", payload={"task": task}, agent="CEO")
+        CompanyEvent(type=EventType.CEO_TASK_SUBMITTED, payload={"task": task}, agent="CEO")
     )
     # Broadcast so frontend sees the queued task immediately
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     # Use qualified iteration ID to avoid cross-project collisions
@@ -621,7 +644,7 @@ async def ceo_submit_task(body: dict) -> dict:
             from onemancompany.core.vessel import _save_project_tree
             from onemancompany.core.agent_loop import employee_manager
 
-            tree_path = Path(pdir) / "task_tree.yaml"
+            tree_path = Path(pdir) / TASK_TREE_FILENAME
 
             # For new iterations on existing projects: archive old tree
             if iter_id and tree_path.exists():
@@ -699,7 +722,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     original_task = doc.get("task", "")
 
     # Load task tree for context
-    tree_path = Path(pdir) / "task_tree.yaml"
+    tree_path = Path(pdir) / TASK_TREE_FILENAME
     previous_result = ""
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
@@ -729,7 +752,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     followup_task = "\n".join(context_parts)
 
     # Append to existing tree (or create new if none exists)
-    tree_path = Path(pdir) / "task_tree.yaml"
+    tree_path = Path(pdir) / TASK_TREE_FILENAME
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
     else:
@@ -784,7 +807,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
 
     # Schedule the EA node for execution
     if schedule_node_id:
-        tree_path = str(Path(pdir) / "task_tree.yaml")
+        tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
         from onemancompany.core.agent_loop import employee_manager
         employee_manager.schedule_node(EA_ID, schedule_node_id, tree_path)
         employee_manager._schedule_next(EA_ID)
@@ -799,7 +822,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
     append_action(project_id, "ceo", "follow-up instructions", instructions[:200])
 
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok", "project_id": project_id}
@@ -841,7 +864,7 @@ async def oneonone_chat(body: dict) -> dict:
         await _store.save_employee_runtime(employee_id, is_listening=True)
         await event_bus.publish(
             CompanyEvent(
-                type="guidance_start",
+                type=EventType.GUIDANCE_START,
                 payload={"employee_id": employee_id, "name": emp_data.get("name", "")},
                 agent="CEO",
             )
@@ -995,7 +1018,7 @@ async def oneonone_end(body: dict) -> dict:
             await _store.save_employee_runtime(employee_id, is_listening=False)
             await event_bus.publish(
                 CompanyEvent(
-                    type="guidance_end",
+                    type=EventType.GUIDANCE_END,
                     payload={"employee_id": employee_id, "name": emp_name,
                              "principles_updated": False, "note_saved": False},
                     agent="CEO",
@@ -1036,7 +1059,7 @@ async def oneonone_end(body: dict) -> dict:
     await _store.save_employee_runtime(employee_id, is_listening=False)
     await event_bus.publish(
         CompanyEvent(
-            type="guidance_end",
+            type=EventType.GUIDANCE_END,
             payload={
                 "employee_id": employee_id,
                 "name": emp_name,
@@ -1119,7 +1142,7 @@ async def release_meeting(body: dict) -> dict:
     })
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_released",
+            type=EventType.MEETING_RELEASED,
             payload={"room_id": room_id, "room_name": room.name},
             agent="COO",
         )
@@ -1153,7 +1176,7 @@ async def inquiry_chat(body: dict) -> dict:
     # Publish CEO message as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": session.room_id, "speaker": "CEO", "role": "CEO", "message": message},
             agent="CEO",
         )
@@ -1176,7 +1199,7 @@ async def inquiry_chat(body: dict) -> dict:
     # Publish agent response as meeting_chat
     await event_bus.publish(
         CompanyEvent(
-            type="meeting_chat",
+            type=EventType.MEETING_CHAT,
             payload={"room_id": session.room_id, "speaker": speaker_name, "role": session.agent_role, "message": answer},
             agent=session.agent_role,
         )
@@ -1217,7 +1240,7 @@ async def inquiry_end(body: dict) -> dict:
         })
         await event_bus.publish(
             CompanyEvent(
-                type="meeting_released",
+                type=EventType.MEETING_RELEASED,
                 payload={"room_id": room.id, "room_name": room.name},
                 agent="CEO",
             )
@@ -1226,7 +1249,7 @@ async def inquiry_end(body: dict) -> dict:
     # Publish inquiry_ended event
     await event_bus.publish(
         CompanyEvent(
-            type="inquiry_ended",
+            type=EventType.INQUIRY_ENDED,
             payload={"session_id": session_id, "room_id": session.room_id, "agent_role": session.agent_role},
             agent="CEO",
         )
@@ -1237,7 +1260,7 @@ async def inquiry_end(body: dict) -> dict:
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ended", "session_id": session_id}
@@ -1414,7 +1437,7 @@ async def update_workflow(name: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="workflow_updated",
+            type=EventType.WORKFLOW_UPDATED,
             payload={"name": name},
             agent="CEO",
         )
@@ -1469,9 +1492,9 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_provider"] = api_provider
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
-    result["hosting"] = cfg.hosting if cfg else "company"
+    result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
-    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == "oauth" else False
+    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
 
     # Include manifest if available
@@ -1495,7 +1518,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     custom = load_custom_settings(employee_id)
     result.update(custom)
 
-    if cfg and cfg.hosting == "self":
+    if cfg and cfg.hosting == HostingMode.SELF:
         from onemancompany.core.claude_session import list_sessions
         result["sessions"] = list_sessions(employee_id)
 
@@ -1544,7 +1567,7 @@ async def update_employee_okrs(employee_id: str, body: dict) -> dict:
     await _store.save_employee(employee_id, {"okrs": okrs})
 
     await event_bus.publish(CompanyEvent(
-        type="okr_updated",
+        type=EventType.OKR_UPDATED,
         payload={"employee_id": employee_id, "okrs": okrs},
         agent="CEO",
     ))
@@ -1636,16 +1659,16 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
         if not tree:
             continue
         node = tree.get_node(node_id)
-        if node and node.status not in ("accepted", "failed", "cancelled"):
+        if node and node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
             # CEO cancellation — force status bypass for terminal override
             node.status = TaskPhase.CANCELLED.value
             node.result = "Cancelled by CEO"
             from onemancompany.core.events import CompanyEvent as _CE
             await event_bus.publish(_CE(
-                type="tree_update",
+                type=EventType.TREE_UPDATE,
                 payload={"project_id": tree.project_id, "event_type": "node_updated",
-                         "node_id": node_id, "data": {"status": "cancelled"}},
-                agent="SYSTEM",
+                         "node_id": node_id, "data": {"status": TaskPhase.CANCELLED.value}},
+                agent=SYSTEM_AGENT,
             ))
     # Save modified trees
     for tree_path_str, tree in trees.items():
@@ -1673,11 +1696,11 @@ async def abort_task(project_id: str) -> dict:
 
     pdir = get_project_dir(project_id)
     if pdir:
-        tree_path = _Path(pdir) / "task_tree.yaml"
+        tree_path = _Path(pdir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=project_id)
             for node in tree.all_nodes():
-                if node.status not in ("accepted", "failed", "cancelled"):
+                if node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
                     # CEO abort — force status bypass for terminal override
                     node.status = TaskPhase.CANCELLED.value
                     node.result = "Cancelled by CEO (project aborted)"
@@ -1687,14 +1710,14 @@ async def abort_task(project_id: str) -> dict:
     # Trigger 4: CEO aborts → cancelled (via store for mark_dirty)
     from onemancompany.core import store as _store
     proj_doc = _lp(project_id)
-    if proj_doc and proj_doc.get("status") not in ("completed", "cancelled", "failed"):
+    if proj_doc and proj_doc.get("status") not in (ITER_STATUS_COMPLETED, ITER_STATUS_CANCELLED, ITER_STATUS_FAILED):
         await _store.save_project_status(
-            project_id, "cancelled", completed_at=_dt.now().isoformat()
+            project_id, ITER_STATUS_CANCELLED, completed_at=_dt.now().isoformat()
         )
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok", "cancelled": cancelled_count, "tree_nodes_cancelled": cancelled_tree_nodes}
@@ -1707,7 +1730,7 @@ async def abort_employee_tasks(employee_id: str) -> dict:
 
     count = employee_manager.abort_employee(employee_id)
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "ok", "cancelled": count, "employee_id": employee_id}
 
@@ -1719,7 +1742,7 @@ async def abort_all_tasks() -> dict:
 
     count = await employee_manager.abort_all()
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
     return {"status": "ok", "cancelled": count}
 
@@ -1761,10 +1784,10 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
     if not node:
         return {"status": "error", "message": "Node not found in tree"}
 
-    if node.status not in ("pending", "processing", "holding"):
+    if node.status not in (TaskPhase.PENDING, TaskPhase.PROCESSING, TaskPhase.HOLDING):
         return {"status": "error", "message": f"Task already {node.status}"}
 
-    was_in_progress = node.status == "processing"
+    was_in_progress = node.status == TaskPhase.PROCESSING
 
     # Force cancel — bypass transition validation
     node.status = TaskPhase.CANCELLED.value
@@ -1793,7 +1816,7 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
 
     # Broadcast state
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {"status": "ok"}
@@ -1849,7 +1872,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={
                 "role": "CEO",
                 "summary": f"Updated {emp.get('name', '')} ({emp.get('nickname', '')})'s model to {model_id}, salary=${new_salary}/1M",
@@ -1874,7 +1897,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     from onemancompany.core.config import EMPLOYEES_DIR, employee_configs, invalidate_manifest_cache
 
     new_hosting = body.get("hosting", "")
-    if new_hosting not in ("company", "self"):
+    if new_hosting not in (HostingMode.COMPANY, HostingMode.SELF):
         return {"error": "Invalid hosting mode. Use 'company' or 'self'."}
 
     emp = _require_employee(employee_id)
@@ -1893,21 +1916,21 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
 
     # Persist via store
     hosting_updates: dict = {"hosting": new_hosting}
-    if new_hosting == "self":
+    if new_hosting == HostingMode.SELF:
         hosting_updates["api_provider"] = "anthropic"
         hosting_updates["auth_method"] = None  # self-hosted uses Claude CLI auth
         cfg.auth_method = "api_key"  # reset in-memory
     await _store.save_employee(employee_id, hosting_updates)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
-    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if manifest_path.exists():
-        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = _json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
         manifest["hosting"] = new_hosting
 
         sections = manifest.get("settings", {}).get("sections", [])
 
-        if new_hosting == "self":
+        if new_hosting == HostingMode.SELF:
             # Add connection section if not present
             has_connection = any(s.get("id") == "connection" for s in sections)
             if not has_connection:
@@ -1935,13 +1958,13 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
                     ],
                 })
 
-        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
         invalidate_manifest_cache(employee_id)
 
-    hosting_label = "Self-hosted (Claude Code)" if new_hosting == "self" else "Company-hosted (LangChain)"
+    hosting_label = "Self-hosted (Claude Code)" if new_hosting == HostingMode.SELF else "Company-hosted (LangChain)"
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={
                 "role": "CEO",
                 "summary": f"Switched {emp['name']} to {hosting_label}. Restart required to take effect.",
@@ -2071,7 +2094,7 @@ async def update_api_settings(body: dict) -> dict:
         config = load_app_config()
         tm = config.setdefault("talent_market", {})
         tm["api_key"] = api_key
-        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
         reload_app_config()
 
         # Reconnect Talent Market with new API key
@@ -2177,13 +2200,6 @@ async def company_oauth_start() -> dict:
 
 # In-memory store for pending OAuth sessions: state -> {employee_id, code_verifier}
 _oauth_sessions: dict[str, dict] = {}
-
-ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
-ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
-ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
-ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
-ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
-
 
 @router.post("/api/employee/{employee_id}/oauth/start")
 async def oauth_start(employee_id: str) -> dict:
@@ -2329,7 +2345,7 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
             agent="CEO",
         )
@@ -2400,7 +2416,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
 
         await event_bus.publish(
             CompanyEvent(
-                type="agent_done",
+                type=EventType.AGENT_DONE,
                 payload={"role": "CEO", "summary": "Company Anthropic OAuth login successful."},
                 agent="CEO",
             )
@@ -2433,7 +2449,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
 
     await event_bus.publish(
         CompanyEvent(
-            type="agent_done",
+            type=EventType.AGENT_DONE,
             payload={"role": "CEO", "summary": f"{emp_name} OAuth login successful."},
             agent="CEO",
         )
@@ -2508,7 +2524,7 @@ async def get_employee_sessions(employee_id: str) -> dict:
     from onemancompany.core.claude_session import list_sessions
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.hosting != "self":
+    if not cfg or cfg.hosting != HostingMode.SELF:
         return {"error": "Employee is not self-hosted"}
 
     return {"employee_id": employee_id, "sessions": list_sessions(employee_id)}
@@ -2521,7 +2537,7 @@ async def delete_employee_session(employee_id: str, project_id: str) -> dict:
     from onemancompany.core.claude_session import cleanup_session
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.hosting != "self":
+    if not cfg or cfg.hosting != HostingMode.SELF:
         return {"error": "Employee is not self-hosted"}
 
     cleanup_session(employee_id, project_id)
@@ -2555,7 +2571,7 @@ async def add_culture_item(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_culture_updated",
+            type=EventType.COMPANY_CULTURE_UPDATED,
             payload={"item": item, "total": len(items)},
             agent="CEO",
         )
@@ -2576,7 +2592,7 @@ async def remove_culture_item(index: int) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_culture_updated",
+            type=EventType.COMPANY_CULTURE_UPDATED,
             payload={"removed": removed, "total": len(items)},
             agent="CEO",
         )
@@ -2600,7 +2616,7 @@ async def update_company_direction(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="company_direction_updated",
+            type=EventType.COMPANY_DIRECTION_UPDATED,
             payload={"direction": direction},
             agent="CEO",
         )
@@ -2649,7 +2665,7 @@ async def approve_file_edit(edit_id: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="file_edit_applied",
+            type=EventType.FILE_EDIT_APPLIED,
             payload={
                 "edit_id": edit_id,
                 "rel_path": result["rel_path"],
@@ -2672,7 +2688,7 @@ async def reject_file_edit(edit_id: str) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="file_edit_rejected",
+            type=EventType.FILE_EDIT_REJECTED,
             payload={"edit_id": edit_id, "rel_path": result["rel_path"]},
             agent="CEO",
         )
@@ -2824,7 +2840,7 @@ async def continue_iteration(body: dict) -> dict:
     if not doc:
         return {"error": "Iteration not found"}
 
-    if doc.get("status") == "completed":
+    if doc.get("status") == ITER_STATUS_COMPLETED:
         return {"error": "Iteration already completed"}
 
     task = doc.get("task", "")
@@ -2881,7 +2897,7 @@ async def continue_iteration(body: dict) -> dict:
         from onemancompany.core.vessel import _save_project_tree
         from onemancompany.core.agent_loop import employee_manager
 
-        tree_path = Path(project_dir) / "task_tree.yaml"
+        tree_path = Path(project_dir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=ctx_id)
             root = tree.get_node(tree.root_id)
@@ -2933,7 +2949,7 @@ async def continue_iteration(body: dict) -> dict:
     append_action(iteration_id, CEO_ID, "continue", f"CEO requested continuation of current iteration")
 
     await event_bus.publish(
-        CompanyEvent(type="state_snapshot", payload={}, agent="SYSTEM")
+        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
     return {
@@ -2964,7 +2980,7 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return []
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return []
     tree = get_tree(path, project_id=project_id)
@@ -2972,15 +2988,15 @@ def _tree_nodes_to_dispatches(project_id: str) -> list[dict]:
 
     # Map TaskPhase statuses to kanban-compatible statuses
     status_map = {
-        "pending": "pending",
-        "processing": "in_progress",
-        "holding": "in_progress",
-        "completed": "completed",
-        "accepted": "completed",
-        "finished": "completed",
-        "failed": "completed",
-        "blocked": "pending",
-        "cancelled": "completed",
+        TaskPhase.PENDING.value: "pending",
+        TaskPhase.PROCESSING.value: "in_progress",
+        TaskPhase.HOLDING.value: "in_progress",
+        TaskPhase.COMPLETED.value: "completed",
+        TaskPhase.ACCEPTED.value: "completed",
+        TaskPhase.FINISHED.value: "completed",
+        TaskPhase.FAILED.value: "completed",
+        TaskPhase.BLOCKED.value: "pending",
+        TaskPhase.CANCELLED.value: "completed",
     }
 
     dispatches = []
@@ -3041,7 +3057,7 @@ def _tree_summary(project_id: str) -> dict | None:
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return None
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return None
     tree = get_tree(path, project_id=project_id)
@@ -3054,9 +3070,9 @@ def _tree_summary(project_id: str) -> dict | None:
     for n in nodes:
         by_status[n.status] = by_status.get(n.status, 0) + 1
 
-    terminal = sum(by_status.get(s, 0) for s in ("accepted", "failed", "cancelled"))
-    processing = by_status.get("processing", 0)
-    completed = by_status.get("completed", 0)
+    terminal = sum(by_status.get(s, 0) for s in (TaskPhase.ACCEPTED.value, TaskPhase.FAILED.value, TaskPhase.CANCELLED.value))
+    processing = by_status.get(TaskPhase.PROCESSING.value, 0)
+    completed = by_status.get(TaskPhase.COMPLETED.value, 0)
 
     # Collect actively working nodes (non-terminal)
     active_nodes = []
@@ -3065,7 +3081,7 @@ def _tree_summary(project_id: str) -> dict | None:
         # For multi-node trees, skip root (it's the coordinator)
         if has_children and n.id == tree.root_id:
             continue
-        if n.status in ("processing", "completed", "pending"):
+        if n.status in (TaskPhase.PROCESSING, TaskPhase.COMPLETED, TaskPhase.PENDING):
             active_nodes.append({
                 "id": n.id,
                 "employee_id": n.employee_id,
@@ -3161,14 +3177,14 @@ def _load_project_tree_for_api(project_id: str):
         slug = _find_project_for_iteration(project_id)
         if slug:
             _, bare_id = _split_qualified_iter(project_id)
-            iter_tree = PROJECTS_DIR / slug / "iterations" / bare_id / "task_tree.yaml"
+            iter_tree = PROJECTS_DIR / slug / "iterations" / bare_id / TASK_TREE_FILENAME
             if iter_tree.exists():
                 return get_tree(iter_tree, project_id=project_id)
 
     project_dir = get_project_dir(project_id)
     if not project_dir:
         return None
-    path = Path(project_dir) / "task_tree.yaml"
+    path = Path(project_dir) / TASK_TREE_FILENAME
     if not path.exists():
         return None
     return get_tree(path, project_id=project_id)
@@ -3220,7 +3236,7 @@ async def get_project_tree(project_id: str) -> dict:
         d["result"] = n.result or ""
         # Compute dependency_status
         if n.depends_on:
-            if n.status == "blocked":
+            if n.status == TaskPhase.BLOCKED:
                 d["dependency_status"] = "blocked"
             elif tree.all_deps_resolved(n.id):
                 d["dependency_status"] = "resolved"
@@ -3254,7 +3270,7 @@ async def upload_avatar(employee_id: str, request: Request) -> dict:
 @router.get("/api/employees/{employee_id}/avatar")
 async def get_avatar(employee_id: str):
     """Serve an employee's avatar image, falling back to default piggy."""
-    from onemancompany.core.config import EMPLOYEES_DIR, COMPANY_DIR
+    from onemancompany.core.config import EMPLOYEES_DIR, HR_DIR
     avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
     if not avatar_path.exists():
         avatar_path = EMPLOYEES_DIR / employee_id / "avatar.jpg"
@@ -3264,7 +3280,7 @@ async def get_avatar(employee_id: str):
         media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
         return FileResponse(avatar_path, media_type=media)
     # Fallback: pick a deterministic avatar from the avatars directory based on employee ID
-    avatars_dir = COMPANY_DIR / "human_resource" / "avatars"
+    avatars_dir = HR_DIR / "avatars"
     if avatars_dir.exists():
         avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
         if avatars:
@@ -3273,7 +3289,7 @@ async def get_avatar(employee_id: str):
             media = "image/png" if pick.suffix == ".png" else "image/jpeg"
             return FileResponse(pick, media_type=media)
     # Legacy fallback
-    default = COMPANY_DIR / "human_resource" / "piggy.jpg"
+    default = HR_DIR / "piggy.jpg"
     if default.exists():
         return FileResponse(default, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="No avatar")
@@ -3413,7 +3429,7 @@ async def get_project_file(project_id: str, file_path: str):
                   ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
                   ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
     if suffix in text_types:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = target.read_text(encoding=ENCODING_UTF8, errors="replace")
         media = "text/plain; charset=utf-8"
         if suffix == ".html":
             media = "text/html; charset=utf-8"
@@ -3485,7 +3501,7 @@ async def get_employee_workspace_file(employee_id: str, file_path: str):
                   ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
                   ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
     if suffix in text_types:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = target.read_text(encoding=ENCODING_UTF8, errors="replace")
         return Response(content=content, media_type="text/plain; charset=utf-8")
     else:
         content = target.read_bytes()
@@ -3614,7 +3630,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         "sprite": ex_data.get("sprite", "employee_default"),
         "remote": is_remote,
     })
-    await _store.save_employee_runtime(employee_id, status="idle")
+    await _store.save_employee_runtime(employee_id, status=STATUS_IDLE)
 
     # Recompute layout
     compute_layout(company_state)
@@ -3624,7 +3640,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(employee_id):
             emp_profile = _store.load_employee(employee_id) or {}
-            if emp_profile.get("hosting") == "self":
+            if emp_profile.get("hosting") == HostingMode.SELF:
                 register_self_hosted(employee_id)
             else:
                 from onemancompany.agents.base import EmployeeAgent
@@ -3642,7 +3658,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
     rehired_data = _store.load_employee(employee_id)
     await event_bus.publish(
         CompanyEvent(
-            type="employee_rehired",
+            type=EventType.EMPLOYEE_REHIRED,
             payload=rehired_data,
             agent="CEO",
         )
@@ -3722,7 +3738,7 @@ def _notify_coo_hire_ready(employee_id: str, ctx: dict) -> None:
         from onemancompany.core.task_tree import get_tree
         tree = get_tree(entry.tree_path)
         node = tree.get_node(entry.node_id)
-        if not node or node.status != "holding":
+        if not node or node.status != TaskPhase.HOLDING.value:
             continue
         # Match by hire_id in HOLDING metadata
         holding_meta = _parse_holding_metadata(node.result)
@@ -3772,14 +3788,14 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
         # CEO rejects — remove from pending and cancel
         pending_hiring_requests.pop(request_id, None)
         await event_bus.publish(CompanyEvent(
-            type="hiring_request_decided",
+            type=EventType.HIRING_REQUEST_DECIDED,
             payload={"hire_id": request_id, "approved": False, "role": req["role"], "note": note},
             agent="CEO",
         ))
         # TODO: cancel HR task if already dispatched
 
     return {
-        "status": "approved" if approved else "rejected",
+        "status": DecisionStatus.APPROVED.value if approved else DecisionStatus.REJECTED.value,
         "hire_id": request_id,
         "role": req["role"],
     }
@@ -3819,10 +3835,6 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
-# Required fields in talent profile.yaml for hiring
-_TALENT_REQUIRED_FIELDS = ["hosting"]
-
-
 def _check_talent_required_fields(talent_data: dict) -> list[str]:
     """Return list of required fields missing from talent profile."""
     missing = []
@@ -3830,7 +3842,7 @@ def _check_talent_required_fields(talent_data: dict) -> list[str]:
         if not talent_data.get(field):
             missing.append(field)
     # Self-hosted talents don't need llm_model/api_provider/auth_method
-    if talent_data.get("hosting") != "self":
+    if talent_data.get("hosting") != HostingMode.SELF:
         if not talent_data.get("llm_model"):
             missing.append("llm_model")
         if not talent_data.get("api_provider"):
@@ -3872,7 +3884,7 @@ async def _publish_talent_profile_error(
 
     logger.warning("[hiring] {}", message)
     await event_bus.publish(CompanyEvent(
-        type="talent_profile_error",
+        type=EventType.TALENT_PROFILE_ERROR,
         payload=payload,
         agent="HR",
     ))
@@ -3886,7 +3898,7 @@ async def _cleanup_single_hire_failure(
 
     _track_onboarding_progress(batch_id, candidate_id, candidate.get("name", ""), "", "failed", error_msg, 1)
     await event_bus.publish(CompanyEvent(
-        type="onboarding_progress",
+        type=EventType.ONBOARDING_PROGRESS,
         payload={"batch_id": batch_id, "candidate_id": candidate_id,
                  "name": candidate.get("name", ""), "step": "failed",
                  "message": error_msg},
@@ -3984,10 +3996,9 @@ async def _do_hire_single(
 
         async def _single_progress(step, message):
             _track_onboarding_progress(batch_id, candidate_id, cand_name, cand_role, step, message, 1)
-            step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-            step_index = step_order.index(step) if step in step_order else -1
+            step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
             await event_bus.publish(CompanyEvent(
-                type="onboarding_progress",
+                type=EventType.ONBOARDING_PROGRESS,
                 payload={"batch_id": batch_id, "candidate_id": candidate_id,
                          "name": cand_name, "step": step,
                          "step_index": step_index,
@@ -3996,7 +4007,7 @@ async def _do_hire_single(
                 agent="HR",
             ))
 
-        is_self = talent_data.get("hosting") == "self"
+        is_self = talent_data.get("hosting") == HostingMode.SELF
         emp = await execute_hire(
             name=cand_name,
             nickname=nickname or "",
@@ -4007,7 +4018,7 @@ async def _do_hire_single(
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
             api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
-            hosting=talent_data.get("hosting", "company"),
+            hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
@@ -4018,7 +4029,7 @@ async def _do_hire_single(
         # Notify COO that the hire is ready (or stash for OAuth completion)
         if coo_ctx.get("project_id"):
             auth_method = talent_data.get("auth_method", "api_key")
-            if auth_method == "oauth":
+            if auth_method == AuthMethod.OAUTH:
                 _pending_oauth_hire[emp.id] = coo_ctx
             else:
                 _notify_coo_hire_ready(emp.id, coo_ctx)
@@ -4042,7 +4053,7 @@ async def _do_hire_single(
             await _em_hr.resume_held_task(HR_ID, held_node_id, f"Hired {candidate['name']} (ID: {emp.id})")
 
         # Broadcast state update
-        await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+        await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
         logger.info("[hiring] Background hire completed: {} ({})", candidate["name"], emp.id)
 
     except asyncio.CancelledError:
@@ -4073,8 +4084,8 @@ async def hire_from_cv(body: dict) -> dict:
     if not role:
         return {"error": "CV missing required field: role"}
 
-    hosting = cv.get("hosting", "company")
-    is_self = hosting == "self"
+    hosting = cv.get("hosting", HostingMode.COMPANY.value)
+    is_self = hosting == HostingMode.SELF
     skills = [s if isinstance(s, str) else s.get("name", "") for s in cv.get("skills", [])]
     talent_id = cv.get("talent_id", "")
     try:
@@ -4097,18 +4108,64 @@ async def hire_from_cv(body: dict) -> dict:
     batch_id = f"cv_{talent_id or name.lower().replace(' ', '_')}_{int(_time.time())}"
 
     async def _cv_progress(step, message):
-        step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-        step_index = step_order.index(step) if step in step_order else -1
+        step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
         await event_bus.publish(CompanyEvent(
-            type="onboarding_progress",
+            type=EventType.ONBOARDING_PROGRESS,
             payload={"batch_id": batch_id, "candidate_id": talent_id or name,
                      "name": name, "step": step, "step_index": step_index,
                      "total_steps": 4, "current": 1, "total": 1, "message": message},
             agent="HR",
         ))
 
+    async def _publish_cv_error(message: str) -> None:
+        logger.error("[cv_hire] {}", message)
+        await event_bus.publish(CompanyEvent(
+            type=EventType.TALENT_PROFILE_ERROR,
+            payload={"role": "HR", "summary": message, "talent_id": talent_id, "missing_fields": []},
+            agent="HR",
+        ))
+
     async def _do_cv_hire():
         try:
+            # Clone talent repo so copy_talent_assets can copy skills/tools/manifest
+            if talent_id:
+                from onemancompany.agents.onboarding import clone_talent_repo, resolve_talent_dir
+                from onemancompany.agents.recruitment import talent_market
+                source_repo = cv.get("source_repo", "")
+                repo_url = source_repo
+                if not repo_url:
+                    try:
+                        from onemancompany.core.config import load_app_config
+                        tm_url = load_app_config().get("talent_market", {}).get("url", "https://api.one-man-company.com/mcp/sse")
+                        onboard_result = await talent_market.onboard(talent_id)
+                        repo_url = onboard_result.get("repo_url", "")
+                    except Exception as e:
+                        await _publish_cv_error(
+                            f"Failed to fetch repo URL for talent '{talent_id}' from Talent Market ({tm_url}): {e}"
+                        )
+                        return
+                if not repo_url:
+                    await _publish_cv_error(
+                        f"Talent '{talent_id}' has no repo URL — cannot copy skills/tools. "
+                        f"Add a 'source_repo' field to the CV or ensure the talent is published on the Talent Market."
+                    )
+                    return
+                try:
+                    await clone_talent_repo(repo_url, talent_id)
+                except Exception as e:
+                    await _publish_cv_error(
+                        f"Failed to clone talent repo '{repo_url}' for '{talent_id}': {e}"
+                    )
+                    return
+                if not resolve_talent_dir(talent_id):
+                    from onemancompany.core.config import TALENTS_RUNTIME_DIR
+                    cloned_dirs = [d for d in TALENTS_RUNTIME_DIR.iterdir() if d.is_dir()]
+                    await _publish_cv_error(
+                        f"Talent repo cloned but directory not found for '{talent_id}'. "
+                        f"Available: {[d.name for d in cloned_dirs]}. Add 'source_repo' to CV pointing directly to the talent repo."
+                    )
+                    return
+
             emp = await execute_hire(
                 name=name,
                 nickname=nickname,
@@ -4123,12 +4180,13 @@ async def hire_from_cv(body: dict) -> dict:
                 remote=False,
                 progress_callback=_cv_progress,
             )
-            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as e:
             logger.exception("[cv_hire] Failed to hire {}", name)
+            await _publish_cv_error(f"Onboarding failed for '{name}': {e}")
 
     spawn_background(_do_cv_hire())
     return {"status": "onboarding", "name": name, "role": role, "message": "Onboarding started in background"}
@@ -4158,11 +4216,11 @@ async def dismiss_shortlist(body: dict) -> dict:
         await _em.resume_held_task(HR_ID, held_node_id, dismiss_reason)
 
     await event_bus.publish(CompanyEvent(
-        type="activity",
+        type=EventType.ACTIVITY,
         payload={"text": "CEO dismissed the shortlist — this recruitment round is cancelled.", "cls": "ceo"},
         agent="CEO",
     ))
-    await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+    await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
 
     return {"status": "ok", "message": "Shortlist dismissed"}
 
@@ -4310,7 +4368,7 @@ async def _do_batch_hire(
             if not candidate:
                 _track_onboarding_progress(batch_id, candidate_id, candidate_id, "", "failed", "Candidate not found", total)
                 await event_bus.publish(CompanyEvent(
-                    type="onboarding_progress",
+                    type=EventType.ONBOARDING_PROGRESS,
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
                              "name": candidate_id, "step": "failed",
                              "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
@@ -4363,11 +4421,10 @@ async def _do_batch_hire(
             sel_role = sel.get("role", "") or candidate.get("role", "")
             async def _make_progress_cb(cid, name, idx_val, role):
                 async def cb(step, message):
-                    step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-                    step_index = step_order.index(step) if step in step_order else -1
+                    step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
                     _track_onboarding_progress(batch_id, cid, name, role, step, message, total)
                     await event_bus.publish(CompanyEvent(
-                        type="onboarding_progress",
+                        type=EventType.ONBOARDING_PROGRESS,
                         payload={"batch_id": batch_id, "candidate_id": cid,
                                  "name": name, "step": step,
                                  "step_index": step_index,
@@ -4389,11 +4446,11 @@ async def _do_batch_hire(
                     role=final_role,
                     skills=skill_names,
                     talent_id=talent_id,
-                    llm_model="" if talent_data.get("hosting") == "self" else talent_data.get("llm_model", ""),
+                    llm_model="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("llm_model", ""),
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
-                    api_provider="" if talent_data.get("hosting") == "self" else talent_data.get("api_provider", "openrouter"),
-                    hosting=talent_data.get("hosting", "company"),
+                    api_provider="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("api_provider", "openrouter"),
+                    hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
                     auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),
                     remote=candidate.get("remote", False),
@@ -4404,7 +4461,7 @@ async def _do_batch_hire(
 
                 if coo_ctx.get("project_id"):
                     auth_method = talent_data.get("auth_method", "api_key")
-                    if auth_method == "oauth":
+                    if auth_method == AuthMethod.OAUTH:
                         _pending_oauth_hire[emp.id] = coo_ctx
                     else:
                         _notify_coo_hire_ready(emp.id, coo_ctx)
@@ -4417,7 +4474,7 @@ async def _do_batch_hire(
                 logger.exception("[hiring] execute_hire failed for {}", cand_name)
                 _track_onboarding_progress(batch_id, candidate_id, cand_name, sel_role, "failed", str(e), total)
                 await event_bus.publish(CompanyEvent(
-                    type="onboarding_progress",
+                    type=EventType.ONBOARDING_PROGRESS,
                     payload={"batch_id": batch_id, "candidate_id": candidate_id,
                              "name": cand_name, "step": "failed",
                              "step_index": -1, "total_steps": 4, "current": idx + 1, "total": total,
@@ -4474,7 +4531,7 @@ async def _do_batch_hire(
             logger.error("[hiring] Failed to resume HR holding task: {}", resume_exc)
 
         try:
-            await event_bus.publish(CompanyEvent(type="state_snapshot", payload={}, agent="CEO"))
+            await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
         except Exception as pub_exc:
             logger.debug("[hiring] Could not publish state_snapshot in finally: {}", pub_exc)
 
@@ -4537,7 +4594,7 @@ async def remote_register(body: dict) -> dict:
     _remote_workers[reg.employee_id] = {
         "worker_url": reg.worker_url,
         "capabilities": reg.capabilities,
-        "status": "idle",
+        "status": STATUS_IDLE,
         "current_task_id": None,
     }
     # Ensure task queue exists
@@ -4546,9 +4603,9 @@ async def remote_register(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="remote_worker_registered",
+            type=EventType.REMOTE_WORKER_REGISTERED,
             payload={"employee_id": reg.employee_id, "capabilities": reg.capabilities},
-            agent="SYSTEM",
+            agent=SYSTEM_AGENT,
         )
     )
     return {"status": "registered", "employee_id": reg.employee_id}
@@ -4582,7 +4639,7 @@ async def remote_submit_results(body: dict) -> dict:
     result = TaskResult(**body)
     # Update worker status
     if result.employee_id in _remote_workers:
-        _remote_workers[result.employee_id]["status"] = "idle"
+        _remote_workers[result.employee_id]["status"] = STATUS_IDLE
         _remote_workers[result.employee_id]["current_task_id"] = None
 
     # Record token usage from remote worker if provided
@@ -4601,14 +4658,14 @@ async def remote_submit_results(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="remote_task_completed",
+            type=EventType.REMOTE_TASK_COMPLETED,
             payload={
                 "task_id": result.task_id,
                 "employee_id": result.employee_id,
                 "status": result.status,
                 "output": result.output[:MAX_SUMMARY_LEN],
             },
-            agent="SYSTEM",
+            agent=SYSTEM_AGENT,
         )
     )
     return {"status": "received", "task_id": result.task_id}
@@ -4787,7 +4844,7 @@ async def get_tool_definition(tool_id: str):
             for tf in sorted(templates_dir.iterdir()):
                 if tf.is_file() and not tf.name.startswith("."):
                     # Parse frontmatter for name/description
-                    content = tf.read_text(encoding="utf-8")
+                    content = tf.read_text(encoding=ENCODING_UTF8)
                     tmpl_meta = {"filename": tf.name, "name": tf.stem, "description": ""}
                     if content.startswith("---"):
                         parts = content.split("---", 2)
@@ -4939,7 +4996,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
 
     # Persist to .env file
     from pathlib import Path as _Path
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()
@@ -4985,7 +5042,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
         os.environ[name] = value
 
     # Persist to .env
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()
@@ -5026,7 +5083,7 @@ async def tool_get_template(tool_id: str, filename: str):
     if not file_path.is_file() or not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=404, detail="Template not found")
 
-    return {"filename": filename, "content": file_path.read_text(encoding="utf-8")}
+    return {"filename": filename, "content": file_path.read_text(encoding=ENCODING_UTF8)}
 
 
 @router.put("/api/tools/{tool_id}/templates/{filename}")
@@ -5056,7 +5113,7 @@ async def tool_save_template(tool_id: str, filename: str, body: dict):
     if not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path.write_text(content, encoding="utf-8")
+    file_path.write_text(content, encoding=ENCODING_UTF8)
     return {"status": "ok", "filename": filename}
 
 
@@ -5138,7 +5195,7 @@ async def sales_submit_task(body: dict) -> dict:
 
     await event_bus.publish(
         CompanyEvent(
-            type="sales_task_submitted",
+            type=EventType.SALES_TASK_SUBMITTED,
             payload=sales_task_dict,
             agent="SALES",
         )
@@ -5279,7 +5336,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
 
     # Also persist to .env for next restart
     from onemancompany.core.config import COMPANY_ROOT
-    env_path = COMPANY_ROOT.parent / ".env"
+    env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     if env_path.exists():
         existing = env_path.read_text()
     else:
@@ -5305,7 +5362,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
     env_path.write_text("\n".join(result_lines) + "\n")
 
     await event_bus.publish(CompanyEvent(
-        type="credentials_submitted",
+        type=EventType.CREDENTIALS_SUBMITTED,
         payload={"service": service_name, "fields": list(body.keys())},
         agent="CEO",
     ))
@@ -5320,7 +5377,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
     body = await request.json()  # {"telegram_bot_token": "...", ...}
 
     from onemancompany.core.config import COMPANY_ROOT
-    env_path = COMPANY_ROOT.parent / ".env"
+    env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     existing = env_path.read_text() if env_path.exists() else ""
 
     updated_keys = {}
@@ -5550,9 +5607,9 @@ async def list_employees():
         runtime = data.pop("runtime", {})
         data["id"] = emp_id
         data["employee_number"] = emp_id
-        data["status"] = runtime.get("status", "idle")
+        data["status"] = runtime.get("status", STATUS_IDLE)
         data["is_listening"] = runtime.get("is_listening", False)
-        data["current_task_summary"] = runtime.get("current_task_summary", "")
+        data[PF_CURRENT_TASK_SUMMARY] = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
         data["api_online"] = runtime.get("api_online", True)
         data["needs_setup"] = runtime.get("needs_setup", False)
         result.append(data)
@@ -5607,7 +5664,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
         return results
 
     # Recursively find all task_tree.yaml files under projects/
-    for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
         tree = get_tree(tree_path)
         for node in tree.all_nodes():
             if node.node_type != NodeType.CEO_REQUEST:
@@ -5643,7 +5700,7 @@ def _find_ceo_node(node_id: str):
     from onemancompany.core.task_tree import get_tree
 
     if PROJECTS_DIR.exists():
-        for tree_path in PROJECTS_DIR.rglob("task_tree.yaml"):
+        for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
             tree = get_tree(tree_path)
             node = tree.get_node(node_id)
             if node and node.node_type == NodeType.CEO_REQUEST:
@@ -5676,7 +5733,7 @@ async def open_ceo_conversation(node_id: str):
         transition(node.id, TaskPhase.PENDING, TaskPhase.PROCESSING)
         node.status = TaskPhase.PROCESSING.value
         from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / "task_tree.yaml")
+        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
 
     # Find the dispatching employee (parent node's employee)
     parent = tree.get_node(node.parent_id) if node.parent_id else None
@@ -5727,7 +5784,7 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
         node.status = TaskPhase.ACCEPTED.value
         from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / "task_tree.yaml")
+        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
         _trigger_dep_resolution(project_dir, tree, node)
 
         # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
@@ -5838,13 +5895,13 @@ from onemancompany.core.conversation import (
     load_messages as load_conv_messages,
     save_conversation_meta,
 )
+from onemancompany.core.models import ConversationType, ConversationPhase
 
 _conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
 
-_VALID_CONV_TYPES = {"ceo_inbox", "oneonone"}
-_VALID_CONV_PHASES = {"active", "closing", "closed"}
-_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
+_VALID_CONV_TYPES = {t.value for t in ConversationType}
+_VALID_CONV_PHASES = {p.value for p in ConversationPhase}
 
 
 def _parse_iso_timestamp(ts: str | None) -> float:
@@ -5913,7 +5970,7 @@ async def create_conversation(body: dict) -> dict:
         raise HTTPException(status_code=400, detail=f"Invalid type: must be one of {_VALID_CONV_TYPES}")
     if not employee_id:
         raise HTTPException(status_code=400, detail="employee_id is required")
-    if conv_type == "ceo_inbox" and not body.get("project_dir"):
+    if conv_type == ConversationType.CEO_INBOX.value and not body.get("project_dir"):
         raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
 
     # Reuse prior one-on-one thread per employee so restarting meeting preserves history.
@@ -6083,7 +6140,7 @@ async def clear_conversation_history(conv_id: str) -> dict:
 async def list_conversations(type: str | None = None, phase: str | None = None) -> dict:
     if phase and phase not in _VALID_CONV_PHASES:
         raise HTTPException(status_code=400, detail=f"Invalid phase: must be one of {_VALID_CONV_PHASES}")
-    if phase and phase != "active":
+    if phase and phase != ConversationPhase.ACTIVE.value:
         convs = _conversation_service.list_by_phase(type=type, phase=phase)
     else:
         convs = _conversation_service.list_active(type=type)
@@ -6113,7 +6170,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
         try:
             await _conversation_service.send_message(
-                conv_id, sender="system", role="System",
+                conv_id, sender=SYSTEM_SENDER, role="System",
                 text="Agent is not responding. Please try again.",
             )
         except Exception:

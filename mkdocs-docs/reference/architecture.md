@@ -1,3 +1,7 @@
+---
+description: "Technical architecture overview of OneManCompany including the Vessel + Talent system, org chart, and agent communication."
+---
+
 # Architecture
 
 > Technical reference for developers and contributors.

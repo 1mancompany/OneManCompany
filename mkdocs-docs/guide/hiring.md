@@ -1,3 +1,7 @@
+---
+description: "How to hire AI employees from the Talent Market, interview candidates, and onboard new team members in OneManCompany."
+---
+
 # Hiring & Talent Market
 
 Need more people? HR searches the Talent Market — a community-verified marketplace of AI employees — and handles the entire hiring process.

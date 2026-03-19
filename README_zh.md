@@ -9,10 +9,12 @@
 <p align="center"><b>AI 一人公司操作系统</b></p>
 
 <p align="center">
+  <a href="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml"><img src="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+  <a href="https://discord.gg/MGsdrARx"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 <p align="center">
@@ -373,7 +375,7 @@ npx @1mancompany/onemancompany init
 npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
-这会停止正在运行的服务，并删除整个安装目录（包括 `.onemancompany/` 配置和所有公司数据）。需要确认后才会执行。
+卸载会删除所有生成的文件。如需保留业务数据，请在卸载前将 `.onemancompany/company/business/` 导出备份。
 
 ### 配置文件
 
@@ -446,6 +448,18 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 
 ---
 
+## Star History
+
+<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+ </picture>
+</a>
+
+---
+
 ## 引用
 
 如果你在研究或项目中使用了本项目，请引用：
@@ -453,7 +467,7 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 ```bibtex
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Meng Fang, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},

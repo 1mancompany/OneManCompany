@@ -9,10 +9,12 @@
 <p align="center"><b>The AI Operating System for One-Person Companies</b></p>
 
 <p align="center">
+  <a href="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml"><img src="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+  <a href="https://discord.gg/MGsdrARx"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 <p align="center">
@@ -281,7 +283,9 @@ npx @1mancompany/onemancompany init
 # Custom port
 npx @1mancompany/onemancompany --port 8080
 
-# Uninstall (stops service + deletes installation)
+# Uninstall (stops service + deletes all generated files)
+# This will remove everything. To preserve your business data,
+# back up .onemancompany/company/business/ before uninstalling.
 npx --yes @1mancompany/onemancompany@latest uninstall
 ```
 
@@ -431,6 +435,18 @@ See [vibe-coding-guide.md](vibe-coding-guide.md) for coding guidelines.
 
 ---
 
+## Star History
+
+<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+ </picture>
+</a>
+
+---
+
 ## Citation
 
 If you use OneManCompany in your research or project, please cite it:
@@ -438,7 +454,7 @@ If you use OneManCompany in your research or project, please cite it:
 ```bibtex
 @software{onemancompany2026,
   title = {OneManCompany: The AI Operating System for One-Person Companies},
-  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Weilin Luo, Jun Wang},
+  author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Meng Fang, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},
   year = {2026},

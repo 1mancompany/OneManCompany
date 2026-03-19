@@ -16,29 +16,57 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-# Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
-_debug_mode = os.environ.get("OMC_DEBUG", "0") == "1"
-logger.remove()
-logger.add(sys.stderr, level="DEBUG" if _debug_mode else "INFO")
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+from onemancompany.core.config import ENCODING_UTF8, ENV_OMC_DEBUG, LAUNCH_SH_FILENAME, LogLevel, DATA_DIR_NAME, DOT_ENV_FILENAME, PF_LEVEL, PF_REMOTE, SRC_DIR_NAME, SYSTEM_AGENT
+from onemancompany.core.models import EventType, HostingMode
 
-# Always write logs to file; DEBUG level when debug mode, else INFO
-_log_dir = Path.cwd() / ".onemancompany" / "logs"
+LOG_DIR_NAME = "logs"
+FRONTEND_DIR_NAME = "frontend"
+LOG_FILE_PATTERN = "omc_{time:YYYY-MM-DD}.log"
+LOG_ROTATION = "00:00"
+LOG_RETENTION = "7 days"
+CONFIG_DEBOUNCE_SECONDS = 0.5
+CONFIG_WATCH_EXTENSIONS = {".yaml", ".yml", ".md"}
+CODE_DEBOUNCE_SECONDS = 2.0
+FRONTEND_EXTENSIONS = {".js", ".css", ".html"}
+BACKEND_EXTENSIONS = {".py"}
+
+# Hot-reload result dict keys
+RELOAD_KEY_STATUS = "status"
+RELOAD_KEY_UPDATED = "employees_updated"
+RELOAD_KEY_ADDED = "employees_added"
+RELOAD_KEY_CONFIG = "config_reloaded"
+WATCHER_SLEEP_SECONDS = 3600
+OBSERVER_JOIN_TIMEOUT = 2
+
+# ---------------------------------------------------------------------------
+
+# Configure loguru: DEBUG level when OMC_DEBUG=1, else INFO
+_debug_mode = os.environ.get(ENV_OMC_DEBUG, "0") == "1"
+_log_level = LogLevel.DEBUG if _debug_mode else LogLevel.INFO
+logger.remove()
+logger.add(sys.stderr, level=_log_level)
+
+# Always write logs to file
+_log_dir = Path.cwd() / DATA_DIR_NAME / LOG_DIR_NAME
 _log_dir.mkdir(parents=True, exist_ok=True)
 logger.add(
-    _log_dir / "omc_{time:YYYY-MM-DD}.log",
-    level="DEBUG" if _debug_mode else "INFO",
-    rotation="00:00",
-    retention="7 days",
-    encoding="utf-8",
+    _log_dir / LOG_FILE_PATTERN,
+    level=_log_level,
+    rotation=LOG_ROTATION,
+    retention=LOG_RETENTION,
+    encoding=ENCODING_UTF8,
 )
 
 # Load .env from data root (.onemancompany/) first, fall back to source root
-_data_root = Path.cwd() / ".onemancompany"
+_data_root = Path.cwd() / DATA_DIR_NAME
 _source_root = Path(__file__).parent.parent.parent
 
-load_dotenv(_data_root / ".env", override=False)
+load_dotenv(_data_root / DOT_ENV_FILENAME, override=False)
 # Also load from source root for backward compatibility during migration
-load_dotenv(_source_root / ".env", override=False)
+load_dotenv(_source_root / DOT_ENV_FILENAME, override=False)
 
 from onemancompany.api.routes import router
 from onemancompany.api.websocket import ws_manager
@@ -53,7 +81,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
-FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend"
+FRONTEND_DIR = Path(__file__).parent.parent.parent / FRONTEND_DIR_NAME
 
 # ---------------------------------------------------------------------------
 # Pending code changes (CEO-controlled hot reload)
@@ -112,10 +140,8 @@ async def _start_file_watcher() -> None:
     from watchdog.events import FileSystemEventHandler
 
     from onemancompany.core.config import APP_CONFIG_PATH, COMPANY_DIR, is_hot_reload_enabled
+    from onemancompany.core.models import DecisionStatus
     from onemancompany.core.state import request_reload
-
-    DEBOUNCE_SECONDS = 0.5
-    WATCH_EXTENSIONS = {".yaml", ".yml", ".md"}
 
     class _ReloadHandler(FileSystemEventHandler):
         def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -125,20 +151,20 @@ async def _start_file_watcher() -> None:
         def _schedule_reload(self) -> None:
             if self._pending:
                 self._pending.cancel()
-            self._pending = self._loop.call_later(DEBOUNCE_SECONDS, self._do_reload)
+            self._pending = self._loop.call_later(CONFIG_DEBOUNCE_SECONDS, self._do_reload)
 
         def _do_reload(self) -> None:
             self._pending = None
             try:
                 result = request_reload()
-                if result.get("status") == "deferred":
+                if result.get(RELOAD_KEY_STATUS) == DecisionStatus.DEFERRED:
                     print("[hot-reload] Deferred: agents are busy, will reload when idle")
                 else:
-                    updated = result.get("employees_updated", [])
-                    added = result.get("employees_added", [])
+                    updated = result.get(RELOAD_KEY_UPDATED, [])
+                    added = result.get(RELOAD_KEY_ADDED, [])
                     if updated or added:
                         print(f"[hot-reload] Reloaded from disk: {len(updated)} updated, {len(added)} added")
-                    if result.get("config_reloaded"):
+                    if result.get(RELOAD_KEY_CONFIG):
                         print("[hot-reload] config.yaml reloaded")
             except Exception as e:
                 print(f"[hot-reload] Error during reload: {e}")
@@ -146,13 +172,13 @@ async def _start_file_watcher() -> None:
         def on_modified(self, event):
             if event.is_directory:
                 return
-            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
+            if Path(event.src_path).suffix in CONFIG_WATCH_EXTENSIONS:
                 self._schedule_reload()
 
         def on_created(self, event):
             if event.is_directory:
                 return
-            if Path(event.src_path).suffix in WATCH_EXTENSIONS:
+            if Path(event.src_path).suffix in CONFIG_WATCH_EXTENSIONS:
                 self._schedule_reload()
 
     class _ConfigReloadHandler(FileSystemEventHandler):
@@ -190,10 +216,10 @@ async def _start_file_watcher() -> None:
     try:
         # Keep the task alive until cancelled
         while True:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(WATCHER_SLEEP_SECONDS)
     except asyncio.CancelledError:
         observer.stop()
-        observer.join(timeout=2)
+        observer.join(timeout=OBSERVER_JOIN_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -213,14 +239,11 @@ async def _start_code_watcher() -> None:
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.vessel import employee_manager
 
-    DEBOUNCE_SECONDS = 2.0
-    FRONTEND_EXTENSIONS = {".js", ".css", ".html"}
-    BACKEND_EXTENSIONS = {".py"}
 
     # Build set of founding employee manifest paths to watch
-    from onemancompany.core.config import EMPLOYEES_DIR, EXEC_IDS, invalidate_manifest_cache
+    from onemancompany.core.config import EMPLOYEES_DIR, EXEC_IDS, MANIFEST_FILENAME, invalidate_manifest_cache
     _founding_manifest_paths = {
-        str(EMPLOYEES_DIR / eid / "manifest.json") for eid in EXEC_IDS
+        str(EMPLOYEES_DIR / eid / MANIFEST_FILENAME) for eid in EXEC_IDS
     }
 
     class _CodeChangeHandler(FileSystemEventHandler):
@@ -240,7 +263,7 @@ async def _start_code_watcher() -> None:
                 self._manifest_changes.add(path)
                 if self._pending_manifest:
                     self._pending_manifest.cancel()
-                self._pending_manifest = self._loop.call_later(DEBOUNCE_SECONDS, self._handle_manifest)
+                self._pending_manifest = self._loop.call_later(CODE_DEBOUNCE_SECONDS, self._handle_manifest)
                 return
             # Determine if frontend or backend
             frontend_dir_str = str(FRONTEND_DIR)
@@ -248,13 +271,13 @@ async def _start_code_watcher() -> None:
                 self._frontend_changes.add(path)
                 if self._pending_frontend:
                     self._pending_frontend.cancel()
-                self._pending_frontend = self._loop.call_later(DEBOUNCE_SECONDS, self._notify_frontend)
+                self._pending_frontend = self._loop.call_later(CODE_DEBOUNCE_SECONDS, self._notify_frontend)
             elif p.suffix in BACKEND_EXTENSIONS:
                 self._backend_changes.add(path)
                 _pending_code_changes.add(path)
                 if self._pending_backend:
                     self._pending_backend.cancel()
-                self._pending_backend = self._loop.call_later(DEBOUNCE_SECONDS, self._handle_backend)
+                self._pending_backend = self._loop.call_later(CODE_DEBOUNCE_SECONDS, self._handle_backend)
 
         def _notify_frontend(self) -> None:
             self._pending_frontend = None
@@ -264,9 +287,9 @@ async def _start_code_watcher() -> None:
                 return
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="frontend_update_available",
+                    type=EventType.FRONTEND_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files)},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
             print(f"[code-watcher] {len(files)} frontend file(s) changed, notifying browser")
@@ -287,9 +310,9 @@ async def _start_code_watcher() -> None:
             # Notify and schedule graceful restart (same as backend changes)
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="code_update_available",
+                    type=EventType.CODE_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files), "reason": "Founding employee manifest changed"},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
             if employee_manager.is_idle():
@@ -300,9 +323,9 @@ async def _start_code_watcher() -> None:
                 print(f"[code-watcher] Founding manifest changed, restart deferred (tasks running)")
                 asyncio.ensure_future(event_bus.publish(
                     CompanyEvent(
-                        type="backend_restart_scheduled",
+                        type=EventType.BACKEND_RESTART_SCHEDULED,
                         payload={"reason": "Founding employee config changed, waiting for tasks to complete", "immediate": False},
-                        agent="SYSTEM",
+                        agent=SYSTEM_AGENT,
                     )
                 ))
 
@@ -316,9 +339,9 @@ async def _start_code_watcher() -> None:
             # Notify CEO of pending changes
             asyncio.ensure_future(event_bus.publish(
                 CompanyEvent(
-                    type="code_update_available",
+                    type=EventType.CODE_UPDATE_AVAILABLE,
                     payload={"changed_files": files, "count": len(files)},
-                    agent="SYSTEM",
+                    agent=SYSTEM_AGENT,
                 )
             ))
 
@@ -331,9 +354,9 @@ async def _start_code_watcher() -> None:
                 print(f"[code-watcher] {len(files)} backend file(s) changed, restart deferred (tasks running)")
                 asyncio.ensure_future(event_bus.publish(
                     CompanyEvent(
-                        type="backend_restart_scheduled",
+                        type=EventType.BACKEND_RESTART_SCHEDULED,
                         payload={"reason": "Waiting for tasks to complete", "immediate": False},
-                        agent="SYSTEM",
+                        agent=SYSTEM_AGENT,
                     )
                 ))
 
@@ -351,7 +374,7 @@ async def _start_code_watcher() -> None:
     handler = _CodeChangeHandler(loop)
     observer = Observer()
 
-    src_dir = str(SOURCE_ROOT / "src")
+    src_dir = str(SOURCE_ROOT / SRC_DIR_NAME)
     frontend_dir = str(FRONTEND_DIR)
     employees_dir = str(EMPLOYEES_DIR)
     observer.schedule(handler, src_dir, recursive=True)
@@ -364,10 +387,10 @@ async def _start_code_watcher() -> None:
 
     try:
         while True:
-            await asyncio.sleep(3600)
+            await asyncio.sleep(WATCHER_SLEEP_SECONDS)
     except asyncio.CancelledError:
         observer.stop()
-        observer.join(timeout=2)
+        observer.join(timeout=OBSERVER_JOIN_TIMEOUT)
 
 
 # ---------------------------------------------------------------------------
@@ -477,7 +500,7 @@ async def lifespan(app: FastAPI):
         _fcfg = _emp_cfgs.get(_fid)
         _emp_dir_f = _EMPLOYEES_DIR / _fid
         _f_vessel = load_vessel_config(_emp_dir_f) if _emp_dir_f.exists() else None
-        if _fcfg and _fcfg.hosting == "self":
+        if _fcfg and _fcfg.hosting == HostingMode.SELF:
             register_self_hosted(_fid, config=_f_vessel)
             print(f"[startup] Registered self-hosted founding {_fid}")
         else:
@@ -491,9 +514,9 @@ async def lifespan(app: FastAPI):
     for emp_id, emp_data in _store_mod.load_all_employees().items():
         if emp_id in FOUNDING_IDS:
             continue
-        if emp_data.get("level", 0) >= FOUNDING_LEVEL:
+        if emp_data.get(PF_LEVEL, 0) >= FOUNDING_LEVEL:
             continue
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue
 
         # Load VesselConfig for per-employee DNA
@@ -501,14 +524,14 @@ async def lifespan(app: FastAPI):
         _vessel_cfg = load_vessel_config(_emp_dir) if _emp_dir.exists() else None
 
         _cfg = _emp_cfgs.get(emp_id)
-        if _cfg and _cfg.hosting == "self":
+        if _cfg and _cfg.hosting == HostingMode.SELF:
             # Self-hosted: register with ClaudeSessionExecutor (on-demand CLI sessions)
             register_self_hosted(emp_id, config=_vessel_cfg)
             print(f"[startup] Registered self-hosted {emp_data.get('name', emp_id)} ({emp_id}) — on-demand sessions")
             continue
 
         # Company-hosted with launch.sh → SubprocessExecutor (foreground per-task)
-        _launch_sh = _emp_dir / "launch.sh"
+        _launch_sh = _emp_dir / LAUNCH_SH_FILENAME
         if _launch_sh.exists():
             from onemancompany.core.subprocess_executor import SubprocessExecutor
             from onemancompany.core.vessel import employee_manager as _em_mgr
