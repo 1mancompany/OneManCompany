@@ -45,8 +45,9 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     await append_room_chat(room_id, entry)
 
 
-# Track files read in current agent session — write/edit safety check
-_files_read_in_session: set[str] = set()
+# Track files read per employee — write/edit safety check
+# Key: employee_id, Value: set of resolved file paths
+_files_read_by_employee: dict[str, set[str]] = {}
 
 
 def _resolve_employee_path(file_path: str, employee_id: str = ""):
@@ -101,7 +102,7 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
             lines = lines[start:end]
             content = "".join(lines)
 
-        _files_read_in_session.add(str(resolved))
+        _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
         return {
             "status": "ok",
             "path": file_path,
@@ -196,7 +197,7 @@ async def write(
 
     # Safety: must read before overwriting existing files
     if is_update:
-        if str(resolved) not in _files_read_in_session:
+        if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
             return {
                 "status": "error",
                 "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
@@ -205,7 +206,7 @@ async def write(
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(content, encoding="utf-8")
-    _files_read_in_session.add(str(resolved))
+    _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
 
     result: dict = {
         "status": "ok",
@@ -253,7 +254,7 @@ async def edit(
         return {"status": "error", "message": f"File not found: {file_path}"}
 
     # Safety: must read before editing
-    if str(resolved) not in _files_read_in_session:
+    if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
         return {
             "status": "error",
             "message": f"You must read '{file_path}' before editing it. Use read() first.",
