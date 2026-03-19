@@ -27,17 +27,22 @@ def _load_key_from_dotenv() -> str:
             if line.startswith("#") or "=" not in line:
                 continue
             key, _, val = line.partition("=")
-            if key.strip() == "ANTHROPIC_API_KEY":
+            if key.strip() == _ENV_KEY_NAME:
                 return val.strip().strip("\"'")
     except Exception as exc:
         logger.debug("[web_search] failed to load API key from .env: {}", exc)
     return ""
 
 
+_ENV_KEY_NAME = "ANTHROPIC_API_KEY"
 _API_URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-sonnet-4-20250514"
 _API_VERSION = "2025-01-01"
 _USER_AGENT = "OneManCompany-WebSearch/1.0"
+_BLOCK_TYPE_SEARCH_RESULT = "web_search_tool_result"
+_BLOCK_TYPE_RESULT_ITEM = "web_search_result"
+_BLOCK_TYPE_TEXT = "text"
+_TOOL_TYPE = "web_search_20250305"
 
 
 def _post_json(url: str, headers: dict, payload: dict, timeout: int = 30) -> tuple[dict | None, str | None]:
@@ -65,9 +70,9 @@ def _extract_search_results(response: dict) -> list[dict]:
     """Extract web search results from Claude API response content blocks."""
     results = []
     for block in response.get("content", []):
-        if block.get("type") == "web_search_tool_result":
+        if block.get("type") == _BLOCK_TYPE_SEARCH_RESULT:
             for item in block.get("content", []):
-                if item.get("type") == "web_search_result":
+                if item.get("type") == _BLOCK_TYPE_RESULT_ITEM:
                     results.append({
                         "title": item.get("title", ""),
                         "url": item.get("url", ""),
@@ -80,7 +85,7 @@ def _extract_text_answer(response: dict) -> str:
     """Extract the text summary from Claude's response."""
     parts = []
     for block in response.get("content", []):
-        if block.get("type") == "text":
+        if block.get("type") == _BLOCK_TYPE_TEXT:
             parts.append(block.get("text", ""))
     return "\n".join(parts).strip()
 
@@ -100,12 +105,12 @@ def web_search(query: str, max_results: int = 5) -> dict:
     if not query:
         return {"status": "error", "message": "query is empty"}
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    api_key = os.environ.get(_ENV_KEY_NAME, "").strip()
     if not api_key:
         # Fallback: read from company .env file
         api_key = _load_key_from_dotenv()
     if not api_key:
-        return {"status": "error", "message": "ANTHROPIC_API_KEY not configured in .env"}
+        return {"status": "error", "message": f"{_ENV_KEY_NAME} not configured in .env"}
 
     max_results = max(1, min(int(max_results), 20))
 
@@ -121,7 +126,7 @@ def web_search(query: str, max_results: int = 5) -> dict:
         "max_tokens": 4096,
         "tools": [
             {
-                "type": "web_search_20250305",
+                "type": _TOOL_TYPE,
                 "name": "web_search",
                 "max_uses": max_results,
             }
