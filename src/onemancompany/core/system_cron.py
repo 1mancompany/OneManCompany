@@ -25,7 +25,14 @@ from typing import Any, Callable, Coroutine, Literal, TypedDict
 
 from loguru import logger
 
+from onemancompany.core.config import SYSTEM_SENDER
 from onemancompany.core.interval import parse_interval
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
 
 
 @dataclass
@@ -153,7 +160,7 @@ class SystemCronManager:
                 "interval": defn.current_interval,
                 "description": defn.description,
                 "running": running,
-                "scope": "system",
+                "scope": SYSTEM_SENDER,
                 "employee_id": None,
                 "last_run": defn.last_run.isoformat() if defn.last_run else None,
                 "run_count": defn.run_count,
@@ -194,9 +201,6 @@ system_cron_manager = SystemCronManager()
 # ---------------------------------------------------------------------------
 # Handler implementations
 # ---------------------------------------------------------------------------
-
-REVIEW_REMINDER_THRESHOLD_SECONDS = 300  # 5 minutes
-
 
 @system_cron("heartbeat", interval="1m", description="员工 API 连接检测")
 async def heartbeat_check() -> list | None:

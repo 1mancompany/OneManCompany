@@ -4,6 +4,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Literal
 
+from onemancompany.core.config import SYSTEM_SENDER
+
 EventType = Literal[
     "employee_hired",
     "employee_fired",
@@ -66,7 +68,7 @@ EventType = Literal[
 class CompanyEvent:
     type: EventType
     payload: dict
-    agent: str = "system"
+    agent: str = SYSTEM_SENDER
 
 
 class EventBus:

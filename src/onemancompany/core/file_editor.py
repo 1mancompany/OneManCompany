@@ -9,12 +9,16 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, SOURCE_ROOT
+from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR, SOURCE_ROOT
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import DecisionStatus
 
-# Backup subfolder name (created alongside the modified file)
+# Single-file constants
 BACKUP_FOLDER_NAME = ".backups"
+WORKSPACE_DIR_NAME = "workspace"
+_PERM_BACKEND_CODE = "backend_code_maintenance"
+_PATH_PREFIX_SRC = "src/"
+_PATH_PREFIX_COMPANY = "company/"
 
 # In-memory pending edits awaiting CEO approval
 pending_file_edits: dict[str, dict] = {}
@@ -30,14 +34,14 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
         p = Path(file_path)
         if not p.is_absolute():
             # Paths starting with "src/" resolve relative to SOURCE_ROOT
-            if file_path.startswith("src/"):
+            if file_path.startswith(_PATH_PREFIX_SRC):
                 p = SOURCE_ROOT / p
             else:
                 # Strip leading "company/" if present — COMPANY_DIR already
                 # points to the company/ directory, so "company/foo" would
                 # resolve to company/company/foo without this guard.
-                if file_path.startswith("company/"):
-                    file_path = file_path[len("company/"):]
+                if file_path.startswith(_PATH_PREFIX_COMPANY):
+                    file_path = file_path[len(_PATH_PREFIX_COMPANY):]
                     p = COMPANY_DIR / file_path
                 else:
                     p = COMPANY_DIR / p
@@ -48,7 +52,7 @@ def _resolve_path(file_path: str, permissions: list[str] | None = None) -> Path 
             return p
 
         # backend_code_maintenance allows access to src/
-        if permissions and "backend_code_maintenance" in permissions:
+        if permissions and _PERM_BACKEND_CODE in permissions:
             src_dir = (SOURCE_ROOT / "src").resolve()
             if str(p).startswith(str(src_dir)):
                 return p
@@ -69,7 +73,7 @@ def is_in_free_zone(resolved_path: Path, employee_id: str = "", project_dir: str
 
     # Employee workspace
     if employee_id:
-        workspace = str((EMPLOYEES_DIR / employee_id / "workspace").resolve())
+        workspace = str((EMPLOYEES_DIR / employee_id / WORKSPACE_DIR_NAME).resolve())
         if p.startswith(workspace):
             return True
 
@@ -98,7 +102,7 @@ def propose_edit(
     old_content = ""
     if resolved.exists():
         try:
-            old_content = resolved.read_text(encoding="utf-8")
+            old_content = resolved.read_text(encoding=ENCODING_UTF8)
         except Exception:
             old_content = "(unable to read original file)"
 
@@ -145,7 +149,7 @@ def execute_edit(edit_id: str) -> dict:
 
     # Write new content
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(edit["new_content"], encoding="utf-8")
+    file_path.write_text(edit["new_content"], encoding=ENCODING_UTF8)
 
     # Request soft-reload — runs immediately if idle, defers if agents are busy
     from onemancompany.core.state import request_reload

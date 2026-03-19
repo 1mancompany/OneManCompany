@@ -19,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from onemancompany.core.config import VESSEL_YAML_FILENAME
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -159,7 +160,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
       2. default_vessel.yaml (built-in default)
     """
     # 1. vessel/vessel.yaml
-    vessel_yaml = emp_dir / "vessel" / "vessel.yaml"
+    vessel_yaml = emp_dir / "vessel" / VESSEL_YAML_FILENAME
     if vessel_yaml.exists():
         try:
             with open(vessel_yaml) as f:
@@ -210,7 +211,7 @@ def save_vessel_config(emp_dir: Path, config: VesselConfig) -> None:
         },
     }
 
-    with open(vessel_dir / "vessel.yaml", "w") as f:
+    with open(vessel_dir / VESSEL_YAML_FILENAME, "w") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 

@@ -96,6 +96,11 @@ class ToolCategory(str, Enum):
     ASSET = "asset"
 
 
+class AuthMethod(str, Enum):
+    API_KEY = "api_key"
+    OAUTH = "oauth"
+
+
 # ---------------------------------------------------------------------------
 # Performance
 # ---------------------------------------------------------------------------

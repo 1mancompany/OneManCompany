@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, STATUS_IDLE, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PROJECT_YAML_FILENAME, PROJECTS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -92,7 +92,7 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
     if not resolved.is_file():
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = resolved.read_text(encoding=ENCODING_UTF8)
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
 
@@ -202,10 +202,10 @@ async def write(
                 "status": "error",
                 "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
             }
-        original_content = resolved.read_text(encoding="utf-8")
+        original_content = resolved.read_text(encoding=ENCODING_UTF8)
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding="utf-8")
+    resolved.write_text(content, encoding=ENCODING_UTF8)
     _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
 
     result: dict = {
@@ -263,7 +263,7 @@ async def edit(
     if old_string == new_string:
         return {"status": "error", "message": "old_string and new_string are identical."}
 
-    content = resolved.read_text(encoding="utf-8")
+    content = resolved.read_text(encoding=ENCODING_UTF8)
     count = content.count(old_string)
 
     if count == 0:
@@ -282,7 +282,7 @@ async def edit(
         new_content = content.replace(old_string, new_string, 1)
         replacements = 1
 
-    resolved.write_text(new_content, encoding="utf-8")
+    resolved.write_text(new_content, encoding=ENCODING_UTF8)
     return {
         "status": "ok",
         "path": str(resolved),
@@ -431,7 +431,7 @@ def grep_search(
 
     for fpath in files:
         try:
-            text = fpath.read_text(encoding="utf-8", errors="replace")
+            text = fpath.read_text(encoding=ENCODING_UTF8, errors="replace")
         except Exception as e:
             logger.debug("grep_search: skipping unreadable file {}: {}", fpath, e)
             continue
@@ -708,7 +708,7 @@ async def pull_meeting(
             ]
 
             if not willing:
-                await _chat(room.id, "Meeting System", "system", "All participants have finished speaking. Meeting concluded.")
+                await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All participants have finished speaking. Meeting concluded.")
                 break
 
             # Token grab — sort by timestamp, fastest wins
@@ -735,7 +735,7 @@ async def pull_meeting(
             })
         else:
             # max_rounds reached
-            await _chat(room.id, "Meeting System", "system", "Meeting has reached the maximum number of rounds. Auto-concluded.")
+            await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "Meeting has reached the maximum number of rounds. Auto-concluded.")
 
         # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(
@@ -874,7 +874,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
                     continue
                 # Skip binary files — just report size
                 try:
-                    content = fpath.read_text(encoding="utf-8")
+                    content = fpath.read_text(encoding=ENCODING_UTF8)
                     result["files"][fname] = content
                 except (UnicodeDecodeError, ValueError):
                     result["files"][fname] = f"[binary file, {fpath.stat().st_size} bytes]"
@@ -1237,11 +1237,11 @@ def update_project_team(members: list[dict]) -> dict:
     from datetime import datetime
     import yaml
 
-    project_yaml = Path(task.project_dir) / "project.yaml"
+    project_yaml = Path(task.project_dir) / PROJECT_YAML_FILENAME
     if not project_yaml.exists():
         return {"status": "error", "message": "project.yaml not found."}
 
-    data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
     team = data.get("team", [])
 
     now = datetime.now().isoformat()
@@ -1255,7 +1255,7 @@ def update_project_team(members: list[dict]) -> dict:
     data["team"] = team
     project_yaml.write_text(
         yaml.dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
+        encoding=ENCODING_UTF8,
     )
 
     return {"status": "ok", "added": len(members), "total": len(team)}

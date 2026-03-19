@@ -30,6 +30,16 @@ from onemancompany.core.config import (
     PROFILE_FILENAME,
 )
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+TOTAL_COLS = 20
+ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
+TOOL_SPACING_X = 3  # horizontal spacing between tools
+ROOM_SPACING_X = 3  # horizontal spacing between meeting rooms (room is 2 tiles wide + 1 gap)
+MIN_CANVAS_ROWS = 15
+
 # CEO + executives — all handled separately from department zones
 _SKIP_IDS = FOUNDING_IDS
 
@@ -342,13 +352,6 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
 
     # Truly full — place at next overflow row
     return (target_zone.start_col + 1, desk_rows[-1] + row_spacing)
-
-
-TOTAL_COLS = 20
-ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
-TOOL_SPACING_X = 3  # horizontal spacing between tools
-ROOM_SPACING_X = 3  # horizontal spacing between meeting rooms (room is 2 tiles wide + 1 gap)
-MIN_CANVAS_ROWS = 15
 
 
 def compute_asset_layout(company_state, layout: dict) -> None:

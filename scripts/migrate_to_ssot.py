@@ -8,9 +8,7 @@ Run once after deploying the refactored code.
 import yaml
 from pathlib import Path
 
-DATA_ROOT = Path.cwd() / ".onemancompany"
-EMPLOYEES_DIR = DATA_ROOT / "company" / "human_resource" / "employees"
-PROJECTS_DIR = DATA_ROOT / "company" / "business" / "projects"
+from onemancompany.core.config import EMPLOYEES_DIR, PROJECTS_DIR
 
 
 def migrate_employee_profiles():

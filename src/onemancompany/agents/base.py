@@ -13,12 +13,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
+    ENCODING_UTF8,
     MAX_SUMMARY_LEN,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
     SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
+    TALENT_PERSONA_FILENAME,
     employee_configs,
     get_provider,
     load_employee_skills,
@@ -27,6 +29,11 @@ from onemancompany.core.config import (
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
+
+EFFICIENCY_PROMPT_FILENAME = "efficiency.md"
+WORK_APPROACH_PROMPT_FILENAME = "work_approach.md"
+TOOL_USAGE_PROMPT_FILENAME = "tool_usage.md"
+ROLE_PROMPT_FILENAME = "role.md"
 
 
 def _extract_text(content) -> str:
@@ -274,10 +281,10 @@ async def tracked_ainvoke(
 
 def get_employee_talent_persona(employee_id: str) -> str:
     """Load talent persona from employees/{id}/prompts/talent_persona.md."""
-    path = EMPLOYEES_DIR / employee_id / "prompts" / "talent_persona.md"
+    path = EMPLOYEES_DIR / employee_id / "prompts" / TALENT_PERSONA_FILENAME
     if not path.exists():
         return ""
-    content = path.read_text(encoding="utf-8").strip()
+    content = path.read_text(encoding=ENCODING_UTF8).strip()
     return f"\n{content}" if content else ""
 
 
@@ -387,7 +394,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
                     fpath = tool_folder / fname
                     if fpath.is_file():
                         try:
-                            content = fpath.read_text(encoding="utf-8")
+                            content = fpath.read_text(encoding=ENCODING_UTF8)
                         except (UnicodeDecodeError, ValueError):
                             content = f"[binary, {fpath.stat().st_size} bytes]"
                         parts.append(f"  - {fname}:\n```\n{content}\n```")
@@ -603,7 +610,7 @@ class BaseAgentRunner:
         system_prompt_template, capturing the talent's core identity and
         working style (e.g. "You are a senior PM with 46 frameworks...").
         """
-        content = self._load_prompt_file("talent_persona.md")
+        content = self._load_prompt_file(TALENT_PERSONA_FILENAME)
         if not content:
             return ""
         return f"\n\n## Talent Persona\n{content.strip()}\n"
@@ -692,7 +699,7 @@ class BaseAgentRunner:
         """Load prompt from employee's prompts/ dir."""
         path = EMPLOYEES_DIR / self.employee_id / "prompts" / filename
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            return path.read_text(encoding=ENCODING_UTF8)
         return None
 
     @staticmethod
@@ -700,7 +707,7 @@ class BaseAgentRunner:
         """Load from company/shared_prompts/."""
         path = SHARED_PROMPTS_DIR / filename
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            return path.read_text(encoding=ENCODING_UTF8)
         return None
 
     def _get_company_direction_section(self) -> str:
@@ -720,7 +727,7 @@ class BaseAgentRunner:
         soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / SOUL_FILENAME
         if soul_path.exists():
             try:
-                content = soul_path.read_text(encoding="utf-8").strip()
+                content = soul_path.read_text(encoding=ENCODING_UTF8).strip()
                 if content:
                     return (
                         "## Your Personal Knowledge (SOUL.md)\n"
@@ -774,7 +781,7 @@ class BaseAgentRunner:
                 if not content_path:
                     continue
                 try:
-                    content = content_path.read_text(encoding="utf-8")
+                    content = content_path.read_text(encoding=ENCODING_UTF8)
                     pb.add(ps.name, content, priority=ps.priority)
                 except Exception as _e:
                     logger.warning("Failed to load prompt section %s: %s", ps.name, _e)
@@ -782,7 +789,7 @@ class BaseAgentRunner:
     def _get_efficiency_guidelines_section(self) -> str:
         """Build efficiency guidelines to reduce wasted tokens and loops."""
         # Try loading from shared prompts file first
-        content = self._load_prompt_file("efficiency.md") or self._load_shared_prompt("efficiency.md")
+        content = self._load_prompt_file(EFFICIENCY_PROMPT_FILENAME) or self._load_shared_prompt(EFFICIENCY_PROMPT_FILENAME)
         if content:
             return "\n\n" + content
 
@@ -836,7 +843,7 @@ class EmployeeAgent(BaseAgentRunner):
         emp_level = emp_data.get("level", 1)
 
         # 1. Role header: try employee's custom role.md, else default
-        role_prompt = self._load_prompt_file("role.md")
+        role_prompt = self._load_prompt_file(ROLE_PROMPT_FILENAME)
         if role_prompt:
             header = (role_prompt
                       .replace("{name}", emp_name)
@@ -854,8 +861,8 @@ class EmployeeAgent(BaseAgentRunner):
         pb.add("role", header, priority=10)
 
         # 2. Work Approach: from files or hardcoded
-        work_approach = (self._load_prompt_file("work_approach.md")
-                         or self._load_shared_prompt("work_approach.md")
+        work_approach = (self._load_prompt_file(WORK_APPROACH_PROMPT_FILENAME)
+                         or self._load_shared_prompt(WORK_APPROACH_PROMPT_FILENAME)
                          or (
                              "## Work Approach\n"
                              "1. Review: FIRST use ls to see what already exists in the project workspace. "
@@ -868,8 +875,8 @@ class EmployeeAgent(BaseAgentRunner):
         pb.add("work_approach", work_approach, priority=15)
 
         # 3. Tool Usage: from files or hardcoded
-        tool_usage = (self._load_prompt_file("tool_usage.md")
-                      or self._load_shared_prompt("tool_usage.md")
+        tool_usage = (self._load_prompt_file(TOOL_USAGE_PROMPT_FILENAME)
+                      or self._load_shared_prompt(TOOL_USAGE_PROMPT_FILENAME)
                       or (
                           "## Tool Usage\n"
                           "- ls: ALWAYS call this first to see existing project files.\n"

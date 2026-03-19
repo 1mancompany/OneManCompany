@@ -13,7 +13,8 @@ SOURCE_ROOT = Path(__file__).parent.parent.parent.parent
 
 # Data root — all runtime/company data lives under cwd/.onemancompany/
 # This allows the package to be installed anywhere while data stays portable.
-DATA_ROOT = Path.cwd() / ".onemancompany"
+DATA_DIR_NAME = ".onemancompany"
+DATA_ROOT = Path.cwd() / DATA_DIR_NAME
 
 
 COMPANY_DIR = DATA_ROOT / "company"
@@ -49,6 +50,21 @@ GUIDANCE_FILENAME = "guidance.yaml"
 MANIFEST_FILENAME = "manifest.json"
 NODES_DIR_NAME = "nodes"
 SOUL_FILENAME = "SOUL.md"
+DOT_ENV_FILENAME = ".env"
+TOOL_YAML_FILENAME = "tool.yaml"
+PROJECT_YAML_FILENAME = "project.yaml"
+MANIFEST_YAML_FILENAME = "manifest.yaml"
+VESSEL_YAML_FILENAME = "vessel.yaml"
+TALENT_PERSONA_FILENAME = "talent_persona.md"
+MCP_CONFIG_FILENAME = "mcp_config.json"
+CONVERSATIONS_DIR_NAME = "conversations"
+PROGRESS_LOG_FILENAME = "progress.log"
+
+# ---------------------------------------------------------------------------
+# Common identifiers — canonical strings for sender/role/scope fields
+# ---------------------------------------------------------------------------
+SYSTEM_SENDER = "system"
+MEETING_SYSTEM_SENDER = "Meeting System"
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +73,32 @@ SOUL_FILENAME = "SOUL.md"
 from enum import Enum
 
 ENV_OMC_DEBUG = "OMC_DEBUG"
+ENV_OMC_EMPLOYEE_ID = "OMC_EMPLOYEE_ID"
+ENV_OMC_TASK_ID = "OMC_TASK_ID"
+ENV_OMC_PROJECT_ID = "OMC_PROJECT_ID"
+ENV_OMC_PROJECT_DIR = "OMC_PROJECT_DIR"
+ENV_OMC_SERVER_URL = "OMC_SERVER_URL"
+
+# .env variable names (used in onboarding and settings)
+ENV_KEY_ANTHROPIC = "ANTHROPIC_API_KEY"
+ENV_KEY_SKILLSMP = "SKILLSMP_API_KEY"
+ENV_KEY_TALENT_MARKET = "TALENT_MARKET_API_KEY"
+ENV_KEY_OPENROUTER = "OPENROUTER_API_KEY"
+ENV_KEY_DEFAULT_PROVIDER = "DEFAULT_API_PROVIDER"
+ENV_KEY_DEFAULT_MODEL = "DEFAULT_LLM_MODEL"
+ENV_KEY_HOST = "HOST"
+ENV_KEY_PORT = "PORT"
+ENV_KEY_SANDBOX_ENABLED = "SANDBOX_ENABLED"
+ENV_KEY_ANTHROPIC_AUTH = "ANTHROPIC_AUTH_METHOD"
+
+# Provider name constants
+PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_ANTHROPIC = "anthropic"
+
+# Template directory name
+COMPANY_TEMPLATE_DIR = "company"
+CONFIG_YAML_FILENAME = "config.yaml"
+ENCODING_UTF8 = "utf-8"
 
 
 class LogLevel(str, Enum):
@@ -405,8 +447,8 @@ class EmployeeConfig(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(DATA_ROOT / ".env"),
-        env_file_encoding="utf-8",
+        env_file=str(DATA_ROOT / DOT_ENV_FILENAME),
+        env_file_encoding=ENCODING_UTF8,
         extra="ignore",
     )
 
@@ -443,11 +485,11 @@ settings = Settings()
 
 def update_env_var(key: str, value: str) -> None:
     """Update or add a variable in the .env file, then reload settings."""
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines: list[str] = []
     found = False
     if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        lines = env_path.read_text(encoding=ENCODING_UTF8).splitlines()
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
@@ -456,7 +498,7 @@ def update_env_var(key: str, value: str) -> None:
                 break
     if not found:
         lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env_path.write_text("\n".join(lines) + "\n", encoding=ENCODING_UTF8)
     reload_settings()
 
 
@@ -536,7 +578,7 @@ def load_employee_skills(employee_id: str) -> dict[str, str]:
         if entry.is_dir():
             skill_md = entry / "SKILL.md"
             if skill_md.is_file():
-                result[entry.name] = skill_md.read_text(encoding="utf-8")
+                result[entry.name] = skill_md.read_text(encoding=ENCODING_UTF8)
     return result
 
 
@@ -647,7 +689,7 @@ def load_workflows() -> dict[str, str]:
     result: dict[str, str] = {}
     for f in sorted(WORKFLOWS_DIR.iterdir()):
         if f.suffix == ".md" and f.is_file():
-            result[f.stem] = f.read_text(encoding="utf-8")
+            result[f.stem] = f.read_text(encoding=ENCODING_UTF8)
     return result
 
 
@@ -655,7 +697,7 @@ def save_workflow(name: str, content: str) -> None:
     """Save a workflow .md file to business/workflows/."""
     WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
     path = WORKFLOWS_DIR / f"{name}.md"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding=ENCODING_UTF8)
 
 
 def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
@@ -761,7 +803,7 @@ def load_manifest(employee_id: str) -> dict | None:
     manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if not manifest_path.exists():
         return None
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data = json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
     MANIFEST_CACHE[employee_id] = data
     return data
 
@@ -779,7 +821,7 @@ def load_custom_settings(employee_id: str) -> dict:
     path = EMPLOYEES_DIR / employee_id / "settings.json"
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding=ENCODING_UTF8))
 
 
 def save_custom_settings(employee_id: str, updates: dict) -> dict:
@@ -787,9 +829,9 @@ def save_custom_settings(employee_id: str, updates: dict) -> dict:
     path = EMPLOYEES_DIR / employee_id / "settings.json"
     current = {}
     if path.exists():
-        current = json.loads(path.read_text(encoding="utf-8"))
+        current = json.loads(path.read_text(encoding=ENCODING_UTF8))
     current.update(updates)
-    path.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
     return current
 
 
@@ -840,7 +882,7 @@ def load_talent_skills(talent_id: str) -> list[str]:
     result: list[str] = []
     for skill_file in sorted(skills_dir.iterdir()):
         if skill_file.suffix == ".md" and skill_file.is_file():
-            result.append(skill_file.read_text(encoding="utf-8"))
+            result.append(skill_file.read_text(encoding=ENCODING_UTF8))
     return result
 
 

@@ -12,6 +12,18 @@ from loguru import logger
 from onemancompany.core.models import DecisionStatus, OverheadCosts
 from onemancompany.core.task_lifecycle import TaskPhase
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
+
+ROLE_TITLES = {
+    "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
+    "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
+    "HR": "HR", "COO": "COO", "EA": "EA", "CSO": "CSO",
+}
+
 
 @dataclass
 class TaskEntry:
@@ -123,15 +135,6 @@ class MeetingRoom:
             "participants": self.participants,
             "is_booked": self.is_booked,
         }
-
-
-LEVEL_NAMES = {1: "Junior", 2: "Mid", 3: "Senior", 4: "Founding", 5: "CEO"}
-
-ROLE_TITLES = {
-    "Engineer": "Engineer", "DevOps": "Engineer", "QA": "Engineer",
-    "Designer": "Designer", "Analyst": "Analyst", "Marketing": "Marketing",
-    "HR": "HR", "COO": "COO", "EA": "EA", "CSO": "CSO",
-}
 
 
 def make_title(level: int, role: str) -> str:

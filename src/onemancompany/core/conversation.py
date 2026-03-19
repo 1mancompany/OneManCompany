@@ -20,13 +20,10 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import PROJECTS_DIR, EMPLOYEES_DIR
+from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR
 from onemancompany.core.events import event_bus, CompanyEvent
 from onemancompany.core.models import ConversationType, ConversationPhase
 
-# ---------------------------------------------------------------------------
-# Filename constants
-# ---------------------------------------------------------------------------
 CONVERSATION_META_FILENAME = "meta.yaml"
 CONVERSATION_MESSAGES_FILENAME = "messages.yaml"
 
@@ -94,9 +91,9 @@ def _resolve_conv_dir(conv: Conversation) -> Path:
     """Resolve conversation directory based on type and metadata."""
     if conv.type == ConversationType.CEO_INBOX:
         project_dir = conv.metadata.get("project_dir", "")
-        return Path(project_dir) / "conversations" / conv.id
+        return Path(project_dir) / CONVERSATIONS_DIR_NAME / conv.id
     else:  # oneonone
-        return EMPLOYEES_DIR / conv.employee_id / "conversations" / conv.id
+        return EMPLOYEES_DIR / conv.employee_id / CONVERSATIONS_DIR_NAME / conv.id
 
 
 def save_conversation_meta(conv: Conversation) -> None:
@@ -270,7 +267,7 @@ class ConversationService:
         self._index.clear()
         if EMPLOYEES_DIR.exists():
             for emp_dir in EMPLOYEES_DIR.iterdir():
-                conv_base = emp_dir / "conversations"
+                conv_base = emp_dir / CONVERSATIONS_DIR_NAME
                 if conv_base.exists():
                     for conv_dir in conv_base.iterdir():
                         meta = conv_dir / CONVERSATION_META_FILENAME
@@ -278,7 +275,7 @@ class ConversationService:
                             self._index[conv_dir.name] = conv_dir
         if PROJECTS_DIR.exists():
             for proj_dir in PROJECTS_DIR.iterdir():
-                conv_base = proj_dir / "conversations"
+                conv_base = proj_dir / CONVERSATIONS_DIR_NAME
                 if conv_base.exists():
                     for conv_dir in conv_base.iterdir():
                         meta = conv_dir / CONVERSATION_META_FILENAME

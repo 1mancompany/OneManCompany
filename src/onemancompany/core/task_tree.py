@@ -23,7 +23,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import NODES_DIR_NAME
+from onemancompany.core.config import ENCODING_UTF8, NODES_DIR_NAME
 from onemancompany.core.task_lifecycle import (
     TaskPhase, transition,
     RESOLVED, DONE_EXECUTING, UNBLOCKS_DEPENDENTS, WILL_NOT_DELIVER,
@@ -114,7 +114,7 @@ class TaskNode:
         content = {"description": self.description, "result": self.result}
         (nodes_dir / f"{self.id}.yaml").write_text(
             yaml.dump(content, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
         self._content_dirty = False
 
@@ -124,7 +124,7 @@ class TaskNode:
             return
         content_path = Path(project_dir) / NODES_DIR / f"{self.id}.yaml"
         if content_path.exists():
-            data = yaml.safe_load(content_path.read_text(encoding="utf-8")) or {}
+            data = yaml.safe_load(content_path.read_text(encoding=ENCODING_UTF8)) or {}
             # Use object.__setattr__ to avoid marking dirty
             desc = data.get("description", "")
             object.__setattr__(self, "description", desc)
@@ -408,12 +408,12 @@ class TaskTree:
         }
         path.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
 
     @classmethod
     def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = True) -> TaskTree:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(path.read_text(encoding=ENCODING_UTF8))
         tree = cls(project_id=project_id or data.get("project_id", ""))
         tree.root_id = data.get("root_id", "")
         tree.current_branch = data.get("current_branch", 0)

@@ -53,6 +53,7 @@ from onemancompany.core.config import (
     VALID_SCORES,
 )
 from onemancompany.core import store as _store
+from onemancompany.core.models import HostingMode
 from onemancompany.core.layout import compute_layout
 from onemancompany.core.routine import run_performance_meeting
 from onemancompany.core.state import LEVEL_NAMES, company_state
@@ -280,7 +281,7 @@ class HRAgent(BaseAgentRunner):
                     temperature=float(emp_data.get("temperature", 0.7)),
                     image_model=emp_data.get("image_model", ""),
                     api_provider=emp_data.get("api_provider", "openrouter"),
-                    hosting=emp_data.get("hosting", "company"),
+                    hosting=emp_data.get("hosting", HostingMode.COMPANY),
                     auth_method=emp_data.get("auth_method", "api_key"),
                     sprite=emp_data.get("sprite", "employee_default"),
                     remote=emp_data.get("remote", False),

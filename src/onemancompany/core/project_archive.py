@@ -20,13 +20,13 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import NODES_DIR_NAME, PROJECTS_DIR, TASK_TREE_FILENAME
+from onemancompany.core.config import ENCODING_UTF8, NODES_DIR_NAME, PROJECT_YAML_FILENAME, PROJECTS_DIR, TASK_TREE_FILENAME
 
-# ---------------------------------------------------------------------------
-# File-level constants
-# ---------------------------------------------------------------------------
-PROJECT_YAML_FILENAME = "project.yaml"
 ITERATIONS_DIR_NAME = "iterations"
+
+# Internal infrastructure files excluded from user-facing document listing
+_INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
+_INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
 
 # Project / iteration status strings (NOT TaskPhase — project-level lifecycle)
 PROJECT_STATUS_ACTIVE = "active"
@@ -609,14 +609,9 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
     if isinstance(content, bytes):
         file_path.write_bytes(content)
     else:
-        file_path.write_text(content, encoding="utf-8")
+        file_path.write_text(content, encoding=ENCODING_UTF8)
 
     return {"status": "ok", "path": str(file_path), "relative": filename}
-
-
-# Internal infrastructure files excluded from user-facing document listing
-_INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
-_INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
 
 
 def _is_internal_file(name: str) -> bool:

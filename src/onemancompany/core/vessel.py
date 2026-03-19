@@ -36,7 +36,9 @@ from langgraph.errors import GraphRecursionError
 from onemancompany.agents.base import BaseAgentRunner, make_llm
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
+    ENCODING_UTF8,
     MAX_SUMMARY_LEN,
+    PROGRESS_LOG_FILENAME,
     SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
@@ -49,6 +51,22 @@ from onemancompany.core import store as _store
 from onemancompany.core.vessel_config import VesselConfig
 
 from loguru import logger
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+EXECUTION_LOG_FILENAME = "execution.log"
+TASK_HISTORY_FILENAME = "task_history.json"
+PROGRESS_LOG_MAX_LINES = 30
+EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
+MAX_SUBTASK_ITERATIONS = 3
+MAX_SUBTASK_DEPTH = 2
+MAX_RETRIES = 3
+RETRY_DELAYS = [5, 15, 30]
+MAX_HISTORY_ENTRIES = 8
+MAX_HISTORY_CHARS = 3000
+RESULT_SNIPPET_LEN = 300
 
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
@@ -231,7 +249,7 @@ from onemancompany.core.task_lifecycle import TaskPhase, TERMINAL, RESOLVED
 
 def _history_path(employee_id: str) -> Path:
     """Return path to employee's task history file."""
-    return EMPLOYEES_DIR / employee_id / "task_history.json"
+    return EMPLOYEES_DIR / employee_id / TASK_HISTORY_FILENAME
 
 
 def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
@@ -240,7 +258,7 @@ def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
     if not path.exists():
         return [], ""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding=ENCODING_UTF8))
         return data.get("entries", []), data.get("summary", "")
     except Exception as e:
         logger.warning("Failed to load task history for {}: {}", employee_id, e)
@@ -255,7 +273,7 @@ def _save_task_history(employee_id: str, entries: list[dict], summary: str) -> N
         path.write_text(json.dumps({
             "entries": entries,
             "summary": summary,
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        }, ensure_ascii=False, indent=2), encoding=ENCODING_UTF8)
     except Exception as e:
         logger.warning("Failed to save task history for {}: {}", employee_id, e)
 
@@ -429,9 +447,9 @@ class ScriptExecutor(Launcher):
                 proc.communicate(input=task_description.encode()),
                 timeout=600,
             )
-            output = stdout.decode("utf-8", errors="replace").strip()
+            output = stdout.decode(ENCODING_UTF8, errors="replace").strip()
             if proc.returncode != 0 and not output:
-                err = stderr.decode("utf-8", errors="replace").strip()
+                err = stderr.decode(ENCODING_UTF8, errors="replace").strip()
                 output = f"[script error] exit={proc.returncode}\n{err[:2000]}"
             if on_log:
                 on_log("result", output[:500])
@@ -506,23 +524,17 @@ class Vessel:
 # Progress log — file-based cross-task context (ralph-inspired)
 # ---------------------------------------------------------------------------
 
-PROGRESS_LOG_MAX_LINES = 30
-
-
 def _append_progress(employee_id: str, entry: str) -> None:
     """Append an entry to the employee's progress log (persistent across tasks)."""
-    path = EMPLOYEES_DIR / employee_id / "progress.log"
+    path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
+    with open(path, "a", encoding=ENCODING_UTF8) as f:
         f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
-
-
-EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
 
 
 def _append_execution_log(employee_id: str, node_id: str, log_type: str, content: str) -> None:
     """Append a structured entry to the employee's execution log (persistent, per-agent debug file)."""
-    path = EMPLOYEES_DIR / employee_id / "execution.log"
+    path = EMPLOYEES_DIR / employee_id / EXECUTION_LOG_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         # Size-based rotation: rename current log and start fresh (no large reads)
@@ -532,7 +544,7 @@ def _append_execution_log(employee_id: str, node_id: str, log_type: str, content
         ts = datetime.now().isoformat()[:23]
         # Truncate content to keep log readable
         short = content[:500].replace("\n", "\\n") if content else ""
-        with open(path, "a", encoding="utf-8") as f:
+        with open(path, "a", encoding=ENCODING_UTF8) as f:
             f.write(f"[{ts}] [{log_type:12s}] node={node_id[:12]} | {short}\n")
     except Exception as exc:
         logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
@@ -546,11 +558,11 @@ def _trunc(s: str | None, limit: int = 3000) -> str:
 
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
     """Load recent entries from the employee's progress log."""
-    path = EMPLOYEES_DIR / employee_id / "progress.log"
+    path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
     if not path.exists():
         return ""
     try:
-        lines = path.read_text(encoding="utf-8").strip().split("\n")
+        lines = path.read_text(encoding=ENCODING_UTF8).strip().split("\n")
         return "\n".join(lines[-max_lines:])
     except Exception:
         return ""
@@ -559,16 +571,6 @@ def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) ->
 # ---------------------------------------------------------------------------
 # Employee Manager — centralized task coordinator
 # ---------------------------------------------------------------------------
-
-MAX_SUBTASK_ITERATIONS = 3
-MAX_SUBTASK_DEPTH = 2
-MAX_RETRIES = 3
-RETRY_DELAYS = [5, 15, 30]
-
-# Task history constants
-MAX_HISTORY_ENTRIES = 8
-MAX_HISTORY_CHARS = 3000
-RESULT_SNIPPET_LEN = 300
 
 from onemancompany.core.task_lifecycle import SKIP_COMPLETION_TYPES, SYSTEM_NODE_TYPES, NodeType
 
@@ -2234,7 +2236,7 @@ class EmployeeManager:
         existing = ""
         if soul_path.exists():
             try:
-                existing = soul_path.read_text(encoding="utf-8")
+                existing = soul_path.read_text(encoding=ENCODING_UTF8)
             except Exception as exc:
                 logger.debug("Failed to read SOUL.md for {}: {}", employee_id, exc)
 
@@ -2265,7 +2267,7 @@ class EmployeeManager:
             )
             new_content = result.content.strip()
             if new_content and len(new_content) > 10:
-                soul_path.write_text(new_content, encoding="utf-8")
+                soul_path.write_text(new_content, encoding=ENCODING_UTF8)
                 logger.info(f"[soul] Updated SOUL.md for employee {employee_id}")
         except Exception as e:
             logger.debug(f"[soul] Failed to update SOUL.md for {employee_id}: {e}")

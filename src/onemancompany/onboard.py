@@ -21,7 +21,51 @@ from rich.text import Text
 # ---------------------------------------------------------------------------
 
 SOURCE_ROOT = Path(__file__).parent.parent.parent
-DATA_ROOT = Path.cwd() / ".onemancompany"
+
+from onemancompany.core.config import (
+    COMPANY_TEMPLATE_DIR, CONFIG_YAML_FILENAME,
+    DATA_DIR_NAME, DOT_ENV_FILENAME, EMPLOYEES_DIR,
+    ENCODING_UTF8,
+    ENV_KEY_ANTHROPIC, ENV_KEY_ANTHROPIC_AUTH, ENV_KEY_DEFAULT_MODEL,
+    ENV_KEY_DEFAULT_PROVIDER, ENV_KEY_HOST, ENV_KEY_OPENROUTER,
+    ENV_KEY_PORT, ENV_KEY_SANDBOX_ENABLED, ENV_KEY_SKILLSMP,
+    ENV_KEY_TALENT_MARKET,
+    ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR, ENV_OMC_PROJECT_ID,
+    ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID, HR_DIR, MCP_CONFIG_FILENAME,
+    PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, TOOLS_DIR,
+)
+from onemancompany.core.models import AuthMethod
+DATA_ROOT = Path.cwd() / DATA_DIR_NAME
+
+# OpenRouter API response field names
+OR_FIELD_ID = "id"
+OR_FIELD_NAME = "name"
+OR_FIELD_PRICING = "pricing"
+OR_FIELD_PROMPT = "prompt"
+OR_FIELD_COMPLETION = "completion"
+OR_FIELD_CONTEXT_LENGTH = "context_length"
+OR_FIELD_DATA = "data"
+
+# Price display
+PRICE_FREE = "free"
+PRICE_NA = "N/A"
+
+# Internal model dict keys
+MODEL_KEY_ID = "id"
+MODEL_KEY_NAME = "name"
+MODEL_KEY_PROMPT_PRICE = "prompt_price"
+MODEL_KEY_COMPLETION_PRICE = "completion_price"
+MODEL_KEY_CONTEXT = "context"
+
+# Table column headers
+COL_NUM = "#"
+COL_MODEL_ID = "Model ID"
+COL_NAME = "Name"
+COL_PROMPT = "Prompt"
+COL_COMPLETION = "Completion"
+COL_CONTEXT = "Context"
+COL_PROVIDER = "Provider"
+COL_AUTH_METHODS = "Auth Methods"
 
 LOGO = r"""
    ___  __  __  ____
@@ -37,6 +81,20 @@ TOTAL_STEPS = 5
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
+
+# Default model per provider (non-OpenRouter)
+PROVIDER_DEFAULT_MODELS = {
+    "openai": "gpt-4o",
+    "anthropic": "claude-sonnet-4-20250514",
+    "deepseek": "deepseek-chat",
+    "kimi": "moonshot-v1-8k",
+    "qwen": "qwen-plus",
+    "zhipu": "glm-4",
+    "groq": "llama-3.3-70b-versatile",
+    "together": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "google": "gemini-2.0-flash",
+    "minimax": "MiniMax-Text-01",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -66,17 +124,17 @@ def _step_welcome(console: Console) -> None:
 def _format_price(price_str: str | None) -> str:
     """Format per-token price string to $/M tokens."""
     if not price_str:
-        return "free"
+        return PRICE_FREE
     try:
         per_token = float(price_str)
         per_million = per_token * 1_000_000
         if per_million == 0:
-            return "free"
+            return PRICE_FREE
         if per_million < 0.01:
             return f"${per_million:.4f}/M"
         return f"${per_million:.2f}/M"
     except (ValueError, TypeError):
-        return "N/A"
+        return PRICE_NA
 
 
 def _fetch_openrouter_models(console: Console) -> list[dict]:
@@ -85,24 +143,24 @@ def _fetch_openrouter_models(console: Console) -> list[dict]:
         try:
             resp = httpx.get(OPENROUTER_MODELS_URL, timeout=15)
             resp.raise_for_status()
-            data = resp.json().get("data", [])
+            data = resp.json().get(OR_FIELD_DATA, [])
         except Exception as e:
             console.print(f"  [yellow]⚠[/yellow] Failed to fetch models: {e}")
             return []
 
     models = []
     for m in data:
-        model_id = m.get("id", "")
-        pricing = m.get("pricing", {}) or {}
+        model_id = m.get(OR_FIELD_ID, "")
+        pricing = m.get(OR_FIELD_PRICING, {}) or {}
         models.append({
-            "id": model_id,
-            "name": m.get("name", model_id),
-            "prompt_price": _format_price(pricing.get("prompt")),
-            "completion_price": _format_price(pricing.get("completion")),
-            "context": m.get("context_length", 0),
+            MODEL_KEY_ID: model_id,
+            MODEL_KEY_NAME: m.get(OR_FIELD_NAME, model_id),
+            MODEL_KEY_PROMPT_PRICE: _format_price(pricing.get(OR_FIELD_PROMPT)),
+            MODEL_KEY_COMPLETION_PRICE: _format_price(pricing.get(OR_FIELD_COMPLETION)),
+            MODEL_KEY_CONTEXT: m.get(OR_FIELD_CONTEXT_LENGTH, 0),
         })
 
-    models.sort(key=lambda m: m["id"])
+    models.sort(key=lambda m: m[MODEL_KEY_ID])
     return models
 
 
@@ -116,20 +174,20 @@ def _print_model_page(
 ) -> None:
     """Print a page of models as a Rich table."""
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-    table.add_column("#", style="cyan", width=5)
-    table.add_column("Model ID", min_width=35)
-    table.add_column("Name", min_width=20)
-    table.add_column("Prompt", justify="right", width=12)
-    table.add_column("Completion", justify="right", width=12)
-    table.add_column("Context", justify="right", width=10)
+    table.add_column(COL_NUM, style="cyan", width=5)
+    table.add_column(COL_MODEL_ID, min_width=35)
+    table.add_column(COL_NAME, min_width=20)
+    table.add_column(COL_PROMPT, justify="right", width=12)
+    table.add_column(COL_COMPLETION, justify="right", width=12)
+    table.add_column(COL_CONTEXT, justify="right", width=10)
 
     start = page * PAGE_SIZE
     end = min(start + PAGE_SIZE, len(models))
     for i in range(start, end):
         m = models[i]
         num = str(offset + i + 1)
-        ctx = f"{m['context'] // 1000}k" if m["context"] else "—"
-        table.add_row(num, m["id"], m["name"], m["prompt_price"], m["completion_price"], ctx)
+        ctx = f"{m[MODEL_KEY_CONTEXT] // 1000}k" if m[MODEL_KEY_CONTEXT] else "—"
+        table.add_row(num, m[MODEL_KEY_ID], m[MODEL_KEY_NAME], m[MODEL_KEY_PROMPT_PRICE], m[MODEL_KEY_COMPLETION_PRICE], ctx)
 
     title = f"  Models (page {page + 1}/{total_pages})"
     if search_term:
@@ -192,8 +250,8 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
             idx = int(choice) - 1
             if 0 <= idx < len(filtered):
                 selected = filtered[idx]
-                console.print(f"  [green]✔[/green] Selected: [bold]{selected['id']}[/bold]")
-                return selected["id"]
+                console.print(f"  [green]✔[/green] Selected: [bold]{selected[MODEL_KEY_ID]}[/bold]")
+                return selected[MODEL_KEY_ID]
             console.print(f"  [red]Invalid number. Range: 1-{len(filtered)}[/red]")
             continue
 
@@ -201,7 +259,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
         search_term = choice.lower()
         filtered = [
             m for m in all_models
-            if search_term in m["id"].lower() or search_term in m["name"].lower()
+            if search_term in m[MODEL_KEY_ID].lower() or search_term in m[MODEL_KEY_NAME].lower()
         ]
         page = 0
         if not filtered:
@@ -223,13 +281,13 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     # 1. Select provider
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-    table.add_column("#", style="cyan", width=4)
-    table.add_column("Provider", min_width=20)
-    table.add_column("Auth Methods", min_width=20)
+    table.add_column(COL_NUM, style="cyan", width=4)
+    table.add_column(COL_PROVIDER, min_width=20)
+    table.add_column(COL_AUTH_METHODS, min_width=20)
 
     available_groups = [
         g for g in AUTH_CHOICE_GROUPS
-        if any(c.available and c.auth_method == "api_key" for c in g.choices)
+        if any(c.available and c.auth_method == AuthMethod.API_KEY for c in g.choices)
     ]
     for i, group in enumerate(available_groups, 1):
         table.add_row(str(i), group.label, group.hint)
@@ -239,7 +297,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     # Find OpenRouter's actual position in the filtered list
     or_num = next(
-        (i for i, g in enumerate(available_groups, 1) if g.group_id == "openrouter"),
+        (i for i, g in enumerate(available_groups, 1) if g.group_id == PROVIDER_OPENROUTER),
         None,
     )
     hint = (
@@ -278,7 +336,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     # 3. Select model
     console.print()
-    if provider == "openrouter":
+    if provider == PROVIDER_OPENROUTER:
         all_models = _fetch_openrouter_models(console)
         if all_models:
             console.print(f"  [green]✔[/green] Found {len(all_models)} models")
@@ -294,19 +352,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         model = _select_model_interactive(console, all_models)
     else:
         # For non-OpenRouter providers, ask for model ID directly
-        defaults = {
-            "openai": "gpt-4o",
-            "anthropic": "claude-sonnet-4-20250514",
-            "deepseek": "deepseek-chat",
-            "kimi": "moonshot-v1-8k",
-            "qwen": "qwen-plus",
-            "zhipu": "glm-4",
-            "groq": "llama-3.3-70b-versatile",
-            "together": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-            "google": "gemini-2.0-flash",
-            "minimax": "MiniMax-Text-01",
-        }
-        default_model = defaults.get(provider, "")
+        default_model = PROVIDER_DEFAULT_MODELS.get(provider, "")
         console.print(
             f"  [dim]Type a model ID and press [bold]Enter[/bold].\n"
             f"  Press [bold]Enter[/bold] directly to use the default: [bold]{default_model}[/bold][/dim]\n"
@@ -429,7 +475,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = Prompt.ask("  Anthropic API Key", default="", password=True, console=console)
     if key.strip():
-        extras["ANTHROPIC_API_KEY"] = key.strip()
+        extras[ENV_KEY_ANTHROPIC] = key.strip()
     console.print()
 
     # SkillMarket API Key
@@ -440,7 +486,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = Prompt.ask("  SkillMarket API Key", default="", password=True, console=console)
     if key.strip():
-        extras["SKILLSMP_API_KEY"] = key.strip()
+        extras[ENV_KEY_SKILLSMP] = key.strip()
     console.print()
 
     # Talent Market API Key
@@ -452,7 +498,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = Prompt.ask("  Talent Market API Key", default="", password=True, console=console)
     if key.strip():
-        extras["TALENT_MARKET_API_KEY"] = key.strip()
+        extras[ENV_KEY_TALENT_MARKET] = key.strip()
 
     return extras
 
@@ -474,8 +520,8 @@ def _step_execute(
     )
 
     # 1. Copy company/ template
-    src_company = SOURCE_ROOT / "company"
-    dst_company = DATA_ROOT / "company"
+    src_company = SOURCE_ROOT / COMPANY_TEMPLATE_DIR
+    dst_company = DATA_ROOT / COMPANY_TEMPLATE_DIR
     if src_company.exists() and not dst_company.exists():
         DATA_ROOT.mkdir(parents=True, exist_ok=True)
         with console.status("  Copying company template..."):
@@ -509,42 +555,42 @@ def _step_execute(
 
     env_lines = [
         "# Generated by onemancompany-init",
-        f"DEFAULT_API_PROVIDER={provider}",
+        f"{ENV_KEY_DEFAULT_PROVIDER}={provider}",
         f"{env_key_name}={api_key}",
-        f"DEFAULT_LLM_MODEL={model}",
-        f"HOST={host}",
-        f"PORT={port}",
+        f"{ENV_KEY_DEFAULT_MODEL}={model}",
+        f"{ENV_KEY_HOST}={host}",
+        f"{ENV_KEY_PORT}={port}",
     ]
     # Also write base_url for OpenRouter (needed by existing code)
-    if provider == "openrouter":
+    if provider == PROVIDER_OPENROUTER:
         env_lines.append("OPENROUTER_BASE_URL=https://openrouter.ai/api/v1")
-    if "ANTHROPIC_API_KEY" in extras:
-        env_lines.append(f"ANTHROPIC_API_KEY={extras['ANTHROPIC_API_KEY']}")
-        env_lines.append("ANTHROPIC_AUTH_METHOD=api_key")
-    if "SKILLSMP_API_KEY" in extras:
-        env_lines.append(f"SKILLSMP_API_KEY={extras['SKILLSMP_API_KEY']}")
+    if ENV_KEY_ANTHROPIC in extras:
+        env_lines.append(f"{ENV_KEY_ANTHROPIC}={extras[ENV_KEY_ANTHROPIC]}")
+        env_lines.append(f"{ENV_KEY_ANTHROPIC_AUTH}={AuthMethod.API_KEY}")
+    if ENV_KEY_SKILLSMP in extras:
+        env_lines.append(f"{ENV_KEY_SKILLSMP}={extras[ENV_KEY_SKILLSMP]}")
 
-    env_path = DATA_ROOT / ".env"
-    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
+    env_path.write_text("\n".join(env_lines) + "\n", encoding=ENCODING_UTF8)
     console.print("  [green]\u2714[/green] .env written")
 
     # 3. Copy config.yaml and inject Talent Market API key if provided
-    src_config = SOURCE_ROOT / "config.yaml"
-    dst_config = DATA_ROOT / "config.yaml"
+    src_config = SOURCE_ROOT / CONFIG_YAML_FILENAME
+    dst_config = DATA_ROOT / CONFIG_YAML_FILENAME
     if src_config.exists() and not dst_config.exists():
         shutil.copy2(str(src_config), str(dst_config))
         console.print("  [green]\u2714[/green] config.yaml copied")
     # Patch config.yaml with user choices
     if dst_config.exists():
         import yaml
-        cfg = yaml.safe_load(dst_config.read_text(encoding="utf-8")) or {}
+        cfg = yaml.safe_load(dst_config.read_text(encoding=ENCODING_UTF8)) or {}
         # Sandbox toggle
         cfg.setdefault("tools", {}).setdefault("sandbox", {})["enabled"] = sandbox_enabled
         # Talent Market API key
-        tm_key = extras.get("TALENT_MARKET_API_KEY", "")
+        tm_key = extras.get(ENV_KEY_TALENT_MARKET, "")
         if tm_key:
             cfg.setdefault("talent_market", {})["api_key"] = tm_key
-        dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
         if sandbox_enabled:
             console.print("  [green]\u2714[/green] Sandbox tools enabled")
         if tm_key:
@@ -555,7 +601,7 @@ def _step_execute(
 
     # 5. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
-        _generate_mcp_configs(extras.get("SKILLSMP_API_KEY", ""))
+        _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""))
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
 
 
@@ -563,7 +609,7 @@ def _assign_default_avatars(console: Console) -> None:
     """Assign random avatars from avatars/ to founding employees that lack one."""
     import random
 
-    avatars_dir = DATA_ROOT / "company" / "human_resource" / "avatars"
+    avatars_dir = HR_DIR / "avatars"
     if not avatars_dir.exists():
         return
 
@@ -571,7 +617,6 @@ def _assign_default_avatars(console: Console) -> None:
     if not avatars:
         return
 
-    employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
     from onemancompany.core.config import FOUNDING_IDS
     exec_ids = sorted(FOUNDING_IDS)
     pool = list(avatars)
@@ -579,7 +624,7 @@ def _assign_default_avatars(console: Console) -> None:
 
     assigned = 0
     for i, emp_id in enumerate(exec_ids):
-        emp_dir = employees_dir / emp_id
+        emp_dir = EMPLOYEES_DIR / emp_id
         if not emp_dir.exists():
             continue
         # Skip if already has a custom avatar
@@ -599,14 +644,12 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
     """Generate mcp_config.json for founding employees."""
     import sys
 
-    employees_dir = DATA_ROOT / "company" / "human_resource" / "employees"
-    tools_dir = DATA_ROOT / "company" / "assets" / "tools"
     python_path = sys.executable
     from onemancompany.core.config import EXEC_IDS
     exec_ids = sorted(EXEC_IDS)
 
     for emp_id in exec_ids:
-        emp_dir = employees_dir / emp_id
+        emp_dir = EMPLOYEES_DIR / emp_id
         if not emp_dir.exists():
             continue
 
@@ -615,16 +658,16 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
                 "command": python_path,
                 "args": ["-m", "onemancompany.tools.mcp.server"],
                 "env": {
-                    "OMC_EMPLOYEE_ID": emp_id,
-                    "OMC_TASK_ID": "",
-                    "OMC_PROJECT_ID": "",
-                    "OMC_PROJECT_DIR": "",
-                    "OMC_SERVER_URL": "http://localhost:8000",
+                    ENV_OMC_EMPLOYEE_ID: emp_id,
+                    ENV_OMC_TASK_ID: "",
+                    ENV_OMC_PROJECT_ID: "",
+                    ENV_OMC_PROJECT_DIR: "",
+                    ENV_OMC_SERVER_URL: "http://localhost:8000",
                 },
             },
         }
 
-        gmail_mcp = tools_dir / "gmail" / "mcp_server.py"
+        gmail_mcp = TOOLS_DIR / "gmail" / "mcp_server.py"
         if gmail_mcp.exists():
             servers["gmail"] = {
                 "command": python_path,
@@ -640,14 +683,14 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
                     "--workdir", str(emp_dir / "workspace"),
                 ],
                 "env": {
-                    "SKILLSMP_API_KEY": skillsmp_key,
+                    ENV_KEY_SKILLSMP: skillsmp_key,
                 },
             }
 
-        config_path = emp_dir / "mcp_config.json"
+        config_path = emp_dir / MCP_CONFIG_FILENAME
         config_path.write_text(
             json.dumps({"mcpServers": servers}, indent=2),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
 
 
@@ -712,16 +755,16 @@ def run_auto(*, skip_confirm: bool = False) -> None:
     console.rule("[bold]OneManCompany Auto Init[/bold]")
 
     # Find .env — check CWD first, then project root
-    env_path = Path.cwd() / ".env"
+    env_path = Path.cwd() / DOT_ENV_FILENAME
     if not env_path.exists():
-        env_path = SOURCE_ROOT / ".env"
+        env_path = SOURCE_ROOT / DOT_ENV_FILENAME
     if not env_path.exists():
         console.print("[red]  ✗ No .env file found. Run onemancompany-init interactively first.[/red]")
         raise SystemExit(1)
 
     # Parse .env
     env = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    for line in env_path.read_text(encoding=ENCODING_UTF8).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -730,30 +773,30 @@ def run_auto(*, skip_confirm: bool = False) -> None:
             env[k.strip()] = v.strip()
 
     # Determine provider from env keys
-    if env.get("OPENROUTER_API_KEY"):
-        provider = "openrouter"
-        api_key = env["OPENROUTER_API_KEY"]
-    elif env.get("ANTHROPIC_API_KEY"):
-        provider = "anthropic"
-        api_key = env["ANTHROPIC_API_KEY"]
+    if env.get(ENV_KEY_OPENROUTER):
+        provider = PROVIDER_OPENROUTER
+        api_key = env[ENV_KEY_OPENROUTER]
+    elif env.get(ENV_KEY_ANTHROPIC):
+        provider = PROVIDER_ANTHROPIC
+        api_key = env[ENV_KEY_ANTHROPIC]
     else:
         # Try to detect from DEFAULT_API_PROVIDER
-        provider = env.get("DEFAULT_API_PROVIDER", "openrouter")
+        provider = env.get(ENV_KEY_DEFAULT_PROVIDER, PROVIDER_OPENROUTER)
         api_key = env.get(f"{provider.upper()}_API_KEY", "")
 
-    model = env.get("DEFAULT_LLM_MODEL", "anthropic/claude-sonnet-4")
-    host = env.get("HOST", "0.0.0.0")
-    port = int(env.get("PORT", "8000"))
+    model = env.get(ENV_KEY_DEFAULT_MODEL, "anthropic/claude-sonnet-4")
+    host = env.get(ENV_KEY_HOST, "0.0.0.0")
+    port = int(env.get(ENV_KEY_PORT, "8000"))
 
     extras: dict[str, str] = {}
-    if env.get("ANTHROPIC_API_KEY"):
-        extras["ANTHROPIC_API_KEY"] = env["ANTHROPIC_API_KEY"]
-    if env.get("SKILLSMP_API_KEY"):
-        extras["SKILLSMP_API_KEY"] = env["SKILLSMP_API_KEY"]
-    if env.get("TALENT_MARKET_API_KEY"):
-        extras["TALENT_MARKET_API_KEY"] = env["TALENT_MARKET_API_KEY"]
+    if env.get(ENV_KEY_ANTHROPIC):
+        extras[ENV_KEY_ANTHROPIC] = env[ENV_KEY_ANTHROPIC]
+    if env.get(ENV_KEY_SKILLSMP):
+        extras[ENV_KEY_SKILLSMP] = env[ENV_KEY_SKILLSMP]
+    if env.get(ENV_KEY_TALENT_MARKET):
+        extras[ENV_KEY_TALENT_MARKET] = env[ENV_KEY_TALENT_MARKET]
 
-    sandbox_enabled = env.get("SANDBOX_ENABLED", "").lower() in ("1", "true", "yes")
+    sandbox_enabled = env.get(ENV_KEY_SANDBOX_ENABLED, "").lower() in ("1", "true", "yes")
 
     masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
     console.print(f"  Provider: [cyan]{provider}[/cyan]")

@@ -21,6 +21,7 @@ from typing import Literal
 from loguru import logger
 
 from onemancompany.core import store as _store
+from onemancompany.core.models import HostingMode
 
 # --- Pydantic models (migrated from talent_market/boss_online.py) ---
 
@@ -230,7 +231,7 @@ def _normalize_market_candidate(candidate: dict) -> dict:
         "remote": profile.get("remote", False),
         "talent_id": talent_id,
         "api_provider": api_provider,
-        "hosting": profile.get("hosting", "company"),
+        "hosting": profile.get("hosting", HostingMode.COMPANY),
         "auth_method": profile.get("auth_method", "api_key"),
         "cost_per_1m_tokens": round(cost_per_1m, 2),
         "hiring_fee": float(profile.get("hiring_fee", 0.0)),
@@ -290,7 +291,7 @@ def _talent_to_candidate(talent: dict) -> dict:
         "remote": talent.get("remote", False),
         "talent_id": talent_id,
         "api_provider": api_provider,
-        "hosting": talent.get("hosting", "company"),
+        "hosting": talent.get("hosting", HostingMode.COMPANY),
         "auth_method": talent.get("auth_method", "api_key"),
         "cost_per_1m_tokens": round(cost_per_1m, 2),
         "hiring_fee": float(talent.get("hiring_fee", 0.0)),

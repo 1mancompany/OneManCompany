@@ -12,6 +12,10 @@ from typing import Any
 
 from loguru import logger
 
+from onemancompany.core.config import CONVERSATIONS_DIR_NAME, ENCODING_UTF8
+
+CEO_SENDER = "ceo"
+CEO_CONVERSATION_CATEGORY = "ceo_conversation"
 
 # ---------------------------------------------------------------------------
 # Message persistence (SSOT = disk)
@@ -57,7 +61,7 @@ def append_message(
 
     path.write_text(
         _yaml.dump(messages, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
+        encoding=ENCODING_UTF8,
     )
     return msg
 
@@ -103,7 +107,7 @@ async def _build_agent_and_invoke(
     persona_path = EMPLOYEES_DIR / employee_id / "agent" / "system_prompt.md"
     if persona_path.exists():
         try:
-            builder.add("persona", persona_path.read_text(encoding="utf-8"), priority=15)
+            builder.add("persona", persona_path.read_text(encoding=ENCODING_UTF8), priority=15)
         except Exception as exc:
             logger.debug("Failed to load persona for {}: {}", employee_id, exc)
 
@@ -139,7 +143,7 @@ async def _build_agent_and_invoke(
 
     messages = [SystemMessage(content=system_prompt)]
     for m in chat_history:
-        if m["sender"] == "ceo":
+        if m["sender"] == CEO_SENDER:
             messages.append(HumanMessage(content=m["text"]))
         else:
             messages.append(AIMessage(content=m["text"]))
@@ -147,7 +151,7 @@ async def _build_agent_and_invoke(
 
     result = await tracked_ainvoke(
         llm, messages,
-        category="ceo_conversation",
+        category=CEO_CONVERSATION_CATEGORY,
         employee_id=employee_id,
     )
     return _extract_text(result.content)
@@ -162,13 +166,13 @@ class ConversationSession:
         self.project_dir = project_dir
         self._broadcast = broadcast_fn
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._conv_dir = Path(project_dir) / "conversations"
+        self._conv_dir = Path(project_dir) / CONVERSATIONS_DIR_NAME
 
     async def send(self, text: str, attachments=None) -> dict:
         """Queue a CEO message for processing."""
         msg = append_message(
             self._conv_dir, self.node_id,
-            sender="ceo", text=text, attachments=attachments,
+            sender=CEO_SENDER, text=text, attachments=attachments,
         )
         await self._queue.put(msg)
         return msg
@@ -213,7 +217,7 @@ class ConversationSession:
                 sender=self.employee_id, text=response_text,
             )
             await self._broadcast({
-                "type": "ceo_conversation",
+                "type": CEO_CONVERSATION_CATEGORY,
                 "node_id": self.node_id,
                 "sender": self.employee_id,
                 "text": response_text,

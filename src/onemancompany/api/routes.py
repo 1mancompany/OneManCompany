@@ -20,15 +20,18 @@ from onemancompany.core.config import (
     COO_ID,
     CSO_ID,
     DATA_ROOT,
+    DOT_ENV_FILENAME,
     EA_ID,
+    ENCODING_UTF8,
     HR_ID,
     MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
     STATUS_IDLE,
+    SYSTEM_SENDER,
     TASK_TREE_FILENAME,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
-from onemancompany.core.models import DecisionStatus
+from onemancompany.core.models import DecisionStatus, HostingMode
 from onemancompany.core.project_archive import ITER_STATUS_CANCELLED, ITER_STATUS_COMPLETED, ITER_STATUS_FAILED
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.agents.recruitment import HireRequest, InterviewRequest, InterviewResponse
@@ -41,6 +44,20 @@ from onemancompany.core.ceo_conversation import (
 )
 from onemancompany.core.errors import ErrorCode, classify_exception
 
+# ---------------------------------------------------------------------------
+# Single-file constants
+# ---------------------------------------------------------------------------
+ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", "completed"]
+
+ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
+ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
+ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
+ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
+ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+
+_TALENT_REQUIRED_FIELDS = ["hosting"]
+
+_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
 # ---------------------------------------------------------------------------
 # LLM invocation with retry
@@ -174,7 +191,7 @@ def _scan_employee_projects(employee_id: str, projects_dir: str = "") -> list[di
         if not pyaml.exists():
             continue
         try:
-            data = yaml.safe_load(pyaml.read_text(encoding="utf-8")) or {}
+            data = yaml.safe_load(pyaml.read_text(encoding=ENCODING_UTF8)) or {}
         except Exception:
             logger.warning("Failed to parse {}", pyaml)
             continue
@@ -1473,7 +1490,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_provider"] = api_provider
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
-    result["hosting"] = cfg.hosting if cfg else "company"
+    result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
     result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == "oauth" else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
@@ -1499,7 +1516,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     custom = load_custom_settings(employee_id)
     result.update(custom)
 
-    if cfg and cfg.hosting == "self":
+    if cfg and cfg.hosting == HostingMode.SELF:
         from onemancompany.core.claude_session import list_sessions
         result["sessions"] = list_sessions(employee_id)
 
@@ -1878,7 +1895,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     from onemancompany.core.config import EMPLOYEES_DIR, employee_configs, invalidate_manifest_cache
 
     new_hosting = body.get("hosting", "")
-    if new_hosting not in ("company", "self"):
+    if new_hosting not in (HostingMode.COMPANY, HostingMode.SELF):
         return {"error": "Invalid hosting mode. Use 'company' or 'self'."}
 
     emp = _require_employee(employee_id)
@@ -1897,7 +1914,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
 
     # Persist via store
     hosting_updates: dict = {"hosting": new_hosting}
-    if new_hosting == "self":
+    if new_hosting == HostingMode.SELF:
         hosting_updates["api_provider"] = "anthropic"
         hosting_updates["auth_method"] = None  # self-hosted uses Claude CLI auth
         cfg.auth_method = "api_key"  # reset in-memory
@@ -1906,12 +1923,12 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     # Update manifest.json to reflect hosting change and adjust settings sections
     manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if manifest_path.exists():
-        manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = _json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
         manifest["hosting"] = new_hosting
 
         sections = manifest.get("settings", {}).get("sections", [])
 
-        if new_hosting == "self":
+        if new_hosting == HostingMode.SELF:
             # Add connection section if not present
             has_connection = any(s.get("id") == "connection" for s in sections)
             if not has_connection:
@@ -1939,10 +1956,10 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
                     ],
                 })
 
-        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
         invalidate_manifest_cache(employee_id)
 
-    hosting_label = "Self-hosted (Claude Code)" if new_hosting == "self" else "Company-hosted (LangChain)"
+    hosting_label = "Self-hosted (Claude Code)" if new_hosting == HostingMode.SELF else "Company-hosted (LangChain)"
     await event_bus.publish(
         CompanyEvent(
             type="agent_done",
@@ -2075,7 +2092,7 @@ async def update_api_settings(body: dict) -> dict:
         config = load_app_config()
         tm = config.setdefault("talent_market", {})
         tm["api_key"] = api_key
-        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
         reload_app_config()
 
         # Reconnect Talent Market with new API key
@@ -2181,13 +2198,6 @@ async def company_oauth_start() -> dict:
 
 # In-memory store for pending OAuth sessions: state -> {employee_id, code_verifier}
 _oauth_sessions: dict[str, dict] = {}
-
-ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
-ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
-ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
-ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
-ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
-
 
 @router.post("/api/employee/{employee_id}/oauth/start")
 async def oauth_start(employee_id: str) -> dict:
@@ -2512,7 +2522,7 @@ async def get_employee_sessions(employee_id: str) -> dict:
     from onemancompany.core.claude_session import list_sessions
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.hosting != "self":
+    if not cfg or cfg.hosting != HostingMode.SELF:
         return {"error": "Employee is not self-hosted"}
 
     return {"employee_id": employee_id, "sessions": list_sessions(employee_id)}
@@ -2525,7 +2535,7 @@ async def delete_employee_session(employee_id: str, project_id: str) -> dict:
     from onemancompany.core.claude_session import cleanup_session
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.hosting != "self":
+    if not cfg or cfg.hosting != HostingMode.SELF:
         return {"error": "Employee is not self-hosted"}
 
     cleanup_session(employee_id, project_id)
@@ -3258,7 +3268,7 @@ async def upload_avatar(employee_id: str, request: Request) -> dict:
 @router.get("/api/employees/{employee_id}/avatar")
 async def get_avatar(employee_id: str):
     """Serve an employee's avatar image, falling back to default piggy."""
-    from onemancompany.core.config import EMPLOYEES_DIR, COMPANY_DIR
+    from onemancompany.core.config import EMPLOYEES_DIR, HR_DIR
     avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
     if not avatar_path.exists():
         avatar_path = EMPLOYEES_DIR / employee_id / "avatar.jpg"
@@ -3268,7 +3278,7 @@ async def get_avatar(employee_id: str):
         media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
         return FileResponse(avatar_path, media_type=media)
     # Fallback: pick a deterministic avatar from the avatars directory based on employee ID
-    avatars_dir = COMPANY_DIR / "human_resource" / "avatars"
+    avatars_dir = HR_DIR / "avatars"
     if avatars_dir.exists():
         avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
         if avatars:
@@ -3277,7 +3287,7 @@ async def get_avatar(employee_id: str):
             media = "image/png" if pick.suffix == ".png" else "image/jpeg"
             return FileResponse(pick, media_type=media)
     # Legacy fallback
-    default = COMPANY_DIR / "human_resource" / "piggy.jpg"
+    default = HR_DIR / "piggy.jpg"
     if default.exists():
         return FileResponse(default, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="No avatar")
@@ -3417,7 +3427,7 @@ async def get_project_file(project_id: str, file_path: str):
                   ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
                   ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
     if suffix in text_types:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = target.read_text(encoding=ENCODING_UTF8, errors="replace")
         media = "text/plain; charset=utf-8"
         if suffix == ".html":
             media = "text/html; charset=utf-8"
@@ -3489,7 +3499,7 @@ async def get_employee_workspace_file(employee_id: str, file_path: str):
                   ".log", ".rst", ".tex", ".sql", ".r", ".rb", ".go", ".java",
                   ".c", ".cpp", ".h", ".hpp", ".rs", ".swift", ".kt", ".ts", ".tsx", ".jsx"}
     if suffix in text_types:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = target.read_text(encoding=ENCODING_UTF8, errors="replace")
         return Response(content=content, media_type="text/plain; charset=utf-8")
     else:
         content = target.read_bytes()
@@ -3628,7 +3638,7 @@ async def rehire_ex_employee(employee_id: str) -> dict:
         from onemancompany.core.agent_loop import get_agent_loop, register_and_start_agent, register_self_hosted
         if not get_agent_loop(employee_id):
             emp_profile = _store.load_employee(employee_id) or {}
-            if emp_profile.get("hosting") == "self":
+            if emp_profile.get("hosting") == HostingMode.SELF:
                 register_self_hosted(employee_id)
             else:
                 from onemancompany.agents.base import EmployeeAgent
@@ -3823,10 +3833,6 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
-# Required fields in talent profile.yaml for hiring
-_TALENT_REQUIRED_FIELDS = ["hosting"]
-
-
 def _check_talent_required_fields(talent_data: dict) -> list[str]:
     """Return list of required fields missing from talent profile."""
     missing = []
@@ -3834,7 +3840,7 @@ def _check_talent_required_fields(talent_data: dict) -> list[str]:
         if not talent_data.get(field):
             missing.append(field)
     # Self-hosted talents don't need llm_model/api_provider/auth_method
-    if talent_data.get("hosting") != "self":
+    if talent_data.get("hosting") != HostingMode.SELF:
         if not talent_data.get("llm_model"):
             missing.append("llm_model")
         if not talent_data.get("api_provider"):
@@ -3988,8 +3994,7 @@ async def _do_hire_single(
 
         async def _single_progress(step, message):
             _track_onboarding_progress(batch_id, candidate_id, cand_name, cand_role, step, message, 1)
-            step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-            step_index = step_order.index(step) if step in step_order else -1
+            step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
             await event_bus.publish(CompanyEvent(
                 type="onboarding_progress",
                 payload={"batch_id": batch_id, "candidate_id": candidate_id,
@@ -4000,7 +4005,7 @@ async def _do_hire_single(
                 agent="HR",
             ))
 
-        is_self = talent_data.get("hosting") == "self"
+        is_self = talent_data.get("hosting") == HostingMode.SELF
         emp = await execute_hire(
             name=cand_name,
             nickname=nickname or "",
@@ -4011,7 +4016,7 @@ async def _do_hire_single(
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
             api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
-            hosting=talent_data.get("hosting", "company"),
+            hosting=talent_data.get("hosting", HostingMode.COMPANY),
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
             remote=candidate.get("remote", False),
@@ -4077,8 +4082,8 @@ async def hire_from_cv(body: dict) -> dict:
     if not role:
         return {"error": "CV missing required field: role"}
 
-    hosting = cv.get("hosting", "company")
-    is_self = hosting == "self"
+    hosting = cv.get("hosting", HostingMode.COMPANY)
+    is_self = hosting == HostingMode.SELF
     skills = [s if isinstance(s, str) else s.get("name", "") for s in cv.get("skills", [])]
     talent_id = cv.get("talent_id", "")
     try:
@@ -4101,8 +4106,7 @@ async def hire_from_cv(body: dict) -> dict:
     batch_id = f"cv_{talent_id or name.lower().replace(' ', '_')}_{int(_time.time())}"
 
     async def _cv_progress(step, message):
-        step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-        step_index = step_order.index(step) if step in step_order else -1
+        step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
         await event_bus.publish(CompanyEvent(
             type="onboarding_progress",
             payload={"batch_id": batch_id, "candidate_id": talent_id or name,
@@ -4367,8 +4371,7 @@ async def _do_batch_hire(
             sel_role = sel.get("role", "") or candidate.get("role", "")
             async def _make_progress_cb(cid, name, idx_val, role):
                 async def cb(step, message):
-                    step_order = ["assigning_id", "copying_skills", "registering_agent", "completed"]
-                    step_index = step_order.index(step) if step in step_order else -1
+                    step_index = ONBOARDING_STEP_ORDER.index(step) if step in ONBOARDING_STEP_ORDER else -1
                     _track_onboarding_progress(batch_id, cid, name, role, step, message, total)
                     await event_bus.publish(CompanyEvent(
                         type="onboarding_progress",
@@ -4393,11 +4396,11 @@ async def _do_batch_hire(
                     role=final_role,
                     skills=skill_names,
                     talent_id=talent_id,
-                    llm_model="" if talent_data.get("hosting") == "self" else talent_data.get("llm_model", ""),
+                    llm_model="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("llm_model", ""),
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
-                    api_provider="" if talent_data.get("hosting") == "self" else talent_data.get("api_provider", "openrouter"),
-                    hosting=talent_data.get("hosting", "company"),
+                    api_provider="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("api_provider", "openrouter"),
+                    hosting=talent_data.get("hosting", HostingMode.COMPANY),
                     auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),
                     remote=candidate.get("remote", False),
@@ -4791,7 +4794,7 @@ async def get_tool_definition(tool_id: str):
             for tf in sorted(templates_dir.iterdir()):
                 if tf.is_file() and not tf.name.startswith("."):
                     # Parse frontmatter for name/description
-                    content = tf.read_text(encoding="utf-8")
+                    content = tf.read_text(encoding=ENCODING_UTF8)
                     tmpl_meta = {"filename": tf.name, "name": tf.stem, "description": ""}
                     if content.startswith("---"):
                         parts = content.split("---", 2)
@@ -4943,7 +4946,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
 
     # Persist to .env file
     from pathlib import Path as _Path
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()
@@ -4989,7 +4992,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
         os.environ[name] = value
 
     # Persist to .env
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
         lines = env_path.read_text().splitlines()
@@ -5030,7 +5033,7 @@ async def tool_get_template(tool_id: str, filename: str):
     if not file_path.is_file() or not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=404, detail="Template not found")
 
-    return {"filename": filename, "content": file_path.read_text(encoding="utf-8")}
+    return {"filename": filename, "content": file_path.read_text(encoding=ENCODING_UTF8)}
 
 
 @router.put("/api/tools/{tool_id}/templates/{filename}")
@@ -5060,7 +5063,7 @@ async def tool_save_template(tool_id: str, filename: str, body: dict):
     if not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path.write_text(content, encoding="utf-8")
+    file_path.write_text(content, encoding=ENCODING_UTF8)
     return {"status": "ok", "filename": filename}
 
 
@@ -5283,7 +5286,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
 
     # Also persist to .env for next restart
     from onemancompany.core.config import COMPANY_ROOT
-    env_path = COMPANY_ROOT.parent / ".env"
+    env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     if env_path.exists():
         existing = env_path.read_text()
     else:
@@ -5324,7 +5327,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
     body = await request.json()  # {"telegram_bot_token": "...", ...}
 
     from onemancompany.core.config import COMPANY_ROOT
-    env_path = COMPANY_ROOT.parent / ".env"
+    env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     existing = env_path.read_text() if env_path.exists() else ""
 
     updated_keys = {}
@@ -5842,7 +5845,6 @@ _active_adapter_tasks: set[asyncio.Task] = set()
 
 _VALID_CONV_TYPES = {t.value for t in ConversationType}
 _VALID_CONV_PHASES = {p.value for p in ConversationPhase}
-_MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 
 
 @router.post("/api/conversation/create")
@@ -5973,7 +5975,7 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
         logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
         try:
             await _conversation_service.send_message(
-                conv_id, sender="system", role="System",
+                conv_id, sender=SYSTEM_SENDER, role="System",
                 text="Agent is not responding. Please try again.",
             )
         except Exception:

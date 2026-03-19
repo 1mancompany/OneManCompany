@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.config import CEO_ID, TASK_TREE_FILENAME
+from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
 
@@ -555,14 +555,14 @@ def set_project_name(name: str) -> dict:
         return {"status": "error", "message": "No project context."}
 
     # Update project.yaml name field
-    project_yaml = Path(project_dir) / "project.yaml"
+    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
     if project_yaml.exists():
         import yaml
-        data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
         data["name"] = name.strip()
         project_yaml.write_text(
             yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
         return {"status": "ok", "name": name.strip()}
 

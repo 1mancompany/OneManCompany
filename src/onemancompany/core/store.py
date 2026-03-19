@@ -22,6 +22,7 @@ from onemancompany.core.config import (
     COMPANY_DIRECTION_FILE,
     COMPANY_DIR,
     DATA_ROOT,  # noqa: F401 — re-exported, used by test fixtures
+    ENCODING_UTF8,
     PROJECTS_DIR,  # noqa: F401 — re-exported, used by test fixtures
     DirtyCategory,
     EMPLOYEES_DIR,
@@ -30,6 +31,7 @@ from onemancompany.core.config import (
     PROFILE_FILENAME,
     ROOMS_DIR,
     TASK_TREE_FILENAME,
+    TOOL_YAML_FILENAME,
     TOOLS_DIR,
 )
 
@@ -41,6 +43,7 @@ ACTIVITY_LOG_FILENAME = "activity_log.yaml"
 OVERHEAD_FILENAME = "overhead.yaml"
 TASK_INDEX_FILENAME = "task_index.yaml"
 ONEONONE_HISTORY_FILENAME = "oneonone_history.yaml"
+COMPANY_CULTURE_FILENAME = "company_culture.yaml"
 SALES_TASKS_PATH = COMPANY_DIR / "sales" / "tasks.yaml"
 CANDIDATES_DIR = COMPANY_DIR / "candidates"
 
@@ -54,7 +57,7 @@ def _read_yaml(path: Path) -> dict:
     try:
         if not path.exists():
             return {}
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding=ENCODING_UTF8)
         return yaml.safe_load(text) or {}
     except Exception as e:
         logger.error("Failed to read {}: {}", path, e)
@@ -67,7 +70,7 @@ def _write_yaml(path: Path, data: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
-            encoding="utf-8",
+            encoding=ENCODING_UTF8,
         )
     except Exception as e:
         logger.error("Failed to write {}: {}", path, e)
@@ -79,7 +82,7 @@ def _read_yaml_list(path: Path) -> list:
     try:
         if not path.exists():
             return []
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding=ENCODING_UTF8)
         result = yaml.safe_load(text)
         return result if isinstance(result, list) else []
     except Exception as e:
@@ -185,7 +188,7 @@ def load_employee_work_principles(emp_id: str) -> str:
     """Read work_principles.md for an employee."""
     path = EMPLOYEES_DIR / emp_id / WORK_PRINCIPLES_FILENAME
     try:
-        return path.read_text(encoding="utf-8") if path.exists() else ""
+        return path.read_text(encoding=ENCODING_UTF8) if path.exists() else ""
     except Exception:
         return ""
 
@@ -235,7 +238,7 @@ async def save_work_principles(emp_id: str, text: str) -> None:
     """Write work_principles.md for an employee."""
     path = EMPLOYEES_DIR / emp_id / WORK_PRINCIPLES_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 
@@ -305,7 +308,7 @@ async def append_room_chat(room_id: str, message: dict) -> None:
         messages = _read_yaml_list(path)
         messages.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(messages, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        path.write_text(yaml.dump(messages, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.ROOMS)
 
 
@@ -321,7 +324,7 @@ def load_tools() -> list[dict]:
     for tdir in sorted(tools_dir.iterdir()):
         if not tdir.is_dir():
             continue
-        tyaml = tdir / "tool.yaml"
+        tyaml = tdir / TOOL_YAML_FILENAME
         if tyaml.exists():
             results.append(_read_yaml(tyaml))
     return results
@@ -329,7 +332,7 @@ def load_tools() -> list[dict]:
 
 async def save_tool(slug: str, data: dict) -> None:
     tools_dir = DATA_ROOT / "company" / "assets" / "tools"
-    path = tools_dir / slug / "tool.yaml"
+    path = tools_dir / slug / TOOL_YAML_FILENAME
     async with _get_lock(str(path)):
         _write_yaml(path, data)
     mark_dirty(DirtyCategory.TOOLS)
@@ -362,7 +365,7 @@ async def append_activity(entry: dict) -> None:
         if len(log) > 200:
             log = log[-200:]
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
@@ -374,19 +377,19 @@ def append_activity_sync(entry: dict) -> None:
     if len(log) > 200:
         log = log[-200:]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
 def load_culture() -> list[dict]:
-    return _read_yaml_list(COMPANY_DIR / "company_culture.yaml")
+    return _read_yaml_list(COMPANY_DIR / COMPANY_CULTURE_FILENAME)
 
 
 async def save_culture(items: list[dict]) -> None:
-    path = COMPANY_DIR / "company_culture.yaml"
+    path = COMPANY_DIR / COMPANY_CULTURE_FILENAME
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(items, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        path.write_text(yaml.dump(items, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.CULTURE)
 
 
@@ -410,7 +413,7 @@ async def save_sales_tasks(tasks: list[dict]) -> None:
     path = SALES_TASKS_PATH
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.SALES_TASKS)
 
 
@@ -418,7 +421,7 @@ def save_sales_tasks_sync(tasks: list[dict]) -> None:
     """Synchronous version of save_sales_tasks for use in non-async contexts (e.g., LangChain tools)."""
     path = SALES_TASKS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.SALES_TASKS)
 
 
@@ -442,7 +445,7 @@ def save_task_index(employee_id: str, entries: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         yaml.dump(entries, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
+        encoding=ENCODING_UTF8,
     )
 
 
@@ -489,7 +492,7 @@ async def append_oneonone(emp_id: str, message: dict) -> None:
         history = _read_yaml_list(path)
         history.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(history, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+        path.write_text(yaml.dump(history, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 

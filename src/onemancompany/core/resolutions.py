@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import RESOLUTIONS_DIR
+from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR
 from onemancompany.core.models import DecisionStatus
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ _task_edits: dict[str, list[dict]] = {}
 
 
 def _compute_md5(content: str) -> str:
-    return hashlib.md5(content.encode("utf-8")).hexdigest()
+    return hashlib.md5(content.encode(ENCODING_UTF8)).hexdigest()
 
 
 def collect_edit(project_id: str, edit: dict) -> None:
@@ -154,7 +154,7 @@ def list_deferred_edits() -> list[dict]:
             # Check staleness
             file_path = Path(edit.get("file_path", ""))
             if file_path.exists():
-                current_md5 = _compute_md5(file_path.read_text(encoding="utf-8"))
+                current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
                 edit["expired"] = current_md5 != edit.get("original_md5", "")
             else:
                 edit["expired"] = True
@@ -222,7 +222,7 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
             file_path = Path(edit["file_path"])
             if file_path.exists():
                 edit["original_md5"] = _compute_md5(
-                    file_path.read_text(encoding="utf-8")
+                    file_path.read_text(encoding=ENCODING_UTF8)
                 )
             results.append({"edit_id": eid, "decision": "defer", "status": DecisionStatus.DEFERRED.value})
 
@@ -262,7 +262,7 @@ def execute_deferred_edit(resolution_id: str, edit_id: str) -> dict:
     # Check staleness
     file_path = Path(edit["file_path"])
     if file_path.exists():
-        current_md5 = _compute_md5(file_path.read_text(encoding="utf-8"))
+        current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
         if current_md5 != edit.get("original_md5", ""):
             edit["expired"] = True
             _save_resolution(resolution)
