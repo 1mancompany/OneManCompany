@@ -593,13 +593,26 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
                 shutil.rmtree(dest)
             shutil.copytree(str(tmp_clone), str(dest), ignore=shutil.ignore_patterns(".git"))
         else:
-            # Multi-talent repo: each subdir with profile.yaml is a talent
+            # Multi-talent repo: each subdir with profile.yaml is a talent.
+            # Save by profile.yaml's `id` field (falling back to dir name) so
+            # resolve_talent_dir(talent_id) can find it by its canonical ID.
+            import yaml as _yaml
             for sub in tmp_clone.iterdir():
                 if sub.is_dir() and (sub / PROFILE_FILENAME).exists():
-                    dest = _TALENTS_CLONE_DIR / sub.name
+                    try:
+                        profile_id = (_yaml.safe_load((sub / PROFILE_FILENAME).read_text()) or {}).get("id", "")
+                    except Exception:
+                        profile_id = ""
+                    dest_name = profile_id or sub.name
+                    dest = _TALENTS_CLONE_DIR / dest_name
                     if dest.exists():
                         shutil.rmtree(dest)
                     shutil.copytree(str(sub), str(dest), ignore=shutil.ignore_patterns(".git"))
+                    # Also save under dir name as alias if different
+                    if profile_id and profile_id != sub.name:
+                        alias = _TALENTS_CLONE_DIR / sub.name
+                        if not alias.exists():
+                            shutil.copytree(str(sub), str(alias), ignore=shutil.ignore_patterns(".git"))
     finally:
         shutil.rmtree(tmp_clone, ignore_errors=True)
 
@@ -646,14 +659,28 @@ def _assign_default_avatar(emp_dir: Path, emp_num: str) -> None:
 
 
 def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
-    """Copy skills/ and tools/ from a talent package into an employee folder.
+    """Copy all files from a talent package into an employee folder.
 
-    For custom LangChain tools (listed in manifest.yaml ``custom_tools``),
-    registers the new employee in each tool's ``allowed_users`` whitelist
-    instead of copying .py files.
+    Copies the entire talent directory tree first (excluding profile.yaml,
+    .git, and Python tool modules), then handles special cases for tools
+    (LangChain registration) and personas (prompts/talent_persona.md).
     """
     if not talent_dir.exists():
         return
+
+    # Copy everything from the talent dir that doesn't already exist in emp_dir,
+    # skipping files handled specially below and ones that shouldn't transfer.
+    _SKIP_FILES = {"profile.yaml", LAUNCH_SCRIPT, HEARTBEAT_SCRIPT}  # scripts handled below with chmod
+    _SKIP_DIRS = {".git", "tools", "skills"}  # tools→assets/tools/, skills handled by loop below
+    for src in talent_dir.iterdir():
+        if src.name in _SKIP_FILES or src.name in _SKIP_DIRS:
+            continue
+        dst = emp_dir / src.name
+        if src.is_dir():
+            if not dst.exists():
+                shutil.copytree(str(src), str(dst), ignore=shutil.ignore_patterns(".git", "*.pyc", "__pycache__"))
+        elif src.is_file() and not dst.exists():
+            shutil.copy2(str(src), str(dst))
 
     talent_skills = talent_dir / "skills"
     if talent_skills.exists():
@@ -675,38 +702,57 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
 
     talent_tools = talent_dir / "tools"
     if talent_tools.exists():
-        emp_tools = emp_dir / "tools"
-        emp_tools.mkdir(exist_ok=True)
-
-        # Register employee in central tool allowed_users
+        employee_id = emp_dir.name
         manifest = talent_tools / MANIFEST_YAML_FILENAME
+        custom_tools: list[str] = []
         if manifest.exists():
             with open(manifest) as f:
                 mdata = yaml.safe_load(f) or {}
-            employee_id = emp_dir.name  # e.g. "00005"
-            for tool_name in mdata.get("custom_tools", []):
-                register_tool_user(tool_name, employee_id)
+            custom_tools = mdata.get("custom_tools", [])
 
-        for src_file in talent_tools.iterdir():
-            # Skip .py files — LangChain tool modules live centrally
-            # in company/assets/tools/ and are loaded at runtime.
-            if src_file.suffix == ".py":
+        # Move each named tool subdir to assets/tools/ if not already there,
+        # then register the employee. Do NOT keep a local tools/ folder.
+        for entry in talent_tools.iterdir():
+            if entry.name == "manifest.yaml":
                 continue
-            if src_file.is_file():
-                dst_file = emp_tools / src_file.name
-                if not dst_file.exists():
-                    shutil.copy2(str(src_file), str(dst_file))
+            if entry.is_dir():
+                dst_tool = TOOLS_DIR / entry.name
+                if not dst_tool.exists():
+                    shutil.copytree(str(entry), str(dst_tool), ignore=shutil.ignore_patterns("*.pyc", "__pycache__"))
+                    logger.info("Installed tool '{}' from talent {} to assets/tools/", entry.name, talent_dir.name)
+                register_tool_user(entry.name, employee_id)
+            elif entry.is_file() and entry.suffix not in (".py", ".pyc"):
+                # Loose non-Python files (e.g. config.yaml) stay in emp/tools/
+                emp_tools = emp_dir / "tools"
+                emp_tools.mkdir(exist_ok=True)
+                dst = emp_tools / entry.name
+                if not dst.exists():
+                    shutil.copy2(str(entry), str(dst))
 
-    # Copy talent persona (system_prompt_template → prompts/talent_persona.md)
-    talent_profile_path = talent_dir / PROFILE_FILENAME
-    if talent_profile_path.exists():
-        with open(talent_profile_path) as f:
-            talent_data = yaml.safe_load(f) or {}
-        spt = talent_data.get("system_prompt_template", "")
-        if spt and spt.strip():
-            prompts_dir = emp_dir / PROMPTS_DIR_NAME
-            prompts_dir.mkdir(exist_ok=True)
-            (prompts_dir / TALENT_PERSONA_FILENAME).write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
+        # Register employee for any custom_tools listed in manifest.yaml by name
+        for tool_name in custom_tools:
+            register_tool_user(tool_name, employee_id)
+
+    # Copy talent persona — prefer prompts/talent_persona.md from repo,
+    # fall back to system_prompt_template from profile.yaml
+    prompts_dir = emp_dir / PROMPTS_DIR_NAME
+    talent_persona_src = talent_dir / PROMPTS_DIR_NAME / TALENT_PERSONA_FILENAME
+    if talent_persona_src.exists():
+        prompts_dir.mkdir(exist_ok=True)
+        dst_persona = prompts_dir / TALENT_PERSONA_FILENAME
+        if not dst_persona.exists():
+            shutil.copy2(str(talent_persona_src), str(dst_persona))
+    else:
+        talent_profile_path = talent_dir / PROFILE_FILENAME
+        if talent_profile_path.exists():
+            with open(talent_profile_path) as f:
+                talent_data = yaml.safe_load(f) or {}
+            spt = talent_data.get("system_prompt_template", "")
+            if spt and spt.strip():
+                prompts_dir.mkdir(exist_ok=True)
+                dst_persona = prompts_dir / TALENT_PERSONA_FILENAME
+                if not dst_persona.exists():
+                    dst_persona.write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
 
     # Copy CLAUDE.md for Claude CLI discovery
     talent_claude_md = talent_dir / CLAUDE_MD_FILENAME

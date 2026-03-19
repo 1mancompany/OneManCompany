@@ -4117,8 +4117,55 @@ async def hire_from_cv(body: dict) -> dict:
             agent="HR",
         ))
 
+    async def _publish_cv_error(message: str) -> None:
+        logger.error("[cv_hire] {}", message)
+        await event_bus.publish(CompanyEvent(
+            type=EventType.TALENT_PROFILE_ERROR,
+            payload={"role": "HR", "summary": message, "talent_id": talent_id, "missing_fields": []},
+            agent="HR",
+        ))
+
     async def _do_cv_hire():
         try:
+            # Clone talent repo so copy_talent_assets can copy skills/tools/manifest
+            if talent_id:
+                from onemancompany.agents.onboarding import clone_talent_repo, resolve_talent_dir
+                from onemancompany.agents.recruitment import talent_market
+                source_repo = cv.get("source_repo", "")
+                repo_url = source_repo
+                if not repo_url:
+                    try:
+                        from onemancompany.core.config import load_app_config
+                        tm_url = load_app_config().get("talent_market", {}).get("url", "https://api.one-man-company.com/mcp/sse")
+                        onboard_result = await talent_market.onboard(talent_id)
+                        repo_url = onboard_result.get("repo_url", "")
+                    except Exception as e:
+                        await _publish_cv_error(
+                            f"Failed to fetch repo URL for talent '{talent_id}' from Talent Market ({tm_url}): {e}"
+                        )
+                        return
+                if not repo_url:
+                    await _publish_cv_error(
+                        f"Talent '{talent_id}' has no repo URL — cannot copy skills/tools. "
+                        f"Add a 'source_repo' field to the CV or ensure the talent is published on the Talent Market."
+                    )
+                    return
+                try:
+                    await clone_talent_repo(repo_url, talent_id)
+                except Exception as e:
+                    await _publish_cv_error(
+                        f"Failed to clone talent repo '{repo_url}' for '{talent_id}': {e}"
+                    )
+                    return
+                if not resolve_talent_dir(talent_id):
+                    from onemancompany.core.config import TALENTS_RUNTIME_DIR
+                    cloned_dirs = [d for d in TALENTS_RUNTIME_DIR.iterdir() if d.is_dir()]
+                    await _publish_cv_error(
+                        f"Talent repo cloned but directory not found for '{talent_id}'. "
+                        f"Available: {[d.name for d in cloned_dirs]}. Add 'source_repo' to CV pointing directly to the talent repo."
+                    )
+                    return
+
             emp = await execute_hire(
                 name=name,
                 nickname=nickname,
@@ -4137,8 +4184,9 @@ async def hire_from_cv(body: dict) -> dict:
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as e:
             logger.exception("[cv_hire] Failed to hire {}", name)
+            await _publish_cv_error(f"Onboarding failed for '{name}': {e}")
 
     spawn_background(_do_cv_hire())
     return {"status": "onboarding", "name": name, "role": role, "message": "Onboarding started in background"}
