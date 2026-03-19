@@ -12,20 +12,51 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from onemancompany.core.config import (
+    AGENT_DIR_NAME,
     EMPLOYEES_DIR,
+    BLOCK_KEY_TEXT,
+    BLOCK_KEY_TYPE,
+    BLOCK_TYPE_TEXT,
+    CHAT_CLASS_ANTHROPIC,
+    CHAT_CLASS_OPENAI,
+    ENCODING_UTF8,
     MAX_SUMMARY_LEN,
+    PF_DEPARTMENT,
+    PF_LEVEL,
+    PF_NAME,
+    PF_NICKNAME,
+    PF_ROLE,
+    PF_RUNTIME,
+    PF_STATUS,
+    PF_CURRENT_TASK_SUMMARY,
+    PROMPTS_DIR_NAME,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
+    SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
+    TALENT_PERSONA_FILENAME,
+    VESSEL_DIR_NAME,
+    WORKSPACE_DIR_NAME,
     employee_configs,
     get_provider,
     load_employee_skills,
     settings,
 )
+from onemancompany.core.models import AuthMethod
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.agents.prompt_builder import PromptBuilder
+
+EFFICIENCY_PROMPT_FILENAME = "efficiency.md"
+WORK_APPROACH_PROMPT_FILENAME = "work_approach.md"
+TOOL_USAGE_PROMPT_FILENAME = "tool_usage.md"
+ROLE_PROMPT_FILENAME = "role.md"
+_LG_MESSAGES_KEY = "messages"  # LangGraph result dict key
+_TC_NAME_KEY = "name"  # tool_call dict key
+_TC_ATTR = "tool_calls"  # AIMessage attribute name
+_UNKNOWN_TOOL = "unknown"
+_NO_OUTPUT = "(no output)"
 
 
 def _extract_text(content) -> str:
@@ -40,8 +71,8 @@ def _extract_text(content) -> str:
     if isinstance(content, list):
         parts = []
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
+            if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
+                parts.append(block.get(BLOCK_KEY_TEXT, ""))
             elif isinstance(block, str):
                 parts.append(block)
         return "\n".join(parts)
@@ -59,7 +90,7 @@ def extract_final_content(result: dict) -> str:
     """
     from langchain_core.messages import AIMessage, ToolMessage
 
-    messages = result.get("messages", [])
+    messages = result.get(_LG_MESSAGES_KEY, [])
     if not messages:
         return ""
 
@@ -79,8 +110,8 @@ def extract_final_content(result: dict) -> str:
             tool_results.append(_extract_text(msg.content))
         elif isinstance(msg, AIMessage):
             # This AIMessage had tool_calls but no text — grab the tool names
-            for tc in getattr(msg, "tool_calls", []) or []:
-                tool_names.append(tc.get("name", "unknown"))
+            for tc in getattr(msg, _TC_ATTR, []) or []:
+                tool_names.append(tc.get(_TC_NAME_KEY, _UNKNOWN_TOOL))
             break
 
     if tool_names:
@@ -91,7 +122,7 @@ def extract_final_content(result: dict) -> str:
         return "\n".join(parts)
 
     # 3. Last resort
-    return _extract_text(messages[-1].content) or "(no output)"
+    return _extract_text(messages[-1].content) or _NO_OUTPUT
 
 
 def _resolve_provider_key(provider_name: str, employee_api_key: str) -> str:
@@ -133,7 +164,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     prov = get_provider(api_provider)
 
     # --- Anthropic (non-OpenAI-compatible) ---
-    if prov and prov.chat_class == "anthropic":
+    if prov and prov.chat_class == CHAT_CLASS_ANTHROPIC:
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             from langchain_anthropic import ChatAnthropic
@@ -145,7 +176,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 auth_method = settings.anthropic_auth_method
 
             extra_headers = {}
-            if auth_method == "oauth" or effective_key.startswith("sk-ant-oat"):
+            if auth_method == AuthMethod.OAUTH or effective_key.startswith("sk-ant-oat"):
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
             return ChatAnthropic(
                 model=model,
@@ -156,7 +187,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
             )
 
     # --- OpenAI-compatible providers (openrouter, openai, kimi, deepseek, etc.) ---
-    if prov and prov.chat_class == "openai":
+    if prov and prov.chat_class == CHAT_CLASS_OPENAI:
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             base_url = prov.base_url
@@ -273,10 +304,10 @@ async def tracked_ainvoke(
 
 def get_employee_talent_persona(employee_id: str) -> str:
     """Load talent persona from employees/{id}/prompts/talent_persona.md."""
-    path = EMPLOYEES_DIR / employee_id / "prompts" / "talent_persona.md"
+    path = EMPLOYEES_DIR / employee_id / PROMPTS_DIR_NAME / TALENT_PERSONA_FILENAME
     if not path.exists():
         return ""
-    content = path.read_text(encoding="utf-8").strip()
+    content = path.read_text(encoding=ENCODING_UTF8).strip()
     return f"\n{content}" if content else ""
 
 
@@ -386,7 +417,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
                     fpath = tool_folder / fname
                     if fpath.is_file():
                         try:
-                            content = fpath.read_text(encoding="utf-8")
+                            content = fpath.read_text(encoding=ENCODING_UTF8)
                         except (UnicodeDecodeError, ValueError):
                             content = f"[binary, {fpath.stat().st_size} bytes]"
                         parts.append(f"  - {fname}:\n```\n{content}\n```")
@@ -539,7 +570,7 @@ class BaseAgentRunner:
         total_input = 0
         total_output = 0
         model = ""
-        for msg in result.get("messages", []):
+        for msg in result.get(_LG_MESSAGES_KEY, []):
             if not isinstance(msg, AIMessage):
                 continue
             meta = getattr(msg, "response_metadata", {}) or {}
@@ -602,7 +633,7 @@ class BaseAgentRunner:
         system_prompt_template, capturing the talent's core identity and
         working style (e.g. "You are a senior PM with 46 frameworks...").
         """
-        content = self._load_prompt_file("talent_persona.md")
+        content = self._load_prompt_file(TALENT_PERSONA_FILENAME)
         if not content:
             return ""
         return f"\n\n## Talent Persona\n{content.strip()}\n"
@@ -658,13 +689,13 @@ class BaseAgentRunner:
         for eid, edata in all_emps.items():
             if eid == self.employee_id:
                 continue
-            runtime = edata.get("runtime", {})
-            status = runtime.get("status", "idle")
-            task_summary = runtime.get("current_task_summary", "")
-            status_tag = f"[{status}]" if status != "idle" else ""
+            runtime = edata.get(PF_RUNTIME, {})
+            status = runtime.get(PF_STATUS, STATUS_IDLE)
+            task_summary = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
+            status_tag = f"[{status}]" if status != STATUS_IDLE else ""
             task_hint = f" — {task_summary}" if task_summary else ""
             team_lines.append(
-                f"  - {edata.get('name', '')}({edata.get('nickname', '')}) ID:{eid} {edata.get('role', '')} Lv.{edata.get('level', 1)}{status_tag}{task_hint}"
+                f"  - {edata.get(PF_NAME, '')}({edata.get(PF_NICKNAME, '')}) ID:{eid} {edata.get(PF_ROLE, '')} Lv.{edata.get(PF_LEVEL, 1)}{status_tag}{task_hint}"
             )
         if team_lines:
             parts.append("- Team:\n" + "\n".join(team_lines))
@@ -689,9 +720,9 @@ class BaseAgentRunner:
 
     def _load_prompt_file(self, filename: str) -> str | None:
         """Load prompt from employee's prompts/ dir."""
-        path = EMPLOYEES_DIR / self.employee_id / "prompts" / filename
+        path = EMPLOYEES_DIR / self.employee_id / PROMPTS_DIR_NAME / filename
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            return path.read_text(encoding=ENCODING_UTF8)
         return None
 
     @staticmethod
@@ -699,7 +730,7 @@ class BaseAgentRunner:
         """Load from company/shared_prompts/."""
         path = SHARED_PROMPTS_DIR / filename
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            return path.read_text(encoding=ENCODING_UTF8)
         return None
 
     def _get_company_direction_section(self) -> str:
@@ -716,10 +747,10 @@ class BaseAgentRunner:
 
     def _get_soul_section(self) -> str:
         """Load the employee's self-maintained SOUL.md knowledge file."""
-        soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / "SOUL.md"
+        soul_path = EMPLOYEES_DIR / self.employee_id / WORKSPACE_DIR_NAME / SOUL_FILENAME
         if soul_path.exists():
             try:
-                content = soul_path.read_text(encoding="utf-8").strip()
+                content = soul_path.read_text(encoding=ENCODING_UTF8).strip()
                 if content:
                     return (
                         "## Your Personal Knowledge (SOUL.md)\n"
@@ -765,7 +796,7 @@ class BaseAgentRunner:
                 if not ps.name or not ps.file:
                     continue
                 content_path = None
-                for search_dir in [emp_dir / "vessel", emp_dir / "agent"]:
+                for search_dir in [emp_dir / VESSEL_DIR_NAME, emp_dir / AGENT_DIR_NAME]:
                     candidate = search_dir / ps.file
                     if candidate.exists():
                         content_path = candidate
@@ -773,7 +804,7 @@ class BaseAgentRunner:
                 if not content_path:
                     continue
                 try:
-                    content = content_path.read_text(encoding="utf-8")
+                    content = content_path.read_text(encoding=ENCODING_UTF8)
                     pb.add(ps.name, content, priority=ps.priority)
                 except Exception as _e:
                     logger.warning("Failed to load prompt section %s: %s", ps.name, _e)
@@ -781,7 +812,7 @@ class BaseAgentRunner:
     def _get_efficiency_guidelines_section(self) -> str:
         """Build efficiency guidelines to reduce wasted tokens and loops."""
         # Try loading from shared prompts file first
-        content = self._load_prompt_file("efficiency.md") or self._load_shared_prompt("efficiency.md")
+        content = self._load_prompt_file(EFFICIENCY_PROMPT_FILENAME) or self._load_shared_prompt(EFFICIENCY_PROMPT_FILENAME)
         if content:
             return "\n\n" + content
 
@@ -810,7 +841,7 @@ class EmployeeAgent(BaseAgentRunner):
         self.employee_id = employee_id
         from onemancompany.core.store import load_employee as _load_emp
         emp_data = _load_emp(employee_id) or {}
-        self.role = emp_data.get("role", "Employee")
+        self.role = emp_data.get(PF_ROLE, "Employee")
 
         proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
         self._authorized_tool_names: list[str] = [t.name for t in proxied_tools]
@@ -828,14 +859,14 @@ class EmployeeAgent(BaseAgentRunner):
 
         pb = self._build_prompt_builder()
 
-        emp_name = emp_data.get("name", "")
-        emp_nickname = emp_data.get("nickname", "")
-        emp_role = emp_data.get("role", "Employee")
-        emp_dept = emp_data.get("department", "")
-        emp_level = emp_data.get("level", 1)
+        emp_name = emp_data.get(PF_NAME, "")
+        emp_nickname = emp_data.get(PF_NICKNAME, "")
+        emp_role = emp_data.get(PF_ROLE, "Employee")
+        emp_dept = emp_data.get(PF_DEPARTMENT, "")
+        emp_level = emp_data.get(PF_LEVEL, 1)
 
         # 1. Role header: try employee's custom role.md, else default
-        role_prompt = self._load_prompt_file("role.md")
+        role_prompt = self._load_prompt_file(ROLE_PROMPT_FILENAME)
         if role_prompt:
             header = (role_prompt
                       .replace("{name}", emp_name)
@@ -853,8 +884,8 @@ class EmployeeAgent(BaseAgentRunner):
         pb.add("role", header, priority=10)
 
         # 2. Work Approach: from files or hardcoded
-        work_approach = (self._load_prompt_file("work_approach.md")
-                         or self._load_shared_prompt("work_approach.md")
+        work_approach = (self._load_prompt_file(WORK_APPROACH_PROMPT_FILENAME)
+                         or self._load_shared_prompt(WORK_APPROACH_PROMPT_FILENAME)
                          or (
                              "## Work Approach\n"
                              "1. Review: FIRST use ls to see what already exists in the project workspace. "
@@ -867,8 +898,8 @@ class EmployeeAgent(BaseAgentRunner):
         pb.add("work_approach", work_approach, priority=15)
 
         # 3. Tool Usage: from files or hardcoded
-        tool_usage = (self._load_prompt_file("tool_usage.md")
-                      or self._load_shared_prompt("tool_usage.md")
+        tool_usage = (self._load_prompt_file(TOOL_USAGE_PROMPT_FILENAME)
+                      or self._load_shared_prompt(TOOL_USAGE_PROMPT_FILENAME)
                       or (
                           "## Tool Usage\n"
                           "- ls: ALWAYS call this first to see existing project files.\n"

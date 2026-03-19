@@ -9,6 +9,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from onemancompany.core.config import ENCODING_UTF8
+
 
 class LlmTracer:
     """Append-only JSONL logger for LLM interactions."""
@@ -19,7 +21,7 @@ class LlmTracer:
     def _append(self, record: dict) -> None:
         record["ts"] = datetime.now().isoformat()
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a", encoding="utf-8") as f:
+        with self._path.open("a", encoding=ENCODING_UTF8) as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def log_prompt(self, node_id: str, employee_id: str, content: str) -> None:

@@ -27,7 +27,23 @@ from onemancompany.core.config import (
     EXEC_ROW_GY,
     FOUNDING_LEVEL,
     HR_ID,
+    PF_DEPARTMENT,
+    PF_DESK_POSITION,
+    PF_EMPLOYEE_NUMBER,
+    PF_LEVEL,
+    PF_REMOTE,
+    PROFILE_FILENAME,
 )
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+TOTAL_COLS = 20
+ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
+TOOL_SPACING_X = 3  # horizontal spacing between tools
+ROOM_SPACING_X = 3  # horizontal spacing between meeting rooms (room is 2 tiles wide + 1 gap)
+MIN_CANVAS_ROWS = 15
 
 # CEO + executives — all handled separately from department zones
 _SKIP_IDS = FOUNDING_IDS
@@ -73,14 +89,14 @@ def compute_layout(company_state) -> dict:
     for emp_id, emp_data in employees.items():
         if emp_id in _SKIP_IDS:
             continue  # executives handled separately
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue  # remote employees don't occupy office desks
-        dept = emp_data.get("department") or "General"
+        dept = emp_data.get(PF_DEPARTMENT) or "General"
         entry = {
             "id": emp_id,
-            "level": emp_data.get("level", 1),
-            "employee_number": emp_data.get("employee_number", emp_id),
-            "desk_position": tuple(emp_data.get("desk_position", [0, 0])),
+            "level": emp_data.get(PF_LEVEL, 1),
+            "employee_number": emp_data.get(PF_EMPLOYEE_NUMBER, emp_id),
+            "desk_position": tuple(emp_data.get(PF_DESK_POSITION, [0, 0])),
         }
         dept_groups.setdefault(dept, []).append(entry)
 
@@ -125,8 +141,9 @@ def compute_layout(company_state) -> dict:
     _persist_positions(position_updates)
 
     # Notify frontend that office layout changed (dept zones, colors, etc.)
+    from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty("office_layout")
+    mark_dirty(DirtyCategory.OFFICE_LAYOUT)
 
     return layout
 
@@ -148,13 +165,13 @@ def _persist_positions(position_updates: dict[str, list[int]]) -> None:
     from onemancompany.core.config import EMPLOYEES_DIR
 
     for emp_id, pos in position_updates.items():
-        profile_path = EMPLOYEES_DIR / emp_id / "profile.yaml"
+        profile_path = EMPLOYEES_DIR / emp_id / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:
             data = yaml.safe_load(f) or {}
-        if data.get("desk_position") != pos:
-            data["desk_position"] = pos
+        if data.get(PF_DESK_POSITION) != pos:
+            data[PF_DESK_POSITION] = pos
             with open(profile_path, "w") as f:
                 yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
@@ -285,12 +302,12 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
     for emp_id, emp_data in employees.items():
         if emp_id in _SKIP_IDS:
             continue
-        if emp_data.get("remote", False):
+        if emp_data.get(PF_REMOTE, False):
             continue  # remote employees don't occupy office desks
-        dept = emp_data.get("department") or "General"
+        dept = emp_data.get(PF_DEPARTMENT) or "General"
         dept_groups.setdefault(dept, []).append({
             "id": emp_id,
-            "desk_position": tuple(emp_data.get("desk_position", [0, 0])),
+            "desk_position": tuple(emp_data.get(PF_DESK_POSITION, [0, 0])),
         })
 
     # Ensure the target department exists in groups (even if empty)
@@ -340,13 +357,6 @@ def get_next_desk_for_department(company_state_unused, department: str) -> tuple
 
     # Truly full — place at next overflow row
     return (target_zone.start_col + 1, desk_rows[-1] + row_spacing)
-
-
-TOTAL_COLS = 20
-ASSET_GAP_Y = 3  # vertical spacing between asset rows (tools occupy ~1 tile, rooms ~2)
-TOOL_SPACING_X = 3  # horizontal spacing between tools
-ROOM_SPACING_X = 3  # horizontal spacing between meeting rooms (room is 2 tiles wide + 1 gap)
-MIN_CANVAS_ROWS = 15
 
 
 def compute_asset_layout(company_state, layout: dict) -> None:

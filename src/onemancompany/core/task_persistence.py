@@ -11,7 +11,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR
+from onemancompany.core.config import EMPLOYEES_DIR, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import TaskPhase
 
 
@@ -44,7 +44,7 @@ def recover_schedule_from_trees(
 
     # 1. Scan all task_tree.yaml files under projects_dir
     if projects_dir.exists():
-        for tree_path in projects_dir.rglob("task_tree.yaml"):
+        for tree_path in projects_dir.rglob(TASK_TREE_FILENAME):
             try:
                 tree = get_tree(tree_path)
             except Exception:

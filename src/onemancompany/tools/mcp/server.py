@@ -21,15 +21,20 @@ import os
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+from onemancompany.core.config import (
+    ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR, ENV_OMC_PROJECT_ID,
+    ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID,
+)
+
 # ---------------------------------------------------------------------------
 # Config from environment
 # ---------------------------------------------------------------------------
 
-EMPLOYEE_ID = os.environ.get("OMC_EMPLOYEE_ID", "")
-TASK_ID = os.environ.get("OMC_TASK_ID", "")
-PROJECT_ID = os.environ.get("OMC_PROJECT_ID", "")
-PROJECT_DIR = os.environ.get("OMC_PROJECT_DIR", "")
-SERVER_URL = os.environ.get("OMC_SERVER_URL", "http://localhost:8000")
+EMPLOYEE_ID = os.environ.get(ENV_OMC_EMPLOYEE_ID, "")
+TASK_ID = os.environ.get(ENV_OMC_TASK_ID, "")
+PROJECT_ID = os.environ.get(ENV_OMC_PROJECT_ID, "")
+PROJECT_DIR = os.environ.get(ENV_OMC_PROJECT_DIR, "")
+SERVER_URL = os.environ.get(ENV_OMC_SERVER_URL, "http://localhost:8000")
 
 # ---------------------------------------------------------------------------
 # HTTP bridge — call the backend's generic tool-call endpoint

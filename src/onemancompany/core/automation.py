@@ -18,35 +18,41 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR
+from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
 from onemancompany.core.interval import parse_interval as _parse_interval
 
+# Single-file constants
+AUTOMATIONS_FILENAME = "automations.yaml"
+_KEY_CRONS = "crons"
+_KEY_WEBHOOKS = "webhooks"
+_KEY_NAME = "name"
+_KEY_DISPATCHED_TASK_IDS = "dispatched_task_ids"
 
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
 def _automations_file(employee_id: str) -> Path:
-    return EMPLOYEES_DIR / employee_id / "automations.yaml"
+    return EMPLOYEES_DIR / employee_id / AUTOMATIONS_FILENAME
 
 
 def _load_automations(employee_id: str) -> dict:
     path = _automations_file(employee_id)
     if not path.exists():
-        return {"crons": [], "webhooks": []}
+        return {_KEY_CRONS: [], _KEY_WEBHOOKS: []}
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        data.setdefault("crons", [])
-        data.setdefault("webhooks", [])
+        data = yaml.safe_load(path.read_text(encoding=ENCODING_UTF8)) or {}
+        data.setdefault(_KEY_CRONS, [])
+        data.setdefault(_KEY_WEBHOOKS, [])
         return data
     except Exception:
-        return {"crons": [], "webhooks": []}
+        return {_KEY_CRONS: [], _KEY_WEBHOOKS: []}
 
 
 def _save_automations(employee_id: str, data: dict) -> None:
     path = _automations_file(employee_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+    path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
 
 
 # ---------------------------------------------------------------------------
@@ -80,13 +86,13 @@ async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, ta
 def _record_dispatched_task(employee_id: str, cron_name: str, task_id: str) -> None:
     """Record a dispatched task ID in the cron's YAML entry."""
     data = _load_automations(employee_id)
-    for c in data["crons"]:
-        if c.get("name") == cron_name:
-            task_ids = c.setdefault("dispatched_task_ids", [])
+    for c in data[_KEY_CRONS]:
+        if c.get(_KEY_NAME) == cron_name:
+            task_ids = c.setdefault(_KEY_DISPATCHED_TASK_IDS, [])
             task_ids.append(task_id)
             # Keep last 100 to avoid unbounded growth
             if len(task_ids) > 100:
-                c["dispatched_task_ids"] = task_ids[-100:]
+                c[_KEY_DISPATCHED_TASK_IDS] = task_ids[-100:]
             break
     _save_automations(employee_id, data)
 
@@ -118,9 +124,9 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
     # Persist
     data = _load_automations(employee_id)
     # Remove existing with same name
-    data["crons"] = [c for c in data["crons"] if c.get("name") != cron_name]
-    data["crons"].append({
-        "name": cron_name,
+    data[_KEY_CRONS] = [c for c in data[_KEY_CRONS] if c.get(_KEY_NAME) != cron_name]
+    data[_KEY_CRONS].append({
+        _KEY_NAME: cron_name,
         "interval": interval,
         "task_description": task_description,
         "created": datetime.now(timezone.utc).isoformat(),
@@ -172,9 +178,9 @@ def stop_cron(employee_id: str, cron_name: str) -> dict:
     # Collect dispatched task IDs before removing from YAML
     data = _load_automations(employee_id)
     task_ids: list[str] = []
-    for c in data["crons"]:
-        if c.get("name") == cron_name:
-            task_ids = c.get("dispatched_task_ids", [])
+    for c in data[_KEY_CRONS]:
+        if c.get(_KEY_NAME) == cron_name:
+            task_ids = c.get(_KEY_DISPATCHED_TASK_IDS, [])
             break
 
     # Cancel associated tasks first
@@ -187,7 +193,7 @@ def stop_cron(employee_id: str, cron_name: str) -> dict:
         task.cancel()
 
     # Remove from persistence
-    data["crons"] = [c for c in data["crons"] if c.get("name") != cron_name]
+    data[_KEY_CRONS] = [c for c in data[_KEY_CRONS] if c.get(_KEY_NAME) != cron_name]
     _save_automations(employee_id, data)
 
     return {
@@ -204,17 +210,17 @@ def list_crons(employee_id: str) -> list[dict]:
     seen_names: set[str] = set()
 
     # From YAML
-    for c in data["crons"]:
-        key = f"{employee_id}:{c['name']}"
+    for c in data[_KEY_CRONS]:
+        key = f"{employee_id}:{c[_KEY_NAME]}"
         task = _cron_tasks.get(key)
         result.append({
-            "name": c["name"],
+            _KEY_NAME: c[_KEY_NAME],
             "interval": c.get("interval", "?"),
             "task_description": c.get("task_description", ""),
             "running": bool(task and not task.done()),
-            "dispatched_task_ids": c.get("dispatched_task_ids", []),
+            _KEY_DISPATCHED_TASK_IDS: c.get(_KEY_DISPATCHED_TASK_IDS, []),
         })
-        seen_names.add(c["name"])
+        seen_names.add(c[_KEY_NAME])
 
     # In-memory crons not in YAML (orphaned)
     prefix = f"{employee_id}:"
@@ -223,7 +229,7 @@ def list_crons(employee_id: str) -> list[dict]:
             cron_name = key[len(prefix):]
             if cron_name not in seen_names:
                 result.append({
-                    "name": cron_name,
+                    _KEY_NAME: cron_name,
                     "interval": "?",
                     "task_description": "(in-memory, not persisted)",
                     "running": True,
@@ -239,8 +245,8 @@ def stop_all_crons_for_employee(employee_id: str) -> dict:
     # Collect all dispatched task IDs from YAML
     data = _load_automations(employee_id)
     all_task_ids: list[str] = []
-    for c in data.get("crons", []):
-        all_task_ids.extend(c.get("dispatched_task_ids", []))
+    for c in data.get(_KEY_CRONS, []):
+        all_task_ids.extend(c.get(_KEY_DISPATCHED_TASK_IDS, []))
 
     # Cancel associated tasks first
     if all_task_ids:
@@ -256,7 +262,7 @@ def stop_all_crons_for_employee(employee_id: str) -> dict:
             stopped.append(key[len(prefix):])
 
     # Clear YAML
-    data["crons"] = []
+    data[_KEY_CRONS] = []
     _save_automations(employee_id, data)
 
     return {
@@ -277,8 +283,8 @@ def restore_all_crons() -> int:
             continue
         employee_id = emp_dir.name
         data = _load_automations(employee_id)
-        for c in data.get("crons", []):
-            name = c.get("name", "")
+        for c in data.get(_KEY_CRONS, []):
+            name = c.get(_KEY_NAME, "")
             interval = c.get("interval", "")
             desc = c.get("task_description", "")
             if name and interval and desc:
@@ -320,9 +326,9 @@ def register_webhook(employee_id: str, hook_name: str, task_template: str = "") 
 
     # Persist
     data = _load_automations(employee_id)
-    data["webhooks"] = [w for w in data["webhooks"] if w.get("name") != hook_name]
-    data["webhooks"].append({
-        "name": hook_name,
+    data[_KEY_WEBHOOKS] = [w for w in data[_KEY_WEBHOOKS] if w.get(_KEY_NAME) != hook_name]
+    data[_KEY_WEBHOOKS].append({
+        _KEY_NAME: hook_name,
         "task_template": task_template or "Webhook '{hook_name}' triggered with payload: {payload}",
         "created": datetime.now(timezone.utc).isoformat(),
     })
@@ -341,7 +347,7 @@ def unregister_webhook(employee_id: str, hook_name: str) -> dict:
     _webhook_registry.pop(key, None)
 
     data = _load_automations(employee_id)
-    data["webhooks"] = [w for w in data["webhooks"] if w.get("name") != hook_name]
+    data[_KEY_WEBHOOKS] = [w for w in data[_KEY_WEBHOOKS] if w.get(_KEY_NAME) != hook_name]
     _save_automations(employee_id, data)
 
     return {"status": "ok", "message": f"Webhook '{hook_name}' removed"}
@@ -378,8 +384,8 @@ def restore_all_webhooks() -> int:
             continue
         employee_id = emp_dir.name
         data = _load_automations(employee_id)
-        for w in data.get("webhooks", []):
-            name = w.get("name", "")
+        for w in data.get(_KEY_WEBHOOKS, []):
+            name = w.get(_KEY_NAME, "")
             template = w.get("task_template", "")
             if name:
                 key = f"{employee_id}:{name}"
@@ -397,11 +403,11 @@ def list_webhooks(employee_id: str) -> list[dict]:
     data = _load_automations(employee_id)
     return [
         {
-            "name": w["name"],
-            "url": f"/api/webhook/{employee_id}/{w['name']}",
+            _KEY_NAME: w[_KEY_NAME],
+            "url": f"/api/webhook/{employee_id}/{w[_KEY_NAME]}",
             "task_template": w.get("task_template", ""),
         }
-        for w in data.get("webhooks", [])
+        for w in data.get(_KEY_WEBHOOKS, [])
     ]
 
 
