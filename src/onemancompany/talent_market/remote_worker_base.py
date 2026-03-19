@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 import httpx
 from loguru import logger
 
+from onemancompany.core.config import STATUS_IDLE
 from onemancompany.talent_market.remote_protocol import (
     HeartbeatPayload,
     RemoteWorkerRegistration,
@@ -152,7 +153,7 @@ class RemoteWorkerBase(ABC):
                 try:
                     payload = HeartbeatPayload(
                         employee_id=self.employee_id,
-                        status="busy" if self._current_task_id else "idle",
+                        status="busy" if self._current_task_id else STATUS_IDLE,
                         current_task_id=self._current_task_id,
                     )
                     await client.post(

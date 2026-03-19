@@ -1,3 +1,7 @@
+---
+description: "Step-by-step guide to installing OneManCompany and running your first AI company in under 60 seconds."
+---
+
 # Getting Started
 
 This guide walks you through your first launch to completing your first task as CEO.

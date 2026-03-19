@@ -1,3 +1,7 @@
+---
+description: "Documentation for OneManCompany, the open-source AI operating system that lets one person run a complete company with autonomous AI employees."
+---
+
 # OneManCompany Documentation
 
 Welcome to the OneManCompany documentation. OneManCompany is an open-source AI operating system that lets anyone build and run a complete AI-powered company from their browser.

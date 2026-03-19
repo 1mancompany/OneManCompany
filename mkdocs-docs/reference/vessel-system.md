@@ -1,3 +1,7 @@
+---
+description: "Deep dive into the Vessel + Talent architecture that powers OneManCompany's AI employees."
+---
+
 # Vessel + Talent System
 
 > Deep dive into the modular agent architecture.

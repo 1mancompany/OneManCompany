@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  <!-- Open Graph -->
+  <meta property="og:title" content="{{ page.title }} - OneManCompany Docs" />
+  <meta property="og:description" content="{{ page.meta.description | default(config.site_description) }}" />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="{{ page.canonical_url }}" />
+  <meta property="og:image" content="https://1mancompany.github.io/OneManCompany/img/og-cover.png" />
+  <meta property="og:site_name" content="OneManCompany" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ page.title }} - OneManCompany Docs" />
+  <meta name="twitter:description" content="{{ page.meta.description | default(config.site_description) }}" />
+  <meta name="twitter:image" content="https://1mancompany.github.io/OneManCompany/img/og-cover.png" />
+
+  <!-- BreadcrumbList structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": "https://1mancompany.github.io/OneManCompany/"
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Docs",
+        "item": "https://1mancompany.github.io/OneManCompany/docs/"
+      }{% if page.title and page.title != "Home" %},
+      {
+        "@type": "ListItem",
+        "position": 3,
+        "name": "{{ page.title }}"
+      }{% endif %}
+    ]
+  }
+  </script>
+
+  <!-- TechArticle structured data -->
+  {% if page.title and page.title != "Home" %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "{{ page.title }}",
+    "description": "{{ page.meta.description | default(config.site_description) }}",
+    "author": {"@type": "Organization", "name": "OneManCompany"},
+    "datePublished": "2026-01-01",
+    "dateModified": "2026-03-18",
+    "publisher": {
+      "@type": "Organization",
+      "name": "OneManCompany",
+      "url": "https://1mancompany.github.io/OneManCompany/"
+    }
+  }
+  </script>
+  {% endif %}
+{% endblock %}

@@ -20,8 +20,12 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import PROJECTS_DIR, EMPLOYEES_DIR
+from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR
 from onemancompany.core.events import event_bus, CompanyEvent
+from onemancompany.core.models import ConversationType, ConversationPhase, EventType
+
+CONVERSATION_META_FILENAME = "meta.yaml"
+CONVERSATION_MESSAGES_FILENAME = "messages.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -32,8 +36,8 @@ from onemancompany.core.events import event_bus, CompanyEvent
 @dataclass
 class Conversation:
     id: str
-    type: str                    # "ceo_inbox" | "oneonone"
-    phase: str                   # "active" | "closing" | "closed"
+    type: str                    # ConversationType value
+    phase: str                   # ConversationPhase value
     employee_id: str
     tools_enabled: bool
     metadata: dict = field(default_factory=dict)
@@ -85,18 +89,18 @@ def _release_lock(path: str) -> None:
 
 def _resolve_conv_dir(conv: Conversation) -> Path:
     """Resolve conversation directory based on type and metadata."""
-    if conv.type == "ceo_inbox":
+    if conv.type == ConversationType.CEO_INBOX:
         project_dir = conv.metadata.get("project_dir", "")
-        return Path(project_dir) / "conversations" / conv.id
+        return Path(project_dir) / CONVERSATIONS_DIR_NAME / conv.id
     else:  # oneonone
-        return EMPLOYEES_DIR / conv.employee_id / "conversations" / conv.id
+        return EMPLOYEES_DIR / conv.employee_id / CONVERSATIONS_DIR_NAME / conv.id
 
 
 def save_conversation_meta(conv: Conversation) -> None:
     """Save conversation metadata to disk."""
     conv_dir = _resolve_conv_dir(conv)
     conv_dir.mkdir(parents=True, exist_ok=True)
-    meta_path = conv_dir / "meta.yaml"
+    meta_path = conv_dir / CONVERSATION_META_FILENAME
     logger.debug("[conversation] save meta: id={}, phase={}", conv.id, conv.phase)
     with open(meta_path, "w") as f:
         yaml.dump(conv.to_dict(), f, allow_unicode=True)
@@ -104,7 +108,7 @@ def save_conversation_meta(conv: Conversation) -> None:
 
 def load_conversation_meta(conv_id: str, conv_dir: Path) -> Conversation:
     """Load conversation metadata from disk."""
-    meta_path = conv_dir / "meta.yaml"
+    meta_path = conv_dir / CONVERSATION_META_FILENAME
     with open(meta_path) as f:
         data = yaml.safe_load(f)
     return Conversation.from_dict(data)
@@ -113,7 +117,7 @@ def load_conversation_meta(conv_id: str, conv_dir: Path) -> Conversation:
 async def append_message(conv_dir: Path, msg: Message) -> None:
     """Append a message to the conversation's messages.yaml."""
     conv_dir.mkdir(parents=True, exist_ok=True)
-    msg_path = conv_dir / "messages.yaml"
+    msg_path = conv_dir / CONVERSATION_MESSAGES_FILENAME
     async with _get_lock(str(msg_path)):
         existing: list[dict] = []
         if msg_path.exists():
@@ -127,7 +131,7 @@ async def append_message(conv_dir: Path, msg: Message) -> None:
 
 def load_messages(conv_dir: Path) -> list[Message]:
     """Load all messages from disk."""
-    msg_path = conv_dir / "messages.yaml"
+    msg_path = conv_dir / CONVERSATION_MESSAGES_FILENAME
     if not msg_path.exists():
         return []
     with open(msg_path) as f:
@@ -146,19 +150,23 @@ class ConversationService:
     def __init__(self) -> None:
         self._index: dict[str, Path] = {}
 
+    def ensure_indexed(self, conv_id: str, conv_dir: Path) -> None:
+        """Register a conversation directory in the in-memory index."""
+        self._index[conv_id] = conv_dir
+
     async def create(
         self, type: str, employee_id: str, tools_enabled: bool = False, **metadata
     ) -> Conversation:
         conv_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
         conv = Conversation(
-            id=conv_id, type=type, phase="active",
+            id=conv_id, type=type, phase=ConversationPhase.ACTIVE.value,
             employee_id=employee_id, tools_enabled=tools_enabled,
             metadata=metadata, created_at=now,
         )
         save_conversation_meta(conv)
         await event_bus.publish(CompanyEvent(
-            type="conversation_phase",
+            type=EventType.CONVERSATION_PHASE,
             payload={"conv_id": conv.id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
         conv_dir = _resolve_conv_dir(conv)
@@ -190,7 +198,7 @@ class ConversationService:
                 logger.warning("[conversation] failed to load meta for {}", conv_id)
                 continue
             if phase is None:
-                if conv.phase != "active":
+                if conv.phase != ConversationPhase.ACTIVE:
                     continue
             elif conv.phase != phase:
                 continue
@@ -202,7 +210,7 @@ class ConversationService:
     async def close(self, conv_id: str, wait_hooks: bool = False) -> tuple[Conversation, dict | None]:
         """Close a conversation. Returns (final_conversation, hook_result)."""
         conv = self.get(conv_id)
-        conv.phase = "closing"
+        conv.phase = ConversationPhase.CLOSING.value
         save_conversation_meta(conv)
         logger.debug("[conversation] closing: id={}", conv_id)
 
@@ -217,18 +225,18 @@ class ConversationService:
         except Exception:
             logger.exception("[conversation] close hook failed for {}", conv_id)
 
-        conv.phase = "closed"
+        conv.phase = ConversationPhase.CLOSED.value
         conv.closed_at = datetime.now(timezone.utc).isoformat()
         save_conversation_meta(conv)
         await event_bus.publish(CompanyEvent(
-            type="conversation_phase",
+            type=EventType.CONVERSATION_PHASE,
             payload={"conv_id": conv_id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
 
         # Clean up: remove from active index and release file lock
         conv_dir = self._index.pop(conv_id, None)
         if conv_dir:
-            _release_lock(str(conv_dir / "messages.yaml"))
+            _release_lock(str(conv_dir / CONVERSATION_MESSAGES_FILENAME))
 
         logger.debug("[conversation] closed: id={}", conv_id)
         return conv, hook_result
@@ -247,7 +255,7 @@ class ConversationService:
         )
         await append_message(conv_dir, msg)
         await event_bus.publish(CompanyEvent(
-            type="conversation_message",
+            type=EventType.CONVERSATION_MESSAGE,
             payload={
                 "conv_id": conv_id,
                 "sender": msg.sender,
@@ -264,18 +272,18 @@ class ConversationService:
         self._index.clear()
         if EMPLOYEES_DIR.exists():
             for emp_dir in EMPLOYEES_DIR.iterdir():
-                conv_base = emp_dir / "conversations"
+                conv_base = emp_dir / CONVERSATIONS_DIR_NAME
                 if conv_base.exists():
                     for conv_dir in conv_base.iterdir():
-                        meta = conv_dir / "meta.yaml"
+                        meta = conv_dir / CONVERSATION_META_FILENAME
                         if meta.exists():
                             self._index[conv_dir.name] = conv_dir
         if PROJECTS_DIR.exists():
             for proj_dir in PROJECTS_DIR.iterdir():
-                conv_base = proj_dir / "conversations"
+                conv_base = proj_dir / CONVERSATIONS_DIR_NAME
                 if conv_base.exists():
                     for conv_dir in conv_base.iterdir():
-                        meta = conv_dir / "meta.yaml"
+                        meta = conv_dir / CONVERSATION_META_FILENAME
                         if meta.exists():
                             self._index[conv_dir.name] = conv_dir
         logger.debug("[conversation] rebuilt index: {} conversations", len(self._index))
@@ -293,7 +301,7 @@ class ConversationService:
             except Exception:
                 logger.warning("[conversation] failed to load conversation {} during recovery", conv_id)
                 continue
-            if conv.phase == "closing":
+            if conv.phase == ConversationPhase.CLOSING:
                 logger.info("[conversation] recovering stuck conversation: id={}", conv_id)
                 try:
                     from onemancompany.core.conversation_hooks import run_close_hook
@@ -303,7 +311,7 @@ class ConversationService:
                 except Exception:
                     logger.exception("[conversation] recovery hook failed for {}", conv_id)
                 # Finalize to closed
-                conv.phase = "closed"
+                conv.phase = ConversationPhase.CLOSED.value
                 conv.closed_at = datetime.now(timezone.utc).isoformat()
                 save_conversation_meta(conv)
                 self._index.pop(conv_id, None)

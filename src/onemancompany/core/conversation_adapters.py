@@ -14,6 +14,11 @@ from typing import Protocol, runtime_checkable
 from loguru import logger
 
 from onemancompany.core.conversation import Conversation, Message
+from onemancompany.core.models import ConversationType
+
+# Single-file constants
+EXECUTOR_TYPE_LANGCHAIN = "langchain"
+EXECUTOR_TYPE_CLAUDE_SESSION = "claude_session"
 
 
 @runtime_checkable
@@ -68,9 +73,9 @@ def _get_employee_executor(employee_id: str):
 
 
 _EXECUTOR_CLASS_MAP: dict[str, str] = {
-    "ClaudeSessionExecutor": "claude_session",
-    "LangChainExecutor": "langchain",
-    "EmployeeAgent": "langchain",
+    "ClaudeSessionExecutor": EXECUTOR_TYPE_CLAUDE_SESSION,
+    "LangChainExecutor": EXECUTOR_TYPE_LANGCHAIN,
+    "EmployeeAgent": EXECUTOR_TYPE_LANGCHAIN,
 }
 
 
@@ -84,7 +89,7 @@ def _get_executor_type(employee_id: str) -> str:
             "[conversation] unknown executor class '{}' for employee {}, defaulting to langchain",
             cls_name, employee_id,
         )
-        executor_type = "langchain"
+        executor_type = EXECUTOR_TYPE_LANGCHAIN
     return executor_type
 
 
@@ -96,7 +101,7 @@ def _build_conversation_prompt(
 
     lines = []
     lines.append("You are in a conversation with the CEO.")
-    if conversation.type == "oneonone":
+    if conversation.type == ConversationType.ONE_ON_ONE:
         lines.append("This is a 1-on-1 meeting. Be direct and professional.")
         workspace_dir = get_workspace_dir(conversation.employee_id).resolve()
         lines.append(
@@ -109,7 +114,7 @@ def _build_conversation_prompt(
         if shared_prompt:
             lines.append("\n--- Workspace Policy (Shared Prompt) ---")
             lines.append(shared_prompt)
-    elif conversation.type == "ceo_inbox":
+    elif conversation.type == ConversationType.CEO_INBOX:
         lines.append("The CEO is responding to your request. Answer their questions.")
 
     if messages:
@@ -205,11 +210,11 @@ class _BaseConversationAdapter:
         pass
 
 
-@register_adapter("langchain")
+@register_adapter(EXECUTOR_TYPE_LANGCHAIN)
 class LangChainAdapter(_BaseConversationAdapter):
     pass
 
 
-@register_adapter("claude_session")
+@register_adapter(EXECUTOR_TYPE_CLAUDE_SESSION)
 class ClaudeSessionAdapter(_BaseConversationAdapter):
     pass

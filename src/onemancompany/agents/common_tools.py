@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, PROJECTS_DIR, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -63,7 +63,7 @@ def _resolve_employee_path(file_path: str, employee_id: str = ""):
     if employee_id:
         emp_data = load_employee(employee_id)
         if emp_data:
-            permissions = emp_data.get("permissions", [])
+            permissions = emp_data.get(PF_PERMISSIONS, [])
     return _resolve_path(file_path, permissions=permissions)
 
 
@@ -92,7 +92,7 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
     if not resolved.is_file():
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
-        content = resolved.read_text(encoding="utf-8")
+        content = resolved.read_text(encoding=ENCODING_UTF8)
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
 
@@ -144,7 +144,7 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
         if employee_id:
             emp_data = load_employee(employee_id)
             if emp_data:
-                permissions = emp_data.get("permissions", [])
+                permissions = emp_data.get(PF_PERMISSIONS, [])
         resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
     if resolved is None:
@@ -202,10 +202,10 @@ async def write(
                 "status": "error",
                 "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
             }
-        original_content = resolved.read_text(encoding="utf-8")
+        original_content = resolved.read_text(encoding=ENCODING_UTF8)
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding="utf-8")
+    resolved.write_text(content, encoding=ENCODING_UTF8)
     _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
 
     result: dict = {
@@ -263,7 +263,7 @@ async def edit(
     if old_string == new_string:
         return {"status": "error", "message": "old_string and new_string are identical."}
 
-    content = resolved.read_text(encoding="utf-8")
+    content = resolved.read_text(encoding=ENCODING_UTF8)
     count = content.count(old_string)
 
     if count == 0:
@@ -282,7 +282,7 @@ async def edit(
         new_content = content.replace(old_string, new_string, 1)
         replacements = 1
 
-    resolved.write_text(new_content, encoding="utf-8")
+    resolved.write_text(new_content, encoding=ENCODING_UTF8)
     return {
         "status": "ok",
         "path": str(resolved),
@@ -431,7 +431,7 @@ def grep_search(
 
     for fpath in files:
         try:
-            text = fpath.read_text(encoding="utf-8", errors="replace")
+            text = fpath.read_text(encoding=ENCODING_UTF8, errors="replace")
         except Exception as e:
             logger.debug("grep_search: skipping unreadable file {}: {}", fpath, e)
             continue
@@ -479,7 +479,7 @@ def list_colleagues() -> list[dict]:
     all_emps = load_all_employees()
     for emp_id, emp_data in all_emps.items():
         # Gather authorized tool names for this colleague
-        tool_perms = emp_data.get("tool_permissions", [])
+        tool_perms = emp_data.get(PF_TOOL_PERMISSIONS, [])
         tool_names: list[str] = list(tool_perms) if tool_perms else []
         # Also include equipment room tools they have access to
         for t in company_state.tools.values():
@@ -487,35 +487,35 @@ def list_colleagues() -> list[dict]:
                 if t.name not in tool_names:
                     tool_names.append(t.name)
 
-        runtime = emp_data.get("runtime", {})
+        runtime = emp_data.get(PF_RUNTIME, {})
         results.append({
             "id": emp_id,
-            "name": emp_data.get("name", ""),
-            "nickname": emp_data.get("nickname", ""),
-            "role": emp_data.get("role", ""),
-            "department": emp_data.get("department", ""),
-            "level": emp_data.get("level", 1),
-            "skills": emp_data.get("skills", []),
+            "name": emp_data.get(PF_NAME, ""),
+            "nickname": emp_data.get(PF_NICKNAME, ""),
+            "role": emp_data.get(PF_ROLE, ""),
+            "department": emp_data.get(PF_DEPARTMENT, ""),
+            "level": emp_data.get(PF_LEVEL, 1),
+            "skills": emp_data.get(PF_SKILLS, []),
             "tools": tool_names,
-            "status": runtime.get("status", emp_data.get("status", "idle")),
-            "current_task": runtime.get("current_task_summary", "") or None,
+            "status": runtime.get("status", emp_data.get(PF_STATUS, STATUS_IDLE)),
+            "current_task": runtime.get(PF_CURRENT_TASK_SUMMARY, "") or None,
         })
     return results
 
 
 def _build_employee_context(emp_data: dict, emp_id: str = "") -> str:
     """Build identity + skills + tools context string for an employee (dict from store)."""
-    eid = emp_id or emp_data.get("id", emp_data.get("employee_number", ""))
-    work_principles = emp_data.get("work_principles", "")
+    eid = emp_id or emp_data.get(PF_ID, emp_data.get(PF_EMPLOYEE_NUMBER, ""))
+    work_principles = emp_data.get(PF_WORK_PRINCIPLES, "")
     principles_ctx = ""
     if work_principles:
         principles_ctx = f"\nYour work principles:\n{work_principles[:MAX_PRINCIPLES_LEN]}\n"
     skills_ctx = get_employee_skills_prompt(eid)
     tools_ctx = get_employee_tools_prompt(eid)
     return (
-        f"You are {emp_data.get('name', '')} ({emp_data.get('nickname', '')}, "
-        f"Department: {emp_data.get('department', '')}, {emp_data.get('role', '')}, "
-        f"Lv.{emp_data.get('level', 1)}).\n"
+        f"You are {emp_data.get(PF_NAME, '')} ({emp_data.get(PF_NICKNAME, '')}, "
+        f"Department: {emp_data.get(PF_DEPARTMENT, '')}, {emp_data.get(PF_ROLE, '')}, "
+        f"Lv.{emp_data.get(PF_LEVEL, 1)}).\n"
         f"{principles_ctx}{skills_ctx}{tools_ctx}"
     )
 
@@ -708,7 +708,7 @@ async def pull_meeting(
             ]
 
             if not willing:
-                await _chat(room.id, "Meeting System", "system", "All participants have finished speaking. Meeting concluded.")
+                await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All participants have finished speaking. Meeting concluded.")
                 break
 
             # Token grab — sort by timestamp, fastest wins
@@ -735,7 +735,7 @@ async def pull_meeting(
             })
         else:
             # max_rounds reached
-            await _chat(room.id, "Meeting System", "system", "Meeting has reached the maximum number of rounds. Auto-concluded.")
+            await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "Meeting has reached the maximum number of rounds. Auto-concluded.")
 
         # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(
@@ -744,7 +744,7 @@ async def pull_meeting(
         )
         summary_llm = make_llm(initiator_id or HR_ID)
         participant_names = ", ".join(
-            edata.get("nickname", "") or edata.get("name", "")
+            edata.get(PF_NICKNAME, "") or edata.get(PF_NAME, "")
             for _, edata in valid_participants
         )
         summary_prompt = (
@@ -786,7 +786,7 @@ async def pull_meeting(
             "room": room.name,
             "topic": topic,
             "participants": [
-                edata.get("nickname", "") or edata.get("name", "")
+                edata.get(PF_NICKNAME, "") or edata.get(PF_NAME, "")
                 for _, edata in valid_participants
             ],
             "discussion": discussion_entries,
@@ -874,7 +874,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
                     continue
                 # Skip binary files — just report size
                 try:
-                    content = fpath.read_text(encoding="utf-8")
+                    content = fpath.read_text(encoding=ENCODING_UTF8)
                     result["files"][fname] = content
                 except (UnicodeDecodeError, ValueError):
                     result["files"][fname] = f"[binary file, {fpath.stat().st_size} bytes]"
@@ -929,7 +929,7 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if not emp_data:
         return {"status": "error", "message": "Employee not found."}
 
-    tool_perms = emp_data.get("tool_permissions", [])
+    tool_perms = emp_data.get(PF_TOOL_PERMISSIONS, [])
     if tool_name in (tool_perms or []):
         return {"status": "already_granted", "message": f"You already have access to '{tool_name}'."}
 
@@ -946,10 +946,10 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     if not loop:
         return {"status": "error", "message": "COO agent not available."}
 
-    emp_name = emp_data.get("name", employee_id)
-    emp_dept = emp_data.get("department", "")
-    emp_role = emp_data.get("role", "")
-    emp_level = emp_data.get("level", 1)
+    emp_name = emp_data.get(PF_NAME, employee_id)
+    emp_dept = emp_data.get(PF_DEPARTMENT, "")
+    emp_role = emp_data.get(PF_ROLE, "")
+    emp_level = emp_data.get(PF_LEVEL, 1)
     task_desc = (
         f"Tool access request: Employee {emp_name} (ID: {employee_id}, {emp_dept}/{emp_role}, Lv.{emp_level}) "
         f"requests access to tool '{tool_name}'. Reason: {reason}. "
@@ -981,7 +981,7 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     if not emp_data:
         return {"status": "error", "message": f"Employee {employee_id} not found."}
 
-    current_perms = list(emp_data.get("tool_permissions", []) or [])
+    current_perms = list(emp_data.get(PF_TOOL_PERMISSIONS, []) or [])
 
     if action == "grant":
         if tool_name not in current_perms:
@@ -1237,11 +1237,11 @@ def update_project_team(members: list[dict]) -> dict:
     from datetime import datetime
     import yaml
 
-    project_yaml = Path(task.project_dir) / "project.yaml"
+    project_yaml = Path(task.project_dir) / PROJECT_YAML_FILENAME
     if not project_yaml.exists():
         return {"status": "error", "message": "project.yaml not found."}
 
-    data = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
     team = data.get("team", [])
 
     now = datetime.now().isoformat()
@@ -1255,7 +1255,7 @@ def update_project_team(members: list[dict]) -> dict:
     data["team"] = team
     project_yaml.write_text(
         yaml.dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
+        encoding=ENCODING_UTF8,
     )
 
     return {"status": "ok", "added": len(members), "total": len(team)}

@@ -13,7 +13,8 @@ SOURCE_ROOT = Path(__file__).parent.parent.parent.parent
 
 # Data root — all runtime/company data lives under cwd/.onemancompany/
 # This allows the package to be installed anywhere while data stays portable.
-DATA_ROOT = Path.cwd() / ".onemancompany"
+DATA_DIR_NAME = ".onemancompany"
+DATA_ROOT = Path.cwd() / DATA_DIR_NAME
 
 
 COMPANY_DIR = DATA_ROOT / "company"
@@ -40,11 +41,119 @@ SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
 
+# ---------------------------------------------------------------------------
+# Common filenames used across modules
+# ---------------------------------------------------------------------------
+PROFILE_FILENAME = "profile.yaml"
+TASK_TREE_FILENAME = "task_tree.yaml"
+GUIDANCE_FILENAME = "guidance.yaml"
+MANIFEST_FILENAME = "manifest.json"
+NODES_DIR_NAME = "nodes"
+SOUL_FILENAME = "SOUL.md"
+DOT_ENV_FILENAME = ".env"
+TOOL_YAML_FILENAME = "tool.yaml"
+PROJECT_YAML_FILENAME = "project.yaml"
+MANIFEST_YAML_FILENAME = "manifest.yaml"
+VESSEL_YAML_FILENAME = "vessel.yaml"
+TALENT_PERSONA_FILENAME = "talent_persona.md"
+MCP_CONFIG_FILENAME = "mcp_config.json"
+CONVERSATIONS_DIR_NAME = "conversations"
+PROGRESS_LOG_FILENAME = "progress.log"
+SRC_DIR_NAME = "src"
+LAUNCH_SH_FILENAME = "launch.sh"
+PROMPTS_DIR_NAME = "prompts"
+WORKSPACE_DIR_NAME = "workspace"
+VESSEL_DIR_NAME = "vessel"
+AGENT_DIR_NAME = "agent"
+
+# ---------------------------------------------------------------------------
+# Profile field keys — canonical YAML field names for employee profiles
+# ---------------------------------------------------------------------------
+PF_NAME = "name"
+PF_NICKNAME = "nickname"
+PF_ROLE = "role"
+PF_DEPARTMENT = "department"
+PF_LEVEL = "level"
+PF_SKILLS = "skills"
+PF_REMOTE = "remote"
+PF_WORK_PRINCIPLES = "work_principles"
+PF_TOOL_PERMISSIONS = "tool_permissions"
+PF_PERMISSIONS = "permissions"
+PF_PERFORMANCE_HISTORY = "performance_history"
+PF_CURRENT_QUARTER_TASKS = "current_quarter_tasks"
+PF_EMPLOYEE_NUMBER = "employee_number"
+PF_DESK_POSITION = "desk_position"
+PF_STATUS = "status"
+PF_RUNTIME = "runtime"
+PF_HOSTING = "hosting"
+PF_API_PROVIDER = "api_provider"
+PF_AUTH_METHOD = "auth_method"
+PF_LLM_MODEL = "llm_model"
+PF_TEMPERATURE = "temperature"
+PF_TALENT_ID = "talent_id"
+PF_SPRITE = "sprite"
+PF_ID = "id"
+PF_CURRENT_TASK_SUMMARY = "current_task_summary"
+
+# ---------------------------------------------------------------------------
+# Common identifiers — canonical strings for sender/role/scope fields
+# ---------------------------------------------------------------------------
+SYSTEM_SENDER = "system"
+SYSTEM_AGENT = "SYSTEM"  # agent field in CompanyEvent for system-originated events
+MEETING_SYSTEM_SENDER = "Meeting System"
+
+# LLM content block field keys (Anthropic/OpenAI response parsing)
+BLOCK_KEY_TYPE = "type"
+BLOCK_KEY_TEXT = "text"
+BLOCK_TYPE_TEXT = "text"  # value of type field for text blocks
+
+
+# ---------------------------------------------------------------------------
+# Environment & logging
+# ---------------------------------------------------------------------------
+from enum import Enum
+
+ENV_OMC_DEBUG = "OMC_DEBUG"
+ENV_OMC_EMPLOYEE_ID = "OMC_EMPLOYEE_ID"
+ENV_OMC_TASK_ID = "OMC_TASK_ID"
+ENV_OMC_PROJECT_ID = "OMC_PROJECT_ID"
+ENV_OMC_PROJECT_DIR = "OMC_PROJECT_DIR"
+ENV_OMC_SERVER_URL = "OMC_SERVER_URL"
+
+# .env variable names (used in onboarding and settings)
+ENV_KEY_ANTHROPIC = "ANTHROPIC_API_KEY"
+ENV_KEY_SKILLSMP = "SKILLSMP_API_KEY"
+ENV_KEY_TALENT_MARKET = "TALENT_MARKET_API_KEY"
+ENV_KEY_OPENROUTER = "OPENROUTER_API_KEY"
+ENV_KEY_DEFAULT_PROVIDER = "DEFAULT_API_PROVIDER"
+ENV_KEY_DEFAULT_MODEL = "DEFAULT_LLM_MODEL"
+ENV_KEY_HOST = "HOST"
+ENV_KEY_PORT = "PORT"
+ENV_KEY_SANDBOX_ENABLED = "SANDBOX_ENABLED"
+ENV_KEY_ANTHROPIC_AUTH = "ANTHROPIC_AUTH_METHOD"
+
+# Provider name constants
+PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_ANTHROPIC = "anthropic"
+
+# LangChain chat class identifiers (used in ProviderInfo.chat_class)
+CHAT_CLASS_ANTHROPIC = "anthropic"
+CHAT_CLASS_OPENAI = "openai"
+
+# Template directory name
+COMPANY_TEMPLATE_DIR = "company"
+CONFIG_YAML_FILENAME = "config.yaml"
+ENCODING_UTF8 = "utf-8"
+
+
+class LogLevel(str, Enum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+
 
 # ---------------------------------------------------------------------------
 # OrgDir — enum of organizational knowledge directories
 # ---------------------------------------------------------------------------
-from enum import Enum
 
 
 class OrgDir(str, Enum):
@@ -122,9 +231,31 @@ PROBATION_TASKS = 2                            # tasks to complete during probat
 # ---------------------------------------------------------------------------
 # Employee status
 # ---------------------------------------------------------------------------
-STATUS_IDLE = "idle"
-STATUS_WORKING = "working"
-STATUS_IN_MEETING = "in_meeting"
+class EmployeeStatus(str, Enum):
+    IDLE = "idle"
+    WORKING = "working"
+    IN_MEETING = "in_meeting"
+
+STATUS_IDLE = EmployeeStatus.IDLE.value
+STATUS_WORKING = EmployeeStatus.WORKING.value
+STATUS_IN_MEETING = EmployeeStatus.IN_MEETING.value
+
+
+class DirtyCategory(str, Enum):
+    """Resource categories for sync tick dirty tracking."""
+    EMPLOYEES = "employees"
+    EX_EMPLOYEES = "ex_employees"
+    ROOMS = "rooms"
+    TOOLS = "tools"
+    TASK_QUEUE = "task_queue"
+    CULTURE = "culture"
+    ACTIVITY_LOG = "activity_log"
+    SALES_TASKS = "sales_tasks"
+    DIRECTION = "direction"
+    CANDIDATES = "candidates"
+    OVERHEAD = "overhead"
+    OFFICE_LAYOUT = "office_layout"
+
 
 # ---------------------------------------------------------------------------
 # Role-to-department mapping
@@ -361,8 +492,8 @@ class EmployeeConfig(BaseModel):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(DATA_ROOT / ".env"),
-        env_file_encoding="utf-8",
+        env_file=str(DATA_ROOT / DOT_ENV_FILENAME),
+        env_file_encoding=ENCODING_UTF8,
         extra="ignore",
     )
 
@@ -399,11 +530,11 @@ settings = Settings()
 
 def update_env_var(key: str, value: str) -> None:
     """Update or add a variable in the .env file, then reload settings."""
-    env_path = DATA_ROOT / ".env"
+    env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines: list[str] = []
     found = False
     if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        lines = env_path.read_text(encoding=ENCODING_UTF8).splitlines()
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
@@ -412,7 +543,7 @@ def update_env_var(key: str, value: str) -> None:
                 break
     if not found:
         lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    env_path.write_text("\n".join(lines) + "\n", encoding=ENCODING_UTF8)
     reload_settings()
 
 
@@ -468,7 +599,7 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
     for emp_dir in sorted(EMPLOYEES_DIR.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:
@@ -492,7 +623,7 @@ def load_employee_skills(employee_id: str) -> dict[str, str]:
         if entry.is_dir():
             skill_md = entry / "SKILL.md"
             if skill_md.is_file():
-                result[entry.name] = skill_md.read_text(encoding="utf-8")
+                result[entry.name] = skill_md.read_text(encoding=ENCODING_UTF8)
     return result
 
 
@@ -503,7 +634,7 @@ def load_employee_skills(employee_id: str) -> dict[str, str]:
 
 def load_employee_profile_yaml(employee_id: str) -> dict:
     """Load an employee's profile.yaml from disk. Returns empty dict if missing."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     if not profile_path.exists():
         return {}
     with open(profile_path) as f:
@@ -512,7 +643,7 @@ def load_employee_profile_yaml(employee_id: str) -> dict:
 
 def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
     """Write a full profile dict to employees/{id}/profile.yaml."""
-    profile_path = EMPLOYEES_DIR / employee_id / "profile.yaml"
+    profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     with open(profile_path, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
@@ -520,14 +651,14 @@ def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
 
 def get_workspace_dir(employee_id: str) -> Path:
     """Return the private workspace directory for an employee."""
-    return EMPLOYEES_DIR / employee_id / "workspace"
+    return EMPLOYEES_DIR / employee_id / WORKSPACE_DIR_NAME
 
 
 def ensure_employee_dir(employee_id: str) -> Path:
     """Ensure employees/{id}/, skills/, and workspace/ directories exist."""
     emp_dir = EMPLOYEES_DIR / employee_id
     skills_dir = emp_dir / "skills"
-    workspace_dir = emp_dir / "workspace"
+    workspace_dir = emp_dir / WORKSPACE_DIR_NAME
     emp_dir.mkdir(parents=True, exist_ok=True)
     skills_dir.mkdir(exist_ok=True)
     workspace_dir.mkdir(exist_ok=True)
@@ -603,7 +734,7 @@ def load_workflows() -> dict[str, str]:
     result: dict[str, str] = {}
     for f in sorted(WORKFLOWS_DIR.iterdir()):
         if f.suffix == ".md" and f.is_file():
-            result[f.stem] = f.read_text(encoding="utf-8")
+            result[f.stem] = f.read_text(encoding=ENCODING_UTF8)
     return result
 
 
@@ -611,7 +742,7 @@ def save_workflow(name: str, content: str) -> None:
     """Save a workflow .md file to business/workflows/."""
     WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
     path = WORKFLOWS_DIR / f"{name}.md"
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding=ENCODING_UTF8)
 
 
 def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
@@ -622,7 +753,7 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
     for emp_dir in sorted(EX_EMPLOYEES_DIR.iterdir()):
         if not emp_dir.is_dir():
             continue
-        profile_path = emp_dir / "profile.yaml"
+        profile_path = emp_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         emp_id = emp_dir.name
@@ -714,10 +845,10 @@ def load_manifest(employee_id: str) -> dict | None:
     """Load manifest.json for an employee, with caching."""
     if employee_id in MANIFEST_CACHE:
         return MANIFEST_CACHE[employee_id]
-    manifest_path = EMPLOYEES_DIR / employee_id / "manifest.json"
+    manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if not manifest_path.exists():
         return None
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data = json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
     MANIFEST_CACHE[employee_id] = data
     return data
 
@@ -735,7 +866,7 @@ def load_custom_settings(employee_id: str) -> dict:
     path = EMPLOYEES_DIR / employee_id / "settings.json"
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(path.read_text(encoding=ENCODING_UTF8))
 
 
 def save_custom_settings(employee_id: str, updates: dict) -> dict:
@@ -743,9 +874,9 @@ def save_custom_settings(employee_id: str, updates: dict) -> dict:
     path = EMPLOYEES_DIR / employee_id / "settings.json"
     current = {}
     if path.exists():
-        current = json.loads(path.read_text(encoding="utf-8"))
+        current = json.loads(path.read_text(encoding=ENCODING_UTF8))
     current.update(updates)
-    path.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
     return current
 
 
@@ -761,7 +892,7 @@ def load_talent_profile(talent_id: str) -> dict:
     Returns the parsed YAML as a dict, or empty dict if not found.
     """
     for base in (TALENTS_RUNTIME_DIR, TALENTS_DIR):
-        profile_path = base / talent_id / "profile.yaml"
+        profile_path = base / talent_id / PROFILE_FILENAME
         if profile_path.exists():
             with open(profile_path) as f:
                 return yaml.safe_load(f) or {}
@@ -796,7 +927,7 @@ def load_talent_skills(talent_id: str) -> list[str]:
     result: list[str] = []
     for skill_file in sorted(skills_dir.iterdir()):
         if skill_file.suffix == ".md" and skill_file.is_file():
-            result.append(skill_file.read_text(encoding="utf-8"))
+            result.append(skill_file.read_text(encoding=ENCODING_UTF8))
     return result
 
 
@@ -811,7 +942,7 @@ def list_available_talents() -> list[dict]:
     for talent_dir in sorted(TALENTS_DIR.iterdir()):
         if not talent_dir.is_dir():
             continue
-        profile_path = talent_dir / "profile.yaml"
+        profile_path = talent_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
         with open(profile_path) as f:
