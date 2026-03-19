@@ -9,10 +9,12 @@
 <p align="center"><b>AI 一人公司操作系统</b></p>
 
 <p align="center">
+  <a href="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml"><img src="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://www.npmjs.com/package/@1mancompany/onemancompany"><img src="https://img.shields.io/npm/v/@1mancompany/onemancompany?color=cb3837&label=npm" alt="npm version" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/stargazers"><img src="https://img.shields.io/github/stars/1mancompany/OneManCompany?style=social" alt="GitHub stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/1mancompany/OneManCompany" alt="License" /></a>
   <a href="https://github.com/1mancompany/OneManCompany/commits/main"><img src="https://img.shields.io/github/last-commit/1mancompany/OneManCompany" alt="Last commit" /></a>
+  <a href="https://discord.gg/MGsdrARx"><img src="https://img.shields.io/discord/1352123168498921472?color=5865F2&label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
 </p>
 
 <p align="center">
@@ -443,6 +445,18 @@ npx --yes @1mancompany/onemancompany@latest uninstall
 - **报告问题** —— 帮我们发现和修复 Bug
 
 详细编码规范见 [vibe-coding-guide.md](vibe-coding-guide.md)。
+
+---
+
+## Star History
+
+<a href="https://star-history.com/#1mancompany/OneManCompany&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=1mancompany/OneManCompany&type=Date" />
+ </picture>
+</a>
 
 ---
 
