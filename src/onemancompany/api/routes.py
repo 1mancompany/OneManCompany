@@ -5940,7 +5940,7 @@ def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation
         except Exception:
             logger.warning("[conversation] failed to load meta from {}", conv_dir)
             continue
-        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == "closing":
+        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
             continue
 
         try:
@@ -5974,12 +5974,12 @@ async def create_conversation(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
 
     # Reuse prior one-on-one thread per employee so restarting meeting preserves history.
-    if conv_type == "oneonone" and body.get("reuse_existing", True):
+    if conv_type == ConversationType.ONE_ON_ONE.value and body.get("reuse_existing", True):
         reusable = _pick_reusable_oneonone_conversation(employee_id)
         if reusable:
             conv, conv_dir = reusable
-            _conversation_service._index[conv.id] = conv_dir
-            if conv.phase != "active":
+            _conversation_service.ensure_indexed(conv.id, conv_dir)
+            if conv.phase != ConversationPhase.ACTIVE.value:
                 conv.phase = "active"
                 conv.closed_at = None
                 save_conversation_meta(conv)
@@ -6091,6 +6091,8 @@ async def clear_conversation_history(conv_id: str) -> dict:
 
     if conv.type != "oneonone":
         raise HTTPException(status_code=400, detail="Clear history is only supported for oneonone conversations")
+    if not conv.employee_id:
+        raise HTTPException(status_code=400, detail="Conversation has no employee_id")
 
     import onemancompany.core.conversation as conversation_core
 
@@ -6126,7 +6128,8 @@ async def clear_conversation_history(conv_id: str) -> dict:
 
     # Keep legacy 1-on-1 history endpoint consistent.
     legacy_history_path = conversation_core.EMPLOYEES_DIR / conv.employee_id / "oneonone_history.yaml"
-    legacy_history_path.write_text("[]\n", encoding="utf-8")
+    if legacy_history_path.exists():
+        legacy_history_path.write_text("[]\n", encoding="utf-8")
 
     return {
         "status": "cleared",
