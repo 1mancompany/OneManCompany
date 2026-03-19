@@ -14,7 +14,7 @@ from pathlib import Path
 from onemancompany.core.config import (
     EMPLOYEES_DIR, ENCODING_UTF8, ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR,
     ENV_OMC_PROJECT_ID, ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID,
-    MCP_CONFIG_FILENAME, TOOLS_DIR,
+    MCP_CONFIG_FILENAME, TOOLS_DIR, WORKSPACE_DIR_NAME,
 )
 
 
@@ -59,7 +59,7 @@ def build_mcp_config(
     if settings.skillsmp_api_key:
         emp_dir = EMPLOYEES_DIR / employee_id
         skills_dir = emp_dir / "skills"
-        workdir = emp_dir / "workspace"
+        workdir = emp_dir / WORKSPACE_DIR_NAME
         servers["fastskills"] = {
             "command": "uvx",
             "args": [

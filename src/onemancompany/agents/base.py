@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from onemancompany.core.config import (
+    AGENT_DIR_NAME,
     EMPLOYEES_DIR,
     BLOCK_KEY_TEXT,
     BLOCK_KEY_TYPE,
@@ -27,12 +28,15 @@ from onemancompany.core.config import (
     PF_ROLE,
     PF_RUNTIME,
     PF_STATUS,
+    PROMPTS_DIR_NAME,
     PROVIDER_REGISTRY,
     SHARED_PROMPTS_DIR,
     SOUL_FILENAME,
     STATUS_IDLE,
     STATUS_WORKING,
     TALENT_PERSONA_FILENAME,
+    VESSEL_DIR_NAME,
+    WORKSPACE_DIR_NAME,
     employee_configs,
     get_provider,
     load_employee_skills,
@@ -299,7 +303,7 @@ async def tracked_ainvoke(
 
 def get_employee_talent_persona(employee_id: str) -> str:
     """Load talent persona from employees/{id}/prompts/talent_persona.md."""
-    path = EMPLOYEES_DIR / employee_id / "prompts" / TALENT_PERSONA_FILENAME
+    path = EMPLOYEES_DIR / employee_id / PROMPTS_DIR_NAME / TALENT_PERSONA_FILENAME
     if not path.exists():
         return ""
     content = path.read_text(encoding=ENCODING_UTF8).strip()
@@ -715,7 +719,7 @@ class BaseAgentRunner:
 
     def _load_prompt_file(self, filename: str) -> str | None:
         """Load prompt from employee's prompts/ dir."""
-        path = EMPLOYEES_DIR / self.employee_id / "prompts" / filename
+        path = EMPLOYEES_DIR / self.employee_id / PROMPTS_DIR_NAME / filename
         if path.exists():
             return path.read_text(encoding=ENCODING_UTF8)
         return None
@@ -742,7 +746,7 @@ class BaseAgentRunner:
 
     def _get_soul_section(self) -> str:
         """Load the employee's self-maintained SOUL.md knowledge file."""
-        soul_path = EMPLOYEES_DIR / self.employee_id / "workspace" / SOUL_FILENAME
+        soul_path = EMPLOYEES_DIR / self.employee_id / WORKSPACE_DIR_NAME / SOUL_FILENAME
         if soul_path.exists():
             try:
                 content = soul_path.read_text(encoding=ENCODING_UTF8).strip()
@@ -791,7 +795,7 @@ class BaseAgentRunner:
                 if not ps.name or not ps.file:
                     continue
                 content_path = None
-                for search_dir in [emp_dir / "vessel", emp_dir / "agent"]:
+                for search_dir in [emp_dir / VESSEL_DIR_NAME, emp_dir / AGENT_DIR_NAME]:
                     candidate = search_dir / ps.file
                     if candidate.exists():
                         content_path = candidate

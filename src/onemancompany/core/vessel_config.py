@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import VESSEL_YAML_FILENAME
+from onemancompany.core.config import VESSEL_DIR_NAME, VESSEL_YAML_FILENAME
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -160,7 +160,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
       2. default_vessel.yaml (built-in default)
     """
     # 1. vessel/vessel.yaml
-    vessel_yaml = emp_dir / "vessel" / VESSEL_YAML_FILENAME
+    vessel_yaml = emp_dir / VESSEL_DIR_NAME / VESSEL_YAML_FILENAME
     if vessel_yaml.exists():
         try:
             with open(vessel_yaml) as f:
@@ -175,7 +175,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
 
 def save_vessel_config(emp_dir: Path, config: VesselConfig) -> None:
     """Write VesselConfig to emp_dir/vessel/vessel.yaml."""
-    vessel_dir = emp_dir / "vessel"
+    vessel_dir = emp_dir / VESSEL_DIR_NAME
     vessel_dir.mkdir(parents=True, exist_ok=True)
 
     data: dict = {

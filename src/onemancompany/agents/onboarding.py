@@ -19,6 +19,7 @@ import yaml
 from loguru import logger
 
 from onemancompany.core.config import (
+    AGENT_DIR_NAME,
     DEFAULT_TOOL_PERMISSIONS,
     DEFAULT_TOOL_PERMISSIONS_FALLBACK,
     DEFAULT_DEPARTMENT,
@@ -27,6 +28,7 @@ from onemancompany.core.config import (
     MANIFEST_FILENAME,
     MANIFEST_YAML_FILENAME,
     PROFILE_FILENAME,
+    PROMPTS_DIR_NAME,
     PROJECT_YAML_FILENAME,
     ROLE_DEPARTMENT_MAP,
     SOUL_FILENAME,
@@ -35,7 +37,9 @@ from onemancompany.core.config import (
     TOOL_YAML_FILENAME,
     TOOLS_DIR,
     LAUNCH_SH_FILENAME,
+    VESSEL_DIR_NAME,
     VESSEL_YAML_FILENAME,
+    WORKSPACE_DIR_NAME,
     EmployeeConfig,
     ensure_employee_dir,
     settings,
@@ -296,13 +300,13 @@ def install_talent_agent_config(talent_dir: Path, emp_dir, employee_id: str) -> 
 
     Returns the parsed manifest dict on success, or None if no agent config exists.
     """
-    agent_dir = talent_dir / "agent"
+    agent_dir = talent_dir / AGENT_DIR_NAME
     manifest_path = agent_dir / MANIFEST_YAML_FILENAME
     if not manifest_path.exists():
         return None
 
     # Copy agent/ directory to employee
-    dst_agent_dir = Path(emp_dir) / "agent"
+    dst_agent_dir = Path(emp_dir) / AGENT_DIR_NAME
     if dst_agent_dir.exists():
         shutil.rmtree(str(dst_agent_dir))
     shutil.copytree(str(agent_dir), str(dst_agent_dir))
@@ -387,7 +391,7 @@ def _create_agent_runner(employee_id: str, emp_dir) -> "BaseAgentRunner":
 
     if mod_name and cls_name:
         # Look for runner .py in vessel/ first, then agent/
-        for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+        for search_dir in [emp_path / VESSEL_DIR_NAME, emp_path / AGENT_DIR_NAME]:
             runner_py = search_dir / f"{mod_name}.py"
             if runner_py.exists():
                 try:
@@ -434,7 +438,7 @@ def _load_hooks_from_config(emp_dir) -> dict[str, "Callable"]:
 
     # Look for hooks .py in vessel/ first, then agent/
     hooks_py = None
-    for search_dir in [emp_path / "vessel", emp_path / "agent"]:
+    for search_dir in [emp_path / VESSEL_DIR_NAME, emp_path / AGENT_DIR_NAME]:
         candidate = search_dir / f"{hooks_mod_name}.py"
         if candidate.exists():
             hooks_py = candidate
@@ -490,14 +494,14 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
     )
 
     emp_path = Path(emp_dir)
-    vessel_dir = emp_path / "vessel"
+    vessel_dir = emp_path / VESSEL_DIR_NAME
 
     # Already installed
     if (vessel_dir / VESSEL_YAML_FILENAME).exists():
         return
 
     # 1. talent has vessel/vessel.yaml
-    talent_vessel = talent_dir / "vessel"
+    talent_vessel = talent_dir / VESSEL_DIR_NAME
     talent_vessel_yaml = talent_vessel / VESSEL_YAML_FILENAME
     if talent_vessel_yaml.exists():
         vessel_dir.mkdir(parents=True, exist_ok=True)
@@ -700,7 +704,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
             talent_data = yaml.safe_load(f) or {}
         spt = talent_data.get("system_prompt_template", "")
         if spt and spt.strip():
-            prompts_dir = emp_dir / "prompts"
+            prompts_dir = emp_dir / PROMPTS_DIR_NAME
             prompts_dir.mkdir(exist_ok=True)
             (prompts_dir / TALENT_PERSONA_FILENAME).write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
 
@@ -938,7 +942,7 @@ async def execute_hire(
     _inject_default_skills(skills_dir)
 
     # Create initial SOUL.md in workspace
-    workspace_dir = emp_dir / "workspace"
+    workspace_dir = emp_dir / WORKSPACE_DIR_NAME
     workspace_dir.mkdir(exist_ok=True)
     soul_path = workspace_dir / SOUL_FILENAME
     if not soul_path.exists():

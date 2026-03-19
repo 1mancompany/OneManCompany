@@ -12,7 +12,7 @@ from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import CONVERSATIONS_DIR_NAME, ENCODING_UTF8
+from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, ENCODING_UTF8
 
 CEO_SENDER = "ceo"
 CEO_CONVERSATION_CATEGORY = "ceo_conversation"
@@ -104,7 +104,7 @@ async def _build_agent_and_invoke(
 
     # Load talent persona if available
     from onemancompany.core.config import EMPLOYEES_DIR
-    persona_path = EMPLOYEES_DIR / employee_id / "agent" / "system_prompt.md"
+    persona_path = EMPLOYEES_DIR / employee_id / AGENT_DIR_NAME / "system_prompt.md"
     if persona_path.exists():
         try:
             builder.add("persona", persona_path.read_text(encoding=ENCODING_UTF8), priority=15)

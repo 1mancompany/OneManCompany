@@ -33,6 +33,7 @@ from onemancompany.core.config import (
     ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR, ENV_OMC_PROJECT_ID,
     ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID, HR_DIR, MCP_CONFIG_FILENAME,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, TOOLS_DIR,
+    WORKSPACE_DIR_NAME,
 )
 from onemancompany.core.models import AuthMethod
 DATA_ROOT = Path.cwd() / DATA_DIR_NAME
@@ -680,7 +681,7 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
                 "args": [
                     "fastskills",
                     "--skills-dir", str(emp_dir / "skills"),
-                    "--workdir", str(emp_dir / "workspace"),
+                    "--workdir", str(emp_dir / WORKSPACE_DIR_NAME),
                 ],
                 "env": {
                     ENV_KEY_SKILLSMP: skillsmp_key,

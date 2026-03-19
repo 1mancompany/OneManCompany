@@ -61,6 +61,10 @@ CONVERSATIONS_DIR_NAME = "conversations"
 PROGRESS_LOG_FILENAME = "progress.log"
 SRC_DIR_NAME = "src"
 LAUNCH_SH_FILENAME = "launch.sh"
+PROMPTS_DIR_NAME = "prompts"
+WORKSPACE_DIR_NAME = "workspace"
+VESSEL_DIR_NAME = "vessel"
+AGENT_DIR_NAME = "agent"
 
 # ---------------------------------------------------------------------------
 # Profile field keys — canonical YAML field names for employee profiles
@@ -646,14 +650,14 @@ def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
 
 def get_workspace_dir(employee_id: str) -> Path:
     """Return the private workspace directory for an employee."""
-    return EMPLOYEES_DIR / employee_id / "workspace"
+    return EMPLOYEES_DIR / employee_id / WORKSPACE_DIR_NAME
 
 
 def ensure_employee_dir(employee_id: str) -> Path:
     """Ensure employees/{id}/, skills/, and workspace/ directories exist."""
     emp_dir = EMPLOYEES_DIR / employee_id
     skills_dir = emp_dir / "skills"
-    workspace_dir = emp_dir / "workspace"
+    workspace_dir = emp_dir / WORKSPACE_DIR_NAME
     emp_dir.mkdir(parents=True, exist_ok=True)
     skills_dir.mkdir(exist_ok=True)
     workspace_dir.mkdir(exist_ok=True)
