@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 
 from langchain_core.tools import tool
+from loguru import logger
+
 
 def _load_key_from_dotenv() -> str:
     """Try to load ANTHROPIC_API_KEY from the company .env file."""
@@ -27,8 +29,8 @@ def _load_key_from_dotenv() -> str:
             key, _, val = line.partition("=")
             if key.strip() == "ANTHROPIC_API_KEY":
                 return val.strip().strip("\"'")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[web_search] failed to load API key from .env: {}", exc)
     return ""
 
 
@@ -69,7 +71,7 @@ def _extract_search_results(response: dict) -> list[dict]:
                     results.append({
                         "title": item.get("title", ""),
                         "url": item.get("url", ""),
-                        "snippet": item.get("encrypted_content", item.get("page_snippet", "")),
+                        "snippet": item.get("page_snippet", ""),
                     })
     return results
 
@@ -133,9 +135,8 @@ def web_search(query: str, max_results: int = 5) -> dict:
     }
 
     resp_json, err = _post_json(_API_URL, headers, payload, timeout=60)
-    if err:
-        return {"status": "error", "message": err}
-    assert resp_json is not None
+    if err or resp_json is None:
+        return {"status": "error", "message": err or "empty response from API"}
 
     answer = _extract_text_answer(resp_json)
     sources = _extract_search_results(resp_json)
