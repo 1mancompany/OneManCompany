@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid as _uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -5909,7 +5910,6 @@ def _parse_iso_timestamp(ts: str | None) -> float:
     if not ts:
         return 0.0
     try:
-        from datetime import datetime
         return datetime.fromisoformat(ts).timestamp()
     except Exception:
         return 0.0
@@ -5980,7 +5980,7 @@ async def create_conversation(body: dict) -> dict:
             conv, conv_dir = reusable
             _conversation_service.ensure_indexed(conv.id, conv_dir)
             if conv.phase != ConversationPhase.ACTIVE.value:
-                conv.phase = "active"
+                conv.phase = ConversationPhase.ACTIVE.value
                 conv.closed_at = None
                 save_conversation_meta(conv)
                 await event_bus.publish(CompanyEvent(
