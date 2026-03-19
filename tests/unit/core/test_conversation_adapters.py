@@ -159,6 +159,9 @@ async def test_langchain_adapter_send():
 
     assert reply == "Here are the details about task X..."
     mock_executor.execute.assert_awaited_once()
+    _, ctx = mock_executor.execute.await_args.args
+    assert ctx.employee_id == "00100"
+    assert ctx.work_dir.endswith("/employees/00100/workspace")
 
 
 def test_get_executor_type_unknown_class_defaults_to_langchain():
@@ -200,3 +203,6 @@ async def test_claude_session_adapter_send():
 
     assert reply == "Project is on track."
     mock_executor.execute.assert_awaited_once()
+    _, ctx = mock_executor.execute.await_args.args
+    assert ctx.employee_id == "00100"
+    assert ctx.work_dir.endswith("/employees/00100/workspace")

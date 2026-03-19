@@ -124,17 +124,74 @@ class ChatPanel {
     _appendMessageEl(msg) {
         const div = document.createElement('div');
         const isCeo = msg.sender === 'ceo';
+        const attachmentHtml = (msg.attachments || [])
+            .map(a => this._renderAttachment(a))
+            .join('');
         div.className = `chat-msg ${isCeo ? 'chat-msg-ceo' : 'chat-msg-agent'}`;
         div.innerHTML = `
             <div class="chat-msg-role">${this._escapeHtml(msg.role)}</div>
             <div class="chat-msg-text">${this._escapeHtml(msg.text)}</div>
-            ${msg.attachments && msg.attachments.length
-                ? `<div class="chat-msg-attachments">${msg.attachments.map(a =>
-                    `<span class="chat-msg-attachment">${this._escapeHtml(a.split('/').pop())}</span>`
-                  ).join('')}</div>`
+            ${attachmentHtml
+                ? `<div class="chat-msg-attachments">${attachmentHtml}</div>`
                 : ''}
         `;
         this._messagesEl.appendChild(div);
+    }
+
+    _renderAttachment(attachment) {
+        const raw = typeof attachment === 'string'
+            ? attachment
+            : (attachment?.url || attachment?.path || attachment?.file || '');
+        const url = this._toAttachmentUrl(raw);
+        const filename = this._attachmentName(raw);
+
+        if (url && this._isImageUrl(url)) {
+            const safeUrl = this._escapeHtml(url);
+            const safeName = this._escapeHtml(filename);
+            return `<a class="chat-msg-image-link" href="${safeUrl}" target="_blank" rel="noopener"><img class="chat-msg-image" src="${safeUrl}" alt="${safeName}" /></a>`;
+        }
+        if (url) {
+            const safeUrl = this._escapeHtml(url);
+            const safeName = this._escapeHtml(filename);
+            return `<a class="chat-msg-attachment chat-msg-attachment-link" href="${safeUrl}" target="_blank" rel="noopener">${safeName}</a>`;
+        }
+        return `<span class="chat-msg-attachment">${this._escapeHtml(filename)}</span>`;
+    }
+
+    _attachmentName(pathOrUrl) {
+        if (!pathOrUrl || typeof pathOrUrl !== 'string') return 'attachment';
+        const clean = pathOrUrl.split('?')[0].split('#')[0];
+        const idx = clean.lastIndexOf('/');
+        if (idx >= 0 && idx < clean.length - 1) return clean.slice(idx + 1);
+        return clean || 'attachment';
+    }
+
+    _toAttachmentUrl(pathOrUrl) {
+        if (!pathOrUrl || typeof pathOrUrl !== 'string') return '';
+        const raw = pathOrUrl.trim();
+        if (!raw) return '';
+
+        if (raw.startsWith('/api/') || raw.startsWith('http://') || raw.startsWith('https://')) {
+            return raw;
+        }
+        if (raw.startsWith('data:image/')) {
+            return raw;
+        }
+
+        // Convert absolute employee workspace path to API URL.
+        const m = raw.match(/\/\.onemancompany\/company\/human_resource\/employees\/([^/]+)\/workspace\/(.+)$/);
+        if (m) {
+            const employeeId = encodeURIComponent(m[1]);
+            const relPath = m[2].split('/').map(seg => encodeURIComponent(seg)).join('/');
+            return `/api/employee/${employeeId}/workspace/files/${relPath}`;
+        }
+        return '';
+    }
+
+    _isImageUrl(url) {
+        if (!url) return false;
+        if (url.startsWith('data:image/')) return true;
+        return /\.(png|jpe?g|gif|webp|svg)([?#].*)?$/i.test(url);
     }
 
     setInputEnabled(enabled) {

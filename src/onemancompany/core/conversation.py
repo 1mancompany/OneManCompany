@@ -254,6 +254,7 @@ class ConversationService:
                 "role": msg.role,
                 "text": msg.text,
                 "timestamp": msg.timestamp,
+                "attachments": msg.attachments,
             },
         ))
         return msg
