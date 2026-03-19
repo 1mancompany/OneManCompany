@@ -172,12 +172,7 @@
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "OneManCompany",
-    "url": "https://1mancompany.github.io/OneManCompany/",
-    "potentialAction": {
-      "@type": "SearchAction",
-      "target": "https://1mancompany.github.io/OneManCompany/docs/?q={search_term_string}",
-      "query-input": "required name=search_term_string"
-    }
+    "url": "https://1mancompany.github.io/OneManCompany/"
   }
   </script>
 
@@ -186,12 +181,10 @@
 
   <!-- Hreflang -->
   <link rel="alternate" hreflang="en" href="https://1mancompany.github.io/OneManCompany/" />
-  <link rel="alternate" hreflang="zh" href="https://1mancompany.github.io/OneManCompany/zh/" />
   <link rel="alternate" hreflang="x-default" href="https://1mancompany.github.io/OneManCompany/" />
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>" />
-  <!-- Preload critical resources -->
-  <link rel="preload" as="image" href="img/cover.png" />
+  <!-- Cover image is below the fold — lazy-loaded, no preload needed -->
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -889,7 +882,13 @@
     <div class="section-label">About</div>
     <h2 id="about-heading" class="section-title">About OneManCompany</h2>
     <p class="section-desc" style="max-width: 800px;">
-      OneManCompany is an open-source AI operating system released in 2026 that enables a single person to operate a complete software company by delegating work to autonomous AI agents. The system faithfully models real corporate operations including hierarchical org charts, hiring and firing through a Talent Market, task delegation with quality gates, performance reviews, meeting rooms, and per-project cost tracking. Built with Python and JavaScript, it provides a pixel-art office UI where the user acts as CEO — the only human — while AI employees across engineering, design, QA, and operations departments collaborate autonomously to produce production-grade deliverables such as games, apps, comics, and research reports. OneManCompany uses a Vessel + Talent architecture inspired by mecha anime: a Vessel provides the execution container, while a Talent brings the skills, knowledge, and personality. Together they form a complete AI employee.
+      OneManCompany is an open-source AI operating system released in 2026 that enables a single person to operate a complete software company by delegating work to autonomous AI agents. The system faithfully models real corporate operations — hierarchical org charts, hiring and firing through a Talent Market, task delegation with quality gates, performance reviews, meeting rooms, and per-project cost tracking.
+    </p>
+    <p class="section-desc" style="max-width: 800px;">
+      Built with Python and JavaScript, it provides a pixel-art office UI where the user acts as CEO — the only human — while AI employees across engineering, design, QA, and operations departments collaborate autonomously to produce production-grade deliverables such as games, apps, comics, and research reports.
+    </p>
+    <p class="section-desc" style="max-width: 800px;">
+      OneManCompany uses a Vessel + Talent architecture inspired by mecha anime: a Vessel provides the execution container, while a Talent brings the skills, knowledge, and personality. Together they form a complete AI employee.
     </p>
   </div>
 </section>
