@@ -236,9 +236,9 @@ class EmployeeStatus(str, Enum):
     WORKING = "working"
     IN_MEETING = "in_meeting"
 
-STATUS_IDLE = EmployeeStatus.IDLE
-STATUS_WORKING = EmployeeStatus.WORKING
-STATUS_IN_MEETING = EmployeeStatus.IN_MEETING
+STATUS_IDLE = EmployeeStatus.IDLE.value
+STATUS_WORKING = EmployeeStatus.WORKING.value
+STATUS_IN_MEETING = EmployeeStatus.IN_MEETING.value
 
 
 class DirtyCategory(str, Enum):
