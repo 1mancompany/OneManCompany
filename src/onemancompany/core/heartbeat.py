@@ -19,6 +19,8 @@ from loguru import logger
 from onemancompany.core.config import (
     EMPLOYEES_DIR,
     PF_LEVEL,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_OPENROUTER,
     PROVIDER_REGISTRY,
     employee_configs,
     get_provider,
@@ -27,7 +29,7 @@ from onemancompany.core.config import (
     FOUNDING_LEVEL,
 )
 from onemancompany.core import store as _store
-from onemancompany.core.models import HostingMode
+from onemancompany.core.models import AuthMethod, HostingMode
 
 # Single-file constants
 WORKER_PID_FILENAME = "worker.pid"
@@ -42,9 +44,6 @@ _METHOD_ALWAYS_ONLINE = "always_online"
 _METHOD_PID = "pid"
 _METHOD_SCRIPT = "script"
 _METHOD_ANTHROPIC_KEY = "anthropic_key"
-_PROVIDER_OPENROUTER = "openrouter"
-_PROVIDER_ANTHROPIC = "anthropic"
-_AUTH_METHOD_OAUTH = "oauth"
 
 
 def _get_heartbeat_method(emp_id: str, cfg) -> str:
@@ -95,7 +94,7 @@ def check_needs_setup(emp_id: str) -> bool:
         return True  # unknown provider → needs setup
 
     # OpenRouter uses company key — no per-employee setup needed
-    if cfg.api_provider == _PROVIDER_OPENROUTER:
+    if cfg.api_provider == PROVIDER_OPENROUTER:
         return False
 
     # Other providers need either employee key or company-level key
@@ -240,9 +239,9 @@ async def run_heartbeat_cycle() -> list[str]:
             key = _resolve_provider_key(cfg)
 
             # OAuth tokens can't be validated via health endpoint — just check existence
-            if provider == _PROVIDER_ANTHROPIC:
-                auth_method = cfg.auth_method if cfg.auth_method == _AUTH_METHOD_OAUTH else settings.anthropic_auth_method
-                if auth_method == _AUTH_METHOD_OAUTH:
+            if provider == PROVIDER_ANTHROPIC:
+                auth_method = cfg.auth_method if cfg.auth_method == AuthMethod.OAUTH else settings.anthropic_auth_method
+                if auth_method == AuthMethod.OAUTH:
                     _update_online(emp_id, bool(key), changed)
                     continue
 
@@ -255,9 +254,9 @@ async def run_heartbeat_cycle() -> list[str]:
         # Legacy method names from manifest.json
         elif method == _METHOD_ANTHROPIC_KEY:
             key = _resolve_provider_key(cfg)
-            per_employee_checks.append((emp_id, _PROVIDER_ANTHROPIC, key))
+            per_employee_checks.append((emp_id, PROVIDER_ANTHROPIC, key))
         else:  # openrouter_key or unknown
-            provider_groups.setdefault(_PROVIDER_OPENROUTER, []).append(emp_id)
+            provider_groups.setdefault(PROVIDER_OPENROUTER, []).append(emp_id)
 
     # 3. Batched provider checks — one request per company-level key
     for provider, emp_ids in provider_groups.items():
