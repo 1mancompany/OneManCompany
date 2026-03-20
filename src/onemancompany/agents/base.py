@@ -200,6 +200,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 base_url=base_url,
                 temperature=effective_temp,
                 max_retries=3,
+                stream_usage=True,
             )
 
     # --- Fallback: unknown provider or no key → fall back to openrouter with default model ---
@@ -217,6 +218,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         base_url=settings.openrouter_base_url,
         temperature=effective_temp,
         max_retries=3,
+        stream_usage=True,
     )
 
 
@@ -267,11 +269,16 @@ async def tracked_ainvoke(
 
     result = await llm.ainvoke(messages)
 
-    # Extract token usage from response_metadata
+    # Extract token usage from response_metadata, fallback to usage_metadata
     meta = getattr(result, "response_metadata", {}) or {}
     usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
     input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
     output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+    if not input_tokens and not output_tokens:
+        usage_meta = getattr(result, "usage_metadata", None)
+        if usage_meta and isinstance(usage_meta, dict):
+            input_tokens = usage_meta.get("input_tokens", 0)
+            output_tokens = usage_meta.get("output_tokens", 0)
 
     # Determine model name
     model_name = meta.get("model_name", "") or meta.get("model", "")
@@ -280,8 +287,11 @@ async def tracked_ainvoke(
         cfg = employee_configs.get(employee_id)
         model_name = cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
 
-    # Compute cost
-    if input_tokens or output_tokens:
+    # Compute cost: prefer provider-reported cost, fallback to catalog price
+    provider_cost = usage.get("cost") if usage else None
+    if provider_cost is not None and provider_cost:
+        cost_usd = float(provider_cost)
+    elif input_tokens or output_tokens:
         costs = get_model_cost(model_name)
         cost_usd = (input_tokens * costs["input"] + output_tokens * costs["output"]) / 1_000_000
     else:
@@ -503,6 +513,7 @@ class BaseAgentRunner:
         final_content = ""
         total_input_tokens = 0
         total_output_tokens = 0
+        provider_cost: float | None = None  # provider-reported cost (e.g. OpenRouter)
         model_used = ""
         last_tool_calls: list[str] = []  # track tool names for fallback
         last_tool_results: list[str] = []
@@ -523,12 +534,23 @@ class BaseAgentRunner:
             elif kind == "on_chat_model_end":
                 output = data.get("output", None)
                 if output:
-                    # Extract token usage from response_metadata
+                    # Extract token usage — try response_metadata first, then usage_metadata
                     meta = getattr(output, "response_metadata", {}) or {}
                     usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
                     if usage:
                         total_input_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                         total_output_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                        # Provider-reported cost (e.g. OpenRouter includes "cost" in token_usage)
+                        if "cost" in usage and usage["cost"]:
+                            provider_cost = (provider_cost or 0.0) + float(usage["cost"])
+                    else:
+                        # Streaming mode: usage lives in usage_metadata (requires stream_usage=True)
+                        usage_meta = getattr(output, "usage_metadata", None)
+                        if usage_meta and isinstance(usage_meta, dict):
+                            total_input_tokens += usage_meta.get("input_tokens", 0)
+                            total_output_tokens += usage_meta.get("output_tokens", 0)
+                        else:
+                            logger.debug("[COST] on_chat_model_end: no usage data for employee={}, meta_keys={}", self.employee_id, list(meta.keys()))
                     if not model_used:
                         model_used = meta.get("model_name", "") or meta.get("model", "")
 
@@ -559,20 +581,28 @@ class BaseAgentRunner:
             parts.extend(last_tool_results)
             final_content = "\n".join(parts)
 
+        # Compute cost: prefer provider-reported cost, fallback to catalog price
+        _model = model_used or self._get_model_name()
+        if provider_cost is not None:
+            _cost_usd = provider_cost
+        elif total_input_tokens or total_output_tokens:
+            from onemancompany.core.model_costs import get_model_cost
+            _costs = get_model_cost(_model)
+            _cost_usd = (total_input_tokens * _costs["input"] + total_output_tokens * _costs["output"]) / 1_000_000
+        else:
+            _cost_usd = 0.0
+
         # Store usage for caller to read
         self._last_usage = {
-            "model": model_used or self._get_model_name(),
+            "model": _model,
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "total_tokens": total_input_tokens + total_output_tokens,
+            "cost_usd": _cost_usd,
         }
 
         # Record streaming usage into overhead
-        if total_input_tokens or total_output_tokens:
-            from onemancompany.core.model_costs import get_model_cost
-            _model = model_used or self._get_model_name()
-            _costs = get_model_cost(_model)
-            _cost_usd = (total_input_tokens * _costs["input"] + total_output_tokens * _costs["output"]) / 1_000_000
+        if total_input_tokens or total_output_tokens or _cost_usd > 0:
             _record_overhead("agent_task", _model, total_input_tokens, total_output_tokens, _cost_usd)
 
         self._set_status(STATUS_IDLE)
@@ -593,28 +623,49 @@ class BaseAgentRunner:
 
         total_input = 0
         total_output = 0
+        provider_cost: float | None = None
         model = ""
         for msg in result.get(_LG_MESSAGES_KEY, []):
             if not isinstance(msg, AIMessage):
                 continue
             meta = getattr(msg, "response_metadata", {}) or {}
             usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
-            total_input += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
-            total_output += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            msg_input = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+            msg_output = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            # Provider-reported cost (e.g. OpenRouter)
+            if "cost" in usage and usage["cost"]:
+                provider_cost = (provider_cost or 0.0) + float(usage["cost"])
+            # Fallback: streaming mode puts usage in usage_metadata
+            if not msg_input and not msg_output:
+                usage_meta = getattr(msg, "usage_metadata", None)
+                if usage_meta and isinstance(usage_meta, dict):
+                    msg_input = usage_meta.get("input_tokens", 0)
+                    msg_output = usage_meta.get("output_tokens", 0)
+            total_input += msg_input
+            total_output += msg_output
             if not model:
                 model = meta.get("model_name", "") or meta.get("model", "")
 
         model = model or self._get_model_name()
+
+        # Cost: prefer provider-reported, fallback to catalog price
+        if provider_cost is not None:
+            cost_usd = provider_cost
+        elif total_input or total_output:
+            costs = get_model_cost(model)
+            cost_usd = (total_input * costs["input"] + total_output * costs["output"]) / 1_000_000
+        else:
+            cost_usd = 0.0
+
         self._last_usage = {
             "model": model,
             "input_tokens": total_input,
             "output_tokens": total_output,
             "total_tokens": total_input + total_output,
+            "cost_usd": cost_usd,
         }
 
-        if total_input or total_output:
-            costs = get_model_cost(model)
-            cost_usd = (total_input * costs["input"] + total_output * costs["output"]) / 1_000_000
+        if total_input or total_output or cost_usd > 0:
             _record_overhead(
                 "agent_task", model, total_input, total_output, cost_usd,
                 employee_id=self.employee_id,
