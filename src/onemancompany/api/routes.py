@@ -1275,11 +1275,14 @@ async def trigger_hr_review() -> dict:
     loop = get_agent_loop(HR_ID)
     if loop:
         # Build review task description inline (same logic as run_quarterly_review)
-        from onemancompany.core.config import TASKS_PER_QUARTER
+        from onemancompany.core.config import FOUNDING_LEVEL, TASKS_PER_QUARTER
         from onemancompany.core.state import LEVEL_NAMES
 
         reviewable, not_ready = [], []
         for eid, edata in _load_all().items():
+            # Skip CEO and founding executives — they are not subject to quarterly review
+            if edata.get("level", 1) >= FOUNDING_LEVEL:
+                continue
             perf_hist = edata.get("performance_history", [])
             hist_str = ", ".join(
                 f"Q{i+1}={h['score']}" for i, h in enumerate(perf_hist)

@@ -207,6 +207,9 @@ class HRAgent(BaseAgentRunner):
         from onemancompany.core.state import make_title
         all_emps = _store.load_all_employees()
         for eid, edata in all_emps.items():
+            # Skip CEO and founding executives — not subject to quarterly review
+            if edata.get(PF_LEVEL, 1) >= FOUNDING_LEVEL:
+                continue
             perf = edata.get(PF_PERFORMANCE_HISTORY, [])
             hist_str = ", ".join(
                 f"Q{i+1}={h['score']}" for i, h in enumerate(perf)
