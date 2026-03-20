@@ -1814,13 +1814,16 @@ class TestTaskTreeCallback:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_child_complete_waits_when_siblings_pending(self, mock_bus, mock_state, tmp_path):
-        """When siblings still running, no wake-up."""
+    async def test_child_complete_triggers_incremental_review_while_siblings_running(self, mock_bus, mock_state, tmp_path):
+        """When one child completes while sibling still running, incremental
+        review is triggered so the completed child can be accepted individually."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
+        parent_launcher = MagicMock(spec=Launcher)
+        mgr.register("00003", parent_launcher)
 
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root")
@@ -1836,7 +1839,69 @@ class TestTaskTreeCallback:
 
         await mgr._on_child_complete("00010", entry, project_id="proj1")
 
-        # Parent should NOT be woken
+        # Parent should be woken for incremental review of child1
+        assert len(mgr._schedule.get("00003", [])) > 0
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_child_complete_with_dep_chain_triggers_review(self, mock_bus, mock_state, tmp_path):
+        """Dep chain A→B: when A completes, incremental review triggers so A
+        can be accepted and B can be unblocked."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+        parent_launcher = MagicMock(spec=Launcher)
+        mgr.register("00003", parent_launcher)
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        parent_node = tree.add_child(root.id, "00003", "Manage feature", ["Done"])
+        child_a = tree.add_child(parent_node.id, "00010", "Step A", ["A done"])
+        child_b = tree.add_child(parent_node.id, "00011", "Step B", ["B done"])
+        child_b.depends_on = [child_a.id]  # B depends on A
+        child_a.status = "completed"
+        child_a.result = "Step A result"
+        # B is still PENDING — can't start until A is accepted
+
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child_a.id, tree_path=str(tree_path))
+
+        await mgr._on_child_complete("00010", entry, project_id="proj1")
+
+        # Parent should receive a review task to accept A → unblock B
+        assert len(mgr._schedule.get("00003", [])) > 0
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_no_review_when_no_completed_children(self, mock_bus, mock_state, tmp_path):
+        """When the completing child is already accepted (e.g. system node),
+        and siblings are still running, no redundant review is spawned."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj1")
+        root = tree.create_root("00001", "Root")
+        parent_node = tree.add_child(root.id, "00003", "Manage", [])
+        child1 = tree.add_child(parent_node.id, "00010", "Backend", [])
+        child2 = tree.add_child(parent_node.id, "00011", "Frontend", [])
+        child1.status = "accepted"  # Already reviewed
+        child2.status = "processing"  # Still running
+
+        tree_path = tmp_path / "tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=child1.id, tree_path=str(tree_path))
+
+        await mgr._on_child_complete("00010", entry, project_id="proj1")
+
+        # No review needed — child1 already accepted, child2 still running
         assert len(mgr._schedule.get("00003", [])) == 0
 
     @pytest.mark.asyncio
