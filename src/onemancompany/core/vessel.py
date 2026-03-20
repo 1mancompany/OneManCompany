@@ -1782,50 +1782,61 @@ class EmployeeManager:
             parent_node = None  # Skip propagation, fall through to project completion check
         if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
             children = tree.get_active_children(parent_node.id)
-            if tree.all_children_done(parent_node.id):
-                # Check for active review node (prevent infinite loop)
+            non_review_children = [c for c in children if c.node_type not in SYSTEM_NODE_TYPES]
+
+            # Gate 1: all substantive children ACCEPTED/FINISHED → auto-complete parent upward
+            # Excludes FAILED/CANCELLED — those need parent review to decide how to handle.
+            _SUCCESS_RESOLVED = frozenset({TaskPhase.ACCEPTED, TaskPhase.FINISHED})
+            if non_review_children and all(TaskPhase(c.status) in _SUCCESS_RESOLVED for c in non_review_children):
+                if parent_node.status != TaskPhase.COMPLETED.value:
+                    logger.info("All non-review children of {} are resolved — auto-completing parent", parent_node.id)
+                    if parent_node.status in (TaskPhase.PENDING.value, TaskPhase.HOLDING.value):
+                        parent_node.set_status(TaskPhase.PROCESSING)
+                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (auto-complete prep)", parent_node.id)
+                    parent_node.set_status(TaskPhase.COMPLETED)
+                    logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children resolved)", parent_node.id)
+                    parent_node.result = "All child tasks accepted."
+                    save_tree_async(entry.tree_path)
+                    self._publish_node_update(parent_node.employee_id, parent_node)
+                if parent_node.status == TaskPhase.COMPLETED.value:
+                    parent_node.set_status(TaskPhase.ACCEPTED)
+                    logger.info("[TASK LIFECYCLE] parent={} → ACCEPTED (all children resolved, auto-promoting)", parent_node.id)
+                    parent_node.set_status(TaskPhase.FINISHED)
+                    logger.debug("[TASK LIFECYCLE] parent={} → FINISHED", parent_node.id)
+                    save_tree_async(entry.tree_path)
+                    self._publish_node_update(parent_node.employee_id, parent_node)
+                    # Recursively propagate upward (includes project completion check)
+                    parent_entry = ScheduleEntry(node_id=parent_node.id, tree_path=entry.tree_path)
+                    await self._on_child_complete_inner(
+                        parent_node.employee_id, parent_entry, project_id
+                    )
+                    return  # recursive call handles project completion check
+
+            # Gate 2: incremental review — any child COMPLETED triggers immediate
+            # review so it can be accepted individually.  This prevents dep-chain
+            # deadlocks (A→B): B stays PENDING until A is ACCEPTED, so we cannot
+            # wait for all children to finish before reviewing.
+            else:
+                needs_review = any(
+                    c for c in non_review_children
+                    if c.status == TaskPhase.COMPLETED.value
+                )
                 has_active_review = any(
                     c for c in children
                     if c.node_type == NodeType.REVIEW
                     and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
                 )
-                if not has_active_review:
-                    _SKIP_REVIEW_TYPES = {NodeType.REVIEW, NodeType.WATCHDOG_NUDGE}
-                    non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
-                    if non_review_children and all(c.status == TaskPhase.ACCEPTED.value for c in non_review_children):
-                        # All substantive children accepted → auto-complete parent
-                        if parent_node.status != TaskPhase.COMPLETED.value:
-                            logger.info("All non-review children of {} are accepted — auto-completing parent", parent_node.id)
-                            if parent_node.status == TaskPhase.HOLDING.value:
-                                parent_node.set_status(TaskPhase.PROCESSING)
-                                logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (resuming from HOLDING for auto-complete)", parent_node.id)
-                            parent_node.set_status(TaskPhase.COMPLETED)
-                            logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children accepted)", parent_node.id)
-                            parent_node.result = "All child tasks accepted."
-                            save_tree_async(entry.tree_path)
-                            self._publish_node_update(parent_node.employee_id, parent_node)
-                        # Parent already COMPLETED with all children accepted → auto-accept
-                        # This recovers stuck nodes where parent completed before children
-                        if parent_node.status == TaskPhase.COMPLETED.value:
-                            parent_node.set_status(TaskPhase.ACCEPTED)
-                            logger.info("[TASK LIFECYCLE] parent={} → ACCEPTED (all children accepted, auto-promoting)", parent_node.id)
-                            parent_node.set_status(TaskPhase.FINISHED)
-                            logger.debug("[TASK LIFECYCLE] parent={} → FINISHED", parent_node.id)
-                            save_tree_async(entry.tree_path)
-                            self._publish_node_update(parent_node.employee_id, parent_node)
-                            # Recursively propagate upward (includes project completion check)
-                            parent_entry = ScheduleEntry(node_id=parent_node.id, tree_path=entry.tree_path)
-                            await self._on_child_complete_inner(
-                                parent_node.employee_id, parent_entry, project_id
-                            )
-                            return  # recursive call handles project completion check
-                    else:
-                        # Not all accepted yet → spawn review or escalate
-                        await self._spawn_review_or_escalate(
-                            tree, node, parent_node, children, entry, project_id
-                        )
-            else:
-                logger.debug("[ON_CHILD_COMPLETE] not all children done for parent={} → waiting", parent_node.id)
+                if needs_review and not has_active_review:
+                    logger.info(
+                        "[ON_CHILD_COMPLETE] child {} completed — triggering incremental review for parent {}",
+                        node.id, parent_node.id,
+                    )
+                    await self._spawn_review_or_escalate(
+                        tree, node, parent_node, children, entry, project_id
+                    )
+                else:
+                    logger.debug("[ON_CHILD_COMPLETE] parent={} — waiting (needs_review={}, active_review={})",
+                                 parent_node.id, needs_review, has_active_review)
 
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
