@@ -12,7 +12,7 @@ from typing import Awaitable, Callable
 
 from loguru import logger
 
-from onemancompany.core.conversation import Conversation, _resolve_conv_dir, load_messages
+from onemancompany.core.conversation import Conversation, resolve_conv_dir, load_messages
 from onemancompany.core.models import ConversationType, EventType
 
 _close_hooks: dict[str, Callable[..., Awaitable[dict | None]]] = {}
@@ -56,7 +56,7 @@ async def _run_hook_safe(hook, conv: Conversation) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Built-in close hooks (stubs -- full logic ported in Task 11)
+# Built-in close hooks
 # ---------------------------------------------------------------------------
 
 
@@ -87,7 +87,7 @@ async def _close_oneonone(conv: Conversation) -> dict | None:
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from onemancompany.agents.base import make_llm
-    from onemancompany.api.routes import _llm_invoke_with_retry
+    from onemancompany.core.llm_utils import llm_invoke_with_retry
     from onemancompany.core import store as _store
     from onemancompany.core.events import event_bus, CompanyEvent
     from onemancompany.core.store import load_employee as _load_emp
@@ -106,7 +106,7 @@ async def _close_oneonone(conv: Conversation) -> dict | None:
     emp_dept = emp_data.get("department", "")
 
     # Load conversation messages from disk
-    conv_dir = _resolve_conv_dir(conv)
+    conv_dir = resolve_conv_dir(conv)
     messages = load_messages(conv_dir)
 
     if not messages:
@@ -146,7 +146,7 @@ async def _close_oneonone(conv: Conversation) -> dict | None:
 
     try:
         llm = make_llm(employee_id)
-        result = await _llm_invoke_with_retry(llm, [
+        result = await llm_invoke_with_retry(llm, [
             SystemMessage(content="You are an employee reflecting on a meeting with the CEO."),
             HumanMessage(content=reflection_prompt),
         ], category="oneonone", employee_id=employee_id)
@@ -162,23 +162,25 @@ async def _close_oneonone(conv: Conversation) -> dict | None:
         ))
         return {"reflection": "", "principles_updated": False, "note_saved": False}
 
-    # Parse principles update
-    if "UPDATED:" in response_text and "NO_UPDATE" not in response_text.split("SUMMARY:")[0]:
-        updated_start = response_text.index("UPDATED:") + len("UPDATED:")
-        summary_start = response_text.find("SUMMARY:")
+    # Parse principles update — require markers on own line to reduce false positives
+    # Prepend newline so markers at start of response also match
+    _resp = "\n" + response_text
+    if "\nUPDATED:" in _resp and "\nNO_UPDATE" not in _resp.split("\nSUMMARY:")[0]:
+        updated_start = _resp.index("\nUPDATED:") + len("\nUPDATED:")
+        summary_start = _resp.find("\nSUMMARY:")
         if summary_start > updated_start:
-            new_principles = response_text[updated_start:summary_start].strip()
+            new_principles = _resp[updated_start:summary_start].strip()
         else:
-            new_principles = response_text[updated_start:].strip()
+            new_principles = _resp[updated_start:].strip()
         if new_principles:
             await _store.save_work_principles(employee_id, new_principles)
             principles_updated = True
             logger.info("[conversation] oneonone: updated work principles for {}", employee_id)
 
     # Parse and save 1-1 summary as guidance note
-    if "SUMMARY:" in response_text:
-        summary_start = response_text.index("SUMMARY:") + len("SUMMARY:")
-        summary_text = response_text[summary_start:].strip()
+    if "\nSUMMARY:" in _resp:
+        summary_start = _resp.index("\nSUMMARY:") + len("\nSUMMARY:")
+        summary_text = _resp[summary_start:].strip()
         if summary_text:
             date_str = datetime.now().strftime("%Y-%m-%d")
             note = f"**{date_str} 1-1 Meeting**\n{summary_text}"

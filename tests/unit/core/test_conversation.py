@@ -58,7 +58,7 @@ def test_message_from_dict():
 from onemancompany.core.conversation import (
     save_conversation_meta, load_conversation_meta,
     append_message, load_messages,
-    _resolve_conv_dir,
+    resolve_conv_dir,
 )
 
 
@@ -73,7 +73,7 @@ def test_save_and_load_meta(tmp_path, monkeypatch):
         created_at="2026-03-18T10:00:00",
     )
     save_conversation_meta(conv)
-    loaded = load_conversation_meta("conv-001", conv_dir=_resolve_conv_dir(conv))
+    loaded = load_conversation_meta("conv-001", conv_dir=resolve_conv_dir(conv))
     assert loaded.id == "conv-001"
     assert loaded.phase == "active"
 
@@ -249,7 +249,7 @@ async def test_recover_closing_conversations(tmp_path, monkeypatch):
     monkeypatch.setattr("onemancompany.core.conversation.EMPLOYEES_DIR", tmp_path / "employees")
     monkeypatch.setattr("onemancompany.core.conversation.PROJECTS_DIR", tmp_path / "projects")
 
-    from onemancompany.core.conversation import save_conversation_meta, Conversation, _resolve_conv_dir
+    from onemancompany.core.conversation import save_conversation_meta, Conversation, resolve_conv_dir
     # Manually create a conversation stuck in "closing"
     conv = Conversation(
         id="stuck-conv", type="oneonone", phase="closing",

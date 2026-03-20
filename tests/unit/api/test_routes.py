@@ -1338,7 +1338,7 @@ class TestOneOnOneChatFallback:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
@@ -1369,7 +1369,7 @@ class TestOneOnOneChatFallback:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
@@ -1452,7 +1452,7 @@ class TestOneOnOneEndHappyPath:
              patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.core.store.save_work_principles", side_effect=fake_save_principles), \
              patch("onemancompany.core.store.save_employee_runtime", new_callable=AsyncMock):
@@ -2503,7 +2503,7 @@ class TestOneOnOneChatAgentLoop:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
@@ -4094,7 +4094,7 @@ class TestOneOnOneChatAttachments:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value=""), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value=""), \
@@ -4137,7 +4137,7 @@ class TestOneOnOneChatWithHistoryLLM:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.agent_loop.get_agent_loop", return_value=None), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.agents.base.get_employee_skills_prompt", return_value="Skill: Python"), \
              patch("onemancompany.agents.base.get_employee_tools_prompt", return_value="Tool: Sandbox"), \
@@ -5475,7 +5475,7 @@ class TestOneOnOneEndWithUpdate:
              patch("onemancompany.core.state.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
+             patch("onemancompany.core.llm_utils.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
              patch("onemancompany.agents.base.make_llm", return_value=MagicMock()), \
              patch("onemancompany.core.store.save_work_principles", new_callable=AsyncMock), \
              patch("onemancompany.core.store.save_employee_runtime", side_effect=fake_save_runtime):

@@ -5780,8 +5780,6 @@ class AppController {
       }
     }
 
-    this._chatPanel.setInputEnabled(false);
-
     // Restore CEO Console + CEO Inbox sections
     const chatContainer = document.getElementById('right-panel-chat');
     chatContainer.classList.add('hidden');
@@ -5819,8 +5817,11 @@ class AppController {
     document.body.appendChild(overlay);
     const closeBtn = overlay.querySelector('.project-report-close');
     closeBtn.focus();
-    closeBtn.addEventListener('click', () => overlay.remove());
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    const dismiss = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
+    closeBtn.addEventListener('click', dismiss);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+    document.addEventListener('keydown', onKey);
   }
 
   _escapeHtml(text) {
