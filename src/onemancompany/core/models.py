@@ -99,6 +99,7 @@ class EventType(str, Enum):
     TREE_UPDATE = "tree_update"
     MEETING_BOOKED = "meeting_booked"
     MEETING_CHAT = "meeting_chat"
+    MEETING_AGENDA_UPDATE = "meeting_agenda_update"
     MEETING_RELEASED = "meeting_released"
     INQUIRY_STARTED = "inquiry_started"
     INQUIRY_ENDED = "inquiry_ended"

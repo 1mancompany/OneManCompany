@@ -30,6 +30,15 @@ async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> No
     await event_bus.publish(CompanyEvent(type=event_type, payload=payload, agent=agent))
 
 
+# Per-room CEO message queues — CEO messages injected into active meetings
+_ceo_meeting_queues: dict[str, asyncio.Queue] = {}
+
+
+def get_ceo_meeting_queue(room_id: str) -> asyncio.Queue | None:
+    """Get the CEO message queue for an active meeting, or None."""
+    return _ceo_meeting_queues.get(room_id)
+
+
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     from datetime import datetime
     entry = {
@@ -567,6 +576,127 @@ def _build_speech_prompt(emp_data: dict, emp_id: str, topic: str, agenda: str, c
     return prompt
 
 
+def _parse_agenda_items(agenda: str) -> list[str]:
+    """Parse an agenda string into discrete items.
+
+    Handles numbered lists (1. xxx), bullet lists (- xxx, * xxx),
+    and plain newline-separated items. Returns empty list if no
+    structured items are found.
+    """
+    if not agenda or not agenda.strip():
+        return []
+
+    items: list[str] = []
+    for line in agenda.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Strip numbered prefix: "1. ", "1) ", "1: "
+        cleaned = re.sub(r'^\d+[\.\)\:]\s*', '', line)
+        # Strip bullet prefix: "- ", "* ", "• "
+        cleaned = re.sub(r'^[-\*•]\s*', '', cleaned)
+        if cleaned:
+            items.append(cleaned)
+
+    # Only treat as structured if there are 2+ items
+    return items if len(items) >= 2 else []
+
+
+async def _run_discussion_round(
+    *,
+    room,
+    speakers: list[tuple[str, dict]],
+    topic: str,
+    agenda: str,
+    chat_history: list[dict],
+    ceo_queue: asyncio.Queue,
+    max_rounds: int = 15,
+) -> tuple[int, list[dict]]:
+    """Run a token-grab discussion round. Returns (rounds_used, new_entries)."""
+    loop = asyncio.get_running_loop()
+    last_speaker_id = ""
+    new_entries: list[dict] = []
+    rounds_used = 0
+
+    for round_num in range(max_rounds):
+        rounds_used = round_num + 1
+        # Drain any CEO messages queued since last round.
+        # We only append to chat_history here (no _chat() call) because the
+        # API route that enqueued the message already persisted and broadcast it.
+        while not ceo_queue.empty():
+            try:
+                ceo_msg = ceo_queue.get_nowait()
+                chat_history.append({"speaker": "CEO", "message": ceo_msg})
+                last_speaker_id = ""
+            except asyncio.QueueEmpty:
+                break
+
+        # Concurrent evaluation
+        async def _evaluate(eid_and_data: tuple[str, dict]):
+            eid, edata = eid_and_data
+            prompt = _build_evaluate_prompt(edata, eid, topic, agenda, chat_history)
+            llm = make_llm(eid)
+            resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
+            t1 = loop.time()
+            first_line = resp.content.strip().split("\n")[0].upper()[:20]
+            wants = "YES" in first_line
+            return (eid, edata, wants, t1)
+
+        results = await asyncio.gather(
+            *[_evaluate(e) for e in speakers],
+            return_exceptions=True,
+        )
+
+        willing: list[tuple[str, dict, float]] = [
+            (eid, edata, ts)
+            for r in results
+            if not isinstance(r, Exception)
+            for eid, edata, wants, ts in [r]
+            if wants
+        ]
+
+        if not willing:
+            # Check if CEO sent messages during evaluation
+            ceo_interjected = False
+            while not ceo_queue.empty():
+                try:
+                    ceo_msg = ceo_queue.get_nowait()
+                    await _chat(room.id, "CEO", "CEO", ceo_msg)
+                    chat_history.append({"speaker": "CEO", "message": ceo_msg})
+                    ceo_interjected = True
+                except asyncio.QueueEmpty:
+                    break
+            if ceo_interjected:
+                last_speaker_id = ""
+                continue
+            break
+
+        # Token grab — fastest wins
+        willing.sort(key=lambda x: x[2])
+        winner_id, winner_data, _ = willing[0]
+        if winner_id == last_speaker_id and len(willing) > 1:
+            winner_id, winner_data, _ = willing[1]
+
+        speech_prompt = _build_speech_prompt(winner_data, winner_id, topic, agenda, chat_history)
+        resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
+        last_speaker_id = winner_id
+
+        display = winner_data.get("nickname", "") or winner_data.get("name", "")
+        await _chat(room.id, display, winner_data.get("role", ""), resp.content)
+        chat_history.append({"speaker": display, "message": resp.content})
+        new_entries.append({
+            "id": winner_id,
+            "name": winner_data.get("name", ""),
+            "nickname": winner_data.get("nickname", ""),
+            "comment": resp.content,
+        })
+    else:
+        await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER,
+                     "Discussion round has reached the maximum number of rounds.")
+
+    return rounds_used, new_entries
+
+
 @tool
 async def pull_meeting(
     topic: str,
@@ -657,7 +787,9 @@ async def pull_meeting(
         await _chat(room.id, initiator_name, "employee", f"Agenda: {agenda}")
 
     try:
-        # --- Token-grabbing discussion loop ---
+        # --- Parse agenda into discrete items ---
+        agenda_items = _parse_agenda_items(agenda)
+
         discussion_entries: list[dict] = []
         chat_history: list[dict] = [
             {"speaker": initiator_name, "message": f"Topic: {topic}"},
@@ -666,76 +798,77 @@ async def pull_meeting(
             chat_history.append({"speaker": initiator_name, "message": f"Agenda: {agenda}"})
 
         # All participants (including initiator if present) can compete to speak
-        # speakers is a list of (emp_id, emp_data) tuples
         speakers: list[tuple[str, dict]] = list(valid_participants)
         if initiator_id:
             ini_data = load_employee(initiator_id)
             if ini_data and initiator_id not in {pid for pid, _ in speakers}:
                 speakers.append((initiator_id, ini_data))
 
-        max_rounds = 15
-        loop = asyncio.get_running_loop()
+        # Register CEO message queue for this room
+        ceo_queue: asyncio.Queue = asyncio.Queue()
+        _ceo_meeting_queues[room.id] = ceo_queue
+
+        # Broadcast initial agenda to frontend
+        await _publish("meeting_agenda_update", {
+            "room_id": room.id,
+            "items": agenda_items,
+            "current_index": 0,
+            "completed": [],
+        })
+
         rounds_used = 0
-        last_speaker_id: str = ""  # track last speaker for no-consecutive rule
 
-        for round_num in range(max_rounds):
-            rounds_used = round_num + 1
+        if agenda_items:
+            # --- Structured agenda: discuss each item in sequence ---
+            completed_indices: list[int] = []
+            for item_idx, item_text in enumerate(agenda_items):
+                # Broadcast current agenda item
+                await _publish("meeting_agenda_update", {
+                    "room_id": room.id,
+                    "items": agenda_items,
+                    "current_index": item_idx,
+                    "completed": completed_indices,
+                })
+                await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER,
+                            f"📋 Agenda item {item_idx + 1}/{len(agenda_items)}: {item_text}")
+                chat_history.append({"speaker": MEETING_SYSTEM_SENDER, "message": f"Now discussing: {item_text}"})
 
-            # Concurrent evaluation — all participants judge whether they need to speak
-            async def _evaluate(eid_and_data: tuple[str, dict]):
-                eid, edata = eid_and_data
-                prompt = _build_evaluate_prompt(edata, eid, topic, agenda, chat_history)
-                llm = make_llm(eid)
-                t0 = loop.time()
-                resp = await tracked_ainvoke(llm, prompt, category="meeting", employee_id=eid)
-                t1 = loop.time()
-                first_line = resp.content.strip().split("\n")[0].upper()[:20]
-                wants = "YES" in first_line
-                return (eid, edata, wants, t1)
+                item_rounds, item_entries = await _run_discussion_round(
+                    room=room,
+                    speakers=speakers,
+                    topic=topic,
+                    agenda=f"Current agenda item: {item_text}",
+                    chat_history=chat_history,
+                    ceo_queue=ceo_queue,
+                    max_rounds=10,
+                )
+                rounds_used += item_rounds
+                discussion_entries.extend(item_entries)
 
-            results = await asyncio.gather(
-                *[_evaluate(e) for e in speakers],
-                return_exceptions=True,
-            )
+                completed_indices.append(item_idx)
 
-            # Filter out exceptions and those who don't want to speak
-            willing: list[tuple[str, dict, float]] = [
-                (eid, edata, ts)
-                for r in results
-                if not isinstance(r, Exception)
-                for eid, edata, wants, ts in [r]
-                if wants
-            ]
-
-            if not willing:
-                await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All participants have finished speaking. Meeting concluded.")
-                break
-
-            # Token grab — sort by timestamp, fastest wins
-            willing.sort(key=lambda x: x[2])
-
-            # No-consecutive rule: same person cannot get the token twice in a row
-            winner_id, winner_data, _ = willing[0]
-            if winner_id == last_speaker_id and len(willing) > 1:
-                winner_id, winner_data, _ = willing[1]
-
-            # Winner delivers their speech
-            speech_prompt = _build_speech_prompt(winner_data, winner_id, topic, agenda, chat_history)
-            resp = await tracked_ainvoke(make_llm(winner_id), speech_prompt, category="meeting", employee_id=winner_id)
-            last_speaker_id = winner_id
-
-            display = winner_data.get("nickname", "") or winner_data.get("name", "")
-            await _chat(room.id, display, winner_data.get("role", ""), resp.content)
-            chat_history.append({"speaker": display, "message": resp.content})
-            discussion_entries.append({
-                "id": winner_id,
-                "name": winner_data.get("name", ""),
-                "nickname": winner_data.get("nickname", ""),
-                "comment": resp.content,
+            # Broadcast all items completed
+            await _publish("meeting_agenda_update", {
+                "room_id": room.id,
+                "items": agenda_items,
+                "current_index": -1,
+                "completed": completed_indices,
             })
+            await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All agenda items have been discussed. Meeting concluded.")
+
         else:
-            # max_rounds reached
-            await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "Meeting has reached the maximum number of rounds. Auto-concluded.")
+            # --- No structured agenda: single discussion round (original behavior) ---
+            item_rounds, item_entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic=topic,
+                agenda=agenda,
+                chat_history=chat_history,
+                ceo_queue=ceo_queue,
+                max_rounds=15,
+            )
+            rounds_used = item_rounds
+            discussion_entries.extend(item_entries)
 
         # --- Synthesize meeting conclusion ---
         all_comments = "\n".join(
@@ -796,6 +929,8 @@ async def pull_meeting(
         }
 
     finally:
+        # Unregister CEO message queue
+        _ceo_meeting_queues.pop(room.id, None)
         # Release meeting room
         room.is_booked = False
         room.booked_by = ""

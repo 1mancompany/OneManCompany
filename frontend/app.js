@@ -242,11 +242,14 @@ class AppController {
       return;
     }
     if (msg.type === 'ceo_conversation') {
-      if (this._currentConvNodeId === (msg.payload && msg.payload.node_id)) {
-        this._appendConvMessage({
-          sender: msg.payload.sender,
-          text: msg.payload.text,
-          timestamp: msg.payload.timestamp,
+      const p = msg.payload || msg;
+      if (this._chatPanel && this._currentConvNodeId === p.node_id) {
+        const empName = this._resolveEmployeeName(p.sender);
+        this._chatPanel.appendMessage({
+          sender: p.sender,
+          role: p.sender === 'ceo' ? 'CEO' : empName,
+          text: p.text,
+          timestamp: p.timestamp,
         });
       }
       return;
@@ -340,6 +343,12 @@ class AppController {
           this._appendChatMessage(chatEntry);
         }
         return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
+      },
+      'meeting_agenda_update': (p) => {
+        if (this.viewingRoomId === p.room_id) {
+          this._renderMeetingAgenda(p);
+        }
+        return null; // no activity log entry
       },
       'workflow_updated':    (p) => ({ text: `📋 Workflow updated: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
       'candidates_ready':   (p) => {
@@ -918,17 +927,6 @@ class AppController {
       if (el) el.addEventListener('change', () => this._onRosterFilterChange());
     });
 
-    // CEO conversation dialog: Enter key to send
-    const convInput = document.getElementById('ceo-conv-input');
-    if (convInput) {
-      convInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          app._sendCeoMessage();
-        }
-      });
-    }
-
     // 1-on-1 meeting modal bindings
     const oneononeModal = document.getElementById('oneonone-modal');
     document.getElementById('guidance-toolbar-btn').addEventListener('click', () => {
@@ -1001,6 +999,14 @@ class AppController {
     document.getElementById('meeting-close-btn').addEventListener('click', () => this.closeMeetingRoom());
     document.getElementById('meeting-modal').addEventListener('click', (e) => {
       if (e.target.id === 'meeting-modal') this.closeMeetingRoom();
+    });
+    // CEO chat in meeting room
+    document.getElementById('meeting-ceo-send-btn').addEventListener('click', () => this._sendMeetingRoomMessage());
+    document.getElementById('meeting-ceo-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._sendMeetingRoomMessage();
+      }
     });
 
     // Inquiry chat bindings (inside meeting modal)
@@ -2161,118 +2167,77 @@ class AppController {
     `).join('');
   }
 
-  // ===== CEO Conversation Dialog =====
+  // ===== CEO Conversation (reuses ChatPanel) =====
   async _openCeoConversation(nodeId) {
     try {
       const resp = await fetch(`/api/ceo/inbox/${nodeId}/open`, { method: 'POST' });
       const data = await resp.json();
       this._currentConvNodeId = nodeId;
 
-      const overlay = document.getElementById('ceo-conv-overlay');
-      const title = document.getElementById('ceo-conv-title');
-      const desc = document.getElementById('ceo-conv-desc');
+      const chatContainer = document.getElementById('right-panel-chat');
+      // Hide CEO Console + CEO Inbox sections
+      for (const target of ['ceo-body', 'ceo-inbox-body']) {
+        const body = document.getElementById(target);
+        if (body) body.style.display = 'none';
+        const header = body?.previousElementSibling;
+        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
+      }
+      chatContainer.classList.remove('hidden');
+
+      if (!this._chatPanel) {
+        this._chatPanel = new ChatPanel(chatContainer);
+      }
+      // Wire callbacks for CEO inbox APIs
+      this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
+      this._chatPanel.onClear(null);
+      this._chatPanel.onClose((id) => this._completeCeoConversation(id));
 
       const nickname = data.employee_nickname || data.employee_id || 'Employee';
-      title.textContent = `📥 Task Request from ${nickname}`;
-      if (data.description) {
-        desc.textContent = data.description;
-        desc.classList.remove('hidden');
-      }
-      this._renderConvMessages(data.messages || []);
-      overlay.classList.remove('hidden');
-      document.getElementById('ceo-conv-input').focus();
+      this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
+      // Convert inbox messages to ChatPanel format (add role field)
+      const messages = (data.messages || []).map(m => ({
+        ...m,
+        role: m.sender === 'ceo' ? 'CEO' : nickname,
+      }));
+      this._chatPanel.renderMessages(messages);
+      this._chatPanel.setInputEnabled(true);
     } catch (e) {
       console.error('Failed to open conversation:', e);
     }
   }
 
-  _closeCeoConversation() {
-    document.getElementById('ceo-conv-overlay').classList.add('hidden');
-  }
-
-  _renderConvMessages(messages) {
-    const container = document.getElementById('ceo-conv-messages');
-    container.innerHTML = messages.map(m => {
-      const isCeo = m.sender === 'ceo';
-      const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
-      let attachHtml = '';
-      if (m.attachments && m.attachments.length) {
-        attachHtml = m.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
-      }
-      return `<div class="conv-msg ${cls}">
-        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(m.sender)}</div>
-        <div class="conv-msg-text">${this._escHtml(m.text)}</div>
-        ${attachHtml}
-        <div class="conv-msg-time">${new Date(m.timestamp).toLocaleTimeString()}</div>
-      </div>`;
-    }).join('');
-    container.scrollTop = container.scrollHeight;
-  }
-
-  _appendConvMessage(msg) {
-    const container = document.getElementById('ceo-conv-messages');
-    const isCeo = msg.sender === 'ceo';
-    const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
-    let attachHtml = '';
-    if (msg.attachments && msg.attachments.length) {
-      attachHtml = msg.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
-    }
-    container.insertAdjacentHTML('beforeend', `
-      <div class="conv-msg ${cls}">
-        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(msg.sender)}</div>
-        <div class="conv-msg-text">${this._escHtml(msg.text)}</div>
-        ${attachHtml}
-        <div class="conv-msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
-      </div>
-    `);
-    container.scrollTop = container.scrollHeight;
-  }
-
-  async _sendCeoMessage() {
-    const input = document.getElementById('ceo-conv-input');
-    const text = input.value.trim();
-    if (!text || !this._currentConvNodeId) return;
-    input.value = '';
-    this._appendConvMessage({ sender: 'ceo', text, timestamp: new Date().toISOString() });
+  async _sendCeoInboxMessage(nodeId, text) {
+    if (!this._chatPanel || !nodeId) return;
+    this._chatPanel.showTyping(true);
     try {
-      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/message`, {
+      await fetch(`/api/ceo/inbox/${nodeId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
     } catch (e) {
+      this._chatPanel.showTyping(false);
       console.error('Failed to send message:', e);
     }
+    // Reply arrives via WebSocket ceo_conversation event
   }
 
-  async _completeCeoConversation() {
-    if (!this._currentConvNodeId) return;
-    if (!confirm('Confirm completing this conversation?')) return;
+  async _completeCeoConversation(nodeId) {
+    if (!nodeId) nodeId = this._currentConvNodeId;
+    if (!nodeId) return;
+    if (!confirm('Complete this conversation and send your decision to the agent?')) return;
     try {
-      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/complete`, { method: 'POST' });
-      this._closeCeoConversation();
-      this._currentConvNodeId = null;
-      this._refreshCeoInbox();
+      await fetch(`/api/ceo/inbox/${nodeId}/complete`, { method: 'POST' });
     } catch (e) {
       console.error('Failed to complete conversation:', e);
     }
-  }
-
-  async _uploadCeoAttachment() {
-    const fileInput = document.getElementById('ceo-conv-file');
-    if (!fileInput.files.length || !this._currentConvNodeId) return;
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    try {
-      const resp = await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/upload`, {
-        method: 'POST', body: formData,
-      });
-      const data = await resp.json();
-      this._appendConvMessage(data.message);
-    } catch (e) {
-      console.error('Failed to upload:', e);
-    }
-    fileInput.value = '';
+    // Restore right panel
+    const chatContainer = document.getElementById('right-panel-chat');
+    chatContainer.classList.add('hidden');
+    this._restoreConsoleSections();
+    this._chatPanel = null;
+    this._currentConvNodeId = null;
+    this._refreshCeoInbox();
   }
 
   async _loadModelOrApiKeySection(empId) {
@@ -2296,7 +2261,15 @@ class AppController {
           notice.textContent = '⚠ Settings changes will trigger a server reload. Use when no tasks are running.';
           container.appendChild(notice);
         }
-        for (const section of manifest.settings.sections) {
+        // Deduplicate sections by id (first occurrence wins)
+        const seenIds = new Set();
+        const dedupSections = [];
+        for (const s of manifest.settings.sections) {
+          if (s.id && seenIds.has(s.id)) continue;
+          if (s.id) seenIds.add(s.id);
+          dedupSections.push(s);
+        }
+        for (const section of dedupSections) {
           const sectionEl = document.createElement('div');
           sectionEl.className = 'emp-settings-section';
           if (section.title) {
@@ -2406,6 +2379,7 @@ class AppController {
       ta.dataset.fieldKey = field.key;
       ta.dataset.fieldType = 'textarea';
       ta.value = currentValue;
+      if (field.placeholder) ta.placeholder = field.placeholder;
       row.appendChild(ta);
     } else if (field.type === 'readonly') {
       const span = document.createElement('span');
@@ -2438,7 +2412,10 @@ class AppController {
       btn.dataset.fieldType = 'action_button';
       btn.dataset.action = field.action || '';
       btn.dataset.cvField = field.cv_field || '';
-      btn.addEventListener('click', () => this._handleManifestAction(field, empId));
+      btn.addEventListener('click', (e) => {
+        const sectionEl = e.target.closest('.emp-settings-section');
+        this._handleManifestAction(field, empId, sectionEl);
+      });
       row.appendChild(btn);
     } else {
       // Default: text input
@@ -2554,9 +2531,9 @@ class AppController {
 
   /** Registry of manifest action handlers keyed by action name. */
   _manifestActions = {
-    hire_from_cv: async (field, empId) => {
-      const container = document.getElementById('emp-settings-container');
-      const cvEl = container.querySelector(`[data-field-key="${field.cv_field}"]`);
+    hire_from_cv: async (field, empId, sectionEl) => {
+      const scope = sectionEl || document.getElementById('emp-settings-container');
+      const cvEl = scope.querySelector(`[data-field-key="${field.cv_field}"]`);
       if (!cvEl || !cvEl.value.trim()) {
         this.logEntry('SYSTEM', 'Please paste a CV JSON before clicking Hire.', 'system');
         return;
@@ -2568,7 +2545,7 @@ class AppController {
         this.logEntry('SYSTEM', 'Invalid JSON in CV field.', 'system');
         return;
       }
-      const btn = container.querySelector(`[data-field-key="${field.key}"]`);
+      const btn = scope.querySelector(`[data-field-key="${field.key}"]`);
       btn.disabled = true;
       btn.textContent = 'Hiring...';
       try {
@@ -2592,13 +2569,13 @@ class AppController {
     },
   };
 
-  async _handleManifestAction(field, empId) {
+  async _handleManifestAction(field, empId, sectionEl) {
     const handler = this._manifestActions[field.action];
     if (!handler) {
       console.error(`[manifest] Unknown action: ${field.action}`);
       return;
     }
-    await handler(field, empId);
+    await handler(field, empId, sectionEl);
   }
 
   _renderSelfHostedSection(empId, empData, container) {
@@ -4204,6 +4181,10 @@ class AppController {
     const modal = document.getElementById('meeting-modal');
     modal.classList.remove('hidden');
 
+    // Remove stale agenda from previous meeting
+    const oldAgenda = document.getElementById('meeting-agenda-list');
+    if (oldAgenda) oldAgenda.parentElement.remove();
+
     // Title
     document.getElementById('meeting-modal-title').textContent = `🏢 ${room.name}`;
 
@@ -4238,6 +4219,14 @@ class AppController {
       partEl.innerHTML = '<div style="color:var(--text-dim)">No participants</div>';
     }
 
+    // Show CEO input if room is booked (meeting in progress)
+    const ceoInputArea = document.getElementById('meeting-ceo-input-area');
+    if (room.is_booked) {
+      ceoInputArea.classList.remove('hidden');
+    } else {
+      ceoInputArea.classList.add('hidden');
+    }
+
     // Load chat history from API
     const chatEl = document.getElementById('meeting-chat-messages');
     chatEl.innerHTML = '<div class="chat-empty">Loading...</div>';
@@ -4262,12 +4251,15 @@ class AppController {
   _refreshMeetingModalStatus(room) {
     const led = document.getElementById('meeting-modal-status-led');
     const statusText = document.getElementById('meeting-modal-status-text');
+    const ceoInputArea = document.getElementById('meeting-ceo-input-area');
     if (room.is_booked) {
       led.className = 'status-led booked';
       statusText.textContent = 'In Meeting';
+      ceoInputArea.classList.remove('hidden');
     } else {
       led.className = 'status-led free';
       statusText.textContent = 'Available';
+      ceoInputArea.classList.add('hidden');
     }
     // Update participants
     const partEl = document.getElementById('meeting-participants');
@@ -4292,7 +4284,8 @@ class AppController {
     if (this._inquirySessionId && this._inquiryRoomId === this.viewingRoomId) {
       this._endInquirySession();
     }
-    // Hide inquiry UI elements
+    // Hide input UI elements
+    document.getElementById('meeting-ceo-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-typing').classList.add('hidden');
     document.getElementById('meeting-inquiry-actions').classList.add('hidden');
@@ -4316,6 +4309,47 @@ class AppController {
     chatEl.appendChild(div);
     // Auto-scroll to bottom
     chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  _renderMeetingAgenda(data) {
+    let agendaEl = document.getElementById('meeting-agenda-list');
+    if (!agendaEl) {
+      // Create agenda container in the info panel
+      const infoPanel = document.getElementById('meeting-info-panel');
+      if (!infoPanel) return;
+      const block = document.createElement('div');
+      block.className = 'meeting-info-block';
+      block.innerHTML = '<div class="meeting-info-label">Agenda</div><div id="meeting-agenda-list" class="meeting-agenda-list"></div>';
+      infoPanel.appendChild(block);
+      agendaEl = document.getElementById('meeting-agenda-list');
+    }
+    const items = data.items || [];
+    const current = data.current_index;
+    const completed = new Set(data.completed || []);
+    agendaEl.innerHTML = items.map((item, i) => {
+      const done = completed.has(i);
+      const active = i === current;
+      const cls = done ? 'agenda-done' : active ? 'agenda-active' : 'agenda-pending';
+      const icon = done ? '✅' : active ? '▶' : '⬜';
+      return `<div class="agenda-item ${cls}">${icon} ${this._escHtml(item)}</div>`;
+    }).join('');
+  }
+
+  async _sendMeetingRoomMessage() {
+    const input = document.getElementById('meeting-ceo-input');
+    const text = input.value.trim();
+    if (!text || !this.viewingRoomId) return;
+    input.value = '';
+    try {
+      await fetch(`/api/rooms/${encodeURIComponent(this.viewingRoomId)}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+    } catch (e) {
+      console.error('Failed to send meeting room message:', e);
+    }
+    // Message appears via WebSocket meeting_chat event
   }
 
   // ===== Inquiry Session =====
@@ -5654,10 +5688,11 @@ class AppController {
 
     if (!this._chatPanel) {
       this._chatPanel = new ChatPanel(chatContainer);
-      this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
-      this._chatPanel.onClear((id) => this._clearConversationHistory(id));
-      this._chatPanel.onClose((id) => this._closeConversation(id));
     }
+    // Always re-wire callbacks (may switch between 1-on-1 and inbox)
+    this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
+    this._chatPanel.onClear((id) => this._clearConversationHistory(id));
+    this._chatPanel.onClose((id) => this._closeConversation(id));
 
     // Fetch conversation + messages
     let convResp, msgsResp;

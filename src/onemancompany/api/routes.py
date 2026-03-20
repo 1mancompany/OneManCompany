@@ -5585,6 +5585,46 @@ async def get_room_chat(room_id: str):
     return load_room_chat(room_id)
 
 
+@router.post("/api/rooms/{room_id}/chat")
+async def post_room_chat(room_id: str, body: dict):
+    """CEO sends a message to a meeting room chat.
+
+    The message is persisted to disk, broadcast via WebSocket, and
+    injected into the active pull_meeting token-grab loop (if any)
+    so agents see it in their next evaluation round.
+    """
+    from datetime import datetime
+    from onemancompany.core.store import append_room_chat
+    from onemancompany.agents.common_tools import get_ceo_meeting_queue
+
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message text required")
+
+    entry = {
+        "room_id": room_id,
+        "speaker": "CEO",
+        "role": "CEO",
+        "message": message,
+        "time": datetime.now().strftime("%H:%M:%S"),
+    }
+    await append_room_chat(room_id, entry)
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.MEETING_CHAT,
+            payload=entry,
+            agent="CEO",
+        )
+    )
+
+    # Inject into active meeting's token-grab loop
+    q = get_ceo_meeting_queue(room_id)
+    if q is not None:
+        await q.put(message)
+
+    return {"status": "sent"}
+
+
 @router.get("/api/tools")
 async def list_tools():
     """List tools — reads from disk."""
@@ -5723,17 +5763,27 @@ async def open_ceo_conversation(node_id: str):
     }
 
 
+def _parse_hold_reason(hold_reason: str | None) -> dict[str, str]:
+    """Parse a hold_reason string like 'ceo_request=node_id,no_watchdog=1' into a dict."""
+    result: dict[str, str] = {}
+    for pair in (hold_reason or "").split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
 async def _run_conversation_loop(session, node, tree, project_dir):
     """Run conversation loop and handle completion."""
     from onemancompany.core.task_lifecycle import transition
     from onemancompany.core.vessel import (
         _trigger_dep_resolution,
-        _parse_holding_metadata,
         employee_manager,
     )
 
     try:
         summary = await session.run()
+        logger.info("[ceo_inbox] conversation completed: node={}, summary_len={}", node.id, len(summary))
         node.result = summary
         transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
         node.status = TaskPhase.COMPLETED.value
@@ -5746,8 +5796,8 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
         parent = tree.get_node(node.parent_id) if node.parent_id else None
         if parent and parent.status == TaskPhase.HOLDING.value:
-            holding_meta = _parse_holding_metadata(parent.result or "")
-            if holding_meta and holding_meta.get("ceo_request") == node.id:
+            hr_meta = _parse_hold_reason(parent.hold_reason)
+            if hr_meta.get("ceo_request") == node.id:
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id,
                     parent.id,
