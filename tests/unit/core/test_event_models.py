@@ -16,7 +16,6 @@ from onemancompany.core.event_models import (
     EmployeeReviewedPayload,
     FileEditProposedPayload,
     GuidancePayload,
-    InquiryPayload,
     MeetingBookedPayload,
     MeetingChatPayload,
     ResolutionDecidedPayload,
@@ -286,18 +285,6 @@ class TestStateSnapshotPayload:
         p = StateSnapshotPayload()
         d = p.model_dump()
         assert d == {}
-
-
-# ---------------------------------------------------------------------------
-# InquiryPayload
-# ---------------------------------------------------------------------------
-
-class TestInquiryPayload:
-    def test_defaults(self):
-        p = InquiryPayload()
-        assert p.employee_id == ""
-        assert p.inquiry_id == ""
-        assert p.question == ""
 
 
 # ---------------------------------------------------------------------------

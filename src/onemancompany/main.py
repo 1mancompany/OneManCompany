@@ -109,7 +109,7 @@ def _ensure_snapshot_providers_loaded() -> None:
     import onemancompany.core.routine  # noqa: F401 — pending_reports
     import onemancompany.agents.recruitment  # noqa: F401 — candidates + project ctx
     import onemancompany.agents.coo_agent  # noqa: F401 — hiring requests
-    import onemancompany.api.routes  # noqa: F401 — inquiry sessions, COO hire queue, remote workers
+    import onemancompany.api.routes  # noqa: F401 — COO hire queue, remote workers
 
 
 def _save_ephemeral_state() -> None:
