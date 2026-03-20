@@ -3865,8 +3865,8 @@ class TestSalesSettleNotFound:
 
 
 class TestStartInquiry:
-    async def test_start_inquiry_via_ceo_qa(self):
-        """CEO QA that triggers inquiry — covers _start_inquiry."""
+    async def test_start_inquiry_via_ceo_task(self):
+        """CEO task that triggers inquiry — covers _start_inquiry."""
         emp_coo = _make_employee(id="00003", name="COO Agent", nickname="SomeNick")
         emp_hr = _make_employee(id="00002", name="HR Agent", nickname="HRNick")
         emp_cso = _make_employee(id="00005", name="CSO Agent", nickname="CSONick")
