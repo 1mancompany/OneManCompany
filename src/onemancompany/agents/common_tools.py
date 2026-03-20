@@ -730,6 +730,19 @@ async def pull_meeting(
             ]
 
             if not willing:
+                # Before concluding, check if CEO sent messages during evaluation
+                ceo_interjected = False
+                while not ceo_queue.empty():
+                    try:
+                        ceo_msg = ceo_queue.get_nowait()
+                        await _chat(room.id, "CEO", "CEO", f"[CEO interjection] {ceo_msg}")
+                        chat_history.append({"speaker": "CEO", "message": ceo_msg})
+                        ceo_interjected = True
+                    except asyncio.QueueEmpty:
+                        break
+                if ceo_interjected:
+                    last_speaker_id = ""  # let agents respond to CEO
+                    continue  # re-evaluate — agents may want to respond
                 await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All participants have finished speaking. Meeting concluded.")
                 break
 
