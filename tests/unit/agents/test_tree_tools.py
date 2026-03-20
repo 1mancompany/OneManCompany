@@ -98,6 +98,90 @@ class TestDispatchChild:
         finally:
             _reset_context(tok_v, tok_t)
 
+    def test_dispatch_adds_employee_to_project_team(self, tmp_path):
+        """dispatch_child auto-registers the dispatched employee in project.yaml team."""
+        import yaml
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        # Create project.yaml without team
+        project_dir = str(tmp_path)
+        project_yaml = tmp_path / "project.yaml"
+        project_yaml.write_text(yaml.dump({"project_id": "proj1", "name": "Test"}))
+
+        tree = _make_tree_with_root()
+        root_id = tree.root_id
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id, tree_path=str(tmp_path / "task_tree.yaml"))
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.agents.tree_tools._find_entry_for_task",
+                       return_value=(project_dir, str(tmp_path / "task_tree.yaml"))),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "build feature",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+
+            # Verify employee was added to project.yaml team
+            data = yaml.safe_load(project_yaml.read_text())
+            team = data.get("team", [])
+            assert len(team) == 1
+            assert team[0]["employee_id"] == "00100"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_dispatch_team_is_idempotent(self, tmp_path):
+        """dispatch_child does not duplicate team entries on re-dispatch."""
+        import yaml
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        project_dir = str(tmp_path)
+        project_yaml = tmp_path / "project.yaml"
+        project_yaml.write_text(yaml.dump({
+            "project_id": "proj1",
+            "team": [{"employee_id": "00100", "role": "", "joined_at": "2026-01-01"}],
+        }))
+
+        tree = _make_tree_with_root()
+        root_id = tree.root_id
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id, tree_path=str(tmp_path / "task_tree.yaml"))
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+                patch("onemancompany.agents.tree_tools._find_entry_for_task",
+                       return_value=(project_dir, str(tmp_path / "task_tree.yaml"))),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00100",
+                    "description": "another task",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+
+            # Team should still have exactly 1 entry (not duplicated)
+            data = yaml.safe_load(project_yaml.read_text())
+            assert len(data.get("team", [])) == 1
+        finally:
+            _reset_context(tok_v, tok_t)
+
     def test_unknown_employee_returns_error(self):
         """Returns error when employee_id not in company_state."""
         from onemancompany.agents.tree_tools import dispatch_child
