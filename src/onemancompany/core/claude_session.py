@@ -40,8 +40,12 @@ LLM_TRACES_FILENAME = "llm_traces.jsonl"
 def write_llm_trace(project_id: str, entry: dict) -> None:
     """Append a single trace entry to the project's llm_traces.jsonl.
 
+    Only active when OMC_DEBUG=1.
     Called by both ClaudeDaemon (self-hosted) and vessel _on_log (company-hosted).
     """
+    from onemancompany.core.config import IS_DEBUG
+    if not IS_DEBUG:
+        return
     if not project_id or project_id == "default":
         return
     path = PROJECTS_DIR / project_id / LLM_TRACES_FILENAME

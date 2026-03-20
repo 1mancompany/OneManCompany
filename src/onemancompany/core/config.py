@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import yaml
@@ -114,6 +115,7 @@ BLOCK_TYPE_TEXT = "text"  # value of type field for text blocks
 from enum import Enum
 
 ENV_OMC_DEBUG = "OMC_DEBUG"
+IS_DEBUG = os.environ.get(ENV_OMC_DEBUG, "0") == "1"
 ENV_OMC_EMPLOYEE_ID = "OMC_EMPLOYEE_ID"
 ENV_OMC_TASK_ID = "OMC_TASK_ID"
 ENV_OMC_PROJECT_ID = "OMC_PROJECT_ID"
