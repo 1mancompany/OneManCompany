@@ -214,8 +214,9 @@ class TaskNode:
 class TaskTree:
     """In-memory task tree with YAML persistence."""
 
-    def __init__(self, project_id: str) -> None:
+    def __init__(self, project_id: str, mode: str = "standard") -> None:
         self.project_id = project_id
+        self.mode = mode
         self.root_id: str = ""
         self._nodes: dict[str, TaskNode] = {}
         self.current_branch: int = 0
@@ -404,6 +405,7 @@ class TaskTree:
             "project_id": self.project_id,
             "root_id": self.root_id,
             "current_branch": self.current_branch,
+            "mode": self.mode,
             "nodes": [n.to_dict() for n in nodes_snapshot],
         }
         path.write_text(
@@ -417,6 +419,7 @@ class TaskTree:
         tree = cls(project_id=project_id or data.get("project_id", ""))
         tree.root_id = data.get("root_id", "")
         tree.current_branch = data.get("current_branch", 0)
+        tree.mode = data.get("mode", "standard")
         tree._source_dir = path.parent
         for nd in data.get("nodes", []):
             node = TaskNode.from_dict(nd)
