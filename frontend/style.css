@@ -1105,6 +1105,16 @@ body {
   color: var(--pixel-white);
 }
 
+.meeting-agenda-list {
+  font-size: 7px;
+  line-height: 1.8;
+  color: var(--text-dim);
+}
+.agenda-item { padding: 1px 0; }
+.agenda-done { color: var(--pixel-green); text-decoration: line-through; opacity: 0.7; }
+.agenda-active { color: var(--pixel-yellow); font-weight: bold; }
+.agenda-pending { color: var(--text-dim); }
+
 .meeting-participant {
   display: flex;
   align-items: center;

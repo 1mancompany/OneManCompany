@@ -344,6 +344,12 @@ class AppController {
         }
         return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
       },
+      'meeting_agenda_update': (p) => {
+        if (this.viewingRoomId === p.room_id) {
+          this._renderMeetingAgenda(p);
+        }
+        return null; // no activity log entry
+      },
       'workflow_updated':    (p) => ({ text: `📋 Workflow updated: ${p.name}`, cls: 'ceo', agent: 'CEO' }),
       'candidates_ready':   (p) => {
         this.showCandidateSelection(p);
@@ -4299,6 +4305,30 @@ class AppController {
     chatEl.appendChild(div);
     // Auto-scroll to bottom
     chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  _renderMeetingAgenda(data) {
+    let agendaEl = document.getElementById('meeting-agenda-list');
+    if (!agendaEl) {
+      // Create agenda container in the info panel
+      const infoPanel = document.getElementById('meeting-info-panel');
+      if (!infoPanel) return;
+      const block = document.createElement('div');
+      block.className = 'meeting-info-block';
+      block.innerHTML = '<div class="meeting-info-label">Agenda</div><div id="meeting-agenda-list" class="meeting-agenda-list"></div>';
+      infoPanel.appendChild(block);
+      agendaEl = document.getElementById('meeting-agenda-list');
+    }
+    const items = data.items || [];
+    const current = data.current_index;
+    const completed = new Set(data.completed || []);
+    agendaEl.innerHTML = items.map((item, i) => {
+      const done = completed.has(i);
+      const active = i === current;
+      const cls = done ? 'agenda-done' : active ? 'agenda-active' : 'agenda-pending';
+      const icon = done ? '✅' : active ? '▶' : '⬜';
+      return `<div class="agenda-item ${cls}">${icon} ${this._escHtml(item)}</div>`;
+    }).join('');
   }
 
   async _sendMeetingRoomMessage() {
