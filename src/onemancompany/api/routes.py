@@ -3954,30 +3954,25 @@ async def _do_hire_single(
                 clone_error = str(e)
                 logger.warning("[hiring] Failed to clone talent {}: {}", talent_id, e)
 
-        # Read authoritative fields from the talent profile
+        # Read authoritative fields from the talent profile on disk;
+        # fall back to candidate dict for AI-generated / repo-less talents.
         talent_data: dict = {}
         if talent_id:
             from onemancompany.core.config import load_talent_profile
             talent_data = load_talent_profile(talent_id)
 
-        # Validate required fields from talent profile
-        if talent_id and not talent_data:
-            source_repo = candidate.get("source_repo", "")
-            detail = f"Talent profile not found: {talent_id}"
-            if clone_error:
-                detail += f" (clone failed: {clone_error})"
-            await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True, clone_error=clone_error)
-            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, detail)
-            return
-        if talent_id:
-            missing = _check_talent_required_fields(talent_data)
-            if missing:
-                source_repo = candidate.get("source_repo", "")
-                await _publish_talent_profile_error(talent_id, missing, source_repo)
-                await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile missing fields: {', '.join(missing)}")
-                return
         if not talent_data:
+            # No on-disk profile — use candidate data from Talent Market API
+            logger.debug("[hiring] No local profile for talent {}, using candidate data", talent_id)
             talent_data = candidate
+
+        # Validate required fields
+        missing = _check_talent_required_fields(talent_data)
+        if missing:
+            source_repo = candidate.get("source_repo", "")
+            await _publish_talent_profile_error(talent_id or candidate_id, missing, source_repo)
+            await _cleanup_single_hire_failure(batch_id, candidate_id, candidate, f"Talent profile missing fields: {', '.join(missing)}")
+            return
 
         skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", [])]
 
@@ -4387,23 +4382,19 @@ async def _do_batch_hire(
             if talent_id:
                 talent_data = load_talent_profile(talent_id)
 
-            # Validate required fields from talent profile
-            if talent_id and not talent_data:
-                source_repo = candidate.get("source_repo", "")
-                await _publish_talent_profile_error(talent_id, [], source_repo, is_missing=True)
-                results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
-                                "error": f"Talent profile not found for {talent_id}"})
-                continue
-            if talent_id:
-                missing = _check_talent_required_fields(talent_data)
-                if missing:
-                    source_repo = candidate.get("source_repo", "")
-                    await _publish_talent_profile_error(talent_id, missing, source_repo)
-                    results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
-                                    "error": f"Talent profile missing fields: {', '.join(missing)}"})
-                    continue
             if not talent_data:
+                # No on-disk profile — use candidate data from Talent Market API
+                logger.debug("[batch-hire] No local profile for talent {}, using candidate data", talent_id)
                 talent_data = candidate
+
+            # Validate required fields
+            missing = _check_talent_required_fields(talent_data)
+            if missing:
+                source_repo = candidate.get("source_repo", "")
+                await _publish_talent_profile_error(talent_id or candidate_id, missing, source_repo)
+                results.append({"candidate_id": candidate_id, "status": "error", "name": cand_name,
+                                "error": f"Talent profile missing fields: {', '.join(missing)}"})
+                continue
 
             skill_names = [s["name"] if isinstance(s, dict) else s for s in candidate.get("skill_set", candidate.get("skills", []))]
 
