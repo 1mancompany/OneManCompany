@@ -25,9 +25,10 @@ The mode is set at project creation time and persisted to disk with the tree.
 The `mode` value flows through the system as follows:
 
 1. `POST /api/ceo/task` receives `mode` in request body
-2. `ceo_submit_task` writes `mode` into `project.yaml` metadata (alongside project_id, name, etc.)
-3. When TaskTree is initialized for the EA node, it reads `mode` from `project.yaml`
-4. TaskTree stores `mode` as instance field, persisted via `save()`
+2. `ceo_submit_task` passes `mode` directly to `TaskTree(project_id=ctx_id, mode=mode)`
+3. TaskTree stores `mode` as instance field, persisted to `task_tree.yaml` via `save()`
+
+Note: `mode` is NOT stored in `project.yaml` — the TaskTree is constructed in the same function that reads the request, so no intermediate metadata step is needed.
 
 ### Endpoint Changes
 

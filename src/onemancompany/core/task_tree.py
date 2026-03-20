@@ -19,6 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from loguru import logger
@@ -214,7 +215,7 @@ class TaskNode:
 class TaskTree:
     """In-memory task tree with YAML persistence."""
 
-    def __init__(self, project_id: str, mode: str = "standard") -> None:
+    def __init__(self, project_id: str, mode: Literal["simple", "standard"] = "standard") -> None:
         self.project_id = project_id
         self.mode = mode
         self.root_id: str = ""
