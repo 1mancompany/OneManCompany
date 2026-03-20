@@ -299,20 +299,20 @@ async def tracked_ainvoke(
     if project_id:
         from datetime import datetime
         from onemancompany.core.claude_session import write_llm_trace
-        prompt_text = messages if isinstance(messages, str) else str(messages)[:2000]
+        prompt_text = messages if isinstance(messages, str) else str(messages)
         response_text = getattr(result, "content", "") or ""
         write_llm_trace(project_id, {
             "ts": datetime.now().isoformat(),
             "employee_id": employee_id,
             "role": "user", "type": "llm_input",
-            "content": prompt_text[:2000],
+            "content": prompt_text,
             "category": category,
         })
         write_llm_trace(project_id, {
             "ts": datetime.now().isoformat(),
             "employee_id": employee_id,
             "role": "assistant", "type": "llm_output",
-            "content": response_text[:5000] if isinstance(response_text, str) else str(response_text)[:5000],
+            "content": response_text if isinstance(response_text, str) else str(response_text),
             "model": model_name,
             "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
         })

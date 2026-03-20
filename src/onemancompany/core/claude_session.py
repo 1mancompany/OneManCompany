@@ -430,7 +430,7 @@ class ClaudeDaemon:
                             "ts": datetime.now(timezone.utc).isoformat(),
                             "employee_id": self.employee_id,
                             "role": "system", "type": "result",
-                            "content": result_text[:500] if result_text else "",
+                            "content": result_text or "",
                             "model": model_used,
                             "usage": {
                                 "input_tokens": total_input_tokens,
