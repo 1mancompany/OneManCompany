@@ -295,6 +295,28 @@ async def tracked_ainvoke(
     # Always record overhead
     _record_overhead(category, model_name, input_tokens, output_tokens, cost_usd)
 
+    # Write to project-level LLM trace JSONL
+    if project_id:
+        from datetime import datetime
+        from onemancompany.core.claude_session import write_llm_trace
+        prompt_text = messages if isinstance(messages, str) else str(messages)[:2000]
+        response_text = getattr(result, "content", "") or ""
+        write_llm_trace(project_id, {
+            "ts": datetime.now().isoformat(),
+            "employee_id": employee_id,
+            "role": "user", "type": "llm_input",
+            "content": prompt_text[:2000],
+            "category": category,
+        })
+        write_llm_trace(project_id, {
+            "ts": datetime.now().isoformat(),
+            "employee_id": employee_id,
+            "role": "assistant", "type": "llm_output",
+            "content": response_text[:5000] if isinstance(response_text, str) else str(response_text)[:5000],
+            "model": model_name,
+            "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+        })
+
     return result
 
 
