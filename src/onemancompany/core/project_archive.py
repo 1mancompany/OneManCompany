@@ -312,6 +312,7 @@ def create_named_project(name: str) -> str:
         "status": PROJECT_STATUS_ACTIVE,
         "created_at": datetime.now().isoformat(),
         "archived_at": None,
+        "team": [],
         ITERATIONS_DIR_NAME: [],
     }
     path = proj_dir / PROJECT_YAML_FILENAME
