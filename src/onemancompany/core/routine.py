@@ -1041,13 +1041,15 @@ async def run_post_task_routine(
         from onemancompany.core.project_archive import load_project
         project_record = load_project(project_id) or {}
 
-        # Filter participants to project team members (excluding CEO)
+        # Filter participants to project team members (excluding CEO);
+        # EA always attends (dispatched the task, needs full context).
         team_members = {
             m["employee_id"]
             for m in project_record.get("team", [])
             if m.get("employee_id") and m["employee_id"] != CEO_ID
         }
         if team_members:
+            team_members.add(EA_ID)
             participants = [pid for pid in participants if pid in team_members]
 
     # Increment current_quarter_tasks for participating normal employees

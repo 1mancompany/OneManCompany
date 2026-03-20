@@ -297,21 +297,23 @@ async def tracked_ainvoke(
 
     # Write to project-level LLM trace JSONL
     if project_id:
-        from datetime import datetime
+        from datetime import datetime, timezone
         from onemancompany.core.claude_session import write_llm_trace
         prompt_text = messages if isinstance(messages, str) else str(messages)
         response_text = getattr(result, "content", "") or ""
         write_llm_trace(project_id, {
-            "ts": datetime.now().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "employee_id": employee_id,
-            "role": "user", "type": "llm_input",
+            "source": "langchain",
+            "role": "user", "type": "prompt",
             "content": prompt_text,
             "category": category,
         })
         write_llm_trace(project_id, {
-            "ts": datetime.now().isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "employee_id": employee_id,
-            "role": "assistant", "type": "llm_output",
+            "source": "langchain",
+            "role": "assistant", "type": "text",
             "content": response_text if isinstance(response_text, str) else str(response_text),
             "model": model_name,
             "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},

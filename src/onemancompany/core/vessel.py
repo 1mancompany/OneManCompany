@@ -1099,12 +1099,19 @@ class EmployeeManager:
                 self._log_node(employee_id, entry.node_id, log_type, content)
                 # Also write to project-level LLM trace JSONL
                 if project_id:
+                    from datetime import timezone as _tz
                     from onemancompany.core.claude_session import write_llm_trace
+                    # Normalize on_log types to trace schema
+                    _role_map = {"llm_input": "user", "llm_output": "assistant",
+                                 "tool_call": "assistant", "tool_result": "tool", "result": "system"}
+                    _type_map = {"llm_input": "prompt", "llm_output": "text",
+                                 "tool_call": "tool_use", "tool_result": "tool_result", "result": "result"}
                     write_llm_trace(project_id, {
-                        "ts": datetime.now().isoformat(),
+                        "ts": datetime.now(_tz.utc).isoformat(),
                         "employee_id": employee_id,
-                        "role": "assistant" if log_type in ("llm_output", "llm_input") else "tool",
-                        "type": log_type,
+                        "source": "vessel",
+                        "role": _role_map.get(log_type, "system"),
+                        "type": _type_map.get(log_type, log_type),
                         "content": content,
                     })
 

@@ -305,6 +305,7 @@ class ClaudeDaemon:
             if btype == BLOCK_TYPE_TEXT:
                 self._write_trace({
                     "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
                     "role": "assistant", "type": "text",
                     "content": block.get(BLOCK_KEY_TEXT, ""),
                     "model": model, "usage": usage,
@@ -312,6 +313,7 @@ class ClaudeDaemon:
             elif btype == "tool_use":
                 self._write_trace({
                     "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
                     "role": "assistant", "type": "tool_use",
                     "tool_name": block.get("name", ""),
                     "tool_id": block.get("id", ""),
@@ -321,6 +323,7 @@ class ClaudeDaemon:
             elif btype == "tool_result":
                 self._write_trace({
                     "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
                     "role": "tool", "type": "tool_result",
                     "tool_id": block.get("tool_use_id", ""),
                     "content": block.get("content", ""),
@@ -329,6 +332,7 @@ class ClaudeDaemon:
             elif btype == "thinking":
                 self._write_trace({
                     "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
                     "role": "assistant", "type": "thinking",
                     "content": block.get(BLOCK_KEY_TEXT, ""),
                     "model": model,
@@ -347,6 +351,7 @@ class ClaudeDaemon:
         self._write_trace({
             "ts": datetime.now(timezone.utc).isoformat(),
             "employee_id": self.employee_id,
+            "source": "daemon",
             "role": "user", "type": "prompt",
             "content": prompt,
         })
@@ -429,6 +434,7 @@ class ClaudeDaemon:
                         self._write_trace({
                             "ts": datetime.now(timezone.utc).isoformat(),
                             "employee_id": self.employee_id,
+                            "source": "daemon",
                             "role": "system", "type": "result",
                             "content": result_text or "",
                             "model": model_used,
