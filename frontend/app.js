@@ -410,8 +410,8 @@ class AppController {
         return null;
       },
       'ceo_report': (p) => {
-        const icon = p.action_required ? '🚨' : '📊';
-        return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
+        this._showProjectReportModal(p);
+        return { text: `📊 Project Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'review_reminder': (p) => {
         const nodes = p.overdue_nodes || [];
@@ -879,7 +879,12 @@ class AppController {
       this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
       fetch('/api/hr/review', { method: 'POST' })
         .then(r => r.json())
-        .then(() => {
+        .then(data => {
+          if (data.error) {
+            this.logEntry('SYSTEM', `Review failed: ${data.error}`, 'system');
+          } else {
+            this.logEntry('HR', '📋 Quarterly review task assigned to HR', 'hr');
+          }
           setTimeout(() => { hrBtn.disabled = false; }, 5000);
         })
         .catch(err => {
@@ -5749,10 +5754,31 @@ class AppController {
     if (!this._chatPanel) return;
     const convType = this._chatPanel.getConvType();
     const waitHooks = convType === 'oneonone';
-    await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
+
+    // Show reflection status for 1-on-1
+    if (waitHooks) {
+      this._chatPanel.setInputEnabled(false);
+      this.logEntry('SYSTEM', 'Ending 1-on-1... employee is reflecting on the conversation...', 'system');
+    }
+
+    const resp = await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
       method: 'POST',
-    });
-    this._chatPanel.setInputEnabled(false);
+    }).then(r => r.json()).catch(() => ({}));
+
+    // Log 1-on-1 reflection results
+    if (waitHooks && resp.hook_result) {
+      const hr = resp.hook_result;
+      const empName = this._resolveEmployeeName(resp.employee_id || '');
+      if (hr.principles_updated) {
+        this.logEntry('SYSTEM', `${empName} updated their work principles based on the meeting.`, 'system');
+      }
+      if (hr.note_saved) {
+        this.logEntry('SYSTEM', `1-on-1 note saved to ${empName}'s guidance record.`, 'system');
+      }
+      if (!hr.principles_updated && !hr.note_saved) {
+        this.logEntry('SYSTEM', `1-on-1 with ${empName} ended (no reflection generated).`, 'system');
+      }
+    }
 
     // Restore CEO Console + CEO Inbox sections
     const chatContainer = document.getElementById('right-panel-chat');
@@ -5770,6 +5796,33 @@ class AppController {
     }
   }
 
+
+  _showProjectReportModal(data) {
+    const empName = data.employee_name || data.employee_id || '';
+    const overlay = document.createElement('div');
+    overlay.className = 'project-report-overlay';
+    overlay.innerHTML = `
+      <div class="project-report-dialog">
+        <div class="project-report-header">📊 ${this._escHtml(data.subject || 'Project Report')}</div>
+        <div class="project-report-body">${this._renderMarkdown(data.report || '')}</div>
+        <div class="project-report-meta">
+          <span>Employee: ${this._escHtml(empName)}</span>
+          <span>${data.timestamp ? new Date(data.timestamp).toLocaleString() : ''}</span>
+        </div>
+        <div class="project-report-actions">
+          <button class="pixel-btn project-report-close">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const closeBtn = overlay.querySelector('.project-report-close');
+    closeBtn.focus();
+    const dismiss = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
+    closeBtn.addEventListener('click', dismiss);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
+    document.addEventListener('keydown', onKey);
+  }
 
   _escapeHtml(text) {
     const div = document.createElement('div');

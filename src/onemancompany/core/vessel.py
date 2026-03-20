@@ -1804,6 +1804,21 @@ class EmployeeManager:
                             parent_node.result = "All child tasks accepted."
                             save_tree_async(entry.tree_path)
                             self._publish_node_update(parent_node.employee_id, parent_node)
+                        # Parent already COMPLETED with all children accepted → auto-accept
+                        # This recovers stuck nodes where parent completed before children
+                        if parent_node.status == TaskPhase.COMPLETED.value:
+                            parent_node.set_status(TaskPhase.ACCEPTED)
+                            logger.info("[TASK LIFECYCLE] parent={} → ACCEPTED (all children accepted, auto-promoting)", parent_node.id)
+                            parent_node.set_status(TaskPhase.FINISHED)
+                            logger.debug("[TASK LIFECYCLE] parent={} → FINISHED", parent_node.id)
+                            save_tree_async(entry.tree_path)
+                            self._publish_node_update(parent_node.employee_id, parent_node)
+                            # Recursively propagate upward (includes project completion check)
+                            parent_entry = ScheduleEntry(node_id=parent_node.id, tree_path=entry.tree_path)
+                            await self._on_child_complete_inner(
+                                parent_node.employee_id, parent_entry, project_id
+                            )
+                            return  # recursive call handles project completion check
                     else:
                         # Not all accepted yet → spawn review or escalate
                         await self._spawn_review_or_escalate(

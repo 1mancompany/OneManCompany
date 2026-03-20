@@ -4619,6 +4619,68 @@ body {
 .status-pass { color: #00ff88; }
 .status-fail { color: #ff4444; }
 
+/* Project report modal */
+.project-report-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in 0.15s ease-out;
+}
+.project-report-dialog {
+  background: var(--bg-panel);
+  border: 2px solid var(--pixel-cyan);
+  border-radius: 2px;
+  width: 520px;
+  max-width: 90vw;
+  max-height: 80vh;
+  padding: 16px;
+  box-shadow: 0 0 40px rgba(0, 221, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+.project-report-header {
+  font-size: 11px;
+  color: var(--pixel-cyan);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.project-report-body {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  padding: 10px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--pixel-white);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.project-report-body pre {
+  font-size: 9px;
+  background: var(--bg-panel-alt);
+  padding: 6px;
+  border: 1px solid var(--border);
+  overflow-x: auto;
+}
+.project-report-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--pixel-gray);
+}
+.project-report-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Task tree — inactive branch styling */
 .tree-node-ceo {
     stroke: #ffd700;

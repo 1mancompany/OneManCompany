@@ -87,7 +87,7 @@ def _release_lock(path: str) -> None:
     _locks.pop(path, None)
 
 
-def _resolve_conv_dir(conv: Conversation) -> Path:
+def resolve_conv_dir(conv: Conversation) -> Path:
     """Resolve conversation directory based on type and metadata."""
     if conv.type == ConversationType.CEO_INBOX:
         project_dir = conv.metadata.get("project_dir", "")
@@ -98,7 +98,7 @@ def _resolve_conv_dir(conv: Conversation) -> Path:
 
 def save_conversation_meta(conv: Conversation) -> None:
     """Save conversation metadata to disk."""
-    conv_dir = _resolve_conv_dir(conv)
+    conv_dir = resolve_conv_dir(conv)
     conv_dir.mkdir(parents=True, exist_ok=True)
     meta_path = conv_dir / CONVERSATION_META_FILENAME
     logger.debug("[conversation] save meta: id={}, phase={}", conv.id, conv.phase)
@@ -169,7 +169,7 @@ class ConversationService:
             type=EventType.CONVERSATION_PHASE,
             payload={"conv_id": conv.id, "phase": conv.phase, "type": conv.type, "employee_id": conv.employee_id},
         ))
-        conv_dir = _resolve_conv_dir(conv)
+        conv_dir = resolve_conv_dir(conv)
         self._index[conv_id] = conv_dir
         logger.debug("[conversation] created: id={}, type={}, employee={}", conv_id, type, employee_id)
         return conv

@@ -2124,6 +2124,52 @@ class TestProjectCompletionBottomUp:
         mock_confirm.assert_called_once()
 
 
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_completed_parent_auto_promotes_when_children_all_accepted(self, mock_bus, mock_state, tmp_path):
+        """CEO → EA(completed) → [c1(accepted), c2(just accepted)]
+        EA is COMPLETED (early completion). When last child becomes ACCEPTED,
+        EA should auto-promote COMPLETED → ACCEPTED → FINISHED, then project completes.
+        """
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj_autopromote")
+        ceo = tree.create_root("00001", "CEO prompt")
+        ceo.node_type = "ceo_prompt"
+        ceo.status = "processing"
+        ea = tree.add_child(ceo.id, "00006", "Build feature", [])
+        ea.status = "completed"  # EA completed early before children finished
+        ea.result = "Dispatched work to children"
+        c1 = tree.add_child(ea.id, "00010", "Task A", [])
+        c1.status = "accepted"
+        c2 = tree.add_child(ea.id, "00011", "Task B", [])
+        c2.status = "accepted"  # Just got accepted, triggering callback
+
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
+        tree.save(tree_path)
+        entry = ScheduleEntry(node_id=c2.id, tree_path=str(tree_path))
+
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+            await mgr._on_child_complete("00011", entry, project_id="proj_autopromote")
+
+        # EA should auto-promote from COMPLETED → ACCEPTED → FINISHED
+        reloaded = TaskTree.load(tree_path, skeleton_only=False)
+        ea_node = reloaded.get_node(ea.id)
+        assert ea_node.status == TaskPhase.FINISHED.value, (
+            f"Expected EA to auto-promote to FINISHED, got {ea_node.status}"
+        )
+
+        # Project should complete → _request_ceo_confirmation called
+        mock_confirm.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # TaskTimeout — TimeoutError handling in _execute_task
 # ---------------------------------------------------------------------------
