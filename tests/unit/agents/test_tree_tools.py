@@ -394,6 +394,96 @@ class TestEADispatchConstraint:
         finally:
             _reset_context(tok_v, tok_t)
 
+    def test_ea_can_dispatch_to_regular_employee_in_simple_mode(self):
+        """EA can dispatch to non-O-level when tree mode is simple."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.mode = "simple"
+        root_id = tree.root_id
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id)
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00006", "name": "Test"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "do coding",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "dispatched"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_ea_still_restricted_in_standard_mode(self):
+        """EA cannot dispatch to non-O-level when tree mode is standard (default)."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.mode = "standard"
+        root_id = tree.root_id
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id)
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00006", "name": "Test"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00006",
+                    "description": "do coding",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
+    def test_ea_cannot_dispatch_to_self(self):
+        """EA cannot dispatch to itself regardless of mode."""
+        from onemancompany.agents.tree_tools import dispatch_child
+
+        tree = _make_tree_with_root(employee_id="00004")
+        tree.mode = "simple"
+        root_id = tree.root_id
+
+        vessel = _make_vessel_and_task()
+        tok_v, tok_t = _set_context(vessel, root_id)
+
+        mock_em = _make_mock_em(root_id)
+
+        try:
+            with (
+                patch("onemancompany.agents.tree_tools._load_tree", return_value=tree),
+                patch("onemancompany.agents.tree_tools._save_tree"),
+                patch("onemancompany.core.store.load_employee", return_value={"id": "00004", "name": "EA"}),
+                patch("onemancompany.core.vessel.employee_manager", mock_em),
+            ):
+                result = dispatch_child.invoke({
+                    "employee_id": "00004",
+                    "description": "self task",
+                    "acceptance_criteria": ["done"],
+                })
+
+            assert result["status"] == "error"
+        finally:
+            _reset_context(tok_v, tok_t)
+
     def test_non_ea_can_dispatch_to_anyone(self):
         """Non-EA employees (e.g. COO 00003) can dispatch to any employee."""
         from onemancompany.agents.tree_tools import dispatch_child
