@@ -577,6 +577,10 @@ async def ceo_submit_task(body: dict) -> dict:
                 acceptance_criteria=[],
             )
             _save_project_tree(pdir, tree)
+            # Register CEO and EA in project team for project history
+            from onemancompany.agents.tree_tools import _add_to_project_team
+            _add_to_project_team(pdir, CEO_ID)
+            _add_to_project_team(pdir, EA_ID)
             # Schedule EA node for execution
             employee_manager.schedule_node(EA_ID, ea_node.id, str(tree_path))
             employee_manager._schedule_next(EA_ID)

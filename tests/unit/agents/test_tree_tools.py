@@ -103,9 +103,14 @@ class TestDispatchChild:
         import yaml
         from onemancompany.agents.tree_tools import dispatch_child
 
-        # Create project.yaml without team
-        project_dir = str(tmp_path)
-        project_yaml = tmp_path / "project.yaml"
+        # Simulate real directory structure: project root has project.yaml,
+        # iteration dir (where task_tree.yaml lives) is a subdirectory
+        project_root = tmp_path / "my-project"
+        project_root.mkdir()
+        iter_dir = project_root / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+
+        project_yaml = project_root / "project.yaml"
         project_yaml.write_text(yaml.dump({"project_id": "proj1", "name": "Test"}))
 
         tree = _make_tree_with_root()
@@ -113,7 +118,8 @@ class TestDispatchChild:
         vessel = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, root_id)
 
-        mock_em = _make_mock_em(root_id, tree_path=str(tmp_path / "task_tree.yaml"))
+        tree_path = str(iter_dir / "task_tree.yaml")
+        mock_em = _make_mock_em(root_id, tree_path=tree_path)
 
         try:
             with (
@@ -122,7 +128,7 @@ class TestDispatchChild:
                 patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
                 patch("onemancompany.agents.tree_tools._find_entry_for_task",
-                       return_value=(project_dir, str(tmp_path / "task_tree.yaml"))),
+                       return_value=(str(iter_dir), tree_path)),
             ):
                 result = dispatch_child.invoke({
                     "employee_id": "00100",
@@ -132,7 +138,7 @@ class TestDispatchChild:
 
             assert result["status"] == "dispatched"
 
-            # Verify employee was added to project.yaml team
+            # Verify employee was added to project root's project.yaml team
             data = yaml.safe_load(project_yaml.read_text())
             team = data.get("team", [])
             assert len(team) == 1
@@ -145,8 +151,13 @@ class TestDispatchChild:
         import yaml
         from onemancompany.agents.tree_tools import dispatch_child
 
-        project_dir = str(tmp_path)
-        project_yaml = tmp_path / "project.yaml"
+        # Simulate real directory structure
+        project_root = tmp_path / "my-project"
+        project_root.mkdir()
+        iter_dir = project_root / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+
+        project_yaml = project_root / "project.yaml"
         project_yaml.write_text(yaml.dump({
             "project_id": "proj1",
             "team": [{"employee_id": "00100", "role": "", "joined_at": "2026-01-01"}],
@@ -157,7 +168,8 @@ class TestDispatchChild:
         vessel = _make_vessel_and_task()
         tok_v, tok_t = _set_context(vessel, root_id)
 
-        mock_em = _make_mock_em(root_id, tree_path=str(tmp_path / "task_tree.yaml"))
+        tree_path = str(iter_dir / "task_tree.yaml")
+        mock_em = _make_mock_em(root_id, tree_path=tree_path)
 
         try:
             with (
@@ -166,7 +178,7 @@ class TestDispatchChild:
                 patch("onemancompany.core.store.load_employee", return_value={"id": "00100", "name": "Test"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
                 patch("onemancompany.agents.tree_tools._find_entry_for_task",
-                       return_value=(project_dir, str(tmp_path / "task_tree.yaml"))),
+                       return_value=(str(iter_dir), tree_path)),
             ):
                 result = dispatch_child.invoke({
                     "employee_id": "00100",
@@ -181,6 +193,20 @@ class TestDispatchChild:
             assert len(data.get("team", [])) == 1
         finally:
             _reset_context(tok_v, tok_t)
+
+    def test_resolve_project_root_from_iteration_dir(self, tmp_path):
+        """_resolve_project_root walks up from iteration dir to find project.yaml."""
+        import yaml
+        from onemancompany.agents.tree_tools import _resolve_project_root
+
+        project_root = tmp_path / "my-project"
+        project_root.mkdir()
+        iter_dir = project_root / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        (project_root / "project.yaml").write_text(yaml.dump({"project_id": "p1"}))
+
+        assert _resolve_project_root(str(iter_dir)) == project_root
+        assert _resolve_project_root(str(tmp_path / "nonexistent")) is None
 
     def test_unknown_employee_returns_error(self):
         """Returns error when employee_id not in company_state."""
