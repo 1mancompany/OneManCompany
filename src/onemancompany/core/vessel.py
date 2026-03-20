@@ -1782,16 +1782,17 @@ class EmployeeManager:
             parent_node = None  # Skip propagation, fall through to project completion check
         if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
             children = tree.get_active_children(parent_node.id)
-            _SKIP_REVIEW_TYPES = {NodeType.REVIEW, NodeType.WATCHDOG_NUDGE}
-            non_review_children = [c for c in children if c.node_type not in _SKIP_REVIEW_TYPES]
+            non_review_children = [c for c in children if c.node_type not in SYSTEM_NODE_TYPES]
 
-            # Gate 1: all substantive children RESOLVED → auto-complete parent upward
-            if non_review_children and all(c.is_resolved for c in non_review_children):
+            # Gate 1: all substantive children ACCEPTED/FINISHED → auto-complete parent upward
+            # Excludes FAILED/CANCELLED — those need parent review to decide how to handle.
+            _SUCCESS_RESOLVED = frozenset({TaskPhase.ACCEPTED, TaskPhase.FINISHED})
+            if non_review_children and all(TaskPhase(c.status) in _SUCCESS_RESOLVED for c in non_review_children):
                 if parent_node.status != TaskPhase.COMPLETED.value:
                     logger.info("All non-review children of {} are resolved — auto-completing parent", parent_node.id)
-                    if parent_node.status == TaskPhase.HOLDING.value:
+                    if parent_node.status in (TaskPhase.PENDING.value, TaskPhase.HOLDING.value):
                         parent_node.set_status(TaskPhase.PROCESSING)
-                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (resuming from HOLDING for auto-complete)", parent_node.id)
+                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (auto-complete prep)", parent_node.id)
                     parent_node.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children resolved)", parent_node.id)
                     parent_node.result = "All child tasks accepted."
