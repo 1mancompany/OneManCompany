@@ -5099,3 +5099,14 @@ body {
     opacity: 1;
   }
 }
+
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #aaa;
+  cursor: pointer;
+  padding: 0 8px;
+}
+.mode-toggle input { cursor: pointer; }

@@ -4914,7 +4914,7 @@ class AppController {
       // Section 2: Overhead by category
       const cats = oh.by_category || {};
       if (Object.keys(cats).length) {
-        const catLabels = {qa:'CEO Q&A', inquiry:'Inquiry', oneonone:'1-on-1', meeting:'Meeting', routine:'Routine', interview:'Interview', agent_task:'Agent Task', history_compress:'History Compress', completion_check:'Completion Check', nickname_gen:'Nickname Gen', remote_worker:'Remote Worker'};
+        const catLabels = {inquiry:'Inquiry', oneonone:'1-on-1', meeting:'Meeting', routine:'Routine', interview:'Interview', agent_task:'Agent Task', history_compress:'History Compress', completion_check:'Completion Check', nickname_gen:'Nickname Gen', remote_worker:'Remote Worker'};
         costHtml += `
           <div class="dash-section">
             <div class="dash-title">\u{1F4B0} Overhead by Category</div>
@@ -5940,34 +5940,10 @@ class AppController {
       attachments = await this._uploadTaskFiles();
     }
 
-    // Q&A mode: lightweight ask, no project creation
-    if (projectId === '__qa__') {
-      this.logEntry('CEO', task, 'ceo');
-      fetch('/api/ceo/qa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: task, attachments }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) {
-            this.logEntry('SYSTEM', `Q&A error: ${data.error}`, 'system');
-          } else {
-            this.logEntry('AI', data.answer, 'agent');
-          }
-        })
-        .catch(err => {
-          this.logEntry('SYSTEM', `Q&A failed: ${err.message}`, 'system');
-        })
-        .finally(() => {
-          setTimeout(() => { submitBtn.disabled = false; }, 2000);
-        });
-      input.value = '';
-      return;
-    }
-
     const reqBody = { task, attachments };
     if (projectId) reqBody.project_id = projectId;
+    const simpleToggle = document.getElementById('simple-mode-toggle');
+    if (simpleToggle && simpleToggle.checked) reqBody.mode = 'simple';
 
     fetch('/api/ceo/task', {
       method: 'POST',
