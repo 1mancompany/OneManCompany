@@ -101,6 +101,7 @@ class ChatPanel {
             convType === 'oneonone' ? '1-on-1' : 'Inbox';
         this._container.querySelector('.chat-panel-employee').textContent = employeeName;
         this._clearBtn.style.display = convType === 'oneonone' ? '' : 'none';
+        this._closeBtn.textContent = convType === 'ceo_inbox' ? 'Complete' : 'End';
     }
 
     renderMessages(messages) {

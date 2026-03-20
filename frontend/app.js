@@ -243,9 +243,11 @@ class AppController {
     }
     if (msg.type === 'ceo_conversation') {
       const p = msg.payload || msg;
-      if (this._currentConvNodeId === p.node_id) {
-        this._appendConvMessage({
+      if (this._chatPanel && this._currentConvNodeId === p.node_id) {
+        const empName = this._resolveEmployeeName(p.sender);
+        this._chatPanel.appendMessage({
           sender: p.sender,
+          role: p.sender === 'ceo' ? 'CEO' : empName,
           text: p.text,
           timestamp: p.timestamp,
         });
@@ -918,17 +920,6 @@ class AppController {
       const el = document.getElementById(id);
       if (el) el.addEventListener('change', () => this._onRosterFilterChange());
     });
-
-    // CEO conversation dialog: Enter key to send
-    const convInput = document.getElementById('ceo-conv-input');
-    if (convInput) {
-      convInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          app._sendCeoMessage();
-        }
-      });
-    }
 
     // 1-on-1 meeting modal bindings
     const oneononeModal = document.getElementById('oneonone-modal');
@@ -2162,118 +2153,77 @@ class AppController {
     `).join('');
   }
 
-  // ===== CEO Conversation Dialog =====
+  // ===== CEO Conversation (reuses ChatPanel) =====
   async _openCeoConversation(nodeId) {
     try {
       const resp = await fetch(`/api/ceo/inbox/${nodeId}/open`, { method: 'POST' });
       const data = await resp.json();
       this._currentConvNodeId = nodeId;
 
-      const overlay = document.getElementById('ceo-conv-overlay');
-      const title = document.getElementById('ceo-conv-title');
-      const desc = document.getElementById('ceo-conv-desc');
+      const chatContainer = document.getElementById('right-panel-chat');
+      // Hide CEO Console + CEO Inbox sections
+      for (const target of ['ceo-body', 'ceo-inbox-body']) {
+        const body = document.getElementById(target);
+        if (body) body.style.display = 'none';
+        const header = body?.previousElementSibling;
+        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
+      }
+      chatContainer.classList.remove('hidden');
+
+      if (!this._chatPanel) {
+        this._chatPanel = new ChatPanel(chatContainer);
+      }
+      // Wire callbacks for CEO inbox APIs
+      this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
+      this._chatPanel.onClear(null);
+      this._chatPanel.onClose((id) => this._completeCeoConversation(id));
 
       const nickname = data.employee_nickname || data.employee_id || 'Employee';
-      title.textContent = `📥 Task Request from ${nickname}`;
-      if (data.description) {
-        desc.textContent = data.description;
-        desc.classList.remove('hidden');
-      }
-      this._renderConvMessages(data.messages || []);
-      overlay.classList.remove('hidden');
-      document.getElementById('ceo-conv-input').focus();
+      this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
+      // Convert inbox messages to ChatPanel format (add role field)
+      const messages = (data.messages || []).map(m => ({
+        ...m,
+        role: m.sender === 'ceo' ? 'CEO' : nickname,
+      }));
+      this._chatPanel.renderMessages(messages);
+      this._chatPanel.setInputEnabled(true);
     } catch (e) {
       console.error('Failed to open conversation:', e);
     }
   }
 
-  _closeCeoConversation() {
-    document.getElementById('ceo-conv-overlay').classList.add('hidden');
-  }
-
-  _renderConvMessages(messages) {
-    const container = document.getElementById('ceo-conv-messages');
-    container.innerHTML = messages.map(m => {
-      const isCeo = m.sender === 'ceo';
-      const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
-      let attachHtml = '';
-      if (m.attachments && m.attachments.length) {
-        attachHtml = m.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
-      }
-      return `<div class="conv-msg ${cls}">
-        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(m.sender)}</div>
-        <div class="conv-msg-text">${this._escHtml(m.text)}</div>
-        ${attachHtml}
-        <div class="conv-msg-time">${new Date(m.timestamp).toLocaleTimeString()}</div>
-      </div>`;
-    }).join('');
-    container.scrollTop = container.scrollHeight;
-  }
-
-  _appendConvMessage(msg) {
-    const container = document.getElementById('ceo-conv-messages');
-    const isCeo = msg.sender === 'ceo';
-    const cls = isCeo ? 'conv-msg-ceo' : 'conv-msg-employee';
-    let attachHtml = '';
-    if (msg.attachments && msg.attachments.length) {
-      attachHtml = msg.attachments.map(a => `<div class="conv-attachment">📎 ${this._escHtml(a.filename)}</div>`).join('');
-    }
-    container.insertAdjacentHTML('beforeend', `
-      <div class="conv-msg ${cls}">
-        <div class="conv-msg-sender">${isCeo ? 'CEO' : this._escHtml(msg.sender)}</div>
-        <div class="conv-msg-text">${this._escHtml(msg.text)}</div>
-        ${attachHtml}
-        <div class="conv-msg-time">${new Date(msg.timestamp).toLocaleTimeString()}</div>
-      </div>
-    `);
-    container.scrollTop = container.scrollHeight;
-  }
-
-  async _sendCeoMessage() {
-    const input = document.getElementById('ceo-conv-input');
-    const text = input.value.trim();
-    if (!text || !this._currentConvNodeId) return;
-    input.value = '';
-    this._appendConvMessage({ sender: 'ceo', text, timestamp: new Date().toISOString() });
+  async _sendCeoInboxMessage(nodeId, text) {
+    if (!this._chatPanel || !nodeId) return;
+    this._chatPanel.showTyping(true);
     try {
-      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/message`, {
+      await fetch(`/api/ceo/inbox/${nodeId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
     } catch (e) {
+      this._chatPanel.showTyping(false);
       console.error('Failed to send message:', e);
     }
+    // Reply arrives via WebSocket ceo_conversation event
   }
 
-  async _completeCeoConversation() {
-    if (!this._currentConvNodeId) return;
-    if (!confirm('Confirm completing this conversation?')) return;
+  async _completeCeoConversation(nodeId) {
+    if (!nodeId) nodeId = this._currentConvNodeId;
+    if (!nodeId) return;
+    if (!confirm('Complete this conversation and send your decision to the agent?')) return;
     try {
-      await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/complete`, { method: 'POST' });
-      this._closeCeoConversation();
-      this._currentConvNodeId = null;
-      this._refreshCeoInbox();
+      await fetch(`/api/ceo/inbox/${nodeId}/complete`, { method: 'POST' });
     } catch (e) {
       console.error('Failed to complete conversation:', e);
     }
-  }
-
-  async _uploadCeoAttachment() {
-    const fileInput = document.getElementById('ceo-conv-file');
-    if (!fileInput.files.length || !this._currentConvNodeId) return;
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-    try {
-      const resp = await fetch(`/api/ceo/inbox/${this._currentConvNodeId}/upload`, {
-        method: 'POST', body: formData,
-      });
-      const data = await resp.json();
-      this._appendConvMessage(data.message);
-    } catch (e) {
-      console.error('Failed to upload:', e);
-    }
-    fileInput.value = '';
+    // Restore right panel
+    const chatContainer = document.getElementById('right-panel-chat');
+    chatContainer.classList.add('hidden');
+    this._restoreConsoleSections();
+    this._chatPanel = null;
+    this._currentConvNodeId = null;
+    this._refreshCeoInbox();
   }
 
   async _loadModelOrApiKeySection(empId) {
@@ -5667,10 +5617,11 @@ class AppController {
 
     if (!this._chatPanel) {
       this._chatPanel = new ChatPanel(chatContainer);
-      this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
-      this._chatPanel.onClear((id) => this._clearConversationHistory(id));
-      this._chatPanel.onClose((id) => this._closeConversation(id));
     }
+    // Always re-wire callbacks (may switch between 1-on-1 and inbox)
+    this._chatPanel.onSend((id, text, attachments) => this._sendConversationMessage(id, text, attachments));
+    this._chatPanel.onClear((id) => this._clearConversationHistory(id));
+    this._chatPanel.onClose((id) => this._closeConversation(id));
 
     // Fetch conversation + messages
     let convResp, msgsResp;

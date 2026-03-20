@@ -620,31 +620,6 @@
     <span class="reconnecting-text">&#128260; Reconnecting...</span>
   </div>
 
-  <!-- CEO Conversation Dialog -->
-  <div id="ceo-conv-overlay" class="ceo-conv-overlay hidden">
-    <div class="ceo-conv-dialog">
-      <div class="ceo-conv-header">
-        <span id="ceo-conv-title">&#128229; Conversation</span>
-        <button class="ceo-conv-close" onclick="app._closeCeoConversation()">&#10005;</button>
-      </div>
-      <div id="ceo-conv-desc" class="ceo-conv-desc"></div>
-      <div id="ceo-conv-messages" class="ceo-conv-messages"></div>
-      <div class="ceo-conv-input-area">
-        <div class="ceo-conv-attach-row">
-          <label class="ceo-conv-attach-btn" title="Attach file">
-            &#128206;
-            <input type="file" id="ceo-conv-file" style="display:none" onchange="app._uploadCeoAttachment()">
-          </label>
-        </div>
-        <textarea id="ceo-conv-input" rows="2" placeholder="Type a message..."></textarea>
-        <div class="ceo-conv-btn-row">
-          <button class="pixel-btn ceo-conv-send" onclick="app._sendCeoMessage()">&#9654; Send</button>
-          <button class="pixel-btn ceo-conv-complete" onclick="app._completeCeoConversation()">&#10003; Complete</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="conversation.js"></script>
   <script src="office-tileatlas.js?v=17"></script>
