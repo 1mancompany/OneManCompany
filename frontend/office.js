@@ -538,11 +538,11 @@ class OfficeRenderer {
       const zone = zones[i];
       const label = zone.label_en || zone.department;
       const color = zone.label_color || '#888';
-      // Place sign at start of zone, vertically at last dept row
-      const signX = (zone.start_col + 0.5) * TILE;
-      const signY = (deptEndRow + WALL_ROWS + 1) * TILE;
+      // Place sign centered in zone, below dept area (above tools/rooms)
+      const zoneMidX = ((zone.start_col + zone.end_col) / 2) * TILE;
+      const signY = (deptEndRow + WALL_ROWS + 1.8) * TILE;
 
-      this._drawDeptSign(signX, signY, label, color);
+      this._drawDeptSign(zoneMidX, signY, label, color);
 
       // Zone divider line
       if (i > 0) {
@@ -560,29 +560,29 @@ class OfficeRenderer {
       }
     }
 
-    // Executive row label as sign
+    // Executive row label as sign — centered in exec area
     const execRowH = layout.exec_row_height || 2;
-    const execSignX = 0.5 * TILE;
+    const execMidX = (MAP_COLS / 2) * TILE;
     const execSignY = (execRow + execRowH + WALL_ROWS) * TILE;
-    this._drawDeptSign(execSignX, execSignY, 'Executive', '#c0b060');
+    this._drawDeptSign(execMidX, execSignY, 'Executive', '#c0b060');
   }
 
   /** Draw a pixel-art garden-style sign: stake + board with label text. */
   _drawDeptSign(cx, bottomY, label, color) {
     const ctx = this.ctx;
-    const stakeW = 2;
-    const stakeH = 18;
+    const stakeW = 3;
+    const stakeH = 22;
     const stakeColor = '#6b4226';
     const stakeHighlight = '#8a5a35';
 
     // Measure text to size the board
     ctx.save();
-    ctx.font = 'bold 8px monospace';
+    ctx.font = 'bold 11px monospace';
     const textW = ctx.measureText(label).width;
-    const boardPadX = 5;
-    const boardPadY = 3;
+    const boardPadX = 8;
+    const boardPadY = 5;
     const boardW = textW + boardPadX * 2;
-    const boardH = 12 + boardPadY * 2;
+    const boardH = 14 + boardPadY * 2;
     const boardX = cx - boardW / 2;
     const boardY = bottomY - stakeH - boardH;
 
@@ -599,18 +599,18 @@ class OfficeRenderer {
     this._rect(boardX, boardY, boardW, boardH, boardBg);
     // Border (2px frame)
     ctx.strokeStyle = boardBorder;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.strokeRect(boardX + 0.5, boardY + 0.5, boardW - 1, boardH - 1);
 
     // Top decorative line (colored accent)
-    this._rect(boardX + 2, boardY + 2, boardW - 4, 2, color);
+    this._rect(boardX + 2, boardY + 2, boardW - 4, 3, color);
 
     // Label text
     ctx.fillStyle = '#2a2018';
-    ctx.font = 'bold 8px monospace';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(label, cx, boardY + boardH / 2 + 1);
+    ctx.fillText(label, cx, boardY + boardH / 2 + 2);
     ctx.restore();
   }
 
