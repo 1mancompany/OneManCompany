@@ -614,7 +614,6 @@ class OfficeRenderer {
     ctx.restore();
   }
 
-
   // ── Bulletin Board ─────────────────────────────────────────────────────────
 
   drawBulletinBoard() {

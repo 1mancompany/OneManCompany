@@ -1903,10 +1903,8 @@ class EmployeeManager:
                     notify_node.node_type = NodeType.WATCHDOG_NUDGE
                     notify_node.project_id = project_id
                     notify_node.project_dir = parent_node.project_dir or str(Path(entry.tree_path).parent)
-                    from onemancompany.core.task_tree import save_tree_async
                     save_tree_async(entry.tree_path)
-                    tree_path = entry.tree_path
-                    self.schedule_node(parent_node.employee_id, notify_node.id, tree_path)
+                    self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
                     self._schedule_next(parent_node.employee_id)
 
                 elif needs_review and not has_active_review:
