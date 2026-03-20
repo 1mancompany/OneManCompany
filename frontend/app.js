@@ -2296,7 +2296,15 @@ class AppController {
           notice.textContent = '⚠ Settings changes will trigger a server reload. Use when no tasks are running.';
           container.appendChild(notice);
         }
-        for (const section of manifest.settings.sections) {
+        // Deduplicate sections by id (last occurrence wins)
+        const seenIds = new Set();
+        const dedupSections = [];
+        for (const s of manifest.settings.sections) {
+          if (s.id && seenIds.has(s.id)) continue;
+          if (s.id) seenIds.add(s.id);
+          dedupSections.push(s);
+        }
+        for (const section of dedupSections) {
           const sectionEl = document.createElement('div');
           sectionEl.className = 'emp-settings-section';
           if (section.title) {
@@ -2406,6 +2414,7 @@ class AppController {
       ta.dataset.fieldKey = field.key;
       ta.dataset.fieldType = 'textarea';
       ta.value = currentValue;
+      if (field.placeholder) ta.placeholder = field.placeholder;
       row.appendChild(ta);
     } else if (field.type === 'readonly') {
       const span = document.createElement('span');
@@ -2438,7 +2447,10 @@ class AppController {
       btn.dataset.fieldType = 'action_button';
       btn.dataset.action = field.action || '';
       btn.dataset.cvField = field.cv_field || '';
-      btn.addEventListener('click', () => this._handleManifestAction(field, empId));
+      btn.addEventListener('click', (e) => {
+        const sectionEl = e.target.closest('.emp-settings-section');
+        this._handleManifestAction(field, empId, sectionEl);
+      });
       row.appendChild(btn);
     } else {
       // Default: text input
@@ -2554,9 +2566,9 @@ class AppController {
 
   /** Registry of manifest action handlers keyed by action name. */
   _manifestActions = {
-    hire_from_cv: async (field, empId) => {
-      const container = document.getElementById('emp-settings-container');
-      const cvEl = container.querySelector(`[data-field-key="${field.cv_field}"]`);
+    hire_from_cv: async (field, empId, sectionEl) => {
+      const scope = sectionEl || document.getElementById('emp-settings-container');
+      const cvEl = scope.querySelector(`[data-field-key="${field.cv_field}"]`);
       if (!cvEl || !cvEl.value.trim()) {
         this.logEntry('SYSTEM', 'Please paste a CV JSON before clicking Hire.', 'system');
         return;
@@ -2568,7 +2580,7 @@ class AppController {
         this.logEntry('SYSTEM', 'Invalid JSON in CV field.', 'system');
         return;
       }
-      const btn = container.querySelector(`[data-field-key="${field.key}"]`);
+      const btn = scope.querySelector(`[data-field-key="${field.key}"]`);
       btn.disabled = true;
       btn.textContent = 'Hiring...';
       try {
@@ -2592,13 +2604,13 @@ class AppController {
     },
   };
 
-  async _handleManifestAction(field, empId) {
+  async _handleManifestAction(field, empId, sectionEl) {
     const handler = this._manifestActions[field.action];
     if (!handler) {
       console.error(`[manifest] Unknown action: ${field.action}`);
       return;
     }
-    await handler(field, empId);
+    await handler(field, empId, sectionEl);
   }
 
   _renderSelfHostedSection(empId, empData, container) {
