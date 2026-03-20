@@ -19,6 +19,8 @@ class AppController {
     // Inquiry session state
     this._inquirySessionId = null;
     this._inquiryRoomId = null;
+    // Meeting agenda cache per room (room_id → agenda data)
+    this._meetingAgendaCache = {};
     // Dashboard cost auto-refresh timer
     this._dashboardCostTimer = null;
     // Input history (up/down arrow)
@@ -345,6 +347,8 @@ class AppController {
         return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
       },
       'meeting_agenda_update': (p) => {
+        // Cache agenda state so it survives modal close/reopen
+        if (p.room_id) this._meetingAgendaCache[p.room_id] = p;
         if (this.viewingRoomId === p.room_id) {
           this._renderMeetingAgenda(p);
         }
@@ -4227,6 +4231,12 @@ class AppController {
       ceoInputArea.classList.add('hidden');
     }
 
+    // Restore cached agenda for this room (survives modal close/reopen)
+    const cachedAgenda = this._meetingAgendaCache[room.id];
+    if (cachedAgenda && cachedAgenda.items && cachedAgenda.items.length > 0) {
+      this._renderMeetingAgenda(cachedAgenda);
+    }
+
     // Load chat history from API
     const chatEl = document.getElementById('meeting-chat-messages');
     chatEl.innerHTML = '<div class="chat-empty">Loading...</div>';
@@ -4368,7 +4378,8 @@ class AppController {
       console.error('Failed to fetch rooms for inquiry:', e);
     }
 
-    // Show inquiry input area and actions
+    // Hide CEO input, show inquiry input area and actions
+    document.getElementById('meeting-ceo-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-input-area').classList.remove('hidden');
     document.getElementById('meeting-inquiry-actions').classList.remove('hidden');
     document.getElementById('meeting-inquiry-input').focus();
@@ -4439,6 +4450,10 @@ class AppController {
     document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-typing').classList.add('hidden');
     document.getElementById('meeting-inquiry-actions').classList.add('hidden');
+    // Restore CEO input if a booked room is still open
+    if (this.viewingRoomId) {
+      document.getElementById('meeting-ceo-input-area').classList.remove('hidden');
+    }
   }
 
   // ===== Ex-Employee Wall =====
