@@ -2113,12 +2113,8 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
     if not all_emps:
         return {"error": "No employees available"}
 
-    # Prefer regular employees; fall back to founding members (excluding CEO) if none hired yet
-    from onemancompany.core.config import FOUNDING_IDS
-    all_emp_ids = [eid for eid in all_emps if eid not in FOUNDING_IDS]
-    if not all_emp_ids:
-        # No regular employees yet — include founding members (HR, COO, EA, CSO)
-        all_emp_ids = [eid for eid in all_emps if eid != CEO_ID]
+    # All employees except CEO participate (founding and regular alike)
+    all_emp_ids = [eid for eid in all_emps if eid != CEO_ID]
     if not all_emp_ids:
         return {"error": "No employees available for meeting"}
     room_participants = [CEO_ID] + all_emp_ids
