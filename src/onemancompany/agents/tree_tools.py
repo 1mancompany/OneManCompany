@@ -294,6 +294,12 @@ def dispatch_child(
             }
 
         # --- Normal employee dispatch (existing logic) ---
+        # When dispatching to a DIFFERENT employee, the parent should HOLD
+        # until child tasks complete — otherwise it gets marked COMPLETED
+        # immediately and never has a chance to review/accept children.
+        if employee_id != current_node.employee_id and not current_node.hold_reason:
+            current_node.hold_reason = f"awaiting_children,no_watchdog=1"
+
         # Check if dependencies are already satisfied
         deps_resolved = tree.all_deps_resolved(child.id)
 
