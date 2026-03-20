@@ -38,6 +38,7 @@ from onemancompany.agents.recruitment import (
     submit_shortlist,
 )
 from onemancompany.core.config import (
+    CEO_LEVEL,
     FOUNDING_LEVEL,
     HR_ID,
     MAX_NORMAL_LEVEL,
@@ -207,8 +208,8 @@ class HRAgent(BaseAgentRunner):
         from onemancompany.core.state import make_title
         all_emps = _store.load_all_employees()
         for eid, edata in all_emps.items():
-            # Skip CEO and founding executives — not subject to quarterly review
-            if edata.get(PF_LEVEL, 1) >= FOUNDING_LEVEL:
+            # Skip CEO (human user, level 5) — not subject to quarterly review
+            if edata.get(PF_LEVEL, 1) >= CEO_LEVEL:
                 continue
             perf = edata.get(PF_PERFORMANCE_HISTORY, [])
             hist_str = ", ".join(
