@@ -130,6 +130,37 @@ class TestCeoMeetingStart:
         routine_mod._active_ceo_meeting = None
 
     @pytest.mark.asyncio
+    async def test_start_with_founding_only(self):
+        """start_ceo_meeting should work with only founding employees (no regular hires)."""
+        from onemancompany.core import routine as routine_mod
+        from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
+
+        # Only founding employees — no regular hires
+        emp_data = {
+            HR_ID: {"name": "HR", "level": 1, "nickname": "HR"},
+            COO_ID: {"name": "COO", "level": 1, "nickname": "COO"},
+            EA_ID: {"name": "EA", "level": 1, "nickname": "EA"},
+            CSO_ID: {"name": "CSO", "level": 1, "nickname": "CSO"},
+        }
+        mock_room = MagicMock(
+            id="room1", name="Main Room", capacity=10,
+            is_booked=False, booked_by="", participants=[],
+        )
+
+        with (
+            patch.object(routine_mod, "load_all_employees", return_value=emp_data),
+            patch.object(routine_mod, "company_state", MagicMock(meeting_rooms={"room1": mock_room})),
+            patch.object(routine_mod, "_store", MagicMock(save_room=AsyncMock())),
+            patch.object(routine_mod, "_publish", new_callable=AsyncMock),
+            patch.object(routine_mod, "_set_participants_status", new_callable=AsyncMock),
+        ):
+            result = await routine_mod.start_ceo_meeting("discussion")
+
+        assert result["status"] == "started"
+        assert len(result["participants"]) == 4  # HR, COO, EA, CSO
+        routine_mod._active_ceo_meeting = None
+
+    @pytest.mark.asyncio
     async def test_start_returns_error_when_meeting_active(self):
         """Should return error dict if a CEO meeting is already in progress."""
         from onemancompany.core import routine as routine_mod

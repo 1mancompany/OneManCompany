@@ -28,7 +28,33 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8
+from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR
+
+LLM_TRACES_FILENAME = "llm_traces.jsonl"
+
+
+# ---------------------------------------------------------------------------
+# Shared LLM trace writer — project-level JSONL log
+# ---------------------------------------------------------------------------
+
+def write_llm_trace(project_id: str, entry: dict) -> None:
+    """Append a single trace entry to the project's llm_traces.jsonl.
+
+    Only active when OMC_DEBUG=1.
+    Called by both ClaudeDaemon (self-hosted) and vessel _on_log (company-hosted).
+    """
+    from onemancompany.core.config import IS_DEBUG
+    if not IS_DEBUG:
+        return
+    if not project_id or project_id == "default":
+        return
+    path = PROJECTS_DIR / project_id / LLM_TRACES_FILENAME
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding=ENCODING_UTF8) as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.debug("[llm-trace] write failed for project={}: {}", project_id, e)
 
 # Single-file constants
 SESSIONS_FILENAME = "sessions.json"
@@ -259,6 +285,59 @@ class ClaudeDaemon:
                 f"for employee={self.employee_id} (stale --resume output)"
             )
 
+    # ------------------------------------------------------------------
+    # LLM trace logging — delegate to shared write_llm_trace
+    # ------------------------------------------------------------------
+
+    def _write_trace(self, entry: dict) -> None:
+        write_llm_trace(self.project_id, entry)
+
+    def _trace_assistant_message(self, message: dict) -> None:
+        """Parse an assistant message's content blocks into trace entries."""
+        ts = datetime.now(timezone.utc).isoformat()
+        model = message.get("model", "")
+        usage = message.get("usage", {})
+        content = message.get("content", [])
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get(BLOCK_KEY_TYPE, "")
+            if btype == BLOCK_TYPE_TEXT:
+                self._write_trace({
+                    "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
+                    "role": "assistant", "type": "text",
+                    "content": block.get(BLOCK_KEY_TEXT, ""),
+                    "model": model, "usage": usage,
+                })
+            elif btype == "tool_use":
+                self._write_trace({
+                    "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
+                    "role": "assistant", "type": "tool_use",
+                    "tool_name": block.get("name", ""),
+                    "tool_id": block.get("id", ""),
+                    "input": block.get("input", {}),
+                    "model": model,
+                })
+            elif btype == "tool_result":
+                self._write_trace({
+                    "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
+                    "role": "tool", "type": "tool_result",
+                    "tool_id": block.get("tool_use_id", ""),
+                    "content": block.get("content", ""),
+                    "is_error": block.get("is_error", False),
+                })
+            elif btype == "thinking":
+                self._write_trace({
+                    "ts": ts, "employee_id": self.employee_id,
+                    "source": "daemon",
+                    "role": "assistant", "type": "thinking",
+                    "content": block.get(BLOCK_KEY_TEXT, ""),
+                    "model": model,
+                })
+
     async def send_prompt(self, prompt: str, timeout: int = 600) -> dict:
         """Send a prompt and collect the full response.
 
@@ -267,6 +346,15 @@ class ClaudeDaemon:
         """
         if not self.alive:
             raise RuntimeError("Daemon process is not running")
+
+        # Log user prompt
+        self._write_trace({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "employee_id": self.employee_id,
+            "source": "daemon",
+            "role": "user", "type": "prompt",
+            "content": prompt,
+        })
 
         # Send user message via stdin
         msg = json.dumps({
@@ -317,6 +405,8 @@ class ClaudeDaemon:
                     elif msg_type == "assistant":
                         # Complete assistant message — extract text and usage
                         message = msg_data.get("message", {})
+                        # Trace full assistant message (text, tool_use, thinking)
+                        self._trace_assistant_message(message)
                         content = message.get("content", [])
                         for block in content:
                             if isinstance(block, dict) and block.get(BLOCK_KEY_TYPE) == BLOCK_TYPE_TEXT:
@@ -340,6 +430,19 @@ class ClaudeDaemon:
                             total_output_tokens = max(total_output_tokens, msg_data["output_tokens"])
                         if msg_data.get("model"):
                             model_used = msg_data["model"]
+                        # Trace result summary
+                        self._write_trace({
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                            "employee_id": self.employee_id,
+                            "source": "daemon",
+                            "role": "system", "type": "result",
+                            "content": result_text or "",
+                            "model": model_used,
+                            "usage": {
+                                "input_tokens": total_input_tokens,
+                                "output_tokens": total_output_tokens,
+                            },
+                        })
                         _mark_session_used(self.employee_id, self.project_id)
                         break
 

@@ -1041,17 +1041,16 @@ async def run_post_task_routine(
         from onemancompany.core.project_archive import load_project
         project_record = load_project(project_id) or {}
 
-        # Filter participants to only actual contributors (those with timeline entries)
-        actual_contributors = {
-            entry["employee_id"]
-            for entry in project_record.get("timeline", [])
-            if entry.get("employee_id")
+        # Filter participants to project team members (excluding CEO);
+        # EA always attends (dispatched the task, needs full context).
+        team_members = {
+            m["employee_id"]
+            for m in project_record.get("team", [])
+            if m.get("employee_id") and m["employee_id"] != CEO_ID
         }
-        if actual_contributors:
-            # EA always attends (dispatched the task, needs full context).
-            # Everyone else only joins if they actually contributed.
-            actual_contributors.add(EA_ID)
-            participants = [pid for pid in participants if pid in actual_contributors]
+        if team_members:
+            team_members.add(EA_ID)
+            participants = [pid for pid in participants if pid in team_members]
 
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
@@ -2113,11 +2112,10 @@ async def start_ceo_meeting(meeting_type: str) -> dict:
     if not all_emps:
         return {"error": "No employees available"}
 
-    # Exclude founding members (CEO, HR, COO, EA, CSO) — only regular employees attend
-    from onemancompany.core.config import FOUNDING_IDS
-    all_emp_ids = [eid for eid in all_emps if eid not in FOUNDING_IDS]
+    # All employees except CEO participate (founding and regular alike)
+    all_emp_ids = [eid for eid in all_emps if eid != CEO_ID]
     if not all_emp_ids:
-        return {"error": "No non-founding employees available"}
+        return {"error": "No employees available for meeting"}
     room_participants = [CEO_ID] + all_emp_ids
 
     # Book largest available room

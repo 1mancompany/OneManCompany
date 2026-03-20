@@ -1097,6 +1097,23 @@ class EmployeeManager:
 
             def _on_log(log_type: str, content: str) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
+                # Also write to project-level LLM trace JSONL
+                if project_id:
+                    from datetime import timezone as _tz
+                    from onemancompany.core.claude_session import write_llm_trace
+                    # Normalize on_log types to trace schema
+                    _role_map = {"llm_input": "user", "llm_output": "assistant",
+                                 "tool_call": "assistant", "tool_result": "tool", "result": "system"}
+                    _type_map = {"llm_input": "prompt", "llm_output": "text",
+                                 "tool_call": "tool_use", "tool_result": "tool_result", "result": "result"}
+                    write_llm_trace(project_id, {
+                        "ts": datetime.now(_tz.utc).isoformat(),
+                        "employee_id": employee_id,
+                        "source": "vessel",
+                        "role": _role_map.get(log_type, "system"),
+                        "type": _type_map.get(log_type, log_type),
+                        "content": content,
+                    })
 
             # 5. Execute via launcher with retry
             executor = self.executors.get(employee_id)
