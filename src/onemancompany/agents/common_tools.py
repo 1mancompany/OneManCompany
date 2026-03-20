@@ -30,6 +30,15 @@ async def _publish(event_type: str, payload: dict, agent: str = "MEETING") -> No
     await event_bus.publish(CompanyEvent(type=event_type, payload=payload, agent=agent))
 
 
+# Per-room CEO message queues — CEO messages injected into active meetings
+_ceo_meeting_queues: dict[str, asyncio.Queue] = {}
+
+
+def get_ceo_meeting_queue(room_id: str) -> asyncio.Queue | None:
+    """Get the CEO message queue for an active meeting, or None."""
+    return _ceo_meeting_queues.get(room_id)
+
+
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     from datetime import datetime
     entry = {
@@ -678,8 +687,21 @@ async def pull_meeting(
         rounds_used = 0
         last_speaker_id: str = ""  # track last speaker for no-consecutive rule
 
+        # Register CEO message queue for this room
+        ceo_queue: asyncio.Queue = asyncio.Queue()
+        _ceo_meeting_queues[room.id] = ceo_queue
+
         for round_num in range(max_rounds):
             rounds_used = round_num + 1
+
+            # Drain any CEO messages queued since last round
+            while not ceo_queue.empty():
+                try:
+                    ceo_msg = ceo_queue.get_nowait()
+                    chat_history.append({"speaker": "CEO", "message": ceo_msg})
+                    last_speaker_id = ""  # reset so agents respond naturally
+                except asyncio.QueueEmpty:
+                    break
 
             # Concurrent evaluation — all participants judge whether they need to speak
             async def _evaluate(eid_and_data: tuple[str, dict]):
@@ -796,6 +818,8 @@ async def pull_meeting(
         }
 
     finally:
+        # Unregister CEO message queue
+        _ceo_meeting_queues.pop(room.id, None)
         # Release meeting room
         room.is_booked = False
         room.booked_by = ""

@@ -5587,9 +5587,15 @@ async def get_room_chat(room_id: str):
 
 @router.post("/api/rooms/{room_id}/chat")
 async def post_room_chat(room_id: str, body: dict):
-    """CEO sends a message to a meeting room chat."""
+    """CEO sends a message to a meeting room chat.
+
+    The message is persisted to disk, broadcast via WebSocket, and
+    injected into the active pull_meeting token-grab loop (if any)
+    so agents see it in their next evaluation round.
+    """
     from datetime import datetime
     from onemancompany.core.store import append_room_chat
+    from onemancompany.agents.common_tools import get_ceo_meeting_queue
 
     message = body.get("message", "").strip()
     if not message:
@@ -5610,6 +5616,12 @@ async def post_room_chat(room_id: str, body: dict):
             agent="CEO",
         )
     )
+
+    # Inject into active meeting's token-grab loop
+    q = get_ceo_meeting_queue(room_id)
+    if q is not None:
+        await q.put(message)
+
     return {"status": "sent"}
 
 
