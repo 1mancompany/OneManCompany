@@ -2744,6 +2744,9 @@ body {
 }
 
 /* Follow-up input in detail view */
+.task-followup-section .hidden {
+  display: none;
+}
 .task-followup-section {
   margin: 8px 0;
 }
