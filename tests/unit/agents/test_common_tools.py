@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1857,3 +1858,338 @@ class TestReadNodeDetail:
         finally:
             _current_vessel.reset(tok_v)
             _current_task_id.reset(tok_t)
+
+
+# ---------------------------------------------------------------------------
+# _parse_agenda_items
+# ---------------------------------------------------------------------------
+
+
+class TestParseAgendaItems:
+    def test_numbered_list(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("1. First item\n2. Second item\n3. Third item")
+        assert result == ["First item", "Second item", "Third item"]
+
+    def test_bullet_dash(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("- Alpha\n- Beta")
+        assert result == ["Alpha", "Beta"]
+
+    def test_bullet_star(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("* One\n* Two")
+        assert result == ["One", "Two"]
+
+    def test_plain_newlines(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("Discuss design\nReview code")
+        assert result == ["Discuss design", "Review code"]
+
+    def test_returns_empty_for_none(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        assert _parse_agenda_items(None) == []
+
+    def test_returns_empty_for_empty_string(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        assert _parse_agenda_items("") == []
+
+    def test_returns_empty_for_whitespace(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        assert _parse_agenda_items("   \n  \n  ") == []
+
+    def test_returns_empty_for_single_item(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        assert _parse_agenda_items("Just one thing") == []
+
+    def test_returns_empty_for_single_bullet(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        assert _parse_agenda_items("- Only one") == []
+
+    def test_mixed_formats(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("1. First\n- Second\nThird")
+        assert result == ["First", "Second", "Third"]
+
+    def test_blank_lines_filtered(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("1. A\n\n2. B\n\n")
+        assert result == ["A", "B"]
+
+    def test_numbered_with_paren(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("1) First\n2) Second")
+        assert result == ["First", "Second"]
+
+    def test_numbered_with_colon(self):
+        from onemancompany.agents.common_tools import _parse_agenda_items
+
+        result = _parse_agenda_items("1: First\n2: Second")
+        assert result == ["First", "Second"]
+
+
+# ---------------------------------------------------------------------------
+# get_ceo_meeting_queue
+# ---------------------------------------------------------------------------
+
+
+class TestGetCeoMeetingQueue:
+    def test_returns_none_for_missing_room(self):
+        from onemancompany.agents.common_tools import get_ceo_meeting_queue
+
+        assert get_ceo_meeting_queue("nonexistent-room") is None
+
+    def test_returns_queue_when_present(self):
+        import onemancompany.agents.common_tools as ct_mod
+
+        q = asyncio.Queue()
+        ct_mod._ceo_meeting_queues["test-room-123"] = q
+        try:
+            result = ct_mod.get_ceo_meeting_queue("test-room-123")
+            assert result is q
+        finally:
+            ct_mod._ceo_meeting_queues.pop("test-room-123", None)
+
+
+# ---------------------------------------------------------------------------
+# _run_discussion_round
+# ---------------------------------------------------------------------------
+
+
+class TestRunDiscussionRound:
+    @pytest.mark.asyncio
+    async def test_no_willing_speakers_stops_immediately(self):
+        """When no speaker is willing, the loop should stop after 1 round."""
+        from onemancompany.agents.common_tools import _run_discussion_round
+
+        room = MagicMock()
+        room.id = "room-1"
+        ceo_queue = asyncio.Queue()
+
+        speakers = [
+            ("00010", {"name": "Alice", "nickname": "A", "role": "Engineer"}),
+            ("00011", {"name": "Bob", "nickname": "B", "role": "Designer"}),
+        ]
+
+        # LLM returns "NO" — nobody wants to speak
+        mock_resp = MagicMock()
+        mock_resp.content = "NO, I have nothing to add"
+
+        with patch("onemancompany.agents.common_tools.make_llm", return_value=MagicMock()), \
+             patch("onemancompany.agents.common_tools.tracked_ainvoke", return_value=mock_resp), \
+             patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools._chat", new_callable=AsyncMock):
+            rounds, entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic="Test topic",
+                agenda="",
+                chat_history=[],
+                ceo_queue=ceo_queue,
+                max_rounds=5,
+            )
+
+        assert rounds == 1
+        assert entries == []
+
+    @pytest.mark.asyncio
+    async def test_willing_speaker_wins_and_speaks(self):
+        """A willing speaker should produce a new_entry."""
+        from onemancompany.agents.common_tools import _run_discussion_round
+
+        room = MagicMock()
+        room.id = "room-2"
+        ceo_queue = asyncio.Queue()
+
+        speakers = [
+            ("00010", {"name": "Alice", "nickname": "A", "role": "Engineer"}),
+        ]
+
+        call_count = 0
+
+        async def fake_invoke(llm, prompt, **kw):
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            if call_count == 1:
+                # Evaluation — willing
+                resp.content = "YES, I want to discuss this"
+            elif call_count == 2:
+                # Speech
+                resp.content = "Here is my contribution"
+            else:
+                # Second round evaluation — not willing
+                resp.content = "NO"
+            return resp
+
+        with patch("onemancompany.agents.common_tools.make_llm", return_value=MagicMock()), \
+             patch("onemancompany.agents.common_tools.tracked_ainvoke", side_effect=fake_invoke), \
+             patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools._chat", new_callable=AsyncMock):
+            rounds, entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic="Test topic",
+                agenda="",
+                chat_history=[],
+                ceo_queue=ceo_queue,
+                max_rounds=5,
+            )
+
+        assert rounds == 2  # round 1 = speak, round 2 = no willing → break
+        assert len(entries) == 1
+        assert entries[0]["id"] == "00010"
+        assert entries[0]["comment"] == "Here is my contribution"
+
+    @pytest.mark.asyncio
+    async def test_no_consecutive_same_speaker(self):
+        """If the fastest willing speaker spoke last round, the second fastest wins."""
+        from onemancompany.agents.common_tools import _run_discussion_round
+
+        room = MagicMock()
+        room.id = "room-3"
+        ceo_queue = asyncio.Queue()
+
+        speakers = [
+            ("00010", {"name": "Alice", "nickname": "A", "role": "Engineer"}),
+            ("00011", {"name": "Bob", "nickname": "B", "role": "Designer"}),
+        ]
+
+        round_counter = [0]  # track which round we're in
+
+        async def fake_invoke(llm, prompt, **kw):
+            resp = MagicMock()
+            if "want to speak" in prompt.lower() or "YES or NO" in prompt:
+                # Evaluation phase — everyone willing
+                resp.content = "YES"
+            else:
+                # Speech phase
+                round_counter[0] += 1
+                resp.content = f"Speech round {round_counter[0]}"
+            return resp
+
+        with patch("onemancompany.agents.common_tools.make_llm", return_value=MagicMock()), \
+             patch("onemancompany.agents.common_tools.tracked_ainvoke", side_effect=fake_invoke), \
+             patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools._chat", new_callable=AsyncMock):
+            rounds, entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic="Test topic",
+                agenda="",
+                chat_history=[],
+                ceo_queue=ceo_queue,
+                max_rounds=3,
+            )
+
+        # With max 3 rounds and all willing, should use all 3 rounds
+        assert rounds == 3
+        assert len(entries) == 3
+        # No two consecutive entries should have the same speaker
+        for i in range(1, len(entries)):
+            assert entries[i]["id"] != entries[i - 1]["id"]
+
+    @pytest.mark.asyncio
+    async def test_ceo_queue_drained_between_rounds(self):
+        """CEO messages should be added to chat_history between rounds."""
+        from onemancompany.agents.common_tools import _run_discussion_round
+
+        room = MagicMock()
+        room.id = "room-4"
+        ceo_queue = asyncio.Queue()
+        # Enqueue a CEO message before the round starts
+        await ceo_queue.put("CEO says hello")
+
+        speakers = [
+            ("00010", {"name": "Alice", "nickname": "A", "role": "Engineer"}),
+        ]
+        chat_history: list[dict] = []
+
+        async def fake_invoke(llm, prompt, **kw):
+            resp = MagicMock()
+            # Always NO so we stop after 1 round
+            resp.content = "NO"
+            return resp
+
+        with patch("onemancompany.agents.common_tools.make_llm", return_value=MagicMock()), \
+             patch("onemancompany.agents.common_tools.tracked_ainvoke", side_effect=fake_invoke), \
+             patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools._chat", new_callable=AsyncMock):
+            rounds, entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic="Test topic",
+                agenda="",
+                chat_history=chat_history,
+                ceo_queue=ceo_queue,
+                max_rounds=5,
+            )
+
+        # CEO message should have been drained into chat_history
+        assert any(e["speaker"] == "CEO" and e["message"] == "CEO says hello" for e in chat_history)
+
+    @pytest.mark.asyncio
+    async def test_ceo_interjection_during_no_willing_triggers_continue(self):
+        """If nobody is willing but CEO has interjected, loop should continue."""
+        from onemancompany.agents.common_tools import _run_discussion_round
+
+        room = MagicMock()
+        room.id = "room-5"
+        ceo_queue = asyncio.Queue()
+
+        speakers = [
+            ("00010", {"name": "Alice", "nickname": "A", "role": "Engineer"}),
+        ]
+
+        eval_count = [0]
+
+        async def fake_invoke(llm, prompt, **kw):
+            resp = MagicMock()
+            eval_count[0] += 1
+            if eval_count[0] == 1:
+                # First eval — nobody willing, but CEO will interject
+                resp.content = "NO"
+                # Simulate CEO sending a message while eval was running
+                await ceo_queue.put("CEO: What about approach X?")
+            elif eval_count[0] == 2:
+                # Second eval after CEO interjection — still no
+                resp.content = "NO"
+            else:
+                resp.content = "NO"
+            return resp
+
+        with patch("onemancompany.agents.common_tools.make_llm", return_value=MagicMock()), \
+             patch("onemancompany.agents.common_tools.tracked_ainvoke", side_effect=fake_invoke), \
+             patch("onemancompany.agents.common_tools.get_employee_skills_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools.get_employee_tools_prompt", return_value=""), \
+             patch("onemancompany.agents.common_tools._chat", new_callable=AsyncMock):
+            rounds, entries = await _run_discussion_round(
+                room=room,
+                speakers=speakers,
+                topic="Test topic",
+                agenda="",
+                chat_history=[],
+                ceo_queue=ceo_queue,
+                max_rounds=5,
+            )
+
+        # Should have run 2 rounds: round 1 no willing + CEO interjection → continue,
+        # round 2 no willing + no CEO → break
+        assert rounds == 2
+        assert entries == []

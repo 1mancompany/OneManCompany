@@ -6909,3 +6909,145 @@ class TestHireFromCV:
                     "cv": {"name": "Bob", "role": "PM", "temperature": "hot"}
                 })
                 assert resp.json()["status"] == "onboarding"
+
+
+# ---------------------------------------------------------------------------
+# _parse_hold_reason
+# ---------------------------------------------------------------------------
+
+
+class TestParseHoldReason:
+    def test_none_returns_empty(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        assert _parse_hold_reason(None) == {}
+
+    def test_empty_string_returns_empty(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        assert _parse_hold_reason("") == {}
+
+    def test_single_pair(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        result = _parse_hold_reason("ceo_request=node_123")
+        assert result == {"ceo_request": "node_123"}
+
+    def test_multiple_pairs(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        result = _parse_hold_reason("ceo_request=node_id,no_watchdog=1")
+        assert result == {"ceo_request": "node_id", "no_watchdog": "1"}
+
+    def test_whitespace_trimmed(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        result = _parse_hold_reason(" key1 = val1 , key2 = val2 ")
+        assert result == {"key1": "val1", "key2": "val2"}
+
+    def test_no_equals_sign_ignored(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        result = _parse_hold_reason("ceo_request=val,garbage,other=ok")
+        assert result == {"ceo_request": "val", "other": "ok"}
+
+    def test_value_with_equals(self):
+        from onemancompany.api.routes import _parse_hold_reason
+
+        result = _parse_hold_reason("key=val=extra")
+        assert result == {"key": "val=extra"}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/rooms/{room_id}/chat
+# ---------------------------------------------------------------------------
+
+
+class TestPostRoomChat:
+    @pytest.mark.asyncio
+    async def test_empty_message_returns_400(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={"message": ""})
+                assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_message_returns_400(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={"message": "   "})
+                assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_missing_message_key_returns_400(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        with patch("onemancompany.api.routes.event_bus", MagicMock(publish=AsyncMock())):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={})
+                assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_valid_message_persists_and_broadcasts(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        mock_append = AsyncMock()
+        mock_event_bus = MagicMock(publish=AsyncMock())
+
+        with patch("onemancompany.api.routes.event_bus", mock_event_bus), \
+             patch("onemancompany.core.store.append_room_chat", mock_append), \
+             patch("onemancompany.agents.common_tools.get_ceo_meeting_queue", return_value=None):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={"message": "Hello team"})
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "sent"
+        mock_append.assert_awaited_once()
+        call_args = mock_append.call_args
+        assert call_args[0][0] == "room-1"
+        assert call_args[0][1]["message"] == "Hello team"
+        assert call_args[0][1]["speaker"] == "CEO"
+        mock_event_bus.publish.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_injects_into_ceo_meeting_queue(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        q = asyncio.Queue()
+        mock_append = AsyncMock()
+        mock_event_bus = MagicMock(publish=AsyncMock())
+
+        with patch("onemancompany.api.routes.event_bus", mock_event_bus), \
+             patch("onemancompany.core.store.append_room_chat", mock_append), \
+             patch("onemancompany.agents.common_tools.get_ceo_meeting_queue", return_value=q):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={"message": "Chime in"})
+
+        assert resp.status_code == 200
+        assert not q.empty()
+        assert q.get_nowait() == "Chime in"
+
+    @pytest.mark.asyncio
+    async def test_no_queue_injection_when_no_active_meeting(self):
+        app = _make_test_app()
+        transport = ASGITransport(app=app)
+
+        mock_append = AsyncMock()
+        mock_event_bus = MagicMock(publish=AsyncMock())
+
+        with patch("onemancompany.api.routes.event_bus", mock_event_bus), \
+             patch("onemancompany.core.store.append_room_chat", mock_append), \
+             patch("onemancompany.agents.common_tools.get_ceo_meeting_queue", return_value=None):
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.post("/api/rooms/room-1/chat", json={"message": "Test"})
+
+        assert resp.status_code == 200
