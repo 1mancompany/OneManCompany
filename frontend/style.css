@@ -2233,6 +2233,17 @@ body {
   color: var(--pixel-white);
   line-height: 1.5;
 }
+.detail-description {
+  font-size: 10px;
+  color: var(--pixel-white);
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
 .detail-tags-list,
 .detail-skills-list,
 .detail-tools-list {
