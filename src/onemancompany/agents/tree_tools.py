@@ -59,6 +59,32 @@ def _save_tree(project_dir: str, tree: TaskTree) -> None:
     save_tree_async(path)
 
 
+def _add_to_project_team(project_dir: str, employee_id: str) -> None:
+    """Add employee to project.yaml team list (idempotent)."""
+    import yaml
+    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
+    if not project_yaml.exists():
+        return
+    try:
+        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
+        team = data.get("team", [])
+        if any(m.get("employee_id") == employee_id for m in team):
+            return  # already in team
+        from datetime import datetime
+        team.append({
+            "employee_id": employee_id,
+            "role": "",
+            "joined_at": datetime.now().isoformat(),
+        })
+        data["team"] = team
+        project_yaml.write_text(
+            yaml.dump(data, allow_unicode=True, sort_keys=False),
+            encoding=ENCODING_UTF8,
+        )
+    except Exception:
+        logger.warning("Failed to add {} to project team in {}", employee_id, project_dir)
+
+
 def _get_current_node(tree: TaskTree, task_id: str):
     """Look up the TaskNode for the given task/node ID."""
     return tree.get_node(task_id)
@@ -262,6 +288,9 @@ def dispatch_child(
         )
         child.project_id = current_node.project_id
         child.project_dir = project_dir
+
+        # Auto-register dispatched employee in project team for project history
+        _add_to_project_team(project_dir, employee_id)
 
         if employee_id == CEO_ID:
             child.node_type = NodeType.CEO_REQUEST
