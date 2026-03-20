@@ -410,8 +410,8 @@ class AppController {
         return null;
       },
       'ceo_report': (p) => {
-        const icon = p.action_required ? '🚨' : '📊';
-        return { text: `${icon} CEO Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
+        this._showProjectReportModal(p);
+        return { text: `📊 Project Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'review_reminder': (p) => {
         const nodes = p.overdue_nodes || [];
@@ -5798,6 +5798,30 @@ class AppController {
     }
   }
 
+
+  _showProjectReportModal(data) {
+    const empName = data.employee_name || data.employee_id || '';
+    const overlay = document.createElement('div');
+    overlay.className = 'project-report-overlay';
+    overlay.innerHTML = `
+      <div class="project-report-dialog">
+        <div class="project-report-header">📊 ${this._escHtml(data.subject || 'Project Report')}</div>
+        <div class="project-report-body">${this._renderMarkdown(data.report || '')}</div>
+        <div class="project-report-meta">
+          <span>Employee: ${this._escHtml(empName)}</span>
+          <span>${data.timestamp ? new Date(data.timestamp).toLocaleString() : ''}</span>
+        </div>
+        <div class="project-report-actions">
+          <button class="pixel-btn project-report-close">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const closeBtn = overlay.querySelector('.project-report-close');
+    closeBtn.focus();
+    closeBtn.addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  }
 
   _escapeHtml(text) {
     const div = document.createElement('div');
