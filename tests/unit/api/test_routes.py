@@ -1144,25 +1144,6 @@ class TestInquiryChat:
 
 
 # ---------------------------------------------------------------------------
-# POST /api/ceo/qa
-# ---------------------------------------------------------------------------
-
-
-class TestCeoQA:
-    async def test_empty_question(self):
-        state = _make_state()
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/qa", json={"question": ""})
-
-        assert resp.json()["error"] == "Empty question"
-
-
-# ---------------------------------------------------------------------------
 # 1-on-1 endpoints
 # ---------------------------------------------------------------------------
 
@@ -1288,32 +1269,6 @@ class TestEmployeeManifest:
 
         assert resp.status_code == 200
         assert resp.json()["id"] == "test"
-
-
-# ---------------------------------------------------------------------------
-# POST /api/ceo/qa — happy path
-# ---------------------------------------------------------------------------
-
-
-class TestCeoQAHappyPath:
-    async def test_qa_success(self):
-        state = _make_state()
-        bus = EventBus()
-
-        mock_result = MagicMock()
-        mock_result.content = "The answer is 42"
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_result), \
-             patch("onemancompany.agents.base.make_llm", return_value=MagicMock()):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/qa", json={"question": "What is the meaning of life?"})
-
-        assert resp.status_code == 200
-        assert resp.json()["answer"] == "The answer is 42"
 
 
 # ---------------------------------------------------------------------------
@@ -7051,3 +7006,68 @@ class TestPostRoomChat:
                 resp = await client.post("/api/rooms/room-1/chat", json={"message": "Test"})
 
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# CEO task mode parameter & QA endpoint removal
+# ---------------------------------------------------------------------------
+
+
+class TestCeoTaskMode:
+    @pytest.mark.asyncio
+    async def test_submit_task_default_mode_standard(self):
+        """When no mode specified, tree should have mode='standard'."""
+        state = _make_state()
+        bus = EventBus()
+        mock_save_tree = MagicMock()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("proj1", "iter_001")), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
+             patch("onemancompany.core.vessel._save_project_tree", mock_save_tree), \
+             patch("onemancompany.core.vessel.employee_manager", MagicMock()):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post("/api/ceo/task", json={"task": "hello"})
+
+        assert resp.status_code == 200
+        mock_save_tree.assert_called_once()
+        _, saved_tree = mock_save_tree.call_args[0]
+        assert saved_tree.mode == "standard"
+
+    @pytest.mark.asyncio
+    async def test_submit_task_simple_mode(self):
+        """When mode='simple', tree should have mode='simple'."""
+        state = _make_state()
+        bus = EventBus()
+        mock_save_tree = MagicMock()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.core.agent_loop.get_agent_loop", return_value=MagicMock()), \
+             patch("onemancompany.core.project_archive.async_create_project_from_task", new_callable=AsyncMock, return_value=("proj1", "iter_001")), \
+             patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"), \
+             patch("onemancompany.core.vessel._save_project_tree", mock_save_tree), \
+             patch("onemancompany.core.vessel.employee_manager", MagicMock()):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post("/api/ceo/task", json={"task": "hello", "mode": "simple"})
+
+        assert resp.status_code == 200
+        mock_save_tree.assert_called_once()
+        _, saved_tree = mock_save_tree.call_args[0]
+        assert saved_tree.mode == "simple"
+
+    @pytest.mark.asyncio
+    async def test_qa_endpoint_removed(self):
+        """The /api/ceo/qa endpoint should no longer exist."""
+        with patch("onemancompany.api.routes.company_state", _make_state()), \
+             patch("onemancompany.api.routes.event_bus", EventBus()):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.post("/api/ceo/qa", json={"question": "hello"})
+        assert resp.status_code in (404, 405)

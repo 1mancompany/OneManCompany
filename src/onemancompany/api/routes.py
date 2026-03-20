@@ -473,70 +473,6 @@ async def _start_inquiry(task: str) -> dict:
     }
 
 
-@router.post("/api/ceo/qa")
-async def ceo_qa(body: dict) -> dict:
-    """CEO Q&A mode: direct LLM answer, no project creation."""
-    import base64
-    from pathlib import Path
-
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from onemancompany.agents.base import make_llm
-
-    question = body.get("question", "")
-    attachments = body.get("attachments", [])
-    if not question:
-        return {"error": "Empty question"}
-
-    # Build multimodal content blocks for images, text descriptions for others
-    content_blocks: list = [{"type": "text", "text": question}]
-    for att in attachments:
-        att_path = att.get("path", "")
-        att_type = att.get("type", "file")
-        content_type = att.get("content_type", "")
-        if att_type == "image" and att_path:
-            try:
-                img_data = Path(att_path).read_bytes()
-                img_b64 = base64.b64encode(img_data).decode()
-                mime = content_type or "image/png"
-                content_blocks.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{img_b64}"},
-                })
-            except Exception:
-                content_blocks.append({
-                    "type": "text",
-                    "text": f"\n[Attachment: {att.get('filename', 'file')} (path: {att_path})]",
-                })
-        elif att_path:
-            content_blocks.append({
-                "type": "text",
-                "text": f"\n[Attachment: {att.get('filename', 'file')} (saved at {att_path})]",
-            })
-
-    # Use multimodal content if there are image attachments, plain text otherwise
-    if len(content_blocks) > 1:
-        human_msg = HumanMessage(content=content_blocks)
-    else:
-        human_msg = HumanMessage(content=question)
-
-    llm = make_llm()
-    result = await tracked_ainvoke(llm, [
-        SystemMessage(content="You are the CEO's AI assistant. Answer questions concisely."),
-        human_msg,
-    ], category="qa")
-    answer = result.content
-
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.CEO_QA,
-            payload={"question": question, "answer": answer},
-            agent="CEO",
-        )
-    )
-
-    return {"answer": answer}
-
-
 @router.post("/api/ceo/task")
 async def ceo_submit_task(body: dict) -> dict:
     """CEO submits a task, routed to the appropriate agent via persistent loop."""
@@ -556,6 +492,9 @@ async def ceo_submit_task(body: dict) -> dict:
     attachments = body.get("attachments", [])
     project_id = body.get("project_id", "")
     project_name = body.get("project_name", "")
+    mode = body.get("mode", "standard")
+    if mode not in ("simple", "standard"):
+        mode = "standard"
 
     company_state.ceo_tasks.append(task)
     await _store.append_activity({"type": "ceo_task", "task": task})
@@ -625,7 +564,7 @@ async def ceo_submit_task(body: dict) -> dict:
                 # Evict old tree from memory cache
                 evict_tree(tree_path)
 
-            tree = TaskTree(project_id=ctx_id)
+            tree = TaskTree(project_id=ctx_id, mode=mode)
             # CEO root node — records original prompt
             ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
             ceo_root.node_type = NodeType.CEO_PROMPT
