@@ -3804,7 +3804,7 @@ class AppController {
         // Cost & Budget
         const cost = doc.cost || {};
         if (cost.actual_cost_usd > 0 || cost.budget_estimate_usd > 0) {
-          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Cost & Budget:</div>`;
+          html += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 4px;">Cost & Budget: <span style="font-size:5px;color:var(--text-dim);">(estimated)</span></div>`;
           const actual = cost.actual_cost_usd || 0;
           const budget = cost.budget_estimate_usd || 0;
           const tokens = cost.token_usage || {};
@@ -4791,7 +4791,7 @@ class AppController {
       const overheadCost = oh.total_cost_usd || 0;
       costHtml += `
         <div class="dash-section">
-          <div class="dash-title">\u{1F4B0} Cost Overview</div>
+          <div class="dash-title">\u{1F4B0} Cost Overview <span style="font-size:5px;color:var(--text-dim);">(estimated, subject to actual billing)</span></div>
           <div class="dash-stats">
             <div class="dash-stat"><span class="dash-num" style="color:var(--pixel-yellow);">$${grandTotal.toFixed(3)}</span><span class="dash-label">Grand Total</span></div>
             <div class="dash-stat"><span class="dash-num">$${projectCost.toFixed(3)}</span><span class="dash-label">Projects</span></div>
@@ -6150,7 +6150,7 @@ class AppController {
         }
 
         const cost = doc.cost || {};
-        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Cost & Budget</div>`;
+        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Cost & Budget <span style="font-size:5px;color:var(--text-dim);">(estimated)</span></div>`;
         const actual = cost.actual_cost_usd || 0;
         const budget = cost.budget_estimate_usd || 0;
         const tokens = cost.token_usage || {};

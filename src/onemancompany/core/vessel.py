@@ -325,6 +325,7 @@ class LaunchResult:
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
+    cost_usd: float | None = None  # provider-reported cost; None = use catalog price
 
 
 @dataclass
@@ -380,6 +381,7 @@ class LangChainExecutor(Launcher):
             input_tokens=usage.get("input_tokens", 0),
             output_tokens=usage.get("output_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
+            cost_usd=usage.get("cost_usd"),
         )
 
 
@@ -1196,11 +1198,15 @@ class EmployeeManager:
                 node.model_used = launch_result.model_used
                 node.input_tokens += launch_result.input_tokens
                 node.output_tokens += launch_result.output_tokens
-                from onemancompany.core.model_costs import get_model_cost
-                costs = get_model_cost(node.model_used)
-                node.cost_usd = (
-                    node.input_tokens * costs["input"] + node.output_tokens * costs["output"]
-                ) / 1_000_000
+                # Prefer provider-reported cost, fallback to catalog price
+                if launch_result.cost_usd is not None:
+                    node.cost_usd += launch_result.cost_usd
+                else:
+                    from onemancompany.core.model_costs import get_model_cost
+                    costs = get_model_cost(node.model_used)
+                    node.cost_usd = (
+                        node.input_tokens * costs["input"] + node.output_tokens * costs["output"]
+                    ) / 1_000_000
 
         except asyncio.CancelledError:
             agent_error = True

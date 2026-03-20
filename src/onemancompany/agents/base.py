@@ -287,8 +287,11 @@ async def tracked_ainvoke(
         cfg = employee_configs.get(employee_id)
         model_name = cfg.llm_model if cfg and cfg.llm_model else settings.default_llm_model
 
-    # Compute cost
-    if input_tokens or output_tokens:
+    # Compute cost: prefer provider-reported cost, fallback to catalog price
+    provider_cost = usage.get("cost") if usage else None
+    if provider_cost is not None and provider_cost:
+        cost_usd = float(provider_cost)
+    elif input_tokens or output_tokens:
         costs = get_model_cost(model_name)
         cost_usd = (input_tokens * costs["input"] + output_tokens * costs["output"]) / 1_000_000
     else:
@@ -510,6 +513,7 @@ class BaseAgentRunner:
         final_content = ""
         total_input_tokens = 0
         total_output_tokens = 0
+        provider_cost: float | None = None  # provider-reported cost (e.g. OpenRouter)
         model_used = ""
         last_tool_calls: list[str] = []  # track tool names for fallback
         last_tool_results: list[str] = []
@@ -536,6 +540,9 @@ class BaseAgentRunner:
                     if usage:
                         total_input_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                         total_output_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                        # Provider-reported cost (e.g. OpenRouter includes "cost" in token_usage)
+                        if "cost" in usage and usage["cost"]:
+                            provider_cost = (provider_cost or 0.0) + float(usage["cost"])
                     else:
                         # Streaming mode: usage lives in usage_metadata (requires stream_usage=True)
                         usage_meta = getattr(output, "usage_metadata", None)
@@ -574,20 +581,28 @@ class BaseAgentRunner:
             parts.extend(last_tool_results)
             final_content = "\n".join(parts)
 
+        # Compute cost: prefer provider-reported cost, fallback to catalog price
+        _model = model_used or self._get_model_name()
+        if provider_cost is not None:
+            _cost_usd = provider_cost
+        elif total_input_tokens or total_output_tokens:
+            from onemancompany.core.model_costs import get_model_cost
+            _costs = get_model_cost(_model)
+            _cost_usd = (total_input_tokens * _costs["input"] + total_output_tokens * _costs["output"]) / 1_000_000
+        else:
+            _cost_usd = 0.0
+
         # Store usage for caller to read
         self._last_usage = {
-            "model": model_used or self._get_model_name(),
+            "model": _model,
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
             "total_tokens": total_input_tokens + total_output_tokens,
+            "cost_usd": _cost_usd,
         }
 
         # Record streaming usage into overhead
-        if total_input_tokens or total_output_tokens:
-            from onemancompany.core.model_costs import get_model_cost
-            _model = model_used or self._get_model_name()
-            _costs = get_model_cost(_model)
-            _cost_usd = (total_input_tokens * _costs["input"] + total_output_tokens * _costs["output"]) / 1_000_000
+        if total_input_tokens or total_output_tokens or _cost_usd > 0:
             _record_overhead("agent_task", _model, total_input_tokens, total_output_tokens, _cost_usd)
 
         self._set_status(STATUS_IDLE)
@@ -608,6 +623,7 @@ class BaseAgentRunner:
 
         total_input = 0
         total_output = 0
+        provider_cost: float | None = None
         model = ""
         for msg in result.get(_LG_MESSAGES_KEY, []):
             if not isinstance(msg, AIMessage):
@@ -616,6 +632,9 @@ class BaseAgentRunner:
             usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
             msg_input = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
             msg_output = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            # Provider-reported cost (e.g. OpenRouter)
+            if "cost" in usage and usage["cost"]:
+                provider_cost = (provider_cost or 0.0) + float(usage["cost"])
             # Fallback: streaming mode puts usage in usage_metadata
             if not msg_input and not msg_output:
                 usage_meta = getattr(msg, "usage_metadata", None)
@@ -628,16 +647,25 @@ class BaseAgentRunner:
                 model = meta.get("model_name", "") or meta.get("model", "")
 
         model = model or self._get_model_name()
+
+        # Cost: prefer provider-reported, fallback to catalog price
+        if provider_cost is not None:
+            cost_usd = provider_cost
+        elif total_input or total_output:
+            costs = get_model_cost(model)
+            cost_usd = (total_input * costs["input"] + total_output * costs["output"]) / 1_000_000
+        else:
+            cost_usd = 0.0
+
         self._last_usage = {
             "model": model,
             "input_tokens": total_input,
             "output_tokens": total_output,
             "total_tokens": total_input + total_output,
+            "cost_usd": cost_usd,
         }
 
-        if total_input or total_output:
-            costs = get_model_cost(model)
-            cost_usd = (total_input * costs["input"] + total_output * costs["output"]) / 1_000_000
+        if total_input or total_output or cost_usd > 0:
             _record_overhead(
                 "agent_task", model, total_input, total_output, cost_usd,
                 employee_id=self.employee_id,
