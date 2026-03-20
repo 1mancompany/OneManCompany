@@ -647,3 +647,121 @@ class TestAbortProject:
 
         # emp02's running task must NOT be cancelled
         mock_task_02.cancel.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _on_child_complete_inner — child FAILED resumes HOLDING parent
+# ---------------------------------------------------------------------------
+
+class TestChildFailedResumesHoldingParent:
+    """When a child task FAILS and its parent is HOLDING, the parent should be
+    resumed so it can react (retry, reassign, or escalate)."""
+
+    @pytest.mark.asyncio
+    async def test_child_failed_resumes_holding_parent(self, tmp_path):
+        """Parent in HOLDING should be resumed when child FAILS."""
+        mgr = EmployeeManager()
+
+        # Build tree: root (CEO) → EA parent (HOLDING) → worker child (FAILED)
+        tree = TaskTree(project_id="proj-stuck")
+        root = tree.create_root(employee_id="ceo", description="CEO prompt")
+        root.node_type = "ceo_prompt"
+        root.status = TaskPhase.PENDING.value
+
+        ea_parent = tree.add_child(
+            parent_id=root.id, employee_id="00002",
+            description="EA manages project", acceptance_criteria=[],
+        )
+        ea_parent.set_status(TaskPhase.PROCESSING)
+        ea_parent.set_status(TaskPhase.HOLDING)
+        ea_parent.project_id = "proj-stuck"
+        ea_parent.project_dir = str(tmp_path)
+
+        worker_child = tree.add_child(
+            parent_id=ea_parent.id, employee_id="emp10",
+            description="Do the work", acceptance_criteria=[],
+        )
+        worker_child.set_status(TaskPhase.PROCESSING)
+        worker_child.set_status(TaskPhase.FAILED)
+        worker_child.result = "Error: connection timeout"
+        worker_child.project_id = "proj-stuck"
+        worker_child.project_dir = str(tmp_path)
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=worker_child.id, tree_path=str(tree_path))
+
+        # Schedule EA parent so resume can find it
+        mgr._schedule["00002"] = [
+            ScheduleEntry(node_id=ea_parent.id, tree_path=str(tree_path)),
+        ]
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+             patch("onemancompany.core.task_tree.save_tree_async"), \
+             patch("onemancompany.core.vessel._store") as mock_store, \
+             patch.object(mgr, "_publish_node_update"), \
+             patch.object(mgr, "schedule_node"), \
+             patch.object(mgr, "_schedule_next"):
+            mock_store.save_employee_runtime = AsyncMock()
+
+            await mgr._on_child_complete_inner("emp10", entry, project_id="proj-stuck")
+
+        # EA parent should no longer be HOLDING — it should be re-scheduled
+        # to process again with the failure context
+        assert ea_parent.status != TaskPhase.HOLDING.value, \
+            "Parent should not remain HOLDING after child FAILS"
+
+    @pytest.mark.asyncio
+    async def test_child_completed_does_not_trigger_failure_resume(self, tmp_path):
+        """COMPLETED child should NOT trigger the failure-resume path."""
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="proj-ok")
+        root = tree.create_root(employee_id="ceo", description="CEO prompt")
+        root.node_type = "ceo_prompt"
+        root.status = TaskPhase.PENDING.value
+
+        ea_parent = tree.add_child(
+            parent_id=root.id, employee_id="00002",
+            description="EA manages project", acceptance_criteria=[],
+        )
+        ea_parent.set_status(TaskPhase.PROCESSING)
+        ea_parent.set_status(TaskPhase.HOLDING)
+        ea_parent.project_id = "proj-ok"
+        ea_parent.project_dir = str(tmp_path)
+
+        worker_child = tree.add_child(
+            parent_id=ea_parent.id, employee_id="emp10",
+            description="Do the work", acceptance_criteria=[],
+        )
+        worker_child.set_status(TaskPhase.PROCESSING)
+        worker_child.set_status(TaskPhase.COMPLETED)
+        worker_child.result = "Done successfully"
+        worker_child.project_id = "proj-ok"
+        worker_child.project_dir = str(tmp_path)
+
+        tree_path = tmp_path / "task_tree.yaml"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=worker_child.id, tree_path=str(tree_path))
+
+        mgr._schedule["00002"] = [
+            ScheduleEntry(node_id=ea_parent.id, tree_path=str(tree_path)),
+        ]
+
+        with patch("onemancompany.core.task_tree.get_tree", return_value=tree), \
+             patch("onemancompany.core.task_tree.save_tree_async"), \
+             patch("onemancompany.core.vessel._store") as mock_store, \
+             patch.object(mgr, "_publish_node_update"), \
+             patch.object(mgr, "schedule_node"), \
+             patch.object(mgr, "_schedule_next"), \
+             patch.object(mgr, "_spawn_review_or_escalate", new_callable=AsyncMock):
+            mock_store.save_employee_runtime = AsyncMock()
+
+            await mgr._on_child_complete_inner("emp10", entry, project_id="proj-ok")
+
+        # Parent should still be HOLDING — COMPLETED child triggers review, not failure resume
+        # (it goes through Gate 2 incremental review path instead)
+        assert ea_parent.status == TaskPhase.HOLDING.value, \
+            "COMPLETED child should not trigger failure-resume on HOLDING parent"

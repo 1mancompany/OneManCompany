@@ -534,27 +534,20 @@ class OfficeRenderer {
 
     if (zones.length === 0) return;
 
-    const zoneMidCanvasY = ((deptStartRow + deptEndRow) / 2 + WALL_ROWS) * TILE + TILE / 2;
-
     for (let i = 0; i < zones.length; i++) {
       const zone = zones[i];
-      const zoneWidthPx = (zone.end_col - zone.start_col) * TILE;
-      const centerX = ((zone.start_col + zone.end_col) / 2) * TILE;
       const label = zone.label_en || zone.department;
-      const fontSize = Math.min(Math.floor(zoneWidthPx / label.length * 1.6), 32);
+      const color = zone.label_color || '#888';
+      // Place sign centered in zone, below dept area (above tools/rooms)
+      const zoneMidX = ((zone.start_col + zone.end_col) / 2) * TILE;
+      const signY = (deptEndRow + WALL_ROWS + 1.8) * TILE;
 
-      ctx.save();
-      ctx.globalAlpha = 0.12;
-      ctx.fillStyle = zone.label_color || '#888';
-      ctx.font = `bold ${fontSize}px monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, centerX, zoneMidCanvasY);
-      ctx.restore();
+      this._drawDeptSign(zoneMidX, signY, label, color);
 
+      // Zone divider line
       if (i > 0) {
         const divX = zone.start_col * TILE;
-        ctx.strokeStyle = zone.label_color || '#555';
+        ctx.strokeStyle = color;
         ctx.globalAlpha = 0.25;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
@@ -567,15 +560,57 @@ class OfficeRenderer {
       }
     }
 
+    // Executive row label as sign — centered in exec area
     const execRowH = layout.exec_row_height || 2;
-    const execMidCanvasY = (execRow + execRowH / 2 + WALL_ROWS) * TILE;
+    const execMidX = (MAP_COLS / 2) * TILE;
+    const execSignY = (execRow + execRowH + WALL_ROWS) * TILE;
+    this._drawDeptSign(execMidX, execSignY, 'Executive', '#c0b060');
+  }
+
+  /** Draw a pixel-art garden-style sign: stake + board with label text. */
+  _drawDeptSign(cx, bottomY, label, color) {
+    const ctx = this.ctx;
+    const stakeW = 3;
+    const stakeH = 22;
+    const stakeColor = '#6b4226';
+    const stakeHighlight = '#8a5a35';
+
+    // Measure text to size the board
     ctx.save();
-    ctx.globalAlpha = 0.1;
-    ctx.fillStyle = '#c0b060';
-    ctx.font = 'bold 22px monospace';
+    ctx.font = 'bold 11px monospace';
+    const textW = ctx.measureText(label).width;
+    const boardPadX = 8;
+    const boardPadY = 5;
+    const boardW = textW + boardPadX * 2;
+    const boardH = 14 + boardPadY * 2;
+    const boardX = cx - boardW / 2;
+    const boardY = bottomY - stakeH - boardH;
+
+    // Stake (wooden post)
+    this._rect(cx - stakeW / 2, bottomY - stakeH, stakeW, stakeH, stakeColor);
+    this._rect(cx - stakeW / 2, bottomY - stakeH, 1, stakeH, stakeHighlight);
+
+    // Board background
+    const boardBg = '#f5eed6';
+    const boardBorder = this._darken(color, 30);
+    // Shadow
+    this._rect(boardX + 1, boardY + 1, boardW, boardH, 'rgba(0,0,0,0.2)');
+    // Main board
+    this._rect(boardX, boardY, boardW, boardH, boardBg);
+    // Border (2px frame)
+    ctx.strokeStyle = boardBorder;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(boardX + 0.5, boardY + 0.5, boardW - 1, boardH - 1);
+
+    // Top decorative line (colored accent)
+    this._rect(boardX + 2, boardY + 2, boardW - 4, 3, color);
+
+    // Label text
+    ctx.fillStyle = '#2a2018';
+    ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Executive', 10 * TILE, execMidCanvasY);
+    ctx.fillText(label, cx, boardY + boardH / 2 + 2);
     ctx.restore();
   }
 

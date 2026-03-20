@@ -1862,7 +1862,52 @@ class EmployeeManager:
                     if c.node_type == NodeType.REVIEW
                     and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
                 )
-                if needs_review and not has_active_review:
+                # Check for failed children when parent is HOLDING — resume parent
+                # so it can react (retry via reject_child, reassign, or escalate).
+                has_failed_child = any(
+                    c for c in non_review_children
+                    if c.status == TaskPhase.FAILED.value
+                )
+                if has_failed_child and parent_node.status == TaskPhase.HOLDING.value:
+                    failed_children = [
+                        c for c in non_review_children
+                        if c.status == TaskPhase.FAILED.value
+                    ]
+                    failure_summary = "; ".join(
+                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'no details')[:150]}"
+                        for c in failed_children
+                    )
+                    resume_desc = (
+                        f"[子任务失败通知] 以下子任务执行失败，请决定后续处理：\n\n"
+                        f"{failure_summary}\n\n"
+                        f"可选操作：\n"
+                        f"- reject_child(node_id, reason, retry=True) 重新分配任务\n"
+                        f"- reject_child(node_id, reason, retry=False) 放弃该任务\n"
+                        f"- dispatch_child 分配给其他员工重试\n"
+                        f"- 如项目无法继续，请说明原因"
+                    )
+                    logger.info(
+                        "[ON_CHILD_COMPLETE] child {} FAILED — resuming HOLDING parent {} with failure context",
+                        node.id, parent_node.id,
+                    )
+                    # Transition parent back to PROCESSING so it can be re-executed
+                    parent_node.set_status(TaskPhase.PROCESSING)
+                    logger.debug("[TASK LIFECYCLE] parent={} HOLDING → PROCESSING (child failed, resuming)", parent_node.id)
+                    # Inject failure context into parent's description for re-execution
+                    notify_node = tree.add_child(
+                        parent_id=parent_node.id,
+                        employee_id=parent_node.employee_id,
+                        description=resume_desc,
+                        acceptance_criteria=[],
+                    )
+                    notify_node.node_type = NodeType.WATCHDOG_NUDGE
+                    notify_node.project_id = project_id
+                    notify_node.project_dir = parent_node.project_dir or str(Path(entry.tree_path).parent)
+                    save_tree_async(entry.tree_path)
+                    self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
+                    self._schedule_next(parent_node.employee_id)
+
+                elif needs_review and not has_active_review:
                     logger.info(
                         "[ON_CHILD_COMPLETE] child {} completed — triggering incremental review for parent {}",
                         node.id, parent_node.id,
