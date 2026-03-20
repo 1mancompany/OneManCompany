@@ -761,3 +761,33 @@ class TestTaskTreeContentExternalization:
             assert "description" not in nd
             assert "result" not in nd
         assert (tmp_path / "nodes" / "old_root.yaml").exists()
+
+
+class TestTaskTreeMode:
+    def test_default_mode_is_standard(self):
+        tree = TaskTree(project_id="p1")
+        assert tree.mode == "standard"
+
+    def test_mode_set_on_init(self):
+        tree = TaskTree(project_id="p1", mode="simple")
+        assert tree.mode == "simple"
+
+    def test_mode_persisted_in_save(self, tmp_path):
+        tree = TaskTree(project_id="p1", mode="simple")
+        root = tree.create_root(employee_id="00001", description="test")
+        tree.save(tmp_path / "tree.yaml")
+        loaded = TaskTree.load(tmp_path / "tree.yaml")
+        assert loaded.mode == "simple"
+
+    def test_load_without_mode_defaults_to_standard(self, tmp_path):
+        """Backward compat: old trees without mode field default to standard."""
+        import yaml
+        tree = TaskTree(project_id="p1")
+        root = tree.create_root(employee_id="00001", description="test")
+        tree.save(tmp_path / "tree.yaml")
+        # Strip mode from YAML to simulate old file
+        data = yaml.safe_load((tmp_path / "tree.yaml").read_text())
+        data.pop("mode", None)
+        (tmp_path / "tree.yaml").write_text(yaml.dump(data, allow_unicode=True))
+        loaded = TaskTree.load(tmp_path / "tree.yaml")
+        assert loaded.mode == "standard"

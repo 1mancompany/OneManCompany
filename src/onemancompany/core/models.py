@@ -91,7 +91,6 @@ class EventType(str, Enum):
     BACKEND_RESTART_SCHEDULED = "backend_restart_scheduled"
     CEO_TASK_SUBMITTED = "ceo_task_submitted"
     CEO_INBOX_UPDATED = "ceo_inbox_updated"
-    CEO_QA = "ceo_qa"
     CEO_REPORT = "ceo_report"
     AGENT_DONE = "agent_done"
     AGENT_LOG = "agent_log"

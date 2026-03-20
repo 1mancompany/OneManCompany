@@ -169,22 +169,29 @@ def dispatch_child(
         if not current_node:
             return {"status": "error", "message": "Current task not found in task tree."}
 
-        # EA can only dispatch to O-level executives
+        # EA dispatch restrictions
         from onemancompany.core.config import EA_ID, HR_ID, COO_ID, CSO_ID
         if current_node.employee_id == EA_ID:
-            allowed_targets = {HR_ID, COO_ID, CSO_ID}
-            if employee_id not in allowed_targets:
-                # Suggest the correct O-level target based on common patterns
-                suggestion = f"COO({COO_ID})"  # default: most tasks are execution
+            # Self-dispatch guard — always blocked
+            if employee_id == EA_ID:
                 return {
                     "status": "error",
-                    "message": (
-                        f"EA cannot directly dispatch tasks to {employee_id}. "
-                        f"Please dispatch_child to the corresponding O-level executive instead: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID}). "
-                        f"Hint: for development/design/operations tasks, dispatch to {suggestion} to organize team execution. "
-                        f"Please immediately re-call dispatch_child with the correct employee_id."
-                    ),
+                    "message": "EA cannot dispatch tasks to itself. Please dispatch to an appropriate team member.",
                 }
+            # O-level restriction — only in standard mode
+            if tree.mode != "simple":
+                allowed_targets = {HR_ID, COO_ID, CSO_ID}
+                if employee_id not in allowed_targets:
+                    suggestion = f"COO({COO_ID})"
+                    return {
+                        "status": "error",
+                        "message": (
+                            f"EA cannot directly dispatch tasks to {employee_id}. "
+                            f"Please dispatch_child to the corresponding O-level executive instead: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID}). "
+                            f"Hint: for development/design/operations tasks, dispatch to {suggestion} to organize team execution. "
+                            f"Please immediately re-call dispatch_child with the correct employee_id."
+                        ),
+                    }
 
         # --- Circuit breaker: children count limit ---
         from onemancompany.core.config import MAX_CHILDREN_PER_NODE, MAX_TREE_DEPTH
