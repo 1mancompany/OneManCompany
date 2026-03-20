@@ -573,3 +573,77 @@ class TestScheduleEntry:
         """ScheduleEntry should be importable from agent_loop.py."""
         from onemancompany.core.agent_loop import ScheduleEntry as SE
         assert SE is ScheduleEntry
+
+
+class TestAbortProject:
+    """Tests for EmployeeManager.abort_project — cancel only the target project."""
+
+    def test_abort_cancels_only_target_project_running_task(self, tmp_path):
+        """Running asyncio.Task should only be cancelled if it belongs to the target project."""
+        mgr = EmployeeManager()
+
+        # Employee has a scheduled task for proj-A (the target)
+        entry_a, _, _ = _make_tree_entry(tmp_path / "a", employee_id="emp01",
+                                          project_id="proj-A", status="pending")
+        mgr._schedule["emp01"] = [entry_a]
+
+        # But the *running* task is for proj-B (different project)
+        entry_b, _, _ = _make_tree_entry(tmp_path / "b", employee_id="emp01",
+                                          project_id="proj-B", status="processing")
+        mgr._current_entries["emp01"] = entry_b
+
+        mock_task = MagicMock()
+        mock_task.done.return_value = False
+        mgr._running_tasks["emp01"] = mock_task
+
+        mgr.abort_project("proj-A")
+
+        # Running task for proj-B must NOT be cancelled
+        mock_task.cancel.assert_not_called()
+
+    def test_abort_cancels_running_task_for_matching_project(self, tmp_path):
+        """Running asyncio.Task IS cancelled when it belongs to the target project."""
+        mgr = EmployeeManager()
+
+        # Employee has a scheduled task for proj-A
+        entry_a, _, _ = _make_tree_entry(tmp_path / "a", employee_id="emp01",
+                                          project_id="proj-A", status="pending")
+        mgr._schedule["emp01"] = [entry_a]
+
+        # Running task is also proj-A
+        entry_run, _, _ = _make_tree_entry(tmp_path / "r", employee_id="emp01",
+                                            project_id="proj-A", status="processing")
+        mgr._current_entries["emp01"] = entry_run
+
+        mock_task = MagicMock()
+        mock_task.done.return_value = False
+        mgr._running_tasks["emp01"] = mock_task
+
+        mgr.abort_project("proj-A")
+
+        # Running task for proj-A SHOULD be cancelled
+        mock_task.cancel.assert_called_once()
+
+    def test_abort_does_not_cancel_other_employees(self, tmp_path):
+        """Employees with no tasks for the target project are untouched."""
+        mgr = EmployeeManager()
+
+        # emp01 has tasks for proj-A (target)
+        entry_a, _, _ = _make_tree_entry(tmp_path / "a", employee_id="emp01",
+                                          project_id="proj-A", status="pending")
+        mgr._schedule["emp01"] = [entry_a]
+
+        # emp02 has tasks only for proj-B
+        entry_b, _, _ = _make_tree_entry(tmp_path / "b", employee_id="emp02",
+                                          project_id="proj-B", status="processing")
+        mgr._schedule["emp02"] = [entry_b]
+        mgr._current_entries["emp02"] = entry_b
+
+        mock_task_02 = MagicMock()
+        mock_task_02.done.return_value = False
+        mgr._running_tasks["emp02"] = mock_task_02
+
+        mgr.abort_project("proj-A")
+
+        # emp02's running task must NOT be cancelled
+        mock_task_02.cancel.assert_not_called()

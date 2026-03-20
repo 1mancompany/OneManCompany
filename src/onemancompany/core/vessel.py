@@ -904,12 +904,19 @@ class EmployeeManager:
                 except Exception as e:
                     logger.error("Failed to cancel node {} for project {}: {}", entry.node_id, project_id, e)
 
-            # Cancel running asyncio.Task if it's working on this project
-            if emp_id in self._running_tasks:
-                running = self._running_tasks[emp_id]
-                if not running.done():
-                    running.cancel()
-                    logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
+            # Cancel running asyncio.Task only if it's actually working on this project
+            current_entry = self._current_entries.get(emp_id)
+            if current_entry and emp_id in self._running_tasks:
+                try:
+                    cur_tree = get_tree(current_entry.tree_path)
+                    cur_node = cur_tree.get_node(current_entry.node_id)
+                    if cur_node and cur_node.project_id == project_id:
+                        running = self._running_tasks[emp_id]
+                        if not running.done():
+                            running.cancel()
+                            logger.info("Cancelled running asyncio.Task for {} (project {})", emp_id, project_id)
+                except Exception as exc:
+                    logger.debug("Could not check running task for {}: {}", emp_id, exc)
 
         return count
 
