@@ -879,7 +879,12 @@ class AppController {
       this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
       fetch('/api/hr/review', { method: 'POST' })
         .then(r => r.json())
-        .then(() => {
+        .then(data => {
+          if (data.error) {
+            this.logEntry('SYSTEM', `Review failed: ${data.error}`, 'system');
+          } else {
+            this.logEntry('HR', '📋 Quarterly review task assigned to HR', 'hr');
+          }
           setTimeout(() => { hrBtn.disabled = false; }, 5000);
         })
         .catch(err => {
