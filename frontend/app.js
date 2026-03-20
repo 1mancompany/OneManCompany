@@ -242,11 +242,12 @@ class AppController {
       return;
     }
     if (msg.type === 'ceo_conversation') {
-      if (this._currentConvNodeId === (msg.payload && msg.payload.node_id)) {
+      const p = msg.payload || msg;
+      if (this._currentConvNodeId === p.node_id) {
         this._appendConvMessage({
-          sender: msg.payload.sender,
-          text: msg.payload.text,
-          timestamp: msg.payload.timestamp,
+          sender: p.sender,
+          text: p.text,
+          timestamp: p.timestamp,
         });
       }
       return;
