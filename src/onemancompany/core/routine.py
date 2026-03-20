@@ -1041,17 +1041,14 @@ async def run_post_task_routine(
         from onemancompany.core.project_archive import load_project
         project_record = load_project(project_id) or {}
 
-        # Filter participants to only actual contributors (those with timeline entries)
-        actual_contributors = {
-            entry["employee_id"]
-            for entry in project_record.get("timeline", [])
-            if entry.get("employee_id")
+        # Filter participants to project team members (excluding CEO)
+        team_members = {
+            m["employee_id"]
+            for m in project_record.get("team", [])
+            if m.get("employee_id") and m["employee_id"] != CEO_ID
         }
-        if actual_contributors:
-            # EA always attends (dispatched the task, needs full context).
-            # Everyone else only joins if they actually contributed.
-            actual_contributors.add(EA_ID)
-            participants = [pid for pid in participants if pid in actual_contributors]
+        if team_members:
+            participants = [pid for pid in participants if pid in team_members]
 
     # Increment current_quarter_tasks for participating normal employees
     for pid in participants:
