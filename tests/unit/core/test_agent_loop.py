@@ -33,7 +33,7 @@ from onemancompany.core.agent_loop import (
     RETRY_DELAYS,
 )
 from onemancompany.core.task_tree import TaskNode, TaskTree
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 
 
 def _make_tree_entry(tmp_path, employee_id="emp01", description="Build widget",
@@ -2477,3 +2477,73 @@ class TestFindHoldingTask:
         """Returns None when employee has no scheduled tasks."""
         mgr = EmployeeManager()
         assert mgr.find_holding_task("emp01", "batch_id=b1") is None
+
+
+class TestSimpleModeSkipsRetrospective:
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_simple_mode_skips_retrospective(self, mock_bus, mock_state):
+        """When tree.mode == 'simple', _request_ceo_confirmation passes run_retrospective=False."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="p1", mode="simple")
+        node = MagicMock()
+        node.node_type = NodeType.TASK
+        node.description_preview = "test task"
+        node.id = "n1"
+        node.project_dir = "/tmp/proj"
+        node.is_ceo_node = False
+
+        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/proj/task_tree.yaml")
+
+        with (
+            patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
+            patch("onemancompany.core.vessel._store") as mock_store,
+        ):
+            mock_store.load_employee.return_value = {"name": "Test"}
+            tree._nodes = {"n1": node}
+            tree.get_children = MagicMock(return_value=[])
+
+            await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
+
+            mock_cleanup.assert_called_once()
+            _, kwargs = mock_cleanup.call_args
+            assert kwargs["run_retrospective"] is False
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_standard_mode_runs_retrospective(self, mock_bus, mock_state):
+        """When tree.mode == 'standard' and not system node, retrospective runs."""
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+
+        mgr = EmployeeManager()
+
+        tree = TaskTree(project_id="p1", mode="standard")
+        node = MagicMock()
+        node.node_type = NodeType.TASK
+        node.description_preview = "test task"
+        node.id = "n1"
+        node.project_dir = "/tmp/proj"
+        node.is_ceo_node = False
+
+        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/proj/task_tree.yaml")
+
+        with (
+            patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
+            patch("onemancompany.core.vessel._store") as mock_store,
+        ):
+            mock_store.load_employee.return_value = {"name": "Test"}
+            tree._nodes = {"n1": node}
+            tree.get_children = MagicMock(return_value=[])
+
+            await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
+
+            mock_cleanup.assert_called_once()
+            _, kwargs = mock_cleanup.call_args
+            assert kwargs["run_retrospective"] is True

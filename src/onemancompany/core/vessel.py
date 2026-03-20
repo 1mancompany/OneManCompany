@@ -2119,10 +2119,11 @@ class EmployeeManager:
 
         # Auto-approve: proceed directly with cleanup
         is_system_node = node.node_type in SYSTEM_NODE_TYPES
+        run_retro = not is_system_node and tree.mode != "simple"
         await self._full_cleanup(
             employee_id, node, agent_error=False,
             project_id=project_id,
-            run_retrospective=not is_system_node,
+            run_retrospective=run_retro,
         )
 
     async def _full_cleanup(
