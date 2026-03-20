@@ -1186,6 +1186,12 @@ class EmployeeManager:
             self._log_node(employee_id, entry.node_id, "result", node.result or "")
 
             # Record token usage to node
+            logger.debug("[COST] employee={} node={} launch_result tokens: input={} output={} total={} model={}",
+                         employee_id, entry.node_id,
+                         launch_result.input_tokens if launch_result else 0,
+                         launch_result.output_tokens if launch_result else 0,
+                         launch_result.total_tokens if launch_result else 0,
+                         launch_result.model_used if launch_result else "")
             if launch_result and launch_result.total_tokens > 0:
                 node.model_used = launch_result.model_used
                 node.input_tokens += launch_result.input_tokens

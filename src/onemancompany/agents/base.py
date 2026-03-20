@@ -200,6 +200,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 base_url=base_url,
                 temperature=effective_temp,
                 max_retries=3,
+                stream_usage=True,
             )
 
     # --- Fallback: unknown provider or no key → fall back to openrouter with default model ---
@@ -217,6 +218,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         base_url=settings.openrouter_base_url,
         temperature=effective_temp,
         max_retries=3,
+        stream_usage=True,
     )
 
 
@@ -267,11 +269,16 @@ async def tracked_ainvoke(
 
     result = await llm.ainvoke(messages)
 
-    # Extract token usage from response_metadata
+    # Extract token usage from response_metadata, fallback to usage_metadata
     meta = getattr(result, "response_metadata", {}) or {}
     usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
     input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
     output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+    if not input_tokens and not output_tokens:
+        usage_meta = getattr(result, "usage_metadata", None)
+        if usage_meta and isinstance(usage_meta, dict):
+            input_tokens = usage_meta.get("input_tokens", 0)
+            output_tokens = usage_meta.get("output_tokens", 0)
 
     # Determine model name
     model_name = meta.get("model_name", "") or meta.get("model", "")
@@ -523,12 +530,20 @@ class BaseAgentRunner:
             elif kind == "on_chat_model_end":
                 output = data.get("output", None)
                 if output:
-                    # Extract token usage from response_metadata
+                    # Extract token usage — try response_metadata first, then usage_metadata
                     meta = getattr(output, "response_metadata", {}) or {}
                     usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
                     if usage:
                         total_input_tokens += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
                         total_output_tokens += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                    else:
+                        # Streaming mode: usage lives in usage_metadata (requires stream_usage=True)
+                        usage_meta = getattr(output, "usage_metadata", None)
+                        if usage_meta and isinstance(usage_meta, dict):
+                            total_input_tokens += usage_meta.get("input_tokens", 0)
+                            total_output_tokens += usage_meta.get("output_tokens", 0)
+                        else:
+                            logger.debug("[COST] on_chat_model_end: no usage data for employee={}, meta_keys={}", self.employee_id, list(meta.keys()))
                     if not model_used:
                         model_used = meta.get("model_name", "") or meta.get("model", "")
 
@@ -599,8 +614,16 @@ class BaseAgentRunner:
                 continue
             meta = getattr(msg, "response_metadata", {}) or {}
             usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
-            total_input += usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
-            total_output += usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            msg_input = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+            msg_output = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+            # Fallback: streaming mode puts usage in usage_metadata
+            if not msg_input and not msg_output:
+                usage_meta = getattr(msg, "usage_metadata", None)
+                if usage_meta and isinstance(usage_meta, dict):
+                    msg_input = usage_meta.get("input_tokens", 0)
+                    msg_output = usage_meta.get("output_tokens", 0)
+            total_input += msg_input
+            total_output += msg_output
             if not model:
                 model = meta.get("model_name", "") or meta.get("model", "")
 
