@@ -994,6 +994,14 @@ class AppController {
     document.getElementById('meeting-modal').addEventListener('click', (e) => {
       if (e.target.id === 'meeting-modal') this.closeMeetingRoom();
     });
+    // CEO chat in meeting room
+    document.getElementById('meeting-ceo-send-btn').addEventListener('click', () => this._sendMeetingRoomMessage());
+    document.getElementById('meeting-ceo-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._sendMeetingRoomMessage();
+      }
+    });
 
     // Inquiry chat bindings (inside meeting modal)
     document.getElementById('meeting-inquiry-send-btn').addEventListener('click', () => this._sendInquiryMessage());
@@ -4201,6 +4209,14 @@ class AppController {
       partEl.innerHTML = '<div style="color:var(--text-dim)">No participants</div>';
     }
 
+    // Show CEO input if room is booked (meeting in progress)
+    const ceoInputArea = document.getElementById('meeting-ceo-input-area');
+    if (room.is_booked) {
+      ceoInputArea.classList.remove('hidden');
+    } else {
+      ceoInputArea.classList.add('hidden');
+    }
+
     // Load chat history from API
     const chatEl = document.getElementById('meeting-chat-messages');
     chatEl.innerHTML = '<div class="chat-empty">Loading...</div>';
@@ -4225,12 +4241,15 @@ class AppController {
   _refreshMeetingModalStatus(room) {
     const led = document.getElementById('meeting-modal-status-led');
     const statusText = document.getElementById('meeting-modal-status-text');
+    const ceoInputArea = document.getElementById('meeting-ceo-input-area');
     if (room.is_booked) {
       led.className = 'status-led booked';
       statusText.textContent = 'In Meeting';
+      ceoInputArea.classList.remove('hidden');
     } else {
       led.className = 'status-led free';
       statusText.textContent = 'Available';
+      ceoInputArea.classList.add('hidden');
     }
     // Update participants
     const partEl = document.getElementById('meeting-participants');
@@ -4255,7 +4274,8 @@ class AppController {
     if (this._inquirySessionId && this._inquiryRoomId === this.viewingRoomId) {
       this._endInquirySession();
     }
-    // Hide inquiry UI elements
+    // Hide input UI elements
+    document.getElementById('meeting-ceo-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
     document.getElementById('meeting-inquiry-typing').classList.add('hidden');
     document.getElementById('meeting-inquiry-actions').classList.add('hidden');
@@ -4279,6 +4299,23 @@ class AppController {
     chatEl.appendChild(div);
     // Auto-scroll to bottom
     chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  async _sendMeetingRoomMessage() {
+    const input = document.getElementById('meeting-ceo-input');
+    const text = input.value.trim();
+    if (!text || !this.viewingRoomId) return;
+    input.value = '';
+    try {
+      await fetch(`/api/rooms/${encodeURIComponent(this.viewingRoomId)}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+    } catch (e) {
+      console.error('Failed to send meeting room message:', e);
+    }
+    // Message appears via WebSocket meeting_chat event
   }
 
   // ===== Inquiry Session =====

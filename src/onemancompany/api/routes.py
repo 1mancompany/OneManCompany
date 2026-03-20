@@ -5585,6 +5585,34 @@ async def get_room_chat(room_id: str):
     return load_room_chat(room_id)
 
 
+@router.post("/api/rooms/{room_id}/chat")
+async def post_room_chat(room_id: str, body: dict):
+    """CEO sends a message to a meeting room chat."""
+    from datetime import datetime
+    from onemancompany.core.store import append_room_chat
+
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message text required")
+
+    entry = {
+        "room_id": room_id,
+        "speaker": "CEO",
+        "role": "CEO",
+        "message": message,
+        "time": datetime.now().strftime("%H:%M:%S"),
+    }
+    await append_room_chat(room_id, entry)
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.MEETING_CHAT,
+            payload=entry,
+            agent="CEO",
+        )
+    )
+    return {"status": "sent"}
+
+
 @router.get("/api/tools")
 async def list_tools():
     """List tools — reads from disk."""
