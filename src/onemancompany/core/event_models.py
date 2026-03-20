@@ -124,12 +124,6 @@ class StateSnapshotPayload(BaseModel):
     pass
 
 
-class InquiryPayload(BaseModel):
-    employee_id: str = ""
-    inquiry_id: str = ""
-    question: str = ""
-
-
 class WorkflowUpdatedPayload(BaseModel):
     workflow_id: str = ""
     phase: str = ""
@@ -161,7 +155,6 @@ EventPayload = Union[
     FileEditProposedPayload,
     GuidancePayload,
     StateSnapshotPayload,
-    InquiryPayload,
     WorkflowUpdatedPayload,
     CompanyCultureUpdatedPayload,
     dict,  # fallback for un-migrated events

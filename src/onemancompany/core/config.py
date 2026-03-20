@@ -329,12 +329,6 @@ EXEC_FLOOR_COLORS = ("#2a2a20", "#26261e")  # gold tones
 # ---------------------------------------------------------------------------
 # Task routing keywords
 # ---------------------------------------------------------------------------
-HR_KEYWORDS = [
-    "hire", "recruit", "employee", "staff", "review", "performance",
-    "fire", "dismiss", "terminate",
-    "promotion", "nickname", "evaluation", "assessment",
-]
-
 ENGINEERING_DEPT = "Engineering"
 
 # Default tool permissions by department (set during hiring)
@@ -350,30 +344,6 @@ DEFAULT_TOOL_PERMISSIONS: dict[str, list[str]] = {
     "General": [],
 }
 DEFAULT_TOOL_PERMISSIONS_FALLBACK: list[str] = []
-
-SALES_KEYWORDS = [
-    "sales", "sell", "client", "customer", "contract", "deal", "revenue",
-    "order", "business", "signing",
-]
-
-# Inquiry routing table: list of (keywords, role, employee_id).
-# Checked in order; first match wins. Last entry is the default fallback.
-INQUIRY_ROUTES: list[tuple[list[str], str, str]] = [
-    (HR_KEYWORDS, "HR", HR_ID),
-    (SALES_KEYWORDS, "CSO", CSO_ID),
-    ([], "COO", COO_ID),  # fallback — empty keywords = always matches
-]
-
-
-def route_inquiry(task: str) -> tuple[str, str]:
-    """Route an inquiry task to the best agent. Returns (role, employee_id)."""
-    task_lower = task.lower()
-    for keywords, role, eid in INQUIRY_ROUTES:
-        if not keywords or any(w in task_lower for w in keywords):
-            return role, eid
-    # Should never reach here due to fallback, but just in case
-    return "COO", COO_ID
-
 
 # ---------------------------------------------------------------------------
 # LLM Provider Registry — data-driven provider dispatch

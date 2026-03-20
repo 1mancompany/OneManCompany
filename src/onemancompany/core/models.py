@@ -100,8 +100,6 @@ class EventType(str, Enum):
     MEETING_CHAT = "meeting_chat"
     MEETING_AGENDA_UPDATE = "meeting_agenda_update"
     MEETING_RELEASED = "meeting_released"
-    INQUIRY_STARTED = "inquiry_started"
-    INQUIRY_ENDED = "inquiry_ended"
     GUIDANCE_START = "guidance_start"
     GUIDANCE_END = "guidance_end"
     EMPLOYEE_HIRED = "employee_hired"

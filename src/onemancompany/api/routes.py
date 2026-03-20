@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid as _uuid
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -69,20 +68,6 @@ _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 from onemancompany.core.llm_utils import llm_invoke_with_retry as _llm_invoke_with_retry  # noqa: E402
 
 router = APIRouter()
-
-# ===== Inquiry Sessions =====
-
-@dataclass
-class InquirySession:
-    session_id: str
-    task: str
-    room_id: str
-    agent_role: str  # "HR", "COO", "EA", or "CSO"
-    participants: list[str]
-    history: list[dict]  # [{role: 'ceo'|'agent', speaker: str, content: str}]
-
-_inquiry_sessions: dict[str, InquirySession] = {}
-
 
 def _get_employee_manager():
     """Lazy import to avoid circular dependency."""
@@ -329,147 +314,6 @@ async def get_state() -> dict:
         "office_layout": company_state.office_layout,
         "sales_tasks": load_sales_tasks(),
         "company_tokens": overhead.get("company_tokens", 0),
-    }
-
-
-async def _start_inquiry(task: str) -> dict:
-    """Start an inquiry session: book a room, get initial answer, return session info."""
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from onemancompany.agents.base import make_llm, get_employee_skills_prompt, get_employee_tools_prompt, get_employee_talent_persona
-
-    # Route to the best agent via configurable routing table
-    from onemancompany.core.config import route_inquiry
-    agent_role, agent_id = route_inquiry(task)
-
-    emp_data = _load_emp(agent_id)
-
-    # Book a meeting room
-    room = None
-    for r in company_state.meeting_rooms.values():
-        if not r.is_booked:
-            room = r
-            break
-    if not room:
-        return {"error": "No meeting rooms available"}
-
-    participants = [CEO_ID, agent_id]
-    room.is_booked = True
-    room.booked_by = CEO_ID
-    room.participants = participants
-    await _store.save_room(room.id, {
-        "is_booked": True,
-        "booked_by": CEO_ID,
-        "participants": participants,
-    })
-
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.MEETING_BOOKED,
-            payload={"room_id": room.id, "room_name": room.name, "participants": participants},
-            agent="CEO",
-        )
-    )
-
-    # Build agent system prompt
-    skills_list = emp_data.get("skills", []) if emp_data else []
-    skills_str = ", ".join(skills_list) if skills_list else "general"
-    work_principles = emp_data.get("work_principles", "") if emp_data else ""
-    principles_section = f"\nYour work principles:\n{work_principles}" if work_principles else ""
-    culture_items = _store.load_culture()
-    culture_section = ""
-    if culture_items:
-        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(culture_items))
-        culture_section = f"\nCompany culture:\n{rules}"
-
-    persona_section = get_employee_talent_persona(agent_id)
-    skills_section = get_employee_skills_prompt(agent_id)
-    tools_section = get_employee_tools_prompt(agent_id)
-
-    # Colleague info
-    colleagues = []
-    for eid, edata in _load_all().items():
-        if eid not in (CEO_ID, agent_id):
-            colleagues.append(f"  - {edata.get('name', '')} ({edata.get('nickname', '')}): {edata.get('role', '')}, {edata.get('department', '')}")
-    colleagues_section = "\nColleagues:\n" + "\n".join(colleagues) if colleagues else ""
-
-    emp_name = emp_data.get("name", agent_role) if emp_data else agent_role
-    emp_nickname = emp_data.get("nickname", "") if emp_data else ""
-    system_prompt = (
-        f"You are {emp_name} ({emp_nickname}), the company {agent_role}. "
-        f"Skills: {skills_str}. "
-        f"You are in a meeting room with the CEO answering their inquiry. "
-        f"Be helpful, concise, and knowledgeable. Use your expertise and awareness of company operations."
-        f"{persona_section}{principles_section}{culture_section}{skills_section}{tools_section}{colleagues_section}"
-    )
-
-    # Publish CEO question as meeting_chat
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.MEETING_CHAT,
-            payload={"room_id": room.id, "speaker": "CEO", "role": "CEO", "message": task},
-            agent="CEO",
-        )
-    )
-
-    # LLM generates initial answer
-    llm = make_llm(agent_id)
-    result = await tracked_ainvoke(llm, [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=task),
-    ], category="inquiry", employee_id=agent_id)
-    answer = result.content
-
-    # Publish agent response as meeting_chat
-    speaker_name = emp_name
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.MEETING_CHAT,
-            payload={"room_id": room.id, "speaker": speaker_name, "role": agent_role, "message": answer},
-            agent=agent_role,
-        )
-    )
-
-    # Create and store session
-    session_id = _uuid.uuid4().hex[:12]
-    session = InquirySession(
-        session_id=session_id,
-        task=task,
-        room_id=room.id,
-        agent_role=agent_role,
-        participants=[CEO_ID, agent_id],
-        history=[
-            {"role": "ceo", "speaker": "CEO", "content": task},
-            {"role": "agent", "speaker": speaker_name, "content": answer},
-        ],
-    )
-    session._system_prompt = system_prompt  # stash for follow-up chats
-    _inquiry_sessions[session_id] = session
-
-    # Publish inquiry_started event
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.INQUIRY_STARTED,
-            payload={
-                "session_id": session_id,
-                "room_id": room.id,
-                "agent_role": agent_role,
-                "task": task,
-            },
-            agent="CEO",
-        )
-    )
-
-    # Broadcast state so frontend sees the booked room
-    await event_bus.publish(
-        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
-    )
-
-    return {
-        "task_type": "inquiry",
-        "session_id": session_id,
-        "room_id": room.id,
-        "agent_role": agent_role,
-        "status": "inquiry_active",
     }
 
 
@@ -1049,122 +893,6 @@ async def release_meeting(body: dict) -> dict:
         )
     )
     return {"status": "released", "room_name": room.name}
-
-
-# ===== Inquiry Chat Endpoints =====
-
-@router.post("/api/inquiry/chat")
-async def inquiry_chat(body: dict) -> dict:
-    """CEO sends a follow-up message in an active inquiry session."""
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-    from onemancompany.agents.base import make_llm
-
-    session_id = body.get("session_id", "")
-    message = body.get("message", "")
-
-    if not session_id or not message:
-        return {"error": "Missing session_id or message"}
-
-    session = _inquiry_sessions.get(session_id)
-    if not session:
-        return {"error": "Inquiry session not found"}
-
-    _inquiry_agent_map = {"HR": HR_ID, "COO": COO_ID, "CSO": CSO_ID, "EA": EA_ID}
-    agent_id = _inquiry_agent_map.get(session.agent_role, COO_ID)
-    _inq_data = _load_emp(agent_id)
-    speaker_name = _inq_data.get("name", session.agent_role) if _inq_data else session.agent_role
-
-    # Publish CEO message as meeting_chat
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.MEETING_CHAT,
-            payload={"room_id": session.room_id, "speaker": "CEO", "role": "CEO", "message": message},
-            agent="CEO",
-        )
-    )
-
-    # Build LangChain messages from session history
-    system_prompt = getattr(session, "_system_prompt", f"You are the company {session.agent_role}.")
-    messages = [SystemMessage(content=system_prompt)]
-    for entry in session.history:
-        if entry["role"] == "ceo":
-            messages.append(HumanMessage(content=entry["content"]))
-        else:
-            messages.append(AIMessage(content=entry["content"]))
-    messages.append(HumanMessage(content=message))
-
-    llm = make_llm(agent_id)
-    result = await tracked_ainvoke(llm, messages, category="inquiry", employee_id=agent_id)
-    answer = result.content
-
-    # Publish agent response as meeting_chat
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.MEETING_CHAT,
-            payload={"room_id": session.room_id, "speaker": speaker_name, "role": session.agent_role, "message": answer},
-            agent=session.agent_role,
-        )
-    )
-
-    # Update session history
-    session.history.append({"role": "ceo", "speaker": "CEO", "content": message})
-    session.history.append({"role": "agent", "speaker": speaker_name, "content": answer})
-
-    return {"response": answer, "speaker": speaker_name}
-
-
-@router.post("/api/inquiry/end")
-async def inquiry_end(body: dict) -> dict:
-    """End an inquiry session: release room, save CEO questions as guidance."""
-    session_id = body.get("session_id", "")
-
-    if not session_id:
-        return {"error": "Missing session_id"}
-
-    session = _inquiry_sessions.get(session_id)
-    if not session:
-        return {"error": "Inquiry session not found"}
-
-    _inquiry_agent_map = {"HR": HR_ID, "COO": COO_ID, "CSO": CSO_ID, "EA": EA_ID}
-    agent_id = _inquiry_agent_map.get(session.agent_role, COO_ID)
-
-    # Release the meeting room
-    room = company_state.meeting_rooms.get(session.room_id)
-    if room and room.is_booked:
-        room.is_booked = False
-        room.booked_by = ""
-        room.participants = []
-        await _store.save_room(room.id, {
-            "is_booked": False,
-            "booked_by": "",
-            "participants": [],
-        })
-        await event_bus.publish(
-            CompanyEvent(
-                type=EventType.MEETING_RELEASED,
-                payload={"room_id": room.id, "room_name": room.name},
-                agent="CEO",
-            )
-        )
-
-    # Publish inquiry_ended event
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.INQUIRY_ENDED,
-            payload={"session_id": session_id, "room_id": session.room_id, "agent_role": session.agent_role},
-            agent="CEO",
-        )
-    )
-
-    # Remove session
-    _inquiry_sessions.pop(session_id, None)
-
-    # Broadcast state
-    await event_bus.publish(
-        CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
-    )
-
-    return {"status": "ended", "session_id": session_id}
 
 
 @router.post("/api/hr/review")
@@ -5324,26 +5052,11 @@ from onemancompany.core.snapshot import snapshot_provider  # noqa: E402
 class _RoutesSnapshot:
     @staticmethod
     def save() -> dict:
-        # Serialize inquiry sessions
-        inquiry_data = {}
-        for sid, sess in _inquiry_sessions.items():
-            inquiry_data[sid] = {
-                "session_id": sess.session_id,
-                "task": sess.task,
-                "room_id": sess.room_id,
-                "agent_role": sess.agent_role,
-                "participants": sess.participants,
-                "history": sess.history,
-                "system_prompt": getattr(sess, "_system_prompt", ""),
-            }
-
         result: dict = {}
         if _pending_coo_hire_queue:
             result["pending_coo_hire_queue"] = _pending_coo_hire_queue
         if _pending_oauth_hire:
             result["pending_oauth_hire"] = _pending_oauth_hire
-        if inquiry_data:
-            result["inquiry_sessions"] = inquiry_data
         if _remote_workers:
             result["remote_workers"] = _remote_workers
         if _remote_task_queues:
@@ -5363,19 +5076,6 @@ class _RoutesSnapshot:
         restored_oauth = data.get("pending_oauth_hire", {})
         if restored_oauth:
             _pending_oauth_hire.update(restored_oauth)
-
-        # Inquiry sessions
-        for sid, sdata in data.get("inquiry_sessions", {}).items():
-            sess = InquirySession(
-                session_id=sdata["session_id"],
-                task=sdata["task"],
-                room_id=sdata["room_id"],
-                agent_role=sdata["agent_role"],
-                participants=sdata["participants"],
-                history=sdata["history"],
-            )
-            sess._system_prompt = sdata.get("system_prompt", "")
-            _inquiry_sessions[sid] = sess
 
         # Onboarding state
         restored_onboarding = data.get("active_onboarding", {})

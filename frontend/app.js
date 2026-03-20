@@ -16,9 +16,6 @@ class AppController {
     this.reconnectDelay = 1000;
     this.viewingRoomId = null;
     this.viewingEmployeeId = null;
-    // Inquiry session state
-    this._inquirySessionId = null;
-    this._inquiryRoomId = null;
     // Meeting agenda cache per room (room_id → agenda data)
     this._meetingAgendaCache = {};
     // Dashboard cost auto-refresh timer
@@ -374,14 +371,6 @@ class AppController {
       },
       'hiring_request_decided': (p) => {
         return { text: `${p.approved ? '✅' : '❌'} Hiring ${p.approved ? 'confirmed' : 'rejected'}: ${p.role}`, cls: 'ceo', agent: 'CEO' };
-      },
-      'inquiry_started':     (p) => {
-        this._startInquiryMode(p);
-        return { text: `🔍 Inquiry started with ${p.agent_role} in meeting room`, cls: 'ceo', agent: 'CEO' };
-      },
-      'inquiry_ended':       (p) => {
-        this._endInquiryMode();
-        return { text: `🔍 Inquiry ended`, cls: 'ceo', agent: 'CEO' };
       },
       'open_popup':          (p) => {
         this.openPopup(p);
@@ -1012,16 +1001,6 @@ class AppController {
         this._sendMeetingRoomMessage();
       }
     });
-
-    // Inquiry chat bindings (inside meeting modal)
-    document.getElementById('meeting-inquiry-send-btn').addEventListener('click', () => this._sendInquiryMessage());
-    document.getElementById('meeting-inquiry-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        this._sendInquiryMessage();
-      }
-    });
-    document.getElementById('meeting-inquiry-end-btn').addEventListener('click', () => this._endInquirySession());
 
     // Employee detail modal bindings
     document.getElementById('emp-avatar-upload-input').addEventListener('change', (e) => {
@@ -4290,15 +4269,7 @@ class AppController {
   }
 
   closeMeetingRoom() {
-    // If inquiry is active in this room, end it
-    if (this._inquirySessionId && this._inquiryRoomId === this.viewingRoomId) {
-      this._endInquirySession();
-    }
-    // Hide input UI elements
     document.getElementById('meeting-ceo-input-area').classList.add('hidden');
-    document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
-    document.getElementById('meeting-inquiry-typing').classList.add('hidden');
-    document.getElementById('meeting-inquiry-actions').classList.add('hidden');
     this.viewingRoomId = null;
     document.getElementById('meeting-modal').classList.add('hidden');
   }
@@ -4360,100 +4331,6 @@ class AppController {
       console.error('Failed to send meeting room message:', e);
     }
     // Message appears via WebSocket meeting_chat event
-  }
-
-  // ===== Inquiry Session =====
-  async _startInquiryMode(payload) {
-    this._inquirySessionId = payload.session_id;
-    this._inquiryRoomId = payload.room_id;
-
-    // Fetch the room from API
-    try {
-      const rooms = await fetch('/api/rooms').then(r => r.json());
-      const room = rooms.find(r => r.id === payload.room_id);
-      if (room) {
-        this.openMeetingRoom(room);
-      }
-    } catch (e) {
-      console.error('Failed to fetch rooms for inquiry:', e);
-    }
-
-    // Hide CEO input, show inquiry input area and actions
-    document.getElementById('meeting-ceo-input-area').classList.add('hidden');
-    document.getElementById('meeting-inquiry-input-area').classList.remove('hidden');
-    document.getElementById('meeting-inquiry-actions').classList.remove('hidden');
-    document.getElementById('meeting-inquiry-input').focus();
-  }
-
-  _sendInquiryMessage() {
-    const input = document.getElementById('meeting-inquiry-input');
-    const message = input.value.trim();
-    if (!message || !this._inquirySessionId) return;
-
-    input.value = '';
-    const sendBtn = document.getElementById('meeting-inquiry-send-btn');
-    sendBtn.disabled = true;
-
-    // Show typing indicator
-    document.getElementById('meeting-inquiry-typing').classList.remove('hidden');
-
-    fetch('/api/inquiry/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: this._inquirySessionId, message }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) {
-          this.logEntry('SYSTEM', `Inquiry error: ${data.error}`, 'system');
-        }
-        // Chat messages arrive via WebSocket meeting_chat events
-      })
-      .catch(err => {
-        this.logEntry('SYSTEM', `Inquiry failed: ${err.message}`, 'system');
-      })
-      .finally(() => {
-        sendBtn.disabled = false;
-        document.getElementById('meeting-inquiry-typing').classList.add('hidden');
-        input.focus();
-      });
-  }
-
-  _endInquirySession() {
-    if (!this._inquirySessionId) return;
-
-    const endBtn = document.getElementById('meeting-inquiry-end-btn');
-    endBtn.disabled = true;
-
-    fetch('/api/inquiry/end', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: this._inquirySessionId }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (data.error) {
-          this.logEntry('SYSTEM', `End inquiry error: ${data.error}`, 'system');
-        }
-      })
-      .catch(err => {
-        this.logEntry('SYSTEM', `End inquiry failed: ${err.message}`, 'system');
-      })
-      .finally(() => {
-        endBtn.disabled = false;
-      });
-  }
-
-  _endInquiryMode() {
-    this._inquirySessionId = null;
-    this._inquiryRoomId = null;
-    document.getElementById('meeting-inquiry-input-area').classList.add('hidden');
-    document.getElementById('meeting-inquiry-typing').classList.add('hidden');
-    document.getElementById('meeting-inquiry-actions').classList.add('hidden');
-    // Restore CEO input if a booked room is still open
-    if (this.viewingRoomId) {
-      document.getElementById('meeting-ceo-input-area').classList.remove('hidden');
-    }
   }
 
   // ===== Ex-Employee Wall =====
@@ -4929,7 +4806,7 @@ class AppController {
       // Section 2: Overhead by category
       const cats = oh.by_category || {};
       if (Object.keys(cats).length) {
-        const catLabels = {inquiry:'Inquiry', oneonone:'1-on-1', meeting:'Meeting', routine:'Routine', interview:'Interview', agent_task:'Agent Task', history_compress:'History Compress', completion_check:'Completion Check', nickname_gen:'Nickname Gen', remote_worker:'Remote Worker'};
+        const catLabels = {oneonone:'1-on-1', meeting:'Meeting', routine:'Routine', interview:'Interview', agent_task:'Agent Task', history_compress:'History Compress', completion_check:'Completion Check', nickname_gen:'Nickname Gen', remote_worker:'Remote Worker'};
         costHtml += `
           <div class="dash-section">
             <div class="dash-title">\u{1F4B0} Overhead by Category</div>
@@ -5967,11 +5844,7 @@ class AppController {
     })
       .then(r => r.json())
       .then(data => {
-        if (data.task_type === 'inquiry') {
-          this.logEntry('CEO', `Inquiry started with ${data.agent_role}`, 'ceo');
-        } else {
-          this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
-        }
+        this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
         // Refresh project selector after submit
         this.loadActiveProjects();
       })
