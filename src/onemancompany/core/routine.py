@@ -2521,6 +2521,10 @@ async def _create_project_from_action_points(
         acceptance_criteria=action_points,
     )
     _save_project_tree(pdir, tree)
+    # Register CEO and EA in project team for project history
+    from onemancompany.agents.tree_tools import _add_to_project_team
+    _add_to_project_team(pdir, CEO_ID)
+    _add_to_project_team(pdir, EA_ID)
 
     tree_path = str(Path(pdir) / TASK_TREE_FILENAME)
     employee_manager.schedule_node(EA_ID, ea_node.id, tree_path)

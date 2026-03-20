@@ -59,12 +59,32 @@ def _save_tree(project_dir: str, tree: TaskTree) -> None:
     save_tree_async(path)
 
 
+def _resolve_project_root(project_dir: str) -> Path | None:
+    """Resolve project root dir containing project.yaml from an iteration dir.
+
+    project_dir is typically projects/{slug}/iterations/iter_NNN/.
+    project.yaml lives at projects/{slug}/project.yaml.
+    """
+    d = Path(project_dir)
+    # Check project_dir itself first
+    if (d / PROJECT_YAML_FILENAME).exists():
+        return d
+    # Walk up (max 3 levels) looking for project.yaml
+    for _ in range(3):
+        d = d.parent
+        if (d / PROJECT_YAML_FILENAME).exists():
+            return d
+    return None
+
+
 def _add_to_project_team(project_dir: str, employee_id: str) -> None:
     """Add employee to project.yaml team list (idempotent)."""
     import yaml
-    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
-    if not project_yaml.exists():
+    root = _resolve_project_root(project_dir)
+    if root is None:
+        logger.debug("No project.yaml found from {}", project_dir)
         return
+    project_yaml = root / PROJECT_YAML_FILENAME
     try:
         data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
         team = data.get("team", [])
