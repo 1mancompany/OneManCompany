@@ -5754,9 +5754,32 @@ class AppController {
     if (!this._chatPanel) return;
     const convType = this._chatPanel.getConvType();
     const waitHooks = convType === 'oneonone';
-    await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
+
+    // Show reflection status for 1-on-1
+    if (waitHooks) {
+      this._chatPanel.setInputEnabled(false);
+      this.logEntry('SYSTEM', 'Ending 1-on-1... employee is reflecting on the conversation...', 'system');
+    }
+
+    const resp = await fetch(`/api/conversation/${convId}/close?wait_hooks=${waitHooks}`, {
       method: 'POST',
-    });
+    }).then(r => r.json()).catch(() => ({}));
+
+    // Log 1-on-1 reflection results
+    if (waitHooks && resp.hook_result) {
+      const hr = resp.hook_result;
+      const empName = this._resolveEmployeeName(resp.employee_id || '');
+      if (hr.principles_updated) {
+        this.logEntry('SYSTEM', `${empName} updated their work principles based on the meeting.`, 'system');
+      }
+      if (hr.note_saved) {
+        this.logEntry('SYSTEM', `1-on-1 note saved to ${empName}'s guidance record.`, 'system');
+      }
+      if (!hr.principles_updated && !hr.note_saved) {
+        this.logEntry('SYSTEM', `1-on-1 with ${empName} ended (no reflection generated).`, 'system');
+      }
+    }
+
     this._chatPanel.setInputEnabled(false);
 
     // Restore CEO Console + CEO Inbox sections
