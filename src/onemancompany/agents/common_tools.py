@@ -1379,13 +1379,20 @@ def update_project_team(members: list[dict]) -> dict:
     data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
     team = data.get("team", [])
 
+    existing_ids = {t.get("employee_id") for t in team}
+    added = 0
     now = datetime.now().isoformat()
     for m in members:
+        eid = m["employee_id"]
+        if eid in existing_ids:
+            continue
         team.append({
-            "employee_id": m["employee_id"],
+            "employee_id": eid,
             "role": m.get("role", ""),
             "joined_at": now,
         })
+        existing_ids.add(eid)
+        added += 1
 
     data["team"] = team
     project_yaml.write_text(
@@ -1393,7 +1400,7 @@ def update_project_team(members: list[dict]) -> dict:
         encoding=ENCODING_UTF8,
     )
 
-    return {"status": "ok", "added": len(members), "total": len(team)}
+    return {"status": "ok", "added": added, "total": len(team)}
 
 
 # ---------------------------------------------------------------------------
