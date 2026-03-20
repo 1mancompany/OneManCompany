@@ -3144,6 +3144,7 @@ class AppController {
         <div><div class="detail-label">Hosting</div><div class="detail-text">${hostingLabel}</div></div>
         <div><div class="detail-label">Auth</div><div class="detail-text">${authLabel}</div></div>
       </div>
+      ${c.description_md ? `<div class="detail-section"><div class="detail-label">Description</div><div class="detail-description md-rendered">${this._renderMarkdown(c.description_md)}</div></div>` : ''}
     `;
 
     // Wire up panel buttons
