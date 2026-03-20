@@ -2907,11 +2907,6 @@ async def upload_avatar(employee_id: str, request: Request) -> dict:
 async def get_avatar(employee_id: str):
     """Serve an employee's avatar image, falling back to default piggy."""
     from onemancompany.core.config import EMPLOYEES_DIR, HR_DIR
-    # CEO uses dedicated avatar from avatars directory
-    if employee_id == CEO_ID:
-        ceo_avatar = HR_DIR / "avatars" / "ceo.png"
-        if ceo_avatar.exists():
-            return FileResponse(ceo_avatar, media_type="image/png")
     avatar_path = EMPLOYEES_DIR / employee_id / "avatar.png"
     if not avatar_path.exists():
         avatar_path = EMPLOYEES_DIR / employee_id / "avatar.jpg"
