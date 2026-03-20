@@ -609,7 +609,6 @@ async def _run_discussion_round(
     topic: str,
     agenda: str,
     chat_history: list[dict],
-    discussion_entries: list[dict],
     ceo_queue: asyncio.Queue,
     max_rounds: int = 15,
 ) -> tuple[int, list[dict]]:
@@ -621,7 +620,9 @@ async def _run_discussion_round(
 
     for round_num in range(max_rounds):
         rounds_used = round_num + 1
-        # Drain any CEO messages queued since last round
+        # Drain any CEO messages queued since last round.
+        # We only append to chat_history here (no _chat() call) because the
+        # API route that enqueued the message already persisted and broadcast it.
         while not ceo_queue.empty():
             try:
                 ceo_msg = ceo_queue.get_nowait()
@@ -838,7 +839,6 @@ async def pull_meeting(
                     topic=topic,
                     agenda=f"Current agenda item: {item_text}",
                     chat_history=chat_history,
-                    discussion_entries=discussion_entries,
                     ceo_queue=ceo_queue,
                     max_rounds=10,
                 )
@@ -864,7 +864,6 @@ async def pull_meeting(
                 topic=topic,
                 agenda=agenda,
                 chat_history=chat_history,
-                discussion_entries=discussion_entries,
                 ceo_queue=ceo_queue,
                 max_rounds=15,
             )

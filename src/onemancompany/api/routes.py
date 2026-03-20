@@ -5763,6 +5763,16 @@ async def open_ceo_conversation(node_id: str):
     }
 
 
+def _parse_hold_reason(hold_reason: str | None) -> dict[str, str]:
+    """Parse a hold_reason string like 'ceo_request=node_id,no_watchdog=1' into a dict."""
+    result: dict[str, str] = {}
+    for pair in (hold_reason or "").split(","):
+        if "=" in pair:
+            k, v = pair.split("=", 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
 async def _run_conversation_loop(session, node, tree, project_dir):
     """Run conversation loop and handle completion."""
     from onemancompany.core.task_lifecycle import transition
@@ -5786,13 +5796,7 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
         parent = tree.get_node(node.parent_id) if node.parent_id else None
         if parent and parent.status == TaskPhase.HOLDING.value:
-            # hold_reason format: "ceo_request={node_id},no_watchdog=1"
-            hr = parent.hold_reason or ""
-            hr_meta = {}
-            for pair in hr.split(","):
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    hr_meta[k.strip()] = v.strip()
+            hr_meta = _parse_hold_reason(parent.hold_reason)
             if hr_meta.get("ceo_request") == node.id:
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id,

@@ -2261,7 +2261,7 @@ class AppController {
           notice.textContent = '⚠ Settings changes will trigger a server reload. Use when no tasks are running.';
           container.appendChild(notice);
         }
-        // Deduplicate sections by id (last occurrence wins)
+        // Deduplicate sections by id (first occurrence wins)
         const seenIds = new Set();
         const dedupSections = [];
         for (const s of manifest.settings.sections) {
@@ -4180,6 +4180,10 @@ class AppController {
     this.viewingRoomId = room.id;
     const modal = document.getElementById('meeting-modal');
     modal.classList.remove('hidden');
+
+    // Remove stale agenda from previous meeting
+    const oldAgenda = document.getElementById('meeting-agenda-list');
+    if (oldAgenda) oldAgenda.parentElement.remove();
 
     // Title
     document.getElementById('meeting-modal-title').textContent = `🏢 ${room.name}`;
