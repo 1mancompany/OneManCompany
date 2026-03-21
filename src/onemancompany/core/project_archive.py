@@ -20,7 +20,16 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import ENCODING_UTF8, NODES_DIR_NAME, PROJECT_YAML_FILENAME, PROJECTS_DIR, TASK_TREE_FILENAME
+from onemancompany.core.config import (
+    ENCODING_UTF8,
+    NODES_DIR_NAME,
+    PROJECT_YAML_FILENAME,
+    PROJECTS_DIR,
+    TASK_TREE_FILENAME,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
+)
 
 ITERATIONS_DIR_NAME = "iterations"
 
@@ -497,9 +506,9 @@ def append_action(project_id: str, employee_id: str, action: str, detail: str = 
         return
     doc.setdefault("timeline", []).append({
         "time": datetime.now().isoformat(),
-        "employee_id": employee_id,
-        "action": action,
-        "detail": detail[:500],
+        TL_FIELD_EMPLOYEE_ID: employee_id,
+        TL_FIELD_ACTION: action,
+        TL_FIELD_DETAIL: detail[:500],
     })
     if employee_id:
         doc["current_owner"] = employee_id
@@ -517,9 +526,9 @@ def complete_project(project_id: str, output: str = "") -> None:
     doc["current_owner"] = ""
 
     actual_contributors = {
-        entry["employee_id"]
+        entry[TL_FIELD_EMPLOYEE_ID]
         for entry in doc.get("timeline", [])
-        if entry.get("employee_id")
+        if entry.get(TL_FIELD_EMPLOYEE_ID)
     }
     if actual_contributors:
         doc["participants"] = [
@@ -762,7 +771,7 @@ def record_project_cost(
     tokens["total"] = tokens.get("total", 0) + input_tokens + output_tokens
     breakdown = cost.setdefault("breakdown", [])
     breakdown.append({
-        "employee_id": employee_id,
+        TL_FIELD_EMPLOYEE_ID: employee_id,
         "model": model,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -813,7 +822,7 @@ def get_cost_summary() -> dict:
             total_input += proj_input
             total_output += proj_output
             for entry in cost.get("breakdown", []):
-                eid = entry.get("employee_id", "")
+                eid = entry.get(TL_FIELD_EMPLOYEE_ID, "")
                 from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
                 _emp_d = _load_emp(eid)
                 if not _emp_d:

@@ -95,6 +95,19 @@ PF_TALENT_ID = "talent_id"
 PF_SPRITE = "sprite"
 PF_ID = "id"
 PF_CURRENT_TASK_SUMMARY = "current_task_summary"
+PF_GUIDANCE_NOTES = "guidance_notes"
+
+# ---------------------------------------------------------------------------
+# Timeline action constants — used in project_archive append_action calls
+# ---------------------------------------------------------------------------
+TL_ACTION_SELF_EVAL = "self-evaluation"
+TL_ACTION_SENIOR_REVIEW = "senior review"
+TL_ACTION_EMPLOYEE_FEEDBACK = "employee feedback"
+TL_ACTION_IMPROVEMENT = "improvement item"
+TL_ACTION_OPS_REPORT = "operations report"
+TL_FIELD_EMPLOYEE_ID = "employee_id"
+TL_FIELD_ACTION = "action"
+TL_FIELD_DETAIL = "detail"
 
 # ---------------------------------------------------------------------------
 # Common identifiers — canonical strings for sender/role/scope fields

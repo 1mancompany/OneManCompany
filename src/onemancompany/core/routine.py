@@ -41,6 +41,13 @@ from onemancompany.core.config import (
     PF_PERFORMANCE_HISTORY,
     PF_ROLE,
     PF_WORK_PRINCIPLES,
+    TL_ACTION_IMPROVEMENT,
+    TL_ACTION_OPS_REPORT,
+    TL_ACTION_SELF_EVAL,
+    TL_ACTION_SENIOR_REVIEW,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
     STATUS_IDLE,
     STATUS_IN_MEETING,
     SYSTEM_AGENT,
@@ -167,12 +174,12 @@ class StepContext:
             return ""
         lines = []
         for entry in timeline[-max_entries:]:
-            emp_id = entry.get("employee_id", "?")
+            emp_id = entry.get(TL_FIELD_EMPLOYEE_ID, "?")
             # Resolve name from store
             emp_data = load_employee(emp_id)
             name = f"{emp_data.get(PF_NAME, emp_id)}({emp_data.get(PF_NICKNAME, '')})" if emp_data else emp_id
-            action = entry.get("action", "")
-            detail = entry.get("detail", "")[:200]
+            action = entry.get(TL_FIELD_ACTION, "")
+            detail = entry.get(TL_FIELD_DETAIL, "")[:200]
             lines.append(f"- [{name}] {action}: {detail}")
         return "\n".join(lines)
 
@@ -191,9 +198,9 @@ class StepContext:
             return "(No action records found for you in the project log)"
         lines = []
         for entry in timeline:
-            if entry.get("employee_id") == emp_id:
-                action = entry.get("action", "")
-                detail = entry.get("detail", "")[:200]
+            if entry.get(TL_FIELD_EMPLOYEE_ID) == emp_id:
+                action = entry.get(TL_FIELD_ACTION, "")
+                detail = entry.get(TL_FIELD_DETAIL, "")[:200]
                 lines.append(f"- {action}: {detail}")
         if not lines:
             return "(No action records found for you in the project log)"
@@ -1195,13 +1202,13 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get("employee_id", ""), "self-evaluation", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ev.get(TL_FIELD_EMPLOYEE_ID, ""), TL_ACTION_SELF_EVAL, ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
-                append_action(project_id, rv.get("reviewer_id", ""), "senior review", rv.get("review", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, rv.get("reviewer_id", ""), TL_ACTION_SENIOR_REVIEW, rv.get("review", "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:
-                append_action(project_id, COO_ID, "operations report", ctx.coo_report[:MAX_SUMMARY_LEN])
+                append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
-                append_action(project_id, ai.get("source", ""), "improvement item", ai.get("description", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ai.get("source", ""), TL_ACTION_IMPROVEMENT, ai.get("description", "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room

@@ -32,6 +32,13 @@ from onemancompany.core.config import (
     SYSTEM_AGENT,
     SYSTEM_SENDER,
     TASK_TREE_FILENAME,
+    TL_ACTION_EMPLOYEE_FEEDBACK,
+    TL_ACTION_IMPROVEMENT,
+    TL_ACTION_SELF_EVAL,
+    TL_ACTION_SENIOR_REVIEW,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import AuthMethod, DecisionStatus, EventType, HostingMode
@@ -2972,12 +2979,12 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
 
     # Extract this employee's retrospective content
     for entry in timeline_entries:
-        eid = entry.get("employee_id", "")
-        action = entry.get("action", "")
-        detail = entry.get("detail", "")
-        if eid == employee_id and action == "self-evaluation":
+        eid = entry.get(TL_FIELD_EMPLOYEE_ID, "")
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if eid == employee_id and action == TL_ACTION_SELF_EVAL:
             result["self_evaluation"] = detail
-        elif eid == employee_id and action == "employee feedback":
+        elif eid == employee_id and action == TL_ACTION_EMPLOYEE_FEEDBACK:
             result["feedback"] = detail
 
     # Extract senior reviews mentioning this employee
@@ -2985,12 +2992,12 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
     emp_name = emp_data.get("name", "") if emp_data else ""
     emp_nickname = emp_data.get("nickname", "") if emp_data else ""
     for entry in timeline_entries:
-        action = entry.get("action", "")
-        detail = entry.get("detail", "")
-        if action == "senior review" and detail:
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if action == TL_ACTION_SENIOR_REVIEW and detail:
             # Check if the review mentions this employee by name or nickname
             if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
-                reviewer_id = entry.get("employee_id", "")
+                reviewer_id = entry.get(TL_FIELD_EMPLOYEE_ID, "")
                 reviewer_data = _load_emp(reviewer_id)
                 reviewer_name = reviewer_data.get("name", reviewer_id) if reviewer_data else reviewer_id
                 result["senior_reviews"].append({
@@ -3000,9 +3007,9 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
 
     # Extract HR improvement suggestions for this employee
     for entry in timeline_entries:
-        action = entry.get("action", "")
-        detail = entry.get("detail", "")
-        if action == "improvement item" and detail:
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if action == TL_ACTION_IMPROVEMENT and detail:
             if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
                 result["hr_improvements"].append(detail)
 
