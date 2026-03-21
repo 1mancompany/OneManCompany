@@ -2853,7 +2853,7 @@ async def get_project_tree(project_id: str) -> dict:
                     "name": "CEO",
                     "nickname": "CEO",
                     "role": "Chief Executive Officer",
-                    "avatar_url": "",
+                    "avatar_url": f"/api/employees/{CEO_ID}/avatar",
                 }
             else:
                 _tree_emp = _load_emp(eid)
