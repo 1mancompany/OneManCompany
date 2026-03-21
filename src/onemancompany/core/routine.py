@@ -294,7 +294,11 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
             f"{skills_ctx}"
             f"{tools_ctx}"
             f"{culture_ctx}"
-            f"Recently completed task summary: {ctx.task_summary}\n"
+            f"[Meeting Context] This is a PROJECT RETROSPECTIVE (项目复盘会). "
+            f"The project has been completed. The purpose of this meeting is to review and summarize "
+            f"what was done, what went well, and what can be improved. "
+            f"This is NOT a planning session — do NOT propose next steps or new tasks.\n\n"
+            f"Completed project summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
             f"[Your Actual Action Records in This Project]\n{my_actions}\n\n"
             f"Important rules: You must only self-evaluate based on the 'Actual Action Records' above.\n"
@@ -365,7 +369,9 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         prompt = (
             f"You are {senior_data.get(PF_NAME, '')} (nickname: {senior_data.get(PF_NICKNAME, '')}, Lv.{senior_level}, {senior_data.get(PF_ROLE, '')}).\n"
             f"{culture_ctx}"
-            f"Task summary: {ctx.task_summary}\n"
+            f"[Meeting Context] This is a PROJECT RETROSPECTIVE (项目复盘会). "
+            f"The project is completed. Focus on reviewing what happened, not planning future work.\n\n"
+            f"Completed project summary: {ctx.task_summary}\n"
             f"{timeline_ctx}\n"
             f"Below are the self-evaluations from junior colleagues:\n{junior_info}\n\n"
             f"Important rules: Your review must be strictly based on facts from the project log.\n"
@@ -425,9 +431,11 @@ async def _handle_hr_summary(step: WorkflowStep, ctx: StepContext) -> dict:
     culture_ctx = ctx.format_company_culture()
 
     hr_prompt = (
-        f"You are the HR manager, responsible for summarizing this review meeting.\n"
+        f"You are the HR manager, responsible for summarizing this project retrospective.\n"
         f"{culture_ctx}"
-        f"Task summary: {ctx.task_summary}\n"
+        f"[Meeting Context] This is a PROJECT RETROSPECTIVE (项目复盘会). "
+        f"The project is completed. Focus on reviewing performance, not planning future work.\n\n"
+        f"Completed project summary: {ctx.task_summary}\n"
         f"{timeline_ctx}\n"
         f"Employee self-evaluations:\n{all_evals}\n\n"
         f"Senior employee peer reviews:\n{all_reviews}\n\n"
@@ -501,7 +509,9 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     coo_prompt = (
         f"You are the COO, responsible for producing a company operations report.\n"
         f"{culture_ctx}"
-        f"Recently completed task: {ctx.task_summary}\n"
+        f"[Meeting Context] This is a PROJECT RETROSPECTIVE (项目复盘会). "
+        f"The project is completed. Focus on reviewing outcomes and lessons learned, not future plans.\n\n"
+        f"Completed project: {ctx.task_summary}\n"
         f"{timeline_ctx}"
         f"{cost_ctx}"
         f"The company currently has {emp_count} employees, {tool_count} pieces of equipment, and {room_count} meeting rooms.\n\n"
@@ -618,13 +628,17 @@ async def _handle_employee_open_floor(step: WorkflowStep, ctx: StepContext) -> d
             f"{skills_ctx}"
             f"{tools_ctx}"
             f"{culture_ctx}"
-            f"Task summary: {ctx.task_summary}\n"
+            f"[Meeting Context] This is a PROJECT RETROSPECTIVE (项目复盘会). "
+            f"The project has been completed. The purpose is to reflect on the work done, "
+            f"share lessons learned, and identify improvements. "
+            f"Do NOT propose new projects, next steps, or future plans.\n\n"
+            f"Completed project summary: {ctx.task_summary}\n"
             f"{timeline_ctx}"
             f"[Your Actual Action Records in This Project]\n{my_actions}\n\n"
             f"Important rules: Your remarks must be based on your actual action records; do not make up stories.\n"
             f"- Only discuss things you actually experienced and that are verifiable in the records\n"
             f"- No empty platitudes; do not fabricate difficulties or exaggerate contributions\n\n"
-            f"This is the open floor session of the meeting. Based on your actual experience, you may raise:\n"
+            f"This is the open floor session of the retrospective meeting. Based on your actual experience, you may raise:\n"
             f"- Actual difficulties encountered during work\n"
             f"- Missing tools or equipment\n"
             f"- What kind of talent is needed\n"
@@ -662,7 +676,9 @@ async def _handle_action_plan(step: WorkflowStep, ctx: StepContext) -> dict:
     )
 
     action_prompt = (
-        f"You represent both COO and HR in compiling the meeting action plan.\n\n"
+        f"You represent both COO and HR in compiling the retrospective action plan.\n"
+        f"This is a PROJECT RETROSPECTIVE — action items should focus on improvements "
+        f"and lessons learned, not new project tasks.\n\n"
         f"COO operations report: {ctx.coo_report}\n\n"
         f"Employee remarks:\n{feedback_text}\n\n"
         f"Review improvement suggestions:\n{phase1_improvements}\n\n"
@@ -1048,7 +1064,8 @@ async def run_post_task_routine(
         return
 
     if participants is None:
-        participants = list(all_emps.keys())
+        # Exclude CEO — CEO is a real person and does not participate in AI-driven meetings
+        participants = [eid for eid in all_emps if eid != CEO_ID]
 
     # Load project record for retrospective reference
     project_record: dict = {}
@@ -1801,7 +1818,9 @@ async def _run_review_phase2(
     )
 
     action_prompt = (
-        f"You represent both COO and HR in compiling the meeting action plan.\n\n"
+        f"You represent both COO and HR in compiling the retrospective action plan.\n"
+        f"This is a PROJECT RETROSPECTIVE — action items should focus on improvements "
+        f"and lessons learned, not new project tasks.\n\n"
         f"COO operations report: {result['coo_report']}\n\n"
         f"Employee remarks:\n{feedback_text}\n\n"
         f"Phase 1 improvement suggestions:\n{phase1_improvements}\n\n"

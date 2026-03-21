@@ -274,7 +274,7 @@ CEO（你，唯一能喝咖啡的人）
 | --- | --- | --- |
 | **Company Hosted Agent** | OMC 自建 Agent，通过 OpenRouter 调用 LLM | OpenRouter API Key（设置流程中配置） |
 | **Claude Code** | 能力更强，更省 token 开销 | 需要安装 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) + [Claude Pro/Max 订阅](https://claude.ai) |
-| **OpenClaw** *(即将推出)* | 开源替代，支持多种 LLM 后端 | 需要安装 [OpenClaw CLI](https://github.com/anthropics/openclaw) + 兼容的 LLM API Key |
+| **OpenClaw** *(即将推出)* | 开源替代，支持多种 LLM 后端 | 需要安装 [OpenClaw CLI](https://github.com/openclaw/openclaw) + 兼容的 LLM API Key |
 
 默认使用 Company Hosted Agent，无需额外订阅即可开始。使用 Claude Code 或 OpenClaw 前需先安装对应 CLI，详见[执行模式文档](https://1mancompany.github.io/OneManCompany/docs/zh/guide/execution-modes/)。
 
