@@ -108,6 +108,7 @@ TL_ACTION_OPS_REPORT = "operations report"
 TL_FIELD_EMPLOYEE_ID = "employee_id"
 TL_FIELD_ACTION = "action"
 TL_FIELD_DETAIL = "detail"
+TL_FIELD_TIME = "time"
 
 # ---------------------------------------------------------------------------
 # Common identifiers — canonical strings for sender/role/scope fields

@@ -29,6 +29,7 @@ from onemancompany.core.config import (
     TL_FIELD_ACTION,
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
+    TL_FIELD_TIME,
 )
 
 ITERATIONS_DIR_NAME = "iterations"
@@ -42,6 +43,7 @@ PA_COMPLETED_AT = "completed_at"
 PA_OUTPUT = "output"
 PA_COST = "cost"
 PA_BREAKDOWN = "breakdown"
+PA_TOKEN_USAGE = "token_usage"
 
 # Internal infrastructure files excluded from user-facing document listing
 _INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
@@ -397,7 +399,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
         PA_COST: {
             "budget_estimate_usd": 0.0,
             "actual_cost_usd": 0.0,
-            "token_usage": {"input": 0, "output": 0, "total": 0},
+            PA_TOKEN_USAGE: {"input": 0, "output": 0, "total": 0},
             PA_BREAKDOWN: [],
         },
         "project_dir": str(iter_dir),
@@ -515,7 +517,7 @@ def append_action(project_id: str, employee_id: str, action: str, detail: str = 
     if not doc:
         return
     doc.setdefault(PA_TIMELINE, []).append({
-        "time": datetime.now().isoformat(),
+        TL_FIELD_TIME: datetime.now().isoformat(),
         TL_FIELD_EMPLOYEE_ID: employee_id,
         TL_FIELD_ACTION: action,
         TL_FIELD_DETAIL: detail,
@@ -771,11 +773,11 @@ def record_project_cost(
     cost = doc.setdefault(PA_COST, {
         "budget_estimate_usd": 0.0,
         "actual_cost_usd": 0.0,
-        "token_usage": {"input": 0, "output": 0, "total": 0},
+        PA_TOKEN_USAGE: {"input": 0, "output": 0, "total": 0},
         PA_BREAKDOWN: [],
     })
     cost["actual_cost_usd"] = cost.get("actual_cost_usd", 0.0) + cost_usd
-    tokens = cost.setdefault("token_usage", {"input": 0, "output": 0, "total": 0})
+    tokens = cost.setdefault(PA_TOKEN_USAGE, {"input": 0, "output": 0, "total": 0})
     tokens["input"] = tokens.get("input", 0) + input_tokens
     tokens["output"] = tokens.get("output", 0) + output_tokens
     tokens["total"] = tokens.get("total", 0) + input_tokens + output_tokens
@@ -825,7 +827,7 @@ def get_cost_summary() -> dict:
                 continue
             cost = iter_doc.get(PA_COST, {})
             proj_cost = cost.get("actual_cost_usd", 0.0)
-            tokens = cost.get("token_usage", {})
+            tokens = cost.get(PA_TOKEN_USAGE, {})
             proj_input = tokens.get("input", 0)
             proj_output = tokens.get("output", 0)
             total_cost += proj_cost

@@ -42,6 +42,7 @@ from onemancompany.core.config import (
 # Filename constants (single-file, used only in store.py)
 # ---------------------------------------------------------------------------
 WORK_PRINCIPLES_FILENAME = "work_principles.md"
+_GUIDANCE_NOTES_KEY = "notes"  # key inside guidance.yaml
 ACTIVITY_LOG_FILENAME = "activity_log.yaml"
 OVERHEAD_FILENAME = "overhead.yaml"
 TASK_INDEX_FILENAME = "task_index.yaml"
@@ -209,7 +210,7 @@ def load_employee_guidance(emp_id: str) -> list[str]:
         return []
     if isinstance(data, list):
         return data
-    return data.get("notes", []) if isinstance(data, dict) else []
+    return data.get(_GUIDANCE_NOTES_KEY, []) if isinstance(data, dict) else []
 
 
 def load_employee_work_principles(emp_id: str) -> str:
@@ -258,7 +259,7 @@ async def save_guidance(emp_id: str, notes: list[str]) -> None:
     """Write guidance.yaml for an employee."""
     path = EMPLOYEES_DIR / emp_id / GUIDANCE_FILENAME
     async with _get_lock(str(path)):
-        _write_yaml(path, {"notes": notes})
+        _write_yaml(path, {_GUIDANCE_NOTES_KEY: notes})
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 
