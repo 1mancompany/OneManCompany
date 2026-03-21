@@ -72,6 +72,13 @@ from loguru import logger
 REPORTS_DIR = MEETING_REPORTS_DIR
 _AGENT_ROUTINE = "ROUTINE"
 
+# Context dict keys used in StepContext data structures
+CTX_KEY_EVALUATION = "evaluation"
+CTX_KEY_REVIEWER_ID = "reviewer_id"
+CTX_KEY_REVIEW = "review"
+CTX_KEY_SOURCE = "source"
+CTX_KEY_DESCRIPTION = "description"
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers to reduce repetition across routine handlers
@@ -1202,13 +1209,13 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get(TL_FIELD_EMPLOYEE_ID, ""), TL_ACTION_SELF_EVAL, ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ev.get(TL_FIELD_EMPLOYEE_ID, ""), TL_ACTION_SELF_EVAL, ev.get(CTX_KEY_EVALUATION, "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
-                append_action(project_id, rv.get("reviewer_id", ""), TL_ACTION_SENIOR_REVIEW, rv.get("review", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, rv.get(CTX_KEY_REVIEWER_ID, ""), TL_ACTION_SENIOR_REVIEW, rv.get(CTX_KEY_REVIEW, "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:
                 append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
-                append_action(project_id, ai.get("source", ""), TL_ACTION_IMPROVEMENT, ai.get("description", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ai.get(CTX_KEY_SOURCE, ""), TL_ACTION_IMPROVEMENT, ai.get(CTX_KEY_DESCRIPTION, "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room

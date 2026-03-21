@@ -33,6 +33,16 @@ from onemancompany.core.config import (
 
 ITERATIONS_DIR_NAME = "iterations"
 
+# Project YAML schema field keys
+PA_TIMELINE = "timeline"
+PA_CURRENT_OWNER = "current_owner"
+PA_PARTICIPANTS = "participants"
+PA_STATUS = "status"
+PA_COMPLETED_AT = "completed_at"
+PA_OUTPUT = "output"
+PA_COST = "cost"
+PA_BREAKDOWN = "breakdown"
+
 # Internal infrastructure files excluded from user-facing document listing
 _INTERNAL_FILE_NAMES = frozenset({PROJECT_YAML_FILENAME, TASK_TREE_FILENAME})
 _INTERNAL_DIR_NAMES = frozenset({NODES_DIR_NAME})
@@ -78,7 +88,7 @@ def _rebase_project_dir(stored_path: str) -> Path:
         p.relative_to(PROJECTS_DIR)
         return p
     except ValueError:
-        pass  # not under PROJECTS_DIR — fall through to rebase logic
+        logger.debug("Path {} not under PROJECTS_DIR, attempting rebase", p)
     # Try to find the 'company/business/projects' marker and rebase
     parts = p.parts
     for i, part in enumerate(parts):
@@ -374,21 +384,21 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
         "task": task,
         "status": ITER_STATUS_IN_PROGRESS,
         "routed_to": routed_to,
-        "current_owner": routed_to.lower() if routed_to else "",
+        PA_CURRENT_OWNER: routed_to.lower() if routed_to else "",
         "created_at": datetime.now().isoformat(),
         "completed_at": None,
-        "timeline": [],
+        PA_TIMELINE: [],
         "output": None,
         "acceptance_criteria": [],
         "responsible_officer": "",
         "dispatches": [],
         "acceptance_result": None,
         "ea_review_result": None,
-        "cost": {
+        PA_COST: {
             "budget_estimate_usd": 0.0,
             "actual_cost_usd": 0.0,
             "token_usage": {"input": 0, "output": 0, "total": 0},
-            "breakdown": [],
+            PA_BREAKDOWN: [],
         },
         "project_dir": str(iter_dir),
     }
@@ -504,14 +514,14 @@ def append_action(project_id: str, employee_id: str, action: str, detail: str = 
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
         return
-    doc.setdefault("timeline", []).append({
+    doc.setdefault(PA_TIMELINE, []).append({
         "time": datetime.now().isoformat(),
         TL_FIELD_EMPLOYEE_ID: employee_id,
         TL_FIELD_ACTION: action,
-        TL_FIELD_DETAIL: detail[:500],
+        TL_FIELD_DETAIL: detail,
     })
     if employee_id:
-        doc["current_owner"] = employee_id
+        doc[PA_CURRENT_OWNER] = employee_id
     _save_resolved(version, key, doc)
 
 
@@ -523,16 +533,16 @@ def complete_project(project_id: str, output: str = "") -> None:
     doc["status"] = ITER_STATUS_COMPLETED
     doc["completed_at"] = datetime.now().isoformat()
     doc["output"] = output
-    doc["current_owner"] = ""
+    doc[PA_CURRENT_OWNER] = ""
 
     actual_contributors = {
         entry[TL_FIELD_EMPLOYEE_ID]
-        for entry in doc.get("timeline", [])
+        for entry in doc.get(PA_TIMELINE, [])
         if entry.get(TL_FIELD_EMPLOYEE_ID)
     }
     if actual_contributors:
-        doc["participants"] = [
-            pid for pid in doc.get("participants", [])
+        doc[PA_PARTICIPANTS] = [
+            pid for pid in doc.get(PA_PARTICIPANTS, [])
             if pid in actual_contributors
         ]
 
@@ -700,7 +710,7 @@ def list_projects() -> list[dict]:
             if latest_iter:
                 latest_task = latest_iter.get("task", "")
                 latest_iter_status = latest_iter.get("status", "")
-                latest_owner = latest_iter.get("current_owner", "")
+                latest_owner = latest_iter.get(PA_CURRENT_OWNER, "")
             # Aggregate cost across all iterations
             for iter_id in iterations:
                 iter_doc = load_iteration(d.name, iter_id)
@@ -712,7 +722,7 @@ def list_projects() -> list[dict]:
             "status": project_status,
             "latest_iter_status": latest_iter_status,
             "routed_to": "",
-            "current_owner": latest_owner,
+            PA_CURRENT_OWNER: latest_owner,
             "created_at": doc.get("created_at", ""),
             "completed_at": doc.get("archived_at"),
             "participant_count": 0,
@@ -758,18 +768,18 @@ def record_project_cost(
     version, doc, key = _resolve_and_load(project_id)
     if not doc:
         return
-    cost = doc.setdefault("cost", {
+    cost = doc.setdefault(PA_COST, {
         "budget_estimate_usd": 0.0,
         "actual_cost_usd": 0.0,
         "token_usage": {"input": 0, "output": 0, "total": 0},
-        "breakdown": [],
+        PA_BREAKDOWN: [],
     })
     cost["actual_cost_usd"] = cost.get("actual_cost_usd", 0.0) + cost_usd
     tokens = cost.setdefault("token_usage", {"input": 0, "output": 0, "total": 0})
     tokens["input"] = tokens.get("input", 0) + input_tokens
     tokens["output"] = tokens.get("output", 0) + output_tokens
     tokens["total"] = tokens.get("total", 0) + input_tokens + output_tokens
-    breakdown = cost.setdefault("breakdown", [])
+    breakdown = cost.setdefault(PA_BREAKDOWN, [])
     breakdown.append({
         TL_FIELD_EMPLOYEE_ID: employee_id,
         "model": model,
@@ -813,7 +823,7 @@ def get_cost_summary() -> dict:
             iter_doc = load_iteration(d.name, iter_id)
             if not iter_doc:
                 continue
-            cost = iter_doc.get("cost", {})
+            cost = iter_doc.get(PA_COST, {})
             proj_cost = cost.get("actual_cost_usd", 0.0)
             tokens = cost.get("token_usage", {})
             proj_input = tokens.get("input", 0)
@@ -821,7 +831,7 @@ def get_cost_summary() -> dict:
             total_cost += proj_cost
             total_input += proj_input
             total_output += proj_output
-            for entry in cost.get("breakdown", []):
+            for entry in cost.get(PA_BREAKDOWN, []):
                 eid = entry.get(TL_FIELD_EMPLOYEE_ID, "")
                 from onemancompany.core.store import load_employee as _load_emp, load_ex_employees as _load_ex
                 _emp_d = _load_emp(eid)

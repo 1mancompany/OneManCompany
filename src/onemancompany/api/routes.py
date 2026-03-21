@@ -28,6 +28,8 @@ from onemancompany.core.config import (
     MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
     PF_CURRENT_TASK_SUMMARY,
+    PF_NAME,
+    PF_NICKNAME,
     STATUS_IDLE,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
@@ -2989,8 +2991,8 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
 
     # Extract senior reviews mentioning this employee
     emp_data = _load_emp(employee_id)
-    emp_name = emp_data.get("name", "") if emp_data else ""
-    emp_nickname = emp_data.get("nickname", "") if emp_data else ""
+    emp_name = emp_data.get(PF_NAME, "") if emp_data else ""
+    emp_nickname = emp_data.get(PF_NICKNAME, "") if emp_data else ""
     for entry in timeline_entries:
         action = entry.get(TL_FIELD_ACTION, "")
         detail = entry.get(TL_FIELD_DETAIL, "")
@@ -2999,7 +3001,7 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
             if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
                 reviewer_id = entry.get(TL_FIELD_EMPLOYEE_ID, "")
                 reviewer_data = _load_emp(reviewer_id)
-                reviewer_name = reviewer_data.get("name", reviewer_id) if reviewer_data else reviewer_id
+                reviewer_name = reviewer_data.get(PF_NAME, reviewer_id) if reviewer_data else reviewer_id
                 result["senior_reviews"].append({
                     "reviewer": reviewer_name,
                     "review": detail,

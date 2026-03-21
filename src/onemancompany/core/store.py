@@ -24,6 +24,8 @@ from onemancompany.core.config import (
     COMPANY_DIR,
     DATA_ROOT,  # noqa: F401 — re-exported, used by test fixtures
     ENCODING_UTF8,
+    PF_GUIDANCE_NOTES,
+    PF_WORK_PRINCIPLES,
     PROJECTS_DIR,  # noqa: F401 — re-exported, used by test fixtures
     DirtyCategory,
     EMPLOYEES_DIR,
@@ -158,8 +160,8 @@ def load_employee(emp_id: str) -> dict:
     """
     data = _read_yaml(_employee_profile_path(emp_id))
     if data:
-        data["work_principles"] = load_employee_work_principles(emp_id)
-        data["guidance_notes"] = load_employee_guidance(emp_id)
+        data[PF_WORK_PRINCIPLES] = load_employee_work_principles(emp_id)
+        data[PF_GUIDANCE_NOTES] = load_employee_guidance(emp_id)
     return data
 
 
@@ -178,8 +180,8 @@ def load_all_employees() -> dict[str, dict]:
         if profile_path.exists():
             data = _read_yaml(profile_path)
             emp_id = emp_dir.name
-            data["work_principles"] = load_employee_work_principles(emp_id)
-            data["guidance_notes"] = load_employee_guidance(emp_id)
+            data[PF_WORK_PRINCIPLES] = load_employee_work_principles(emp_id)
+            data[PF_GUIDANCE_NOTES] = load_employee_guidance(emp_id)
             result[emp_id] = data
     return result
 

@@ -1002,7 +1002,8 @@ async def execute_hire(
         )
 
     # Generate initial work_principles.md (unified location for all hosting modes)
-    wp_path = emp_dir / "work_principles.md"
+    from onemancompany.core.store import WORK_PRINCIPLES_FILENAME
+    wp_path = emp_dir / WORK_PRINCIPLES_FILENAME
     if not wp_path.exists():
         wp_path.write_text(
             f"# {name} ({nickname}) Work Principles\n\n"
