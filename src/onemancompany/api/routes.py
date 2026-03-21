@@ -6,7 +6,7 @@ import asyncio
 import re
 import uuid as _uuid
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -78,6 +78,31 @@ _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 from onemancompany.core.llm_utils import llm_invoke_with_retry as _llm_invoke_with_retry  # noqa: E402
 
 router = APIRouter()
+
+MAX_UPLOAD_FILE_SIZE = 50 * 1024 * 1024  # 50 MB per file
+MAX_UPLOAD_FILE_COUNT = 20
+
+
+def _sanitize_filename(raw: str | None) -> str:
+    """Extract safe filename, stripping path traversal components."""
+    if not raw:
+        return f"upload_{_uuid.uuid4().hex[:8]}"
+    safe = PurePosixPath(raw).name
+    return safe or f"upload_{_uuid.uuid4().hex[:8]}"
+
+
+def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
+    """Save file to *upload_dir*, appending counter if name already exists."""
+    dest = upload_dir / filename
+    if dest.exists():
+        stem, suffix = dest.stem, dest.suffix
+        counter = 1
+        while dest.exists():
+            dest = upload_dir / f"{stem}_{counter}{suffix}"
+            counter += 1
+    dest.write_bytes(content)
+    return dest
+
 
 def _get_employee_manager():
     """Lazy import to avoid circular dependency."""
@@ -368,19 +393,18 @@ async def ceo_submit_task(
     # Save uploaded files to project attachments directory
     attachments: list[dict] = []
     if files:
+        if len(files) > MAX_UPLOAD_FILE_COUNT:
+            return {"error": f"Too many files (max {MAX_UPLOAD_FILE_COUNT})"}
         attach_dir = Path(pdir) / "attachments"
         attach_dir.mkdir(parents=True, exist_ok=True)
         for f in files:
-            dest = attach_dir / f.filename
-            if dest.exists():
-                stem, suffix = dest.stem, dest.suffix
-                counter = 1
-                while dest.exists():
-                    dest = attach_dir / f"{stem}_{counter}{suffix}"
-                    counter += 1
             content = await f.read()
-            dest.write_bytes(content)
-            attachments.append({"filename": f.filename, "path": str(dest)})
+            if len(content) > MAX_UPLOAD_FILE_SIZE:
+                return {"error": f"File too large: {f.filename} (max {MAX_UPLOAD_FILE_SIZE // 1024 // 1024}MB)"}
+            safe_name = _sanitize_filename(f.filename)
+            dest = _save_file_deduped(attach_dir, safe_name, content)
+            attachments.append({"filename": safe_name, "path": str(dest)})
+        logger.debug("Saved {} attachment(s) to {}", len(attachments), attach_dir)
 
     await event_bus.publish(
         CompanyEvent(type=EventType.CEO_TASK_SUBMITTED, payload={"task": task}, agent="CEO")
@@ -2289,6 +2313,8 @@ async def upload_file(file: UploadFile, project_id: str = "") -> dict:
     from onemancompany.core.project_archive import get_project_dir
 
     content = await file.read()
+    if len(content) > MAX_UPLOAD_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large (max {MAX_UPLOAD_FILE_SIZE // 1024 // 1024}MB)")
     if project_id:
         pdir = Path(get_project_dir(project_id))
         upload_dir = pdir / "attachments"
@@ -2296,18 +2322,12 @@ async def upload_file(file: UploadFile, project_id: str = "") -> dict:
         from datetime import datetime
         upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
     upload_dir.mkdir(parents=True, exist_ok=True)
-    dest = upload_dir / file.filename
-    # Avoid overwriting: append counter if file exists
-    if dest.exists():
-        stem, suffix = dest.stem, dest.suffix
-        counter = 1
-        while dest.exists():
-            dest = upload_dir / f"{stem}_{counter}{suffix}"
-            counter += 1
-    dest.write_bytes(content)
+    safe_name = _sanitize_filename(file.filename)
+    dest = _save_file_deduped(upload_dir, safe_name, content)
+    logger.debug("Uploaded file {} to {}", safe_name, dest)
     return {
         "path": str(dest),
-        "filename": file.filename,
+        "filename": safe_name,
         "size": len(content),
         "content_type": file.content_type or "",
     }
