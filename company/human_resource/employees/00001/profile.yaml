@@ -8,7 +8,7 @@ title: CEO
 department: Executive
 role: CEO
 desk_position: [14, 3]
-sprite: ceo
+sprite: ceo_boss
 
 skills:
   - leadership

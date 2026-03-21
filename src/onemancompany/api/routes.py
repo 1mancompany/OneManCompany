@@ -6,9 +6,9 @@ import asyncio
 import re
 import uuid as _uuid
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from loguru import logger
 
@@ -30,6 +30,7 @@ from onemancompany.core.config import (
     PF_CURRENT_TASK_SUMMARY,
     PF_NAME,
     PF_NICKNAME,
+    PF_SPRITE,
     STATUS_IDLE,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
@@ -77,6 +78,31 @@ _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
 from onemancompany.core.llm_utils import llm_invoke_with_retry as _llm_invoke_with_retry  # noqa: E402
 
 router = APIRouter()
+
+MAX_UPLOAD_FILE_SIZE = 50 * 1024 * 1024  # 50 MB per file
+MAX_UPLOAD_FILE_COUNT = 20
+
+
+def _sanitize_filename(raw: str | None) -> str:
+    """Extract safe filename, stripping path traversal components."""
+    if not raw:
+        return f"upload_{_uuid.uuid4().hex[:8]}"
+    safe = PurePosixPath(raw).name
+    return safe or f"upload_{_uuid.uuid4().hex[:8]}"
+
+
+def _save_file_deduped(upload_dir: Path, filename: str, content: bytes) -> Path:
+    """Save file to *upload_dir*, appending counter if name already exists."""
+    dest = upload_dir / filename
+    if dest.exists():
+        stem, suffix = dest.stem, dest.suffix
+        counter = 1
+        while dest.exists():
+            dest = upload_dir / f"{stem}_{counter}{suffix}"
+            counter += 1
+    dest.write_bytes(content)
+    return dest
+
 
 def _get_employee_manager():
     """Lazy import to avoid circular dependency."""
@@ -327,8 +353,14 @@ async def get_state() -> dict:
 
 
 @router.post("/api/ceo/task")
-async def ceo_submit_task(body: dict) -> dict:
-    """CEO submits a task, routed to the appropriate agent via persistent loop."""
+async def ceo_submit_task(
+    task: str = Form(""),
+    project_id: str = Form(""),
+    project_name: str = Form(""),
+    mode: str = Form("standard"),
+    files: list[UploadFile] = File(default=[]),
+) -> dict:
+    """CEO submits a task with optional files, routed to EA via persistent loop."""
     from pathlib import Path
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import (
@@ -338,14 +370,9 @@ async def ceo_submit_task(body: dict) -> dict:
         get_project_dir,
     )
 
-    task = body.get("task", "")
     if not task:
         return {"error": "Empty task"}
 
-    attachments = body.get("attachments", [])
-    project_id = body.get("project_id", "")
-    project_name = body.get("project_name", "")
-    mode = body.get("mode", "standard")
     if mode not in ("simple", "standard"):
         mode = "standard"
 
@@ -353,36 +380,45 @@ async def ceo_submit_task(body: dict) -> dict:
     await _store.append_activity({"type": "ceo_task", "task": task})
 
     if project_id:
-        # Continue an existing named project with a new iteration
         iter_id = create_iteration(project_id, task, "pending")
         pid = project_id
     elif project_name:
-        # Create a new named project + first iteration
         pid = create_named_project(project_name)
         iter_id = create_iteration(pid, task, "pending")
     else:
-        # Auto-create named project from task description (LLM-powered naming)
         pid, iter_id = await async_create_project_from_task(task, "pending")
 
     pdir = get_project_dir(pid)
 
+    # Save uploaded files to project attachments directory
+    attachments: list[dict] = []
+    if files:
+        if len(files) > MAX_UPLOAD_FILE_COUNT:
+            return {"error": f"Too many files (max {MAX_UPLOAD_FILE_COUNT})"}
+        attach_dir = Path(pdir) / "attachments"
+        attach_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            content = await f.read()
+            if len(content) > MAX_UPLOAD_FILE_SIZE:
+                return {"error": f"File too large: {f.filename} (max {MAX_UPLOAD_FILE_SIZE // 1024 // 1024}MB)"}
+            safe_name = _sanitize_filename(f.filename)
+            dest = _save_file_deduped(attach_dir, safe_name, content)
+            attachments.append({"filename": safe_name, "path": str(dest)})
+        logger.debug("Saved {} attachment(s) to {}", len(attachments), attach_dir)
+
     await event_bus.publish(
         CompanyEvent(type=EventType.CEO_TASK_SUBMITTED, payload={"task": task}, agent="CEO")
     )
-    # Broadcast so frontend sees the queued task immediately
     await event_bus.publish(
         CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
-    # Use qualified iteration ID to avoid cross-project collisions
-    # (e.g. "first-game/iter_002" instead of bare "iter_002")
     ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
-    # ALL CEO tasks go to EA for classification and routing
-    # Build attachment info string
+    # Build attachment info string for EA
     attach_info = ""
     if attachments:
-        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
+        lines = [f"- Attachment: {a['filename']} (saved at {a['path']})" for a in attachments]
         attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
 
     loop = get_agent_loop(EA_ID)
@@ -2272,19 +2308,26 @@ async def update_company_direction(body: dict) -> dict:
 # ===== File Upload (CEO multimodal) =====
 
 @router.post("/api/upload")
-async def upload_file(file: UploadFile) -> dict:
-    """Save uploaded file, return path and metadata."""
-    from datetime import datetime
-    from uuid import uuid4
+async def upload_file(file: UploadFile, project_id: str = "") -> dict:
+    """Save uploaded file to project directory (or global uploads if no project)."""
+    from onemancompany.core.project_archive import get_project_dir
 
-    upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    dest = upload_dir / f"{uuid4().hex[:8]}_{file.filename}"
     content = await file.read()
-    dest.write_bytes(content)
+    if len(content) > MAX_UPLOAD_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large (max {MAX_UPLOAD_FILE_SIZE // 1024 // 1024}MB)")
+    if project_id:
+        pdir = Path(get_project_dir(project_id))
+        upload_dir = pdir / "attachments"
+    else:
+        from datetime import datetime
+        upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = _sanitize_filename(file.filename)
+    dest = _save_file_deduped(upload_dir, safe_name, content)
+    logger.debug("Uploaded file {} to {}", safe_name, dest)
     return {
         "path": str(dest),
-        "filename": file.filename,
+        "filename": safe_name,
         "size": len(content),
         "content_type": file.content_type or "",
     }
@@ -2924,9 +2967,19 @@ async def get_avatar(employee_id: str):
     if avatar_path.exists():
         media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
         return FileResponse(avatar_path, media_type=media)
-    # Fallback: pick a deterministic avatar from the avatars directory based on employee ID
+    # Fallback: look for a named avatar matching the employee's sprite field
     avatars_dir = HR_DIR / "avatars"
     if avatars_dir.exists():
+        from onemancompany.core.store import load_employee
+        emp_data = load_employee(employee_id)
+        sprite = emp_data.get(PF_SPRITE, "") if emp_data else ""
+        if sprite:
+            for ext in (".png", ".jpg", ".jpeg"):
+                named = avatars_dir / f"{sprite}{ext}"
+                if named.exists():
+                    media = "image/png" if ext == ".png" else "image/jpeg"
+                    return FileResponse(named, media_type=media)
+        # Random fallback
         avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
         if avatars:
             idx = int(employee_id) % len(avatars) if employee_id.isdigit() else hash(employee_id) % len(avatars)
@@ -5119,7 +5172,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 task = data.get("task", "")
                 if task:
                     # Re-use the REST logic
-                    await ceo_submit_task({"task": task})
+                    await ceo_submit_task(task=task)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception:

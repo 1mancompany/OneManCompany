@@ -285,7 +285,8 @@ body {
 
 #ceo-avatar {
   border: 2px solid var(--pixel-yellow);
-  image-rendering: pixelated;
+  border-radius: 4px;
+  object-fit: cover;
 }
 
 .ceo-label {
