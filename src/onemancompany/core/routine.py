@@ -41,6 +41,13 @@ from onemancompany.core.config import (
     PF_PERFORMANCE_HISTORY,
     PF_ROLE,
     PF_WORK_PRINCIPLES,
+    TL_ACTION_IMPROVEMENT,
+    TL_ACTION_OPS_REPORT,
+    TL_ACTION_SELF_EVAL,
+    TL_ACTION_SENIOR_REVIEW,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
     STATUS_IDLE,
     STATUS_IN_MEETING,
     SYSTEM_AGENT,
@@ -64,6 +71,13 @@ from loguru import logger
 
 REPORTS_DIR = MEETING_REPORTS_DIR
 _AGENT_ROUTINE = "ROUTINE"
+
+# Context dict keys used in StepContext data structures
+CTX_KEY_EVALUATION = "evaluation"
+CTX_KEY_REVIEWER_ID = "reviewer_id"
+CTX_KEY_REVIEW = "review"
+CTX_KEY_SOURCE = "source"
+CTX_KEY_DESCRIPTION = "description"
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +181,12 @@ class StepContext:
             return ""
         lines = []
         for entry in timeline[-max_entries:]:
-            emp_id = entry.get("employee_id", "?")
+            emp_id = entry.get(TL_FIELD_EMPLOYEE_ID, "?")
             # Resolve name from store
             emp_data = load_employee(emp_id)
             name = f"{emp_data.get(PF_NAME, emp_id)}({emp_data.get(PF_NICKNAME, '')})" if emp_data else emp_id
-            action = entry.get("action", "")
-            detail = entry.get("detail", "")[:200]
+            action = entry.get(TL_FIELD_ACTION, "")
+            detail = entry.get(TL_FIELD_DETAIL, "")[:200]
             lines.append(f"- [{name}] {action}: {detail}")
         return "\n".join(lines)
 
@@ -191,9 +205,9 @@ class StepContext:
             return "(No action records found for you in the project log)"
         lines = []
         for entry in timeline:
-            if entry.get("employee_id") == emp_id:
-                action = entry.get("action", "")
-                detail = entry.get("detail", "")[:200]
+            if entry.get(TL_FIELD_EMPLOYEE_ID) == emp_id:
+                action = entry.get(TL_FIELD_ACTION, "")
+                detail = entry.get(TL_FIELD_DETAIL, "")[:200]
                 lines.append(f"- {action}: {detail}")
         if not lines:
             return "(No action records found for you in the project log)"
@@ -301,11 +315,11 @@ async def _handle_self_evaluation(step: WorkflowStep, ctx: StepContext) -> dict:
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
         ctx.self_evaluations.append({
-            "employee_id": emp_id,
-            "name": emp_name,
-            "nickname": emp_nickname,
-            "level": emp_level,
-            "evaluation": eval_text,
+            TL_FIELD_EMPLOYEE_ID: emp_id,
+            PF_NAME: emp_name,
+            PF_NICKNAME: emp_nickname,
+            PF_LEVEL: emp_level,
+            CTX_KEY_EVALUATION: eval_text,
         })
         display = emp_nickname or emp_name
         await _chat(ctx.room_id, display, emp_role, eval_text)
@@ -337,7 +351,7 @@ async def _handle_senior_review(step: WorkflowStep, ctx: StepContext) -> dict:
         junior_info = "\n".join(
             f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
-                (se["evaluation"] for se in ctx.self_evaluations if se["employee_id"] == jid),
+                (se[CTX_KEY_EVALUATION] for se in ctx.self_evaluations if se[TL_FIELD_EMPLOYEE_ID] == jid),
                 "No self-evaluation",
             )
             for jid, jd in juniors
@@ -477,17 +491,18 @@ async def _handle_coo_report(step: WorkflowStep, ctx: StepContext) -> dict:
     # Build cost context from project record
     cost_ctx = ""
     if ctx.project_record:
-        cost_data = ctx.project_record.get("cost", {})
+        from onemancompany.core.project_archive import PA_COST, PA_BREAKDOWN, PA_TOKEN_USAGE
+        cost_data = ctx.project_record.get(PA_COST, {})
         if cost_data and (cost_data.get("actual_cost_usd", 0) > 0 or cost_data.get("budget_estimate_usd", 0) > 0):
             budget = cost_data.get("budget_estimate_usd", 0)
             actual = cost_data.get("actual_cost_usd", 0)
-            tokens = cost_data.get("token_usage", {})
-            breakdown = cost_data.get("breakdown", [])
+            tokens = cost_data.get(PA_TOKEN_USAGE, {})
+            breakdown = cost_data.get(PA_BREAKDOWN, [])
             cost_lines = [f"Budget: ${budget:.4f}, Actual: ${actual:.4f}"]
             cost_lines.append(f"Token usage: input={tokens.get('input', 0)}, output={tokens.get('output', 0)}")
             for entry in breakdown:
-                emp_data = load_employee(entry.get("employee_id", ""))
-                name = emp_data.get(PF_NAME, entry.get("employee_id", "?")) if emp_data else entry.get("employee_id", "?")
+                emp_data = load_employee(entry.get(TL_FIELD_EMPLOYEE_ID, ""))
+                name = emp_data.get(PF_NAME, entry.get(TL_FIELD_EMPLOYEE_ID, "?")) if emp_data else entry.get(TL_FIELD_EMPLOYEE_ID, "?")
                 cost_lines.append(f"  - {name}: {entry.get('model', '?')}, {entry.get('total_tokens', 0)} tokens, ${entry.get('cost_usd', 0):.4f}")
             cost_ctx = "\n\nProject cost data:\n" + "\n".join(cost_lines) + "\n"
 
@@ -1212,13 +1227,13 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get("id", ""), "self-evaluation", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ev.get(TL_FIELD_EMPLOYEE_ID, ""), TL_ACTION_SELF_EVAL, ev.get(CTX_KEY_EVALUATION, "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
-                append_action(project_id, rv.get("reviewer_id", ""), "senior review", rv.get("review", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, rv.get(CTX_KEY_REVIEWER_ID, ""), TL_ACTION_SENIOR_REVIEW, rv.get(CTX_KEY_REVIEW, "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:
-                append_action(project_id, COO_ID, "operations report", ctx.coo_report[:MAX_SUMMARY_LEN])
+                append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
-                append_action(project_id, ai.get("source", ""), "improvement item", ai.get("description", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ai.get(CTX_KEY_SOURCE, ""), TL_ACTION_IMPROVEMENT, ai.get(CTX_KEY_DESCRIPTION, "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room
@@ -1611,11 +1626,11 @@ async def _run_review_phase1(
         resp = await tracked_ainvoke(llm, prompt, category="routine", employee_id=emp_id)
         eval_text = resp.content
         result["self_evaluations"].append({
-            "employee_id": emp_id,
-            "name": emp_name,
-            "nickname": emp_nickname,
-            "level": emp_level,
-            "evaluation": eval_text,
+            TL_FIELD_EMPLOYEE_ID: emp_id,
+            PF_NAME: emp_name,
+            PF_NICKNAME: emp_nickname,
+            PF_LEVEL: emp_level,
+            CTX_KEY_EVALUATION: eval_text,
         })
         display = emp_nickname or emp_name
         await _chat(room_id, display, emp_role, eval_text)
@@ -1639,7 +1654,7 @@ async def _run_review_phase1(
         junior_info = "\n".join(
             f"- {jd.get(PF_NAME, '')}（{jd.get(PF_NICKNAME, '')}，Lv.{jd.get(PF_LEVEL, 1)}）: "
             + next(
-                (se["evaluation"] for se in result["self_evaluations"] if se["employee_id"] == jid),
+                (se[CTX_KEY_EVALUATION] for se in result["self_evaluations"] if se[TL_FIELD_EMPLOYEE_ID] == jid),
                 "No self-evaluation",
             )
             for jid, jd in juniors

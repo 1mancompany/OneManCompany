@@ -48,8 +48,12 @@ from onemancompany.core.config import (
     STATUS_WORKING,
     SYSTEM_AGENT,
     TASK_TREE_FILENAME,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
+    TL_FIELD_TIME,
 )
-from onemancompany.core.project_archive import ITER_STATUS_FAILED
+from onemancompany.core.project_archive import ITER_STATUS_FAILED, PA_TOKEN_USAGE
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import EventType
 from onemancompany.core.state import company_state  # noqa: F401 — tests patch this
@@ -1632,11 +1636,11 @@ class EmployeeManager:
 
                 parts.append(f"Log ({total_entries} entries):")
                 for j, entry in enumerate(shown):
-                    ts = entry.get("time", "")
+                    ts = entry.get(TL_FIELD_TIME, "")
                     time_short = ts[11:19] if len(ts) >= 19 else ts[:8]
-                    emp_entry = entry.get("employee_id", "?")
-                    action = entry.get("action", "")
-                    detail = (entry.get("detail") or "")[:self._CTX_TIMELINE_DETAIL_CHARS]
+                    emp_entry = entry.get(TL_FIELD_EMPLOYEE_ID, "?")
+                    action = entry.get(TL_FIELD_ACTION, "")
+                    detail = (entry.get(TL_FIELD_DETAIL) or "")[:self._CTX_TIMELINE_DETAIL_CHARS]
                     line = f"  [{time_short}] {emp_entry} — {action}"
                     if detail:
                         line += f": {detail}"
@@ -1651,7 +1655,7 @@ class EmployeeManager:
             cost = it.get("cost", {})
             iter_cost = cost.get("actual_cost_usd", 0.0)
             iter_budget = cost.get("budget_estimate_usd", 0.0)
-            tokens = cost.get("token_usage", {})
+            tokens = cost.get(PA_TOKEN_USAGE, {})
             tok_in = tokens.get("input", 0)
             tok_out = tokens.get("output", 0)
             if iter_cost > 0 or tok_in > 0:

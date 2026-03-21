@@ -28,10 +28,19 @@ from onemancompany.core.config import (
     MANIFEST_FILENAME,
     MAX_SUMMARY_LEN,
     PF_CURRENT_TASK_SUMMARY,
+    PF_NAME,
+    PF_NICKNAME,
     STATUS_IDLE,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
     TASK_TREE_FILENAME,
+    TL_ACTION_EMPLOYEE_FEEDBACK,
+    TL_ACTION_IMPROVEMENT,
+    TL_ACTION_SELF_EVAL,
+    TL_ACTION_SENIOR_REVIEW,
+    TL_FIELD_ACTION,
+    TL_FIELD_DETAIL,
+    TL_FIELD_EMPLOYEE_ID,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import AuthMethod, DecisionStatus, EventType, HostingMode
@@ -2935,6 +2944,78 @@ async def get_avatar(employee_id: str):
 async def get_employee_projects(employee_id: str) -> list[dict]:
     """Get list of projects an employee participated in."""
     return _scan_employee_projects(employee_id)
+
+
+@router.get("/api/employees/{employee_id}/projects/{project_id}/retrospective")
+async def get_employee_project_retrospective(employee_id: str, project_id: str) -> dict:
+    """Get an employee's retrospective summary for a specific project.
+
+    Extracts self-evaluation and feedback from the project timeline.
+    """
+    from onemancompany.core.config import PROJECTS_DIR
+    import yaml
+
+    result: dict = {
+        "employee_id": employee_id,
+        "project_id": project_id,
+        "self_evaluation": "",
+        "feedback": "",
+        "senior_reviews": [],
+        "hr_improvements": [],
+    }
+
+    # Scan project.yaml and iteration yamls for timeline entries
+    pdir = PROJECTS_DIR / project_id
+    if not pdir.exists():
+        return result
+
+    # Collect timeline entries from project.yaml and all iteration yamls
+    timeline_entries: list[dict] = []
+    for yaml_file in pdir.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(yaml_file.read_text(encoding=ENCODING_UTF8)) or {}
+        except Exception as exc:
+            logger.debug("Failed to parse {}: {}", yaml_file, exc)
+            continue
+        timeline_entries.extend(data.get("timeline", []))
+
+    # Extract this employee's retrospective content
+    for entry in timeline_entries:
+        eid = entry.get(TL_FIELD_EMPLOYEE_ID, "")
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if eid == employee_id and action == TL_ACTION_SELF_EVAL:
+            result["self_evaluation"] = detail
+        elif eid == employee_id and action == TL_ACTION_EMPLOYEE_FEEDBACK:
+            result["feedback"] = detail
+
+    # Extract senior reviews mentioning this employee
+    emp_data = _load_emp(employee_id)
+    emp_name = emp_data.get(PF_NAME, "") if emp_data else ""
+    emp_nickname = emp_data.get(PF_NICKNAME, "") if emp_data else ""
+    for entry in timeline_entries:
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if action == TL_ACTION_SENIOR_REVIEW and detail:
+            # Check if the review mentions this employee by name or nickname
+            if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
+                reviewer_id = entry.get(TL_FIELD_EMPLOYEE_ID, "")
+                reviewer_data = _load_emp(reviewer_id)
+                reviewer_name = reviewer_data.get(PF_NAME, reviewer_id) if reviewer_data else reviewer_id
+                result["senior_reviews"].append({
+                    "reviewer": reviewer_name,
+                    "review": detail,
+                })
+
+    # Extract HR improvement suggestions for this employee
+    for entry in timeline_entries:
+        action = entry.get(TL_FIELD_ACTION, "")
+        detail = entry.get(TL_FIELD_DETAIL, "")
+        if action == TL_ACTION_IMPROVEMENT and detail:
+            if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
+                result["hr_improvements"].append(detail)
+
+    return result
 
 
 # ===== Plugin System Endpoints =====

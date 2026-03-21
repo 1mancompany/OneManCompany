@@ -324,13 +324,12 @@ class TestExecuteHire:
         assert emp_dir.exists()
         assert (emp_dir / "skills").is_dir()
 
-        # Verify work-principles skill created (autoloaded)
-        wp_path = emp_dir / "skills" / "work-principles" / "SKILL.md"
+        # Verify work_principles.md created (unified location)
+        wp_path = emp_dir / "work_principles.md"
         assert wp_path.exists()
         content = wp_path.read_text()
         assert "Test Developer" in content
         assert "追风" in content
-        assert "autoload: true" in content
 
         # Verify skill stubs created (folder-based)
         assert (emp_dir / "skills" / "python" / "SKILL.md").exists()

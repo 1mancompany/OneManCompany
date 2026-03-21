@@ -1001,14 +1001,11 @@ async def execute_hire(
             encoding=ENCODING_UTF8,
         )
 
-    # Generate work principles as a skill (autoloaded)
-    wp_dir = skills_dir / "work-principles"
-    wp_dir.mkdir(parents=True, exist_ok=True)
-    wp_file = wp_dir / SKILL_FILENAME
-    if not wp_file.exists():
-        wp_file.write_text(
-            f"---\nname: work-principles\nautoload: true\n"
-            f"description: Personal work principles and code of conduct.\n---\n\n"
+    # Generate initial work_principles.md (unified location for all hosting modes)
+    from onemancompany.core.store import WORK_PRINCIPLES_FILENAME
+    wp_path = emp_dir / WORK_PRINCIPLES_FILENAME
+    if not wp_path.exists():
+        wp_path.write_text(
             f"# {name} ({nickname}) Work Principles\n\n"
             f"**Department**: {department}\n"
             f"**Title**: {make_title(1, role)}\n"

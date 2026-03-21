@@ -4260,6 +4260,29 @@ body {
   justify-content: flex-end;
 }
 
+/* ===== Retro Popup Sections ===== */
+.retro-section {
+  margin-bottom: 10px;
+}
+.retro-section h4 {
+  font-size: 8px;
+  color: var(--pixel-cyan);
+  margin: 0 0 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.retro-section p {
+  font-size: 7px;
+  color: var(--pixel-white);
+  line-height: 1.6;
+  margin: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.retro-section strong {
+  color: var(--pixel-yellow);
+}
+
 /* ===== Chat Attach Button ===== */
 .chat-attach-btn {
   display: flex;

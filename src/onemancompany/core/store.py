@@ -24,6 +24,8 @@ from onemancompany.core.config import (
     COMPANY_DIR,
     DATA_ROOT,  # noqa: F401 — re-exported, used by test fixtures
     ENCODING_UTF8,
+    PF_GUIDANCE_NOTES,
+    PF_WORK_PRINCIPLES,
     PROJECTS_DIR,  # noqa: F401 — re-exported, used by test fixtures
     DirtyCategory,
     EMPLOYEES_DIR,
@@ -40,6 +42,7 @@ from onemancompany.core.config import (
 # Filename constants (single-file, used only in store.py)
 # ---------------------------------------------------------------------------
 WORK_PRINCIPLES_FILENAME = "work_principles.md"
+_GUIDANCE_NOTES_KEY = "notes"  # key inside guidance.yaml
 ACTIVITY_LOG_FILENAME = "activity_log.yaml"
 OVERHEAD_FILENAME = "overhead.yaml"
 TASK_INDEX_FILENAME = "task_index.yaml"
@@ -151,12 +154,23 @@ def _ex_employee_profile_path(emp_id: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def load_employee(emp_id: str) -> dict:
-    """Read profile.yaml for a single employee. Returns full dict including runtime."""
-    return _read_yaml(_employee_profile_path(emp_id))
+    """Read profile.yaml for a single employee. Returns full dict including runtime.
+
+    Also loads work_principles.md and guidance.yaml into the dict so all
+    callers get these fields without separate file reads.
+    """
+    data = _read_yaml(_employee_profile_path(emp_id))
+    if data:
+        data[PF_WORK_PRINCIPLES] = load_employee_work_principles(emp_id)
+        data[PF_GUIDANCE_NOTES] = load_employee_guidance(emp_id)
+    return data
 
 
 def load_all_employees() -> dict[str, dict]:
-    """Read all employee profile.yamls from disk. Returns {emp_id: profile_dict}."""
+    """Read all employee profile.yamls from disk. Returns {emp_id: profile_dict}.
+
+    Also loads work_principles and guidance_notes from their separate files.
+    """
     result: dict[str, dict] = {}
     if not EMPLOYEES_DIR.exists():
         return result
@@ -165,7 +179,11 @@ def load_all_employees() -> dict[str, dict]:
             continue
         profile_path = emp_dir / PROFILE_FILENAME
         if profile_path.exists():
-            result[emp_dir.name] = _read_yaml(profile_path)
+            data = _read_yaml(profile_path)
+            emp_id = emp_dir.name
+            data[PF_WORK_PRINCIPLES] = load_employee_work_principles(emp_id)
+            data[PF_GUIDANCE_NOTES] = load_employee_guidance(emp_id)
+            result[emp_id] = data
     return result
 
 
@@ -192,7 +210,7 @@ def load_employee_guidance(emp_id: str) -> list[str]:
         return []
     if isinstance(data, list):
         return data
-    return data.get("notes", []) if isinstance(data, dict) else []
+    return data.get(_GUIDANCE_NOTES_KEY, []) if isinstance(data, dict) else []
 
 
 def load_employee_work_principles(emp_id: str) -> str:
@@ -241,7 +259,7 @@ async def save_guidance(emp_id: str, notes: list[str]) -> None:
     """Write guidance.yaml for an employee."""
     path = EMPLOYEES_DIR / emp_id / GUIDANCE_FILENAME
     async with _get_lock(str(path)):
-        _write_yaml(path, {"notes": notes})
+        _write_yaml(path, {_GUIDANCE_NOTES_KEY: notes})
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 
