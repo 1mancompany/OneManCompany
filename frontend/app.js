@@ -5121,14 +5121,15 @@ class AppController {
     });
   }
 
-  async _uploadTaskFiles() {
+  async _uploadTaskFiles(projectId = '') {
     if (!this._taskPendingFiles.length) return [];
     const uploaded = [];
     for (const f of this._taskPendingFiles) {
       const formData = new FormData();
       formData.append('file', f.file);
       try {
-        const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+        const url = projectId ? `/api/upload?project_id=${encodeURIComponent(projectId)}` : '/api/upload';
+        const resp = await fetch(url, { method: 'POST', body: formData });
         const data = await resp.json();
         uploaded.push({
           path: data.path,
@@ -5874,7 +5875,7 @@ class AppController {
     // Upload attached files if any
     let attachments = [];
     if (this._taskPendingFiles.length) {
-      attachments = await this._uploadTaskFiles();
+      attachments = await this._uploadTaskFiles(projectId);
     }
 
     const reqBody = { task, attachments };

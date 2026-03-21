@@ -2273,15 +2273,26 @@ async def update_company_direction(body: dict) -> dict:
 # ===== File Upload (CEO multimodal) =====
 
 @router.post("/api/upload")
-async def upload_file(file: UploadFile) -> dict:
-    """Save uploaded file, return path and metadata."""
-    from datetime import datetime
-    from uuid import uuid4
+async def upload_file(file: UploadFile, project_id: str = "") -> dict:
+    """Save uploaded file to project directory (or global uploads if no project)."""
+    from onemancompany.core.project_archive import get_project_dir
 
-    upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    dest = upload_dir / f"{uuid4().hex[:8]}_{file.filename}"
     content = await file.read()
+    if project_id:
+        pdir = Path(get_project_dir(project_id))
+        upload_dir = pdir / "attachments"
+    else:
+        from datetime import datetime
+        upload_dir = COMPANY_DIR / "uploads" / datetime.now().strftime("%Y%m%d")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / file.filename
+    # Avoid overwriting: append counter if file exists
+    if dest.exists():
+        stem, suffix = dest.stem, dest.suffix
+        counter = 1
+        while dest.exists():
+            dest = upload_dir / f"{stem}_{counter}{suffix}"
+            counter += 1
     dest.write_bytes(content)
     return {
         "path": str(dest),
