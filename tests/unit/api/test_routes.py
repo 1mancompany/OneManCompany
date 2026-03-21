@@ -293,7 +293,7 @@ class TestCeoSubmitTask:
              patch("onemancompany.api.routes.event_bus", EventBus()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": ""})
+                resp = await c.post("/api/ceo/task", data={"task": ""})
 
         assert resp.status_code == 200
         assert resp.json().get("error") == "Empty task"
@@ -314,7 +314,7 @@ class TestCeoSubmitTask:
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/proj"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "Build a website"})
+                resp = await c.post("/api/ceo/task", data={"task": "Build a website"})
 
         assert resp.status_code == 200
         data = resp.json()
@@ -341,7 +341,7 @@ class TestCeoSubmitTask:
              patch("onemancompany.core.vessel._save_project_tree", mock_save_tree):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "Build a website"})
+                resp = await c.post("/api/ceo/task", data={"task": "Build a website"})
 
         assert resp.status_code == 200
         # Verify tree was saved
@@ -2399,7 +2399,7 @@ class TestCeoSubmitTaskPaths:
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/ws"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={
+                resp = await c.post("/api/ceo/task", data={
                     "task": "Add new feature",
                     "project_id": "my-project",
                 })
@@ -2424,7 +2424,7 @@ class TestCeoSubmitTaskPaths:
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/ws"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={
+                resp = await c.post("/api/ceo/task", data={
                     "task": "Build new product",
                     "project_name": "New Product",
                 })
@@ -3653,7 +3653,7 @@ class TestCeoTaskEAFallback:
              patch("onemancompany.core.project_archive.get_project_dir", return_value="/tmp/p1"):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "Do something"})
+                resp = await c.post("/api/ceo/task", data={"task": "Do something"})
 
         assert resp.status_code == 503
         assert "not available" in resp.json()["detail"]
@@ -5797,7 +5797,7 @@ class TestWebSocketEndpoint:
             await routes_mod.websocket_endpoint(mock_ws)
 
         mock_ws_mgr.connect.assert_awaited_once_with(mock_ws)
-        mock_submit.assert_awaited_once_with({"task": "Build something"})
+        mock_submit.assert_awaited_once_with(task="Build something")
         mock_ws_mgr.disconnect.assert_called_once_with(mock_ws)
 
     @pytest.mark.asyncio
@@ -6691,7 +6691,7 @@ class TestCeoTaskMode:
              patch("onemancompany.core.vessel.employee_manager", MagicMock()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "hello"})
+                resp = await c.post("/api/ceo/task", data={"task": "hello"})
 
         assert resp.status_code == 200
         mock_save_tree.assert_called_once()
@@ -6715,7 +6715,7 @@ class TestCeoTaskMode:
              patch("onemancompany.core.vessel.employee_manager", MagicMock()):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.post("/api/ceo/task", json={"task": "hello", "mode": "simple"})
+                resp = await c.post("/api/ceo/task", data={"task": "hello", "mode": "simple"})
 
         assert resp.status_code == 200
         mock_save_tree.assert_called_once()

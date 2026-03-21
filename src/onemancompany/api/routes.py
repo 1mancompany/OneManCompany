@@ -8,7 +8,7 @@ import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from loguru import logger
 
@@ -328,8 +328,14 @@ async def get_state() -> dict:
 
 
 @router.post("/api/ceo/task")
-async def ceo_submit_task(body: dict) -> dict:
-    """CEO submits a task, routed to the appropriate agent via persistent loop."""
+async def ceo_submit_task(
+    task: str = Form(""),
+    project_id: str = Form(""),
+    project_name: str = Form(""),
+    mode: str = Form("standard"),
+    files: list[UploadFile] = File(default=[]),
+) -> dict:
+    """CEO submits a task with optional files, routed to EA via persistent loop."""
     from pathlib import Path
     from onemancompany.core.agent_loop import get_agent_loop
     from onemancompany.core.project_archive import (
@@ -339,14 +345,9 @@ async def ceo_submit_task(body: dict) -> dict:
         get_project_dir,
     )
 
-    task = body.get("task", "")
     if not task:
         return {"error": "Empty task"}
 
-    attachments = body.get("attachments", [])
-    project_id = body.get("project_id", "")
-    project_name = body.get("project_name", "")
-    mode = body.get("mode", "standard")
     if mode not in ("simple", "standard"):
         mode = "standard"
 
@@ -354,36 +355,46 @@ async def ceo_submit_task(body: dict) -> dict:
     await _store.append_activity({"type": "ceo_task", "task": task})
 
     if project_id:
-        # Continue an existing named project with a new iteration
         iter_id = create_iteration(project_id, task, "pending")
         pid = project_id
     elif project_name:
-        # Create a new named project + first iteration
         pid = create_named_project(project_name)
         iter_id = create_iteration(pid, task, "pending")
     else:
-        # Auto-create named project from task description (LLM-powered naming)
         pid, iter_id = await async_create_project_from_task(task, "pending")
 
     pdir = get_project_dir(pid)
 
+    # Save uploaded files to project attachments directory
+    attachments: list[dict] = []
+    if files:
+        attach_dir = Path(pdir) / "attachments"
+        attach_dir.mkdir(parents=True, exist_ok=True)
+        for f in files:
+            dest = attach_dir / f.filename
+            if dest.exists():
+                stem, suffix = dest.stem, dest.suffix
+                counter = 1
+                while dest.exists():
+                    dest = attach_dir / f"{stem}_{counter}{suffix}"
+                    counter += 1
+            content = await f.read()
+            dest.write_bytes(content)
+            attachments.append({"filename": f.filename, "path": str(dest)})
+
     await event_bus.publish(
         CompanyEvent(type=EventType.CEO_TASK_SUBMITTED, payload={"task": task}, agent="CEO")
     )
-    # Broadcast so frontend sees the queued task immediately
     await event_bus.publish(
         CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT)
     )
 
-    # Use qualified iteration ID to avoid cross-project collisions
-    # (e.g. "first-game/iter_002" instead of bare "iter_002")
     ctx_id = f"{pid}/{iter_id}" if iter_id else pid
 
-    # ALL CEO tasks go to EA for classification and routing
-    # Build attachment info string
+    # Build attachment info string for EA
     attach_info = ""
     if attachments:
-        lines = [f"- Attachment: {a.get('filename', 'file')} (saved at {a.get('path', '')})" for a in attachments]
+        lines = [f"- Attachment: {a['filename']} (saved at {a['path']})" for a in attachments]
         attach_info = "\n\nCEO attached the following files:\n" + "\n".join(lines)
 
     loop = get_agent_loop(EA_ID)
@@ -5141,7 +5152,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 task = data.get("task", "")
                 if task:
                     # Re-use the REST logic
-                    await ceo_submit_task({"task": task})
+                    await ceo_submit_task(task=task)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception:

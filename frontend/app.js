@@ -5121,30 +5121,6 @@ class AppController {
     });
   }
 
-  async _uploadTaskFiles(projectId = '') {
-    if (!this._taskPendingFiles.length) return [];
-    const uploaded = [];
-    for (const f of this._taskPendingFiles) {
-      const formData = new FormData();
-      formData.append('file', f.file);
-      try {
-        const url = projectId ? `/api/upload?project_id=${encodeURIComponent(projectId)}` : '/api/upload';
-        const resp = await fetch(url, { method: 'POST', body: formData });
-        const data = await resp.json();
-        uploaded.push({
-          path: data.path,
-          filename: data.filename,
-          type: f.type,
-          content_type: data.content_type || '',
-        });
-      } catch (err) {
-        console.error('Task file upload failed:', err);
-      }
-    }
-    this._taskPendingFiles = [];
-    this._updateTaskPreviewBar();
-    return uploaded;
-  }
 
   // ===== 1-on-1 File Upload =====
   _handleOneononeFileSelect(files) {
@@ -5872,21 +5848,23 @@ class AppController {
     const submitBtn = document.getElementById('submit-btn');
     submitBtn.disabled = true;
 
-    // Upload attached files if any
-    let attachments = [];
-    if (this._taskPendingFiles.length) {
-      attachments = await this._uploadTaskFiles(projectId);
-    }
-
-    const reqBody = { task, attachments };
-    if (projectId) reqBody.project_id = projectId;
     const simpleToggle = document.getElementById('simple-mode-toggle');
-    if (simpleToggle && simpleToggle.checked) reqBody.mode = 'simple';
+    const mode = (simpleToggle && simpleToggle.checked) ? 'simple' : 'standard';
+
+    // Build multipart FormData — task + files in one request
+    const formData = new FormData();
+    formData.append('task', task);
+    if (projectId) formData.append('project_id', projectId);
+    if (mode !== 'standard') formData.append('mode', mode);
+    for (const f of this._taskPendingFiles) {
+      formData.append('files', f.file);
+    }
+    this._taskPendingFiles = [];
+    this._updateTaskPreviewBar();
 
     fetch('/api/ceo/task', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reqBody),
+      body: formData,
     })
       .then(r => r.json())
       .then(data => {
