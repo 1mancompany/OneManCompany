@@ -2937,6 +2937,78 @@ async def get_employee_projects(employee_id: str) -> list[dict]:
     return _scan_employee_projects(employee_id)
 
 
+@router.get("/api/employees/{employee_id}/projects/{project_id}/retrospective")
+async def get_employee_project_retrospective(employee_id: str, project_id: str) -> dict:
+    """Get an employee's retrospective summary for a specific project.
+
+    Extracts self-evaluation and feedback from the project timeline.
+    """
+    from onemancompany.core.config import PROJECTS_DIR
+    import yaml
+
+    result: dict = {
+        "employee_id": employee_id,
+        "project_id": project_id,
+        "self_evaluation": "",
+        "feedback": "",
+        "senior_reviews": [],
+        "hr_improvements": [],
+    }
+
+    # Scan project.yaml and iteration yamls for timeline entries
+    pdir = PROJECTS_DIR / project_id
+    if not pdir.exists():
+        return result
+
+    # Collect timeline entries from project.yaml and all iteration yamls
+    timeline_entries: list[dict] = []
+    for yaml_file in pdir.glob("*.yaml"):
+        try:
+            data = yaml.safe_load(yaml_file.read_text(encoding=ENCODING_UTF8)) or {}
+        except Exception as exc:
+            logger.debug("Failed to parse {}: {}", yaml_file, exc)
+            continue
+        timeline_entries.extend(data.get("timeline", []))
+
+    # Extract this employee's retrospective content
+    for entry in timeline_entries:
+        eid = entry.get("employee_id", "")
+        action = entry.get("action", "")
+        detail = entry.get("detail", "")
+        if eid == employee_id and action == "self-evaluation":
+            result["self_evaluation"] = detail
+        elif eid == employee_id and action == "employee feedback":
+            result["feedback"] = detail
+
+    # Extract senior reviews mentioning this employee
+    emp_data = _load_emp(employee_id)
+    emp_name = emp_data.get("name", "") if emp_data else ""
+    emp_nickname = emp_data.get("nickname", "") if emp_data else ""
+    for entry in timeline_entries:
+        action = entry.get("action", "")
+        detail = entry.get("detail", "")
+        if action == "senior review" and detail:
+            # Check if the review mentions this employee by name or nickname
+            if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
+                reviewer_id = entry.get("employee_id", "")
+                reviewer_data = _load_emp(reviewer_id)
+                reviewer_name = reviewer_data.get("name", reviewer_id) if reviewer_data else reviewer_id
+                result["senior_reviews"].append({
+                    "reviewer": reviewer_name,
+                    "review": detail,
+                })
+
+    # Extract HR improvement suggestions for this employee
+    for entry in timeline_entries:
+        action = entry.get("action", "")
+        detail = entry.get("detail", "")
+        if action == "improvement item" and detail:
+            if emp_name and emp_name in detail or emp_nickname and emp_nickname in detail:
+                result["hr_improvements"].append(detail)
+
+    return result
+
+
 # ===== Plugin System Endpoints =====
 
 @router.get("/api/plugins")

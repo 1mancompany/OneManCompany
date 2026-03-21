@@ -1195,7 +1195,7 @@ async def run_post_task_routine(
             from onemancompany.core.project_archive import append_action
             # Record each participant's self-evaluation
             for ev in ctx.self_evaluations:
-                append_action(project_id, ev.get("id", ""), "self-evaluation", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
+                append_action(project_id, ev.get("employee_id", ""), "self-evaluation", ev.get("evaluation", "")[:MAX_SUMMARY_LEN])
             for rv in ctx.senior_reviews:
                 append_action(project_id, rv.get("reviewer_id", ""), "senior review", rv.get("review", "")[:MAX_SUMMARY_LEN])
             if ctx.coo_report:

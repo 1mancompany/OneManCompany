@@ -2020,8 +2020,7 @@ class AppController {
         container.querySelectorAll('.emp-project-item').forEach(el => {
           el.addEventListener('click', () => {
             const pid = el.dataset.projectId;
-            this.closeEmployeeDetail();
-            this._openProjectFromId(pid);
+            this._showRetroPopup(employeeId, pid);
           });
         });
       })
@@ -2035,6 +2034,51 @@ class AppController {
     this._loadIterationDetail(projectId, projectId);
     const detailEl = document.getElementById('project-detail');
     if (detailEl) detailEl.classList.remove('hidden');
+  }
+
+  async _showRetroPopup(employeeId, projectId) {
+    try {
+      const resp = await fetch(`/api/employees/${employeeId}/projects/${projectId}/retrospective`);
+      const data = await resp.json();
+
+      let html = '';
+
+      if (data.self_evaluation) {
+        html += `<div class="retro-section"><h4>Self Evaluation</h4><p>${this._escHtml(data.self_evaluation)}</p></div>`;
+      }
+      if (data.feedback) {
+        html += `<div class="retro-section"><h4>Feedback</h4><p>${this._escHtml(data.feedback)}</p></div>`;
+      }
+      if (data.senior_reviews && data.senior_reviews.length > 0) {
+        html += '<div class="retro-section"><h4>Senior Reviews</h4>';
+        for (const sr of data.senior_reviews) {
+          html += `<p><strong>${this._escHtml(sr.reviewer)}:</strong> ${this._escHtml(sr.review)}</p>`;
+        }
+        html += '</div>';
+      }
+      if (data.hr_improvements && data.hr_improvements.length > 0) {
+        html += '<div class="retro-section"><h4>Improvements</h4>';
+        for (const item of data.hr_improvements) {
+          html += `<p>${this._escHtml(item)}</p>`;
+        }
+        html += '</div>';
+      }
+
+      if (!html) {
+        html = '<p class="empty-hint">No retrospective data for this project yet.</p>';
+      }
+
+      this.openPopup({
+        title: 'Project Retrospective',
+        type: 'info',
+      });
+
+      const body = document.getElementById('generic-popup-body');
+      body.innerHTML = html;
+    } catch (err) {
+      console.error('[showRetroPopup] failed:', err);
+      this.openPopup({ title: 'Error', message: 'Failed to load retrospective data.' });
+    }
   }
 
   // ===== Code Update Banner =====
