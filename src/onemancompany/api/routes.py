@@ -30,6 +30,7 @@ from onemancompany.core.config import (
     PF_CURRENT_TASK_SUMMARY,
     PF_NAME,
     PF_NICKNAME,
+    PF_SPRITE,
     STATUS_IDLE,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
@@ -2924,9 +2925,19 @@ async def get_avatar(employee_id: str):
     if avatar_path.exists():
         media = "image/png" if avatar_path.suffix == ".png" else "image/jpeg"
         return FileResponse(avatar_path, media_type=media)
-    # Fallback: pick a deterministic avatar from the avatars directory based on employee ID
+    # Fallback: look for a named avatar matching the employee's sprite field
     avatars_dir = HR_DIR / "avatars"
     if avatars_dir.exists():
+        from onemancompany.core.store import load_employee
+        emp_data = load_employee(employee_id)
+        sprite = emp_data.get(PF_SPRITE, "") if emp_data else ""
+        if sprite:
+            for ext in (".png", ".jpg", ".jpeg"):
+                named = avatars_dir / f"{sprite}{ext}"
+                if named.exists():
+                    media = "image/png" if ext == ".png" else "image/jpeg"
+                    return FileResponse(named, media_type=media)
+        # Random fallback
         avatars = sorted(p for p in avatars_dir.iterdir() if p.suffix in (".png", ".jpg", ".jpeg"))
         if avatars:
             idx = int(employee_id) % len(avatars) if employee_id.isdigit() else hash(employee_id) % len(avatars)
