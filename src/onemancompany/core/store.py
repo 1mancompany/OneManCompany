@@ -151,12 +151,23 @@ def _ex_employee_profile_path(emp_id: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def load_employee(emp_id: str) -> dict:
-    """Read profile.yaml for a single employee. Returns full dict including runtime."""
-    return _read_yaml(_employee_profile_path(emp_id))
+    """Read profile.yaml for a single employee. Returns full dict including runtime.
+
+    Also loads work_principles.md and guidance.yaml into the dict so all
+    callers get these fields without separate file reads.
+    """
+    data = _read_yaml(_employee_profile_path(emp_id))
+    if data:
+        data["work_principles"] = load_employee_work_principles(emp_id)
+        data["guidance_notes"] = load_employee_guidance(emp_id)
+    return data
 
 
 def load_all_employees() -> dict[str, dict]:
-    """Read all employee profile.yamls from disk. Returns {emp_id: profile_dict}."""
+    """Read all employee profile.yamls from disk. Returns {emp_id: profile_dict}.
+
+    Also loads work_principles and guidance_notes from their separate files.
+    """
     result: dict[str, dict] = {}
     if not EMPLOYEES_DIR.exists():
         return result
@@ -165,7 +176,11 @@ def load_all_employees() -> dict[str, dict]:
             continue
         profile_path = emp_dir / PROFILE_FILENAME
         if profile_path.exists():
-            result[emp_dir.name] = _read_yaml(profile_path)
+            data = _read_yaml(profile_path)
+            emp_id = emp_dir.name
+            data["work_principles"] = load_employee_work_principles(emp_id)
+            data["guidance_notes"] = load_employee_guidance(emp_id)
+            result[emp_id] = data
     return result
 
 

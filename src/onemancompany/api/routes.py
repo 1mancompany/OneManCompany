@@ -5269,11 +5269,7 @@ async def stop_all_crons_endpoint(employee_id: str) -> dict:
 @router.get("/api/employees")
 async def list_employees():
     """List all active employees — reads from disk."""
-    from onemancompany.core.store import (
-        load_all_employees,
-        load_employee_guidance,
-        load_employee_work_principles,
-    )
+    from onemancompany.core.store import load_all_employees
     employees = load_all_employees()
     result = []
     for emp_id, data in employees.items():
@@ -5287,9 +5283,6 @@ async def list_employees():
         data[PF_CURRENT_TASK_SUMMARY] = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
         data["api_online"] = runtime.get("api_online", True)
         data["needs_setup"] = runtime.get("needs_setup", False)
-        # Load work principles and guidance from separate files
-        data["work_principles"] = load_employee_work_principles(emp_id)
-        data["guidance_notes"] = load_employee_guidance(emp_id)
         result.append(data)
     return result
 
