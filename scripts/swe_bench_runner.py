@@ -66,8 +66,10 @@ def load_predictions(path: Path) -> list[dict]:
 
 
 def save_prediction(path: Path, pred: Prediction) -> None:
-    """Append a prediction to the JSON file (atomic write)."""
+    """Save a prediction to the JSON file (atomic write, deduplicates by instance_id)."""
     existing = load_predictions(path)
+    # Remove any previous entry for this instance_id (e.g. replacing an empty-patch retry)
+    existing = [p for p in existing if p["instance_id"] != pred.instance_id]
     existing.append(asdict(pred))
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(existing, indent=2))
@@ -75,8 +77,12 @@ def save_prediction(path: Path, pred: Prediction) -> None:
 
 
 def get_completed_ids(predictions: list[dict]) -> set[str]:
-    """Extract instance_ids already in predictions."""
-    return {p["instance_id"] for p in predictions}
+    """Extract instance_ids that are truly done (have a non-empty patch).
+
+    Predictions with empty model_patch are considered retriable — they will
+    be re-submitted on the next run.
+    """
+    return {p["instance_id"] for p in predictions if p.get("model_patch")}
 
 
 # ---------------------------------------------------------------------------

@@ -75,7 +75,7 @@ class TestPredictionsIO:
         data = json.loads(path.read_text())
         assert len(data) == 2
 
-    def test_completed_ids(self, tmp_path):
+    def test_completed_ids_skips_empty_patch(self, tmp_path):
         from swe_bench_runner import load_predictions, get_completed_ids
 
         path = tmp_path / "predictions.json"
@@ -84,7 +84,23 @@ class TestPredictionsIO:
             {"instance_id": "b", "model_name_or_path": "x", "model_patch": "diff"},
         ]))
         preds = load_predictions(path)
-        assert get_completed_ids(preds) == {"a", "b"}
+        # Empty patch → retriable, not counted as completed
+        assert get_completed_ids(preds) == {"b"}
+
+    def test_save_prediction_deduplicates(self, tmp_path):
+        from swe_bench_runner import Prediction, save_prediction, load_predictions
+
+        path = tmp_path / "predictions.json"
+        # First save: empty patch (timeout)
+        save_prediction(path, Prediction(instance_id="a", model_patch=""))
+        assert len(load_predictions(path)) == 1
+        assert load_predictions(path)[0]["model_patch"] == ""
+
+        # Second save: with real patch (retry succeeded)
+        save_prediction(path, Prediction(instance_id="a", model_patch="diff --git fixed"))
+        preds = load_predictions(path)
+        assert len(preds) == 1  # deduplicated, not 2
+        assert preds[0]["model_patch"] == "diff --git fixed"
 
 
 class TestGitOps:
