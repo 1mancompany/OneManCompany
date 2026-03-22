@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""SWE-bench evaluation runner for OneManCompany.
+
+Drives SWE-bench tasks through the OMC CEO task API, collects patches,
+and outputs predictions.json for SWE-bench harness evaluation.
+
+Limitations:
+- If the EA asks the CEO for clarification, the runner cannot auto-dismiss
+  the prompt. The task will timeout and collect whatever partial diff exists.
+- Tasks run sequentially (one at a time) to avoid collisions.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import httpx
+
+
+@dataclass
+class Prediction:
+    instance_id: str
+    model_name_or_path: str = "OneManCompany"
+    model_patch: str = ""
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Run SWE-bench evaluation via OMC")
+    p.add_argument("--dataset", default="princeton-nlp/SWE-bench_Verified",
+                   help="HuggingFace dataset name")
+    p.add_argument("--split", default="test", help="Dataset split")
+    p.add_argument("--workdir", default="swe_bench_workdir",
+                   help="Working directory for cloned repos and outputs")
+    p.add_argument("--server-url", default="http://localhost:8000",
+                   help="OMC server URL")
+    p.add_argument("--timeout", type=int, default=1800,
+                   help="Per-task timeout in seconds (default: 1800 = 30min)")
+    p.add_argument("--max-tasks", type=int, default=None,
+                   help="Max number of tasks to run (for testing)")
+    return p.parse_args(argv)
+
+
+# ---------------------------------------------------------------------------
+# Predictions I/O (resume support)
+# ---------------------------------------------------------------------------
+
+def load_predictions(path: Path) -> list[dict]:
+    """Load existing predictions from JSON file."""
+    if not path.exists():
+        return []
+    return json.loads(path.read_text())
+
+
+def save_prediction(path: Path, pred: Prediction) -> None:
+    """Append a prediction to the JSON file."""
+    existing = load_predictions(path)
+    existing.append(asdict(pred))
+    path.write_text(json.dumps(existing, indent=2))
+
+
+def get_completed_ids(predictions: list[dict]) -> set[str]:
+    """Extract instance_ids already in predictions."""
+    return {p["instance_id"] for p in predictions}
+
+
+# ---------------------------------------------------------------------------
+# Git operations
+# ---------------------------------------------------------------------------
+
+def clone_repo(repo_url: str, base_commit: str, dest: Path) -> bool:
+    """Clone a repo and checkout a specific commit. Returns True on success."""
+    try:
+        subprocess.run(
+            ["git", "clone", "--quiet", repo_url, str(dest)],
+            check=True, capture_output=True, text=True, timeout=300,
+        )
+        subprocess.run(
+            ["git", "-C", str(dest), "checkout", "--quiet", base_commit],
+            check=True, capture_output=True, text=True, timeout=60,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"  [ERROR] Clone/checkout failed: {e}")
+        return False
+
+
+def _reset_repo(repo_dir: Path, base_commit: str) -> None:
+    """Reset a repo to clean state at base_commit (for reuse after failed runs)."""
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "checkout", "--quiet", base_commit],
+        capture_output=True, timeout=30,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "reset", "--hard", "HEAD"],
+        capture_output=True, timeout=30,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "clean", "-fd", "--quiet"],
+        capture_output=True, timeout=30,
+    )
+
+
+def collect_patch(repo_dir: Path) -> str:
+    """Collect git diff including new files. Returns unified diff string."""
+    try:
+        # Stage everything (including new files)
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "add", "-A"],
+            check=True, capture_output=True, timeout=30,
+        )
+        # Diff staged changes vs HEAD
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "diff", "--cached", "HEAD"],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        patch = result.stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"  [ERROR] collect_patch failed: {e}")
+        patch = ""
+    finally:
+        # Always unstage to leave working tree intact
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "reset", "HEAD", "--quiet"],
+            capture_output=True, timeout=30,
+        )
+    return patch
+
+
+# ---------------------------------------------------------------------------
+# Task description
+# ---------------------------------------------------------------------------
+
+def build_task_description(repo_name: str, repo_path: str, problem_statement: str) -> str:
+    """Build the natural-language task description for the CEO API."""
+    return (
+        f"[SWE-Bench] Fix issue in {repo_name}\n\n"
+        f"Repository path: {repo_path}\n\n"
+        f"Issue:\n{problem_statement}\n\n"
+        f"Requirements:\n"
+        f"- Fix the issue described above by modifying the repository code\n"
+        f"- Work directly in the repository directory specified above\n"
+        f"- Do NOT commit your changes - just modify the files\n"
+        f"- Do NOT modify test files"
+    )
+
+
+# ---------------------------------------------------------------------------
+# OMC API client
+# ---------------------------------------------------------------------------
+
+def submit_task(server_url: str, task_description: str) -> tuple[str, str]:
+    """Submit a task via the CEO API. Returns (project_id, iteration_id)."""
+    with httpx.Client(timeout=60) as client:
+        resp = client.post(
+            f"{server_url}/api/ceo/task",
+            data={"task": task_description, "mode": "standard"},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        if "error" in body:
+            raise RuntimeError(f"Task submission failed: {body['error']}")
+        return body["project_id"], body["iteration_id"]
+
+
+def poll_until_done(
+    server_url: str,
+    project_id: str,
+    iteration_id: str,
+    timeout: int = 1800,
+    interval: float = 30.0,
+) -> str:
+    """Poll iteration status until completed, failed, or timeout.
+
+    Returns final status string: "completed", "failed", "cancelled", or "timeout".
+    """
+    deadline = time.time() + timeout
+    terminal = {"completed", "failed", "cancelled"}
+
+    with httpx.Client(timeout=30) as client:
+        while time.time() < deadline:
+            try:
+                resp = client.get(f"{server_url}/api/projects/{project_id}/{iteration_id}")
+                if resp.status_code == 200:
+                    status = resp.json().get("status", "")
+                    if status in terminal:
+                        return status
+            except httpx.HTTPError:
+                pass  # Transient error, keep polling
+            time.sleep(interval)
+
+    return "timeout"
+
+
+# ---------------------------------------------------------------------------
+# Main runner
+# ---------------------------------------------------------------------------
+
+def run_instance(
+    instance: dict,
+    instances_dir: Path,
+    server_url: str,
+    timeout: int,
+) -> Prediction | None:
+    """Run a single SWE-bench instance. Returns Prediction or None on clone failure."""
+    iid = instance["instance_id"]
+    repo_slug = instance["repo"]  # e.g. "astropy/astropy"
+    base_commit = instance["base_commit"]
+    problem = instance["problem_statement"]
+
+    repo_dir = instances_dir / iid / "repo"
+    clone_url = f"https://github.com/{repo_slug}.git"
+
+    print(f"\n{'='*60}")
+    print(f"  Instance: {iid}")
+    print(f"  Repo: {repo_slug} @ {base_commit[:8]}")
+    print(f"{'='*60}")
+
+    # 1. Clone repo (skip if already exists from a previous partial run)
+    if not repo_dir.exists():
+        print(f"  Cloning {clone_url}...")
+        if not clone_repo(clone_url, base_commit, repo_dir):
+            print(f"  [SKIP] Clone failed for {iid}")
+            return None
+    else:
+        print(f"  Repo already exists, resetting to clean state")
+        _reset_repo(repo_dir, base_commit)
+
+    # 2. Build task description
+    task_desc = build_task_description(repo_slug, str(repo_dir.resolve()), problem)
+
+    # 3. Submit to OMC
+    print(f"  Submitting task to OMC...")
+    try:
+        project_id, iteration_id = submit_task(server_url, task_desc)
+        print(f"  Project: {project_id}/{iteration_id}")
+    except Exception as e:
+        print(f"  [ERROR] Submit failed: {e}")
+        return Prediction(instance_id=iid, model_patch="")
+
+    # 4. Poll for completion
+    print(f"  Polling (timeout={timeout}s)...")
+    status = poll_until_done(server_url, project_id, iteration_id, timeout=timeout)
+    print(f"  Status: {status}")
+
+    # 5. Collect patch
+    patch = collect_patch(repo_dir)
+    patch_lines = len(patch.splitlines()) if patch else 0
+    print(f"  Patch: {patch_lines} lines")
+
+    return Prediction(instance_id=iid, model_patch=patch)
+
+
+def main() -> None:
+    args = parse_args()
+    workdir = Path(args.workdir)
+    instances_dir = workdir / "instances"
+    predictions_path = workdir / "predictions.json"
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    instances_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load dataset
+    print(f"Loading dataset: {args.dataset} (split={args.split})...")
+    from datasets import load_dataset
+    ds = load_dataset(args.dataset, split=args.split)
+    print(f"Loaded {len(ds)} instances")
+
+    # Load existing predictions for resume
+    existing = load_predictions(predictions_path)
+    completed = get_completed_ids(existing)
+    print(f"Already completed: {len(completed)} instances")
+
+    # Filter and limit
+    instances = [inst for inst in ds if inst["instance_id"] not in completed]
+    if args.max_tasks is not None:
+        instances = instances[:args.max_tasks]
+    print(f"Running: {len(instances)} instances")
+
+    # Run each instance
+    for i, instance in enumerate(instances, 1):
+        print(f"\n[{i}/{len(instances)}]", end="")
+        pred = run_instance(instance, instances_dir, server_url=args.server_url, timeout=args.timeout)
+        if pred is not None:
+            save_prediction(predictions_path, pred)
+            print(f"  Saved prediction for {pred.instance_id}")
+
+    # Summary
+    final = load_predictions(predictions_path)
+    non_empty = sum(1 for p in final if p["model_patch"])
+    print(f"\n{'='*60}")
+    print(f"  Done! {len(final)} predictions total, {non_empty} with patches")
+    print(f"  Output: {predictions_path}")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()
