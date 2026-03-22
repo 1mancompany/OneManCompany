@@ -1988,6 +1988,7 @@ class EmployeeManager:
             lines.append("All subtasks have passed review.")
 
         lines.append("Please call accept_child(node_id, notes) or reject_child(node_id, reason) for unreviewed subtasks.")
+        lines.append("IMPORTANT: Each subtask can only be accepted OR rejected ONCE. Once accepted, it CANNOT be rejected later. Review carefully before deciding.")
         lines.append("If additional tasks are needed, call dispatch_child().")
         lines.append("Once all are handled, your task will auto-complete and report upward.")
 
