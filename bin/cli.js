@@ -285,7 +285,7 @@ ${green("What gets installed automatically:")}
 
   console.log();
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
-  console.log(cyan("║   OneManCompany — AI Company OS       ║"));
+  console.log(cyan("║   OneManCompany — AI Company OS               ║"));
   console.log(cyan("╚═══════════════════════════════════════════════╝"));
   console.log();
 
@@ -333,6 +333,15 @@ ${green("What gets installed automatically:")}
     const cloneEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
+
+  // ── Read version from pyproject.toml ─────────────────────────────────
+  let appVersion = "unknown";
+  try {
+    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
+    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
+    if (verMatch) appVersion = verMatch[1];
+  } catch {}
+  info(`Version: ${appVersion}`);
 
   // ── Check if already running ─────────────────────────────────────────
   const existingPid = readPidFile(installDir);
@@ -505,7 +514,7 @@ ${green("What gets installed automatically:")}
 
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
-    info("Starting OneManCompany in debug mode (Ctrl+C to stop)...\n");
+    info(`Starting OneManCompany v${appVersion} in debug mode (Ctrl+C to stop)...\n`);
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
@@ -521,7 +530,7 @@ ${green("What gets installed automatically:")}
     process.on("SIGTERM", () => { child.kill("SIGTERM"); });
   } else {
     // ── Background mode: detach and exit CLI ────────────────────────
-    info("Starting OneManCompany in background...");
+    info(`Starting OneManCompany v${appVersion} in background...`);
     const logFile = path.join(installDir, ".onemancompany", "server.log");
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -544,7 +553,7 @@ ${green("What gets installed automatically:")}
     await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
-      console.log(green("  ✓ OneManCompany is running!"));
+      console.log(green(`  ✓ OneManCompany v${appVersion} is running!`));
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);

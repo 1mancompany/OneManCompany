@@ -337,7 +337,14 @@ async def get_state() -> dict:
     employees = load_all_employees()
     ex_employees = load_ex_employees()
     overhead = load_overhead()
+    from importlib.metadata import version as _pkg_version
+    try:
+        app_version = _pkg_version("onemancompany")
+    except Exception:
+        app_version = "dev"
+
     return {
+        "version": app_version,
         "employees": list(employees.values()),
         "ex_employees": list(ex_employees.values()),
         "tools": [t.to_dict() for t in company_state.tools.values()],

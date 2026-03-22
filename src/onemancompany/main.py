@@ -578,7 +578,12 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Restored {_crons_restored} cron(s), {_webhooks_restored} webhook(s)")
 
     from onemancompany.core.config import settings as _settings
-    print(f"🏢 One Man Company HQ is open!")
+    from importlib.metadata import version as _pkg_version
+    try:
+        _app_ver = _pkg_version("onemancompany")
+    except Exception:
+        _app_ver = "dev"
+    print(f"🏢 One Man Company HQ v{_app_ver} is running!")
     print(f"   Frontend: http://localhost:{_settings.port}")
     yield
 
