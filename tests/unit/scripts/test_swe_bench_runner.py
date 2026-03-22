@@ -231,9 +231,9 @@ class TestOMCClient:
             assert status == "timeout"
 
 
-class TestRunInstance:
-    def test_run_instance_success(self, tmp_path):
-        from swe_bench_runner import run_instance
+class TestPrepareAndSubmit:
+    def test_success(self, tmp_path):
+        from swe_bench_runner import prepare_and_submit, SubmittedTask
 
         instance = {
             "instance_id": "test__repo-1",
@@ -243,9 +243,115 @@ class TestRunInstance:
         }
 
         with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
-             mock.patch("swe_bench_runner.submit_task", return_value=("proj1", "iter_001")), \
-             mock.patch("swe_bench_runner.poll_until_done", return_value="completed"), \
+             mock.patch("swe_bench_runner.submit_task", return_value=("proj1", "iter_001")):
+
+            result = prepare_and_submit(instance, tmp_path / "instances", "http://localhost:8000")
+            assert isinstance(result, SubmittedTask)
+            assert result.instance_id == "test__repo-1"
+            assert result.project_id == "proj1"
+
+    def test_clone_fails(self, tmp_path):
+        from swe_bench_runner import prepare_and_submit
+
+        instance = {
+            "instance_id": "test__repo-2",
+            "repo": "test/repo",
+            "base_commit": "abc123def",
+            "problem_statement": "Bug",
+        }
+
+        with mock.patch("swe_bench_runner.clone_repo", return_value=False):
+            result = prepare_and_submit(instance, tmp_path / "instances", "http://localhost:8000")
+            assert result is None
+
+    def test_submit_fails(self, tmp_path):
+        from swe_bench_runner import prepare_and_submit, Prediction
+
+        instance = {
+            "instance_id": "test__repo-3",
+            "repo": "test/repo",
+            "base_commit": "abc123def",
+            "problem_statement": "Bug",
+        }
+
+        with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
+             mock.patch("swe_bench_runner.submit_task", side_effect=RuntimeError("fail")):
+            result = prepare_and_submit(instance, tmp_path / "instances", "http://localhost:8000")
+            assert isinstance(result, Prediction)
+            assert result.model_patch == ""
+
+
+class TestPollAndCollectBatch:
+    def test_single_task_completes(self):
+        from swe_bench_runner import poll_and_collect_batch, SubmittedTask
+        from pathlib import Path
+
+        task = SubmittedTask(
+            instance_id="test__repo-1",
+            repo_dir=Path("/tmp/fake"),
+            project_id="p1",
+            iteration_id="iter_001",
+        )
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "completed"}
+
+        with mock.patch("swe_bench_runner.httpx.Client") as MockClient, \
              mock.patch("swe_bench_runner.collect_patch", return_value="diff --git a/f.py"):
+            client = mock.MagicMock()
+            MockClient.return_value.__enter__ = mock.MagicMock(return_value=client)
+            MockClient.return_value.__exit__ = mock.MagicMock(return_value=False)
+            client.get.return_value = mock_response
+
+            preds = poll_and_collect_batch([task], "http://localhost:8000", timeout=10, interval=0.1)
+            assert len(preds) == 1
+            assert preds[0].instance_id == "test__repo-1"
+            assert preds[0].model_patch == "diff --git a/f.py"
+
+    def test_timeout_collects_partial(self):
+        from swe_bench_runner import poll_and_collect_batch, SubmittedTask
+        from pathlib import Path
+
+        task = SubmittedTask(
+            instance_id="test__repo-1",
+            repo_dir=Path("/tmp/fake"),
+            project_id="p1",
+            iteration_id="iter_001",
+        )
+
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": "in_progress"}
+
+        with mock.patch("swe_bench_runner.httpx.Client") as MockClient, \
+             mock.patch("swe_bench_runner.collect_patch", return_value="partial diff"):
+            client = mock.MagicMock()
+            MockClient.return_value.__enter__ = mock.MagicMock(return_value=client)
+            MockClient.return_value.__exit__ = mock.MagicMock(return_value=False)
+            client.get.return_value = mock_response
+
+            preds = poll_and_collect_batch([task], "http://localhost:8000", timeout=1, interval=0.2)
+            assert len(preds) == 1
+            assert preds[0].model_patch == "partial diff"
+
+
+class TestRunInstance:
+    def test_run_instance_success(self, tmp_path):
+        from swe_bench_runner import run_instance, Prediction
+
+        instance = {
+            "instance_id": "test__repo-1",
+            "repo": "test/repo",
+            "base_commit": "abc123def",
+            "problem_statement": "Something is broken",
+        }
+
+        mock_pred = Prediction(instance_id="test__repo-1", model_patch="diff --git a/f.py")
+
+        with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
+             mock.patch("swe_bench_runner.submit_task", return_value=("proj1", "iter_001")), \
+             mock.patch("swe_bench_runner.poll_and_collect_batch", return_value=[mock_pred]):
 
             pred = run_instance(instance, tmp_path / "instances", "http://localhost:8000", 1800)
             assert pred is not None
@@ -269,7 +375,7 @@ class TestRunInstance:
 
 class TestMainFlow:
     def test_main_end_to_end(self, tmp_path, monkeypatch):
-        from swe_bench_runner import main
+        from swe_bench_runner import main, Prediction
 
         fake_ds = [
             {
@@ -289,14 +395,15 @@ class TestMainFlow:
             "--timeout", "5",
         ])
 
+        mock_pred = Prediction(instance_id="test__repo-1", model_patch="diff --git fixed")
+
         # Create a fake 'datasets' module so the lazy import inside main() works
         fake_datasets = mock.MagicMock()
         fake_datasets.load_dataset = mock.MagicMock(return_value=fake_ds)
 
         with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
              mock.patch("swe_bench_runner.submit_task", return_value=("p1", "iter_001")), \
-             mock.patch("swe_bench_runner.poll_until_done", return_value="completed"), \
-             mock.patch("swe_bench_runner.collect_patch", return_value="diff --git fixed"), \
+             mock.patch("swe_bench_runner.poll_and_collect_batch", return_value=[mock_pred]), \
              mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
 
             main()
@@ -305,3 +412,40 @@ class TestMainFlow:
         assert len(preds) == 1
         assert preds[0]["instance_id"] == "test__repo-1"
         assert preds[0]["model_patch"] == "diff --git fixed"
+
+    def test_main_batch_mode(self, tmp_path, monkeypatch):
+        from swe_bench_runner import main, Prediction
+
+        fake_ds = [
+            {"instance_id": f"test__repo-{i}", "repo": "test/repo",
+             "base_commit": "abc123", "problem_statement": f"Bug {i}"}
+            for i in range(3)
+        ]
+
+        workdir = str(tmp_path / "work")
+
+        monkeypatch.setattr("sys.argv", [
+            "swe_bench_runner.py",
+            "--workdir", workdir,
+            "--max-tasks", "3",
+            "--batch-size", "3",
+            "--timeout", "5",
+        ])
+
+        mock_preds = [
+            Prediction(instance_id=f"test__repo-{i}", model_patch=f"diff {i}")
+            for i in range(3)
+        ]
+
+        fake_datasets = mock.MagicMock()
+        fake_datasets.load_dataset = mock.MagicMock(return_value=fake_ds)
+
+        with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
+             mock.patch("swe_bench_runner.submit_task", return_value=("p1", "iter_001")), \
+             mock.patch("swe_bench_runner.poll_and_collect_batch", return_value=mock_preds), \
+             mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
+
+            main()
+
+        preds = json.loads((tmp_path / "work" / "predictions.json").read_text())
+        assert len(preds) == 3

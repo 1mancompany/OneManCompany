@@ -4,10 +4,12 @@
 Drives SWE-bench tasks through the OMC CEO task API, collects patches,
 and outputs predictions.json for SWE-bench harness evaluation.
 
+Supports batch submission: tasks are submitted in batches (--batch-size),
+then polled concurrently until all complete or timeout.
+
 Limitations:
 - If the EA asks the CEO for clarification, the runner cannot auto-dismiss
   the prompt. The task will timeout and collect whatever partial diff exists.
-- Tasks run sequentially (one at a time) to avoid collisions.
 """
 from __future__ import annotations
 
@@ -41,6 +43,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Per-task timeout in seconds (default: 1800 = 30min)")
     p.add_argument("--max-tasks", type=int, default=None,
                    help="Max number of tasks to run (for testing)")
+    p.add_argument("--batch-size", type=int, default=1,
+                   help="Number of tasks to submit before polling (default: 1 = sequential)")
     return p.parse_args(argv)
 
 
@@ -212,13 +216,22 @@ def poll_until_done(
 # Main runner
 # ---------------------------------------------------------------------------
 
-def run_instance(
+@dataclass
+class SubmittedTask:
+    """Tracks a submitted task awaiting completion."""
+    instance_id: str
+    repo_dir: Path
+    project_id: str
+    iteration_id: str
+
+
+def prepare_and_submit(
     instance: dict,
     instances_dir: Path,
     server_url: str,
-    timeout: int,
-) -> Prediction | None:
-    """Run a single SWE-bench instance. Returns Prediction or None on clone failure."""
+) -> SubmittedTask | Prediction | None:
+    """Clone repo and submit task. Returns SubmittedTask on success,
+    Prediction (empty patch) on submit failure, or None on clone failure."""
     iid = instance["instance_id"]
     repo_slug = instance["repo"]  # e.g. "astropy/astropy"
     base_commit = instance["base_commit"]
@@ -227,46 +240,106 @@ def run_instance(
     repo_dir = instances_dir / iid / "repo"
     clone_url = f"https://github.com/{repo_slug}.git"
 
-    print(f"\n{'='*60}")
-    print(f"  Instance: {iid}")
-    print(f"  Repo: {repo_slug} @ {base_commit[:8]}")
-    print(f"{'='*60}")
+    print(f"\n  [{iid}] Repo: {repo_slug} @ {base_commit[:8]}")
 
     # 1. Clone repo (skip if already exists from a previous partial run)
     if not repo_dir.exists():
-        print(f"  Cloning {clone_url}...")
+        print(f"  [{iid}] Cloning {clone_url}...")
         if not clone_repo(clone_url, base_commit, repo_dir):
-            print(f"  [SKIP] Clone failed for {iid}")
+            print(f"  [{iid}] [SKIP] Clone failed")
             return None
     else:
-        print(f"  Repo already exists, resetting to clean state")
+        print(f"  [{iid}] Repo exists, resetting to clean state")
         if not _reset_repo(repo_dir, base_commit):
-            print(f"  [SKIP] Reset failed for {iid}")
+            print(f"  [{iid}] [SKIP] Reset failed")
             return None
 
-    # 2. Build task description
+    # 2. Build task description and submit
     task_desc = build_task_description(repo_slug, str(repo_dir.resolve()), problem)
 
-    # 3. Submit to OMC
-    print(f"  Submitting task to OMC...")
+    print(f"  [{iid}] Submitting task to OMC...")
     try:
         project_id, iteration_id = submit_task(server_url, task_desc)
-        print(f"  Project: {project_id}/{iteration_id}")
+        print(f"  [{iid}] Project: {project_id}/{iteration_id}")
+        return SubmittedTask(
+            instance_id=iid,
+            repo_dir=repo_dir,
+            project_id=project_id,
+            iteration_id=iteration_id,
+        )
     except Exception as e:
-        print(f"  [ERROR] Submit failed: {e}")
+        print(f"  [{iid}] [ERROR] Submit failed: {e}")
         return Prediction(instance_id=iid, model_patch="")
 
-    # 4. Poll for completion
-    print(f"  Polling (timeout={timeout}s)...")
-    status = poll_until_done(server_url, project_id, iteration_id, timeout=timeout)
-    print(f"  Status: {status}")
 
-    # 5. Collect patch
-    patch = collect_patch(repo_dir)
-    patch_lines = len(patch.splitlines()) if patch else 0
-    print(f"  Patch: {patch_lines} lines")
+def poll_and_collect_batch(
+    tasks: list[SubmittedTask],
+    server_url: str,
+    timeout: int,
+    interval: float = 30.0,
+) -> list[Prediction]:
+    """Poll all submitted tasks concurrently until all finish or timeout."""
+    deadline = time.time() + timeout
+    terminal = {"completed", "failed", "cancelled"}
+    pending = {t.instance_id: t for t in tasks}
+    results: list[Prediction] = []
 
-    return Prediction(instance_id=iid, model_patch=patch)
+    print(f"\n  Polling {len(pending)} tasks (timeout={timeout}s)...")
+
+    with httpx.Client(timeout=30) as client:
+        while pending and time.time() < deadline:
+            finished_ids = []
+            for iid, task in pending.items():
+                try:
+                    resp = client.get(
+                        f"{server_url}/api/projects/{task.project_id}/{task.iteration_id}"
+                    )
+                    if resp.status_code == 200:
+                        status = resp.json().get("status", "")
+                        if status in terminal:
+                            print(f"  [{iid}] Status: {status}")
+                            patch = collect_patch(task.repo_dir)
+                            patch_lines = len(patch.splitlines()) if patch else 0
+                            print(f"  [{iid}] Patch: {patch_lines} lines")
+                            results.append(Prediction(instance_id=iid, model_patch=patch))
+                            finished_ids.append(iid)
+                except httpx.HTTPError as e:
+                    print(f"  [{iid}] [WARN] Poll error (will retry): {e}")
+
+            for iid in finished_ids:
+                del pending[iid]
+
+            if pending:
+                time.sleep(interval)
+
+    # Timeout: collect whatever diff exists for remaining tasks
+    for iid, task in pending.items():
+        print(f"  [{iid}] Status: timeout")
+        patch = collect_patch(task.repo_dir)
+        patch_lines = len(patch.splitlines()) if patch else 0
+        print(f"  [{iid}] Patch: {patch_lines} lines")
+        results.append(Prediction(instance_id=iid, model_patch=patch))
+
+    return results
+
+
+def run_instance(
+    instance: dict,
+    instances_dir: Path,
+    server_url: str,
+    timeout: int,
+) -> Prediction | None:
+    """Run a single SWE-bench instance (sequential mode). Returns Prediction or None."""
+    result = prepare_and_submit(instance, instances_dir, server_url)
+
+    if result is None:
+        return None
+    if isinstance(result, Prediction):
+        return result
+
+    # It's a SubmittedTask — poll and collect
+    preds = poll_and_collect_batch([result], server_url, timeout)
+    return preds[0] if preds else None
 
 
 def main() -> None:
@@ -274,6 +347,7 @@ def main() -> None:
     workdir = Path(args.workdir)
     instances_dir = workdir / "instances"
     predictions_path = workdir / "predictions.json"
+    batch_size = max(1, args.batch_size)
 
     workdir.mkdir(parents=True, exist_ok=True)
     instances_dir.mkdir(parents=True, exist_ok=True)
@@ -293,13 +367,40 @@ def main() -> None:
     instances = [inst for inst in ds if inst["instance_id"] not in completed]
     if args.max_tasks is not None:
         instances = instances[:args.max_tasks]
-    print(f"Running: {len(instances)} instances")
+    print(f"Running: {len(instances)} instances (batch_size={batch_size})")
 
-    # Run each instance
-    for i, instance in enumerate(instances, 1):
-        print(f"\n[{i}/{len(instances)}]", end="")
-        pred = run_instance(instance, instances_dir, server_url=args.server_url, timeout=args.timeout)
-        if pred is not None:
+    # Process in batches
+    for batch_start in range(0, len(instances), batch_size):
+        batch = instances[batch_start : batch_start + batch_size]
+        batch_num = batch_start // batch_size + 1
+        total_batches = (len(instances) + batch_size - 1) // batch_size
+
+        print(f"\n{'='*60}")
+        print(f"  Batch {batch_num}/{total_batches} ({len(batch)} tasks)")
+        print(f"{'='*60}")
+
+        # Phase 1: Clone repos and submit all tasks in this batch
+        submitted: list[SubmittedTask] = []
+        for instance in batch:
+            result = prepare_and_submit(instance, instances_dir, args.server_url)
+            if result is None:
+                continue  # clone failed, skip
+            if isinstance(result, Prediction):
+                save_prediction(predictions_path, result)
+                print(f"  Saved prediction for {result.instance_id} (submit failed)")
+                continue
+            submitted.append(result)
+
+        if not submitted:
+            continue
+
+        # Phase 2: Poll all submitted tasks concurrently
+        predictions = poll_and_collect_batch(
+            submitted, args.server_url, timeout=args.timeout
+        )
+
+        # Phase 3: Save results
+        for pred in predictions:
             save_prediction(predictions_path, pred)
             print(f"  Saved prediction for {pred.instance_id}")
 
