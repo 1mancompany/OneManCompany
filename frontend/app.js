@@ -105,6 +105,10 @@ class AppController {
           office_layout: stateData.office_layout,
         });
       }
+      // Show version
+      if (stateData.version) {
+        document.getElementById('app-version').textContent = `v${stateData.version}`;
+      }
       // Update counters
       document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
       document.getElementById('tool-count').textContent = `🔧 ${tools.length}`;

@@ -283,9 +283,19 @@ ${green("What gets installed automatically:")}
     return;
   }
 
+  // Read version from package.json (bundled with npm package)
+  let cliVersion = "unknown";
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
+    if (pkg.version) cliVersion = pkg.version;
+  } catch {}
+
   console.log();
+  const verTag = `v${cliVersion}`;
+  const title = `OneManCompany — AI Company OS  ${verTag}`;
+  const pad = Math.max(0, 45 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
-  console.log(cyan("║   OneManCompany — AI Company OS       ║"));
+  console.log(cyan(`║   ${title}${" ".repeat(pad)}║`));
   console.log(cyan("╚═══════════════════════════════════════════════╝"));
   console.log();
 
@@ -333,6 +343,14 @@ ${green("What gets installed automatically:")}
     const cloneEnv = { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" };
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
+
+  // ── Read actual version from repo (may differ from npm package) ──────
+  let appVersion = cliVersion;
+  try {
+    const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
+    const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
+    if (verMatch) appVersion = verMatch[1];
+  } catch {}
 
   // ── Check if already running ─────────────────────────────────────────
   const existingPid = readPidFile(installDir);
@@ -505,7 +523,7 @@ ${green("What gets installed automatically:")}
 
   if (debugMode) {
     // ── Foreground mode: show logs, Ctrl+C to kill ──────────────────
-    info("Starting OneManCompany in debug mode (Ctrl+C to stop)...\n");
+    info(`Starting OneManCompany v${appVersion} in debug mode (Ctrl+C to stop)...\n`);
     const child = spawn(pythonBin, ["-m", "onemancompany.main", ...launchArgs], {
       cwd: installDir,
       stdio: "inherit",
@@ -521,7 +539,7 @@ ${green("What gets installed automatically:")}
     process.on("SIGTERM", () => { child.kill("SIGTERM"); });
   } else {
     // ── Background mode: detach and exit CLI ────────────────────────
-    info("Starting OneManCompany in background...");
+    info(`Starting OneManCompany v${appVersion} in background...`);
     const logFile = path.join(installDir, ".onemancompany", "server.log");
     // Ensure log directory exists
     const logDir = path.dirname(logFile);
@@ -544,7 +562,7 @@ ${green("What gets installed automatically:")}
     await new Promise((r) => setTimeout(r, 5000));
     if (isProcessRunning(child.pid)) {
       console.log();
-      console.log(green("  ✓ OneManCompany is running!"));
+      console.log(green(`  ✓ OneManCompany v${appVersion} is running!`));
       console.log();
       console.log(`  ${cyan("→")} Open ${cyan("http://localhost:8000")} in your browser`);
       console.log(`  ${dim("  Logs:")} ${logFile}`);
