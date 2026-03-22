@@ -600,8 +600,8 @@ async def _get_or_start_daemon(
         logger.warning(f"Failed to generate MCP config: {e}")
 
     # Load claude_plugins from employee profile
-    from onemancompany.core.config import load_employee_profile
-    _profile = load_employee_profile(employee_id)
+    from onemancompany.core.config import load_employee_profile_yaml
+    _profile = load_employee_profile_yaml(employee_id)
     claude_plugins = _profile.get("claude_plugins", [])
 
     # Try to start daemon (may resume existing session)
