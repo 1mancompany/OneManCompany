@@ -173,7 +173,9 @@ class ClaudeDaemon:
         self.session_id = session_id
         self.is_new = is_new
         self.mcp_config_path = mcp_config_path
-        self.work_dir = work_dir or str(EMPLOYEES_DIR / employee_id)
+        # Always launch from employee directory so CLAUDE.md is picked up;
+        # task-specific work_dir is communicated via the prompt instead.
+        self.work_dir = str(EMPLOYEES_DIR / employee_id)
         self.max_turns = max_turns
         self.proc: asyncio.subprocess.Process | None = None
         self._started = False

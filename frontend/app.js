@@ -5043,10 +5043,11 @@ class AppController {
 
     const task = `The CEO has drafted a company direction statement. Please polish and expand it into a complete corporate positioning description, preserving the core message while adding strategic vision, target market, core competencies, and other dimensions. Once polished, dispatch to COO to save via deposit_company_knowledge(category="direction").\n\nDraft content:\n${draft}`;
 
+    const formData = new FormData();
+    formData.append('task', task);
     fetch('/api/ceo/task', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ task }),
+      body: formData,
     })
       .then(r => r.json())
       .then(data => {
