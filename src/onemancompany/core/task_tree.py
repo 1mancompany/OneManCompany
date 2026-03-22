@@ -70,6 +70,12 @@ class TaskNode:
 
     depends_on: list[str] = field(default_factory=list)
 
+    # Directive chain: preserves the original description while allowing each upstream
+    # node (EA, COO) to add binding instructions. The executor sees both the original
+    # description AND all directives from the chain.
+    # Format: [{"from": employee_id, "role": "COO", "directive": "...", "at": iso_timestamp}]
+    directives: list[dict] = field(default_factory=list)
+
     # Hold reason: when a tool needs the parent to enter HOLDING after execution,
     # it sets this field (e.g. "blocking_child=<node_id>"). vessel.py checks this
     # generically — no child-type-specific detection needed.
@@ -96,7 +102,7 @@ class TaskNode:
                 super().__setattr__("_description_preview", (value or "")[:200])
             except AttributeError:
                 return  # During __init__ before _content_dirty exists
-        elif name == "result":
+        elif name in ("result", "directives"):
             try:
                 super().__setattr__("_content_dirty", True)
             except AttributeError:
@@ -112,7 +118,9 @@ class TaskNode:
             return
         nodes_dir = Path(project_dir) / NODES_DIR
         nodes_dir.mkdir(parents=True, exist_ok=True)
-        content = {"description": self.description, "result": self.result}
+        content: dict = {"description": self.description, "result": self.result}
+        if self.directives:
+            content["directives"] = self.directives
         (nodes_dir / f"{self.id}.yaml").write_text(
             yaml.dump(content, allow_unicode=True, sort_keys=False),
             encoding=ENCODING_UTF8,
@@ -131,6 +139,8 @@ class TaskNode:
             object.__setattr__(self, "description", desc)
             object.__setattr__(self, "result", data.get("result", ""))
             object.__setattr__(self, "_description_preview", (desc or "")[:200])
+            if "directives" in data:
+                object.__setattr__(self, "directives", data["directives"])
         self._content_loaded = True
 
     def set_status(self, target: TaskPhase) -> None:
@@ -180,6 +190,7 @@ class TaskNode:
             "branch_active": self.branch_active,
             "depends_on": list(self.depends_on),
             "hold_reason": self.hold_reason,
+            "directives_count": len(self.directives),
         }
 
     @classmethod

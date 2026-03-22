@@ -197,6 +197,14 @@ def _build_tree_context(tree, node, project_dir: str) -> str:
     node.load_content(project_dir)
     parts.append(f"=== Current Task ({node.id}) ===")
     parts.append(f"Description: {node.description}")
+    if node.directives:
+        parts.append("")
+        parts.append("=== Directives from upstream ===")
+        for d in node.directives:
+            from_id = d.get("from", "unknown")
+            text = d.get("directive", "")
+            parts.append(f"[{from_id}]: {text}")
+        parts.append("=== End directives ===")
     if node.result:
         parts.append(f"Result: {node.result}")
     parts.append("")

@@ -164,11 +164,18 @@ def dispatch_child(
     acceptance_criteria: list[str],
     timeout_seconds: int = 3600,
     depends_on: list[str] | None = None,
+    directive: str = "",
 ) -> dict:
     """Dispatch a child task to an employee with acceptance criteria.
 
     Creates a child node in the task tree and schedules it for execution.
     The child must complete and be accepted before this task can finish.
+
+    IMPORTANT: The description should preserve the original task from the CEO.
+    Do NOT rewrite or summarize the original problem — pass it through as-is.
+    If you need to add your own analysis, instructions, or context for the
+    executor, use the directive parameter. The executor will see the original
+    description + all directives from the chain (CEO → EA → COO → Employee).
 
     If depends_on is provided, the child will only be scheduled when all dependency
     nodes reach a terminal status. Until then the child is created in the tree
@@ -176,10 +183,11 @@ def dispatch_child(
 
     Args:
         employee_id: Target employee ID
-        description: What the employee should do
+        description: The task description — preserve the original wording from upstream
         acceptance_criteria: List of measurable criteria the result must meet
         timeout_seconds: Max seconds allowed for the child task (default 3600)
         depends_on: List of TaskNode IDs that must complete before this child starts
+        directive: Your analysis, instructions, or context for the executor (appended to directive chain)
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
 
@@ -308,6 +316,17 @@ def dispatch_child(
         )
         child.project_id = current_node.project_id
         child.project_dir = project_dir
+
+        # Propagate directive chain: inherit parent's directives + add new directive
+        current_node.load_content(project_dir)
+        child.directives = list(current_node.directives)  # copy parent chain
+        if directive:
+            from datetime import datetime
+            child.directives.append({
+                "from": vessel.employee_id,
+                "directive": directive,
+                "at": datetime.now().isoformat(),
+            })
 
         # Auto-register dispatched employee in project team for project history
         _add_to_project_team(project_dir, employee_id)
@@ -488,15 +507,22 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
             if node.employee_id not in em.executors:
                 return {"status": "error", "message": f"No handle for employee {node.employee_id}, cannot push correction task."}
 
-            # Reset to pending and re-schedule
-            node.load_content(project_dir)  # Ensure description is loaded before reading
+            # Reset to pending and re-schedule — keep original description, add rejection as directive
+            node.load_content(project_dir)
             node.set_status(TaskPhase.PENDING)
             node.result = ""
-            node.description = (
-                f"Correction task: {node.description}\n\n"
-                f"Rejection reason: {reason}\n\n"
-                f"Acceptance criteria:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
-            )
+            from datetime import datetime
+            new_directives = list(node.directives)
+            new_directives.append({
+                "from": vessel.employee_id,
+                "directive": (
+                    f"[CORRECTION] Your previous result was rejected.\n"
+                    f"Reason: {reason}\n"
+                    f"Acceptance criteria:\n" + "\n".join(f"- {c}" for c in node.acceptance_criteria)
+                ),
+                "at": datetime.now().isoformat(),
+            })
+            node.directives = new_directives  # reassign to trigger _content_dirty
             _save_tree(project_dir, tree)
 
             em.schedule_node(node.employee_id, node.id, tree_path_str)
