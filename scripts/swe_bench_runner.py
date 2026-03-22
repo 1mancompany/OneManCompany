@@ -52,14 +52,22 @@ def load_predictions(path: Path) -> list[dict]:
     """Load existing predictions from JSON file."""
     if not path.exists():
         return []
-    return json.loads(path.read_text())
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        backup = path.with_suffix(".json.bak")
+        print(f"  [WARN] Corrupt predictions file, backing up to {backup}: {e}")
+        path.rename(backup)
+        return []
 
 
 def save_prediction(path: Path, pred: Prediction) -> None:
-    """Append a prediction to the JSON file."""
+    """Append a prediction to the JSON file (atomic write)."""
     existing = load_predictions(path)
     existing.append(asdict(pred))
-    path.write_text(json.dumps(existing, indent=2))
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(existing, indent=2))
+    tmp.rename(path)
 
 
 def get_completed_ids(predictions: list[dict]) -> set[str]:
@@ -88,20 +96,25 @@ def clone_repo(repo_url: str, base_commit: str, dest: Path) -> bool:
         return False
 
 
-def _reset_repo(repo_dir: Path, base_commit: str) -> None:
-    """Reset a repo to clean state at base_commit (for reuse after failed runs)."""
-    subprocess.run(
-        ["git", "-C", str(repo_dir), "checkout", "--quiet", base_commit],
-        capture_output=True, timeout=30,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo_dir), "reset", "--hard", "HEAD"],
-        capture_output=True, timeout=30,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo_dir), "clean", "-fd", "--quiet"],
-        capture_output=True, timeout=30,
-    )
+def _reset_repo(repo_dir: Path, base_commit: str) -> bool:
+    """Reset a repo to clean state at base_commit. Returns True on success."""
+    try:
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "checkout", "--quiet", base_commit],
+            check=True, capture_output=True, timeout=30,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "reset", "--hard", "HEAD"],
+            check=True, capture_output=True, timeout=30,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "clean", "-fd", "--quiet"],
+            check=True, capture_output=True, timeout=30,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        print(f"  [ERROR] _reset_repo failed: {e}")
+        return False
 
 
 def collect_patch(repo_dir: Path) -> str:
@@ -188,8 +201,8 @@ def poll_until_done(
                     status = resp.json().get("status", "")
                     if status in terminal:
                         return status
-            except httpx.HTTPError:
-                pass  # Transient error, keep polling
+            except httpx.HTTPError as e:
+                print(f"  [WARN] Poll error (will retry): {e}")
             time.sleep(interval)
 
     return "timeout"
@@ -227,7 +240,9 @@ def run_instance(
             return None
     else:
         print(f"  Repo already exists, resetting to clean state")
-        _reset_repo(repo_dir, base_commit)
+        if not _reset_repo(repo_dir, base_commit):
+            print(f"  [SKIP] Reset failed for {iid}")
+            return None
 
     # 2. Build task description
     task_desc = build_task_description(repo_slug, str(repo_dir.resolve()), problem)
