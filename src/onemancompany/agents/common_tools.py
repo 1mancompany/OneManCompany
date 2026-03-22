@@ -484,6 +484,8 @@ def list_colleagues() -> list[dict]:
         A list of dicts with id, name, nickname, role, department, level, skills,
         tools (authorized tool names), status, and current_task_summary.
     """
+    from onemancompany.core.vessel import employee_manager
+
     results = []
     all_emps = load_all_employees()
     for emp_id, emp_data in all_emps.items():
@@ -497,6 +499,7 @@ def list_colleagues() -> list[dict]:
                     tool_names.append(t.name)
 
         runtime = emp_data.get(PF_RUNTIME, {})
+        pending_count = len(employee_manager._schedule.get(emp_id, []))
         results.append({
             "id": emp_id,
             "name": emp_data.get(PF_NAME, ""),
@@ -508,6 +511,7 @@ def list_colleagues() -> list[dict]:
             "tools": tool_names,
             "status": runtime.get("status", emp_data.get(PF_STATUS, STATUS_IDLE)),
             "current_task": runtime.get(PF_CURRENT_TASK_SUMMARY, "") or None,
+            "pending_tasks": pending_count,
         })
     return results
 
