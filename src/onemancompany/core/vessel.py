@@ -2231,7 +2231,29 @@ class EmployeeManager:
         if run_retrospective:
             try:
                 from onemancompany.core.routine import run_post_task_routine
-                await run_post_task_routine(node.description, project_id=project_id)
+                # Extract actual participants from the task tree so only
+                # employees who worked on the project join the retrospective.
+                _retro_participants = None
+                tree_dir = node.project_dir or ""
+                if tree_dir:
+                    try:
+                        from onemancompany.core.task_tree import TaskTree
+                        _tree = TaskTree.load(Path(tree_dir) / "task_tree.yaml")
+                        _retro_participants = list({
+                            n.employee_id for n in _tree.nodes.values()
+                            if n.employee_id
+                        })
+                        logger.debug(
+                            "[cleanup] Retrospective participants from tree: {}",
+                            _retro_participants,
+                        )
+                    except Exception as _tree_err:
+                        logger.debug("[cleanup] Could not load tree for participants: {}", _tree_err)
+                await run_post_task_routine(
+                    node.description,
+                    participants=_retro_participants,
+                    project_id=project_id,
+                )
             except Exception as e:
                 traceback.print_exc()
                 if not project_id.startswith("_auto_"):
