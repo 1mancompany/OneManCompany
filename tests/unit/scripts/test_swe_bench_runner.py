@@ -374,8 +374,25 @@ class TestRunInstance:
 
 
 class TestMainFlow:
+    def _make_poll_checker(self, pred_map: dict[str, str]):
+        """Create a _poll_check_finished mock that returns predictions for known IDs."""
+        from swe_bench_runner import Prediction
+        call_count = [0]
+
+        def _fake_poll(inflight, server_url, client):
+            call_count[0] += 1
+            # Return all inflight as finished on first poll
+            results = []
+            finished_ids = list(inflight.keys())
+            for iid in finished_ids:
+                patch = pred_map.get(iid, "")
+                results.append(Prediction(instance_id=iid, model_patch=patch))
+                del inflight[iid]
+            return results
+        return _fake_poll
+
     def test_main_end_to_end(self, tmp_path, monkeypatch):
-        from swe_bench_runner import main, Prediction
+        from swe_bench_runner import main
 
         fake_ds = [
             {
@@ -395,15 +412,15 @@ class TestMainFlow:
             "--timeout", "5",
         ])
 
-        mock_pred = Prediction(instance_id="test__repo-1", model_patch="diff --git fixed")
-
-        # Create a fake 'datasets' module so the lazy import inside main() works
         fake_datasets = mock.MagicMock()
         fake_datasets.load_dataset = mock.MagicMock(return_value=fake_ds)
 
+        fake_poll = self._make_poll_checker({"test__repo-1": "diff --git fixed"})
+
         with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
              mock.patch("swe_bench_runner.submit_task", return_value=("p1", "iter_001")), \
-             mock.patch("swe_bench_runner.poll_and_collect_batch", return_value=[mock_pred]), \
+             mock.patch("swe_bench_runner._poll_check_finished", side_effect=fake_poll), \
+             mock.patch("swe_bench_runner.time.sleep"), \
              mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
 
             main()
@@ -413,13 +430,13 @@ class TestMainFlow:
         assert preds[0]["instance_id"] == "test__repo-1"
         assert preds[0]["model_patch"] == "diff --git fixed"
 
-    def test_main_batch_mode(self, tmp_path, monkeypatch):
-        from swe_bench_runner import main, Prediction
+    def test_main_sliding_window(self, tmp_path, monkeypatch):
+        from swe_bench_runner import main
 
         fake_ds = [
             {"instance_id": f"test__repo-{i}", "repo": "test/repo",
              "base_commit": "abc123", "problem_statement": f"Bug {i}"}
-            for i in range(3)
+            for i in range(5)
         ]
 
         workdir = str(tmp_path / "work")
@@ -427,25 +444,31 @@ class TestMainFlow:
         monkeypatch.setattr("sys.argv", [
             "swe_bench_runner.py",
             "--workdir", workdir,
-            "--max-tasks", "3",
+            "--max-tasks", "5",
             "--batch-size", "3",
-            "--timeout", "5",
+            "--timeout", "60",
         ])
 
-        mock_preds = [
-            Prediction(instance_id=f"test__repo-{i}", model_patch=f"diff {i}")
-            for i in range(3)
-        ]
+        pred_map = {f"test__repo-{i}": f"diff {i}" for i in range(5)}
+        fake_poll = self._make_poll_checker(pred_map)
 
         fake_datasets = mock.MagicMock()
         fake_datasets.load_dataset = mock.MagicMock(return_value=fake_ds)
 
+        submit_calls = []
+        def track_submit(url, desc):
+            submit_calls.append(1)
+            return ("p1", f"iter_{len(submit_calls):03d}")
+
         with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
-             mock.patch("swe_bench_runner.submit_task", return_value=("p1", "iter_001")), \
-             mock.patch("swe_bench_runner.poll_and_collect_batch", return_value=mock_preds), \
+             mock.patch("swe_bench_runner.submit_task", side_effect=track_submit), \
+             mock.patch("swe_bench_runner._poll_check_finished", side_effect=fake_poll), \
+             mock.patch("swe_bench_runner.time.sleep"), \
              mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
 
             main()
 
         preds = json.loads((tmp_path / "work" / "predictions.json").read_text())
-        assert len(preds) == 3
+        assert len(preds) == 5
+        # All 5 submitted
+        assert len(submit_calls) == 5

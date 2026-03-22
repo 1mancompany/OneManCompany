@@ -342,12 +342,55 @@ def run_instance(
     return preds[0] if preds else None
 
 
+def _poll_check_finished(
+    inflight: dict[str, SubmittedTask],
+    server_url: str,
+    client: httpx.Client,
+) -> list[Prediction]:
+    """One poll pass: check all inflight tasks, return finished ones."""
+    terminal = {"completed", "failed", "cancelled"}
+    finished: list[Prediction] = []
+    finished_ids: list[str] = []
+
+    for iid, task in inflight.items():
+        try:
+            resp = client.get(
+                f"{server_url}/api/projects/{task.project_id}/{task.iteration_id}"
+            )
+            if resp.status_code == 200:
+                status = resp.json().get("status", "")
+                if status in terminal:
+                    print(f"  [{iid}] Status: {status}")
+                    patch = collect_patch(task.repo_dir)
+                    patch_lines = len(patch.splitlines()) if patch else 0
+                    print(f"  [{iid}] Patch: {patch_lines} lines")
+                    finished.append(Prediction(instance_id=iid, model_patch=patch))
+                    finished_ids.append(iid)
+        except httpx.HTTPError as e:
+            print(f"  [{iid}] [WARN] Poll error (will retry): {e}")
+
+    for iid in finished_ids:
+        del inflight[iid]
+
+    return finished
+
+
+def _collect_timed_out(
+    inflight: dict[str, SubmittedTask],
+    deadlines: dict[str, float],
+    now: float,
+) -> list[str]:
+    """Return instance IDs that have exceeded their deadline."""
+    return [iid for iid in inflight if now >= deadlines.get(iid, float("inf"))]
+
+
 def main() -> None:
     args = parse_args()
     workdir = Path(args.workdir)
     instances_dir = workdir / "instances"
     predictions_path = workdir / "predictions.json"
-    batch_size = max(1, args.batch_size)
+    window_size = max(1, args.batch_size)
+    poll_interval = 30.0
 
     workdir.mkdir(parents=True, exist_ok=True)
     instances_dir.mkdir(parents=True, exist_ok=True)
@@ -367,42 +410,60 @@ def main() -> None:
     instances = [inst for inst in ds if inst["instance_id"] not in completed]
     if args.max_tasks is not None:
         instances = instances[:args.max_tasks]
-    print(f"Running: {len(instances)} instances (batch_size={batch_size})")
+    print(f"Running: {len(instances)} instances (window={window_size})")
 
-    # Process in batches
-    for batch_start in range(0, len(instances), batch_size):
-        batch = instances[batch_start : batch_start + batch_size]
-        batch_num = batch_start // batch_size + 1
-        total_batches = (len(instances) + batch_size - 1) // batch_size
+    # Sliding window: keep up to window_size tasks inflight at all times
+    queue = list(instances)  # remaining instances to submit
+    inflight: dict[str, SubmittedTask] = {}  # instance_id → SubmittedTask
+    deadlines: dict[str, float] = {}  # instance_id → deadline timestamp
+    total = len(instances)
+    done_count = 0
 
-        print(f"\n{'='*60}")
-        print(f"  Batch {batch_num}/{total_batches} ({len(batch)} tasks)")
-        print(f"{'='*60}")
+    with httpx.Client(timeout=30) as client:
+        while queue or inflight:
+            # Fill window: submit tasks until we reach window_size
+            while queue and len(inflight) < window_size:
+                instance = queue.pop(0)
+                result = prepare_and_submit(instance, instances_dir, args.server_url)
+                if result is None:
+                    done_count += 1
+                    continue  # clone failed, skip
+                if isinstance(result, Prediction):
+                    save_prediction(predictions_path, result)
+                    print(f"  Saved prediction for {result.instance_id} (submit failed)")
+                    done_count += 1
+                    continue
+                inflight[result.instance_id] = result
+                deadlines[result.instance_id] = time.time() + args.timeout
 
-        # Phase 1: Clone repos and submit all tasks in this batch
-        submitted: list[SubmittedTask] = []
-        for instance in batch:
-            result = prepare_and_submit(instance, instances_dir, args.server_url)
-            if result is None:
-                continue  # clone failed, skip
-            if isinstance(result, Prediction):
-                save_prediction(predictions_path, result)
-                print(f"  Saved prediction for {result.instance_id} (submit failed)")
-                continue
-            submitted.append(result)
+            if not inflight:
+                break
 
-        if not submitted:
-            continue
+            # Poll all inflight tasks
+            finished = _poll_check_finished(inflight, args.server_url, client)
+            for pred in finished:
+                save_prediction(predictions_path, pred)
+                deadlines.pop(pred.instance_id, None)
+                done_count += 1
+                print(f"  Saved prediction for {pred.instance_id} [{done_count}/{total}]")
 
-        # Phase 2: Poll all submitted tasks concurrently
-        predictions = poll_and_collect_batch(
-            submitted, args.server_url, timeout=args.timeout
-        )
+            # Check for timeouts
+            now = time.time()
+            timed_out_ids = _collect_timed_out(inflight, deadlines, now)
+            for iid in timed_out_ids:
+                task = inflight.pop(iid)
+                deadlines.pop(iid, None)
+                print(f"  [{iid}] Status: timeout")
+                patch = collect_patch(task.repo_dir)
+                patch_lines = len(patch.splitlines()) if patch else 0
+                print(f"  [{iid}] Patch: {patch_lines} lines")
+                pred = Prediction(instance_id=iid, model_patch=patch)
+                save_prediction(predictions_path, pred)
+                done_count += 1
+                print(f"  Saved prediction for {iid} [{done_count}/{total}]")
 
-        # Phase 3: Save results
-        for pred in predictions:
-            save_prediction(predictions_path, pred)
-            print(f"  Saved prediction for {pred.instance_id}")
+            if inflight:
+                time.sleep(poll_interval)
 
     # Summary
     final = load_predictions(predictions_path)
