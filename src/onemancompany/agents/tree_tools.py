@@ -472,6 +472,15 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
         if not node:
             return {"status": "error", "message": f"Node {node_id} not found."}
 
+        current = node.status
+
+        # Only completed tasks can be rejected
+        if current != TaskPhase.COMPLETED.value:
+            return {
+                "status": "error",
+                "message": f"Cannot reject node {node_id}: current status is '{current}', must be 'completed' first. Wait for the employee to finish before rejecting.",
+            }
+
         node.acceptance_result = {"passed": False, "notes": reason}
 
         if retry:
