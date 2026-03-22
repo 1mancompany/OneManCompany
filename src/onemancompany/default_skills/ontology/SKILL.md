@@ -70,7 +70,7 @@ Default: `memory/ontology/graph.jsonl`
 {"op":"relate","from":"proj_001","rel":"has_owner","to":"p_001"}
 ```
 
-Query via scripts or direct file ops. For complex graphs, migrate to SQLite.
+Query via scripts or direct file ops. All data lives on the filesystem — do NOT use SQLite or any database.
 
 ## Workflows
 
