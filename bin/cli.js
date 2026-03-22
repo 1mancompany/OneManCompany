@@ -283,9 +283,19 @@ ${green("What gets installed automatically:")}
     return;
   }
 
+  // Read version from package.json (bundled with npm package)
+  let cliVersion = "unknown";
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"));
+    if (pkg.version) cliVersion = pkg.version;
+  } catch {}
+
   console.log();
+  const verTag = `v${cliVersion}`;
+  const title = `OneManCompany — AI Company OS  ${verTag}`;
+  const pad = Math.max(0, 45 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
-  console.log(cyan("║   OneManCompany — AI Company OS               ║"));
+  console.log(cyan(`║   ${title}${" ".repeat(pad)}║`));
   console.log(cyan("╚═══════════════════════════════════════════════╝"));
   console.log();
 
@@ -334,14 +344,13 @@ ${green("What gets installed automatically:")}
     run(`git clone --depth 1 ${REPO_URL} "${installDir}"`, { env: cloneEnv });
   }
 
-  // ── Read version from pyproject.toml ─────────────────────────────────
-  let appVersion = "unknown";
+  // ── Read actual version from repo (may differ from npm package) ──────
+  let appVersion = cliVersion;
   try {
     const pyproject = fs.readFileSync(path.join(installDir, "pyproject.toml"), "utf-8");
     const verMatch = pyproject.match(/^version\s*=\s*"([^"]+)"/m);
     if (verMatch) appVersion = verMatch[1];
   } catch {}
-  info(`Version: ${appVersion}`);
 
   // ── Check if already running ─────────────────────────────────────────
   const existingPid = readPidFile(installDir);
