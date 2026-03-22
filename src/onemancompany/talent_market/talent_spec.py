@@ -215,6 +215,7 @@ class TalentProfile:
     tools: list[str] = field(default_factory=list)
     personality_tags: list[str] = field(default_factory=list)
     system_prompt_template: str = ""
+    claude_plugins: list[str] = field(default_factory=list)  # Self-hosted only: Claude CLI plugins to install
 
 
 # ---------------------------------------------------------------------------

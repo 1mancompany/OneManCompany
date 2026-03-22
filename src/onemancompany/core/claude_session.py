@@ -154,6 +154,84 @@ def _clear_running_pid(employee_id: str, project_id: str) -> None:
 # Registry of live daemons: key = "employee_id:project_id"
 _daemons: dict[str, "ClaudeDaemon"] = {}
 
+_ensured_plugins: set[str] = set()
+
+# Known marketplaces that need to be added before installing plugins from them.
+# Format: marketplace_name -> repo path for `claude plugin marketplace add`
+_KNOWN_MARKETPLACES: dict[str, str] = {
+    "superpowers-marketplace": "obra/superpowers-marketplace",
+}
+
+
+async def _run_claude_cmd(cmd: list[str], label: str, env: dict[str, str]) -> bool:
+    """Run a claude CLI command with timeout and error handling. Returns True on success."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        out = (stdout or b"").decode("utf-8", errors="replace").strip()
+        err = (stderr or b"").decode("utf-8", errors="replace").strip()
+        if proc.returncode == 0:
+            logger.debug("[claude-plugins] {} ok: {}", label, out[:200])
+            return True
+        logger.warning("[claude-plugins] {} failed (rc={}): {} {}", label, proc.returncode, out[:200], err[:200])
+    except asyncio.TimeoutError:
+        logger.warning("[claude-plugins] {} timed out", label)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning("[claude-plugins] {} error: {}", label, e)
+    return False
+
+
+async def _ensure_plugins(plugins: list[str]) -> None:
+    """Ensure the given Claude CLI plugins are installed and enabled (idempotent).
+
+    Args:
+        plugins: List of plugin identifiers, e.g. ["superpowers@superpowers-marketplace"].
+    """
+    needed = [p for p in plugins if p not in _ensured_plugins]
+    if not needed:
+        return
+
+    _exclude_env = {"CLAUDECODE", "ANTHROPIC_API_KEY"}
+    env = {k: v for k, v in os.environ.items() if k not in _exclude_env}
+
+    # Collect marketplaces that need to be added
+    marketplaces_to_add: set[str] = set()
+    for plugin_id in needed:
+        if "@" in plugin_id:
+            marketplace = plugin_id.split("@", 1)[1]
+            if marketplace in _KNOWN_MARKETPLACES:
+                marketplaces_to_add.add(marketplace)
+
+    # Add marketplaces first
+    for marketplace in marketplaces_to_add:
+        repo = _KNOWN_MARKETPLACES[marketplace]
+        await _run_claude_cmd(
+            ["claude", "plugin", "marketplace", "add", repo],
+            f"marketplace-add:{marketplace}", env,
+        )
+
+    # Install and enable each plugin
+    for plugin_id in needed:
+        ok = await _run_claude_cmd(
+            ["claude", "plugin", "install", plugin_id],
+            f"install:{plugin_id}", env,
+        )
+        if ok:
+            await _run_claude_cmd(
+                ["claude", "plugin", "enable", plugin_id],
+                f"enable:{plugin_id}", env,
+            )
+            _ensured_plugins.add(plugin_id)
+
+    logger.info("[claude-plugins] setup complete for: {}", needed)
+
 
 class ClaudeDaemon:
     """A persistent Claude CLI process that accepts prompts via stream-json stdin."""
@@ -167,11 +245,13 @@ class ClaudeDaemon:
         mcp_config_path: str | None = None,
         work_dir: str = "",
         max_turns: int = 50,
+        claude_plugins: list[str] | None = None,
     ) -> None:
         self.employee_id = employee_id
         self.project_id = project_id
         self.session_id = session_id
         self.is_new = is_new
+        self.claude_plugins = claude_plugins or []
         self.mcp_config_path = mcp_config_path
         # Always launch from employee directory so CLAUDE.md is picked up;
         # task-specific work_dir is communicated via the prompt instead.
@@ -201,6 +281,8 @@ class ClaudeDaemon:
 
     async def start(self) -> None:
         """Spawn the persistent claude process."""
+        if self.claude_plugins:
+            await _ensure_plugins(self.claude_plugins)
         cmd = [
             "claude", "--print", "--verbose",
             "--input-format", "stream-json",
@@ -517,6 +599,11 @@ async def _get_or_start_daemon(
     except Exception as e:
         logger.warning(f"Failed to generate MCP config: {e}")
 
+    # Load claude_plugins from employee profile
+    from onemancompany.core.config import load_employee_profile
+    _profile = load_employee_profile(employee_id)
+    claude_plugins = _profile.get("claude_plugins", [])
+
     # Try to start daemon (may resume existing session)
     session_id, is_new = get_or_create_session(employee_id, project_id, work_dir=work_dir)
 
@@ -528,6 +615,7 @@ async def _get_or_start_daemon(
         mcp_config_path=mcp_config_path,
         work_dir=work_dir,
         max_turns=max_turns,
+        claude_plugins=claude_plugins,
     )
     await daemon.start()
 
@@ -557,6 +645,7 @@ async def _get_or_start_daemon(
             mcp_config_path=mcp_config_path,
             work_dir=work_dir,
             max_turns=max_turns,
+            claude_plugins=claude_plugins,
         )
         await daemon.start()
 
