@@ -652,13 +652,15 @@ def set_project_name(name: str) -> dict:
     if not project_dir:
         return {"status": "error", "message": "No project context."}
 
-    # Update project.yaml name field (create if missing)
+    # Resolve project root (project_dir is typically an iteration subdir)
     import yaml
-    project_yaml = Path(project_dir) / PROJECT_YAML_FILENAME
-    if project_yaml.exists():
-        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
-    else:
-        data = {}
+    root = _resolve_project_root(project_dir)
+    if root is None:
+        logger.warning("set_project_name: no project.yaml found from {}", project_dir)
+        return {"status": "error", "message": "Project file not found."}
+
+    project_yaml = root / PROJECT_YAML_FILENAME
+    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
     data["name"] = name.strip()
     project_yaml.write_text(
         yaml.dump(data, allow_unicode=True, sort_keys=False),
