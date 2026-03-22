@@ -167,7 +167,10 @@ def build_task_description(repo_name: str, repo_path: str, problem_statement: st
         f"- Fix the issue described above by modifying the repository code\n"
         f"- Work directly in the repository directory specified above\n"
         f"- Do NOT commit your changes - just modify the files\n"
-        f"- Do NOT modify test files"
+        f"- Do NOT modify test files\n"
+        f"- Run existing relevant unit tests to verify your fix does not break anything\n"
+        f"- Ensure all tests pass before considering the task complete\n"
+        f"- Do NOT hack or manipulate test results - the final evaluation uses a separate test suite that you cannot see"
     )
 
 
