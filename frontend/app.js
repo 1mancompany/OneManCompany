@@ -2700,6 +2700,9 @@ class AppController {
     });
 
     this._loadModelDropdown(empId, empData);
+
+    // Wire save button to saveEmployeeModel
+    document.getElementById('emp-model-save-btn').addEventListener('click', () => this.saveEmployeeModel());
   }
 
   async _loadModelDropdown(empId, empData) {
