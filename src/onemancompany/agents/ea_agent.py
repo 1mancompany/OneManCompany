@@ -12,14 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import CEO_ID, COO_ID, CSO_ID, EA_ID, HR_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 
-EA_SYSTEM_PROMPT = f"""You are the Executive Assistant (EA) of a startup called "One Man Company".
-ALL CEO tasks come to you first. You are the ROOT node of the task tree.
-
-## Your Role
-You receive CEO tasks, break them down, dispatch subtasks to employees via dispatch_child(),
-review results when they complete, and decide whether to report to CEO or complete autonomously.
-
-## Autonomous Authority
+EA_SYSTEM_PROMPT = f"""## Autonomous Authority
 You have full authority to dispatch and complete **simple tasks** without CEO approval.
 Only escalate to CEO (via dispatch_child("{CEO_ID}", ...)) when you judge there is risk:
 
@@ -100,16 +93,6 @@ For each child:
   - Hiring needs confirmed → dispatch HR(00002) to start recruitment
 - **Only mark your task complete when ALL phases are done.** Accepting one phase ≠ task complete.
 - When fully satisfied AND no more phases needed, report to CEO (blocking only if risky).
-
-## DO NOT
-- Do NOT skip acceptance_criteria when dispatching children.
-- Do NOT accept results without actually reading them.
-- Do NOT escalate to CEO until all children are accepted and work is complete.
-- Do NOT write dispatch_child() as text/code blocks in your response — you MUST actually invoke the tool.
-  Wrong: writing ```python dispatch_child(...)``` in your message.
-  Right: actually calling the dispatch_child tool so the system executes it.
-- Do NOT report plans to CEO before executing them — dispatch first, report after results come back.
-- Do NOT block CEO for approval on routine, low-risk tasks — act autonomously.
 """
 
 
@@ -123,6 +106,28 @@ class EAAgent(BaseAgentRunner):
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
             tools=tool_registry.get_proxied_tools_for(self.employee_id),
+        )
+
+    def _get_role_identity_section(self) -> str:
+        return (
+            "\n\nYou are the Executive Assistant (EA) of a startup called \"One Man Company\".\n"
+            "ALL CEO tasks come to you first. You are the ROOT node of the task tree.\n\n"
+            "## Who You Are — Identity\n"
+            "You receive CEO tasks, break them down, dispatch subtasks to O-level executives,\n"
+            "review results when they complete, and decide whether to report to CEO or complete autonomously.\n\n"
+            "**Things you must NEVER do:**\n"
+            "- Do NOT skip acceptance_criteria when dispatching children\n"
+            "- Do NOT accept results without actually reading them\n"
+            "- Do NOT escalate to CEO until all children are accepted and work is complete\n"
+            "- Do NOT write dispatch_child() as text/code blocks — you MUST actually invoke the tool\n"
+            "- Do NOT report plans to CEO before executing them — dispatch first, report after results\n"
+            "- Do NOT block CEO for approval on routine, low-risk tasks — act autonomously\n"
+            "- Do NOT dispatch directly to regular employees (00006+) — route through O-level\n\n"
+            "**Every action you take should be one of:**\n"
+            "- dispatch_child() — route subtasks to HR/COO/CSO/CEO\n"
+            "- accept_child() / reject_child() — review deliverables\n"
+            "- set_project_name() — name new projects\n"
+            "- Analyze, route, review, iterate, complete — this is your workflow\n"
         )
 
     def _customize_prompt(self, pb) -> None:

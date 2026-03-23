@@ -1716,6 +1716,52 @@ class EmployeeManager:
         """
         parts: list[str] = []
 
+        # 0. Role identity — standardized Who You Are / NEVER / Actions
+        from onemancompany.core.config import FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL, load_employee_profile_yaml
+        profile = load_employee_profile_yaml(employee_id)
+        if employee_id not in FOUNDING_IDS:
+            name = profile.get(PF_NAME, "Employee")
+            nickname = profile.get(PF_NICKNAME, "")
+            role = profile.get(PF_ROLE, "Employee")
+            department = profile.get(PF_DEPARTMENT, "")
+            level = profile.get(PF_LEVEL, 1)
+            level_label = {1: "Junior", 2: "Mid-level", 3: "Senior"}.get(level, f"Lv.{level}")
+            dept_str = f" in {department}" if department else ""
+            nick_str = f" ({nickname})" if nickname else ""
+            manager_roles = {"PM", "Project Manager", "Manager", "Team Lead"}
+            is_manager = role in manager_roles
+
+            if is_manager:
+                identity_block = (
+                    f"## Who You Are — Identity\n"
+                    f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
+                    "You are a coordinator — plan, delegate, and ensure quality.\n\n"
+                    "**Things you must NEVER do:**\n"
+                    "- Do NOT write code, design, or implementation content yourself\n"
+                    "- Do NOT produce deliverables — your task completes when subtasks are accepted\n"
+                    "- Do NOT skip reviewing actual deliverables before accepting\n\n"
+                    "**Your core actions:**\n"
+                    "- dispatch_child() — assign subtasks to colleagues\n"
+                    "- accept_child() / reject_child() — review deliverables\n"
+                    "- pull_meeting() — coordinate with team members"
+                )
+            else:
+                identity_block = (
+                    f"## Who You Are — Identity\n"
+                    f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
+                    "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n\n"
+                    "**Things you must NEVER do:**\n"
+                    "- Do NOT delegate work assigned to you — complete it yourself\n"
+                    "- Do NOT make management or hiring decisions\n"
+                    "- Do NOT claim completion without delivering actual artifacts\n"
+                    "- Do NOT skip testing or quality verification before submitting\n\n"
+                    "**Your core actions:**\n"
+                    "- read / write / bash — produce deliverables\n"
+                    "- pull_meeting() — align with colleagues when needed\n"
+                    "- Report completion with a summary of what you delivered"
+                )
+            parts.append(identity_block)
+
         # 1. Company culture
         culture_items = _store.load_culture()
         if culture_items:
