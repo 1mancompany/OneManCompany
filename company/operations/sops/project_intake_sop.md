@@ -1,50 +1,50 @@
-# 项目承接标准操作流程 (Project Intake SOP)
+# Project Intake Standard Operating Procedure (SOP)
 
-## 适用范围
-本流程适用于 COO 承接 CEO/EA 下达的所有项目类任务。简单单人任务可酌情简化，但复杂项目必须严格遵循。
+## Scope
+This procedure applies to all project-type tasks the COO receives from CEO/EA. Simple single-person tasks may be streamlined, but complex projects must strictly follow every step.
 
-## 流程步骤
+## Steps
 
-### 第一步：需求分析
-- 仔细阅读任务描述，理解项目目标、交付物、验收标准
-- 评估项目复杂度：单人可完成 vs 需要团队协作
-- 明确技术栈和所需技能
+### Step 1: Requirements Analysis
+- Read the task description carefully; understand the project goal, deliverables, and acceptance criteria
+- Assess complexity: can one person handle it, or does it require team collaboration?
+- Identify the required tech stack and skills
 
-### 第二步：人才盘点
-- **必须先调用 `list_colleagues()`** 查看当前团队成员及其技能
-- 逐一评估：现有人员是否具备所需技能？是否有空闲人力？
-- 记录人才缺口（缺什么角色、什么技能）
+### Step 2: Talent Inventory
+- **Must call `list_colleagues()` first** to review current team members and their skills
+- Evaluate each person: do existing staff have the required skills? Is anyone available?
+- Document any talent gaps (which roles and skills are missing)
 
-### 第三步：招聘补齐（如需）
-- 如有人才缺口，**必须先调用 `request_hiring()`** 招聘
-- **铁律：先招人、后开工**，不得在人手不足时强行开工
-- 招聘完成后系统会自动唤醒 COO 继续下一步
-- 如无需招聘，直接跳到第四步
+### Step 3: Hire to Fill Gaps (if needed)
+- If gaps exist, **must call `request_hiring()`** to recruit
+- **Iron rule: hire first, start work later** — never force-start a project when short-staffed
+- The system will automatically wake the COO to continue once hiring completes
+- If no hiring is needed, skip to Step 4
 
-### 第四步：组建团队、拉齐对齐
-- 确定项目成员分工
-- 调用 `pull_meeting()` 拉相关人员开会对齐：
-  - 项目目标和范围
-  - 验收标准
-  - 工作拆解和排期
-- 将会议结论写入项目工作空间
+### Step 4: Form the Team and Align
+- Assign roles to project members
+- Call `pull_meeting()` to hold a kickoff meeting covering:
+  - Project goals and scope
+  - Acceptance criteria
+  - Work breakdown and schedule
+- Record meeting conclusions in the project workspace
 
-### 第五步：拆分任务、分发执行
-- 根据对齐结果，调用 `dispatch_child()` 分发子任务
-- 每个子任务必须包含明确的验收标准
-- 有依赖关系的任务使用 `depends_on` 参数串联
-- **严禁 COO 自己动手写代码或产出具体交付物**
+### Step 5: Break Down Tasks and Dispatch
+- Based on the alignment meeting, call `dispatch_child()` to assign subtasks
+- Every subtask must include clear acceptance criteria
+- Use the `depends_on` parameter to chain tasks with dependencies
+- **COO must never write code or produce deliverables directly**
 
-### 第六步：COO 验收
-- 所有子任务完成后，COO 逐一验收（`accept_child()` 或 `reject_child()`）
-- 验收标准：
-  - 必须通过实际文件检查或命令行执行验证，不接受纯文本描述
-  - 对代码类交付物，必须确认有测试通过
-  - 对文档类交付物，必须确认内容完整且存储在指定路径
-- 验收不合格则 `reject_child()` 退回修改，直到达标
-- 全部子任务验收通过后，项目完成
+### Step 6: COO Acceptance
+- After all subtasks complete, COO reviews each one (`accept_child()` or `reject_child()`)
+- Acceptance standards:
+  - Must verify through actual file inspection or command-line execution — text-only claims are not accepted
+  - For code deliverables: confirm tests pass
+  - For document deliverables: confirm content is complete and stored at the designated path
+- Reject with `reject_child()` and send back for revision until standards are met
+- The project is complete only after all subtasks are accepted
 
-## 注意事项
-- COO 是管理者，不是执行者。全程只做：分析、招聘、组队、分任务、验收
-- 每个步骤都要有可追溯的记录（工具调用、会议纪要、验收结果）
-- 项目过程中发现风险或阻塞，及时上报 CEO
+## Important Notes
+- The COO is a manager, not an executor. The COO's only activities are: analyze, hire, form team, dispatch tasks, and accept/reject deliverables
+- Every step must have a traceable record (tool calls, meeting minutes, acceptance results)
+- Escalate risks or blockers to the CEO immediately when discovered
