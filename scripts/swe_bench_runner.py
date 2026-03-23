@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -43,8 +44,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                    help="Per-task timeout in seconds (default: 1800 = 30min)")
     p.add_argument("--max-tasks", type=int, default=None,
                    help="Max number of tasks to run (for testing)")
-    p.add_argument("--batch-size", type=int, default=1,
-                   help="Number of tasks to submit before polling (default: 1 = sequential)")
+    p.add_argument("--batch-size", type=int, default=5,
+                   help="Number of tasks to submit before polling (default: 5)")
     return p.parse_args(argv)
 
 
@@ -393,6 +394,143 @@ def _collect_timed_out(
     return [iid for iid in inflight if now >= deadlines.get(iid, float("inf"))]
 
 
+def _detect_docker_socket() -> str:
+    """Auto-detect Docker socket path for macOS Docker Desktop."""
+    import os as _os
+    candidates = [
+        _os.environ.get("DOCKER_HOST", ""),
+        f"unix://{Path.home()}/.docker/run/docker.sock",
+        "unix:///var/run/docker.sock",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        sock_path = candidate.replace("unix://", "")
+        if Path(sock_path).exists():
+            return f"unix://{sock_path}"
+    return ""
+
+
+MAX_EVAL_CONCURRENT = 1  # Max concurrent Docker evaluation processes
+
+
+def _start_eval_process(
+    pred: Prediction,
+    eval_procs: dict[str, subprocess.Popen],
+    predictions_path: Path,
+    args: argparse.Namespace,
+) -> bool:
+    """Start a single evaluation subprocess. Returns True if started."""
+    import os as _os
+
+    eval_dir = predictions_path.parent / "eval_individual"
+    eval_dir.mkdir(exist_ok=True)
+    single_pred_path = eval_dir / f"{pred.instance_id}.jsonl"
+    single_pred_path.write_text(json.dumps(asdict(pred)) + "\n")
+
+    docker_host = _detect_docker_socket()
+    if not docker_host:
+        print(f"  [{pred.instance_id}] [WARN] Docker socket not found, skipping eval")
+        return False
+
+    cmd = [
+        sys.executable, "-m", "swebench.harness.run_evaluation",
+        "--dataset_name", args.dataset,
+        "--split", args.split,
+        "--predictions_path", str(single_pred_path),
+        "--max_workers", "1",
+        "--run_id", f"omc_live_{pred.instance_id}",
+        "--instance_ids", pred.instance_id,
+    ]
+
+    env = _os.environ.copy()
+    env["DOCKER_HOST"] = docker_host
+
+    log_path = eval_dir / f"{pred.instance_id}.eval.log"
+    log_file = open(log_path, "w")
+
+    print(f"  [{pred.instance_id}] Starting background evaluation...")
+    proc = subprocess.Popen(cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT)
+    eval_procs[pred.instance_id] = proc
+    return True
+
+
+def _enqueue_evaluation(
+    pred: Prediction,
+    eval_queue: list[Prediction],
+    eval_procs: dict[str, subprocess.Popen],
+    predictions_path: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Enqueue evaluation; start immediately if under concurrency limit."""
+    if not pred.model_patch:
+        return
+
+    if len(eval_procs) < MAX_EVAL_CONCURRENT:
+        _start_eval_process(pred, eval_procs, predictions_path, args)
+    else:
+        eval_queue.append(pred)
+        print(f"  [{pred.instance_id}] Evaluation queued ({len(eval_queue)} waiting)")
+
+
+def _check_eval_results(
+    eval_procs: dict[str, subprocess.Popen],
+    eval_queue: list[Prediction],
+    predictions_path: Path,
+    resolved: set[str],
+    failed_eval: set[str],
+    args: argparse.Namespace,
+) -> None:
+    """Check for completed evaluation processes, report results, and drain queue."""
+    finished_ids = []
+    for iid, proc in eval_procs.items():
+        ret = proc.poll()
+        if ret is None:
+            continue  # still running
+        finished_ids.append(iid)
+
+        eval_dir = predictions_path.parent / "eval_individual"
+        report_found = False
+        for report_file in Path(".").glob(f"*.omc_live_{iid}.json"):
+            try:
+                report = json.loads(report_file.read_text())
+                if report.get("resolved_ids"):
+                    resolved.add(iid)
+                    print(f"  [{iid}] RESOLVED")
+                else:
+                    failed_eval.add(iid)
+                    print(f"  [{iid}] UNRESOLVED")
+                report_found = True
+            except Exception:
+                pass
+
+        if not report_found:
+            log_path = eval_dir / f"{iid}.eval.log"
+            if ret == 0 and log_path.exists():
+                log_text = log_path.read_text()
+                if "'resolved': True" in log_text or "Instances resolved: 1" in log_text:
+                    resolved.add(iid)
+                    print(f"  [{iid}] RESOLVED (from log)")
+                elif "Instances resolved: 0" in log_text:
+                    failed_eval.add(iid)
+                    print(f"  [{iid}] UNRESOLVED (from log)")
+                else:
+                    print(f"  [{iid}] Eval finished (exit={ret}), check log: {log_path}")
+            else:
+                print(f"  [{iid}] Eval failed (exit={ret}), check log: {eval_dir / f'{iid}.eval.log'}")
+
+    for iid in finished_ids:
+        proc = eval_procs.pop(iid)
+        if proc.stdout:
+            proc.stdout.close()
+
+    # Drain queue: start next eval if under concurrency limit
+    while eval_queue and len(eval_procs) < MAX_EVAL_CONCURRENT:
+        next_pred = eval_queue.pop(0)
+        _start_eval_process(next_pred, eval_procs, predictions_path, args)
+        print(f"  [{next_pred.instance_id}] Eval dequeued, {len(eval_queue)} remaining in queue")
+
+
 def main() -> None:
     args = parse_args()
     workdir = Path(args.workdir)
@@ -428,6 +566,12 @@ def main() -> None:
     total = len(instances)
     done_count = 0
 
+    # Background evaluation tracking
+    eval_procs: dict[str, subprocess.Popen] = {}  # instance_id → eval subprocess
+    eval_queue: list[Prediction] = []
+    resolved: set[str] = set()
+    failed_eval: set[str] = set()
+
     with httpx.Client(timeout=30) as client:
         while queue or inflight:
             # Fill window: submit tasks until we reach window_size
@@ -455,6 +599,8 @@ def main() -> None:
                 deadlines.pop(pred.instance_id, None)
                 done_count += 1
                 print(f"  Saved prediction for {pred.instance_id} [{done_count}/{total}]")
+                # Immediately enqueue evaluation
+                _enqueue_evaluation(pred, eval_queue, eval_procs, predictions_path, args)
 
             # Check for timeouts
             now = time.time()
@@ -470,9 +616,22 @@ def main() -> None:
                 save_prediction(predictions_path, pred)
                 done_count += 1
                 print(f"  Saved prediction for {iid} [{done_count}/{total}]")
+                # Immediately enqueue evaluation
+                _enqueue_evaluation(pred, eval_queue, eval_procs, predictions_path, args)
+
+            # Check for completed evaluations
+            if eval_procs:
+                _check_eval_results(eval_procs, eval_queue, predictions_path, resolved, failed_eval, args)
 
             if inflight:
                 time.sleep(poll_interval)
+
+    # Wait for remaining evaluations to finish
+    if eval_procs:
+        print(f"\n  Waiting for {len(eval_procs)} background evaluations to finish...")
+        for iid, proc in list(eval_procs.items()):
+            proc.wait(timeout=900)
+        _check_eval_results(eval_procs, predictions_path, resolved, failed_eval)
 
     # Summary
     final = load_predictions(predictions_path)
@@ -480,6 +639,8 @@ def main() -> None:
     print(f"\n{'='*60}")
     print(f"  Done! {len(final)} predictions total, {non_empty} with patches")
     print(f"  Output: {predictions_path}")
+    print(f"  Evaluation: {len(resolved)} resolved, {len(failed_eval)} unresolved"
+          f"{', ' + str(non_empty - len(resolved) - len(failed_eval)) + ' pending' if non_empty > len(resolved) + len(failed_eval) else ''}")
     print(f"{'='*60}")
 
 

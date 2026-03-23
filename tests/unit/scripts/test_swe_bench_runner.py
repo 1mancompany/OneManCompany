@@ -436,6 +436,7 @@ class TestMainFlow:
         with mock.patch("swe_bench_runner.clone_repo", return_value=True), \
              mock.patch("swe_bench_runner.submit_task", return_value=("p1", "iter_001")), \
              mock.patch("swe_bench_runner._poll_check_finished", side_effect=fake_poll), \
+             mock.patch("swe_bench_runner._enqueue_evaluation"), \
              mock.patch("swe_bench_runner.time.sleep"), \
              mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
 
@@ -480,6 +481,7 @@ class TestMainFlow:
              mock.patch("swe_bench_runner.submit_task", side_effect=track_submit), \
              mock.patch("swe_bench_runner._poll_check_finished", side_effect=fake_poll), \
              mock.patch("swe_bench_runner.time.sleep"), \
+             mock.patch("swe_bench_runner._enqueue_evaluation"), \
              mock.patch.dict("sys.modules", {"datasets": fake_datasets}):
 
             main()

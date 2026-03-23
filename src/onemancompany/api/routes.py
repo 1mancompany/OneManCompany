@@ -1606,8 +1606,8 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     hosting_updates: dict = {"hosting": new_hosting}
     if new_hosting == HostingMode.SELF:
         hosting_updates["api_provider"] = "anthropic"
-        hosting_updates["auth_method"] = None  # self-hosted uses Claude CLI auth
-        cfg.auth_method = "api_key"  # reset in-memory
+        hosting_updates["auth_method"] = "api_key"  # self-hosted uses Claude CLI auth, keep valid default
+        cfg.auth_method = "api_key"
     await _store.save_employee(employee_id, hosting_updates)
 
     # Update manifest.json to reflect hosting change and adjust settings sections
