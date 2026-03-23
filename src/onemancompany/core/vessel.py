@@ -156,7 +156,10 @@ def _build_dependency_context(tree, node, project_dir: str = "") -> str:
 # Shared role identity builder — single source of truth for all employee types
 # ---------------------------------------------------------------------------
 
-MANAGER_ROLES = {"PM", "Project Manager", "Manager", "Team Lead"}
+# Roles that get "coordinator" archetype (plan/delegate/review).
+# All other roles get "executor" archetype (produce deliverables).
+# Update this set when adding new management-level roles.
+MANAGER_ROLES = {"PM", "Project Manager", "Manager", "Team Lead", "Director"}
 LEVEL_LABELS = {1: "Junior", 2: "Mid-level", 3: "Senior"}
 
 

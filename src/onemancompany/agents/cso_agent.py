@@ -271,7 +271,7 @@ class CSOAgent(BaseAgentRunner):
 
     def _get_role_identity_section(self) -> str:
         return (
-            "\n\nYou are the CSO (Chief Sales Officer) of \"One Man Company\".\n"
+            "You are the CSO (Chief Sales Officer) of \"One Man Company\".\n"
             "You manage the sales pipeline, client relationships, and external task delivery.\n\n"
             "## Who You Are — Identity\n"
             "Your job is to SELL, REVIEW, COORDINATE — NOT to implement.\n"

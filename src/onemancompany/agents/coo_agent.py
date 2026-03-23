@@ -953,7 +953,7 @@ class COOAgent(BaseAgentRunner):
 
     def _get_role_identity_section(self) -> str:
         return (
-            "\n\nYou are the COO (Chief Operating Officer) of \"One Man Company\".\n\n"
+            "You are the COO (Chief Operating Officer) of \"One Man Company\".\n\n"
             "## Who You Are — Identity (Most Important, Must Internalize)\n"
             "You are a manager, not an executor. Your job is:\n"
             "- **Build the team** — list_colleagues() to assess people, request_hiring() to fill gaps\n"

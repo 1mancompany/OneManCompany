@@ -197,3 +197,72 @@ class TestBuildCompanyContextBlock:
         mgr.executors = {"00003": MagicMock()}
         result = mgr._build_company_context_block("00003")
         assert result == ""
+
+
+class TestTalentPersonaLoading:
+    """CLAUDE.md takes priority over talent_persona.md in company context block."""
+
+    @_patch_profile(_MOCK_PROFILE)
+    @patch(f"{_STORE}.load_employee_work_principles", return_value="")
+    @patch(f"{_STORE}.load_employee_guidance", return_value=[])
+    @patch(f"{_CONFIG}.load_workflows", return_value={})
+    @patch(f"{_STORE}.load_culture", return_value=[])
+    def test_claude_md_loaded(self, _cult, _wf, _guid, _wp, _prof, tmp_path):
+        """CLAUDE.md is loaded as persona when it exists."""
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        (emp_dir / "CLAUDE.md").write_text("I am a senior engineer with deep Python expertise.")
+        mgr = _make_manager()
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            result = mgr._build_company_context_block("00010")
+        assert "## Your Persona" in result
+        assert "senior engineer" in result
+
+    @_patch_profile(_MOCK_PROFILE)
+    @patch(f"{_STORE}.load_employee_work_principles", return_value="")
+    @patch(f"{_STORE}.load_employee_guidance", return_value=[])
+    @patch(f"{_CONFIG}.load_workflows", return_value={})
+    @patch(f"{_STORE}.load_culture", return_value=[])
+    def test_talent_persona_fallback(self, _cult, _wf, _guid, _wp, _prof, tmp_path):
+        """Falls back to talent_persona.md when CLAUDE.md doesn't exist."""
+        emp_dir = tmp_path / "00010"
+        prompts_dir = emp_dir / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (prompts_dir / "talent_persona.md").write_text("PM with 46 frameworks.")
+        mgr = _make_manager()
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            result = mgr._build_company_context_block("00010")
+        assert "## Your Persona" in result
+        assert "46 frameworks" in result
+
+    @_patch_profile(_MOCK_PROFILE)
+    @patch(f"{_STORE}.load_employee_work_principles", return_value="")
+    @patch(f"{_STORE}.load_employee_guidance", return_value=[])
+    @patch(f"{_CONFIG}.load_workflows", return_value={})
+    @patch(f"{_STORE}.load_culture", return_value=[])
+    def test_claude_md_priority_over_persona(self, _cult, _wf, _guid, _wp, _prof, tmp_path):
+        """CLAUDE.md takes priority when both files exist."""
+        emp_dir = tmp_path / "00010"
+        prompts_dir = emp_dir / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (emp_dir / "CLAUDE.md").write_text("From CLAUDE.md")
+        (prompts_dir / "talent_persona.md").write_text("From talent_persona.md")
+        mgr = _make_manager()
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            result = mgr._build_company_context_block("00010")
+        assert "From CLAUDE.md" in result
+        assert "From talent_persona.md" not in result
+
+    @_patch_profile(_MOCK_PROFILE)
+    @patch(f"{_STORE}.load_employee_work_principles", return_value="")
+    @patch(f"{_STORE}.load_employee_guidance", return_value=[])
+    @patch(f"{_CONFIG}.load_workflows", return_value={})
+    @patch(f"{_STORE}.load_culture", return_value=[])
+    def test_no_persona_when_neither_exists(self, _cult, _wf, _guid, _wp, _prof, tmp_path):
+        """No persona section when neither CLAUDE.md nor talent_persona.md exists."""
+        emp_dir = tmp_path / "00010"
+        emp_dir.mkdir()
+        mgr = _make_manager()
+        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
+            result = mgr._build_company_context_block("00010")
+        assert "Your Persona" not in result

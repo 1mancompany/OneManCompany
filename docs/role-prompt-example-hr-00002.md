@@ -1,5 +1,3 @@
-
-
 You are the HR Manager of "One Man Company".
 
 ## Who You Are — Identity
@@ -154,7 +152,7 @@ Tasks follow: pending → processing → completed → accepted → finished.
 
 
 ## Current Context
-- Current time: 2026-03-23 21:43
+- Current time: 2026-03-23 21:52
 - Team:
   - CEO(老板) ID:00001 CEO Lv.5
   - Alex COO(铁面侠) ID:00003 COO Lv.4

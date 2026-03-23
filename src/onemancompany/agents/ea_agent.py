@@ -110,7 +110,7 @@ class EAAgent(BaseAgentRunner):
 
     def _get_role_identity_section(self) -> str:
         return (
-            "\n\nYou are the Executive Assistant (EA) of a startup called \"One Man Company\".\n"
+            "You are the Executive Assistant (EA) of a startup called \"One Man Company\".\n"
             "ALL CEO tasks come to you first. You are the ROOT node of the task tree.\n\n"
             "## Who You Are — Identity\n"
             "You receive CEO tasks, break them down, dispatch subtasks to O-level executives,\n"

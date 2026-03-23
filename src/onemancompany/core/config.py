@@ -721,6 +721,11 @@ def load_workflows() -> dict[str, str]:
             continue
         for f in sorted(directory.iterdir()):
             if f.suffix == ".md" and f.is_file():
+                if f.stem in result:
+                    logger.warning(
+                        "SOP '{}' in {} overwrites workflow with same name",
+                        f.stem, directory,
+                    )
                 result[f.stem] = f.read_text(encoding=ENCODING_UTF8)
     return result
 

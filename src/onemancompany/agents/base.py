@@ -806,18 +806,6 @@ class BaseAgentRunner:
         # Runtime status is persisted to disk via store; no in-memory update needed.
         pass
 
-    def _get_talent_persona_section(self) -> str:
-        """Load talent persona from employees/{id}/prompts/talent_persona.md.
-
-        This file is written during onboarding from the talent's
-        system_prompt_template, capturing the talent's core identity and
-        working style (e.g. "You are a senior PM with 46 frameworks...").
-        """
-        content = self._load_prompt_file(TALENT_PERSONA_FILENAME)
-        if not content:
-            return ""
-        return f"\n\n## Talent Persona\n{content.strip()}\n"
-
     # ----- Standardized role identity (Who You Are / NEVER / Actions) -----
 
     def _get_role_identity_section(self) -> str:
@@ -841,29 +829,6 @@ class BaseAgentRunner:
     def _get_tools_prompt_section(self) -> str:
         """Build a prompt section listing authorized tools for this agent."""
         return get_employee_tools_prompt(self.employee_id)
-
-    def _get_guidance_prompt_section(self) -> str:
-        """Build a prompt section from CEO guidance notes for this agent."""
-        from onemancompany.core.store import load_employee_guidance
-        notes_list = load_employee_guidance(self.employee_id)
-        if not notes_list:
-            return ""
-        notes = "\n".join(f"  - {n}" for n in notes_list)
-        return (
-            f"\n\n## CEO Guidance (follow these directives in all your work):\n{notes}\n"
-        )
-
-
-    def _get_company_culture_prompt_section(self) -> str:
-        """Build a prompt section from company culture items."""
-        from onemancompany.core.store import load_culture
-        items = load_culture()
-        if not items:
-            return ""
-        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
-        return (
-            f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
-        )
 
     def _get_task_lifecycle_section(self) -> str:
         """Inject brief task lifecycle reference — full doc available via load_skill."""
