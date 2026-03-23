@@ -24,6 +24,10 @@ class ChatPanel {
                 <div class="chat-panel-header">
                     <span class="chat-panel-type"></span>
                     <span class="chat-panel-employee"></span>
+                    <label class="chat-panel-ea-toggle hidden" title="EA auto-reply if CEO doesn't respond in 60s">
+                        <input type="checkbox" class="chat-panel-ea-checkbox" />
+                        <span class="chat-panel-ea-label">EA</span>
+                    </label>
                     <button class="chat-panel-clear-btn">Clear</button>
                     <button class="chat-panel-close-btn">End</button>
                 </div>
@@ -52,8 +56,14 @@ class ChatPanel {
         this._closeBtn = this._container.querySelector('.chat-panel-close-btn');
         this._typingEl = this._container.querySelector('.chat-panel-typing');
         this._fileInput = this._container.querySelector('.chat-panel-file');
+        this._eaToggle = this._container.querySelector('.chat-panel-ea-toggle');
+        this._eaCheckbox = this._container.querySelector('.chat-panel-ea-checkbox');
+        this._onEaToggleCb = null;
 
         this._sendBtn.addEventListener('click', () => this._handleSend());
+        this._eaCheckbox.addEventListener('change', () => {
+            if (this._onEaToggleCb) this._onEaToggleCb(this._convId, this._eaCheckbox.checked);
+        });
         this._clearBtn.addEventListener('click', () => {
             if (this._onClearCb) this._onClearCb(this._convId);
         });
@@ -102,7 +112,12 @@ class ChatPanel {
         this._container.querySelector('.chat-panel-employee').textContent = employeeName;
         this._clearBtn.style.display = convType === 'oneonone' ? '' : 'none';
         this._closeBtn.textContent = convType === 'ceo_inbox' ? 'Complete' : 'End';
+        // Show EA auto-reply toggle only for CEO inbox conversations
+        this._eaToggle.classList.toggle('hidden', convType !== 'ceo_inbox');
+        this._eaCheckbox.checked = false;
     }
+
+    onEaToggle(cb) { this._onEaToggleCb = cb; }
 
     renderMessages(messages) {
         this._messagesEl.innerHTML = '';

@@ -6,6 +6,8 @@ Messages are stored as YAML lists in {project_dir}/conversations/{node_id}.yaml.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,7 +17,9 @@ from loguru import logger
 from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, ENCODING_UTF8
 
 CEO_SENDER = "ceo"
+EA_SENDER = "ea"
 CEO_CONVERSATION_CATEGORY = "ceo_conversation"
+EA_AUTO_REPLY_DELAY_SECONDS = 60
 
 # ---------------------------------------------------------------------------
 # Message persistence (SSOT = disk)
@@ -157,6 +161,46 @@ async def _build_agent_and_invoke(
     return _extract_text(result.content)
 
 
+async def _ea_auto_reply(node_id: str, description: str, broadcast_fn) -> str:
+    """EA reads the request description and decides accept/reject on behalf of CEO."""
+    from onemancompany.agents.base import make_llm, tracked_ainvoke, _extract_text
+    from onemancompany.core.config import EA_ID
+
+    llm = make_llm(EA_ID)
+    prompt = (
+        "You are the EA (Executive Assistant), making a decision on behalf of the CEO.\n\n"
+        "An employee has sent the following request to the CEO inbox:\n"
+        f"---\n{description}\n---\n\n"
+        "The CEO has not responded within the timeout period. "
+        "You need to make a decision: accept or reject this request, with a brief reason.\n\n"
+        "Guidelines:\n"
+        "- Accept requests that are reasonable, well-scoped, and align with business goals\n"
+        "- Reject requests that are vague, out of scope, or need more information\n"
+        "- Keep your response concise (2-3 sentences)\n\n"
+        "Return your decision in JSON format:\n"
+        '{"decision": "accept" or "reject", "reason": "your brief explanation"}\n'
+        "Only return JSON, no other content."
+    )
+
+    resp = await tracked_ainvoke(llm, prompt, category="ea_auto_reply", employee_id=EA_ID)
+    raw = _extract_text(resp.content)
+
+    decision = "accept"
+    reason = "EA auto-approved (no valid response parsed)"
+    try:
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            decision = parsed.get("decision", "accept")
+            reason = parsed.get("reason", "")
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.debug("[ea_auto_reply] failed to parse EA response: {}", exc)
+
+    reply_text = f"[EA Auto-Reply] Decision: {decision.upper()}\n{reason}"
+    logger.info("[ea_auto_reply] node={} decision={} reason={}", node_id, decision, reason)
+    return reply_text
+
+
 class ConversationSession:
     """Manages an async CEO<->employee conversation for one task node."""
 
@@ -167,9 +211,68 @@ class ConversationSession:
         self._broadcast = broadcast_fn
         self._queue: asyncio.Queue = asyncio.Queue()
         self._conv_dir = Path(project_dir) / CONVERSATIONS_DIR_NAME
+        self._ea_auto_reply_enabled = False
+        self._ea_timer_task: asyncio.Task | None = None
+        self._ceo_replied = False
+        self._description = ""
+
+    def set_ea_auto_reply(self, enabled: bool, description: str = "") -> None:
+        """Enable or disable EA auto-reply timer."""
+        self._ea_auto_reply_enabled = enabled
+        if description:
+            self._description = description
+        if enabled:
+            self._ceo_replied = False
+            self._start_ea_timer()
+            logger.info("[ea_auto_reply] enabled for node={}", self.node_id)
+        else:
+            self._cancel_ea_timer()
+            logger.info("[ea_auto_reply] disabled for node={}", self.node_id)
+
+    def _start_ea_timer(self) -> None:
+        """Start the EA auto-reply countdown."""
+        self._cancel_ea_timer()
+        self._ea_timer_task = asyncio.ensure_future(self._ea_timer_loop())
+
+    def _cancel_ea_timer(self) -> None:
+        """Cancel any pending EA auto-reply timer."""
+        if self._ea_timer_task and not self._ea_timer_task.done():
+            self._ea_timer_task.cancel()
+            self._ea_timer_task = None
+
+    async def _ea_timer_loop(self) -> None:
+        """Wait for timeout, then auto-reply if CEO hasn't responded."""
+        try:
+            await asyncio.sleep(EA_AUTO_REPLY_DELAY_SECONDS)
+            if self._ceo_replied or not self._ea_auto_reply_enabled:
+                return
+            logger.info("[ea_auto_reply] timeout reached, auto-replying for node={}", self.node_id)
+            reply_text = await _ea_auto_reply(self.node_id, self._description, self._broadcast)
+            # Send as CEO message (EA acting on behalf of CEO)
+            ea_msg = append_message(
+                self._conv_dir, self.node_id,
+                sender=CEO_SENDER, text=reply_text,
+            )
+            await self._queue.put(ea_msg)
+            await self._broadcast({
+                "type": CEO_CONVERSATION_CATEGORY,
+                "node_id": self.node_id,
+                "sender": EA_SENDER,
+                "text": reply_text,
+                "timestamp": ea_msg["timestamp"],
+            })
+            # Auto-complete after EA reply
+            await asyncio.sleep(2)
+            await self.complete()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("[ea_auto_reply] timer error for node {}: {}", self.node_id, e)
 
     async def send(self, text: str, attachments=None) -> dict:
         """Queue a CEO message for processing."""
+        self._ceo_replied = True
+        self._cancel_ea_timer()
         msg = append_message(
             self._conv_dir, self.node_id,
             sender=CEO_SENDER, text=text, attachments=attachments,
@@ -179,6 +282,7 @@ class ConversationSession:
 
     async def complete(self):
         """Signal that the conversation is done; triggers summary generation."""
+        self._cancel_ea_timer()
         await self._queue.put(COMPLETE_SIGNAL)
 
     async def run(self) -> str:

@@ -5642,6 +5642,26 @@ async def complete_ceo_conversation(node_id: str):
     return {"status": "completing", "node_id": node_id}
 
 
+@router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")
+async def toggle_ea_auto_reply(node_id: str, body: dict):
+    """Toggle EA auto-reply for a CEO inbox conversation.
+
+    When enabled, if CEO doesn't reply within 60 seconds, EA will
+    auto-reply with accept/reject decision on behalf of CEO.
+    """
+    enabled = body.get("enabled", False)
+    session = get_session(node_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active conversation")
+
+    # Get description from node for EA to evaluate
+    node, _tree, _project_dir = _find_ceo_node(node_id)
+    description = node.description or node.description_preview or ""
+
+    session.set_ea_auto_reply(enabled, description)
+    return {"status": "ok", "ea_auto_reply": enabled}
+
+
 # ---------------------------------------------------------------------------
 # System Cron management
 # ---------------------------------------------------------------------------

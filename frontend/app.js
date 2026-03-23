@@ -248,9 +248,10 @@ class AppController {
       const p = msg.payload || msg;
       if (this._chatPanel && this._currentConvNodeId === p.node_id) {
         const empName = this._resolveEmployeeName(p.sender);
+        const role = p.sender === 'ceo' ? 'CEO' : p.sender === 'ea' ? 'EA' : empName;
         this._chatPanel.appendMessage({
           sender: p.sender,
-          role: p.sender === 'ceo' ? 'CEO' : empName,
+          role,
           text: p.text,
           timestamp: p.timestamp,
         });
@@ -2222,6 +2223,7 @@ class AppController {
       this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
       this._chatPanel.onClear(null);
       this._chatPanel.onClose((id) => this._completeCeoConversation(id));
+      this._chatPanel.onEaToggle((id, enabled) => this._toggleEaAutoReply(id, enabled));
 
       const nickname = data.employee_nickname || data.employee_id || 'Employee';
       this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
@@ -2269,6 +2271,18 @@ class AppController {
     this._chatPanel = null;
     this._currentConvNodeId = null;
     this._refreshCeoInbox();
+  }
+
+  async _toggleEaAutoReply(nodeId, enabled) {
+    try {
+      await fetch(`/api/ceo/inbox/${nodeId}/ea-auto-reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch (e) {
+      console.error('Failed to toggle EA auto-reply:', e);
+    }
   }
 
   async _loadModelOrApiKeySection(empId) {
