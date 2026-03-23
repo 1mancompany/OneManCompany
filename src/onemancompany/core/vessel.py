@@ -1725,15 +1725,26 @@ class EmployeeManager:
             )
             parts.append(f"## Company Culture\n{rules}")
 
-        # 2. SOPs (all operational procedures)
-        from onemancompany.core.config import load_workflows
+        # 2. SOPs — title + first line only; agent can read() full content
+        from onemancompany.core.config import load_workflows, SOP_DIR, WORKFLOWS_DIR
         workflows = load_workflows()
         if workflows:
-            sop_sections = []
+            sop_lines = []
             for name, content in workflows.items():
-                sop_sections.append(f"### {name}\n{content.strip()}")
+                first_line = ""
+                for line in content.splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        first_line = stripped
+                        break
+                # Determine the file path for read()
+                sop_path = SOP_DIR / f"{name}.md"
+                if not sop_path.exists():
+                    sop_path = WORKFLOWS_DIR / f"{name}.md"
+                sop_lines.append(f"  - {name}: {first_line}  [read(\"{sop_path}\")]")
             parts.append(
-                "## Standard Operating Procedures\n" + "\n\n".join(sop_sections)
+                "## SOPs & Workflows (use read() for full content)\n"
+                + "\n".join(sop_lines)
             )
 
         # 3. CEO guidance (1-on-1 notes)

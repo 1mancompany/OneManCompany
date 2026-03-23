@@ -44,9 +44,9 @@ class TestBuildCompanyContextBlock:
     @patch(f"{_STORE}.load_culture", return_value=[])
     def test_sops_injected(self, _cult, _wf, _guid, _wp):
         result = EmployeeManager._build_company_context_block("00010")
-        assert "## Standard Operating Procedures" in result
-        assert "### task_dispatch_sop" in result
-        assert "Must specify workspace path" in result
+        assert "## SOPs & Workflows" in result
+        assert "task_dispatch_sop: Task Dispatch" in result
+        assert "read(" in result
 
     @patch(f"{_STORE}.load_employee_work_principles", return_value="")
     @patch(f"{_STORE}.load_employee_guidance", return_value=[
@@ -80,7 +80,7 @@ class TestBuildCompanyContextBlock:
         assert "[Company Context]" in result
         assert "[/Company Context]" in result
         assert "## Company Culture" in result
-        assert "## Standard Operating Procedures" in result
+        assert "## SOPs & Workflows" in result
         assert "## CEO Guidance" in result
         assert "## Your Work Principles" in result
 
