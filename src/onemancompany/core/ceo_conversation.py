@@ -248,7 +248,9 @@ class ConversationSession:
                 return
             logger.info("[ea_auto_reply] timeout reached, auto-replying for node={}", self.node_id)
             reply_text = await _ea_auto_reply(self.node_id, self._description, self._broadcast)
-            # Send as CEO message (EA acting on behalf of CEO)
+            # Persist as CEO_SENDER (EA acts on behalf of CEO — employee
+            # must see it as HumanMessage). Broadcast with origin=ea so
+            # the frontend can display it differently. Disk = source of truth.
             ea_msg = append_message(
                 self._conv_dir, self.node_id,
                 sender=CEO_SENDER, text=reply_text,
@@ -257,13 +259,15 @@ class ConversationSession:
             await self._broadcast({
                 "type": CEO_CONVERSATION_CATEGORY,
                 "node_id": self.node_id,
-                "sender": EA_SENDER,
+                "sender": CEO_SENDER,
+                "origin": EA_SENDER,
                 "text": reply_text,
                 "timestamp": ea_msg["timestamp"],
             })
-            # Auto-complete after EA reply
+            # Auto-complete after EA reply (guard against late CEO reply)
             await asyncio.sleep(2)
-            await self.complete()
+            if not self._ceo_replied:
+                await self.complete()
         except asyncio.CancelledError:
             raise
         except Exception as e:

@@ -22,7 +22,6 @@ import asyncio
 
 from onemancompany.core.async_utils import spawn_background
 import json
-import traceback
 import uuid
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
@@ -1251,7 +1250,7 @@ class EmployeeManager:
             logger.debug("[TASK LIFECYCLE] employee={} node={} → FAILED (error: {})", employee_id, entry.node_id, e)
             node.result = f"Error: {e!s}"
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            traceback.print_exc()
+            logger.exception("Unhandled error")
         finally:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
@@ -2322,7 +2321,7 @@ class EmployeeManager:
                     project_id=project_id,
                 )
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("Unhandled error")
                 if not project_id.startswith("_auto_"):
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
@@ -2553,7 +2552,7 @@ class EmployeeManager:
             try:
                 await coro
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("Unhandled error")
                 await event_bus.publish(
                     CompanyEvent(
                         type=EventType.AGENT_DONE,

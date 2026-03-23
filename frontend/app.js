@@ -248,7 +248,7 @@ class AppController {
       const p = msg.payload || msg;
       if (this._chatPanel && this._currentConvNodeId === p.node_id) {
         const empName = this._resolveEmployeeName(p.sender);
-        const role = p.sender === 'ceo' ? 'CEO' : p.sender === 'ea' ? 'EA' : empName;
+        const role = p.origin === 'ea' ? 'EA' : p.sender === 'ceo' ? 'CEO' : empName;
         this._chatPanel.appendMessage({
           sender: p.sender,
           role,
@@ -5802,7 +5802,7 @@ class AppController {
       remaining--;
       if (remaining <= 0) {
         clearInterval(countdownInterval);
-        dismiss();
+        confirmAndDismiss();
         return;
       }
       countdownEl.textContent = `Auto-confirm in ${remaining}s`;
