@@ -2048,9 +2048,21 @@ class EmployeeManager:
         else:
             lines.append("All subtasks have passed review.")
 
+        # Show active sibling tasks so reviewer doesn't dispatch duplicates
+        active_siblings = [
+            c for c in children
+            if c.node_type not in _SKIP_REVIEW_TYPES
+            and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value)
+        ]
+        if active_siblings:
+            lines.append("The following sibling tasks are currently in progress (DO NOT dispatch duplicates):")
+            for sib in active_siblings:
+                lines.append(f"  ⏳ ({sib.employee_id}): {sib.description_preview[:80]} [status={sib.status}]")
+            lines.append("")
+
         lines.append("Please call accept_child(node_id, notes) or reject_child(node_id, reason) for unreviewed subtasks.")
         lines.append("IMPORTANT: Each subtask can only be accepted OR rejected ONCE. Once accepted, it CANNOT be rejected later. Review carefully before deciding.")
-        lines.append("If additional tasks are needed, call dispatch_child().")
+        lines.append("IMPORTANT: Do NOT call dispatch_child() to create new tasks during review. Your job is ONLY to review and accept/reject existing subtasks.")
         lines.append("Once all are handled, your task will auto-complete and report upward.")
 
         review_prompt = "\n".join(lines)

@@ -5057,8 +5057,9 @@ body {
 }
 .chat-panel-employee { flex: 1; }
 .chat-panel-ea-toggle {
-    display: flex; align-items: center; gap: 2px; cursor: pointer;
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
     font-size: 6px; font-family: 'Press Start 2P', monospace; color: var(--text-dim);
+    padding: 2px 4px; border-top: 1px solid #344;
 }
 .chat-panel-ea-toggle:hover { color: var(--pixel-green); }
 .chat-panel-ea-checkbox { width: 10px; height: 10px; cursor: pointer; }
