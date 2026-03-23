@@ -153,6 +153,72 @@ def _build_dependency_context(tree, node, project_dir: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# Shared role identity builder — single source of truth for all employee types
+# ---------------------------------------------------------------------------
+
+MANAGER_ROLES = {"PM", "Project Manager", "Manager", "Team Lead"}
+LEVEL_LABELS = {1: "Junior", 2: "Mid-level", 3: "Senior"}
+
+
+def build_role_identity(employee_id: str) -> str:
+    """Generate standardized role identity block from employee profile.
+
+    Returns empty string for founding employees (they define their own identity).
+    Called by:
+      - BaseAgentRunner._get_role_identity_section() → system prompt (LangChain)
+      - EmployeeManager._build_company_context_block() → task prompt (Claude CLI / Script)
+    """
+    from onemancompany.core.config import (
+        FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL,
+        load_employee_profile_yaml,
+    )
+    if employee_id in FOUNDING_IDS:
+        return ""
+
+    profile = load_employee_profile_yaml(employee_id)
+    name = profile.get(PF_NAME, "Employee")
+    nickname = profile.get(PF_NICKNAME, "")
+    role = profile.get(PF_ROLE, "Employee")
+    department = profile.get(PF_DEPARTMENT, "")
+    level = profile.get(PF_LEVEL, 1)
+
+    level_label = LEVEL_LABELS.get(level, f"Lv.{level}")
+    dept_str = f" in {department}" if department else ""
+    nick_str = f" ({nickname})" if nickname else ""
+    is_manager = role in MANAGER_ROLES
+
+    if is_manager:
+        return (
+            f"## Who You Are — Identity\n"
+            f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
+            "You are a coordinator — plan, delegate, and ensure quality.\n\n"
+            "**Things you must NEVER do:**\n"
+            "- Do NOT write code, design, or implementation content yourself\n"
+            "- Do NOT produce deliverables — your task completes when subtasks are accepted\n"
+            "- Do NOT skip reviewing actual deliverables before accepting\n\n"
+            "**Your core actions:**\n"
+            "- dispatch_child() — assign subtasks to colleagues\n"
+            "- accept_child() / reject_child() — review deliverables\n"
+            "- pull_meeting() — coordinate with team members"
+        )
+    return (
+        f"## Who You Are — Identity\n"
+        f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
+        "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n"
+        "Unless the task clearly falls outside your role, attempt to complete it yourself rather than delegating.\n"
+        "We are a flat organization — you may dispatch tasks to anyone via dispatch_child() when necessary.\n\n"
+        "**Things you must NEVER do:**\n"
+        "- Do NOT claim completion without delivering actual artifacts\n"
+        "- Do NOT skip testing or quality verification before submitting\n\n"
+        "**Your core actions:**\n"
+        "- read / write / bash — produce deliverables\n"
+        "- dispatch_child() — delegate subtasks to colleagues when necessary\n"
+        "- pull_meeting() — align with colleagues when needed\n"
+        "- Report completion with a summary of what you delivered"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Distance-based tree context builder
 # ---------------------------------------------------------------------------
 
@@ -1707,61 +1773,25 @@ class EmployeeManager:
     # Company context injection (culture, SOPs, guidance, work principles)
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _build_company_context_block(employee_id: str) -> str:
+    def _build_company_context_block(self, employee_id: str) -> str:
         """Build unified company context block injected into every task.
 
         This ensures ALL employee types (LangChain, Claude CLI, Script)
         receive the same company context regardless of executor.
+
+        Role identity is injected here ONLY for non-LangChain employees
+        (Claude CLI, Script). LangChain employees get identity via their
+        agent class's ``_get_role_identity_section()`` in the system prompt.
         """
         parts: list[str] = []
 
-        # 0. Role identity — standardized Who You Are / NEVER / Actions
-        from onemancompany.core.config import FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL, load_employee_profile_yaml
-        if employee_id not in FOUNDING_IDS:
-            profile = load_employee_profile_yaml(employee_id)
-            name = profile.get(PF_NAME, "Employee")
-            nickname = profile.get(PF_NICKNAME, "")
-            role = profile.get(PF_ROLE, "Employee")
-            department = profile.get(PF_DEPARTMENT, "")
-            level = profile.get(PF_LEVEL, 1)
-            level_label = {1: "Junior", 2: "Mid-level", 3: "Senior"}.get(level, f"Lv.{level}")
-            dept_str = f" in {department}" if department else ""
-            nick_str = f" ({nickname})" if nickname else ""
-            manager_roles = {"PM", "Project Manager", "Manager", "Team Lead"}
-            is_manager = role in manager_roles
-
-            if is_manager:
-                identity_block = (
-                    f"## Who You Are — Identity\n"
-                    f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-                    "You are a coordinator — plan, delegate, and ensure quality.\n\n"
-                    "**Things you must NEVER do:**\n"
-                    "- Do NOT write code, design, or implementation content yourself\n"
-                    "- Do NOT produce deliverables — your task completes when subtasks are accepted\n"
-                    "- Do NOT skip reviewing actual deliverables before accepting\n\n"
-                    "**Your core actions:**\n"
-                    "- dispatch_child() — assign subtasks to colleagues\n"
-                    "- accept_child() / reject_child() — review deliverables\n"
-                    "- pull_meeting() — coordinate with team members"
-                )
-            else:
-                identity_block = (
-                    f"## Who You Are — Identity\n"
-                    f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-                    "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n"
-                    "Unless the task clearly falls outside your role, attempt to complete it yourself rather than delegating.\n"
-                    "We are a flat organization — you may dispatch tasks to anyone via dispatch_child() when necessary.\n\n"
-                    "**Things you must NEVER do:**\n"
-                    "- Do NOT claim completion without delivering actual artifacts\n"
-                    "- Do NOT skip testing or quality verification before submitting\n\n"
-                    "**Your core actions:**\n"
-                    "- read / write / bash — produce deliverables\n"
-                    "- dispatch_child() — delegate subtasks to colleagues when necessary\n"
-                    "- pull_meeting() — align with colleagues when needed\n"
-                    "- Report completion with a summary of what you delivered"
-                )
-            parts.append(identity_block)
+        # 0. Role identity — only for non-LangChain executors
+        #    LangChain employees already have identity in system prompt.
+        executor = self.executors.get(employee_id)
+        if not isinstance(executor, LangChainExecutor):
+            identity = build_role_identity(employee_id)
+            if identity:
+                parts.append(identity)
 
         # 1. Company culture
         culture_items = _store.load_culture()

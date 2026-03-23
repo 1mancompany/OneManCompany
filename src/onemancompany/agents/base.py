@@ -823,15 +823,16 @@ class BaseAgentRunner:
     def _get_role_identity_section(self) -> str:
         """Build standardized identity sections: Who You Are, NEVER Do, Core Actions.
 
-        Founding agents override this method to provide domain-specific identity.
-        Regular (non-founding) employees get their identity from
-        ``EmployeeManager._build_company_context_block()`` which is injected into
-        every task prompt, so this base method returns empty for them to avoid
-        duplication.
+        Founding agents override this to provide domain-specific identity.
+        Regular employees get archetype-based identity (manager/executor)
+        from the shared ``build_role_identity()`` function.
+
+        For LangChain employees, identity is in the system prompt (here).
+        For Claude CLI employees, identity is in the task prompt (vessel.py).
+        Both call the same ``build_role_identity()`` — single source of truth.
         """
-        # Founding agents provide identity via their overridden method;
-        # regular employees get identity via _build_company_context_block().
-        return ""
+        from onemancompany.core.vessel import build_role_identity
+        return build_role_identity(self.employee_id)
 
     def _get_skills_prompt_section(self) -> str:
         """Load skill files from employees/{id}/skills/ and build a prompt section."""
