@@ -155,5 +155,5 @@ class TestBuildCompanyContextBlock:
         """Executor roles get executor identity."""
         result = EmployeeManager._build_company_context_block("00010")
         assert "executor" in result
-        assert "Do NOT delegate" in result
+        assert "outside your role" in result
         assert "Junior" in result

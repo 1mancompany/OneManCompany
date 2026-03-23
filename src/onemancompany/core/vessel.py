@@ -1749,14 +1749,15 @@ class EmployeeManager:
                 identity_block = (
                     f"## Who You Are — Identity\n"
                     f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-                    "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n\n"
+                    "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n"
+                    "Unless the task clearly falls outside your role, attempt to complete it yourself rather than delegating.\n"
+                    "We are a flat organization — you may dispatch tasks to anyone via dispatch_child() when necessary.\n\n"
                     "**Things you must NEVER do:**\n"
-                    "- Do NOT delegate work assigned to you — complete it yourself\n"
-                    "- Do NOT make management or hiring decisions\n"
                     "- Do NOT claim completion without delivering actual artifacts\n"
                     "- Do NOT skip testing or quality verification before submitting\n\n"
                     "**Your core actions:**\n"
                     "- read / write / bash — produce deliverables\n"
+                    "- dispatch_child() — delegate subtasks to colleagues when necessary\n"
                     "- pull_meeting() — align with colleagues when needed\n"
                     "- Report completion with a summary of what you delivered"
                 )
@@ -1803,6 +1804,13 @@ class EmployeeManager:
         principles = _store.load_employee_work_principles(employee_id)
         if principles and principles.strip():
             parts.append(f"## Your Work Principles\n{principles.strip()}")
+
+        # 5. Talent CLAUDE.md (agent's own project instructions from onboarding)
+        claude_md_path = EMPLOYEES_DIR / employee_id / "CLAUDE.md"
+        if claude_md_path.exists():
+            claude_md = claude_md_path.read_text(encoding="utf-8").strip()
+            if claude_md:
+                parts.append(f"## Your Persona\n{claude_md}")
 
         if not parts:
             return ""
