@@ -77,6 +77,11 @@ def _get_session_lock(employee_id: str, project_id: str) -> asyncio.Lock:
     return _session_locks[key]
 
 
+def _remove_session_lock(employee_id: str, project_id: str) -> None:
+    key = f"{employee_id}:{project_id}"
+    _session_locks.pop(key, None)
+
+
 # ---------------------------------------------------------------------------
 # Session persistence helpers (unchanged)
 # ---------------------------------------------------------------------------
@@ -551,6 +556,10 @@ class ClaudeDaemon:
         """Terminate the daemon process gracefully."""
         if hasattr(self, "_stderr_task") and not self._stderr_task.done():
             self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except asyncio.CancelledError:
+                logger.debug("[claude-daemon] stderr task cancelled for employee={}", self.employee_id)
         if self.proc and self.proc.returncode is None:
             logger.info(
                 f"[claude-daemon] Stopping employee={self.employee_id} "
@@ -565,6 +574,7 @@ class ClaudeDaemon:
             except ProcessLookupError:
                 logger.debug("Process already exited for employee={} project={}", self.employee_id, self.project_id)
         _clear_running_pid(self.employee_id, self.project_id)
+        _remove_session_lock(self.employee_id, self.project_id)
         self.proc = None
 
 

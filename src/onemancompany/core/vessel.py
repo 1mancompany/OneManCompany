@@ -22,7 +22,6 @@ import asyncio
 
 from onemancompany.core.async_utils import spawn_background
 import json
-import traceback
 import uuid
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
@@ -621,6 +620,8 @@ class EmployeeManager:
         # Tree completion event queue — serializes all child-complete callbacks
         self._completion_queue: asyncio.Queue | None = None
         self._completion_consumer: asyncio.Task | None = None
+        # Pending CEO report confirmations: project_id → {timer_task, cleanup_context}
+        self._pending_ceo_reports: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
     # ScheduleEntry-based node scheduling
@@ -1249,7 +1250,7 @@ class EmployeeManager:
             logger.debug("[TASK LIFECYCLE] employee={} node={} → FAILED (error: {})", employee_id, entry.node_id, e)
             node.result = f"Error: {e!s}"
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            traceback.print_exc()
+            logger.exception("Unhandled error")
         finally:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
@@ -1470,8 +1471,8 @@ class EmployeeManager:
         })
         _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._maybe_compress_history(employee_id))
+            from onemancompany.core.async_utils import spawn_background
+            spawn_background(self._maybe_compress_history(employee_id))
         except RuntimeError:
             logger.debug("No event loop for history compression of %s", employee_id)
 
@@ -2184,6 +2185,8 @@ class EmployeeManager:
                 if emp_id not in self._running_tasks:
                     self._schedule_next(emp_id)
 
+    CEO_REPORT_CONFIRM_DELAY = 120  # seconds before auto-confirm
+
     async def _request_ceo_confirmation(
         self,
         employee_id: str,
@@ -2192,11 +2195,10 @@ class EmployeeManager:
         entry: ScheduleEntry,
         project_id: str,
     ) -> None:
-        """Publish project completion notification and proceed with cleanup.
+        """Publish project completion report and wait for CEO confirmation.
 
-        The old blocking wait for CEO response has been removed.
-        CEO reviews project completions via the CEO Inbox (dispatch_child to CEO 00001).
-        This now auto-approves and runs cleanup immediately.
+        The report is shown to the CEO. If the CEO does not confirm within
+        CEO_REPORT_CONFIRM_DELAY seconds, the system auto-confirms.
         """
         # Build completion summary from all children (skip CEO info nodes)
         _pdir = node.project_dir or str(Path(entry.tree_path).parent)
@@ -2210,26 +2212,81 @@ class EmployeeManager:
             lines.append("")
         summary = "\n".join(lines)
 
+        # Store report in iteration doc and set pending_confirmation status
+        from onemancompany.core.project_archive import (
+            ITER_STATUS_PENDING_CONFIRMATION,
+            update_project_status,
+        )
+        update_project_status(
+            project_id,
+            ITER_STATUS_PENDING_CONFIRMATION,
+            ceo_report=summary,
+        )
+
         payload = {
             "subject": f"Project Completion Confirmation: {node.description_preview[:60]}",
             "report": summary,
             "employee_id": employee_id,
             "project_id": project_id,
             "timestamp": datetime.now().isoformat(),
+            "auto_confirm_seconds": self.CEO_REPORT_CONFIRM_DELAY,
         }
         emp_data = _store.load_employee(employee_id)
         if emp_data:
             payload["employee_name"] = emp_data.get(PF_NAME, "")
         await event_bus.publish(CompanyEvent(type=EventType.CEO_REPORT, payload=payload, agent=SYSTEM_AGENT))
 
-        # Auto-approve: proceed directly with cleanup
+        # Prepare cleanup context and start auto-confirm timer
         is_system_node = node.node_type in SYSTEM_NODE_TYPES
         run_retro = not is_system_node and tree.mode != "simple"
-        await self._full_cleanup(
-            employee_id, node, agent_error=False,
-            project_id=project_id,
-            run_retrospective=run_retro,
+        cleanup_ctx = {
+            "employee_id": employee_id,
+            "node": node,
+            "project_id": project_id,
+            "run_retrospective": run_retro,
+        }
+        timer_task = asyncio.ensure_future(
+            self._ceo_report_auto_confirm(project_id, cleanup_ctx)
         )
+        self._pending_ceo_reports[project_id] = {
+            "timer_task": timer_task,
+            "cleanup_ctx": cleanup_ctx,
+        }
+        logger.debug(
+            "[ceo_report] pending confirmation for project={}, auto-confirm in {}s",
+            project_id, self.CEO_REPORT_CONFIRM_DELAY,
+        )
+
+    async def _ceo_report_auto_confirm(self, project_id: str, cleanup_ctx: dict) -> None:
+        """Auto-confirm CEO report after timeout."""
+        try:
+            await asyncio.sleep(self.CEO_REPORT_CONFIRM_DELAY)
+            logger.info("[ceo_report] auto-confirming project={}", project_id)
+            await self._confirm_ceo_report(project_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("[ceo_report] auto-confirm error for {}: {}", project_id, e)
+
+    async def _confirm_ceo_report(self, project_id: str) -> bool:
+        """Confirm a pending CEO report and run cleanup. Returns True if confirmed."""
+        pending = self._pending_ceo_reports.pop(project_id, None)
+        if not pending:
+            logger.debug("[ceo_report] no pending report for project={}", project_id)
+            return False
+
+        timer = pending.get("timer_task")
+        if timer and not timer.done():
+            timer.cancel()
+
+        ctx = pending["cleanup_ctx"]
+        logger.info("[ceo_report] confirmed project={}", project_id)
+        await self._full_cleanup(
+            ctx["employee_id"], ctx["node"], agent_error=False,
+            project_id=project_id,
+            run_retrospective=ctx["run_retrospective"],
+        )
+        return True
 
     async def _full_cleanup(
         self, employee_id: str, node, agent_error: bool,
@@ -2264,7 +2321,7 @@ class EmployeeManager:
                     project_id=project_id,
                 )
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("Unhandled error")
                 if not project_id.startswith("_auto_"):
                     append_action(project_id, "routine", "Routine error", str(e)[:MAX_SUMMARY_LEN])
                 await event_bus.publish(
@@ -2294,6 +2351,9 @@ class EmployeeManager:
             else:
                 complete_project(project_id, label)
 
+        # --- Resource cleanup: evict tree cache, task logs, Claude sessions ---
+        self._release_project_resources(employee_id, node, project_id)
+
         from onemancompany.core.state import flush_pending_reload
         flush_result = flush_pending_reload()
         if flush_result:
@@ -2321,6 +2381,46 @@ class EmployeeManager:
         if self._restart_pending and self.is_idle(exclude=employee_id):
             logger.info("All tasks complete — triggering deferred graceful restart")
             await self._trigger_graceful_restart()
+
+    def _release_project_resources(
+        self, employee_id: str, node, project_id: str,
+    ) -> None:
+        """Release in-memory resources held by a completed project.
+
+        Called at the end of _full_cleanup to prevent resource accumulation:
+        - Evict TaskTree from cache (and its lock)
+        - Clean up _task_logs entries for this project's nodes
+        - Stop Claude daemon and remove session lock for self-hosted employees
+        """
+        # 1. Clean up _task_logs for nodes in this tree, then evict tree cache
+        tree_dir = node.project_dir or ""
+        if tree_dir:
+            tree_path = Path(tree_dir) / TASK_TREE_FILENAME
+            try:
+                from onemancompany.core.task_tree import get_tree
+                tree = get_tree(tree_path)
+                for nid in list(tree.nodes.keys()):
+                    self._task_logs.pop(nid, None)
+            except Exception as e:
+                logger.debug("[cleanup] task_logs cleanup failed: {}", e)
+
+            # 2. Evict tree from cache (frees TaskTree object + lock)
+            try:
+                from onemancompany.core.task_tree import evict_tree
+                evict_tree(tree_path)
+                logger.debug("[cleanup] evicted tree cache for {}", tree_path)
+            except Exception as e:
+                logger.debug("[cleanup] tree evict failed: {}", e)
+
+        # 3. Release in-memory Claude session lock (daemon + session record
+        #    are preserved so follow-up tasks can --resume the conversation)
+        executor = self.executors.get(employee_id)
+        if isinstance(executor, ClaudeSessionExecutor):
+            try:
+                from onemancompany.core.claude_session import _remove_session_lock
+                _remove_session_lock(employee_id, project_id)
+            except Exception as e:
+                logger.debug("[cleanup] session lock cleanup failed: {}", e)
 
     async def _trigger_graceful_restart(self) -> None:
         """Execute a graceful restart: save state, then os.execv."""
@@ -2452,7 +2552,7 @@ class EmployeeManager:
             try:
                 await coro
             except Exception as e:
-                traceback.print_exc()
+                logger.exception("Unhandled error")
                 await event_bus.publish(
                     CompanyEvent(
                         type=EventType.AGENT_DONE,
@@ -2592,13 +2692,33 @@ async def start_all_loops() -> None:
 
 
 async def stop_all_loops() -> None:
-    """Cancel any running task executions."""
+    """Cancel any running task executions and background consumers."""
     tasks = list(employee_manager._running_tasks.values())
     for t in tasks:
         t.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     employee_manager._running_tasks.clear()
+
+    # Cancel completion consumer
+    if employee_manager._completion_consumer and not employee_manager._completion_consumer.done():
+        employee_manager._completion_consumer.cancel()
+        try:
+            await employee_manager._completion_consumer
+        except asyncio.CancelledError:
+            logger.debug("Completion consumer cancelled during shutdown")
+        employee_manager._completion_consumer = None
+        employee_manager._completion_queue = None
+
+    # Cancel pending CEO report timers
+    for pid, pending in list(employee_manager._pending_ceo_reports.items()):
+        timer = pending.get("timer_task")
+        if timer and not timer.done():
+            timer.cancel()
+    employee_manager._pending_ceo_reports.clear()
+
+    # Clean up task log buffers
+    employee_manager._task_logs.clear()
 
 
 async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunner) -> Vessel:

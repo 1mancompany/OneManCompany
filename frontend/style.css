@@ -2860,7 +2860,7 @@ body {
 /* ===== Projects Panel ===== */
 .project-panel-card {
   padding: 6px 8px;
-  border-left: 3px solid var(--pixel-green);
+  border-left: 3px solid var(--pixel-white);
   margin-bottom: 3px;
   background: var(--bg-dark);
   font-size: 6px;
@@ -2873,8 +2873,17 @@ body {
   border-left-width: 4px;
 }
 
-.project-panel-card.archived {
-  border-left-color: var(--text-dim);
+/* Status-based sidebar border colors */
+.project-panel-card.status-running {
+  border-left-color: var(--pixel-white);
+}
+
+.project-panel-card.status-pending {
+  border-left-color: var(--pixel-yellow);
+}
+
+.project-panel-card.status-completed {
+  border-left-color: var(--pixel-green);
 }
 
 .project-panel-name {
@@ -5047,6 +5056,13 @@ body {
     padding: 1px 4px; font-weight: bold;
 }
 .chat-panel-employee { flex: 1; }
+.chat-panel-ea-toggle {
+    display: flex; align-items: center; gap: 2px; cursor: pointer;
+    font-size: 6px; font-family: 'Press Start 2P', monospace; color: var(--text-dim);
+}
+.chat-panel-ea-toggle:hover { color: var(--pixel-green); }
+.chat-panel-ea-checkbox { width: 10px; height: 10px; cursor: pointer; }
+.chat-panel-ea-checkbox:checked + .chat-panel-ea-label { color: var(--pixel-green); }
 .chat-panel-clear-btn {
     font-size: 7px; font-family: 'Press Start 2P', monospace; cursor: pointer;
     background: #355; color: #fff; border: 1px solid #688; padding: 1px 6px;

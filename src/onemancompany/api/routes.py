@@ -5594,6 +5594,7 @@ async def _run_conversation_loop(session, node, tree, project_dir):
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
     finally:
+        session._cancel_ea_timer()
         unregister_session(session.node_id)
         await ws_manager.broadcast({"type": "ceo_inbox_updated"})
 
@@ -5640,6 +5641,37 @@ async def complete_ceo_conversation(node_id: str):
 
     await session.complete()
     return {"status": "completing", "node_id": node_id}
+
+
+@router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")
+async def toggle_ea_auto_reply(node_id: str, body: dict):
+    """Toggle EA auto-reply for a CEO inbox conversation.
+
+    When enabled, if CEO doesn't reply within 60 seconds, EA will
+    auto-reply with accept/reject decision on behalf of CEO.
+    """
+    enabled = body.get("enabled", False)
+    session = get_session(node_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="No active conversation")
+
+    # Get description from node for EA to evaluate
+    node, _tree, _project_dir = _find_ceo_node(node_id)
+    description = node.description or node.description_preview or ""
+
+    session.set_ea_auto_reply(enabled, description)
+    return {"status": "ok", "ea_auto_reply": enabled}
+
+
+@router.post("/api/ceo/report/{project_id}/confirm")
+async def confirm_ceo_report(project_id: str):
+    """CEO confirms a pending project completion report (early confirmation)."""
+    from onemancompany.core.vessel import employee_manager
+
+    confirmed = await employee_manager._confirm_ceo_report(project_id)
+    if not confirmed:
+        raise HTTPException(status_code=404, detail="No pending report for this project")
+    return {"status": "ok", "project_id": project_id}
 
 
 # ---------------------------------------------------------------------------
