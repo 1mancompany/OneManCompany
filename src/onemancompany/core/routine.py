@@ -129,6 +129,9 @@ async def _publish(event_type: EventType, payload: dict) -> None:
 async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
     """Publish a meeting_chat event and persist to disk."""
     from datetime import datetime
+    # LLM resp.content can be list/dict — ensure plain string for frontend
+    if not isinstance(message, str):
+        message = str(message)
     entry = {
         "room_id": room_id,
         "speaker": speaker,
