@@ -5056,14 +5056,16 @@ body {
     padding: 1px 4px; font-weight: bold;
 }
 .chat-panel-employee { flex: 1; }
-.chat-panel-ea-toggle {
+/* EA auto-reply toggle in CEO Inbox header */
+.ea-autoreply-sidebar {
     display: flex; align-items: center; gap: 4px; cursor: pointer;
     font-size: 6px; font-family: 'Press Start 2P', monospace; color: var(--text-dim);
-    padding: 2px 4px; border-top: 1px solid #344;
+    margin-left: auto; padding: 2px 6px;
+    border: 1px solid #344; border-radius: 3px; background: rgba(0,0,0,0.2);
 }
-.chat-panel-ea-toggle:hover { color: var(--pixel-green); }
-.chat-panel-ea-checkbox { width: 10px; height: 10px; cursor: pointer; }
-.chat-panel-ea-checkbox:checked + .chat-panel-ea-label { color: var(--pixel-green); }
+.ea-autoreply-sidebar:hover { color: var(--pixel-green); border-color: var(--pixel-green); }
+.ea-autoreply-sidebar input[type="checkbox"] { width: 10px; height: 10px; cursor: pointer; }
+.ea-autoreply-sidebar input[type="checkbox"]:checked + span { color: var(--pixel-green); }
 .chat-panel-clear-btn {
     font-size: 7px; font-family: 'Press Start 2P', monospace; cursor: pointer;
     background: #355; color: #fff; border: 1px solid #688; padding: 1px 6px;

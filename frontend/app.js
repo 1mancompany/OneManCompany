@@ -925,6 +925,21 @@ class AppController {
       if (el) el.addEventListener('change', () => this._onRosterFilterChange());
     });
 
+    // EA auto-reply toggle in CEO Inbox header
+    const eaToggleEl = document.getElementById('ea-autoreply-toggle');
+    const eaCheckbox = document.getElementById('ea-autoreply-checkbox');
+    if (eaToggleEl) {
+      // Prevent collapsible header click from toggling when clicking the EA toggle
+      eaToggleEl.addEventListener('click', (e) => e.stopPropagation());
+    }
+    if (eaCheckbox) {
+      eaCheckbox.addEventListener('change', () => {
+        if (this._currentConvNodeId) {
+          this._toggleEaAutoReply(this._currentConvNodeId, eaCheckbox.checked);
+        }
+      });
+    }
+
     // 1-on-1 meeting modal bindings
     const oneononeModal = document.getElementById('oneonone-modal');
     document.getElementById('guidance-toolbar-btn').addEventListener('click', () => {
@@ -2223,7 +2238,11 @@ class AppController {
       this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
       this._chatPanel.onClear(null);
       this._chatPanel.onClose((id) => this._completeCeoConversation(id));
-      this._chatPanel.onEaToggle((id, enabled) => this._toggleEaAutoReply(id, enabled));
+      // Show and reset EA auto-reply toggle in sidebar header
+      const eaToggle = document.getElementById('ea-autoreply-toggle');
+      const eaCb = document.getElementById('ea-autoreply-checkbox');
+      if (eaToggle) eaToggle.classList.remove('hidden');
+      if (eaCb) eaCb.checked = false;
 
       const nickname = data.employee_nickname || data.employee_id || 'Employee';
       this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
@@ -2271,6 +2290,9 @@ class AppController {
     // Restore right panel
     const chatContainer = document.getElementById('right-panel-chat');
     chatContainer.classList.add('hidden');
+    // Hide EA auto-reply toggle
+    const eaToggle = document.getElementById('ea-autoreply-toggle');
+    if (eaToggle) eaToggle.classList.add('hidden');
     this._restoreConsoleSections();
     this._chatPanel = null;
     this._currentConvNodeId = null;
@@ -5768,6 +5790,9 @@ class AppController {
       const header = body?.previousElementSibling;
       if (header?.classList.contains('collapsible-header')) header.style.display = '';
     }
+    // Hide EA auto-reply toggle when returning to inbox list
+    const eaToggle = document.getElementById('ea-autoreply-toggle');
+    if (eaToggle) eaToggle.classList.add('hidden');
   }
 
 
