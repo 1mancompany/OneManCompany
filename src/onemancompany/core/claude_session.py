@@ -427,6 +427,77 @@ class ClaudeDaemon:
                     "model": model,
                 })
 
+    @staticmethod
+    def _accumulate_sft_assistant(sft_messages: list[dict], message: dict) -> None:
+        """Parse a Claude daemon assistant message into SFT-format dicts."""
+        content_blocks = message.get("content", [])
+        text_parts = []
+        tool_calls = []
+        for block in content_blocks:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type", "")
+            if btype == "text":
+                text_parts.append(block.get("text", ""))
+            elif btype == "tool_use":
+                tool_calls.append({
+                    "id": block.get("id", ""),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                    },
+                })
+            elif btype == "tool_result":
+                # Tool results come as separate messages in SFT format
+                sft_messages.append({
+                    "role": "tool",
+                    "tool_call_id": block.get("tool_use_id", ""),
+                    "content": block.get("content", "")
+                        if isinstance(block.get("content"), str)
+                        else json.dumps(block.get("content", ""), ensure_ascii=False),
+                })
+        # Build assistant entry only if there's actual content or tool_calls
+        if text_parts or tool_calls:
+            entry: dict = {"role": "assistant"}
+            if text_parts:
+                entry["content"] = "\n".join(text_parts)
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+                if "content" not in entry:
+                    entry["content"] = ""
+            sft_messages.append(entry)
+
+    def _write_sft_trace(
+        self, sft_messages: list[dict], model: str,
+        input_tokens: int, output_tokens: int,
+    ) -> None:
+        """Write a complete SFT record for one daemon turn."""
+        try:
+            from onemancompany.core.llm_trace import write_sft_record_async
+            from onemancompany.core.project_archive import get_project_dir
+            project_dir = get_project_dir(self.project_id)
+            if not project_dir:
+                return
+            # Resolve node_id from contextvar if available
+            _node_id = ""
+            try:
+                from onemancompany.core.vessel import _current_task_id
+                _node_id = _current_task_id.get("")
+            except Exception as _e:
+                logger.debug("[sft_trace] failed to resolve node_id: {}", _e)
+            write_sft_record_async(
+                project_dir,
+                employee_id=self.employee_id,
+                node_id=_node_id,
+                source="daemon",
+                messages=sft_messages,
+                model=model,
+                usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+            )
+        except Exception as e:
+            logger.debug("[sft_trace] daemon write failed for {}: {}", self.employee_id, e)
+
     async def send_prompt(self, prompt: str, timeout: int = 600) -> dict:
         """Send a prompt and collect the full response.
 
@@ -459,6 +530,8 @@ class ClaudeDaemon:
         total_input_tokens = 0
         total_output_tokens = 0
         model_used = ""
+        # SFT trace: accumulate structured messages for this turn
+        sft_messages: list[dict] = [{"role": "user", "content": prompt}]
 
         try:
             async with asyncio.timeout(timeout):
@@ -508,6 +581,8 @@ class ClaudeDaemon:
                             total_output_tokens = max(total_output_tokens, usage["output_tokens"])
                         if message.get("model"):
                             model_used = message["model"]
+                        # SFT: capture assistant message with tool_calls
+                        self._accumulate_sft_assistant(sft_messages, message)
 
                     elif msg_type == "result":
                         # Final result — response complete
@@ -532,6 +607,11 @@ class ClaudeDaemon:
                                 "output_tokens": total_output_tokens,
                             },
                         })
+                        # Write SFT trace for this turn
+                        self._write_sft_trace(
+                            sft_messages, model_used,
+                            total_input_tokens, total_output_tokens,
+                        )
                         _mark_session_used(self.employee_id, self.project_id)
                         break
 

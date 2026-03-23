@@ -305,7 +305,7 @@ async def tracked_ainvoke(
     # Always record overhead
     _record_overhead(category, model_name, input_tokens, output_tokens, cost_usd)
 
-    # Write to project-level LLM trace JSONL
+    # Write to project-level LLM trace JSONL (legacy per-event trace)
     if project_id:
         from datetime import datetime, timezone
         from onemancompany.core.claude_session import write_llm_trace
@@ -328,6 +328,34 @@ async def tracked_ainvoke(
             "model": model_name,
             "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
         })
+
+        # Write SFT trace (full conversation record for fine-tuning)
+        try:
+            from onemancompany.core.llm_trace import write_sft_record_async
+            from onemancompany.core.project_archive import get_project_dir
+            _proj_dir = get_project_dir(project_id)
+            if _proj_dir:
+                # Resolve node_id from contextvar if available
+                _node_id = ""
+                try:
+                    from onemancompany.core.agent_loop import _current_task_id
+                    _node_id = _current_task_id.get("")
+                except Exception as _e:
+                    logger.debug("[sft_trace] failed to resolve node_id: {}", _e)
+                # Build structured message list from input
+                _sft_msgs = messages if isinstance(messages, list) else [messages]
+                _sft_msgs_out = list(_sft_msgs) + [result]
+                write_sft_record_async(
+                    _proj_dir,
+                    employee_id=employee_id,
+                    node_id=_node_id,
+                    source="tracked_ainvoke",
+                    messages=_sft_msgs_out,
+                    model=model_name,
+                    usage={"input_tokens": input_tokens, "output_tokens": output_tokens},
+                )
+        except Exception as e:
+            logger.debug("[sft_trace] tracked_ainvoke write failed: {}", e)
 
     return result
 
@@ -517,6 +545,8 @@ class BaseAgentRunner:
         model_used = ""
         last_tool_calls: list[str] = []  # track tool names for fallback
         last_tool_results: list[str] = []
+        # SFT trace: accumulate full message objects from streaming events
+        sft_messages: list = []
 
         async for event in self._agent.astream_events(
             messages_input, version="v2", config={"recursion_limit": 50},
@@ -526,6 +556,9 @@ class BaseAgentRunner:
             if kind == "on_chat_model_start":
                 inp = data.get("input", "")
                 if isinstance(inp, list) and inp:
+                    # Capture all input messages for SFT on first LLM call
+                    if not sft_messages:
+                        sft_messages.extend(inp)
                     last_msg = inp[-1]
                     if hasattr(last_msg, "content"):
                         content = last_msg.content or ""
@@ -534,6 +567,8 @@ class BaseAgentRunner:
             elif kind == "on_chat_model_end":
                 output = data.get("output", None)
                 if output:
+                    # Capture AI message for SFT trace
+                    sft_messages.append(output)
                     # Extract token usage — try response_metadata first, then usage_metadata
                     meta = getattr(output, "response_metadata", {}) or {}
                     usage = meta.get("usage", {}) or meta.get("token_usage", {}) or {}
@@ -574,6 +609,10 @@ class BaseAgentRunner:
                 result_str = str(output)
                 last_tool_results.append(f"{name} → {result_str[:300]}")
                 on_log("tool_result", f"{name} → {result_str}")
+                # Capture ToolMessage for SFT trace
+                raw_output = data.get("output")
+                if raw_output and hasattr(raw_output, "content"):
+                    sft_messages.append(raw_output)
 
         # If no text content from LLM, synthesize from last tool calls
         if not final_content.strip() and last_tool_calls:
@@ -604,6 +643,13 @@ class BaseAgentRunner:
         # Record streaming usage into overhead
         if total_input_tokens or total_output_tokens or _cost_usd > 0:
             _record_overhead("agent_task", _model, total_input_tokens, total_output_tokens, _cost_usd)
+
+        # Write SFT trace from accumulated streaming messages
+        if sft_messages:
+            self._write_sft_trace(
+                {_LG_MESSAGES_KEY: sft_messages},
+                self._last_usage,
+            )
 
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": (final_content or "")[:MAX_SUMMARY_LEN]})
@@ -672,6 +718,64 @@ class BaseAgentRunner:
             )
 
         return self._last_usage
+
+    # Class-level cache: serialized tool schemas per employee_id
+    _sft_tool_cache: dict[str, list] = {}
+
+    def _write_sft_trace(self, result: dict, usage_info: dict) -> None:
+        """Write a complete SFT training record from a LangGraph ainvoke result."""
+        try:
+            from pathlib import Path as _Path
+
+            from onemancompany.core.agent_loop import _current_vessel
+            from onemancompany.core.llm_trace import write_sft_record_async
+            from onemancompany.core.tool_registry import tool_registry
+
+            vessel = _current_vessel.get(None)
+            if not vessel:
+                return
+            # Get project_dir from current running task entry
+            entry = vessel.manager._current_entries.get(self.employee_id)
+            if not entry:
+                return
+            from onemancompany.core.task_tree import get_tree
+            tree = get_tree(entry.tree_path)
+            node = tree.get_node(entry.node_id) if tree else None
+            project_dir = (node.project_dir if node else "") or str(
+                _Path(entry.tree_path).parent
+            )
+            if not project_dir:
+                return
+
+            messages = result.get(_LG_MESSAGES_KEY, [])
+
+            # Cache tool schemas — they don't change within a session
+            if self.employee_id not in self._sft_tool_cache:
+                from onemancompany.core.llm_trace import _serialize_tool_schema
+                tools = tool_registry.get_proxied_tools_for(self.employee_id)
+                serialized = []
+                for t in tools:
+                    try:
+                        serialized.append(_serialize_tool_schema(t))
+                    except Exception:
+                        logger.debug("[sft_trace] failed to serialize tool {}", getattr(t, "name", "?"))
+                self._sft_tool_cache[self.employee_id] = serialized
+
+            write_sft_record_async(
+                project_dir,
+                employee_id=self.employee_id,
+                node_id=entry.node_id,
+                source="langchain",
+                messages=messages,
+                tools=self._sft_tool_cache[self.employee_id],
+                model=usage_info.get("model", ""),
+                usage={
+                    "input_tokens": usage_info.get("input_tokens", 0),
+                    "output_tokens": usage_info.get("output_tokens", 0),
+                },
+            )
+        except Exception as e:
+            logger.debug("[sft_trace] failed to write SFT record for {}: {}", self.employee_id, e)
 
     def _get_model_name(self) -> str:
         """Return the LLM model name configured for this employee."""
@@ -1020,8 +1124,12 @@ class EmployeeAgent(BaseAgentRunner):
             ]}
         )
 
-        self._extract_and_record_usage(result)
+        usage_info = self._extract_and_record_usage(result)
         final = extract_final_content(result)
+
+        # Write SFT trace — full conversation for fine-tuning
+        self._write_sft_trace(result, usage_info)
+
         self._set_status(STATUS_IDLE)
         await self._publish("agent_done", {"role": self.role, "summary": final[:MAX_SUMMARY_LEN]})
         return final
