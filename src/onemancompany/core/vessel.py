@@ -1235,6 +1235,14 @@ class EmployeeManager:
             if project_dir:
                 tree = get_tree(entry.tree_path)
                 _trigger_dep_resolution(project_dir, tree, node)
+                # Notify parent that this child is done (cancelled) so it can
+                # resume from HOLDING instead of waiting forever.
+                try:
+                    await asyncio.shield(
+                        self._on_child_complete(employee_id, entry, project_id=project_id)
+                    )
+                except Exception as _e:
+                    logger.debug("[TASK LIFECYCLE] _on_child_complete after cancel failed: {}", _e)
             raise
         except TimeoutError as te:
             agent_error = True
@@ -1881,6 +1889,14 @@ class EmployeeManager:
                     c for c in non_review_children
                     if c.status == TaskPhase.FAILED.value
                 )
+                # Check for cancelled children when parent is HOLDING — resume parent
+                # so it can reassess (e.g. cancelled CEO_REQUEST should unblock parent).
+                # Check ALL children (including system nodes like CEO_REQUEST) because
+                # a cancelled system node should also unblock the parent.
+                has_cancelled_child = any(
+                    c for c in children
+                    if c.status == TaskPhase.CANCELLED.value
+                )
                 if has_failed_child and parent_node.status == TaskPhase.HOLDING.value:
                     failed_children = [
                         c for c in non_review_children
@@ -1907,6 +1923,42 @@ class EmployeeManager:
                     parent_node.set_status(TaskPhase.PROCESSING)
                     logger.debug("[TASK LIFECYCLE] parent={} HOLDING → PROCESSING (child failed, resuming)", parent_node.id)
                     # Inject failure context into parent's description for re-execution
+                    notify_node = tree.add_child(
+                        parent_id=parent_node.id,
+                        employee_id=parent_node.employee_id,
+                        description=resume_desc,
+                        acceptance_criteria=[],
+                    )
+                    notify_node.node_type = NodeType.WATCHDOG_NUDGE
+                    notify_node.project_id = project_id
+                    notify_node.project_dir = parent_node.project_dir or str(Path(entry.tree_path).parent)
+                    save_tree_async(entry.tree_path)
+                    self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
+                    self._schedule_next(parent_node.employee_id)
+
+                elif has_cancelled_child and parent_node.status == TaskPhase.HOLDING.value:
+                    cancelled_children = [
+                        c for c in children
+                        if c.status == TaskPhase.CANCELLED.value
+                    ]
+                    cancel_summary = "; ".join(
+                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'cancelled')[:150]}"
+                        for c in cancelled_children
+                    )
+                    resume_desc = (
+                        f"[子任务取消通知] 以下子任务已被取消，请决定后续处理：\n\n"
+                        f"{cancel_summary}\n\n"
+                        f"可选操作：\n"
+                        f"- dispatch_child 重新分配任务给其他员工\n"
+                        f"- 继续处理剩余子任务\n"
+                        f"- 如项目无法继续，请说明原因"
+                    )
+                    logger.info(
+                        "[ON_CHILD_COMPLETE] child {} CANCELLED — resuming HOLDING parent {} with cancellation context",
+                        node.id, parent_node.id,
+                    )
+                    parent_node.set_status(TaskPhase.PROCESSING)
+                    logger.debug("[TASK LIFECYCLE] parent={} HOLDING → PROCESSING (child cancelled, resuming)", parent_node.id)
                     notify_node = tree.add_child(
                         parent_id=parent_node.id,
                         employee_id=parent_node.employee_id,
