@@ -437,8 +437,8 @@ class TestCeoConfirmation:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_ceo_confirmation_auto_approves(self, mock_bus, mock_state, tmp_path):
-        """_request_ceo_confirmation should auto-approve and call _full_cleanup with retrospective."""
+    async def test_ceo_confirmation_deferred(self, mock_bus, mock_state, tmp_path):
+        """_request_ceo_confirmation stores pending report; confirm triggers cleanup."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
 
@@ -456,10 +456,16 @@ class TestCeoConfirmation:
         ):
             await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
 
-        # Should call _full_cleanup with run_retrospective=True (auto-approve, no blocking)
-        mock_cleanup.assert_called_once()
-        call_kwargs = mock_cleanup.call_args
-        assert call_kwargs.kwargs.get("run_retrospective") is True
+            # Cleanup is deferred — not called immediately
+            mock_cleanup.assert_not_called()
+            assert "proj_ceo" in em._pending_ceo_reports
+            ctx = em._pending_ceo_reports["proj_ceo"]["cleanup_ctx"]
+            assert ctx["run_retrospective"] is True
+
+            # CEO confirms → triggers cleanup
+            await em._confirm_ceo_report("proj_ceo")
+            mock_cleanup.assert_called_once()
+            assert mock_cleanup.call_args.kwargs.get("run_retrospective") is True
 
 
 # ---------------------------------------------------------------------------

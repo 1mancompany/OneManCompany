@@ -5663,6 +5663,17 @@ async def toggle_ea_auto_reply(node_id: str, body: dict):
     return {"status": "ok", "ea_auto_reply": enabled}
 
 
+@router.post("/api/ceo/report/{project_id}/confirm")
+async def confirm_ceo_report(project_id: str):
+    """CEO confirms a pending project completion report (early confirmation)."""
+    from onemancompany.core.vessel import employee_manager
+
+    confirmed = await employee_manager._confirm_ceo_report(project_id)
+    if not confirmed:
+        raise HTTPException(status_code=404, detail="No pending report for this project")
+    return {"status": "ok", "project_id": project_id}
+
+
 # ---------------------------------------------------------------------------
 # System Cron management
 # ---------------------------------------------------------------------------

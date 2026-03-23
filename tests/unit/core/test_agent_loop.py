@@ -2647,7 +2647,7 @@ class TestSimpleModeSkipsRetrospective:
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     async def test_simple_mode_skips_retrospective(self, mock_bus, mock_state):
-        """When tree.mode == 'simple', _request_ceo_confirmation passes run_retrospective=False."""
+        """When tree.mode == 'simple', pending report stores run_retrospective=False."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
 
@@ -2673,6 +2673,15 @@ class TestSimpleModeSkipsRetrospective:
 
             await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
 
+            # Cleanup is deferred — not called immediately
+            mock_cleanup.assert_not_called()
+            # Pending report should be stored with run_retrospective=False
+            assert "p1" in mgr._pending_ceo_reports
+            ctx = mgr._pending_ceo_reports["p1"]["cleanup_ctx"]
+            assert ctx["run_retrospective"] is False
+
+            # Confirm triggers cleanup
+            await mgr._confirm_ceo_report("p1")
             mock_cleanup.assert_called_once()
             _, kwargs = mock_cleanup.call_args
             assert kwargs["run_retrospective"] is False
@@ -2681,7 +2690,7 @@ class TestSimpleModeSkipsRetrospective:
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
     async def test_standard_mode_runs_retrospective(self, mock_bus, mock_state):
-        """When tree.mode == 'standard' and not system node, retrospective runs."""
+        """When tree.mode == 'standard' and not system node, confirm triggers retrospective."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
 
@@ -2707,6 +2716,14 @@ class TestSimpleModeSkipsRetrospective:
 
             await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
 
+            # Cleanup is deferred — not called immediately
+            mock_cleanup.assert_not_called()
+            assert "p1" in mgr._pending_ceo_reports
+            ctx = mgr._pending_ceo_reports["p1"]["cleanup_ctx"]
+            assert ctx["run_retrospective"] is True
+
+            # Confirm triggers cleanup
+            await mgr._confirm_ceo_report("p1")
             mock_cleanup.assert_called_once()
             _, kwargs = mock_cleanup.call_args
             assert kwargs["run_retrospective"] is True

@@ -5769,6 +5769,8 @@ class AppController {
 
   _showProjectReportModal(data) {
     const empName = data.employee_name || data.employee_id || '';
+    const autoConfirmSec = data.auto_confirm_seconds || 120;
+    const projectId = data.project_id || '';
     const overlay = document.createElement('div');
     overlay.className = 'project-report-overlay';
     overlay.innerHTML = `
@@ -5780,16 +5782,44 @@ class AppController {
           <span>${data.timestamp ? new Date(data.timestamp).toLocaleString() : ''}</span>
         </div>
         <div class="project-report-actions">
-          <button class="pixel-btn project-report-close">OK</button>
+          <button class="pixel-btn project-report-confirm">✓ Confirm</button>
+          <span class="project-report-countdown" style="color:var(--text-dim);font-size:5px;margin-left:6px;">Auto-confirm in ${autoConfirmSec}s</span>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
-    const closeBtn = overlay.querySelector('.project-report-close');
-    closeBtn.focus();
-    const dismiss = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+
+    const confirmBtn = overlay.querySelector('.project-report-confirm');
+    const countdownEl = overlay.querySelector('.project-report-countdown');
+    confirmBtn.focus();
+
+    let remaining = autoConfirmSec;
+    const countdownInterval = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(countdownInterval);
+        dismiss();
+        return;
+      }
+      countdownEl.textContent = `Auto-confirm in ${remaining}s`;
+    }, 1000);
+
+    const dismiss = () => {
+      clearInterval(countdownInterval);
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    };
+    const confirmAndDismiss = () => {
+      if (projectId) {
+        fetch(`/api/ceo/report/${encodeURIComponent(projectId)}/confirm`, { method: 'POST' })
+          .then(r => r.json())
+          .then(d => { if (d.status === 'ok') console.log('[ceo_report] confirmed', projectId); })
+          .catch(err => console.error('[ceo_report] confirm failed:', err));
+      }
+      dismiss();
+    };
     const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
-    closeBtn.addEventListener('click', dismiss);
+    confirmBtn.addEventListener('click', confirmAndDismiss);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
     document.addEventListener('keydown', onKey);
   }
@@ -5920,8 +5950,18 @@ class AppController {
         panel.innerHTML = '';
         for (const p of projects) {
           const card = document.createElement('div');
-          const isActive = p.status === 'active' || p.status === 'in_progress';
-          card.className = `project-panel-card ${isActive ? 'active' : 'archived'}`;
+          // Determine sidebar border color class by iteration status:
+          // white=running, yellow=pending/holding, green=completed
+          const iterStatus = p.latest_iter_status || '';
+          let statusClass = 'running';  // white (default for active)
+          if (iterStatus === 'completed') {
+            statusClass = 'completed';  // green
+          } else if (iterStatus === 'pending_confirmation' || iterStatus === 'pending' || iterStatus === 'holding') {
+            statusClass = 'pending';  // yellow
+          } else if (p.status === 'archived') {
+            statusClass = 'completed';  // archived → green
+          }
+          card.className = `project-panel-card status-${statusClass}`;
           const displayName = p.name || p.task || p.project_id;
           const meta = p.iteration_count != null
             ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
@@ -5988,10 +6028,11 @@ class AppController {
       iterListHtml = '<div style="color:var(--text-dim);font-size:6px;">No iterations yet</div>';
     }
     for (const it of iters) {
-      const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
+      const statusColor = it.status === 'completed' ? 'var(--pixel-green)' : it.status === 'pending_confirmation' ? 'var(--pixel-yellow)' : 'var(--pixel-white)';
+      const statusIcon = it.status === 'completed' ? '\u2705' : it.status === 'pending_confirmation' ? '\u23F3' : '\uD83D\uDD04';
       const iterCost = it.cost_usd ? ` · $${it.cost_usd.toFixed(4)}` : '';
       iterListHtml += `<div class="project-iter-card" data-iter-id="${it.iteration_id}" data-project-id="${projectId}">
-        <div style="color:${statusColor};">${it.status === 'completed' ? '\u2705' : '\uD83D\uDD04'} ${it.iteration_id}${iterCost}</div>
+        <div style="color:${statusColor};">${statusIcon} ${it.iteration_id}${iterCost}</div>
         <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml((it.task || '').substring(0, 60))}</div>
         <div style="color:var(--text-dim);margin-top:1px;">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
       </div>`;
@@ -6134,7 +6175,7 @@ class AppController {
           }
         }
 
-        if (doc.status !== 'completed') {
+        if (doc.status !== 'completed' && doc.status !== 'pending_confirmation') {
           detailHtml += `<div style="margin:8px 0;display:flex;gap:6px;">`;
           detailHtml += `<button class="pixel-btn" id="continue-iter-btn" style="font-size:6px;padding:4px 10px;">\u25B6 Continue Current Iteration</button>`;
           detailHtml += `<button class="pixel-btn" id="stop-iter-btn" style="font-size:6px;padding:4px 10px;background:var(--pixel-red);color:#000;">■ Stop All Tasks</button>`;
@@ -6164,6 +6205,12 @@ class AppController {
           }
         } else {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
+        }
+
+        // CEO Report (stored when project completion report is submitted)
+        if (doc.ceo_report) {
+          detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">📊 CEO Report</div>`;
+          detailHtml += `<div class="task-result-report md-rendered" style="border-left:2px solid var(--pixel-cyan);padding-left:6px;">${this._renderMarkdown(doc.ceo_report)}</div>`;
         }
 
         if (taskResult) {

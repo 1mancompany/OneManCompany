@@ -56,6 +56,7 @@ ITER_STATUS_IN_PROGRESS = "in_progress"
 ITER_STATUS_COMPLETED = "completed"
 ITER_STATUS_FAILED = "failed"
 ITER_STATUS_CANCELLED = "cancelled"
+ITER_STATUS_PENDING_CONFIRMATION = "pending_confirmation"
 
 # Per-project write locks to prevent concurrent YAML corruption
 _project_locks: dict[str, threading.Lock] = {}

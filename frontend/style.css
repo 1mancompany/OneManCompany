@@ -2860,7 +2860,7 @@ body {
 /* ===== Projects Panel ===== */
 .project-panel-card {
   padding: 6px 8px;
-  border-left: 3px solid var(--pixel-green);
+  border-left: 3px solid var(--pixel-white);
   margin-bottom: 3px;
   background: var(--bg-dark);
   font-size: 6px;
@@ -2873,8 +2873,17 @@ body {
   border-left-width: 4px;
 }
 
-.project-panel-card.archived {
-  border-left-color: var(--text-dim);
+/* Status-based sidebar border colors */
+.project-panel-card.status-running {
+  border-left-color: var(--pixel-white);
+}
+
+.project-panel-card.status-pending {
+  border-left-color: var(--pixel-yellow);
+}
+
+.project-panel-card.status-completed {
+  border-left-color: var(--pixel-green);
 }
 
 .project-panel-name {
