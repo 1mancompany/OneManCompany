@@ -47,7 +47,16 @@ def _get_client() -> httpx.Client:
     global _client
     if _client is None:
         _client = httpx.Client(base_url=SERVER_URL, timeout=660.0)
+        import atexit
+        atexit.register(_close_client)
     return _client
+
+
+def _close_client() -> None:
+    global _client
+    if _client is not None:
+        _client.close()
+        _client = None
 
 
 def _call_tool(tool_name: str, args: dict) -> str:

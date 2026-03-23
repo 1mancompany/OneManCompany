@@ -5594,6 +5594,7 @@ async def _run_conversation_loop(session, node, tree, project_dir):
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
     finally:
+        session._cancel_ea_timer()
         unregister_session(session.node_id)
         await ws_manager.broadcast({"type": "ceo_inbox_updated"})
 

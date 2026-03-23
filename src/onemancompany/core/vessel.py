@@ -1470,8 +1470,8 @@ class EmployeeManager:
         })
         _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self._maybe_compress_history(employee_id))
+            from onemancompany.core.async_utils import spawn_background
+            spawn_background(self._maybe_compress_history(employee_id))
         except RuntimeError:
             logger.debug("No event loop for history compression of %s", employee_id)
 
@@ -2592,13 +2592,26 @@ async def start_all_loops() -> None:
 
 
 async def stop_all_loops() -> None:
-    """Cancel any running task executions."""
+    """Cancel any running task executions and background consumers."""
     tasks = list(employee_manager._running_tasks.values())
     for t in tasks:
         t.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     employee_manager._running_tasks.clear()
+
+    # Cancel completion consumer
+    if employee_manager._completion_consumer and not employee_manager._completion_consumer.done():
+        employee_manager._completion_consumer.cancel()
+        try:
+            await employee_manager._completion_consumer
+        except asyncio.CancelledError:
+            logger.debug("Completion consumer cancelled during shutdown")
+        employee_manager._completion_consumer = None
+        employee_manager._completion_queue = None
+
+    # Clean up task log buffers
+    employee_manager._task_logs.clear()
 
 
 async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunner) -> Vessel:
