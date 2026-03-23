@@ -823,73 +823,15 @@ class BaseAgentRunner:
     def _get_role_identity_section(self) -> str:
         """Build standardized identity sections: Who You Are, NEVER Do, Core Actions.
 
-        All employees get these 3 structured subsections. Founding agents override
-        via _customize_prompt() which adds their role prompt at priority=10;
-        this base method serves regular (non-founding) employees.
+        Founding agents override this method to provide domain-specific identity.
+        Regular (non-founding) employees get their identity from
+        ``EmployeeManager._build_company_context_block()`` which is injected into
+        every task prompt, so this base method returns empty for them to avoid
+        duplication.
         """
-        if self.employee_id in FOUNDING_IDS:
-            # Founding agents provide identity via their specialized role prompt
-            return ""
-
-        from onemancompany.core.config import load_employee_profile_yaml
-        profile = load_employee_profile_yaml(self.employee_id)
-        name = profile.get(PF_NAME, "Employee")
-        nickname = profile.get(PF_NICKNAME, "")
-        role = profile.get(PF_ROLE, "Employee")
-        department = profile.get(PF_DEPARTMENT, "")
-        level = profile.get(PF_LEVEL, 1)
-
-        level_label = {1: "Junior", 2: "Mid-level", 3: "Senior"}.get(level, f"Lv.{level}")
-        dept_str = f" in {department}" if department else ""
-        nick_str = f" (nickname: {nickname})" if nickname else ""
-
-        # Determine archetype: manager vs executor
-        manager_roles = {"PM", "Project Manager", "Manager", "Team Lead"}
-        is_manager = role in manager_roles
-
-        if is_manager:
-            identity = (
-                f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-                "You are a coordinator — your job is to plan, delegate, and ensure quality.\n"
-                "Break tasks into subtasks, assign to the right people, review their output."
-            )
-            never_do = (
-                "- Do NOT write code, design, or implementation content yourself\n"
-                "- Do NOT produce deliverables — your task completes when all subtasks are accepted\n"
-                "- Do NOT execute tasks yourself and claim 'done'\n"
-                "- Do NOT skip reviewing actual deliverables before accepting"
-            )
-            core_actions = (
-                "- dispatch_child() — assign subtasks to colleagues\n"
-                "- accept_child() / reject_child() — review deliverables\n"
-                "- pull_meeting() — coordinate with team members\n"
-                "- list_colleagues() — assess team capabilities\n"
-                "- Planning, coordination, communication — these are YOUR job"
-            )
-        else:
-            identity = (
-                f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-                "You are an executor — your job is to produce high-quality deliverables that meet acceptance criteria.\n"
-                "Unless the task clearly falls outside your role, attempt to complete it yourself rather than delegating.\n"
-                "We are a flat organization — you may dispatch tasks to anyone via dispatch_child() when necessary."
-            )
-            never_do = (
-                "- Do NOT claim completion without delivering actual artifacts (code, documents, etc.)\n"
-                "- Do NOT skip testing or quality verification before submitting"
-            )
-            core_actions = (
-                "- read / write / bash — produce deliverables\n"
-                "- dispatch_child() — delegate subtasks to colleagues when necessary\n"
-                "- pull_meeting() — align with colleagues when needed\n"
-                "- load_skill() — access specialized knowledge on demand\n"
-                "- Report completion with a summary of what you delivered"
-            )
-
-        return (
-            f"\n\n## Who You Are — Identity\n{identity}\n\n"
-            f"**Things you must NEVER do:**\n{never_do}\n\n"
-            f"**Your core actions:**\n{core_actions}\n"
-        )
+        # Founding agents provide identity via their overridden method;
+        # regular employees get identity via _build_company_context_block().
+        return ""
 
     def _get_skills_prompt_section(self) -> str:
         """Load skill files from employees/{id}/skills/ and build a prompt section."""
@@ -1027,8 +969,9 @@ class BaseAgentRunner:
         pb.add("skills", self._get_skills_prompt_section(), priority=30)
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
-        pb.add("culture", self._get_company_culture_prompt_section(), priority=45)
-        pb.add("guidance", self._get_guidance_prompt_section(), priority=55)
+        # NOTE: culture, guidance, role identity, work principles are injected
+        # via _build_company_context_block() in every task prompt (vessel.py),
+        # so they are NOT duplicated here in the system prompt.
         pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)

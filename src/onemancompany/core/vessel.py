@@ -1718,8 +1718,8 @@ class EmployeeManager:
 
         # 0. Role identity — standardized Who You Are / NEVER / Actions
         from onemancompany.core.config import FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL, load_employee_profile_yaml
-        profile = load_employee_profile_yaml(employee_id)
         if employee_id not in FOUNDING_IDS:
+            profile = load_employee_profile_yaml(employee_id)
             name = profile.get(PF_NAME, "Employee")
             nickname = profile.get(PF_NICKNAME, "")
             role = profile.get(PF_ROLE, "Employee")

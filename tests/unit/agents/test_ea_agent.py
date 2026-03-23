@@ -115,7 +115,8 @@ class TestEAAgentBuildPrompt:
         prompt = agent._build_prompt()
         assert "Current Context" in prompt
 
-    def test_includes_guidance_when_set(self, monkeypatch):
+    def test_guidance_not_in_system_prompt(self, monkeypatch):
+        """Guidance is injected via _build_company_context_block in task prompt, not system prompt."""
         from onemancompany.core import config as config_mod
 
         cs = _make_cs()
@@ -124,10 +125,10 @@ class TestEAAgentBuildPrompt:
 
         agent = self._make_agent(monkeypatch, cs=cs)
         prompt = agent._build_prompt()
-        assert "CEO Guidance" in prompt
-        assert "Be quick" in prompt
+        assert "Be quick" not in prompt
 
-    def test_includes_culture_when_set(self, monkeypatch):
+    def test_culture_not_in_system_prompt(self, monkeypatch):
+        """Culture is injected via _build_company_context_block in task prompt, not system prompt."""
         from onemancompany.core import config as config_mod
 
         cs = _make_cs()
@@ -137,8 +138,7 @@ class TestEAAgentBuildPrompt:
 
         agent = self._make_agent(monkeypatch, cs=cs)
         prompt = agent._build_prompt()
-        assert "Company Culture" in prompt
-        assert "Move fast" in prompt
+        assert "Move fast" not in prompt
 
 
 class TestEAPromptContents:

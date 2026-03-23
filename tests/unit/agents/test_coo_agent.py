@@ -783,7 +783,8 @@ class TestCOOAgent:
         prompt = agent._build_prompt()
         assert "Current Context" in prompt
 
-    def test_build_prompt_with_culture(self, monkeypatch):
+    def test_build_prompt_culture_not_in_system_prompt(self, monkeypatch):
+        """Culture is injected via _build_company_context_block in task prompt, not system prompt."""
         from onemancompany.core import store as store_mod
 
         cs = _make_cs()
@@ -791,7 +792,8 @@ class TestCOOAgent:
         monkeypatch.setattr(store_mod, "load_culture",
                             lambda: [{"content": "Stay humble"}])
         prompt = agent._build_prompt()
-        assert "Stay humble" in prompt
+        # Culture should NOT be in the system prompt (it's in the task prompt now)
+        assert "Stay humble" not in prompt
 
     def test_build_prompt_with_skills(self, monkeypatch):
         from onemancompany.agents import base as base_mod

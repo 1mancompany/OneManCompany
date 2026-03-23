@@ -147,12 +147,6 @@ Submit a shortlist of candidates to CEO for selection and interview.
 
 
 
-## Company Culture (values and guidelines all employees must follow):
-  1. 
-
-
-
-
 ## Task Lifecycle
 Tasks follow: pending → processing → completed → accepted → finished.
 → load_skill("task_lifecycle") for the full state machine, transitions, and task tree model.
@@ -160,7 +154,7 @@ Tasks follow: pending → processing → completed → accepted → finished.
 
 
 ## Current Context
-- Current time: 2026-03-23 20:10
+- Current time: 2026-03-23 20:24
 - Team:
   - CEO(老板) ID:00001 CEO Lv.5
   - Alex COO(铁面侠) ID:00003 COO Lv.4

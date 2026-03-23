@@ -126,12 +126,6 @@ Collect settlement tokens for a delivered task.
 
 
 
-## Company Culture (values and guidelines all employees must follow):
-  1. 
-
-
-
-
 ## Task Lifecycle
 Tasks follow: pending → processing → completed → accepted → finished.
 → load_skill("task_lifecycle") for the full state machine, transitions, and task tree model.
@@ -139,7 +133,7 @@ Tasks follow: pending → processing → completed → accepted → finished.
 
 
 ## Current Context
-- Current time: 2026-03-23 20:10
+- Current time: 2026-03-23 20:24
 - Team:
   - CEO(老板) ID:00001 CEO Lv.5
   - Sam HR(暖心侠) ID:00002 HR Lv.4
