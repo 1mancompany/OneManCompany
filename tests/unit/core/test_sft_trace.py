@@ -12,6 +12,7 @@ from onemancompany.core.llm_trace import (
     _serialize_message,
     _serialize_tool_schema,
     write_sft_record,
+    write_sft_record_async,
 )
 
 
@@ -306,17 +307,52 @@ class TestDaemonSftAccumulation:
             ],
         }
         ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
-        # Tool result comes as a tool message, plus an empty assistant
-        tool_msgs = [m for m in sft_messages if m["role"] == "tool"]
-        assert len(tool_msgs) == 1
-        assert tool_msgs[0]["tool_call_id"] == "tc_1"
-        assert tool_msgs[0]["content"] == "file.txt"
+        # Tool result only — no spurious empty assistant entry
+        assert len(sft_messages) == 1
+        assert sft_messages[0]["role"] == "tool"
+        assert sft_messages[0]["tool_call_id"] == "tc_1"
+        assert sft_messages[0]["content"] == "file.txt"
 
     def test_empty_content(self):
         from onemancompany.core.claude_session import ClaudeDaemon
         sft_messages = []
         message = {"content": []}
         ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
-        assert len(sft_messages) == 1
-        assert sft_messages[0]["role"] == "assistant"
-        assert sft_messages[0]["content"] == ""
+        # Empty content — no entry appended
+        assert len(sft_messages) == 0
+
+
+class TestWriteSftRecordAsync:
+    """Test the non-blocking write_sft_record_async wrapper."""
+
+    @pytest.mark.asyncio
+    async def test_async_write_produces_file(self, tmp_path):
+        """Async write should eventually produce the same JSONL output."""
+        import asyncio
+        write_sft_record_async(
+            str(tmp_path),
+            employee_id="00003",
+            source="langchain",
+            messages=[{"role": "user", "content": "hello"}],
+            model="test",
+        )
+        # Give the executor a moment to flush
+        await asyncio.sleep(0.1)
+        sft_path = tmp_path / SFT_TRACE_FILENAME
+        assert sft_path.exists()
+        record = json.loads(sft_path.read_text().strip())
+        assert record["employee_id"] == "00003"
+        assert record["messages"][0]["content"] == "hello"
+
+    def test_sync_fallback_no_loop(self, tmp_path):
+        """Without a running event loop, falls back to synchronous write."""
+        write_sft_record_async(
+            str(tmp_path),
+            employee_id="00003",
+            source="langchain",
+            messages=[{"role": "user", "content": "sync fallback"}],
+        )
+        sft_path = tmp_path / SFT_TRACE_FILENAME
+        assert sft_path.exists()
+        record = json.loads(sft_path.read_text().strip())
+        assert record["messages"][0]["content"] == "sync fallback"

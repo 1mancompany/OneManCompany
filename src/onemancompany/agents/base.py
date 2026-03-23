@@ -331,16 +331,24 @@ async def tracked_ainvoke(
 
         # Write SFT trace (full conversation record for fine-tuning)
         try:
-            from onemancompany.core.llm_trace import write_sft_record
+            from onemancompany.core.llm_trace import write_sft_record_async
             from onemancompany.core.project_archive import get_project_dir
             _proj_dir = get_project_dir(project_id)
             if _proj_dir:
+                # Resolve node_id from contextvar if available
+                _node_id = ""
+                try:
+                    from onemancompany.core.agent_loop import _current_task_id
+                    _node_id = _current_task_id.get("")
+                except Exception as _e:
+                    logger.debug("[sft_trace] failed to resolve node_id: {}", _e)
                 # Build structured message list from input
                 _sft_msgs = messages if isinstance(messages, list) else [messages]
                 _sft_msgs_out = list(_sft_msgs) + [result]
-                write_sft_record(
+                write_sft_record_async(
                     _proj_dir,
                     employee_id=employee_id,
+                    node_id=_node_id,
                     source="tracked_ainvoke",
                     messages=_sft_msgs_out,
                     model=model_name,
@@ -711,11 +719,16 @@ class BaseAgentRunner:
 
         return self._last_usage
 
+    # Class-level cache: serialized tool schemas per employee_id
+    _sft_tool_cache: dict[str, list] = {}
+
     def _write_sft_trace(self, result: dict, usage_info: dict) -> None:
         """Write a complete SFT training record from a LangGraph ainvoke result."""
         try:
-            from onemancompany.core.agent_loop import _current_vessel, _current_task_id
-            from onemancompany.core.llm_trace import write_sft_record
+            from pathlib import Path as _Path
+
+            from onemancompany.core.agent_loop import _current_vessel
+            from onemancompany.core.llm_trace import write_sft_record_async
             from onemancompany.core.tool_registry import tool_registry
 
             vessel = _current_vessel.get(None)
@@ -729,20 +742,32 @@ class BaseAgentRunner:
             tree = get_tree(entry.tree_path)
             node = tree.get_node(entry.node_id) if tree else None
             project_dir = (node.project_dir if node else "") or str(
-                __import__("pathlib").Path(entry.tree_path).parent
+                _Path(entry.tree_path).parent
             )
             if not project_dir:
                 return
 
             messages = result.get(_LG_MESSAGES_KEY, [])
-            tools = tool_registry.get_proxied_tools_for(self.employee_id)
-            write_sft_record(
+
+            # Cache tool schemas — they don't change within a session
+            if self.employee_id not in self._sft_tool_cache:
+                from onemancompany.core.llm_trace import _serialize_tool_schema
+                tools = tool_registry.get_proxied_tools_for(self.employee_id)
+                serialized = []
+                for t in tools:
+                    try:
+                        serialized.append(_serialize_tool_schema(t))
+                    except Exception:
+                        logger.debug("[sft_trace] failed to serialize tool {}", getattr(t, "name", "?"))
+                self._sft_tool_cache[self.employee_id] = serialized
+
+            write_sft_record_async(
                 project_dir,
                 employee_id=self.employee_id,
                 node_id=entry.node_id,
                 source="langchain",
                 messages=messages,
-                tools=tools,
+                tools=self._sft_tool_cache[self.employee_id],
                 model=usage_info.get("model", ""),
                 usage={
                     "input_tokens": usage_info.get("input_tokens", 0),

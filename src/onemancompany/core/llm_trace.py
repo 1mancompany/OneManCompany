@@ -200,7 +200,27 @@ def write_sft_record(
         record["usage"] = usage
 
     try:
+        _line = json.dumps(record, ensure_ascii=False) + "\n"
         with path.open("a", encoding=ENCODING_UTF8) as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.write(_line)
     except OSError as e:
         logger.debug("[sft_trace] write failed: {}", e)
+
+
+def write_sft_record_async(
+    project_dir: str, **kwargs: Any,
+) -> None:
+    """Schedule write_sft_record in a background thread (non-blocking).
+
+    Safe to call from async contexts — avoids blocking the event loop
+    with synchronous file I/O and JSON serialization.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — fall back to sync write
+        write_sft_record(project_dir, **kwargs)
+        return
+    loop.run_in_executor(None, lambda: write_sft_record(project_dir, **kwargs))

@@ -457,17 +457,16 @@ class ClaudeDaemon:
                         if isinstance(block.get("content"), str)
                         else json.dumps(block.get("content", ""), ensure_ascii=False),
                 })
-        # Build assistant entry
-        entry: dict = {"role": "assistant"}
-        if text_parts:
-            entry["content"] = "\n".join(text_parts)
-        elif not tool_calls:
-            entry["content"] = ""
-        if tool_calls:
-            entry["tool_calls"] = tool_calls
-            if "content" not in entry:
-                entry["content"] = ""
-        sft_messages.append(entry)
+        # Build assistant entry only if there's actual content or tool_calls
+        if text_parts or tool_calls:
+            entry: dict = {"role": "assistant"}
+            if text_parts:
+                entry["content"] = "\n".join(text_parts)
+            if tool_calls:
+                entry["tool_calls"] = tool_calls
+                if "content" not in entry:
+                    entry["content"] = ""
+            sft_messages.append(entry)
 
     def _write_sft_trace(
         self, sft_messages: list[dict], model: str,
@@ -475,14 +474,22 @@ class ClaudeDaemon:
     ) -> None:
         """Write a complete SFT record for one daemon turn."""
         try:
-            from onemancompany.core.llm_trace import write_sft_record
+            from onemancompany.core.llm_trace import write_sft_record_async
             from onemancompany.core.project_archive import get_project_dir
             project_dir = get_project_dir(self.project_id)
             if not project_dir:
                 return
-            write_sft_record(
+            # Resolve node_id from contextvar if available
+            _node_id = ""
+            try:
+                from onemancompany.core.vessel import _current_task_id
+                _node_id = _current_task_id.get("")
+            except Exception as _e:
+                logger.debug("[sft_trace] failed to resolve node_id: {}", _e)
+            write_sft_record_async(
                 project_dir,
                 employee_id=self.employee_id,
+                node_id=_node_id,
                 source="daemon",
                 messages=sft_messages,
                 model=model,
