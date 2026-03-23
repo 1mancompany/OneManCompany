@@ -2234,7 +2234,7 @@ class AppController {
       }));
       // Prepend description as initial agent message if no messages exist yet
       if (data.description && messages.length === 0) {
-        messages.unshift({ role: nickname, content: data.description, sender: 'employee' });
+        messages.unshift({ role: nickname, text: data.description, sender: 'employee' });
       }
       this._chatPanel.renderMessages(messages);
       this._chatPanel.setInputEnabled(true);

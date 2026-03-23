@@ -24,10 +24,6 @@ class ChatPanel {
                 <div class="chat-panel-header">
                     <span class="chat-panel-type"></span>
                     <span class="chat-panel-employee"></span>
-                    <label class="chat-panel-ea-toggle hidden" title="EA auto-reply if CEO doesn't respond in 60s">
-                        <input type="checkbox" class="chat-panel-ea-checkbox" />
-                        <span class="chat-panel-ea-label">EA</span>
-                    </label>
                     <button class="chat-panel-clear-btn">Clear</button>
                     <button class="chat-panel-close-btn">End</button>
                 </div>
@@ -37,6 +33,10 @@ class ChatPanel {
                     <span class="chat-panel-typing-dot">.</span>
                     <span class="chat-panel-typing-dot">.</span>
                 </div>
+                <label class="chat-panel-ea-toggle hidden" title="EA auto-reply if CEO doesn't respond in 60s">
+                    <input type="checkbox" class="chat-panel-ea-checkbox" />
+                    <span class="chat-panel-ea-label">EA auto-reply</span>
+                </label>
                 <div class="chat-panel-input-row">
                     <textarea class="chat-panel-input" rows="2" placeholder="Type a message..."></textarea>
                     <div class="chat-panel-actions">
