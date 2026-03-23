@@ -513,44 +513,9 @@ class TestBaseAgentRunner:
         assert event.type == "agent_thinking"
         assert event.agent == "TestAgent"
 
-    def test_get_guidance_prompt_section_empty(self, monkeypatch):
-        emp = _make_emp("00010")
-        runner, _ = self._make_runner(monkeypatch, emp=emp)
-
-        result = runner._get_guidance_prompt_section()
-        assert result == ""
-
-    def test_get_guidance_prompt_section_with_notes(self, monkeypatch):
-        emp = _make_emp("00010", guidance_notes=["Be concise", "Focus on quality"])
-        runner, _ = self._make_runner(monkeypatch, emp=emp)
-        # Override guidance mock to return the notes
-        from onemancompany.core import store as store_mod
-        monkeypatch.setattr(store_mod, "load_employee_guidance",
-                            lambda eid: ["Be concise", "Focus on quality"])
-
-        result = runner._get_guidance_prompt_section()
-        assert "CEO Guidance" in result
-        assert "Be concise" in result
-        assert "Focus on quality" in result
-
-
-    def test_get_company_culture_prompt_section_empty(self, monkeypatch):
-        runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        # Default mock returns [] for culture
-
-        result = runner._get_company_culture_prompt_section()
-        assert result == ""
-
-    def test_get_company_culture_prompt_section(self, monkeypatch):
-        runner, cs = self._make_runner(monkeypatch, emp=_make_emp("00010"))
-        from onemancompany.core import store as store_mod
-        monkeypatch.setattr(store_mod, "load_culture",
-                            lambda: [{"content": "Move fast"}, {"content": "Stay humble"}])
-
-        result = runner._get_company_culture_prompt_section()
-        assert "Company Culture" in result
-        assert "Move fast" in result
-        assert "Stay humble" in result
+    # NOTE: guidance, culture, and talent_persona tests removed — these sections
+    # are now injected via _build_company_context_block() in vessel.py.
+    # See tests/unit/core/test_company_context_injection.py for coverage.
 
     def test_get_dynamic_context_section(self, monkeypatch):
         cs = _make_cs()
@@ -1087,38 +1052,9 @@ class TestMakeLlmAnthropic:
         assert "anthropic-beta" in call_kwargs["default_headers"]
 
 
-# ---------------------------------------------------------------------------
-# BaseAgentRunner._get_talent_persona_section
-# ---------------------------------------------------------------------------
-
-class TestGetTalentPersonaSection:
-    def test_returns_empty_when_no_file(self, monkeypatch, tmp_path):
-        from onemancompany.agents.base import BaseAgentRunner
-        from onemancompany.agents import base as base_mod
-
-        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
-
-        runner = BaseAgentRunner()
-        runner.employee_id = "00010"
-        result = runner._get_talent_persona_section()
-        assert result == ""
-
-    def test_returns_section_when_file_exists(self, monkeypatch, tmp_path):
-        from onemancompany.agents.base import BaseAgentRunner
-        from onemancompany.agents import base as base_mod
-
-        prompts_dir = tmp_path / "emp" / "00010" / "prompts"
-        prompts_dir.mkdir(parents=True)
-        (prompts_dir / "talent_persona.md").write_text("You are a PM expert.")
-
-        monkeypatch.setattr(base_mod, "EMPLOYEES_DIR", tmp_path / "emp")
-
-        runner = BaseAgentRunner()
-        runner.employee_id = "00010"
-        result = runner._get_talent_persona_section()
-        assert "Talent Persona" in result
-        assert "You are a PM expert." in result
-
+# NOTE: TestGetTalentPersonaSection removed — talent persona is now loaded
+# via _build_company_context_block() in vessel.py.
+# See tests/unit/core/test_company_context_injection.py::TestTalentPersonaLoading.
 
 # ---------------------------------------------------------------------------
 # BaseAgentRunner._build_full_prompt with agent loop context

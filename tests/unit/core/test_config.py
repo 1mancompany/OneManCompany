@@ -298,6 +298,7 @@ class TestWorkflows:
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr(config_mod, "SOP_DIR", tmp_path / "nonexistent_sops")
         result = config_mod.load_workflows()
         assert result == {}
 
@@ -305,6 +306,7 @@ class TestWorkflows:
         import onemancompany.core.config as config_mod
 
         monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "SOP_DIR", tmp_path / "nonexistent_sops")
         (tmp_path / "onboarding.md").write_text("# Onboarding\nStep 1")
         (tmp_path / "review.md").write_text("# Review\nStep 1")
         (tmp_path / "notes.txt").write_text("not a workflow")

@@ -714,13 +714,19 @@ def load_assets() -> tuple[dict, dict]:
 
 
 def load_workflows() -> dict[str, str]:
-    """Load all workflow .md files from business/workflows/ as {filename_stem: content}."""
-    if not WORKFLOWS_DIR.exists():
-        return {}
+    """Load all workflow .md files from business/workflows/ and SOPs from operations/sops/."""
     result: dict[str, str] = {}
-    for f in sorted(WORKFLOWS_DIR.iterdir()):
-        if f.suffix == ".md" and f.is_file():
-            result[f.stem] = f.read_text(encoding=ENCODING_UTF8)
+    for directory in (WORKFLOWS_DIR, SOP_DIR):
+        if not directory.exists():
+            continue
+        for f in sorted(directory.iterdir()):
+            if f.suffix == ".md" and f.is_file():
+                if f.stem in result:
+                    logger.warning(
+                        "SOP '{}' in {} overwrites workflow with same name",
+                        f.stem, directory,
+                    )
+                result[f.stem] = f.read_text(encoding=ENCODING_UTF8)
     return result
 
 

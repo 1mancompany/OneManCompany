@@ -20,6 +20,7 @@ from onemancompany.core.config import (
     CHAT_CLASS_ANTHROPIC,
     CHAT_CLASS_OPENAI,
     ENCODING_UTF8,
+    FOUNDING_IDS,
     MAX_SUMMARY_LEN,
     PF_DEPARTMENT,
     PF_LEVEL,
@@ -805,17 +806,21 @@ class BaseAgentRunner:
         # Runtime status is persisted to disk via store; no in-memory update needed.
         pass
 
-    def _get_talent_persona_section(self) -> str:
-        """Load talent persona from employees/{id}/prompts/talent_persona.md.
+    # ----- Standardized role identity (Who You Are / NEVER / Actions) -----
 
-        This file is written during onboarding from the talent's
-        system_prompt_template, capturing the talent's core identity and
-        working style (e.g. "You are a senior PM with 46 frameworks...").
+    def _get_role_identity_section(self) -> str:
+        """Build standardized identity sections: Who You Are, NEVER Do, Core Actions.
+
+        Founding agents override this to provide domain-specific identity.
+        Regular employees get archetype-based identity (manager/executor)
+        from the shared ``build_role_identity()`` function.
+
+        For LangChain employees, identity is in the system prompt (here).
+        For Claude CLI employees, identity is in the task prompt (vessel.py).
+        Both call the same ``build_role_identity()`` — single source of truth.
         """
-        content = self._load_prompt_file(TALENT_PERSONA_FILENAME)
-        if not content:
-            return ""
-        return f"\n\n## Talent Persona\n{content.strip()}\n"
+        from onemancompany.core.vessel import build_role_identity
+        return build_role_identity(self.employee_id)
 
     def _get_skills_prompt_section(self) -> str:
         """Load skill files from employees/{id}/skills/ and build a prompt section."""
@@ -825,33 +830,13 @@ class BaseAgentRunner:
         """Build a prompt section listing authorized tools for this agent."""
         return get_employee_tools_prompt(self.employee_id)
 
-    def _get_guidance_prompt_section(self) -> str:
-        """Build a prompt section from CEO guidance notes for this agent."""
-        from onemancompany.core.store import load_employee_guidance
-        notes_list = load_employee_guidance(self.employee_id)
-        if not notes_list:
-            return ""
-        notes = "\n".join(f"  - {n}" for n in notes_list)
-        return (
-            f"\n\n## CEO Guidance (follow these directives in all your work):\n{notes}\n"
-        )
-
-
-    def _get_company_culture_prompt_section(self) -> str:
-        """Build a prompt section from company culture items."""
-        from onemancompany.core.store import load_culture
-        items = load_culture()
-        if not items:
-            return ""
-        rules = "\n".join(f"  {i+1}. {item.get('content', '')}" for i, item in enumerate(items))
-        return (
-            f"\n\n## Company Culture (values and guidelines all employees must follow):\n{rules}\n"
-        )
-
     def _get_task_lifecycle_section(self) -> str:
-        """Inject task lifecycle state documentation so agents understand the system."""
-        from onemancompany.core.task_lifecycle import TASK_LIFECYCLE_DOC
-        return f"\n\n{TASK_LIFECYCLE_DOC}"
+        """Inject brief task lifecycle reference — full doc available via load_skill."""
+        return (
+            "\n\n## Task Lifecycle\n"
+            "Tasks follow: pending → processing → completed → accepted → finished.\n"
+            "→ load_skill(\"task_lifecycle\") for the full state machine, transitions, and task tree model."
+        )
 
     def _get_dynamic_context_section(self) -> str:
         """Build a dynamic context section with current datetime, team state, and workload."""
@@ -944,13 +929,17 @@ class BaseAgentRunner:
     def _build_prompt_builder(self) -> PromptBuilder:
         """Build a PromptBuilder with all standard sections. Override _customize_prompt() to modify."""
         pb = PromptBuilder()
-        pb.add("talent_persona", self._get_talent_persona_section(), priority=12)
+        # --- Founding team custom sections (overridden via _get_role_identity_section) ---
+        pb.add("role_identity", self._get_role_identity_section(), priority=8)
+        # --- Agent-level operational sections ---
         pb.add("soul", self._get_soul_section(), priority=15)
         pb.add("skills", self._get_skills_prompt_section(), priority=30)
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
-        pb.add("culture", self._get_company_culture_prompt_section(), priority=45)
-        pb.add("guidance", self._get_guidance_prompt_section(), priority=55)
+        # NOTE: role identity (non-founding), culture, guidance, work principles,
+        # talent persona, and CLAUDE.md are ALL injected via
+        # _build_company_context_block() in every task prompt (vessel.py).
+        # They are NOT in the system prompt to avoid duplication.
         pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)

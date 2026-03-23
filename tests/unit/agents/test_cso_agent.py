@@ -372,7 +372,8 @@ class TestCSOAgent:
         prompt = agent._build_prompt()
         assert "Current Context" in prompt
 
-    def test_build_prompt_with_guidance(self, monkeypatch):
+    def test_guidance_not_in_system_prompt(self, monkeypatch):
+        """Guidance is injected via _build_company_context_block in task prompt, not system prompt."""
         from onemancompany.core import config as config_mod, store as store_mod
 
         cs = _make_cs()
@@ -382,7 +383,7 @@ class TestCSOAgent:
         monkeypatch.setattr(store_mod, "load_employee_guidance",
                             lambda eid: ["Focus on revenue"])
         prompt = agent._build_prompt()
-        assert "Focus on revenue" in prompt
+        assert "Focus on revenue" not in prompt
 
     @pytest.mark.asyncio
     async def test_run(self, monkeypatch):
