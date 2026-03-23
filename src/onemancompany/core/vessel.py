@@ -1112,6 +1112,11 @@ class EmployeeManager:
                 if progress:
                     task_with_ctx += f"\n\n[Previous Work Learnings]\n{progress}"
 
+            # Company context: culture, SOPs, guidance, work principles
+            company_ctx = self._build_company_context_block(employee_id)
+            if company_ctx:
+                task_with_ctx = f"{company_ctx}\n\n{task_with_ctx}"
+
             # Debug: print full task prompt (without history)
             logger.debug("[TASK PROMPT] employee={} node={} project={}:\n{}",
                          employee_id, entry.node_id, project_id or "none",
@@ -1697,6 +1702,54 @@ class EmployeeManager:
             parts.append(f'\nUse read("{ws_path}/{{filename}}") to read file contents.')
 
         return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Company context injection (culture, SOPs, guidance, work principles)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_company_context_block(employee_id: str) -> str:
+        """Build unified company context block injected into every task.
+
+        This ensures ALL employee types (LangChain, Claude CLI, Script)
+        receive the same company context regardless of executor.
+        """
+        parts: list[str] = []
+
+        # 1. Company culture
+        culture_items = _store.load_culture()
+        if culture_items:
+            rules = "\n".join(
+                f"  {i + 1}. {item.get('content', '')}"
+                for i, item in enumerate(culture_items)
+            )
+            parts.append(f"## Company Culture\n{rules}")
+
+        # 2. SOPs (all operational procedures)
+        from onemancompany.core.config import load_workflows
+        workflows = load_workflows()
+        if workflows:
+            sop_sections = []
+            for name, content in workflows.items():
+                sop_sections.append(f"### {name}\n{content.strip()}")
+            parts.append(
+                "## Standard Operating Procedures\n" + "\n\n".join(sop_sections)
+            )
+
+        # 3. CEO guidance (1-on-1 notes)
+        notes = _store.load_employee_guidance(employee_id)
+        if notes:
+            guidance = "\n".join(f"  - {n}" for n in notes)
+            parts.append(f"## CEO Guidance\n{guidance}")
+
+        # 4. Work principles
+        principles = _store.load_employee_work_principles(employee_id)
+        if principles and principles.strip():
+            parts.append(f"## Your Work Principles\n{principles.strip()}")
+
+        if not parts:
+            return ""
+        return "[Company Context]\n" + "\n\n".join(parts) + "\n[/Company Context]"
 
     # ------------------------------------------------------------------
     # Workflow context injection
