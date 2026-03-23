@@ -482,7 +482,8 @@ def list_colleagues() -> list[dict]:
 
     Returns:
         A list of dicts with id, name, nickname, role, department, level, skills,
-        tools (authorized tool names), status, and current_task_summary.
+        tools (authorized tool names), status, current_task_summary,
+        and pending_tasks (number of queued tasks waiting to be executed).
     """
     from onemancompany.core.vessel import employee_manager
 

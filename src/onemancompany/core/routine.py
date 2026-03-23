@@ -1070,14 +1070,18 @@ async def run_post_task_routine(
     # Load project record for retrospective reference
     project_record: dict = {}
     if project_id:
-        from onemancompany.core.project_archive import load_project
+        from onemancompany.core.project_archive import load_project, load_named_project
         project_record = load_project(project_id) or {}
 
         # Filter participants to project team members (excluding CEO);
         # EA always attends (dispatched the task, needs full context).
+        # NOTE: load_project returns iteration yaml which has no 'team' field.
+        # Team lives in project.yaml — load it via load_named_project using the slug.
+        project_slug = project_id.split("/")[0] if "/" in project_id else project_id
+        named_project = load_named_project(project_slug) or {}
         team_members = {
             m["employee_id"]
-            for m in project_record.get("team", [])
+            for m in named_project.get("team", [])
             if m.get("employee_id") and m["employee_id"] != CEO_ID
         }
         if team_members:
