@@ -1112,14 +1112,14 @@ async def run_post_task_routine(
 
     # If no workflow document, fall back to hardcoded behavior
     if not workflow_doc:
-        await _run_post_task_routine_fallback(task_summary, participants)
+        await _run_post_task_routine_fallback(task_summary, participants, project_id)
         return
 
     # Parse the workflow into structured steps
     workflow = parse_workflow("project_retrospective_workflow", workflow_doc)
     if not workflow.steps:
         # Malformed document — fall back
-        await _run_post_task_routine_fallback(task_summary, participants)
+        await _run_post_task_routine_fallback(task_summary, participants, project_id)
         return
 
     report_id = str(uuid.uuid4())[:8]
@@ -1488,7 +1488,7 @@ async def _ea_auto_approve_actions(
 # Fallback — original hardcoded two-phase routine
 # ---------------------------------------------------------------------------
 
-async def _run_post_task_routine_fallback(task_summary: str, participants: list[str]) -> None:
+async def _run_post_task_routine_fallback(task_summary: str, participants: list[str], project_id: str = "") -> None:
     """Original hardcoded two-phase meeting, used when no workflow doc is available."""
     workflows = load_workflows()
     workflow_doc = workflows.get("project_retrospective_workflow", "")
@@ -1569,6 +1569,19 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
             "report_id": report_id,
             "summary": summary_text,
         })
+
+        # Record routine results in project archive (same as main workflow path)
+        if project_id:
+            from onemancompany.core.project_archive import append_action
+            for ev in phase1_result.get("self_evaluations", []):
+                append_action(project_id, ev.get(TL_FIELD_EMPLOYEE_ID, ""), TL_ACTION_SELF_EVAL, ev.get(CTX_KEY_EVALUATION, "")[:MAX_SUMMARY_LEN])
+            for rv in phase1_result.get("senior_reviews", []):
+                append_action(project_id, rv.get(CTX_KEY_REVIEWER_ID, ""), TL_ACTION_SENIOR_REVIEW, rv.get(CTX_KEY_REVIEW, "")[:MAX_SUMMARY_LEN])
+            coo_report = phase2_result.get("coo_report", "")
+            if coo_report:
+                append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, coo_report[:MAX_SUMMARY_LEN])
+            for ai in action_items:
+                append_action(project_id, ai.get(CTX_KEY_SOURCE, ""), TL_ACTION_IMPROVEMENT, ai.get(CTX_KEY_DESCRIPTION, "")[:MAX_SUMMARY_LEN])
 
     finally:
         await _set_participants_status(room.participants, STATUS_IDLE)
