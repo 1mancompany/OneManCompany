@@ -963,15 +963,17 @@ class BaseAgentRunner:
     def _build_prompt_builder(self) -> PromptBuilder:
         """Build a PromptBuilder with all standard sections. Override _customize_prompt() to modify."""
         pb = PromptBuilder()
+        # --- Founding team custom sections (overridden via _get_role_identity_section) ---
         pb.add("role_identity", self._get_role_identity_section(), priority=8)
-        pb.add("talent_persona", self._get_talent_persona_section(), priority=12)
+        # --- Agent-level operational sections ---
         pb.add("soul", self._get_soul_section(), priority=15)
         pb.add("skills", self._get_skills_prompt_section(), priority=30)
         pb.add("tools", self._get_tools_prompt_section(), priority=35)
         pb.add("direction", self._get_company_direction_section(), priority=40)
-        # NOTE: culture, guidance, role identity, work principles are injected
-        # via _build_company_context_block() in every task prompt (vessel.py),
-        # so they are NOT duplicated here in the system prompt.
+        # NOTE: role identity (non-founding), culture, guidance, work principles,
+        # talent persona, and CLAUDE.md are ALL injected via
+        # _build_company_context_block() in every task prompt (vessel.py).
+        # They are NOT in the system prompt to avoid duplication.
         pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)

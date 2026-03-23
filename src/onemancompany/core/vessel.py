@@ -1805,12 +1805,17 @@ class EmployeeManager:
         if principles and principles.strip():
             parts.append(f"## Your Work Principles\n{principles.strip()}")
 
-        # 5. Talent CLAUDE.md (agent's own project instructions from onboarding)
+        # 5. Talent-provided prompt (CLAUDE.md or talent_persona.md from onboarding)
+        #    CLAUDE.md takes priority; fall back to talent_persona.md for LangChain talents.
         claude_md_path = EMPLOYEES_DIR / employee_id / "CLAUDE.md"
+        talent_persona_path = EMPLOYEES_DIR / employee_id / "prompts" / "talent_persona.md"
+        persona_content = ""
         if claude_md_path.exists():
-            claude_md = claude_md_path.read_text(encoding="utf-8").strip()
-            if claude_md:
-                parts.append(f"## Your Persona\n{claude_md}")
+            persona_content = claude_md_path.read_text(encoding="utf-8").strip()
+        elif talent_persona_path.exists():
+            persona_content = talent_persona_path.read_text(encoding="utf-8").strip()
+        if persona_content:
+            parts.append(f"## Your Persona\n{persona_content}")
 
         if not parts:
             return ""
