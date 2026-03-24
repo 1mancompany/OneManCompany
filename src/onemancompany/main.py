@@ -553,6 +553,24 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
 
+    # Recover projects stuck in pending_confirmation (auto-confirm timer lost on restart)
+    from onemancompany.core.project_archive import (
+        list_projects,
+        ITER_STATUS_PENDING_CONFIRMATION,
+        ITER_STATUS_COMPLETED,
+        load_iteration,
+        update_project_status,
+    )
+    for _proj in list_projects():
+        _iters = _proj.get("iterations", [])
+        if not _iters:
+            continue
+        _latest = load_iteration(_proj.get("project_id", "").split("/")[0], _iters[-1])
+        if _latest and _latest.get("status") == ITER_STATUS_PENDING_CONFIRMATION:
+            _pid = _proj.get("project_id", "")
+            update_project_status(f"{_pid}/{_iters[-1]}" if "/" not in _pid else _pid, ITER_STATUS_COMPLETED)
+            print(f"[startup] Auto-confirmed pending project: {_pid}")
+
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())
 
