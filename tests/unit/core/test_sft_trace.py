@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from onemancompany.core.llm_trace import (
-    SFT_TRACE_FILENAME,
+    DEBUG_TRACE_FILENAME,
     _serialize_message,
     _serialize_tool_schema,
     write_debug_trace,
@@ -135,7 +135,7 @@ class TestWriteSftRecord:
             usage={"input_tokens": 500, "output_tokens": 200},
         )
 
-        sft_path = tmp_path / SFT_TRACE_FILENAME
+        sft_path = tmp_path / DEBUG_TRACE_FILENAME
         assert sft_path.exists()
 
         record = json.loads(sft_path.read_text().strip())
@@ -172,7 +172,7 @@ class TestWriteSftRecord:
             model="test-model",
         )
 
-        record = json.loads((tmp_path / SFT_TRACE_FILENAME).read_text().strip())
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert len(record["messages"]) == 5
         # Check tool call format
         ai_msg = record["messages"][2]
@@ -199,7 +199,7 @@ class TestWriteSftRecord:
             tools=[tool],
         )
 
-        record = json.loads((tmp_path / SFT_TRACE_FILENAME).read_text().strip())
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert "tools" in record
         assert len(record["tools"]) == 1
         assert record["tools"][0]["function"]["name"] == "dispatch_child"
@@ -217,7 +217,7 @@ class TestWriteSftRecord:
             messages=messages,
         )
 
-        record = json.loads((tmp_path / SFT_TRACE_FILENAME).read_text().strip())
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert record["messages"][0] == {"role": "user", "content": "Hello"}
 
     def test_string_message_converted(self, tmp_path):
@@ -228,7 +228,7 @@ class TestWriteSftRecord:
             source="tracked_ainvoke",
             messages=["What is 2+2?"],
         )
-        record = json.loads((tmp_path / SFT_TRACE_FILENAME).read_text().strip())
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert record["messages"][0] == {"role": "user", "content": "What is 2+2?"}
 
     def test_skips_empty_messages(self, tmp_path):
@@ -236,7 +236,7 @@ class TestWriteSftRecord:
         write_debug_trace("", employee_id="00003", messages=[{"role": "user", "content": "hi"}])
         write_debug_trace(str(tmp_path), employee_id="00003", messages=[])
         write_debug_trace(str(tmp_path), employee_id="00003", messages=None)
-        assert not (tmp_path / SFT_TRACE_FILENAME).exists()
+        assert not (tmp_path / DEBUG_TRACE_FILENAME).exists()
 
     def test_appends_multiple_records(self, tmp_path):
         from langchain_core.messages import HumanMessage, AIMessage
@@ -248,7 +248,7 @@ class TestWriteSftRecord:
                 messages=[HumanMessage(content=f"msg {i}"), AIMessage(content=f"resp {i}")],
             )
 
-        lines = (tmp_path / SFT_TRACE_FILENAME).read_text().strip().split("\n")
+        lines = (tmp_path / DEBUG_TRACE_FILENAME).read_text().strip().split("\n")
         assert len(lines) == 3
         for i, line in enumerate(lines):
             record = json.loads(line)
@@ -262,7 +262,7 @@ class TestWriteSftRecord:
             source="langchain",
             messages=[HumanMessage(content="hi"), AIMessage(content="hello")],
         )
-        record = json.loads((tmp_path / SFT_TRACE_FILENAME).read_text().strip())
+        record = json.loads((tmp_path / DEBUG_TRACE_FILENAME).read_text().strip())
         assert "tools" not in record
 
 
@@ -338,7 +338,7 @@ class TestWriteSftRecordAsync:
         )
         # Give the executor a moment to flush
         await asyncio.sleep(0.1)
-        sft_path = tmp_path / SFT_TRACE_FILENAME
+        sft_path = tmp_path / DEBUG_TRACE_FILENAME
         assert sft_path.exists()
         record = json.loads(sft_path.read_text().strip())
         assert record["employee_id"] == "00003"
@@ -352,7 +352,7 @@ class TestWriteSftRecordAsync:
             source="langchain",
             messages=[{"role": "user", "content": "sync fallback"}],
         )
-        sft_path = tmp_path / SFT_TRACE_FILENAME
+        sft_path = tmp_path / DEBUG_TRACE_FILENAME
         assert sft_path.exists()
         record = json.loads(sft_path.read_text().strip())
         assert record["messages"][0]["content"] == "sync fallback"

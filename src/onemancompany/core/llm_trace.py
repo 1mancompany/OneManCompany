@@ -5,7 +5,7 @@ Two trace formats:
   2. Debug trace JSONL — one line per complete conversation with full messages,
      tool schemas, model info, and token usage.
 
-Debug trace records are written to {project_dir}/sft_trace.jsonl.
+Debug trace records are written to {project_dir}/debug_trace.jsonl.
 """
 from __future__ import annotations
 
@@ -18,8 +18,7 @@ from loguru import logger
 
 from onemancompany.core.config import ENCODING_UTF8
 
-SFT_TRACE_FILENAME = "sft_trace.jsonl"  # kept for backward compat
-DEBUG_TRACE_FILENAME = SFT_TRACE_FILENAME  # preferred alias
+DEBUG_TRACE_FILENAME = "debug_trace.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +149,7 @@ def write_debug_trace(
     """Write one complete conversation as an SFT training record.
 
     Args:
-        project_dir: Project workspace directory (sft_trace.jsonl lives here).
+        project_dir: Project workspace directory (debug_trace.jsonl lives here).
         employee_id: The employee who ran this conversation.
         node_id: Task node ID (for traceability).
         source: "langchain" | "daemon" | "tracked_ainvoke".
@@ -162,7 +161,7 @@ def write_debug_trace(
     if not project_dir or not messages:
         return
 
-    path = Path(project_dir) / SFT_TRACE_FILENAME
+    path = Path(project_dir) / DEBUG_TRACE_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Serialize messages
