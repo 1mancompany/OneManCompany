@@ -755,11 +755,29 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
                     dst_persona.write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
 
     # Copy CLAUDE.md for Claude CLI discovery
+    dst_claude_md = emp_dir / CLAUDE_MD_FILENAME
     talent_claude_md = talent_dir / CLAUDE_MD_FILENAME
     if talent_claude_md.exists():
-        dst_claude_md = emp_dir / CLAUDE_MD_FILENAME
         if not dst_claude_md.exists():
             shutil.copy2(str(talent_claude_md), str(dst_claude_md))
+
+    # Generate CLAUDE.md if talent didn't provide one (self-hosted employees need it)
+    if not dst_claude_md.exists():
+        from onemancompany.core.config import EMPLOYEES_DIR as _EMP_DIR
+        emp_id = emp_dir.name
+        profile_path = _EMP_DIR / emp_id / "profile.yaml"
+        claude_md_content = (
+            f"# Employee {emp_id}\n\n"
+            f"You are an employee of One Man Company.\n"
+            f"Your profile is at: {profile_path}\n"
+            f"Your employee directory is: {emp_dir}\n\n"
+            f"## Important\n"
+            f"- All company data is stored on the filesystem. There is no database.\n"
+            f"- Read your task description carefully — it contains your role, context, and acceptance criteria.\n"
+            f"- Save all outputs to the project workspace path specified in your task.\n"
+            f"- Do NOT loop or re-analyze. Produce output, verify once, then finish.\n"
+        )
+        dst_claude_md.write_text(claude_md_content, encoding=ENCODING_UTF8)
 
     # Copy manifest.json (frontend UI config — OAuth buttons, settings sections)
     talent_manifest_json = talent_dir / MANIFEST_FILENAME
