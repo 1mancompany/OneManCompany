@@ -1806,7 +1806,7 @@ class EmployeeManager:
             parts.append(f"## Company Culture\n{rules}")
 
         # 2. SOPs — title + first line only; agent can read() full content
-        from onemancompany.core.config import load_workflows, SOP_DIR, WORKFLOWS_DIR
+        from onemancompany.core.config import load_workflows, SOP_DIR, WORKFLOWS_DIR, HR_SOP_DIR
         workflows = load_workflows()
         if workflows:
             sop_lines = []
@@ -1819,6 +1819,8 @@ class EmployeeManager:
                         break
                 # Determine the file path for read()
                 sop_path = SOP_DIR / f"{name}.md"
+                if not sop_path.exists():
+                    sop_path = HR_SOP_DIR / f"{name}.md"
                 if not sop_path.exists():
                     sop_path = WORKFLOWS_DIR / f"{name}.md"
                 sop_lines.append(f"  - {name}: {first_line}  [read(\"{sop_path}\")]")

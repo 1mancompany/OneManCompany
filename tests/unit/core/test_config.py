@@ -299,6 +299,7 @@ class TestWorkflows:
 
         monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path / "nonexistent")
         monkeypatch.setattr(config_mod, "SOP_DIR", tmp_path / "nonexistent_sops")
+        monkeypatch.setattr(config_mod, "HR_SOP_DIR", tmp_path / "nonexistent_hr_sops")
         result = config_mod.load_workflows()
         assert result == {}
 
@@ -307,6 +308,7 @@ class TestWorkflows:
 
         monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", tmp_path)
         monkeypatch.setattr(config_mod, "SOP_DIR", tmp_path / "nonexistent_sops")
+        monkeypatch.setattr(config_mod, "HR_SOP_DIR", tmp_path / "nonexistent_hr_sops")
         (tmp_path / "onboarding.md").write_text("# Onboarding\nStep 1")
         (tmp_path / "review.md").write_text("# Review\nStep 1")
         (tmp_path / "notes.txt").write_text("not a workflow")

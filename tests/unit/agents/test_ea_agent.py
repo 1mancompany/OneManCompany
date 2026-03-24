@@ -142,12 +142,11 @@ class TestEAAgentBuildPrompt:
 
 
 class TestEAPromptContents:
-    def test_ea_prompt_contains_tree_tools(self):
-        """EA system prompt references tree tools, not old dispatch tools."""
+    def test_ea_prompt_references_sop(self):
+        """EA system prompt references SOP for progressive disclosure, not hardcoded details."""
         from onemancompany.agents.ea_agent import EA_SYSTEM_PROMPT
-        assert "dispatch_child" in EA_SYSTEM_PROMPT
-        assert "accept_child" in EA_SYSTEM_PROMPT
-        assert "reject_child" in EA_SYSTEM_PROMPT
+        assert "ea_dispatch_authority_sop" in EA_SYSTEM_PROMPT
+        assert "O-level" in EA_SYSTEM_PROMPT
         # Old tools should NOT be present
         assert "dispatch_task" not in EA_SYSTEM_PROMPT
         assert "set_acceptance_criteria" not in EA_SYSTEM_PROMPT

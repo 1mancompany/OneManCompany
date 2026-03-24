@@ -713,10 +713,13 @@ def load_assets() -> tuple[dict, dict]:
     return tools, meeting_rooms
 
 
+HR_SOP_DIR = HR_DIR / "sops"
+
+
 def load_workflows() -> dict[str, str]:
-    """Load all workflow .md files from business/workflows/ and SOPs from operations/sops/."""
+    """Load all workflow .md files from business/workflows/, operations/sops/, and human_resource/sops/."""
     result: dict[str, str] = {}
-    for directory in (WORKFLOWS_DIR, SOP_DIR):
+    for directory in (WORKFLOWS_DIR, SOP_DIR, HR_SOP_DIR):
         if not directory.exists():
             continue
         for f in sorted(directory.iterdir()):
