@@ -310,6 +310,7 @@ class TalentMarketClient:
         self._session: ClientSession | None = None
         self._stack: AsyncExitStack | None = None
         self._api_key: str = ""
+        self._url: str = ""
 
     async def connect(self, url: str, api_key: str) -> None:
         """Establish an SSE connection to the Talent Market MCP server."""
@@ -325,6 +326,7 @@ class TalentMarketClient:
         self._session = session
         self._stack = stack
         self._api_key = api_key
+        self._url = url
         logger.info("Connected to Talent Market at {}", url)
 
     async def disconnect(self) -> None:
@@ -344,14 +346,21 @@ class TalentMarketClient:
         """Return True if an active session exists."""
         return self._session is not None
 
-    async def _call(self, tool_name: str, **kwargs) -> dict:
-        """Invoke an MCP tool, auto-injecting the API key."""
+    async def _call(self, tool_name: str, _retry: bool = True, **kwargs) -> dict:
+        """Invoke an MCP tool, auto-injecting the API key. Auto-reconnects on connection error."""
         if not self._session:
             raise RuntimeError("Not connected to Talent Market")
         kwargs["api_key"] = self._api_key
         logger.debug("[TalentMarket] calling tool={} args={}", tool_name,
                      {k: v[:30] + "..." if isinstance(v, str) and len(v) > 30 else v for k, v in kwargs.items() if k != "api_key"})
-        result = await self._session.call_tool(tool_name, arguments=kwargs)
+        try:
+            result = await self._session.call_tool(tool_name, arguments=kwargs)
+        except Exception as e:
+            if not _retry:
+                raise
+            logger.warning("[TalentMarket] call failed ({}), reconnecting and retrying...", e)
+            await self._reconnect()
+            return await self._call(tool_name, _retry=False, **kwargs)
         logger.debug("[TalentMarket] result content blocks: {}", len(result.content))
         for item in result.content:
             try:
@@ -364,6 +373,19 @@ class TalentMarketClient:
         logger.warning("[TalentMarket] No dict found in response, raw content: {}",
                       [getattr(item, 'text', '')[:200] for item in result.content])
         return {}
+
+    async def _reconnect(self) -> None:
+        """Tear down stale connection and reconnect."""
+        url = self._url
+        api_key = self._api_key
+        try:
+            await self.disconnect()
+        except Exception:
+            self._session = None
+            self._stack = None
+        if url and api_key:
+            await self.connect(url, api_key)
+            logger.info("[TalentMarket] auto-reconnected")
 
     async def search(self, job_description: str) -> dict:
         """Search for candidates matching a job description."""

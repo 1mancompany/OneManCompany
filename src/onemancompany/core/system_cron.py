@@ -261,13 +261,7 @@ async def talent_market_keepalive() -> list | None:
     except Exception as e:
         logger.warning("[talent_market_keepalive] ping failed ({}), reconnecting...", e)
         try:
-            await talent_market.disconnect()
-        except Exception:
-            # Force-clear stale state even if disconnect fails
-            talent_market._session = None
-            talent_market._stack = None
-        try:
-            await start_talent_market()
+            await talent_market._reconnect()
             logger.info("[talent_market_keepalive] reconnected successfully")
         except Exception as e2:
             logger.error("[talent_market_keepalive] reconnect failed: {}", e2)
