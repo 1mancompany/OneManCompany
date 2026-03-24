@@ -1183,7 +1183,11 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
-    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
+    # Self-hosted employees manage their own auth via Claude CLI — always considered logged in
+    if cfg and cfg.hosting == HostingMode.SELF:
+        result["oauth_logged_in"] = True
+    else:
+        result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
 
     # Include manifest if available
@@ -1907,7 +1911,11 @@ async def oauth_start(employee_id: str) -> dict:
     emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.auth_method != "oauth":
+    if not cfg:
+        return {"error": "Employee config not found"}
+    if cfg.hosting == HostingMode.SELF:
+        return {"error": "Self-hosted employee uses Claude CLI's built-in auth. Run 'claude' in terminal to login."}
+    if cfg.auth_method != "oauth":
         return {"error": "Employee does not use OAuth authentication"}
 
     # PKCE: generate code_verifier and code_challenge
