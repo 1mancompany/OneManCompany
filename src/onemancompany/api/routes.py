@@ -3918,26 +3918,24 @@ async def hire_from_cv(body: dict) -> dict:
                         )
                         return
                 if not repo_url:
-                    await _publish_cv_error(
-                        f"Talent '{talent_id}' has no repo URL — cannot copy skills/tools. "
-                        f"Add a 'source_repo' field to the CV or ensure the talent is published on the Talent Market."
-                    )
-                    return
-                try:
-                    await clone_talent_repo(repo_url, talent_id)
-                except Exception as e:
-                    await _publish_cv_error(
-                        f"Failed to clone talent repo '{repo_url}' for '{talent_id}': {e}"
-                    )
-                    return
-                if not resolve_talent_dir(talent_id):
-                    from onemancompany.core.config import TALENTS_RUNTIME_DIR
-                    cloned_dirs = [d for d in TALENTS_RUNTIME_DIR.iterdir() if d.is_dir()]
-                    await _publish_cv_error(
-                        f"Talent repo cloned but directory not found for '{talent_id}'. "
-                        f"Available: {[d.name for d in cloned_dirs]}. Add 'source_repo' to CV pointing directly to the talent repo."
-                    )
-                    return
+                    # AI-generated / repo-less talents: skip clone, proceed with hire using CV data
+                    logger.info("[cv_hire] Talent '{}' has no repo URL — skipping clone, hiring with CV data only", talent_id)
+                else:
+                    try:
+                        await clone_talent_repo(repo_url, talent_id)
+                    except Exception as e:
+                        await _publish_cv_error(
+                            f"Failed to clone talent repo '{repo_url}' for '{talent_id}': {e}"
+                        )
+                        return
+                    if not resolve_talent_dir(talent_id):
+                        from onemancompany.core.config import TALENTS_RUNTIME_DIR
+                        cloned_dirs = [d for d in TALENTS_RUNTIME_DIR.iterdir() if d.is_dir()]
+                        await _publish_cv_error(
+                            f"Talent repo cloned but directory not found for '{talent_id}'. "
+                            f"Available: {[d.name for d in cloned_dirs]}. Add 'source_repo' to CV pointing directly to the talent repo."
+                        )
+                        return
 
             emp = await execute_hire(
                 name=name,
@@ -3955,6 +3953,15 @@ async def hire_from_cv(body: dict) -> dict:
             )
             await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
+
+            # Dispatch COO to assign department and desk position
+            _push_adhoc_task(
+                COO_ID,
+                f"A new employee has just onboarded via CV hire. Please assign department and role using assign_department(employee_id, department, role).\n"
+                f"Available departments: Engineering, Design, Analytics, Marketing\n"
+                f"Determine the role based on the employee's name and skills.\n\n"
+                f"- {name}（{nickname}）#{emp.id}",
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:

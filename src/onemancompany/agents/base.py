@@ -647,6 +647,13 @@ class BaseAgentRunner:
 
         # Write SFT trace from accumulated streaming messages
         if sft_messages:
+            # Prepend system+user prompt if missing from streaming events
+            initial_msgs = messages_input.get("messages", [])
+            if initial_msgs and sft_messages and not any(
+                getattr(m, "type", None) == "system" or (isinstance(m, dict) and m.get("role") == "system")
+                for m in sft_messages
+            ):
+                sft_messages = list(initial_msgs) + sft_messages
             self._write_sft_trace(
                 {_LG_MESSAGES_KEY: sft_messages},
                 self._last_usage,
@@ -1119,17 +1126,23 @@ class EmployeeAgent(BaseAgentRunner):
         self._set_status(STATUS_WORKING)
         await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
 
-        result = await self._agent.ainvoke(
-            {"messages": [
-                SystemMessage(content=self._build_full_prompt()),
-                HumanMessage(content=task),
-            ]}
-        )
+        initial_msgs = [
+            SystemMessage(content=self._build_full_prompt()),
+            HumanMessage(content=task),
+        ]
+        result = await self._agent.ainvoke({"messages": initial_msgs})
 
         usage_info = self._extract_and_record_usage(result)
         final = extract_final_content(result)
 
         # Write SFT trace — full conversation for fine-tuning
+        # Ensure system+user messages are included (LangGraph may strip system from result)
+        result_msgs = result.get(_LG_MESSAGES_KEY, [])
+        if result_msgs and not any(
+            getattr(m, "type", None) == "system" or (isinstance(m, dict) and m.get("role") == "system")
+            for m in result_msgs
+        ):
+            result[_LG_MESSAGES_KEY] = list(initial_msgs) + result_msgs
         self._write_sft_trace(result, usage_info)
 
         self._set_status(STATUS_IDLE)
