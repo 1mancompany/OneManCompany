@@ -2494,13 +2494,24 @@ async def get_named_project_detail(project_id: str) -> dict:
 
 @router.post("/api/projects/{project_id}/archive")
 async def archive_project_endpoint(project_id: str) -> dict:
-    """Archive a named project."""
+    """Archive a named project — cancels all running tasks first."""
     from onemancompany.core.project_archive import archive_project, load_named_project
     proj = load_named_project(project_id)
     if not proj:
         return {"error": "Named project not found"}
+
+    # Cancel all running/pending tasks for all iterations of this project
+    from onemancompany.core.agent_loop import employee_manager
+    iterations = proj.get("iterations", [])
+    total_cancelled = 0
+    for iter_id in iterations:
+        full_pid = f"{project_id}/{iter_id}"
+        total_cancelled += employee_manager.abort_project(full_pid)
+
     archive_project(project_id)
-    return {"status": "archived", "project_id": project_id}
+    logger.info("[archive] Archived project {} — cancelled {} task(s)", project_id, total_cancelled)
+    await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
+    return {"status": "archived", "project_id": project_id, "tasks_cancelled": total_cancelled}
 
 
 @router.patch("/api/projects/{project_id}/name")
