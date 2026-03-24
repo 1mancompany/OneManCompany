@@ -5600,11 +5600,20 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
         _trigger_dep_resolution(project_dir, tree, node)
 
-        # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
+        # Auto-resume parent if it's HOLDING — check both specific ceo_request
+        # hold and generic awaiting_children hold
         parent = tree.get_node(node.parent_id) if node.parent_id else None
         if parent and parent.status == TaskPhase.HOLDING.value:
             hr_meta = _parse_hold_reason(parent.hold_reason)
+            should_resume = False
             if hr_meta.get("ceo_request") == node.id:
+                # Parent was HOLDING specifically for this CEO_REQUEST
+                should_resume = True
+            elif "awaiting_children" in parent.hold_reason:
+                # Parent was HOLDING for children — CEO_REQUEST is one of its children,
+                # now accepted. Trigger on_child_complete to re-evaluate.
+                should_resume = True
+            if should_resume:
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id,
                     parent.id,
