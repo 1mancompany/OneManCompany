@@ -1274,7 +1274,7 @@ class EmployeeManager:
                     self._log_node(employee_id, entry.node_id, "error", f"Agent hit recursion limit: {rec_err!s}")
                     break
                 except TimeoutError:
-                    raise  # Don't retry — let outer except TimeoutError handle it
+                    raise  # Don't retry task-level timeout — LLM request_timeout handles per-call retries
                 except Exception as run_err:
                     last_err = run_err
                     if attempt < max_retries - 1:
