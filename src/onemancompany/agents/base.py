@@ -647,6 +647,13 @@ class BaseAgentRunner:
 
         # Write SFT trace from accumulated streaming messages
         if sft_messages:
+            # Prepend system+user prompt if missing from streaming events
+            initial_msgs = messages_input.get("messages", [])
+            if initial_msgs and sft_messages and not any(
+                getattr(m, "type", None) == "system" or (isinstance(m, dict) and m.get("role") == "system")
+                for m in sft_messages
+            ):
+                sft_messages = list(initial_msgs) + sft_messages
             self._write_sft_trace(
                 {_LG_MESSAGES_KEY: sft_messages},
                 self._last_usage,
