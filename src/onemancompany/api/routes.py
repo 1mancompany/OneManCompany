@@ -32,6 +32,7 @@ from onemancompany.core.config import (
     PF_NICKNAME,
     PF_SPRITE,
     STATUS_IDLE,
+    STATUS_WORKING,
     SYSTEM_AGENT,
     SYSTEM_SENDER,
     TASK_TREE_FILENAME,
