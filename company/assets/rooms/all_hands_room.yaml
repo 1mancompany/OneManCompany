@@ -1,7 +1,0 @@
-# Large Meeting Hall — dedicated for CEO all-hands meetings
-name: "All-Hands Hall"
-type: "meeting_room"
-description: "A large meeting hall that seats 100 people, equipped with a big screen and sound system. Used for CEO company-wide announcements and guidance; all attendees must absorb and summarize the meeting takeaways afterward. Cannot be used for project or department meetings."
-capacity: 100
-position: [5, 10]
-sprite: "meeting_room"

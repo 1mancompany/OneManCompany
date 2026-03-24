@@ -1,7 +1,0 @@
-# Project Meeting Room 1 — dedicated for project wrap-up meetings
-name: "Project Meeting Room 1"
-type: "meeting_room"
-description: "A project meeting room seating 30 people, used for project wrap-up meetings and retrospectives."
-capacity: 30
-position: [10, 10]
-sprite: "meeting_room"
