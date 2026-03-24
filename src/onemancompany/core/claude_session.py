@@ -251,6 +251,7 @@ class ClaudeDaemon:
         work_dir: str = "",
         max_turns: int = 50,
         claude_plugins: list[str] | None = None,
+        model: str = "",
     ) -> None:
         self.employee_id = employee_id
         self.project_id = project_id
@@ -262,6 +263,7 @@ class ClaudeDaemon:
         # task-specific work_dir is communicated via the prompt instead.
         self.work_dir = str(EMPLOYEES_DIR / employee_id)
         self.max_turns = max_turns
+        self.model = model
         self.proc: asyncio.subprocess.Process | None = None
         self._started = False
 
@@ -295,6 +297,8 @@ class ClaudeDaemon:
             "--dangerously-skip-permissions",
             "--max-turns", str(self.max_turns),
         ]
+        if self.model:
+            cmd += ["--model", self.model]
         if self.mcp_config_path:
             cmd += ["--mcp-config", self.mcp_config_path]
         if self.is_new:
@@ -689,10 +693,12 @@ async def _get_or_start_daemon(
     except Exception as e:
         logger.warning(f"Failed to generate MCP config: {e}")
 
-    # Load claude_plugins from employee profile
-    from onemancompany.core.config import load_employee_profile_yaml
+    # Load claude_plugins and model from employee profile
+    from onemancompany.core.config import load_employee_profile_yaml, employee_configs
     _profile = load_employee_profile_yaml(employee_id)
     claude_plugins = _profile.get("claude_plugins", [])
+    _cfg = employee_configs.get(employee_id)
+    llm_model = _cfg.llm_model if _cfg and _cfg.llm_model else ""
 
     # Try to start daemon (may resume existing session)
     session_id, is_new = get_or_create_session(employee_id, project_id, work_dir=work_dir)
@@ -706,6 +712,7 @@ async def _get_or_start_daemon(
         work_dir=work_dir,
         max_turns=max_turns,
         claude_plugins=claude_plugins,
+        model=llm_model,
     )
     await daemon.start()
 
@@ -736,6 +743,7 @@ async def _get_or_start_daemon(
             work_dir=work_dir,
             max_turns=max_turns,
             claude_plugins=claude_plugins,
+            model=llm_model,
         )
         await daemon.start()
 
