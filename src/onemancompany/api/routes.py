@@ -2970,6 +2970,41 @@ async def get_project_tree(project_id: str) -> dict:
     }
 
 
+@router.get("/api/task-tree/{node_id}/logs")
+async def get_node_execution_logs(node_id: str):
+    """Load execution logs for a task node from disk."""
+    import json as _json
+    from onemancompany.core.config import PROJECTS_DIR, TASK_TREE_FILENAME
+    from onemancompany.core.task_tree import get_tree
+
+    # Find the node across all project trees to get project_dir
+    project_dir = ""
+    if PROJECTS_DIR.exists():
+        for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
+            tree = get_tree(tree_path)
+            node = tree.get_node(node_id)
+            if node:
+                project_dir = node.project_dir or str(tree_path.parent)
+                break
+
+    if not project_dir:
+        return []
+
+    log_path = Path(project_dir) / "nodes" / node_id / "execution.log"
+    if not log_path.exists():
+        return []
+
+    logs = []
+    for line in log_path.read_text(encoding="utf-8").strip().split("\n"):
+        if line:
+            try:
+                logs.append(_json.loads(line))
+            except _json.JSONDecodeError:
+                logger.debug("Skipping malformed log line in node {}", node_id)
+                continue
+    return logs
+
+
 @router.post("/api/employees/{employee_id}/avatar")
 async def upload_avatar(employee_id: str, request: Request) -> dict:
     """Upload an avatar image for an employee."""
