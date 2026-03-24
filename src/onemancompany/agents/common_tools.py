@@ -1442,6 +1442,27 @@ def update_project_team(members: list[dict]) -> dict:
     return {"status": "ok", "added": added, "total": len(team)}
 
 
+@tool
+def view_meeting_minutes(
+    room_id: str = "", project_id: str = "",
+    employee_id: str = "", limit: int = 5,
+) -> dict:
+    """View archived meeting minutes. Filter by room, project, or participant.
+
+    Args:
+        room_id: Filter by meeting room ID
+        project_id: Filter by project ID
+        employee_id: Filter by participant employee ID
+        limit: Maximum number of results
+    """
+    from onemancompany.core.meeting_minutes import query_minutes
+    results = query_minutes(
+        room_id=room_id, project_id=project_id,
+        employee_id=employee_id, limit=limit,
+    )
+    return {"status": "ok", "minutes": results, "count": len(results)}
+
+
 # ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
@@ -1460,7 +1481,7 @@ def _register_all_internal_tools() -> None:
         glob_files, grep_search,
         load_skill,
         resume_held_task, update_project_team,
-        read_node_detail,
+        read_node_detail, view_meeting_minutes,
         # Formerly gated — now available to all employees
         bash, use_tool, set_project_budget,
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
