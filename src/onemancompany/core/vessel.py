@@ -2537,6 +2537,24 @@ class EmployeeManager:
 
         ctx = pending["cleanup_ctx"]
         logger.info("[ceo_report] confirmed project={}", project_id)
+
+        # Advance CEO_PROMPT root node: COMPLETED → ACCEPTED → FINISHED
+        # The node in cleanup_ctx is the EA node; its parent is the CEO_PROMPT root.
+        ea_node = ctx["node"]
+        tree_dir = ea_node.project_dir or ""
+        if tree_dir:
+            from onemancompany.core.task_tree import get_tree, save_tree_async
+            tree_path = Path(tree_dir) / TASK_TREE_FILENAME
+            if tree_path.exists():
+                tree = get_tree(tree_path)
+                ceo_root = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+                if ceo_root and ceo_root.is_ceo_node and ceo_root.status == TaskPhase.COMPLETED.value:
+                    ceo_root.set_status(TaskPhase.ACCEPTED)
+                    ceo_root.acceptance_result = {"passed": True, "notes": "CEO confirmed project completion."}
+                    ceo_root.set_status(TaskPhase.FINISHED)
+                    logger.info("[ceo_report] CEO root {} → ACCEPTED → FINISHED", ceo_root.id)
+                    save_tree_async(tree_path)
+
         await self._full_cleanup(
             ctx["employee_id"], ctx["node"], agent_error=False,
             project_id=project_id,
