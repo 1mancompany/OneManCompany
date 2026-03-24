@@ -174,7 +174,7 @@ class TaskNode:
             "employee_id": self.employee_id,
             "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
-            "node_type": str(self.node_type),
+            "node_type": self.node_type.value if hasattr(self.node_type, 'value') else str(self.node_type),
             "model_used": self.model_used,
             "project_dir": self.project_dir,
             "status": self.status,
@@ -207,6 +207,11 @@ class TaskNode:
         filtered = {k: v for k, v in d.items() if k in cls.__dataclass_fields__ and k not in _skip}
         if "status" in filtered:
             filtered["status"] = _STATUS_MIGRATION.get(filtered["status"], filtered["status"])
+        # Migrate "NodeType.XXX" → "xxx" (old bug serialized enum repr instead of value)
+        if "node_type" in filtered:
+            nt = filtered["node_type"]
+            if isinstance(nt, str) and nt.startswith("NodeType."):
+                filtered["node_type"] = nt.split(".", 1)[1].lower()
 
         if old_format:
             # Old format: description/result inline — set them on the node
