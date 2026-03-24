@@ -104,6 +104,16 @@ class TestPredictionsIO:
 
 
 class TestGitOps:
+    @pytest.fixture(autouse=True)
+    def _isolate_git_env(self, monkeypatch):
+        """Isolate from project git env (pre-commit sets GIT_DIR/GIT_INDEX_FILE)."""
+        monkeypatch.delenv("GIT_DIR", raising=False)
+        monkeypatch.delenv("GIT_WORK_TREE", raising=False)
+        monkeypatch.delenv("GIT_INDEX_FILE", raising=False)
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/dev/null")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+
     def test_clone_repo(self, tmp_path):
         from swe_bench_runner import clone_repo
 

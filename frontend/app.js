@@ -2654,6 +2654,11 @@ class AppController {
     const hasActive = sessions.some(s => s.status === 'running');
     const statusColor = hasActive ? 'var(--pixel-green)' : 'var(--pixel-yellow)';
     const statusText = hasActive ? 'Active' : (sessions.length > 0 ? 'Idle' : 'No sessions');
+    const currentModel = empData.llm_model || 'opus';
+    const claudeModels = [
+      { id: 'opus', label: 'Claude Opus' },
+      { id: 'sonnet', label: 'Claude Sonnet' },
+    ];
 
     const section = document.createElement('div');
     section.className = 'emp-detail-section-content';
@@ -2664,8 +2669,10 @@ class AppController {
         <span style="font-size:6px;color:var(--pixel-cyan);">Self-hosted (Claude Code)</span>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
-        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Auth</span>
-        <span style="font-size:6px;color:var(--text-main);">${this._escHtml(empData.auth_method || 'cli')}</span>
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Model</span>
+        <select id="emp-self-hosted-model" class="emp-model-select" style="flex:1;">
+          ${claudeModels.map(m => `<option value="${m.id}" ${m.id === currentModel ? 'selected' : ''}>${m.label}</option>`).join('')}
+        </select>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
         <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Status</span>
@@ -2674,6 +2681,24 @@ class AppController {
       ${sessions.length > 0 ? `<div style="font-size:5px;color:var(--text-dim);margin-top:2px;">${sessions.length} session(s)</div>` : ''}
     `;
     container.appendChild(section);
+
+    const modelSelect = section.querySelector('#emp-self-hosted-model');
+    modelSelect.addEventListener('change', async () => {
+      const newModel = modelSelect.value;
+      modelSelect.disabled = true;
+      try {
+        await fetch(`/api/employee/${empId}/model`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: newModel }),
+        });
+        this.logEntry('CEO', `Updated self-hosted employee #${empId} model to ${newModel}`, 'ceo');
+      } catch (e) {
+        console.error('Failed to save model:', e);
+      } finally {
+        modelSelect.disabled = false;
+      }
+    });
   }
 
   _renderFallbackModelSection(empId, empData, container) {

@@ -1543,14 +1543,15 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
 
     emp = _require_employee(employee_id)
 
-    # Compute new salary — skip OpenRouter pricing for non-openrouter providers
+    # Compute new salary — skip OpenRouter pricing for self-hosted or non-openrouter providers
     cfg = employee_configs.get(employee_id)
+    hosting = cfg.hosting if cfg else emp.get("hosting", "company")
     api_provider = cfg.api_provider if cfg else "openrouter"
-    if api_provider == "openrouter":
+    if hosting == "self" or api_provider != "openrouter":
+        new_salary = cfg.salary_per_1m_tokens if cfg else 0.0
+    else:
         from onemancompany.core.model_costs import compute_salary
         new_salary = compute_salary(model_id)
-    else:
-        new_salary = cfg.salary_per_1m_tokens if cfg else 0.0
 
     # Update in-memory config
     if cfg:
