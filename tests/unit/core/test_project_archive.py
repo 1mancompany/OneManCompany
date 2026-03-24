@@ -98,7 +98,9 @@ class TestCreateNamedProject:
         slug1 = pa.create_named_project("Test Project")
         slug2 = pa.create_named_project("Test Project")
         assert slug1 != slug2
-        assert slug2.startswith(slug1)
+        # Both contain the same base slug; differ by uuid prefix
+        assert "test-project" in slug1
+        assert "test-project" in slug2
 
 
 # ---------------------------------------------------------------------------
@@ -821,3 +823,14 @@ class TestCostSummaryIterationSkip:
             summary = pa.get_cost_summary()
             # Should still aggregate cost from iter_001, skipping iter_999
             assert summary["total"]["cost_usd"] >= 0.01
+
+
+def test_create_named_project_format(tmp_path, monkeypatch):
+    """Project dir name must be {uuid6}_{slug}_{MMDDHHMMSS}."""
+    monkeypatch.setattr(pa, "PROJECTS_DIR", tmp_path)
+    slug = pa.create_named_project("PRDBench Project 19")
+    parts = slug.split("_")
+    assert len(parts) >= 3
+    assert len(parts[0]) == 6  # short uuid hex
+    assert parts[-1].isdigit() and len(parts[-1]) == 10  # MMDDHHMMSS
+    assert "prdbench" in slug.lower()

@@ -315,13 +315,14 @@ def create_project_from_task(task: str, routed_to: str = "pending",
 def create_named_project(name: str) -> str:
     """Create a persistent named project. Returns the project_id (slug-timestamp)."""
     base_slug = _slugify(name)
+    short_id = uuid.uuid4().hex[:6]
     # Append compact timestamp to guarantee uniqueness and prevent overwrites
     ts = datetime.now().strftime("%m%d%H%M%S")
-    slug = f"{base_slug}-{ts}"
-    # Extremely unlikely collision (same name + same minute) — append counter
+    slug = f"{short_id}_{base_slug}_{ts}"
+    # Extremely unlikely collision — append counter
     counter = 1
     while (PROJECTS_DIR / slug).exists():
-        slug = f"{base_slug}-{ts}-{counter}"
+        slug = f"{short_id}_{base_slug}_{ts}_{counter}"
         counter += 1
 
     proj_dir = PROJECTS_DIR / slug
