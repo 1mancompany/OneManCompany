@@ -1867,6 +1867,15 @@ class EmployeeManager:
         is_manager = role in ("COO", "CSO", "EA", "HR")
 
         if is_manager and role in ("COO", "CSO"):
+            workflows = load_workflows()
+            sop_content = workflows.get("project_intake_sop", "")
+            if sop_content:
+                return (
+                    "[Project Intake SOP — MUST follow for all project tasks]\n"
+                    f"{sop_content}\n"
+                    "Do NOT loop or re-analyze — follow the SOP steps and move on."
+                )
+            # Fallback if SOP file is missing
             return (
                 "[Manager Execution Guide]\n"
                 "As a manager receiving a project task:\n"
@@ -2013,6 +2022,8 @@ class EmployeeManager:
                     self._publish_node_update(parent_node.employee_id, parent_node)
                 if parent_node.status == TaskPhase.COMPLETED.value:
                     parent_node.set_status(TaskPhase.ACCEPTED)
+                    # Clear stale acceptance_result from prior rejection (if any)
+                    parent_node.acceptance_result = {"passed": True, "notes": "Auto-accepted: all child tasks resolved."}
                     logger.info("[TASK LIFECYCLE] parent={} → ACCEPTED (all children resolved, auto-promoting)", parent_node.id)
                     parent_node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] parent={} → FINISHED", parent_node.id)
