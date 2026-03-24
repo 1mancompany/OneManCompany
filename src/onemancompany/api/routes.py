@@ -5444,6 +5444,23 @@ async def post_room_chat(room_id: str, body: dict):
     return {"status": "sent"}
 
 
+@router.get("/api/rooms/{room_id}/minutes")
+async def list_room_minutes(room_id: str, limit: int = 20):
+    """List archived meeting minutes for a specific room."""
+    from onemancompany.core.meeting_minutes import query_minutes
+    return query_minutes(room_id=room_id, limit=limit)
+
+
+@router.get("/api/meeting-minutes/{minute_id}")
+async def get_minute_detail(minute_id: str):
+    """Get full detail of a specific meeting minute."""
+    from onemancompany.core.meeting_minutes import load_minute
+    doc = load_minute(minute_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Meeting minutes not found")
+    return doc
+
+
 @router.get("/api/tools")
 async def list_tools():
     """List tools — reads from disk."""
