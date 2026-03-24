@@ -1371,7 +1371,8 @@ class EmployeeManager:
                     f"Tool-requested HOLDING: {node.hold_reason}",
                 )
 
-            if holding_meta is not None:
+            # System nodes (REVIEW, WATCHDOG_NUDGE) never HOLD — always auto-finish
+            if holding_meta is not None and node.node_type not in SYSTEM_NODE_TYPES:
                 logger.debug("[TASK LIFECYCLE] employee={} node={} → HOLDING meta={}",
                              employee_id, entry.node_id, holding_meta)
                 node.set_status(TaskPhase.HOLDING)
