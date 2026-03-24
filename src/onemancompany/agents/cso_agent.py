@@ -25,12 +25,8 @@ SALES_STATUS_IN_PRODUCTION = "in_production"
 SALES_STATUS_DELIVERED = "delivered"
 SALES_STATUS_SETTLED = "settled"
 
-CSO_SYSTEM_PROMPT = """## CSO Sales Operations
-Your SOPs & Workflows list contains the full CSO Sales Operations SOP (cso_sales_operations_sop).
-**Before acting on any sales task, read() the SOP for the pipeline lifecycle, tools, and contract review checklist.**
 
-Key pipeline: pending → review_contract → in_production → complete_delivery → delivered → settle_task → settled.
-"""
+# CSO operational prompt is now in employees/00005/role_guide.md (loaded by _get_role_identity_section)
 
 
 # ===== Sales task helpers (disk-backed) =====
@@ -256,7 +252,7 @@ class CSOAgent(BaseAgentRunner):
         return ""
 
     def _customize_prompt(self, pb) -> None:
-        pb.add("role", CSO_SYSTEM_PROMPT, priority=10)
+        pass  # All CSO prompt content is in role_guide.md
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)

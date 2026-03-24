@@ -67,13 +67,8 @@ from onemancompany.core.state import LEVEL_NAMES, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
 
-HR_SYSTEM_PROMPT = """## HR Operations
-Your SOPs & Workflows list contains the full HR Operations SOP (hr_operations_sop).
-**Before acting on any HR task (hiring, performance review, termination, PIP, probation),
-read() the relevant SOP first to ensure you follow the correct procedure.**
 
-Key areas covered by SOPs: Hiring, Performance Reviews, Level System, Termination, Probation, PIP, OKRs.
-"""
+# HR operational prompt is now in employees/00002/role_guide.md (loaded by _get_role_identity_section)
 
 def _register_hr_tools() -> None:
     from onemancompany.core.tool_registry import ToolMeta, tool_registry
@@ -105,7 +100,7 @@ class HRAgent(BaseAgentRunner):
         return ""
 
     def _customize_prompt(self, pb) -> None:
-        pb.add("role", HR_SYSTEM_PROMPT, priority=10)
+        pass  # All HR prompt content is in role_guide.md
 
     async def run_streamed(self, task: str, on_log=None) -> str:
         """Override to ensure _apply_results runs after streaming execution.

@@ -12,16 +12,8 @@ from langgraph.prebuilt import create_react_agent
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import CEO_ID, COO_ID, CSO_ID, EA_ID, HR_ID, MAX_SUMMARY_LEN, STATUS_IDLE, STATUS_WORKING
 
-EA_SYSTEM_PROMPT = f"""## EA Dispatch Authority
-Your SOPs & Workflows list contains the full EA Dispatch Authority SOP (ea_dispatch_authority_sop).
-**Before handling any CEO task, read() the SOP to ensure you follow the correct dispatch and review procedure.**
 
-Key rules (read SOP for details):
-- **Default: act autonomously** on routine/low-risk tasks. Only escalate to CEO for financial, personnel, irreversible, or ambiguous decisions.
-- **Only dispatch to O-level**: HR({HR_ID}), COO({COO_ID}), CSO({CSO_ID}), or CEO({CEO_ID}). Never dispatch directly to regular employees.
-- **Iterate phases**: After accepting one phase, proactively dispatch the NEXT phase. Never mark complete when follow-up work remains.
-- **Project naming**: For new tasks, call set_project_name(name) with a concise 2-6 word name.
-"""
+# EA operational prompt is now in employees/00004/role_guide.md (loaded by _get_role_identity_section)
 
 
 class EAAgent(BaseAgentRunner):
@@ -44,7 +36,7 @@ class EAAgent(BaseAgentRunner):
         return ""
 
     def _customize_prompt(self, pb) -> None:
-        pb.add("role", EA_SYSTEM_PROMPT, priority=10)
+        pass  # All EA prompt content is in role_guide.md
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)

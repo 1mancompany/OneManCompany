@@ -140,16 +140,12 @@ class TestEAAgentBuildPrompt:
 
 
 class TestEAPromptContents:
-    def test_ea_prompt_references_sop(self):
-        """EA system prompt references SOP for progressive disclosure, not hardcoded details."""
-        from onemancompany.agents.ea_agent import EA_SYSTEM_PROMPT
-        assert "ea_dispatch_authority_sop" in EA_SYSTEM_PROMPT
-        assert "O-level" in EA_SYSTEM_PROMPT
-        # Old tools should NOT be present
-        assert "dispatch_task" not in EA_SYSTEM_PROMPT
-        assert "set_acceptance_criteria" not in EA_SYSTEM_PROMPT
-        assert "set_project_budget" not in EA_SYSTEM_PROMPT
-        assert "ea_review_project" not in EA_SYSTEM_PROMPT
+    def test_ea_role_guide_references_sop(self):
+        """EA role_guide.md references SOP for progressive disclosure."""
+        from onemancompany.core.config import EMPLOYEES_DIR, EA_ID
+        guide = (EMPLOYEES_DIR / EA_ID / "role_guide.md").read_text()
+        assert "ea_dispatch_authority_sop" in guide
+        assert "O-level" in guide
 
 
 class TestEAAgentRun:

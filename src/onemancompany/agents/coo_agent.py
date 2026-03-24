@@ -27,20 +27,8 @@ from onemancompany.core.store import append_activity_sync as _append_activity
 # { hire_id: { role, reason, skills, requested_by, requested_at, ... } }
 pending_hiring_requests: dict[str, dict] = {}
 
-COO_SYSTEM_PROMPT = f"""## COO Delegation & Operations
-Your SOPs & Workflows list contains all relevant SOPs:
-- **coo_delegation_sop**: Delegation decision tree, task routing, responsibilities
-- **project_intake_sop**: Full project intake procedure (assess → hire → team → plan → dispatch → verify)
-- **task_dispatch_and_acceptance_sop**: Dispatch and acceptance quality standards
 
-**Before acting on any task, read() the relevant SOPs to ensure you follow the correct procedure.**
-
-Key rules (read SOPs for details):
-- You are a coordinator — plan, delegate, verify. Do NOT produce deliverables yourself.
-- HR-sourced actions → dispatch_child("{HR_ID}", ...). COO-sourced → find the best employee and dispatch.
-- **Responsibilities** (progressive disclosure): load_skill("asset_management"), load_skill("knowledge_management"),
-  load_skill("hiring"), load_skill("child_task_review"), load_skill("project_planning")
-"""
+# COO operational prompt is now in employees/00003/role_guide.md (loaded by _get_role_identity_section)
 
 
 def _load_assets_from_disk() -> None:
@@ -895,7 +883,7 @@ class COOAgent(BaseAgentRunner):
         return ""
 
     def _customize_prompt(self, pb) -> None:
-        pb.add("role", COO_SYSTEM_PROMPT, priority=10)
+        pass  # All COO prompt content is in role_guide.md
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
