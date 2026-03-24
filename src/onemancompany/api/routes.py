@@ -1183,7 +1183,11 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
-    result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
+    # Self-hosted employees manage their own auth via Claude CLI — always considered logged in
+    if cfg and cfg.hosting == HostingMode.SELF:
+        result["oauth_logged_in"] = True
+    else:
+        result["oauth_logged_in"] = bool(cfg.api_key) if cfg and cfg.auth_method == AuthMethod.OAUTH else False
     result["tool_permissions"] = list(cfg.tool_permissions) if cfg and cfg.tool_permissions else []
 
     # Include manifest if available
@@ -1907,7 +1911,11 @@ async def oauth_start(employee_id: str) -> dict:
     emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
-    if not cfg or cfg.auth_method != "oauth":
+    if not cfg:
+        return {"error": "Employee config not found"}
+    if cfg.hosting == HostingMode.SELF:
+        return {"error": "Self-hosted employee uses Claude CLI's built-in auth. Run 'claude' in terminal to login."}
+    if cfg.auth_method != "oauth":
         return {"error": "Employee does not use OAuth authentication"}
 
     # PKCE: generate code_verifier and code_challenge
@@ -5592,11 +5600,20 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
         _trigger_dep_resolution(project_dir, tree, node)
 
-        # Auto-resume parent if it's HOLDING specifically for THIS ceo_request
+        # Auto-resume parent if it's HOLDING — check both specific ceo_request
+        # hold and generic awaiting_children hold
         parent = tree.get_node(node.parent_id) if node.parent_id else None
         if parent and parent.status == TaskPhase.HOLDING.value:
             hr_meta = _parse_hold_reason(parent.hold_reason)
+            should_resume = False
             if hr_meta.get("ceo_request") == node.id:
+                # Parent was HOLDING specifically for this CEO_REQUEST
+                should_resume = True
+            elif "awaiting_children" in parent.hold_reason:
+                # Parent was HOLDING for children — CEO_REQUEST is one of its children,
+                # now accepted. Trigger on_child_complete to re-evaluate.
+                should_resume = True
+            if should_resume:
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id,
                     parent.id,
