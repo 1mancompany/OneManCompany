@@ -2,10 +2,10 @@
 
 Two trace formats:
   1. Per-event JSONL (legacy LlmTracer) — one line per prompt/response/tool_call
-  2. SFT JSONL — one line per complete conversation, suitable for fine-tuning
+  2. Debug trace JSONL — one line per complete conversation with full messages,
+     tool schemas, model info, and token usage.
 
-SFT records are written to {project_dir}/sft_trace.jsonl with full messages,
-tool schemas, model info, and token usage.
+Debug trace records are written to {project_dir}/sft_trace.jsonl.
 """
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ from loguru import logger
 
 from onemancompany.core.config import ENCODING_UTF8
 
-SFT_TRACE_FILENAME = "sft_trace.jsonl"
+SFT_TRACE_FILENAME = "sft_trace.jsonl"  # kept for backward compat
+DEBUG_TRACE_FILENAME = SFT_TRACE_FILENAME  # preferred alias
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ class LlmTracer:
 
 
 # ---------------------------------------------------------------------------
-# SFT trace — full conversation records for fine-tuning
+# Debug trace — full conversation records for fine-tuning
 # ---------------------------------------------------------------------------
 
 def _serialize_message(msg) -> dict[str, Any]:
@@ -135,7 +136,7 @@ def _serialize_tool_schema(tool) -> dict[str, Any]:
     }
 
 
-def write_sft_record(
+def write_debug_trace(
     project_dir: str,
     *,
     employee_id: str,
@@ -184,7 +185,7 @@ def write_sft_record(
                 try:
                     serialized_tools.append(_serialize_tool_schema(t))
                 except Exception as e:
-                    logger.debug("[sft_trace] failed to serialize tool {}: {}", getattr(t, "name", "?"), e)
+                    logger.debug("[debug_trace] failed to serialize tool {}: {}", getattr(t, "name", "?"), e)
 
     record: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -204,13 +205,13 @@ def write_sft_record(
         with path.open("a", encoding=ENCODING_UTF8) as f:
             f.write(_line)
     except OSError as e:
-        logger.debug("[sft_trace] write failed: {}", e)
+        logger.debug("[debug_trace] write failed: {}", e)
 
 
-def write_sft_record_async(
+def write_debug_trace_async(
     project_dir: str, **kwargs: Any,
 ) -> None:
-    """Schedule write_sft_record in a background thread (non-blocking).
+    """Schedule write_debug_trace in a background thread (non-blocking).
 
     Safe to call from async contexts — avoids blocking the event loop
     with synchronous file I/O and JSON serialization.
@@ -221,6 +222,6 @@ def write_sft_record_async(
         loop = asyncio.get_running_loop()
     except RuntimeError:
         # No running loop — fall back to sync write
-        write_sft_record(project_dir, **kwargs)
+        write_debug_trace(project_dir, **kwargs)
         return
-    loop.run_in_executor(None, lambda: write_sft_record(project_dir, **kwargs))
+    loop.run_in_executor(None, lambda: write_debug_trace(project_dir, **kwargs))

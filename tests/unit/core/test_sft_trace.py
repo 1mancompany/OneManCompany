@@ -11,8 +11,8 @@ from onemancompany.core.llm_trace import (
     SFT_TRACE_FILENAME,
     _serialize_message,
     _serialize_tool_schema,
-    write_sft_record,
-    write_sft_record_async,
+    write_debug_trace,
+    write_debug_trace_async,
 )
 
 
@@ -116,7 +116,7 @@ class TestSerializeToolSchema:
 
 
 class TestWriteSftRecord:
-    """Test write_sft_record output format and behavior."""
+    """Test write_debug_trace output format and behavior."""
 
     def test_writes_jsonl(self, tmp_path):
         from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -125,7 +125,7 @@ class TestWriteSftRecord:
             HumanMessage(content="Plan the sprint"),
             AIMessage(content="Here is the plan."),
         ]
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00003",
             node_id="node_abc",
@@ -164,7 +164,7 @@ class TestWriteSftRecord:
             ToolMessage(content="file1.txt\nfile2.txt", tool_call_id="tc_1"),
             AIMessage(content="Found 2 files."),
         ]
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00010",
             source="langchain",
@@ -191,7 +191,7 @@ class TestWriteSftRecord:
         tool.description = "Dispatch a subtask"
         tool.args_schema = None
 
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00003",
             source="langchain",
@@ -210,7 +210,7 @@ class TestWriteSftRecord:
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there"},
         ]
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00003",
             source="daemon",
@@ -222,7 +222,7 @@ class TestWriteSftRecord:
 
     def test_string_message_converted(self, tmp_path):
         """Plain string messages should be converted to user role."""
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00003",
             source="tracked_ainvoke",
@@ -233,15 +233,15 @@ class TestWriteSftRecord:
 
     def test_skips_empty_messages(self, tmp_path):
         """Should not write if messages is empty or project_dir is empty."""
-        write_sft_record("", employee_id="00003", messages=[{"role": "user", "content": "hi"}])
-        write_sft_record(str(tmp_path), employee_id="00003", messages=[])
-        write_sft_record(str(tmp_path), employee_id="00003", messages=None)
+        write_debug_trace("", employee_id="00003", messages=[{"role": "user", "content": "hi"}])
+        write_debug_trace(str(tmp_path), employee_id="00003", messages=[])
+        write_debug_trace(str(tmp_path), employee_id="00003", messages=None)
         assert not (tmp_path / SFT_TRACE_FILENAME).exists()
 
     def test_appends_multiple_records(self, tmp_path):
         from langchain_core.messages import HumanMessage, AIMessage
         for i in range(3):
-            write_sft_record(
+            write_debug_trace(
                 str(tmp_path),
                 employee_id="00003",
                 source="langchain",
@@ -256,7 +256,7 @@ class TestWriteSftRecord:
 
     def test_no_tools_key_when_empty(self, tmp_path):
         from langchain_core.messages import HumanMessage, AIMessage
-        write_sft_record(
+        write_debug_trace(
             str(tmp_path),
             employee_id="00003",
             source="langchain",
@@ -267,32 +267,32 @@ class TestWriteSftRecord:
 
 
 class TestDaemonSftAccumulation:
-    """Test ClaudeDaemon._accumulate_sft_assistant."""
+    """Test ClaudeDaemon._accumulate_debug_assistant."""
 
     def test_text_only(self):
         from onemancompany.core.claude_session import ClaudeDaemon
-        sft_messages = []
+        debug_messages = []
         message = {
             "content": [{"type": "text", "text": "Hello world"}],
         }
-        ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
-        assert len(sft_messages) == 1
-        assert sft_messages[0]["role"] == "assistant"
-        assert sft_messages[0]["content"] == "Hello world"
-        assert "tool_calls" not in sft_messages[0]
+        ClaudeDaemon._accumulate_debug_assistant(debug_messages, message)
+        assert len(debug_messages) == 1
+        assert debug_messages[0]["role"] == "assistant"
+        assert debug_messages[0]["content"] == "Hello world"
+        assert "tool_calls" not in debug_messages[0]
 
     def test_tool_use(self):
         from onemancompany.core.claude_session import ClaudeDaemon
-        sft_messages = []
+        debug_messages = []
         message = {
             "content": [
                 {"type": "text", "text": "Let me check."},
                 {"type": "tool_use", "id": "tc_1", "name": "ls", "input": {"path": "/"}},
             ],
         }
-        ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
-        assert len(sft_messages) == 1
-        entry = sft_messages[0]
+        ClaudeDaemon._accumulate_debug_assistant(debug_messages, message)
+        assert len(debug_messages) == 1
+        entry = debug_messages[0]
         assert entry["role"] == "assistant"
         assert entry["content"] == "Let me check."
         assert len(entry["tool_calls"]) == 1
@@ -300,36 +300,36 @@ class TestDaemonSftAccumulation:
 
     def test_tool_result(self):
         from onemancompany.core.claude_session import ClaudeDaemon
-        sft_messages = []
+        debug_messages = []
         message = {
             "content": [
                 {"type": "tool_result", "tool_use_id": "tc_1", "content": "file.txt"},
             ],
         }
-        ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
+        ClaudeDaemon._accumulate_debug_assistant(debug_messages, message)
         # Tool result only — no spurious empty assistant entry
-        assert len(sft_messages) == 1
-        assert sft_messages[0]["role"] == "tool"
-        assert sft_messages[0]["tool_call_id"] == "tc_1"
-        assert sft_messages[0]["content"] == "file.txt"
+        assert len(debug_messages) == 1
+        assert debug_messages[0]["role"] == "tool"
+        assert debug_messages[0]["tool_call_id"] == "tc_1"
+        assert debug_messages[0]["content"] == "file.txt"
 
     def test_empty_content(self):
         from onemancompany.core.claude_session import ClaudeDaemon
-        sft_messages = []
+        debug_messages = []
         message = {"content": []}
-        ClaudeDaemon._accumulate_sft_assistant(sft_messages, message)
+        ClaudeDaemon._accumulate_debug_assistant(debug_messages, message)
         # Empty content — no entry appended
-        assert len(sft_messages) == 0
+        assert len(debug_messages) == 0
 
 
 class TestWriteSftRecordAsync:
-    """Test the non-blocking write_sft_record_async wrapper."""
+    """Test the non-blocking write_debug_trace_async wrapper."""
 
     @pytest.mark.asyncio
     async def test_async_write_produces_file(self, tmp_path):
         """Async write should eventually produce the same JSONL output."""
         import asyncio
-        write_sft_record_async(
+        write_debug_trace_async(
             str(tmp_path),
             employee_id="00003",
             source="langchain",
@@ -346,7 +346,7 @@ class TestWriteSftRecordAsync:
 
     def test_sync_fallback_no_loop(self, tmp_path):
         """Without a running event loop, falls back to synchronous write."""
-        write_sft_record_async(
+        write_debug_trace_async(
             str(tmp_path),
             employee_id="00003",
             source="langchain",
