@@ -101,13 +101,14 @@ class TestRecoverScheduleFromTrees:
 
         assert len(em.scheduled) == 0
 
-    def test_holding_nodes_left_as_is(self, tmp_path):
-        """HOLDING nodes should not be reset or scheduled."""
+    def test_holding_nodes_scheduled_for_resume(self, tmp_path):
+        """HOLDING nodes should remain holding but be scheduled so resume_held_task can find them."""
         from onemancompany.core.task_tree import TaskTree
 
         tree = TaskTree("proj1")
         root = tree.create_root("emp1", "root")
         root.status = "holding"
+        root.hold_reason = "ceo_request=abc123,no_watchdog=1"
         proj_dir = tmp_path / "projects" / "proj1"
         tree_path = proj_dir / "task_tree.yaml"
         tree.save(tree_path)
@@ -117,7 +118,9 @@ class TestRecoverScheduleFromTrees:
 
         loaded = TaskTree.load(tree_path)
         assert loaded.get_node(root.id).status == "holding"
-        assert len(em.scheduled) == 0
+        # HOLDING nodes must be in schedule so resume_held_task() works after restart
+        assert len(em.scheduled) == 1
+        assert em.scheduled[0][1] == root.id
 
     def test_pending_with_unresolved_deps_not_scheduled(self, tmp_path):
         """PENDING nodes whose deps are not yet resolved should NOT be scheduled."""
