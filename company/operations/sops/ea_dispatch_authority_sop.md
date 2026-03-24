@@ -41,8 +41,8 @@ Only escalate to CEO (via dispatch_child to CEO) when you judge there is risk.
 | Project Execution/Dev/Design/Ops | COO | Project execution, engineering |
 | Sales/Marketing/Clients | CSO | Clients, contracts, deals |
 
-**Dispatching directly to regular employees (00006+) is strictly prohibited.**
-Even if CEO says "tell someone to do X", you must route through the corresponding O-level.
+**For project tasks**: Dispatching directly to regular employees (00006+) is prohibited — route through O-level.
+**For simple tasks**: You may dispatch directly to a suitable regular employee if the task is straightforward and the employee has the right skills.
 
 ## 4. Acceptance Criteria Rules
 - Every CEO requirement → at least one criterion in dispatch_child's acceptance_criteria.

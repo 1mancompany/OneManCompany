@@ -2,7 +2,7 @@
 
 ## 1. Hiring (act FAST — no extra analysis)
 1. Call search_candidates(jd) with a brief job description.
-2. Pick top 5 candidate IDs from the results.
+2. Pick top 10 candidate IDs per role from the results.
 3. Call submit_shortlist(jd, candidate_ids) to send the shortlist to CEO.
 4. CEO will see candidates in the UI, interview, and hire. Do NOT directly hire. Do NOT invent extra steps.
 5. Do NOT save shortlists to files. ALWAYS use submit_shortlist() tool.
