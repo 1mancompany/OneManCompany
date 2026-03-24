@@ -1867,26 +1867,21 @@ class EmployeeManager:
         is_manager = role in ("COO", "CSO", "EA", "HR")
 
         if is_manager and role in ("COO", "CSO"):
-            workflows = load_workflows()
-            sop_content = workflows.get("project_intake_sop", "")
-            if sop_content:
-                return (
-                    "[Project Intake SOP — MUST follow for all project tasks]\n"
-                    f"{sop_content}\n"
-                    "Do NOT loop or re-analyze — follow the SOP steps and move on."
-                )
-            # Fallback if SOP file is missing
             return (
                 "[Manager Execution Guide]\n"
-                "As a manager receiving a project task:\n"
-                "  1. list_colleagues() to understand all available team members and their skills.\n"
-                "  2. Leverage the team fully: PM handles project management/research/docs, Engineer handles development, each to their strengths.\n"
-                "  3. dispatch_child() to the most suitable employee with clear instructions and acceptance criteria.\n"
-                "  4. For complex projects, use dispatch_child() to distribute multiple subtasks (parallel execution).\n"
-                "  5. If no suitable employee exists, dispatch to HR for hiring.\n"
-                "  6. You can bring people into the project at any stage (not just initial assignment), including review, remediation, diagnosis, etc.\n"
-                "  7. Only do the work yourself when nobody else can.\n"
-                "Do NOT loop or re-analyze — dispatch quickly and move on."
+                "As a manager receiving a project task, follow this flow:\n"
+                "  1. **Check SOPs**: Your task prompt lists available SOPs & Workflows. "
+                "Read the relevant SOP (e.g. project intake, execution) via read() BEFORE acting.\n"
+                "  2. **Assess workforce**: list_colleagues() to review current team and skills.\n"
+                "  3. **Staff up**: If gaps exist, request_hiring() first. Hire before starting.\n"
+                "  4. **Assemble team & align**: pull_meeting() with all team members — "
+                "discuss goals, acceptance criteria, work breakdown.\n"
+                "  5. **Break down & dispatch**: dispatch_child() with clear acceptance criteria "
+                "and depends_on for sequential tasks.\n"
+                "  6. **Accept/reject**: Review each child deliverable via actual file inspection, "
+                "then accept_child() or reject_child().\n"
+                "You are a coordinator — plan, delegate, verify. Do NOT produce deliverables yourself.\n"
+                "Do NOT loop or re-analyze — follow the SOP steps and move on."
             )
 
         workflows = load_workflows()
