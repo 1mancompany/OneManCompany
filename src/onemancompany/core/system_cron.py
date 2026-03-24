@@ -310,6 +310,13 @@ async def project_progress_watchdog() -> list | None:
         if not project_id:
             continue
 
+        # Skip archived projects
+        from onemancompany.core.project_archive import load_named_project, PROJECT_STATUS_ARCHIVED
+        named_pid = project_id.split("/")[0] if "/" in project_id else project_id
+        named_proj = load_named_project(named_pid)
+        if named_proj and named_proj.get("status") == PROJECT_STATUS_ARCHIVED:
+            continue
+
         # Skip projects we've already nudged (waiting for EA to pick it up)
         if project_id in _watchdog_nudged:
             continue
