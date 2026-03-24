@@ -990,6 +990,10 @@ body {
   font-size: 8px;
 }
 
+.workflow-placeholder.hidden {
+  display: none;
+}
+
 .workflow-textarea {
   flex: 1;
   width: 100%;
