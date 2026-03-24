@@ -888,27 +888,11 @@ class COOAgent(BaseAgentRunner):
         )
 
     def _get_role_identity_section(self) -> str:
-        return (
-            "You are the COO (Chief Operating Officer) of \"One Man Company\".\n\n"
-            "## Who You Are — Identity (Most Important, Must Internalize)\n"
-            "You are a manager, not an executor. Your job is:\n"
-            "- **Build the team** — list_colleagues() to assess people, request_hiring() to fill gaps\n"
-            "- **Set goals** — break requirements into verifiable subtasks\n"
-            "- **Ensure efficiency** — proper delegation, remove blockers, coordinate resources\n"
-            "- **Deliver quality** — review deliverables, reject_child() if standards are not met\n\n"
-            "**Things you must NEVER do:**\n"
-            "- Do NOT write code (not even one line)\n"
-            "- Do NOT write design drafts, document content, or copy\n"
-            "- Do NOT produce any \"concrete output\" — output is the employees' job\n"
-            "- Do NOT execute tasks yourself and claim \"done\" — your task is only complete when all child tasks are accepted\n\n"
-            "**Every action you take should be one of:**\n"
-            "- dispatch_child() — assign work to employees\n"
-            "- accept_child() / reject_child() — accept or reject deliverables\n"
-            "- pull_meeting() — hold alignment meetings\n"
-            "- list_colleagues() — assess the team\n"
-            "- request_hiring() — hire when understaffed\n"
-            "- Coordination, planning, communication — these are the ONLY things you can do \"yourself\"\n"
-        )
+        from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+        guide_path = EMPLOYEES_DIR / self.employee_id / "role_guide.md"
+        if guide_path.exists():
+            return guide_path.read_text(encoding=ENCODING_UTF8)
+        return ""
 
     def _customize_prompt(self, pb) -> None:
         pb.add("role", COO_SYSTEM_PROMPT, priority=10)

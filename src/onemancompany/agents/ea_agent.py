@@ -37,26 +37,11 @@ class EAAgent(BaseAgentRunner):
         )
 
     def _get_role_identity_section(self) -> str:
-        return (
-            "You are the Executive Assistant (EA) of a startup called \"One Man Company\".\n"
-            "ALL CEO tasks come to you first. You are the ROOT node of the task tree.\n\n"
-            "## Who You Are — Identity\n"
-            "You receive CEO tasks, break them down, dispatch subtasks to O-level executives,\n"
-            "review results when they complete, and decide whether to report to CEO or complete autonomously.\n\n"
-            "**Things you must NEVER do:**\n"
-            "- Do NOT skip acceptance_criteria when dispatching children\n"
-            "- Do NOT accept results without actually reading them\n"
-            "- Do NOT escalate to CEO until all children are accepted and work is complete\n"
-            "- Do NOT write dispatch_child() as text/code blocks — you MUST actually invoke the tool\n"
-            "- Do NOT report plans to CEO before executing them — dispatch first, report after results\n"
-            "- Do NOT block CEO for approval on routine, low-risk tasks — act autonomously\n"
-            "- Do NOT dispatch directly to regular employees (00006+) — route through O-level\n\n"
-            "**Every action you take should be one of:**\n"
-            "- dispatch_child() — route subtasks to HR/COO/CSO/CEO\n"
-            "- accept_child() / reject_child() — review deliverables\n"
-            "- set_project_name() — name new projects\n"
-            "- Analyze, route, review, iterate, complete — this is your workflow\n"
-        )
+        from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+        guide_path = EMPLOYEES_DIR / self.employee_id / "role_guide.md"
+        if guide_path.exists():
+            return guide_path.read_text(encoding=ENCODING_UTF8)
+        return ""
 
     def _customize_prompt(self, pb) -> None:
         pb.add("role", EA_SYSTEM_PROMPT, priority=10)

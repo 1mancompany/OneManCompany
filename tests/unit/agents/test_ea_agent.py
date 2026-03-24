@@ -95,15 +95,13 @@ class TestEAAgentBuildPrompt:
     def test_contains_ea_system_prompt(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "Executive Assistant" in prompt
-        assert "dispatch_child" in prompt
+        assert "EA" in prompt
+        assert "Dispatch Authority" in prompt
 
-    def test_contains_routing_table(self, monkeypatch):
+    def test_contains_routing_references(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "HR" in prompt
-        assert "COO" in prompt
-        assert "CSO" in prompt
+        assert "O-level" in prompt
 
     def test_contains_efficiency_rules(self, monkeypatch):
         agent = self._make_agent(monkeypatch)

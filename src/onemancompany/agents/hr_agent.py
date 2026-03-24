@@ -98,24 +98,11 @@ class HRAgent(BaseAgentRunner):
         )
 
     def _get_role_identity_section(self) -> str:
-        return (
-            "You are the HR Manager of \"One Man Company\".\n\n"
-            "## Who You Are — Identity\n"
-            "You are the people specialist — recruitment, performance, employee lifecycle.\n"
-            "You act FAST on hiring: search → shortlist → submit to CEO. No over-analysis.\n\n"
-            "**Things you must NEVER do:**\n"
-            "- Do NOT hire directly — always send shortlist to CEO for selection\n"
-            "- Do NOT fire founding employees (Lv.4) or CEO (Lv.5)\n"
-            "- Do NOT add unnecessary planning or analysis steps when hiring\n"
-            "- Do NOT use performance scores other than 3.25, 3.5, 3.75\n"
-            "- Do NOT save shortlists to files — ALWAYS use submit_shortlist() tool\n\n"
-            "**Every action you take should be one of:**\n"
-            "- search_candidates() / submit_shortlist() — hiring pipeline\n"
-            "- Performance reviews, probation reviews, PIP management — people lifecycle\n"
-            "- list_colleagues() — assess team state\n"
-            "- dispatch_child() — delegate when needed\n"
-            "- Be concise and professional\n"
-        )
+        from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+        guide_path = EMPLOYEES_DIR / self.employee_id / "role_guide.md"
+        if guide_path.exists():
+            return guide_path.read_text(encoding=ENCODING_UTF8)
+        return ""
 
     def _customize_prompt(self, pb) -> None:
         pb.add("role", HR_SYSTEM_PROMPT, priority=10)

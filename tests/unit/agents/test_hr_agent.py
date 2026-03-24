@@ -499,8 +499,8 @@ class TestHRAgentBuildPrompt:
 
         prompt = agent._build_prompt()
 
-        assert "HR Manager" in prompt
-        assert "One Man Company" in prompt
+        assert "HR" in prompt
+        assert "Operations" in prompt
 
 
 # ---------------------------------------------------------------------------
