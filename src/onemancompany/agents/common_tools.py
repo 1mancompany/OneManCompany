@@ -791,6 +791,7 @@ async def pull_meeting(
     if agenda:
         await _chat(room.id, initiator_name, "employee", f"Agenda: {agenda}")
 
+    summary_text = ""  # set in try block, read in finally for archival
     try:
         # --- Parse agenda into discrete items ---
         agenda_items = _parse_agenda_items(agenda)
@@ -949,6 +950,39 @@ async def pull_meeting(
         await _publish("meeting_released", {
             "room_id": room.id, "room_name": room.name,
         })
+
+        # Archive meeting minutes
+        try:
+            from onemancompany.core.meeting_minutes import archive_meeting
+            from onemancompany.core.store import load_room_chat, clear_room_chat
+            chat_messages = load_room_chat(room.id)
+            if chat_messages:
+                _proj_id = ""
+                try:
+                    from onemancompany.core.vessel import _current_task_id
+                    _task_id = _current_task_id.get("")
+                    if _task_id:
+                        from onemancompany.core.config import PROJECTS_DIR, TASK_TREE_FILENAME
+                        from onemancompany.core.task_tree import get_tree
+                        for _tp in PROJECTS_DIR.rglob(TASK_TREE_FILENAME) if PROJECTS_DIR.exists() else []:
+                            _t = get_tree(str(_tp))
+                            _n = _t.get_node(_task_id)
+                            if _n:
+                                _proj_id = _n.project_id or ""
+                                break
+                except Exception as _pe:
+                    logger.debug("Could not resolve project_id for meeting archival: {}", _pe)
+                archive_meeting(
+                    room_id=room.id,
+                    topic=topic,
+                    project_id=_proj_id,
+                    participants=[pid for pid, _ in speakers],
+                    messages=chat_messages,
+                    conclusion=summary_text,
+                )
+                await clear_room_chat(room.id)
+        except Exception as e:
+            logger.warning("Failed to archive meeting minutes: {}", e)
 
 
 @tool

@@ -341,6 +341,18 @@ async def append_room_chat(room_id: str, message: dict) -> None:
     mark_dirty(DirtyCategory.ROOMS)
 
 
+async def clear_room_chat(room_id: str) -> None:
+    """Clear all chat messages for a room (after archiving to meeting minutes)."""
+    path = _rooms_dir() / f"{room_id}_chat.yaml"
+    async with _get_lock(str(path)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.dump([], allow_unicode=True, default_flow_style=False),
+            encoding=ENCODING_UTF8,
+        )
+    mark_dirty(DirtyCategory.ROOMS)
+
+
 # ---------------------------------------------------------------------------
 # Tool reads/writes
 # ---------------------------------------------------------------------------
