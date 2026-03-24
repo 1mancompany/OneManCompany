@@ -3953,6 +3953,15 @@ async def hire_from_cv(body: dict) -> dict:
             )
             await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent="CEO"))
             logger.info("[cv_hire] Hired {} ({})", name, emp.id)
+
+            # Dispatch COO to assign department and desk position
+            _push_adhoc_task(
+                COO_ID,
+                f"A new employee has just onboarded via CV hire. Please assign department and role using assign_department(employee_id, department, role).\n"
+                f"Available departments: Engineering, Design, Analytics, Marketing\n"
+                f"Determine the role based on the employee's name and skills.\n\n"
+                f"- {name}（{nickname}）#{emp.id}",
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:
