@@ -3362,6 +3362,7 @@ async def download_employee_workspace(employee_id: str):
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # TODO: O(N) scan — consider node-to-project index if this becomes slow
         for fpath in ws.rglob("*"):
             if fpath.is_file():
                 zf.write(fpath, fpath.relative_to(ws))
@@ -3404,6 +3405,7 @@ async def download_project_workspace(project_id: str):
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # TODO: O(N) scan — consider node-to-project index if this becomes slow
         for fpath in pdir.rglob("*"):
             if fpath.is_file():
                 zf.write(fpath, fpath.relative_to(pdir))
@@ -5439,6 +5441,35 @@ async def get_room_chat(room_id: str):
     return load_room_chat(room_id)
 
 
+@router.get("/api/rooms/{room_id}/minutes")
+async def get_room_minutes(room_id: str):
+    """List archived meeting minutes for a room."""
+    from onemancompany.core.store import load_meeting_minutes
+    minutes = load_meeting_minutes(room_id)
+    # Return lightweight list (exclude full messages)
+    return [
+        {
+            "minute_id": m.get("minute_id", ""),
+            "topic": m.get("topic", ""),
+            "room_name": m.get("room_name", ""),
+            "participants": m.get("participants", []),
+            "summary": (m.get("summary", "") or "")[:200],
+            "message_count": len(m.get("messages", [])),
+        }
+        for m in minutes
+    ]
+
+
+@router.get("/api/meeting-minutes/{minute_id}")
+async def get_meeting_minute(minute_id: str):
+    """Get full content of a single meeting minute."""
+    from onemancompany.core.store import load_meeting_minute
+    data = load_meeting_minute(minute_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Meeting minute not found")
+    return data
+
+
 @router.post("/api/rooms/{room_id}/chat")
 async def post_room_chat(room_id: str, body: dict):
     """CEO sends a message to a meeting room chat.
@@ -5531,6 +5562,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
         return results
 
     # Recursively find all task_tree.yaml files under projects/
+    # TODO: O(N) scan — consider node-to-project index if this becomes slow
     for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
         tree = get_tree(tree_path)
         for node in tree.all_nodes():
@@ -5567,6 +5599,7 @@ def _find_ceo_node(node_id: str):
     from onemancompany.core.task_tree import get_tree
 
     if PROJECTS_DIR.exists():
+        # TODO: O(N) scan — consider node-to-project index if this becomes slow
         for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
             tree = get_tree(tree_path)
             node = tree.get_node(node_id)
@@ -5892,6 +5925,7 @@ def _snapshot_workspace_images(employee_id: str) -> dict[str, tuple[int, int]]:
     if not ws.exists():
         return {}
     snapshot: dict[str, tuple[int, int]] = {}
+    # TODO: O(N) scan — consider node-to-project index if this becomes slow
     for p in ws.rglob("*"):
         if not p.is_file() or p.suffix.lower() not in _WORKSPACE_IMAGE_SUFFIXES:
             continue

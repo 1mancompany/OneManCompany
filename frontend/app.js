@@ -2176,6 +2176,10 @@ class AppController {
     return div.innerHTML;
   }
 
+  _sortProjectsNewestFirst(projects) {
+    return projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  }
+
   // ===== CEO Inbox =====
   async _refreshCeoInbox() {
     try {
@@ -3822,7 +3826,7 @@ class AppController {
     fetch('/api/projects/named')
       .then(r => r.json())
       .then(data => {
-        const projects = data.projects || [];
+        const projects = this._sortProjectsNewestFirst(data.projects || []);
         if (projects.length === 0) {
           listEl.innerHTML = '<div style="color:var(--text-dim);font-size:7px;">No project records</div>';
           return;
@@ -4353,6 +4357,93 @@ class AppController {
       .catch(err => {
         console.error('[loadChat] failed:', err);
         chatEl.innerHTML = '<div class="chat-empty">Failed to load chat</div>';
+      });
+  }
+
+  // ===== Meeting Minutes =====
+  openMeetingMinutes(room) {
+    const modal = document.getElementById('meeting-modal');
+    modal.classList.remove('hidden');
+    document.getElementById('meeting-modal-title').textContent = `Meeting Minutes: ${room.name}`;
+
+    // Reuse meeting modal body area for minutes list
+    const chatEl = document.getElementById('meeting-chat-messages');
+    chatEl.innerHTML = '<div class="chat-empty">Loading minutes...</div>';
+
+    // Hide CEO input and info panel clutter
+    const ceoInputArea = document.getElementById('meeting-ceo-input-area');
+    if (ceoInputArea) ceoInputArea.classList.add('hidden');
+
+    fetch(`/api/rooms/${encodeURIComponent(room.id)}/minutes`)
+      .then(r => r.json())
+      .then(minutes => {
+        if (!minutes || minutes.length === 0) {
+          chatEl.innerHTML = '<div class="chat-empty">No archived meetings</div>';
+          return;
+        }
+        chatEl.innerHTML = '';
+        const list = document.createElement('div');
+        list.className = 'meeting-minutes-list';
+        for (const m of minutes) {
+          const card = document.createElement('div');
+          card.className = 'meeting-minute-card';
+          const dateStr = m.minute_id ? m.minute_id.split('_').slice(-2).join(' ') : '';
+          card.innerHTML = `
+            <div class="meeting-minute-topic">${this._escHtml(m.topic || 'Untitled')}</div>
+            <div class="meeting-minute-meta">${m.message_count || 0} messages · ${m.participants?.length || 0} participants · ${dateStr}</div>
+          `;
+          card.style.cursor = 'pointer';
+          card.addEventListener('click', () => this._showMeetingMinuteDetail(m.minute_id));
+          list.appendChild(card);
+        }
+        chatEl.appendChild(list);
+      })
+      .catch(err => {
+        console.error('[meetingMinutes] failed:', err);
+        chatEl.innerHTML = '<div class="chat-empty">Failed to load minutes</div>';
+      });
+  }
+
+  _showMeetingMinuteDetail(minuteId) {
+    const chatEl = document.getElementById('meeting-chat-messages');
+    chatEl.innerHTML = '<div class="chat-empty">Loading...</div>';
+
+    fetch(`/api/meeting-minutes/${encodeURIComponent(minuteId)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (!data || data.error) {
+          chatEl.innerHTML = '<div class="chat-empty">Not found</div>';
+          return;
+        }
+        chatEl.innerHTML = '';
+        // Back button
+        const backBtn = document.createElement('button');
+        backBtn.textContent = 'Back to list';
+        backBtn.className = 'btn-small';
+        backBtn.style.marginBottom = '8px';
+        backBtn.addEventListener('click', () => {
+          // Re-open the minutes list for this room
+          this.openMeetingMinutes({ id: data.room_id, name: data.room_name || data.room_id });
+        });
+        chatEl.appendChild(backBtn);
+
+        // Summary
+        if (data.summary) {
+          const summaryEl = document.createElement('div');
+          summaryEl.className = 'meeting-minute-detail';
+          summaryEl.innerHTML = `<h4>Summary</h4><pre>${this._escHtml(data.summary)}</pre>`;
+          chatEl.appendChild(summaryEl);
+        }
+
+        // Chat messages
+        const messages = data.messages || [];
+        for (const msg of messages) {
+          this._appendChatMessage(msg);
+        }
+      })
+      .catch(err => {
+        console.error('[minuteDetail] failed:', err);
+        chatEl.innerHTML = '<div class="chat-empty">Failed to load</div>';
       });
   }
 
@@ -5998,7 +6089,7 @@ class AppController {
     fetch('/api/projects/named')
       .then(r => r.json())
       .then(data => {
-        const projects = data.projects || [];
+        const projects = this._sortProjectsNewestFirst(data.projects || []);
         if (projects.length === 0) {
           panel.innerHTML = '<div class="task-empty">No projects</div>';
           return;
@@ -6604,7 +6695,7 @@ class AppController {
     fetch('/api/projects/named')
       .then(r => r.json())
       .then(data => {
-        const projects = (data.projects || []).filter(p => p.status === 'active');
+        const projects = this._sortProjectsNewestFirst((data.projects || []).filter(p => p.status === 'active'));
         // Preserve first two static options
         const currentVal = select.value;
         while (select.options.length > 2) select.remove(2);

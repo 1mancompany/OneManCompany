@@ -5178,3 +5178,25 @@ body {
   padding: 0 8px;
 }
 .mode-toggle input { cursor: pointer; }
+
+/* ── Node execution log entries ──────────────────────────────────────────── */
+.node-log-entry { padding: 3px 6px; border-bottom: 1px solid #1a1a2e; font-size: 11px; }
+.node-log-ts { color: #555; }
+.node-log-type { font-weight: bold; margin: 0 6px; }
+.node-log-content { white-space: pre-wrap; max-height: 150px; overflow-y: auto; margin: 2px 0; color: #ccc; }
+.node-log-empty { color: #666; padding: 8px; }
+.node-log-error { color: #f44; padding: 8px; }
+
+/* ── Meeting minutes panel ───────────────────────────────────────────────── */
+.meeting-minutes-list { max-height: 300px; overflow-y: auto; }
+.meeting-minute-card {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.meeting-minute-card:hover { background: var(--bg-panel-alt); }
+.meeting-minute-topic { font-weight: bold; color: var(--pixel-white); }
+.meeting-minute-meta { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+.meeting-minute-detail { padding: 8px; }
+.meeting-minute-detail pre { white-space: pre-wrap; color: #ccc; font-size: 10px; }

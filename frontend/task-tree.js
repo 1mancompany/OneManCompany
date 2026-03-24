@@ -463,12 +463,12 @@ class TaskTreeRenderer {
                 if (depNode) {
                     const statusColor = TaskTreeRenderer.STATUS_COLORS[depNode.status] || '#666';
                     const desc = depNode.description ? this._escapeHtml(depNode.description.slice(0, 60)) + '...' : '';
-                    html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
+                    html += `<li><span class="node-log-type" style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
                 }
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">None</p>';
+            html += '<p class="node-log-empty">None</p>';
         }
         html += '</div>';
 
@@ -484,11 +484,11 @@ class TaskTreeRenderer {
             dependents.forEach(dep => {
                 const statusColor = TaskTreeRenderer.STATUS_COLORS[dep.status] || '#666';
                 const desc = dep.description ? this._escapeHtml(dep.description.slice(0, 60)) + '...' : '';
-                html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
+                html += `<li><span class="node-log-type" style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">None</p>';
+            html += '<p class="node-log-empty">None</p>';
         }
         html += '</div>';
 

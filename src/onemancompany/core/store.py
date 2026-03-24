@@ -354,6 +354,50 @@ async def clear_room_chat(room_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Meeting minutes archive
+# ---------------------------------------------------------------------------
+
+MEETING_MINUTES_DIR = COMPANY_DIR / "meeting_minutes"
+
+
+def archive_meeting(room_id: str, record: dict) -> str:
+    """Archive a meeting's chat to meeting_minutes/{room_id}_{timestamp}.yaml.
+
+    Returns the minute_id (filename stem).
+    """
+    from datetime import datetime
+
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    minute_id = f"{room_id}_{ts}"
+    path = MEETING_MINUTES_DIR / f"{minute_id}.yaml"
+    _write_yaml(path, {**record, "minute_id": minute_id})
+    return minute_id
+
+
+def load_meeting_minutes(room_id: str | None = None) -> list[dict]:
+    """List archived meeting minutes, optionally filtered by room_id. Newest first."""
+    if not MEETING_MINUTES_DIR.exists():
+        return []
+    results = []
+    for p in sorted(MEETING_MINUTES_DIR.iterdir(), reverse=True):
+        if not p.suffix == ".yaml":
+            continue
+        if room_id and not p.stem.startswith(room_id + "_"):
+            continue
+        data = _read_yaml(p)
+        if data:
+            data.setdefault("minute_id", p.stem)
+            results.append(data)
+    return results
+
+
+def load_meeting_minute(minute_id: str) -> dict:
+    """Load a single meeting minute by its ID."""
+    path = MEETING_MINUTES_DIR / f"{minute_id}.yaml"
+    return _read_yaml(path)
+
+
+# ---------------------------------------------------------------------------
 # Tool reads/writes
 # ---------------------------------------------------------------------------
 

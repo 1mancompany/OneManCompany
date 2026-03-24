@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -910,16 +910,6 @@ async def pull_meeting(
         except (json.JSONDecodeError, AttributeError) as _e:
             logger.debug("Failed to parse meeting action items: {}", _e)
 
-        from onemancompany.core.store import append_activity_sync
-        append_activity_sync({
-            "type": "pull_meeting",
-            "topic": topic,
-            "initiator": initiator_id,
-            "participants": [pid for pid, _ in valid_participants],
-            "room": room.name,
-            "rounds": rounds_used,
-        })
-
         return {
             "status": "completed",
             "room": room.name,
@@ -935,6 +925,45 @@ async def pull_meeting(
         }
 
     finally:
+        # Archive meeting activity — in finally so it runs even on error
+        from onemancompany.core.store import append_activity_sync
+        try:
+            _rounds = rounds_used
+        except NameError:
+            _rounds = 0
+        append_activity_sync({
+            "type": "pull_meeting",
+            "topic": topic,
+            "initiator": initiator_id,
+            "participants": [pid for pid, _ in valid_participants],
+            "room": room.name,
+            "rounds": _rounds,
+        })
+
+        # Archive meeting chat to minutes and clear room chat
+        try:
+            from onemancompany.core.store import load_room_chat, archive_meeting
+            chat_messages = load_room_chat(room.id)
+            if chat_messages:
+                try:
+                    _summary = summary_text
+                except NameError:
+                    _summary = ""
+                archive_meeting(room.id, {
+                    "room_id": room.id,
+                    "room_name": room.name,
+                    "topic": topic,
+                    "participants": [pid for pid, _ in valid_participants],
+                    "messages": chat_messages,
+                    "summary": _summary,
+                })
+                # Clear room chat for next meeting
+                chat_path = ROOMS_DIR / f"{room.id}_chat.yaml"
+                if chat_path.exists():
+                    chat_path.write_text("[]", encoding="utf-8")
+        except Exception as _archive_err:
+            logger.debug("Failed to archive meeting: {}", _archive_err)
+
         # Unregister CEO message queue
         _ceo_meeting_queues.pop(room.id, None)
         # Release meeting room
