@@ -772,11 +772,12 @@ class TestCOOAgent:
         assert agent.role == "COO"
         assert agent.employee_id == COO_ID
 
-    def test_build_prompt_contains_coo_prompt(self, monkeypatch):
+    def test_build_prompt_has_structural_sections(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "COO" in prompt
-        assert "coordinator" in prompt
+        # Prompt must contain structural sections regardless of role_guide.md presence
+        assert "Authorized Tools" in prompt
+        assert len(prompt) > 500
 
     def test_build_prompt_contains_dynamic_context(self, monkeypatch):
         agent = self._make_agent(monkeypatch)

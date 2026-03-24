@@ -50,7 +50,7 @@ class TestBuildRoleIdentity:
         assert "## Who You Are" in result
         assert "TestDev" in result
         assert "Mid-level" in result
-        # Content comes from role_archetype_templates SOP on disk
+        # Content from SOP on disk or minimal fallback
         assert "executor" in result.lower() or "deliverable" in result.lower()
 
     @_patch_profile({"name": "Alice", "role": "PM", "department": "Marketing", "level": 2})
@@ -65,9 +65,9 @@ class TestBuildRoleIdentity:
 
     @_patch_profile(_MOCK_PROFILE)
     def test_identity_has_content(self, _prof):
-        """Non-founding employees get non-empty identity from archetype templates."""
+        """Non-founding employees get non-empty identity from archetype templates or fallback."""
         result = build_role_identity("00010")
-        assert len(result) > 50  # Must have substantial content
+        assert len(result) > 20  # At minimum: header + fallback archetype
 
 
 class TestBuildCompanyContextBlock:

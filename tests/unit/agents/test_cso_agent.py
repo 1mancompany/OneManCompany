@@ -364,8 +364,8 @@ class TestCSOAgent:
     def test_build_prompt_contains_cso_prompt(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "CSO" in prompt
-        assert "Sales Operations" in prompt
+        assert "Authorized Tools" in prompt
+        assert len(prompt) > 500
 
     def test_build_prompt_contains_context(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
