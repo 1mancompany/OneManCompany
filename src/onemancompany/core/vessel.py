@@ -654,6 +654,26 @@ def _append_execution_log(employee_id: str, node_id: str, log_type: str, content
         logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
 
 
+def _append_node_execution_log(project_dir: str, node_id: str, log_type: str, content: str) -> None:
+    """Append full-content log entry to node-level execution log (JSONL)."""
+    if not project_dir:
+        return
+    import json as _json
+    log_dir = Path(project_dir) / "nodes" / node_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / "execution.log"
+    try:
+        entry = _json.dumps({
+            "ts": datetime.now().isoformat(),
+            "type": log_type,
+            "content": content,
+        }, ensure_ascii=False) + "\n"
+        with open(path, "a", encoding=ENCODING_UTF8) as f:
+            f.write(entry)
+    except Exception as exc:
+        logger.debug("Failed to write node execution log: {}", exc)
+
+
 def _trunc(s: str | None, limit: int = 3000) -> str:
     """Truncate string for debug logging."""
     text = s or ""
@@ -2886,6 +2906,14 @@ class EmployeeManager:
         self._task_logs.setdefault(node_id, []).append(entry)
         self._publish_log_event(employee_id, node_id, entry)
         _append_execution_log(employee_id, node_id, log_type, content)
+        # Node-level execution log (full content, JSONL)
+        current_entry = self._current_entries.get(employee_id)
+        if current_entry:
+            from onemancompany.core.task_tree import get_tree
+            tree = get_tree(current_entry.tree_path)
+            node = tree.get_node(current_entry.node_id) if tree else None
+            _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
+            _append_node_execution_log(_project_dir, node_id, log_type, content)
 
     def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
         """Publish a log event via event bus."""
