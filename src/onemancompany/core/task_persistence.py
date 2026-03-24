@@ -65,6 +65,12 @@ def recover_schedule_from_trees(
                     employee_manager.schedule_node(
                         node.employee_id, node.id, str(tree_path),
                     )
+                elif node.status == TaskPhase.HOLDING.value:
+                    # HOLDING nodes must be in schedule so resume_held_task()
+                    # can find them after restart (watchdog or CEO inbox resume).
+                    employee_manager.schedule_node(
+                        node.employee_id, node.id, str(tree_path),
+                    )
 
     # 2. Scan system task trees
     if employees_dir.exists():
