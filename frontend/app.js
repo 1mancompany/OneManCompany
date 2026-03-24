@@ -2026,6 +2026,7 @@ class AppController {
           return;
         }
         let html = '';
+        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
           const statusCls = p.status === 'completed' ? 'pixel-green' : 'pixel-yellow';
           html += `<div class="emp-project-item" data-project-id="${this._escHtml(p.project_id)}">`;
@@ -3827,6 +3828,7 @@ class AppController {
           return;
         }
         listEl.innerHTML = '';
+        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
           const card = document.createElement('div');
           card.className = 'project-card';
@@ -6002,6 +6004,7 @@ class AppController {
           return;
         }
         panel.innerHTML = '';
+        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
           const card = document.createElement('div');
           // Determine sidebar border color class by iteration status:
@@ -6605,6 +6608,7 @@ class AppController {
         // Preserve first two static options
         const currentVal = select.value;
         while (select.options.length > 2) select.remove(2);
+        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
           const opt = document.createElement('option');
           opt.value = p.project_id;
