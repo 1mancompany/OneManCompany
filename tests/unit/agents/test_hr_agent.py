@@ -499,8 +499,9 @@ class TestHRAgentBuildPrompt:
 
         prompt = agent._build_prompt()
 
-        assert "HR Manager" in prompt
-        assert "One Man Company" in prompt
+        # role_guide.md loaded if present, otherwise just structural sections
+        assert "Task Lifecycle" in prompt
+        assert len(prompt) > 100
 
 
 # ---------------------------------------------------------------------------

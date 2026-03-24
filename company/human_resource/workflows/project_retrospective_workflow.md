@@ -44,6 +44,17 @@
   4. Employees internalize the feedback and incorporate it into future work
 - **Output**: Employee improvement suggestions list
 
+## Phase 4.5: Internalize Feedback into Employee Records
+
+- **Responsible**: HR
+- **Steps**:
+  1. For each employee who received improvement suggestions in Phase 4:
+     - Update the employee's `work_principles.md` with the new lessons learned
+     - If a new skill gap was identified, update or create a skill file under `employees/{id}/skills/`
+  2. Ensure the updates are concrete and actionable, not vague platitudes
+  3. Verify changes are persisted to disk (all employee data is file-based)
+- **Output**: Updated employee work_principles.md and/or skill files
+
 ## Phase 5: COO Operations Report
 
 - **Responsible**: COO
@@ -100,3 +111,15 @@
   4. Approved action plans are dispatched to COO for execution
   5. COO routes HR-related actions to HR, and executes operations-related actions directly
 - **Output**: EA approval results, execution status report
+
+## Phase 9: Process Improvement Consolidation
+
+- **Responsible**: COO
+- **Steps**:
+  1. Review all findings from the retrospective (improvement suggestions, action plans, recurring issues)
+  2. Identify any process improvements that should be standardized:
+     - If a new workflow or procedure was discovered → create a new SOP in `company/operations/sops/`
+     - If an existing SOP needs updating → update it with lessons learned
+  3. Each SOP update must include: what changed, why, and when it takes effect
+  4. Skip if no process improvements are warranted
+- **Output**: New or updated SOP files (if applicable)

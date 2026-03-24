@@ -163,20 +163,56 @@ MANAGER_ROLES = {"PM", "Project Manager", "Manager", "Team Lead", "Director"}
 LEVEL_LABELS = {1: "Junior", 2: "Mid-level", 3: "Senior"}
 
 
+def _load_archetype_templates() -> tuple[str, str]:
+    """Load manager/executor archetype templates from SOP file.
+
+    Returns (manager_template, executor_template). Falls back to minimal defaults.
+    """
+    from onemancompany.core.config import load_workflows
+    workflows = load_workflows()
+    content = workflows.get("role_archetype_templates", "")
+    if not content:
+        return (
+            "You are a coordinator — plan, delegate, and ensure quality.",
+            "You are an executor — produce high-quality deliverables that meet acceptance criteria.",
+        )
+    # Split by archetype sections
+    manager_block = ""
+    executor_block = ""
+    current = None
+    for line in content.splitlines():
+        if "Manager Archetype" in line:
+            current = "manager"
+            continue
+        elif "Executor Archetype" in line:
+            current = "executor"
+            continue
+        if current == "manager":
+            manager_block += line + "\n"
+        elif current == "executor":
+            executor_block += line + "\n"
+    return (manager_block.strip(), executor_block.strip())
+
+
 def build_role_identity(employee_id: str) -> str:
     """Generate standardized role identity block from employee profile.
 
-    Returns empty string for founding employees (they define their own identity).
+    Returns empty string for founding employees (they define their own via role_guide.md).
     Called by:
       - BaseAgentRunner._get_role_identity_section() → system prompt (LangChain)
       - EmployeeManager._build_company_context_block() → task prompt (Claude CLI / Script)
     """
     from onemancompany.core.config import (
         FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL,
-        load_employee_profile_yaml,
+        EMPLOYEES_DIR, ENCODING_UTF8, load_employee_profile_yaml,
     )
     if employee_id in FOUNDING_IDS:
         return ""
+
+    # Check for role_guide.md first (per-employee override)
+    guide_path = EMPLOYEES_DIR / employee_id / "role_guide.md"
+    if guide_path.exists():
+        return guide_path.read_text(encoding=ENCODING_UTF8)
 
     profile = load_employee_profile_yaml(employee_id)
     name = profile.get(PF_NAME, "Employee")
@@ -190,35 +226,15 @@ def build_role_identity(employee_id: str) -> str:
     nick_str = f" ({nickname})" if nickname else ""
     is_manager = role in MANAGER_ROLES
 
-    if is_manager:
-        return (
-            f"## Who You Are — Identity\n"
-            f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-            "You are a coordinator — plan, delegate, and ensure quality.\n\n"
-            "**Things you must NEVER do:**\n"
-            "- Do NOT write code, design, or implementation content yourself\n"
-            "- Do NOT produce deliverables — your task completes when subtasks are accepted\n"
-            "- Do NOT skip reviewing actual deliverables before accepting\n\n"
-            "**Your core actions:**\n"
-            "- dispatch_child() — assign subtasks to colleagues\n"
-            "- accept_child() / reject_child() — review deliverables\n"
-            "- pull_meeting() — coordinate with team members"
-        )
-    return (
+    manager_tmpl, executor_tmpl = _load_archetype_templates()
+
+    header = (
         f"## Who You Are — Identity\n"
         f"You are {name}{nick_str}, a {level_label} {role}{dept_str}.\n"
-        "You are an executor — produce high-quality deliverables that meet acceptance criteria.\n"
-        "Unless the task clearly falls outside your role, attempt to complete it yourself rather than delegating.\n"
-        "We are a flat organization — you may dispatch tasks to anyone via dispatch_child() when necessary.\n\n"
-        "**Things you must NEVER do:**\n"
-        "- Do NOT claim completion without delivering actual artifacts\n"
-        "- Do NOT skip testing or quality verification before submitting\n\n"
-        "**Your core actions:**\n"
-        "- read / write / bash — produce deliverables\n"
-        "- dispatch_child() — delegate subtasks to colleagues when necessary\n"
-        "- pull_meeting() — align with colleagues when needed\n"
-        "- Report completion with a summary of what you delivered"
     )
+    if is_manager:
+        return header + manager_tmpl
+    return header + executor_tmpl
 
 
 # ---------------------------------------------------------------------------
@@ -1806,7 +1822,7 @@ class EmployeeManager:
             parts.append(f"## Company Culture\n{rules}")
 
         # 2. SOPs — title + first line only; agent can read() full content
-        from onemancompany.core.config import load_workflows, SOP_DIR, WORKFLOWS_DIR
+        from onemancompany.core.config import load_workflows, SOP_DIR, WORKFLOWS_DIR, HR_SOP_DIR
         workflows = load_workflows()
         if workflows:
             sop_lines = []
@@ -1819,6 +1835,8 @@ class EmployeeManager:
                         break
                 # Determine the file path for read()
                 sop_path = SOP_DIR / f"{name}.md"
+                if not sop_path.exists():
+                    sop_path = HR_SOP_DIR / f"{name}.md"
                 if not sop_path.exists():
                     sop_path = WORKFLOWS_DIR / f"{name}.md"
                 sop_lines.append(f"  - {name}: {first_line}  [read(\"{sop_path}\")]")
@@ -1869,15 +1887,19 @@ class EmployeeManager:
         if is_manager and role in ("COO", "CSO"):
             return (
                 "[Manager Execution Guide]\n"
-                "As a manager receiving a project task:\n"
-                "  1. list_colleagues() to understand all available team members and their skills.\n"
-                "  2. Leverage the team fully: PM handles project management/research/docs, Engineer handles development, each to their strengths.\n"
-                "  3. dispatch_child() to the most suitable employee with clear instructions and acceptance criteria.\n"
-                "  4. For complex projects, use dispatch_child() to distribute multiple subtasks (parallel execution).\n"
-                "  5. If no suitable employee exists, dispatch to HR for hiring.\n"
-                "  6. You can bring people into the project at any stage (not just initial assignment), including review, remediation, diagnosis, etc.\n"
-                "  7. Only do the work yourself when nobody else can.\n"
-                "Do NOT loop or re-analyze — dispatch quickly and move on."
+                "As a manager receiving a project task, follow this flow:\n"
+                "  1. **Check SOPs**: Your task prompt lists available SOPs & Workflows. "
+                "Read the relevant SOP (e.g. project intake, execution) via read() BEFORE acting.\n"
+                "  2. **Assess workforce**: list_colleagues() to review current team and skills.\n"
+                "  3. **Staff up**: If gaps exist, request_hiring() first. Hire before starting.\n"
+                "  4. **Assemble team & align**: pull_meeting() with all team members — "
+                "discuss goals, acceptance criteria, work breakdown.\n"
+                "  5. **Break down & dispatch**: dispatch_child() with clear acceptance criteria "
+                "and depends_on for sequential tasks.\n"
+                "  6. **Accept/reject**: Review each child deliverable via actual file inspection, "
+                "then accept_child() or reject_child().\n"
+                "You are a coordinator — plan, delegate, verify. Do NOT produce deliverables yourself.\n"
+                "Do NOT loop or re-analyze — follow the SOP steps and move on."
             )
 
         workflows = load_workflows()
@@ -1897,17 +1919,15 @@ class EmployeeManager:
                     break
 
         if not verification_instructions:
-            from onemancompany.tools.sandbox import is_sandbox_enabled as _sb_enabled
-            if _sb_enabled():
-                verification_instructions = (
-                    "  - For code/software: Use sandbox_execute_code to run it once. Fix errors if any.\n"
-                    "  - For documents/reports: Proofread your output once before submitting.\n"
-                )
-            else:
-                verification_instructions = (
-                    "  - For code/software: Review your code carefully for errors.\n"
-                    "  - For documents/reports: Proofread your output once before submitting.\n"
-                )
+            # Try loading from SOP file
+            sop_content = workflows.get("self_verification_sop", "")
+            if sop_content:
+                return "[Self-Verification Before Completion]\n" + sop_content
+            # Minimal fallback
+            verification_instructions = (
+                "  - For code/software: Review your code carefully for errors.\n"
+                "  - For documents/reports: Proofread your output once before submitting.\n"
+            )
 
         return (
             "[Self-Verification Before Completion]\n"
@@ -2013,6 +2033,8 @@ class EmployeeManager:
                     self._publish_node_update(parent_node.employee_id, parent_node)
                 if parent_node.status == TaskPhase.COMPLETED.value:
                     parent_node.set_status(TaskPhase.ACCEPTED)
+                    # Clear stale acceptance_result from prior rejection (if any)
+                    parent_node.acceptance_result = {"passed": True, "notes": "Auto-accepted: all child tasks resolved."}
                     logger.info("[TASK LIFECYCLE] parent={} → ACCEPTED (all children resolved, auto-promoting)", parent_node.id)
                     parent_node.set_status(TaskPhase.FINISHED)
                     logger.debug("[TASK LIFECYCLE] parent={} → FINISHED", parent_node.id)

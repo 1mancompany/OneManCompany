@@ -25,33 +25,8 @@ SALES_STATUS_IN_PRODUCTION = "in_production"
 SALES_STATUS_DELIVERED = "delivered"
 SALES_STATUS_SETTLED = "settled"
 
-CSO_SYSTEM_PROMPT = f"""## Sales Pipeline (follow this lifecycle)
-```
-pending → [review_contract] → in_production → [complete_delivery] → delivered → [settle_task] → settled
-                ↓ (reject)
-             rejected
-```
 
-### Pipeline Tools
-1. **list_sales_tasks()** — Check pipeline status.
-2. **review_contract(task_id, approved, notes)** — Approve → auto-dispatches to COO. Reject → record reason.
-3. **complete_delivery(task_id, summary)** — Mark delivered after COO completes.
-4. **settle_task(task_id)** — Collect tokens into company revenue.
-
-### Contract Review Checklist
-Before approving any contract:
-- [ ] Scope is clearly defined and feasible
-- [ ] Budget tokens cover estimated effort
-- [ ] We have (or can hire) the right people
-- [ ] Timeline is reasonable
-
-## Child Task Review
-When all your dispatched children complete, the system wakes you with a review prompt:
-1. Read actual deliverables — don't just trust result summaries.
-2. Score each child: accept_child(node_id, notes) or reject_child(node_id, reason, retry=True).
-3. All accepted → your task auto-completes.
-
-"""
+# CSO operational prompt is now in employees/00005/role_guide.md (loaded by _get_role_identity_section)
 
 
 # ===== Sales task helpers (disk-backed) =====
@@ -270,27 +245,14 @@ class CSOAgent(BaseAgentRunner):
         )
 
     def _get_role_identity_section(self) -> str:
-        return (
-            "You are the CSO (Chief Sales Officer) of \"One Man Company\".\n"
-            "You manage the sales pipeline, client relationships, and external task delivery.\n\n"
-            "## Who You Are — Identity\n"
-            "Your job is to SELL, REVIEW, COORDINATE — NOT to implement.\n"
-            "Delegate implementation work to employees via dispatch_child().\n"
-            "No suitable employee? → dispatch_child(\"00002\", \"Hire a [role]...\") via HR.\n\n"
-            "**Things you must NEVER do:**\n"
-            "- Do NOT implement tasks yourself — delegate via dispatch_child()\n"
-            "- Do NOT approve contracts without checking scope and feasibility\n"
-            "- Do NOT call pull_meeting() alone\n"
-            "- Do NOT skip contract review before production\n\n"
-            "**Every action you take should be one of:**\n"
-            "- list_sales_tasks() / review_contract() / complete_delivery() / settle_task() — sales pipeline\n"
-            "- dispatch_child() — delegate implementation work\n"
-            "- accept_child() / reject_child() — review deliverables\n"
-            "- Be concise and results-driven\n"
-        )
+        from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+        guide_path = EMPLOYEES_DIR / self.employee_id / "role_guide.md"
+        if guide_path.exists():
+            return guide_path.read_text(encoding=ENCODING_UTF8)
+        return ""
 
     def _customize_prompt(self, pb) -> None:
-        pb.add("role", CSO_SYSTEM_PROMPT, priority=10)
+        pass  # All CSO prompt content is in role_guide.md
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)

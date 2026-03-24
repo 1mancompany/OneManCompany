@@ -5337,8 +5337,10 @@ async def stop_all_crons_endpoint(employee_id: str) -> dict:
 
 @router.get("/api/employees")
 async def list_employees():
-    """List all active employees — reads from disk."""
+    """List all active employees — reads from disk, reconciled with live execution state."""
     from onemancompany.core.store import load_all_employees
+    from onemancompany.core.vessel import employee_manager as _em
+
     employees = load_all_employees()
     result = []
     for emp_id, data in employees.items():
@@ -5347,7 +5349,12 @@ async def list_employees():
         runtime = data.pop("runtime", {})
         data["id"] = emp_id
         data["employee_number"] = emp_id
-        data["status"] = runtime.get("status", STATUS_IDLE)
+        disk_status = runtime.get("status", STATUS_IDLE)
+        # Reconcile: if EmployeeManager has a running task, override to working
+        if emp_id in _em._running_tasks and disk_status != STATUS_WORKING:
+            data["status"] = STATUS_WORKING
+        else:
+            data["status"] = disk_status
         data["is_listening"] = runtime.get("is_listening", False)
         data[PF_CURRENT_TASK_SUMMARY] = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
         data["api_online"] = runtime.get("api_online", True)

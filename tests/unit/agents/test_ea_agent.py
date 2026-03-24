@@ -95,15 +95,13 @@ class TestEAAgentBuildPrompt:
     def test_contains_ea_system_prompt(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "Executive Assistant" in prompt
-        assert "dispatch_child" in prompt
+        assert "Authorized Tools" in prompt
+        assert len(prompt) > 500
 
-    def test_contains_routing_table(self, monkeypatch):
+    def test_contains_task_lifecycle(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
         prompt = agent._build_prompt()
-        assert "HR" in prompt
-        assert "COO" in prompt
-        assert "CSO" in prompt
+        assert "Task Lifecycle" in prompt
 
     def test_contains_efficiency_rules(self, monkeypatch):
         agent = self._make_agent(monkeypatch)
@@ -142,17 +140,15 @@ class TestEAAgentBuildPrompt:
 
 
 class TestEAPromptContents:
-    def test_ea_prompt_contains_tree_tools(self):
-        """EA system prompt references tree tools, not old dispatch tools."""
-        from onemancompany.agents.ea_agent import EA_SYSTEM_PROMPT
-        assert "dispatch_child" in EA_SYSTEM_PROMPT
-        assert "accept_child" in EA_SYSTEM_PROMPT
-        assert "reject_child" in EA_SYSTEM_PROMPT
-        # Old tools should NOT be present
-        assert "dispatch_task" not in EA_SYSTEM_PROMPT
-        assert "set_acceptance_criteria" not in EA_SYSTEM_PROMPT
-        assert "set_project_budget" not in EA_SYSTEM_PROMPT
-        assert "ea_review_project" not in EA_SYSTEM_PROMPT
+    def test_ea_role_guide_references_sop(self):
+        """EA role_guide.md references SOP for progressive disclosure."""
+        from onemancompany.core.config import EMPLOYEES_DIR, EA_ID
+        guide_path = EMPLOYEES_DIR / EA_ID / "role_guide.md"
+        if not guide_path.exists():
+            pytest.skip("role_guide.md not present (CI environment)")
+        guide = guide_path.read_text()
+        assert "ea_dispatch_authority_sop" in guide
+        assert "O-level" in guide
 
 
 class TestEAAgentRun:

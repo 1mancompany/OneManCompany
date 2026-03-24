@@ -838,6 +838,18 @@ class BaseAgentRunner:
             "→ load_skill(\"task_lifecycle\") for the full state machine, transitions, and task tree model."
         )
 
+    def _get_filesystem_section(self) -> str:
+        """Inform employees that all company data is stored on the filesystem."""
+        from onemancompany.core.config import DATA_ROOT
+        data_root_abs = str(DATA_ROOT.resolve())
+        return (
+            "\n\n## File Storage\n"
+            "All company data — projects, documents, reports, employee files — "
+            "is stored on the filesystem. There is NO database. "
+            "When you need to read or write company data, use file operations.\n"
+            f"- Company data root: {data_root_abs}\n"
+        )
+
     def _get_dynamic_context_section(self) -> str:
         """Build a dynamic context section with current datetime, team state, and workload."""
         parts = ["\n\n## Current Context"]
@@ -941,6 +953,7 @@ class BaseAgentRunner:
         # _build_company_context_block() in every task prompt (vessel.py).
         # They are NOT in the system prompt to avoid duplication.
         pb.add("task_lifecycle", self._get_task_lifecycle_section(), priority=65)
+        pb.add("filesystem", self._get_filesystem_section(), priority=66)
         pb.add("context", self._get_dynamic_context_section(), priority=70)
         pb.add("efficiency", self._get_efficiency_guidelines_section(), priority=80)
         self._customize_prompt(pb)

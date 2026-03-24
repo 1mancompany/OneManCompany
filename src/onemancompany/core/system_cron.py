@@ -348,8 +348,10 @@ async def project_progress_watchdog() -> list | None:
         # Build a summary of the current tree state for EA
         status_summary = _build_tree_status_summary(tree)
 
+        project_abs_path = str(tree_path.parent.resolve())
         nudge_desc = (
-            f"[项目进度看门狗] 项目 {project_id} 存在未完成的任务节点且当前无人在执行。"
+            f"[项目进度看门狗] 项目 {project_id} 存在未完成的任务节点且当前无人在执行。\n"
+            f"项目路径: {project_abs_path}\n\n"
             f"请查看以下任务树状态，尝试继续推进项目完成：\n\n"
             f"{status_summary}\n\n"
             f"请根据当前状态采取适当行动：\n"
