@@ -184,6 +184,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 api_key=effective_key,
                 temperature=effective_temp,
                 max_retries=3,
+                timeout=300.0,
                 default_headers=extra_headers or None,
             )
 
@@ -201,6 +202,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
                 base_url=base_url,
                 temperature=effective_temp,
                 max_retries=3,
+                request_timeout=300.0,
                 stream_usage=True,
             )
 
@@ -219,6 +221,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         base_url=settings.openrouter_base_url,
         temperature=effective_temp,
         max_retries=3,
+        request_timeout=300.0,
         stream_usage=True,
     )
 
