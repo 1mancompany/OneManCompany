@@ -2075,7 +2075,7 @@ class EmployeeManager:
                     c for c in children
                     if c.status == TaskPhase.CANCELLED.value
                 )
-                if has_failed_child and parent_node.status == TaskPhase.HOLDING.value:
+                if has_failed_child and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value):
                     failed_children = [
                         c for c in non_review_children
                         if c.status == TaskPhase.FAILED.value
@@ -2093,13 +2093,20 @@ class EmployeeManager:
                         f"- dispatch_child 分配给其他员工重试\n"
                         f"- 如项目无法继续，请说明原因"
                     )
+                    was_processing = parent_node.status == TaskPhase.PROCESSING.value
                     logger.info(
-                        "[ON_CHILD_COMPLETE] child {} FAILED — resuming HOLDING parent {} with failure context",
-                        node.id, parent_node.id,
+                        "[ON_CHILD_COMPLETE] child {} FAILED — resuming {} parent {} with failure context",
+                        node.id, parent_node.status, parent_node.id,
                     )
-                    # Transition parent back to PROCESSING so it can be re-executed
+                    if was_processing:
+                        # Parent is actively running — cancel its execution so it can be re-dispatched
+                        running = self._running_tasks.pop(parent_node.employee_id, None)
+                        if running and not running.done():
+                            running.cancel()
+                            logger.debug("[TASK LIFECYCLE] parent={} cancelled running task (child failed)", parent_node.id)
+                    # Transition parent to PROCESSING so it can be re-executed
                     parent_node.set_status(TaskPhase.PROCESSING)
-                    logger.debug("[TASK LIFECYCLE] parent={} HOLDING → PROCESSING (child failed, resuming)", parent_node.id)
+                    logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child failed, resuming)", parent_node.id)
                     # Inject failure context into parent's description for re-execution
                     notify_node = tree.add_child(
                         parent_id=parent_node.id,
@@ -2114,7 +2121,7 @@ class EmployeeManager:
                     self.schedule_node(parent_node.employee_id, notify_node.id, entry.tree_path)
                     self._schedule_next(parent_node.employee_id)
 
-                elif has_cancelled_child and parent_node.status == TaskPhase.HOLDING.value:
+                elif has_cancelled_child and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value):
                     cancelled_children = [
                         c for c in children
                         if c.status == TaskPhase.CANCELLED.value
@@ -2131,12 +2138,19 @@ class EmployeeManager:
                         f"- 继续处理剩余子任务\n"
                         f"- 如项目无法继续，请说明原因"
                     )
+                    was_processing = parent_node.status == TaskPhase.PROCESSING.value
                     logger.info(
-                        "[ON_CHILD_COMPLETE] child {} CANCELLED — resuming HOLDING parent {} with cancellation context",
-                        node.id, parent_node.id,
+                        "[ON_CHILD_COMPLETE] child {} CANCELLED — resuming {} parent {} with cancellation context",
+                        node.id, parent_node.status, parent_node.id,
                     )
+                    if was_processing:
+                        # Parent is actively running — cancel its execution so it can be re-dispatched
+                        running = self._running_tasks.pop(parent_node.employee_id, None)
+                        if running and not running.done():
+                            running.cancel()
+                            logger.debug("[TASK LIFECYCLE] parent={} cancelled running task (child cancelled)", parent_node.id)
                     parent_node.set_status(TaskPhase.PROCESSING)
-                    logger.debug("[TASK LIFECYCLE] parent={} HOLDING → PROCESSING (child cancelled, resuming)", parent_node.id)
+                    logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child cancelled, resuming)", parent_node.id)
                     notify_node = tree.add_child(
                         parent_id=parent_node.id,
                         employee_id=parent_node.employee_id,
