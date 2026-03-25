@@ -81,6 +81,10 @@ class TaskNode:
     # generically — no child-type-specific detection needed.
     hold_reason: str = ""
 
+    # Timestamp when the node entered HOLDING state (ISO format).
+    # Used by the global HOLDING timeout to auto-fail stale tasks.
+    hold_started_at: str = ""
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -190,6 +194,7 @@ class TaskNode:
             "branch_active": self.branch_active,
             "depends_on": list(self.depends_on),
             "hold_reason": self.hold_reason,
+            "hold_started_at": self.hold_started_at,
             "directives_count": len(self.directives),
         }
 
@@ -258,6 +263,23 @@ class TaskTree:
         depends_on: list[str] | None = None,
     ) -> TaskNode:
         parent = self._nodes[parent_id]
+        resolved_deps = depends_on or []
+
+        # Validate: all depends_on IDs must exist in the tree
+        for dep_id in resolved_deps:
+            if dep_id not in self._nodes:
+                raise ValueError(
+                    f"Dependency '{dep_id}' not found in tree. "
+                    f"All depends_on IDs must reference existing nodes."
+                )
+
+        # Validate: no circular dependency in the dep graph
+        if resolved_deps and self._has_cycle(resolved_deps):
+            raise ValueError(
+                f"Circular dependency detected: depends_on={resolved_deps} "
+                f"would create a cycle in the dependency graph."
+            )
+
         child = TaskNode(
             parent_id=parent_id,
             employee_id=employee_id,
@@ -265,11 +287,57 @@ class TaskTree:
             acceptance_criteria=acceptance_criteria,
             project_id=self.project_id,
             timeout_seconds=timeout_seconds,
-            depends_on=depends_on or [],
+            depends_on=resolved_deps,
         )
         parent.children_ids.append(child.id)
         self._nodes[child.id] = child
         return child
+
+    def _has_cycle(self, new_deps: list[str]) -> bool:
+        """Check if adding a node with *new_deps* would create a cycle.
+
+        Since the new node doesn't exist in the graph yet, a cycle can only
+        form if the depends_on targets have transitive dependency paths that
+        loop among themselves.  We do a DFS from each dep target, following
+        existing depends_on edges, and check if we revisit any node in
+        *new_deps* via a different path (which would mean the new node sits
+        in a cycle: new→A→...→B→...→new where A,B ∈ new_deps).
+
+        In practice, because deps are set at creation and never mutated,
+        the existing graph is always a DAG. This guard catches programmatic
+        errors or future mutations.
+        """
+        dep_set = set(new_deps)
+        for start in new_deps:
+            visited: set[str] = set()
+            stack = [start]
+            while stack:
+                current = stack.pop()
+                if current in visited:
+                    continue
+                visited.add(current)
+                node = self._nodes.get(current)
+                if not node:
+                    continue
+                for upstream in node.depends_on:
+                    if upstream in dep_set and upstream != start:
+                        # Another dep target is reachable — if the new node
+                        # depends on both, it's not a cycle (diamond pattern).
+                        # A true cycle would require upstream == start via a
+                        # different dep, but since the new node isn't in the
+                        # graph yet, that can't happen.
+                        pass
+                    if upstream == start and current != start:
+                        # Found a path back to start through existing edges
+                        # This shouldn't happen in a DAG but guards against
+                        # corrupted state
+                        logger.warning(
+                            "Cycle detected in existing dep graph: {} -> ... -> {}",
+                            start, current,
+                        )
+                        return True
+                    stack.append(upstream)
+        return False
 
     def all_nodes(self) -> list[TaskNode]:
         """Return all nodes in the tree."""
@@ -508,8 +576,9 @@ def save_tree_async(path: str | Path) -> None:
         return
     _path = Path(path)
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_do_save(tree, _path))
+        asyncio.get_running_loop()
+        from onemancompany.core.async_utils import spawn_background
+        spawn_background(_do_save(tree, _path))
     except RuntimeError:
         lock = get_tree_lock(path)
         with lock:

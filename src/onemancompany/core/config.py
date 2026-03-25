@@ -300,6 +300,7 @@ MAX_DISCUSSION_SUMMARY_LEN = 500
 MAX_REVIEW_ROUNDS = 3       # Max review rounds per parent before CEO escalation
 MAX_CHILDREN_PER_NODE = 10  # Max active children per parent node
 MAX_TREE_DEPTH = 6          # Max nesting depth for dispatch_child
+MAX_HOLD_SECONDS = 1800     # Hard timeout for HOLDING tasks (30 minutes)
 
 # ---------------------------------------------------------------------------
 # Department-based office layout

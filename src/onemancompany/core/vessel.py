@@ -37,6 +37,7 @@ from onemancompany.core.config import (
     EMPLOYEES_DIR,
     ENCODING_UTF8,
     LAUNCH_SH_FILENAME,
+    MAX_HOLD_SECONDS,
     MAX_SUMMARY_LEN,
     PF_NAME,
     PF_NICKNAME,
@@ -1396,6 +1397,7 @@ class EmployeeManager:
                 logger.debug("[TASK LIFECYCLE] employee={} node={} → HOLDING meta={}",
                              employee_id, entry.node_id, holding_meta)
                 node.set_status(TaskPhase.HOLDING)
+                node.hold_started_at = datetime.now().isoformat()
                 save_tree_async(entry.tree_path)
                 # Auto-resume HOLDING (e.g. ceo_request): skip watchdog when the
                 # resume is handled by another code path (routes.py, etc.)
@@ -1514,6 +1516,51 @@ class EmployeeManager:
             if node and node.status == TaskPhase.HOLDING and node.result and match_text in node.result:
                 return entry.node_id
         return None
+
+    def _check_holding_timeout(self, tree_path: str, node_id: str) -> bool:
+        """Check if a HOLDING node has exceeded MAX_HOLD_SECONDS.
+
+        If timed out: transitions to FAILED, stops watchdog crons, saves tree.
+        Returns True if the node was timed out, False otherwise.
+        """
+        from onemancompany.core.task_tree import get_tree, save_tree_async
+
+        tree = get_tree(tree_path)
+        node = tree.get_node(node_id)
+        if not node:
+            logger.debug("[HOLDING TIMEOUT] node {} not found in tree {}", node_id, tree_path)
+            return False
+        if node.status != TaskPhase.HOLDING.value:
+            return False
+        if not node.hold_started_at:
+            return False
+
+        try:
+            started = datetime.fromisoformat(node.hold_started_at)
+        except (ValueError, TypeError):
+            logger.warning("[HOLDING TIMEOUT] invalid hold_started_at={!r} for node {}", node.hold_started_at, node_id)
+            return False
+
+        elapsed = (datetime.now() - started).total_seconds()
+        if elapsed <= MAX_HOLD_SECONDS:
+            return False
+
+        # Timed out — auto-fail
+        logger.info(
+            "[HOLDING TIMEOUT] node={} employee={} elapsed={:.0f}s > MAX_HOLD_SECONDS={} — auto-failing",
+            node_id, node.employee_id, elapsed, MAX_HOLD_SECONDS,
+        )
+        node.set_status(TaskPhase.FAILED)
+        node.load_content(Path(tree_path).parent)
+        original_result = node.result or ""
+        node.result = f"HOLDING timeout ({elapsed:.0f}s > {MAX_HOLD_SECONDS}s). {original_result}"
+        save_tree_async(tree_path)
+
+        # Stop associated crons
+        stop_cron(node.employee_id, f"reply_{node_id}")
+        stop_cron(node.employee_id, f"holding_{node_id}")
+
+        return True
 
     async def resume_held_task(self, employee_id: str, task_id: str, result: str) -> bool:
         """Resume a HOLDING task with the provided result.
@@ -2544,11 +2591,19 @@ class EmployeeManager:
             raise
         except Exception as e:
             logger.error("[ceo_report] auto-confirm error for {}: {}", project_id, e)
+            self._pending_ceo_reports.pop(project_id, None)  # Ensure cleanup
 
     async def _confirm_ceo_report(self, project_id: str) -> bool:
         """Confirm a pending CEO report and run cleanup. Returns True if confirmed."""
         pending = self._pending_ceo_reports.pop(project_id, None)
         if not pending:
+            # Idempotency: if project already archived on disk, treat as success
+            from onemancompany.core.project_archive import load_named_project, PROJECT_STATUS_ARCHIVED
+            base_pid = project_id.split("/")[0] if "/" in project_id else project_id
+            proj = load_named_project(base_pid)
+            if proj and proj.get("status") == PROJECT_STATUS_ARCHIVED:
+                logger.debug("[ceo_report] project={} already archived, idempotent confirm", project_id)
+                return True
             logger.debug("[ceo_report] no pending report for project={}", project_id)
             return False
 
