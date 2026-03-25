@@ -5667,12 +5667,6 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 from_id = parent.employee_id
                 emp = _load_emp(from_id)
                 from_nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
-            # Check if EA auto-replied (COMPLETED + acceptance_result tagged)
-            ea_replied = (
-                node.status == TaskPhase.COMPLETED.value
-                and node.acceptance_result
-                and "EA auto-replied" in (node.acceptance_result.get("notes", "") or "")
-            )
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
@@ -5681,8 +5675,6 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 "from_nickname": from_nickname,
                 "status": node.status,
                 "created_at": node.created_at,
-                "ea_auto_replied": ea_replied,
-                "result": (node.result or "")[:300] if ea_replied else "",
             })
     return results
 
@@ -5793,67 +5785,105 @@ def _parse_hold_reason(hold_reason: str | None) -> dict[str, str]:
     return result
 
 
+async def _complete_ceo_request(
+    node, tree, project_dir: str, *,
+    target_status: TaskPhase = TaskPhase.ACCEPTED,
+    result: str = "",
+    notes: str = "",
+) -> None:
+    """Unified completion for CEO_REQUEST nodes.
+
+    Handles ALL side effects in one place:
+    1. Transition node to target_status (ACCEPTED or CANCELLED)
+    2. Save tree to disk
+    3. Resolve sibling dependencies (_trigger_dep_resolution)
+    4. Resume HOLDING parent (ceo_request hold or awaiting_children hold)
+    5. Broadcast inbox update
+    """
+    from onemancompany.core.task_lifecycle import can_transition
+    from onemancompany.core.task_tree import save_tree_async
+    from onemancompany.core.vessel import _trigger_dep_resolution, employee_manager
+
+    if result:
+        node.result = result
+    if notes:
+        node.acceptance_result = {"passed": target_status != TaskPhase.CANCELLED, "notes": notes}
+
+    # 1. Transition node status
+    current = TaskPhase(node.status)
+    if current == target_status:
+        pass  # Already at target, idempotent
+    elif can_transition(current, target_status):
+        # For ACCEPTED: may need COMPLETED as intermediate step
+        if target_status == TaskPhase.ACCEPTED and current != TaskPhase.COMPLETED:
+            if can_transition(current, TaskPhase.COMPLETED):
+                node.set_status(TaskPhase.COMPLETED)
+        node.set_status(target_status)
+    else:
+        logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
+                        node.id, current.value, target_status.value)
+        return
+
+    # 2. Save tree
+    tree_path = Path(project_dir) / TASK_TREE_FILENAME
+    save_tree_async(tree_path)
+
+    # 3. Resolve sibling dependencies
+    _trigger_dep_resolution(project_dir, tree, node)
+
+    # 4. Resume HOLDING parent
+    parent = tree.get_node(node.parent_id) if node.parent_id else None
+    if parent and parent.status == TaskPhase.HOLDING.value:
+        hr_meta = _parse_hold_reason(parent.hold_reason)
+        should_resume = (
+            hr_meta.get("ceo_request") == node.id
+            or "awaiting_children" in (parent.hold_reason or "")
+        )
+        if should_resume:
+            resume_text = f"CEO request {node.id} resolved ({target_status.value}): {(node.result or '')[:500]}"
+            resumed = await employee_manager.resume_held_task(
+                parent.employee_id, parent.id, resume_text,
+            )
+            if resumed:
+                logger.info("[ceo_request] Resumed HOLDING parent {} after node {} → {}",
+                            parent.id, node.id, target_status.value)
+            else:
+                logger.warning("[ceo_request] Failed to resume parent {} for node {}", parent.id, node.id)
+
+    # 5. Broadcast
+    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+    logger.info("[ceo_request] Completed node={} → {} notes={}", node.id, target_status.value, notes[:80])
+
+
 async def _run_conversation_loop(session, node, tree, project_dir):
     """Run conversation loop and handle completion."""
-    from onemancompany.core.task_lifecycle import transition
-    from onemancompany.core.vessel import (
-        _trigger_dep_resolution,
-        employee_manager,
-    )
-
     try:
         summary = await session.run()
         logger.info("[ceo_inbox] conversation completed: node={}, summary_len={}", node.id, len(summary))
-        node.result = summary
-        from onemancompany.core.task_tree import save_tree_async
 
         ea_auto_replied = not session._ceo_replied
         if ea_auto_replied:
-            # EA auto-reply: stay at COMPLETED so CEO can review before accepting
-            transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
-            node.status = TaskPhase.COMPLETED.value
-            # Tag the node so frontend knows EA replied
-            node.acceptance_result = {"passed": True, "notes": "EA auto-replied — awaiting CEO confirmation"}
-            save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-            logger.info("[ceo_inbox] EA auto-replied for node={}, awaiting CEO confirmation", node.id)
-            # Still resume parent — EA's decision is effective, CEO can override later
-            _trigger_dep_resolution(project_dir, tree, node)
+            # EA auto-reply: fully automatic, go straight to ACCEPTED.
+            # CEO doesn't need to confirm — can review the conversation later.
+            await _complete_ceo_request(
+                node, tree, project_dir,
+                target_status=TaskPhase.ACCEPTED,
+                result=summary,
+                notes="EA auto-replied",
+            )
         else:
             # CEO replied directly: go straight to ACCEPTED
-            transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
-            node.status = TaskPhase.COMPLETED.value
-            transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
-            node.status = TaskPhase.ACCEPTED.value
-            save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-            _trigger_dep_resolution(project_dir, tree, node)
-
-        # Auto-resume parent if it's HOLDING — check both specific ceo_request
-        # hold and generic awaiting_children hold
-        parent = tree.get_node(node.parent_id) if node.parent_id else None
-        if parent and parent.status == TaskPhase.HOLDING.value:
-            hr_meta = _parse_hold_reason(parent.hold_reason)
-            should_resume = False
-            if hr_meta.get("ceo_request") == node.id:
-                should_resume = True
-            elif "awaiting_children" in parent.hold_reason:
-                should_resume = True
-            if should_resume:
-                resumed = await employee_manager.resume_held_task(
-                    parent.employee_id,
-                    parent.id,
-                    f"{'EA auto-replied' if ea_auto_replied else 'CEO responded'} to {node.id}: {summary[:500]}",
-                )
-                if resumed:
-                    logger.info("Auto-resumed parent {} after {} conversation {}", parent.id,
-                               "EA auto-reply" if ea_auto_replied else "CEO", node.id)
-                else:
-                    logger.warning("Failed to auto-resume parent {} for conversation {}", parent.id, node.id)
+            await _complete_ceo_request(
+                node, tree, project_dir,
+                target_status=TaskPhase.ACCEPTED,
+                result=summary,
+                notes="CEO responded directly",
+            )
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
     finally:
         session._cancel_ea_timer()
         unregister_session(session.node_id)
-        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
 
 
 @router.post("/api/ceo/inbox/{node_id}/message")
@@ -5903,21 +5933,15 @@ async def complete_ceo_conversation(node_id: str):
 @router.post("/api/ceo/inbox/{node_id}/confirm")
 async def confirm_ea_auto_reply(node_id: str):
     """CEO confirms an EA auto-replied inbox item → ACCEPTED, removed from inbox."""
-    from onemancompany.core.task_lifecycle import transition
-    from onemancompany.core.task_tree import save_tree_async
-    from onemancompany.core.vessel import _trigger_dep_resolution
-
     node, tree, project_dir = _find_ceo_node(node_id)
-    if node.status != TaskPhase.COMPLETED.value:
-        return {"error": f"Node is {node.status}, not completed"}
+    if node.status not in (TaskPhase.COMPLETED.value, TaskPhase.PROCESSING.value):
+        raise HTTPException(status_code=409, detail=f"Node is {node.status}, expected completed or processing")
 
-    transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
-    node.status = TaskPhase.ACCEPTED.value
-    node.acceptance_result = {"passed": True, "notes": "CEO confirmed EA auto-reply"}
-    save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-    _trigger_dep_resolution(project_dir, tree, node)
-    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-    logger.info("[ceo_inbox] CEO confirmed EA auto-reply for node={}", node_id)
+    await _complete_ceo_request(
+        node, tree, project_dir,
+        target_status=TaskPhase.ACCEPTED,
+        notes="CEO confirmed",
+    )
     return {"status": "confirmed", "node_id": node_id}
 
 
@@ -5927,25 +5951,21 @@ async def dismiss_ceo_inbox_item(node_id: str):
 
     Used for old/stale requests that CEO no longer needs to respond to.
     """
-    from onemancompany.core.task_tree import save_tree_async
+    from onemancompany.core.task_lifecycle import can_transition
 
     node, tree, project_dir = _find_ceo_node(node_id)
     if TaskPhase(node.status) in (TaskPhase.FINISHED, TaskPhase.CANCELLED):
         return {"status": "already_dismissed", "node_id": node_id}
 
-    # Cancel the node — this removes it from inbox on next refresh
-    from onemancompany.core.task_lifecycle import can_transition
     if not can_transition(TaskPhase(node.status), TaskPhase.CANCELLED):
         raise HTTPException(status_code=409, detail=f"Cannot dismiss node in {node.status} state")
 
-    node.set_status(TaskPhase.CANCELLED)
-    node.result = "Dismissed by CEO"
-    save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-    # Propagate cancellation to unblock dependent nodes
-    from onemancompany.core.vessel import _trigger_dep_resolution
-    _trigger_dep_resolution(project_dir, tree, node)
-    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-    logger.info("[ceo_inbox] CEO dismissed inbox item node={}", node_id)
+    await _complete_ceo_request(
+        node, tree, project_dir,
+        target_status=TaskPhase.CANCELLED,
+        result="Dismissed by CEO",
+        notes="Dismissed by CEO",
+    )
     return {"status": "dismissed", "node_id": node_id}
 
 
