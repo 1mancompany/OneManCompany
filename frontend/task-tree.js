@@ -416,26 +416,12 @@ class TaskTreeRenderer {
                 if (logContent.classList.contains('hidden')) {
                     logContent.classList.remove('hidden');
                     el.innerHTML = '&#9660; Execution Log';
-                    logContent.innerHTML = '<div style="color:#666;padding:8px">Loading...</div>';
-                    try {
-                        const logs = await fetch(`/api/task-tree/${nodeId}/logs`).then(r => r.json());
-                        if (logs.length === 0) {
-                            logContent.innerHTML = '<div style="color:#666;padding:8px">No logs available</div>';
-                        } else {
-                            logContent.innerHTML = logs.map(log => {
-                                const typeColors = {tool_call:'#4488ff', tool_result:'#888', llm_output:'#44cc88', llm_input:'#aa88ff', error:'#ff4444', start:'#44cc88', result:'#44cc88'};
-                                const color = typeColors[log.type] || '#666';
-                                const ts = (log.ts || '').substring(11, 19);
-                                const escapedContent = (log.content || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-                                return `<div class="node-log-entry" style="padding:3px 6px;border-bottom:1px solid #1a1a2e;font-size:11px">
-                                    <span style="color:#555">${ts}</span>
-                                    <span style="color:${color};font-weight:bold;margin:0 6px">${log.type}</span>
-                                    <pre style="white-space:pre-wrap;max-height:150px;overflow-y:auto;margin:2px 0;color:#ccc">${escapedContent}</pre>
-                                </div>`;
-                            }).join('');
-                        }
-                    } catch (e) {
-                        logContent.innerHTML = '<div style="color:#f44;padding:8px">Failed to load logs</div>';
+                    // Use NodeTraceView for brutalist rendering
+                    if (typeof NodeTraceView !== 'undefined') {
+                        const traceView = new NodeTraceView(logContent);
+                        traceView.load(nodeId, nodeData.project_dir || '');
+                    } else {
+                        logContent.innerHTML = '<div style="color:#666;padding:8px">Trace viewer not loaded</div>';
                     }
                 } else {
                     logContent.classList.add('hidden');
