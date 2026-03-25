@@ -122,8 +122,15 @@ def schedule_auto_open_inbox(node_id: str) -> None:
     async def _auto_open(nid: str):
         try:
             from onemancompany.api.routes import open_ceo_conversation
-            await open_ceo_conversation(nid)
+            result = await open_ceo_conversation(nid)
             logger.info("[auto_open_inbox] Opened CEO conversation for {}", nid)
+            # Auto-enable EA reply so the request is handled without CEO intervention
+            from onemancompany.core.ceo_conversation import get_session
+            session = get_session(nid)
+            if session:
+                description = result.get("description", "") if isinstance(result, dict) else ""
+                session.set_ea_auto_reply(True, description)
+                logger.info("[auto_open_inbox] EA auto-reply enabled for {}", nid)
         except Exception as _e:
             logger.warning("[auto_open_inbox] Failed for {}: {}", nid, _e)
 
