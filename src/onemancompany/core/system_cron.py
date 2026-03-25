@@ -486,7 +486,7 @@ async def holding_timeout_sweep() -> list | None:
     timed_out: list[str] = []
     for emp_id, entries in list(employee_manager._schedule.items()):
         for entry in list(entries):
-            result = await employee_manager._check_holding_timeout(entry.tree_path, entry.node_id)
+            result = employee_manager._check_holding_timeout(entry.tree_path, entry.node_id)
             if result:
                 timed_out.append(entry.node_id)
                 employee_manager.unschedule(emp_id, entry.node_id)
