@@ -5913,16 +5913,16 @@ async def _complete_ceo_request(
     if notes:
         node.acceptance_result = {"passed": target_status != TaskPhase.CANCELLED, "notes": notes}
 
-    # 1. Transition node status
+    # 1. Transition node status (supports multi-hop: PROCESSING→COMPLETED→ACCEPTED)
     current = TaskPhase(node.status)
     if current == target_status:
         pass  # Already at target, idempotent
     elif can_transition(current, target_status):
-        # For ACCEPTED: may need COMPLETED as intermediate step
-        if target_status == TaskPhase.ACCEPTED and current != TaskPhase.COMPLETED:
-            if can_transition(current, TaskPhase.COMPLETED):
-                node.set_status(TaskPhase.COMPLETED)
         node.set_status(target_status)
+    elif target_status == TaskPhase.ACCEPTED and can_transition(current, TaskPhase.COMPLETED):
+        # Multi-hop: PROCESSING→COMPLETED→ACCEPTED
+        node.set_status(TaskPhase.COMPLETED)
+        node.set_status(TaskPhase.ACCEPTED)
     else:
         logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
                         node.id, current.value, target_status.value)
@@ -5983,11 +5983,24 @@ async def _run_conversation_loop(session, node, tree, project_dir):
                 result=summary,
                 notes="CEO responded directly",
             )
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
+        # Fail the node so it doesn't stay zombie PROCESSING
+        try:
+            await _complete_ceo_request(
+                node, tree, project_dir,
+                target_status=TaskPhase.CANCELLED,
+                result=f"Conversation error: {e}",
+                notes="Conversation loop failed",
+            )
+        except Exception:
+            logger.error("Failed to cancel node {} after conversation error", session.node_id)
     finally:
         session._cancel_ea_timer()
         unregister_session(session.node_id)
+        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
 
 
 @router.post("/api/ceo/inbox/{node_id}/message")
