@@ -1171,8 +1171,10 @@ class EmployeeManager:
         max_retries = cfg.limits.max_retries if cfg else MAX_RETRIES
         retry_delays = cfg.limits.retry_delays if cfg else RETRY_DELAYS
 
-        # 1. Mark PROCESSING
-        node.set_status(TaskPhase.PROCESSING)
+        # 1. Mark PROCESSING (skip if already PROCESSING — can happen when
+        #    child failure handler re-dispatches a node that was already running)
+        if node.status != TaskPhase.PROCESSING.value:
+            node.set_status(TaskPhase.PROCESSING)
         logger.debug("[TASK LIFECYCLE] employee={} node={} → PROCESSING", employee_id, entry.node_id)
         save_tree_async(entry.tree_path)
         self._set_employee_status(employee_id, STATUS_WORKING)
