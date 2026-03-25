@@ -558,10 +558,13 @@ async def lifespan(app: FastAPI):
         list_projects,
         ITER_STATUS_PENDING_CONFIRMATION,
         ITER_STATUS_COMPLETED,
+        PROJECT_STATUS_ARCHIVED,
         load_iteration,
         update_project_status,
     )
     for _proj in list_projects():
+        if _proj.get("status") == PROJECT_STATUS_ARCHIVED:
+            continue
         _iters = _proj.get("iterations", [])
         if not _iters:
             continue

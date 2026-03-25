@@ -378,6 +378,8 @@ async def get_bootstrap() -> dict:
     for p in all_projects:
         if p.get("is_named"):
             continue
+        if p.get("status") == "archived":
+            continue
         status = _normalize_project_status(p.get("status", ""))
         tasks.append({
             "project_id": p["project_id"],
@@ -2919,6 +2921,8 @@ async def get_task_queue() -> list[dict]:
     for p in list_projects():
         # Skip v2 named projects (shown in PROJECTS panel)
         if p.get("is_named"):
+            continue
+        if p.get("status") == "archived":
             continue
         tree = _tree_summary(p["project_id"])
         # project.yaml is the single source of truth for status

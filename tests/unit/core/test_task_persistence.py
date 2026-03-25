@@ -25,6 +25,23 @@ def _isolate_employees_dir(tmp_path, monkeypatch):
 # _tasks_dir
 # ---------------------------------------------------------------------------
 
+class TestIsProjectArchived:
+    def test_archived(self, tmp_path):
+        (tmp_path / "project.yaml").write_text(yaml.dump({"status": "archived"}))
+        assert tp._is_project_archived(tmp_path / "task_tree.yaml") is True
+
+    def test_active(self, tmp_path):
+        (tmp_path / "project.yaml").write_text(yaml.dump({"status": "active"}))
+        assert tp._is_project_archived(tmp_path / "task_tree.yaml") is False
+
+    def test_missing_project_yaml(self, tmp_path):
+        assert tp._is_project_archived(tmp_path / "task_tree.yaml") is False
+
+    def test_no_status_field(self, tmp_path):
+        (tmp_path / "project.yaml").write_text(yaml.dump({"name": "test"}))
+        assert tp._is_project_archived(tmp_path / "task_tree.yaml") is False
+
+
 class TestTasksDir:
     def test_returns_correct_path(self, tmp_path):
         expected = tmp_path / "00010" / "tasks"
@@ -174,6 +191,38 @@ class TestRecoverScheduleFromTrees:
         # Should not raise
         tp.recover_schedule_from_trees(em, tmp_path / "projects", tmp_path / "employees")
         assert len(em.scheduled) == 0
+
+    def test_skips_archived_projects(self, tmp_path):
+        """Archived projects should be completely skipped during recovery."""
+        from onemancompany.core.task_tree import TaskTree
+
+        # Archived project — should be skipped
+        tree_a = TaskTree("archived_proj")
+        root_a = tree_a.create_root("emp1", "archived task")
+        root_a.status = "processing"
+        proj_dir_a = tmp_path / "projects" / "archived_proj"
+        tree_a.save(proj_dir_a / "task_tree.yaml")
+        (proj_dir_a / "project.yaml").write_text(
+            yaml.dump({"status": "archived", "project_id": "archived_proj"})
+        )
+
+        # Active project — should be recovered
+        tree_b = TaskTree("active_proj")
+        root_b = tree_b.create_root("emp2", "active task")
+        root_b.status = "processing"
+        proj_dir_b = tmp_path / "projects" / "active_proj"
+        tree_b.save(proj_dir_b / "task_tree.yaml")
+        (proj_dir_b / "project.yaml").write_text(
+            yaml.dump({"status": "active", "project_id": "active_proj"})
+        )
+
+        em = _MockEM()
+        tp.recover_schedule_from_trees(em, tmp_path / "projects", tmp_path / "employees")
+
+        # Only active project nodes should be scheduled
+        scheduled_node_ids = {s[1] for s in em.scheduled}
+        assert root_b.id in scheduled_node_ids, "Active project node should be scheduled"
+        assert root_a.id not in scheduled_node_ids, "Archived project node should NOT be scheduled"
 
     def test_empty_dirs(self, tmp_path):
         """No crash when projects/employees dirs don't exist."""
