@@ -52,7 +52,7 @@ class TaskPhase(str, Enum):
 VALID_TRANSITIONS: dict[TaskPhase, list[TaskPhase]] = {
     TaskPhase.PENDING:    [TaskPhase.PROCESSING, TaskPhase.HOLDING, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.PROCESSING: [TaskPhase.COMPLETED, TaskPhase.HOLDING, TaskPhase.FAILED, TaskPhase.CANCELLED],
-    TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.COMPLETED, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
+    TaskPhase.HOLDING:    [TaskPhase.PROCESSING, TaskPhase.COMPLETED, TaskPhase.FAILED, TaskPhase.BLOCKED, TaskPhase.CANCELLED],
     TaskPhase.COMPLETED:  [TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.PENDING, TaskPhase.HOLDING, TaskPhase.CANCELLED],
     TaskPhase.ACCEPTED:   [TaskPhase.FINISHED],
     TaskPhase.FINISHED:   [],

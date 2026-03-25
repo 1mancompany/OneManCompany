@@ -81,6 +81,10 @@ class TaskNode:
     # generically — no child-type-specific detection needed.
     hold_reason: str = ""
 
+    # Timestamp when the node entered HOLDING state (ISO format).
+    # Used by the global HOLDING timeout to auto-fail stale tasks.
+    hold_started_at: str = ""
+
     # --- Content externalization tracking (not part of equality/repr) ---
     _content_dirty: bool = field(default=False, init=False, repr=False, compare=False)
     _content_loaded: bool = field(default=False, init=False, repr=False, compare=False)
@@ -190,6 +194,7 @@ class TaskNode:
             "branch_active": self.branch_active,
             "depends_on": list(self.depends_on),
             "hold_reason": self.hold_reason,
+            "hold_started_at": self.hold_started_at,
             "directives_count": len(self.directives),
         }
 
@@ -571,8 +576,9 @@ def save_tree_async(path: str | Path) -> None:
         return
     _path = Path(path)
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(_do_save(tree, _path))
+        asyncio.get_running_loop()
+        from onemancompany.core.async_utils import spawn_background
+        spawn_background(_do_save(tree, _path))
     except RuntimeError:
         lock = get_tree_lock(path)
         with lock:
