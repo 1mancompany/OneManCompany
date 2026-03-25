@@ -93,18 +93,73 @@ def system_cron(
 
 
 class SystemCronManager:
-    """Manages lifecycle of all system cron tasks."""
+    """Manages lifecycle of all system cron tasks.
+
+    Persists disabled crons to disk so they survive restarts.
+    """
 
     def __init__(self, registry: dict[str, SystemCronDef] | None = None):
         self._registry = registry if registry is not None else _registry
         self._tasks: dict[str, asyncio.Task] = {}
+        self._disabled: set[str] = set()  # crons explicitly disabled by user
+        # Only load persisted state for the global registry (not test registries)
+        if registry is None:
+            self._load_persisted_state()
+
+    def _state_path(self):
+        from onemancompany.core.config import COMPANY_DIR
+        return COMPANY_DIR / "system_cron_state.yaml"
+
+    def _load_persisted_state(self) -> None:
+        """Load disabled cron names and custom intervals from disk."""
+        import yaml
+        path = self._state_path()
+        if not path.exists():
+            return
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+            self._disabled = set(data.get("disabled", []))
+            # Restore custom intervals
+            for name, interval in data.get("intervals", {}).items():
+                defn = self._registry.get(name)
+                if defn and interval:
+                    seconds = parse_interval(interval)
+                    if seconds:
+                        defn.current_interval = interval
+                        defn.current_interval_seconds = seconds
+            if self._disabled:
+                logger.info("[system_cron] Restored disabled crons from disk: {}", self._disabled)
+        except Exception as e:
+            logger.error("[system_cron] Failed to load persisted state: {}", e)
+
+    def _persist_state(self) -> None:
+        """Save disabled cron names and custom intervals to disk."""
+        import yaml
+        path = self._state_path()
+        intervals = {
+            name: defn.current_interval
+            for name, defn in self._registry.items()
+            if defn.current_interval != defn.default_interval
+        }
+        data = {
+            "disabled": sorted(self._disabled),
+            "intervals": intervals,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False))
+        except Exception as e:
+            logger.error("[system_cron] Failed to persist state: {}", e)
 
     def start_all(self) -> None:
-        """Start all registered system crons."""
+        """Start all registered system crons, skipping user-disabled ones."""
         for name in self._registry:
+            if name in self._disabled:
+                logger.info("[system_cron] Skipping disabled cron: {}", name)
+                continue
             if name not in self._tasks or self._tasks[name].done():
                 self.start(name)
-        logger.info("System crons started: {}", list(self._registry.keys()))
+        logger.info("System crons started: {}", [n for n in self._registry if n not in self._disabled])
 
     async def stop_all(self) -> None:
         """Stop all running system crons."""
@@ -117,7 +172,7 @@ class SystemCronManager:
         logger.info("All system crons stopped")
 
     def start(self, name: str) -> dict:
-        """Start a single system cron by name."""
+        """Start a single system cron by name. Removes from disabled set."""
         defn = self._registry.get(name)
         if not defn:
             return {"status": "error", "message": f"Unknown system cron: {name}"}
@@ -126,17 +181,22 @@ class SystemCronManager:
             existing.cancel()
         task = asyncio.create_task(self._loop(defn), name=f"system_cron:{name}")
         self._tasks[name] = task
+        if name in self._disabled:
+            self._disabled.discard(name)
+            self._persist_state()
         return {"status": "ok", "name": name}
 
     def stop(self, name: str) -> dict:
-        """Stop a single system cron by name."""
+        """Stop a single system cron by name. Persists disabled state to disk."""
         task = self._tasks.pop(name, None)
         if task and not task.done():
             task.cancel()
+        self._disabled.add(name)
+        self._persist_state()
         return {"status": "ok", "name": name}
 
     def update_interval(self, name: str, new_interval: str) -> dict:
-        """Update interval for a system cron, restarting it if running."""
+        """Update interval for a system cron, restarting it if running. Persists to disk."""
         defn = self._registry.get(name)
         if not defn:
             return {"status": "error", "message": f"Unknown system cron: {name}"}
@@ -145,6 +205,7 @@ class SystemCronManager:
             return {"status": "error", "message": f"Invalid interval: {new_interval}"}
         defn.current_interval = new_interval
         defn.current_interval_seconds = seconds
+        self._persist_state()
         if name in self._tasks and not self._tasks[name].done():
             self.stop(name)
             self.start(name)
@@ -331,6 +392,29 @@ async def project_progress_watchdog() -> list | None:
 
         # Skip if any node is currently being processed — someone is working
         if any(n.status == TaskPhase.PROCESSING.value for n in active_nodes):
+            continue
+
+        # Skip if there are still unfinished watchdog nudge subtrees
+        # (previous nudge spawned tasks that haven't completed yet)
+        has_active_nudge = any(
+            n.node_type == NodeType.WATCHDOG_NUDGE
+            and TaskPhase(n.status) not in RESOLVED
+            for n in active_nodes
+        )
+        if not has_active_nudge:
+            # Also check children of finished nudge nodes — they may have
+            # dispatched tasks that are still pending/processing
+            for n in active_nodes:
+                if n.node_type == NodeType.WATCHDOG_NUDGE:
+                    nudge_children = [
+                        tree.get_node(cid) for cid in n.children_ids
+                        if cid in tree._nodes
+                    ]
+                    if any(c and TaskPhase(c.status) not in RESOLVED for c in nudge_children):
+                        has_active_nudge = True
+                        break
+        if has_active_nudge:
+            logger.debug("[watchdog] Skipping {} — previous nudge subtree still active", project_id)
             continue
 
         # Skip if all active nodes are resolved (project is done)
