@@ -490,6 +490,16 @@ async def holding_timeout_sweep() -> list | None:
             if result:
                 timed_out.append(entry.node_id)
                 employee_manager.unschedule(emp_id, entry.node_id)
+                # Cascade: trigger dep resolution so dependents get BLOCKED/CANCELLED
+                try:
+                    from onemancompany.core.task_tree import get_tree
+                    from onemancompany.core.vessel import _trigger_dep_resolution
+                    tree = get_tree(entry.tree_path)
+                    node = tree.get_node(entry.node_id)
+                    if node:
+                        _trigger_dep_resolution(str(Path(entry.tree_path).parent), tree, node)
+                except Exception as e:
+                    logger.error("[holding_timeout_sweep] dep resolution failed for {}: {}", entry.node_id, e)
 
     if timed_out:
         logger.info("[holding_timeout_sweep] Auto-failed {} timed-out HOLDING node(s): {}",
@@ -500,6 +510,14 @@ async def holding_timeout_sweep() -> list | None:
 def clear_watchdog_nudge(project_id: str) -> None:
     """Clear the nudge flag for a project (call when EA starts working on it)."""
     _watchdog_nudged.discard(project_id)
+
+
+@system_cron("schedule_cleanup", interval="10m", description="清理僵尸 schedule 条目")
+async def schedule_cleanup() -> list | None:
+    """Periodically clean up orphaned schedule entries."""
+    from onemancompany.core.vessel import employee_manager
+    employee_manager.cleanup_orphaned_schedule()
+    return None
 
 
 def _build_tree_status_summary(tree) -> str:
