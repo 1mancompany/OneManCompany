@@ -554,7 +554,11 @@ async def lifespan(app: FastAPI):
         _em.drain_pending()
 
     # Recover projects stuck in pending_confirmation (auto-confirm timer lost on restart)
+    # The _pending_ceo_reports dict is in-memory only; on restart, the auto-confirm
+    # timer is lost. We must complete the iteration AND archive the project.
     from onemancompany.core.project_archive import (
+        archive_project,
+        complete_project,
         list_projects,
         ITER_STATUS_PENDING_CONFIRMATION,
         ITER_STATUS_COMPLETED,
@@ -571,8 +575,13 @@ async def lifespan(app: FastAPI):
         _latest = load_iteration(_proj.get("project_id", "").split("/")[0], _iters[-1])
         if _latest and _latest.get("status") == ITER_STATUS_PENDING_CONFIRMATION:
             _pid = _proj.get("project_id", "")
-            update_project_status(f"{_pid}/{_iters[-1]}" if "/" not in _pid else _pid, ITER_STATUS_COMPLETED)
-            print(f"[startup] Auto-confirmed pending project: {_pid}")
+            _iter_key = f"{_pid}/{_iters[-1]}" if "/" not in _pid else _pid
+            # 1. Complete the iteration (sets status=completed, completed_at, etc.)
+            complete_project(_iter_key, "Auto-confirmed on restart")
+            # 2. Archive the project (sets project.yaml status=archived)
+            _slug = _pid.split("/")[0] if "/" in _pid else _pid
+            archive_project(_slug)
+            print(f"[startup] Auto-confirmed and archived pending project: {_pid}")
 
     # Start background WebSocket event broadcaster
     broadcaster_task = asyncio.create_task(ws_manager.event_broadcaster())
