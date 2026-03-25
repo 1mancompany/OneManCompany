@@ -5667,12 +5667,6 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 from_id = parent.employee_id
                 emp = _load_emp(from_id)
                 from_nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
-            # Check if EA auto-replied (COMPLETED + acceptance_result tagged)
-            ea_replied = (
-                node.status == TaskPhase.COMPLETED.value
-                and node.acceptance_result
-                and "EA auto-replied" in (node.acceptance_result.get("notes", "") or "")
-            )
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
@@ -5681,8 +5675,6 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 "from_nickname": from_nickname,
                 "status": node.status,
                 "created_at": node.created_at,
-                "ea_auto_replied": ea_replied,
-                "result": (node.result or "")[:300] if ea_replied else "",
             })
     return results
 
@@ -5871,14 +5863,13 @@ async def _run_conversation_loop(session, node, tree, project_dir):
 
         ea_auto_replied = not session._ceo_replied
         if ea_auto_replied:
-            # EA auto-reply: stay at COMPLETED so CEO can review before accepting.
-            # Parent is still resumed — EA's decision is effective immediately,
-            # CEO can override later via confirm/dismiss.
+            # EA auto-reply: fully automatic, go straight to ACCEPTED.
+            # CEO doesn't need to confirm — can review the conversation later.
             await _complete_ceo_request(
                 node, tree, project_dir,
-                target_status=TaskPhase.COMPLETED,
+                target_status=TaskPhase.ACCEPTED,
                 result=summary,
-                notes="EA auto-replied — awaiting CEO confirmation",
+                notes="EA auto-replied",
             )
         else:
             # CEO replied directly: go straight to ACCEPTED

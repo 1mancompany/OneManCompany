@@ -2228,22 +2228,16 @@ class AppController {
     }
 
     const rows = items.map(item => {
-      const eaReplied = item.ea_auto_replied;
-      const statusIcon = eaReplied ? '🤖' : (item.status === 'processing' ? '🔄' : '⏸');
-      const eaTag = eaReplied ? '<span style="color:#44cc88;font-size:10px;margin-left:4px">EA replied</span>' : '';
-      const confirmBtn = eaReplied
-        ? `<button class="inbox-confirm-btn" onclick="event.stopPropagation();app._confirmEaReply('${item.node_id}')" style="font-size:10px;padding:2px 6px;margin-left:auto;background:#2a6;color:#fff;border:none;border-radius:3px;cursor:pointer">Confirm</button>`
-        : '';
+      const statusIcon = item.status === 'processing' ? '🔄' : '⏸';
       const dismissBtn = `<button class="inbox-dismiss-btn" onclick="event.stopPropagation();app._dismissInboxItem('${item.node_id}')" title="Dismiss" style="font-size:10px;padding:2px 4px;margin-left:4px;background:transparent;color:#888;border:1px solid #555;border-radius:3px;cursor:pointer">✕</button>`;
       return `
       <div class="inbox-item" data-node-id="${item.node_id}" onclick="app._openCeoConversation('${item.node_id}')">
         <span class="inbox-status">${statusIcon}</span>
         <div class="inbox-item-content" style="flex:1">
-          <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}${eaTag}</div>
+          <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
           <div class="inbox-item-desc">${this._escHtml((item.description || '').substring(0, 60))}${(item.description || '').length > 60 ? '...' : ''}</div>
-          ${eaReplied && item.result ? `<div style="font-size:10px;color:#aaa;margin-top:2px">${this._escHtml(item.result.substring(0, 80))}...</div>` : ''}
         </div>
-        ${confirmBtn}${dismissBtn}
+        ${dismissBtn}
       </div>`;
     }).join('');
 
