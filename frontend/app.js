@@ -1757,8 +1757,10 @@ class AppController {
     this._loadModelOrApiKeySection(emp.id);
 
     // Fetch and render agent task board + logs + crons
+    this._taskBoardFilter = '';
     this._fetchTaskBoard(emp.id);
     this._fetchExecutionLogs(emp.id);
+    this._fetchProgressLog(emp.id);
     this._fetchCronList(emp.id);
     this._fetchEmployeeProjects(emp.id);
 
@@ -1809,11 +1811,13 @@ class AppController {
       });
   }
 
-  async _fetchTaskBoard(empId) {
+  async _fetchTaskBoard(empId, status) {
     try {
-      const resp = await fetch(`/api/employee/${empId}/taskboard`);
+      const filter = status || this._taskBoardFilter || '';
+      const qs = filter ? `?status=${filter}` : '';
+      const resp = await fetch(`/api/employee/${empId}/taskboard${qs}`);
       const data = await resp.json();
-      this._renderTaskBoard(data.tasks || []);
+      this._renderTaskBoard(data.tasks || [], data.counts || {});
     } catch (err) {
       console.error('Task board fetch error:', err);
     }
@@ -1821,7 +1825,7 @@ class AppController {
 
   async _fetchExecutionLogs(empId) {
     try {
-      const resp = await fetch(`/api/employee/${empId}/logs`);
+      const resp = await fetch(`/api/employee/${empId}/logs?tail=100`);
       const data = await resp.json();
       this._renderExecutionLogs(data.logs || []);
     } catch (err) {
@@ -1829,15 +1833,55 @@ class AppController {
     }
   }
 
-  _renderTaskBoard(tasks) {
+  async _fetchProgressLog(empId) {
+    try {
+      const resp = await fetch(`/api/employee/${empId}/progress-log?limit=30`);
+      const data = await resp.json();
+      this._renderProgressLog(data.entries || []);
+    } catch (err) {
+      console.error('Progress log fetch error:', err);
+    }
+  }
+
+  _renderProgressLog(entries) {
+    const el = document.getElementById('emp-detail-progress');
+    if (!el) return;
+    if (!entries || entries.length === 0) {
+      el.innerHTML = '<span class="empty-hint">No work history</span>';
+      return;
+    }
+    let html = '';
+    for (const e of entries) {
+      const ts = e.timestamp ? e.timestamp.substring(5, 16).replace('T', ' ') : '';
+      html += `<div style="font-size:11px;padding:2px 0;border-bottom:1px solid #222">`;
+      html += `<span style="color:#888;margin-right:6px">${ts}</span>`;
+      html += `<span>${this._escHtml(e.content || '')}</span></div>`;
+    }
+    el.innerHTML = html;
+  }
+
+  _renderTaskBoard(tasks, counts) {
     const el = document.getElementById('emp-detail-taskboard');
+    const empId = this.viewingEmployeeId;
+    const cur = this._taskBoardFilter || '';
+
+    let tabs = '';
+    if (counts && counts.total > 0) {
+      const btn = (label, val, cnt) => {
+        const active = cur === val ? 'font-weight:bold;border-bottom:2px solid #4af' : '';
+        return `<button onclick="app._taskBoardFilter='${val}';app._fetchTaskBoard('${empId}','${val}')" style="background:transparent;color:#ccc;border:none;cursor:pointer;padding:2px 6px;font-size:10px;${active}">${label}(${cnt})</button>`;
+      };
+      tabs = `<div style="display:flex;gap:2px;margin-bottom:4px;border-bottom:1px solid #333;padding-bottom:2px">
+        ${btn('All','',counts.total)}${btn('Active','active',counts.active)}${btn('Done','completed',counts.completed)}${counts.failed ? btn('Failed','failed',counts.failed) : ''}
+      </div>`;
+    }
+
     if (!tasks || tasks.length === 0) {
-      el.innerHTML = '<span class="empty-hint">No tasks</span>';
+      el.innerHTML = tabs + '<span class="empty-hint">No tasks</span>';
       return;
     }
 
-    const empId = this.viewingEmployeeId;
-    let html = '';
+    let html = tabs;
     for (const task of tasks) {
       const statusCls = task.status.replace('_', '-');
       html += `<div class="emp-taskboard-item ${statusCls}">`;

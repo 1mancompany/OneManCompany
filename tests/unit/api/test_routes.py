@@ -2640,19 +2640,27 @@ class TestGetEmployeeDetailWithManifest:
 # ---------------------------------------------------------------------------
 
 
-class TestEmployeeLogsWithLoop:
-    async def test_logs_with_current_task(self):
+class TestEmployeeLogsFromDisk:
+    async def test_logs_reads_from_disk(self, tmp_path):
+        """Employee logs endpoint reads from node-level execution.log (disk SSOT)."""
+        import json
         state = _make_state()
         from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
 
+        # Create a node execution log on disk
+        node_dir = tmp_path / "nodes" / "n1"
+        node_dir.mkdir(parents=True)
+        log_path = node_dir / "execution.log"
+        log_path.write_text(
+            json.dumps({"ts": "2026-01-01T00:00:00", "type": "start", "content": "Started"}) + "\n"
+            + json.dumps({"ts": "2026-01-01T00:00:01", "type": "result", "content": "Done"}) + "\n"
+        )
+
         mock_em = MagicMock(spec=EmployeeManager)
-        mock_em._running_tasks = {"00010": MagicMock()}
-        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
+        mock_em._running_tasks = {}
+        entry = ScheduleEntry(node_id="n1", tree_path=str(tmp_path / "task_tree.yaml"))
         mock_em._schedule = {"00010": [entry]}
-        mock_em._task_logs = {"n1": [
-            {"type": "start", "content": "Started"},
-            {"type": "result", "content": "Done"},
-        ]}
+        mock_em._current_entries = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
@@ -2664,36 +2672,16 @@ class TestEmployeeLogsWithLoop:
 
         assert resp.status_code == 200
         assert len(resp.json()["logs"]) == 2
+        assert resp.json()["node_id"] == "n1"
 
-    async def test_logs_from_recent_task(self):
-        state = _make_state()
-        from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
-
-        mock_em = MagicMock(spec=EmployeeManager)
-        mock_em._running_tasks = {"00010": MagicMock()}
-        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
-        mock_em._schedule = {"00010": [entry]}
-        mock_em._task_logs = {"n1": [{"type": "result", "content": "Old result"}]}
-
-        with patch("onemancompany.api.routes.company_state", state), \
-             _store_patches(state), \
-             patch("onemancompany.api.routes.event_bus", EventBus()), \
-             patch("onemancompany.core.vessel.employee_manager", mock_em):
-            app = _make_test_app()
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
-                resp = await c.get("/api/employee/00010/logs")
-
-        assert resp.status_code == 200
-        assert len(resp.json()["logs"]) == 1
-
-    async def test_logs_no_tasks_with_logs(self):
+    async def test_logs_empty_when_no_schedule(self):
         state = _make_state()
         from onemancompany.core.vessel import EmployeeManager
 
         mock_em = MagicMock(spec=EmployeeManager)
         mock_em._running_tasks = {}
         mock_em._schedule = {}
-        mock_em._task_logs = {}
+        mock_em._current_entries = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \

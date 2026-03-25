@@ -1354,13 +1354,8 @@ async def update_employee_okrs(employee_id: str, body: dict) -> dict:
 
 
 @router.get("/api/employee/{employee_id}/taskboard")
-async def get_employee_taskboard(employee_id: str) -> dict:
-    """Get all tasks for an employee from disk-based task index.
-
-    Reads task_index.yaml for the employee, then loads actual node data
-    from the referenced tree files (disk is SSOT). Also merges any entries
-    from _schedule that haven't been indexed yet (backward compat).
-    """
+async def get_employee_taskboard(employee_id: str, status: str = "") -> dict:
+    """Get tasks for an employee. Optional ?status= filter: active/completed/failed."""
     from pathlib import Path
     from onemancompany.core.store import load_task_index, append_task_index_entry
     from onemancompany.core.vessel import employee_manager
@@ -1394,23 +1389,130 @@ async def get_employee_taskboard(employee_id: str) -> dict:
                 tasks.append(node.to_dict())
         except Exception as e:
             logger.warning("Failed to load task tree {}: {}", tree_path, e)
-    return {"tasks": tasks}
+
+    _ACTIVE = {"pending", "processing", "holding"}
+    _DONE = {"completed", "accepted", "finished"}
+    _FAILED = {"failed", "blocked", "cancelled"}
+    if status == "active":
+        tasks = [t for t in tasks if t.get("status") in _ACTIVE]
+    elif status == "completed":
+        tasks = [t for t in tasks if t.get("status") in _DONE]
+    elif status == "failed":
+        tasks = [t for t in tasks if t.get("status") in _FAILED]
+
+    all_statuses = [t.get("status", "") for t in tasks] if not status else []
+    counts = {}
+    if not status:
+        counts = {
+            "active": sum(1 for s in all_statuses if s in _ACTIVE),
+            "completed": sum(1 for s in all_statuses if s in _DONE),
+            "failed": sum(1 for s in all_statuses if s in _FAILED),
+            "total": len(tasks),
+        }
+    return {"tasks": tasks, "counts": counts}
+
+
+@router.get("/api/node/{node_id}/logs")
+async def get_node_logs(node_id: str, project_dir: str = "", tail: int = 100) -> dict:
+    """Get execution logs for a task node — single source of truth.
+
+    Reads from {project_dir}/nodes/{node_id}/execution.log (JSONL).
+    If project_dir not provided, searches task_index across employees.
+    """
+    tail = max(1, min(tail, 500))
+    pdir = project_dir or _find_node_project_dir(node_id)
+    if not pdir:
+        return {"logs": [], "node_id": node_id}
+    return {"logs": _read_node_log(pdir, node_id, tail), "node_id": node_id}
 
 
 @router.get("/api/employee/{employee_id}/logs")
-async def get_employee_logs(employee_id: str) -> dict:
-    """Get execution logs for the agent's current (or most recent) task."""
+async def get_employee_logs(employee_id: str, tail: int = 100) -> dict:
+    """Get logs for an employee's current or most recent task.
+
+    Finds the active/latest node_id, then reads from disk (SSOT).
+    Returns node_id so frontend can subscribe to the canonical endpoint.
+    """
     from onemancompany.core.vessel import employee_manager
 
-    # Return log buffer for the currently running task, if any
-    running_entry = employee_manager._running_tasks.get(employee_id)
-    if running_entry:
-        # _task_logs keyed by node_id (set during _execute_task)
-        for entry in employee_manager._schedule.get(employee_id, []):
-            logs = employee_manager._task_logs.get(entry.node_id, [])
-            if logs:
-                return {"logs": logs[-50:]}
-    return {"logs": []}
+    tail = max(1, min(tail, 200))
+
+    # Find current running or most recent node
+    current_entry = employee_manager._current_entries.get(employee_id)
+    if current_entry:
+        logs = _read_node_log(
+            str(Path(current_entry.tree_path).parent), current_entry.node_id, tail
+        )
+        if logs:
+            return {"logs": logs, "node_id": current_entry.node_id}
+
+    # Fallback: most recent from schedule
+    for entry in reversed(employee_manager._schedule.get(employee_id, [])):
+        logs = _read_node_log(str(Path(entry.tree_path).parent), entry.node_id, tail)
+        if logs:
+            return {"logs": logs, "node_id": entry.node_id}
+
+    return {"logs": [], "node_id": ""}
+
+
+@router.get("/api/employee/{employee_id}/progress-log")
+async def get_employee_progress_log(employee_id: str, limit: int = 50) -> dict:
+    """Get cross-task work history summaries from progress.log."""
+    from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+
+    limit = max(1, min(limit, 200))
+    path = EMPLOYEES_DIR / employee_id / "progress.log"
+    if not path.exists():
+        return {"entries": []}
+    try:
+        lines = path.read_text(encoding=ENCODING_UTF8).strip().split("\n")
+        entries = []
+        for line in lines[-limit:]:
+            if line.startswith("[") and "]" in line:
+                ts_end = line.index("]") + 1
+                entries.append({"timestamp": line[1:ts_end - 1], "content": line[ts_end:].strip()})
+            elif line.strip():
+                entries.append({"timestamp": "", "content": line})
+        return {"entries": entries}
+    except Exception as e:
+        logger.warning("Failed to read progress log for {}: {}", employee_id, e)
+        return {"entries": []}
+
+
+def _read_node_log(project_dir: str, node_id: str, limit: int) -> list[dict]:
+    """Read JSONL execution log from nodes/{node_id}/execution.log."""
+    import json as _json
+    log_path = Path(project_dir) / "nodes" / node_id / "execution.log"
+    if not log_path.exists():
+        return []
+    try:
+        lines = log_path.read_text(encoding="utf-8").strip().split("\n")
+        logs = []
+        for line in lines[-limit:]:
+            try:
+                e = _json.loads(line)
+                logs.append({"timestamp": e.get("ts", ""), "type": e.get("type", ""), "content": e.get("content", "")})
+            except _json.JSONDecodeError:
+                logs.append({"timestamp": "", "type": "", "content": line})
+        return logs
+    except Exception:
+        return []
+
+
+def _find_node_project_dir(node_id: str) -> str:
+    """Find project_dir for a node by searching task_index files."""
+    from onemancompany.core.config import EMPLOYEES_DIR
+    from onemancompany.core.store import load_task_index
+    if not EMPLOYEES_DIR.exists():
+        return ""
+    for emp_dir in EMPLOYEES_DIR.iterdir():
+        if not emp_dir.is_dir():
+            continue
+        for entry in load_task_index(emp_dir.name):
+            if entry.get("node_id") == node_id:
+                tp = entry.get("tree_path", "")
+                return str(Path(tp).parent) if tp else ""
+    return ""
 
 
 async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:

@@ -722,7 +722,7 @@ class EmployeeManager:
         self._restart_pending: bool = False
         # ScheduleEntry-based scheduling (replaces boards for new code paths)
         self._schedule: dict[str, list[ScheduleEntry]] = {}  # employee_id → scheduled nodes
-        self._task_logs: dict[str, list[dict]] = {}  # node_id → temporary log buffer
+        # _task_logs removed — node-level execution.log (JSONL) is the single source of truth
         # Tree completion event queue — serializes all child-complete callbacks
         self._completion_queue: asyncio.Queue | None = None
         self._completion_consumer: asyncio.Task | None = None
@@ -2799,22 +2799,11 @@ class EmployeeManager:
 
         Called at the end of _full_cleanup to prevent resource accumulation:
         - Evict TaskTree from cache (and its lock)
-        - Clean up _task_logs entries for this project's nodes
         - Stop Claude daemon and remove session lock for self-hosted employees
         """
-        # 1. Clean up _task_logs for nodes in this tree, then evict tree cache
+        # 1. Evict tree from cache (frees TaskTree object + lock)
         tree_dir = node.project_dir or ""
         if tree_dir:
-            tree_path = Path(tree_dir) / TASK_TREE_FILENAME
-            try:
-                from onemancompany.core.task_tree import get_tree
-                tree = get_tree(tree_path)
-                for nid in list(tree.nodes.keys()):
-                    self._task_logs.pop(nid, None)
-            except Exception as e:
-                logger.debug("[cleanup] task_logs cleanup failed: {}", e)
-
-            # 2. Evict tree from cache (frees TaskTree object + lock)
             try:
                 from onemancompany.core.task_tree import evict_tree
                 evict_tree(tree_path)
@@ -3012,16 +3001,17 @@ class EmployeeManager:
             logger.warning("No event loop for runtime persist of {}", employee_id)
 
     def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str) -> None:
-        """Log an event for a node (ScheduleEntry path)."""
+        """Log an event for a node.
+
+        Single source of truth: writes to nodes/{node_id}/execution.log (JSONL on disk).
+        Also publishes via WebSocket for real-time frontend updates.
+        """
         entry = {
             "timestamp": datetime.now().isoformat(),
             "type": log_type,
             "content": content,
         }
-        self._task_logs.setdefault(node_id, []).append(entry)
-        self._publish_log_event(employee_id, node_id, entry)
-        _append_execution_log(employee_id, node_id, log_type, content)
-        # Node-level execution log (full content, JSONL)
+        # 1. Disk (SSOT): node-level execution log (JSONL)
         current_entry = self._current_entries.get(employee_id)
         if current_entry:
             from onemancompany.core.task_tree import get_tree
@@ -3029,6 +3019,8 @@ class EmployeeManager:
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
             _append_node_execution_log(_project_dir, node_id, log_type, content)
+        # 2. WebSocket: real-time push to frontend
+        self._publish_log_event(employee_id, node_id, entry)
 
     def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
         """Publish a log event via event bus."""
@@ -3135,8 +3127,7 @@ async def stop_all_loops() -> None:
             timer.cancel()
     employee_manager._pending_ceo_reports.clear()
 
-    # Clean up task log buffers
-    employee_manager._task_logs.clear()
+    # _task_logs removed — logs are on disk (nodes/{node_id}/execution.log)
 
 
 async def register_and_start_agent(employee_id: str, agent_runner: BaseAgentRunner) -> Vessel:
