@@ -117,18 +117,30 @@ class TaskNode:
         return self._description_preview
 
     def save_content(self, project_dir: Path | str) -> None:
-        """Write description/result to a separate content file."""
+        """Write description/result to a separate content file (atomic)."""
         if not self._content_dirty:
             return
+        import os
+        import tempfile
+
         nodes_dir = Path(project_dir) / NODES_DIR
         nodes_dir.mkdir(parents=True, exist_ok=True)
         content: dict = {"description": self.description, "result": self.result}
         if self.directives:
             content["directives"] = self.directives
-        (nodes_dir / f"{self.id}.yaml").write_text(
-            yaml.dump(content, allow_unicode=True, sort_keys=False),
-            encoding=ENCODING_UTF8,
-        )
+        target = nodes_dir / f"{self.id}.yaml"
+        text = yaml.dump(content, allow_unicode=True, sort_keys=False)
+        fd, tmp_path = tempfile.mkstemp(dir=nodes_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding=ENCODING_UTF8) as f:
+                f.write(text)
+            os.replace(tmp_path, target)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError as _cleanup_err:
+                logger.debug("Failed to clean up temp file: {}", _cleanup_err)
+            raise
         self._content_dirty = False
 
     def load_content(self, project_dir: Path | str) -> None:
@@ -479,6 +491,15 @@ class TaskTree:
         return False
 
     def save(self, path: Path) -> None:
+        """Save tree to disk atomically (temp file + rename).
+
+        Content files are saved first, then the skeleton YAML is written
+        to a temp file and atomically renamed. This ensures a crash mid-write
+        never leaves a corrupt tree YAML on disk.
+        """
+        import os
+        import tempfile
+
         path.parent.mkdir(parents=True, exist_ok=True)
         # Snapshot nodes to avoid "dictionary changed size during iteration"
         # when async save runs concurrently with add_child modifications
@@ -493,10 +514,19 @@ class TaskTree:
             "mode": self.mode,
             "nodes": [n.to_dict() for n in nodes_snapshot],
         }
-        path.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding=ENCODING_UTF8,
-        )
+        content = yaml.dump(data, allow_unicode=True, sort_keys=False)
+        # Atomic write: write to temp file in same dir, then rename
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding=ENCODING_UTF8) as f:
+                f.write(content)
+            os.replace(tmp_path, path)  # atomic on same filesystem
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError as _cleanup_err:
+                logger.debug("Failed to clean up temp file: {}", _cleanup_err)
+            raise
 
     @classmethod
     def load(cls, path: Path, project_id: str = "", *, skeleton_only: bool = True) -> TaskTree:
