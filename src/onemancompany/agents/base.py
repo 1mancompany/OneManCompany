@@ -488,6 +488,17 @@ def get_employee_tools_prompt(employee_id: str) -> str:
                             content = f"[binary, {fpath.stat().st_size} bytes]"
                         parts.append(f"  - {fname}:\n```\n{content}\n```")
 
+    # List company equipment (template tools) accessible via use_tool()
+    # These are NOT langchain tools — employees call use_tool("tool_name") to access them.
+    equipment_tools = [
+        t for t in company_state.tools.values()
+        if not t.allowed_users or employee_id in t.allowed_users
+    ]
+    if equipment_tools:
+        parts.append("\n## Company Equipment (use via `use_tool(tool_name)`):")
+        for t in equipment_tools:
+            parts.append(f"- **{t.name}** ({t.id}): {t.description[:100] if t.description else 'No description'}")
+
     parts.append("\n### Tool Usage Rules — Internal vs External")
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "
