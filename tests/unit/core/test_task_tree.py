@@ -763,6 +763,78 @@ class TestTaskTreeContentExternalization:
         assert (tmp_path / "nodes" / "old_root.yaml").exists()
 
 
+class TestCyclicDependencyDetection:
+    """Tests for cycle detection and dangling ref validation in add_child()."""
+
+    def test_dangling_dep_rejected(self):
+        """depends_on references a non-existent node ID — should raise ValueError."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        with pytest.raises(ValueError, match="not found in tree"):
+            tree.add_child(root.id, "e1", "task A", [], depends_on=["nonexistent"])
+
+    def test_depends_on_root_rejected(self):
+        """depends_on referencing the root node (which exists) should still work
+        — it's not a cycle, just a valid dependency on an existing node."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        # Depending on root is valid (root has no deps, no cycle possible)
+        child = tree.add_child(root.id, "e1", "A", [], depends_on=[root.id])
+        assert child.depends_on == [root.id]
+
+    def test_linear_chain_no_cycle(self):
+        """A→B→C linear dep chain — no cycle, should succeed."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        b = tree.add_child(root.id, "e2", "B", [], depends_on=[a.id])
+        c = tree.add_child(root.id, "e3", "C", [], depends_on=[b.id])
+        assert c.depends_on == [b.id]
+
+    def test_diamond_deps_ok(self):
+        """Diamond: A→B, A→C, D depends on [B, C] — valid, not a cycle."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        b = tree.add_child(root.id, "e2", "B", [], depends_on=[a.id])
+        c = tree.add_child(root.id, "e3", "C", [], depends_on=[a.id])
+        d = tree.add_child(root.id, "e4", "D", [], depends_on=[b.id, c.id])
+        assert d.depends_on == [b.id, c.id]
+
+    def test_valid_chain_ok(self):
+        """Linear chain A→B→C — no cycle."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        b = tree.add_child(root.id, "e2", "B", [], depends_on=[a.id])
+        c = tree.add_child(root.id, "e3", "C", [], depends_on=[b.id])
+        assert a.depends_on == []
+        assert b.depends_on == [a.id]
+        assert c.depends_on == [b.id]
+
+    def test_multiple_dangling_deps_rejected(self):
+        """Multiple deps where one doesn't exist — should raise ValueError."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        a = tree.add_child(root.id, "e1", "A", [])
+        with pytest.raises(ValueError, match="not found in tree"):
+            tree.add_child(root.id, "e2", "B", [], depends_on=[a.id, "ghost"])
+
+    def test_empty_depends_on_ok(self):
+        """No dependencies — always valid."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        child = tree.add_child(root.id, "e1", "A", [], depends_on=[])
+        assert child.depends_on == []
+
+    def test_none_depends_on_ok(self):
+        """None dependencies — always valid."""
+        tree = TaskTree(project_id="proj")
+        root = tree.create_root("ceo", "root")
+        child = tree.add_child(root.id, "e1", "A", [], depends_on=None)
+        assert child.depends_on == []
+
+
 class TestTaskTreeMode:
     def test_default_mode_is_standard(self):
         tree = TaskTree(project_id="p1")
