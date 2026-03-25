@@ -5568,8 +5568,10 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
         for node in tree.all_nodes():
             if node.node_type != NodeType.CEO_REQUEST:
                 continue
+            # ACCEPTED/FINISHED/CANCELLED are fully resolved — hide from inbox
             if TaskPhase(node.status) in (TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.CANCELLED):
                 continue
+            # COMPLETED nodes stay visible if EA auto-replied (awaiting CEO confirmation)
             # Find dispatching employee (parent)
             from_id = ""
             from_nickname = ""
@@ -5578,6 +5580,12 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 from_id = parent.employee_id
                 emp = _load_emp(from_id)
                 from_nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
+            # Check if EA auto-replied (COMPLETED + acceptance_result tagged)
+            ea_replied = (
+                node.status == TaskPhase.COMPLETED.value
+                and node.acceptance_result
+                and "EA auto-replied" in (node.acceptance_result.get("notes", "") or "")
+            )
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
@@ -5586,6 +5594,8 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
                 "from_nickname": from_nickname,
                 "status": node.status,
                 "created_at": node.created_at,
+                "ea_auto_replied": ea_replied,
+                "result": (node.result or "")[:300] if ea_replied else "",
             })
     return results
 
@@ -5643,7 +5653,7 @@ async def open_ceo_conversation(node_id: str):
     emp = _load_emp(employee_id) if employee_id else None
     nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
 
-    # Create session with EA auto-reply enabled by default
+    # Create session
     session = ConversationSession(
         node_id=node_id,
         employee_id=employee_id,
@@ -5651,8 +5661,11 @@ async def open_ceo_conversation(node_id: str):
         broadcast_fn=ws_manager.broadcast,
     )
     register_session(session)
-    # Auto-enable EA auto-reply so CEO doesn't need to manually toggle it
-    session.set_ea_auto_reply(True, node.description or node.description_preview or "")
+    # Auto-enable EA auto-reply — EXCEPT for HR hiring requests (CEO must select candidates)
+    from onemancompany.core.config import HR_ID
+    is_hiring_request = employee_id == HR_ID
+    if not is_hiring_request:
+        session.set_ea_auto_reply(True, node.description or node.description_preview or "")
 
     # Start conversation loop as background task
     spawn_background(_run_conversation_loop(session, node, tree, project_dir))
@@ -5691,13 +5704,27 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         summary = await session.run()
         logger.info("[ceo_inbox] conversation completed: node={}, summary_len={}", node.id, len(summary))
         node.result = summary
-        transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
-        node.status = TaskPhase.COMPLETED.value
-        transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
-        node.status = TaskPhase.ACCEPTED.value
         from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-        _trigger_dep_resolution(project_dir, tree, node)
+
+        ea_auto_replied = not session._ceo_replied
+        if ea_auto_replied:
+            # EA auto-reply: stay at COMPLETED so CEO can review before accepting
+            transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
+            node.status = TaskPhase.COMPLETED.value
+            # Tag the node so frontend knows EA replied
+            node.acceptance_result = {"passed": True, "notes": "EA auto-replied — awaiting CEO confirmation"}
+            save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
+            logger.info("[ceo_inbox] EA auto-replied for node={}, awaiting CEO confirmation", node.id)
+            # Still resume parent — EA's decision is effective, CEO can override later
+            _trigger_dep_resolution(project_dir, tree, node)
+        else:
+            # CEO replied directly: go straight to ACCEPTED
+            transition(node.id, TaskPhase(node.status), TaskPhase.COMPLETED)
+            node.status = TaskPhase.COMPLETED.value
+            transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
+            node.status = TaskPhase.ACCEPTED.value
+            save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
+            _trigger_dep_resolution(project_dir, tree, node)
 
         # Auto-resume parent if it's HOLDING — check both specific ceo_request
         # hold and generic awaiting_children hold
@@ -5706,22 +5733,20 @@ async def _run_conversation_loop(session, node, tree, project_dir):
             hr_meta = _parse_hold_reason(parent.hold_reason)
             should_resume = False
             if hr_meta.get("ceo_request") == node.id:
-                # Parent was HOLDING specifically for this CEO_REQUEST
                 should_resume = True
             elif "awaiting_children" in parent.hold_reason:
-                # Parent was HOLDING for children — CEO_REQUEST is one of its children,
-                # now accepted. Trigger on_child_complete to re-evaluate.
                 should_resume = True
             if should_resume:
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id,
                     parent.id,
-                    f"CEO responded to {node.id}: {summary[:500]}",
+                    f"{'EA auto-replied' if ea_auto_replied else 'CEO responded'} to {node.id}: {summary[:500]}",
                 )
                 if resumed:
-                    logger.info("Auto-resumed parent {} after CEO conversation {}", parent.id, node.id)
+                    logger.info("Auto-resumed parent {} after {} conversation {}", parent.id,
+                               "EA auto-reply" if ea_auto_replied else "CEO", node.id)
                 else:
-                    logger.warning("Failed to auto-resume parent {} for CEO conversation {}", parent.id, node.id)
+                    logger.warning("Failed to auto-resume parent {} for conversation {}", parent.id, node.id)
     except Exception as e:
         logger.error("Conversation loop error for {}: {}", session.node_id, e)
     finally:
@@ -5772,6 +5797,27 @@ async def complete_ceo_conversation(node_id: str):
 
     await session.complete()
     return {"status": "completing", "node_id": node_id}
+
+
+@router.post("/api/ceo/inbox/{node_id}/confirm")
+async def confirm_ea_auto_reply(node_id: str):
+    """CEO confirms an EA auto-replied inbox item → ACCEPTED, removed from inbox."""
+    from onemancompany.core.task_lifecycle import transition
+    from onemancompany.core.task_tree import save_tree_async
+    from onemancompany.core.vessel import _trigger_dep_resolution
+
+    node, tree, project_dir = _find_ceo_node(node_id)
+    if node.status != TaskPhase.COMPLETED.value:
+        return {"error": f"Node is {node.status}, not completed"}
+
+    transition(node.id, TaskPhase.COMPLETED, TaskPhase.ACCEPTED)
+    node.status = TaskPhase.ACCEPTED.value
+    node.acceptance_result = {"passed": True, "notes": "CEO confirmed EA auto-reply"}
+    save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
+    _trigger_dep_resolution(project_dir, tree, node)
+    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+    logger.info("[ceo_inbox] CEO confirmed EA auto-reply for node={}", node_id)
+    return {"status": "confirmed", "node_id": node_id}
 
 
 @router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")

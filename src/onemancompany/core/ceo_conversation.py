@@ -19,7 +19,7 @@ from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, EN
 CEO_SENDER = "ceo"
 EA_SENDER = "ea"
 CEO_CONVERSATION_CATEGORY = "ceo_conversation"
-EA_AUTO_REPLY_DELAY_SECONDS = 60
+EA_AUTO_REPLY_DELAY_SECONDS = 2  # Near-instant — just enough for session.run() to start
 
 # ---------------------------------------------------------------------------
 # Message persistence (SSOT = disk)
@@ -241,8 +241,9 @@ class ConversationSession:
             self._ea_timer_task = None
 
     async def _ea_timer_loop(self) -> None:
-        """Wait for timeout, then auto-reply if CEO hasn't responded."""
+        """Auto-reply immediately when EA auto-reply is enabled (no countdown)."""
         try:
+            # Small yield to let session.run() start listening first
             await asyncio.sleep(EA_AUTO_REPLY_DELAY_SECONDS)
             if self._ceo_replied or not self._ea_auto_reply_enabled:
                 return
