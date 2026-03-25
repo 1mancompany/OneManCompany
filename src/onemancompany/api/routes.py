@@ -5706,10 +5706,24 @@ def _find_ceo_node(node_id: str):
 
 
 @router.get("/api/ceo/inbox")
-async def get_ceo_inbox():
-    """List all active CEO request nodes."""
+async def get_ceo_inbox(page: int = 1, page_size: int = 10):
+    """List CEO request nodes with pagination.
+
+    Returns newest first. page=1 is the first page.
+    """
     items = _scan_ceo_inbox_nodes()
-    return {"items": items}
+    # Sort newest first
+    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    total = len(items)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "items": items[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 1,
+    }
 
 
 @router.post("/api/ceo/inbox/{node_id}/open")
@@ -5905,6 +5919,31 @@ async def confirm_ea_auto_reply(node_id: str):
     await ws_manager.broadcast({"type": "ceo_inbox_updated"})
     logger.info("[ceo_inbox] CEO confirmed EA auto-reply for node={}", node_id)
     return {"status": "confirmed", "node_id": node_id}
+
+
+@router.post("/api/ceo/inbox/{node_id}/dismiss")
+async def dismiss_ceo_inbox_item(node_id: str):
+    """Dismiss (hide) a CEO inbox item by marking it CANCELLED.
+
+    Used for old/stale requests that CEO no longer needs to respond to.
+    """
+    from onemancompany.core.task_tree import save_tree_async
+
+    node, tree, project_dir = _find_ceo_node(node_id)
+    if TaskPhase(node.status) in (TaskPhase.FINISHED, TaskPhase.CANCELLED):
+        return {"status": "already_dismissed", "node_id": node_id}
+
+    # Cancel the node — this removes it from inbox on next refresh
+    from onemancompany.core.task_lifecycle import can_transition
+    if can_transition(TaskPhase(node.status), TaskPhase.CANCELLED):
+        node.set_status(TaskPhase.CANCELLED)
+        node.result = "Dismissed by CEO"
+        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
+        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+        logger.info("[ceo_inbox] CEO dismissed inbox item node={}", node_id)
+        return {"status": "dismissed", "node_id": node_id}
+
+    return {"error": f"Cannot dismiss node in {node.status} state"}
 
 
 @router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")

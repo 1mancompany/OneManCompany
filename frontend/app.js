@@ -2191,40 +2191,44 @@ class AppController {
   }
 
   // ===== CEO Inbox =====
-  async _refreshCeoInbox() {
+  async _refreshCeoInbox(page) {
     try {
-      const resp = await fetch('/api/ceo/inbox');
+      const p = page || this._inboxPage || 1;
+      const resp = await fetch(`/api/ceo/inbox?page=${p}&page_size=10`);
       const data = await resp.json();
-      this._renderCeoInbox(data.items || []);
+      this._inboxPage = data.page;
+      this._inboxTotalPages = data.total_pages;
+      this._renderCeoInbox(data.items || [], data.total, data.page, data.total_pages);
     } catch (e) {
       console.error('Failed to refresh CEO inbox:', e);
     }
   }
 
-  _renderCeoInbox(items) {
+  _renderCeoInbox(items, total, page, totalPages) {
     const list = document.getElementById('ceo-inbox-list');
     const badge = document.getElementById('ceo-inbox-badge');
     if (!list) return;
 
-    if (items.length === 0) {
+    if (total === 0 || items.length === 0) {
       list.innerHTML = '<div class="inbox-empty">No pending requests</div>';
       if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
       return;
     }
 
     if (badge) {
-      badge.textContent = items.length;
+      badge.textContent = total;
       badge.classList.remove('hidden');
-      badge.classList.toggle('inbox-badge-active', items.length > 0);
+      badge.classList.toggle('inbox-badge-active', total > 0);
     }
 
-    list.innerHTML = items.map(item => {
+    const rows = items.map(item => {
       const eaReplied = item.ea_auto_replied;
       const statusIcon = eaReplied ? '🤖' : (item.status === 'processing' ? '🔄' : '⏸');
       const eaTag = eaReplied ? '<span style="color:#44cc88;font-size:10px;margin-left:4px">EA replied</span>' : '';
       const confirmBtn = eaReplied
         ? `<button class="inbox-confirm-btn" onclick="event.stopPropagation();app._confirmEaReply('${item.node_id}')" style="font-size:10px;padding:2px 6px;margin-left:auto;background:#2a6;color:#fff;border:none;border-radius:3px;cursor:pointer">Confirm</button>`
         : '';
+      const dismissBtn = `<button class="inbox-dismiss-btn" onclick="event.stopPropagation();app._dismissInboxItem('${item.node_id}')" title="Dismiss" style="font-size:10px;padding:2px 4px;margin-left:4px;background:transparent;color:#888;border:1px solid #555;border-radius:3px;cursor:pointer">✕</button>`;
       return `
       <div class="inbox-item" data-node-id="${item.node_id}" onclick="app._openCeoConversation('${item.node_id}')">
         <span class="inbox-status">${statusIcon}</span>
@@ -2233,9 +2237,28 @@ class AppController {
           <div class="inbox-item-desc">${this._escHtml((item.description || '').substring(0, 60))}${(item.description || '').length > 60 ? '...' : ''}</div>
           ${eaReplied && item.result ? `<div style="font-size:10px;color:#aaa;margin-top:2px">${this._escHtml(item.result.substring(0, 80))}...</div>` : ''}
         </div>
-        ${confirmBtn}
+        ${confirmBtn}${dismissBtn}
       </div>`;
     }).join('');
+
+    // Pagination controls
+    const pager = totalPages > 1 ? `
+      <div class="inbox-pager" style="display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:#999">
+        <button onclick="app._refreshCeoInbox(${page - 1})" ${page <= 1 ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">◀</button>
+        <span>${page} / ${totalPages}</span>
+        <button onclick="app._refreshCeoInbox(${page + 1})" ${page >= totalPages ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">▶</button>
+      </div>` : '';
+
+    list.innerHTML = rows + pager;
+  }
+
+  async _dismissInboxItem(nodeId) {
+    try {
+      await fetch(`/api/ceo/inbox/${nodeId}/dismiss`, { method: 'POST' });
+      this._refreshCeoInbox();
+    } catch (e) {
+      console.error('Failed to dismiss inbox item:', e);
+    }
   }
 
   // ===== CEO Conversation (reuses ChatPanel) =====
