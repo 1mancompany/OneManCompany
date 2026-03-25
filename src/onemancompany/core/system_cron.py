@@ -478,7 +478,7 @@ async def project_progress_watchdog() -> list | None:
     return None
 
 
-@system_cron("holding_timeout_sweep", interval="10m", description="HOLDING 超时扫描 — 自动 fail 过期任务")
+@system_cron("holding_timeout_sweep", interval="10m", description="HOLDING timeout sweep — auto-fail expired tasks")
 async def holding_timeout_sweep() -> list | None:
     """Scan all scheduled HOLDING nodes and auto-fail those exceeding MAX_HOLD_SECONDS."""
     from onemancompany.core.vessel import employee_manager
@@ -513,7 +513,7 @@ def clear_watchdog_nudge(project_id: str) -> None:
     _watchdog_nudged.discard(project_id)
 
 
-@system_cron("schedule_cleanup", interval="10m", description="清理僵尸 schedule 条目")
+@system_cron("schedule_cleanup", interval="10m", description="Clean up orphaned schedule entries")
 async def schedule_cleanup() -> list | None:
     """Periodically clean up orphaned schedule entries."""
     from onemancompany.core.vessel import employee_manager
