@@ -2392,60 +2392,9 @@ class TestTaskTimeout:
 # Execution log — per-agent file-based debug logging
 # ---------------------------------------------------------------------------
 
-class TestExecutionLog:
-    """_append_execution_log writes structured entries to {employee_dir}/execution.log."""
-
-    def test_append_creates_file_and_writes(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node123456ab", "start", "Starting task")
-        log_path = tmp_path / "emp01" / "execution.log"
-        assert log_path.exists()
-        content = log_path.read_text()
-        assert "[start" in content
-        assert "node=node123456ab" in content
-        assert "Starting task" in content
-
-    def test_append_multiple_entries(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "start", "Task A")
-            _append_execution_log("emp01", "node_a", "llm_output", "Hello world")
-            _append_execution_log("emp01", "node_a", "result", "Done")
-        log_path = tmp_path / "emp01" / "execution.log"
-        lines = log_path.read_text().strip().split("\n")
-        assert len(lines) == 3
-        assert "start" in lines[0]
-        assert "llm_output" in lines[1]
-        assert "result" in lines[2]
-
-    def test_content_truncated_at_500_chars(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        long_content = "x" * 1000
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "llm_output", long_content)
-        log_path = tmp_path / "emp01" / "execution.log"
-        content = log_path.read_text()
-        # 500 chars of content + prefix, should be well under 1000
-        assert len(content) < 700
-
-    def test_rotation_when_exceeding_max_size(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log, EXECUTION_LOG_MAX_SIZE
-        log_dir = tmp_path / "emp01"
-        log_dir.mkdir(parents=True)
-        log_path = log_dir / "execution.log"
-        rotated_path = log_dir / "execution.log.1"
-        # Write a file larger than threshold
-        log_path.write_text("line\n" * (EXECUTION_LOG_MAX_SIZE // 4), encoding="utf-8")
-        original_size = log_path.stat().st_size
-        assert original_size > EXECUTION_LOG_MAX_SIZE
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "start", "New entry")
-        # Old log renamed to .1, new log has only the fresh entry
-        assert rotated_path.exists()
-        assert rotated_path.stat().st_size == original_size
-        assert log_path.exists()
-        assert log_path.stat().st_size < original_size
+# TestExecutionLog removed — _append_execution_log no longer exists.
+# Node-level execution.log (JSONL) is the single source of truth.
+# See _append_node_execution_log in vessel.py.
 
 
 class TestLogNodeWritesDisk:

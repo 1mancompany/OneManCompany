@@ -1390,9 +1390,19 @@ async def get_employee_taskboard(employee_id: str, status: str = "") -> dict:
         except Exception as e:
             logger.warning("Failed to load task tree {}: {}", tree_path, e)
 
+    # Always compute counts from full list before filtering
     _ACTIVE = {"pending", "processing", "holding"}
     _DONE = {"completed", "accepted", "finished"}
     _FAILED = {"failed", "blocked", "cancelled"}
+    all_statuses = [t.get("status", "") for t in tasks]
+    counts = {
+        "active": sum(1 for s in all_statuses if s in _ACTIVE),
+        "completed": sum(1 for s in all_statuses if s in _DONE),
+        "failed": sum(1 for s in all_statuses if s in _FAILED),
+        "total": len(tasks),
+    }
+
+    # Apply filter after counting
     if status == "active":
         tasks = [t for t in tasks if t.get("status") in _ACTIVE]
     elif status == "completed":
@@ -1400,15 +1410,6 @@ async def get_employee_taskboard(employee_id: str, status: str = "") -> dict:
     elif status == "failed":
         tasks = [t for t in tasks if t.get("status") in _FAILED]
 
-    all_statuses = [t.get("status", "") for t in tasks] if not status else []
-    counts = {}
-    if not status:
-        counts = {
-            "active": sum(1 for s in all_statuses if s in _ACTIVE),
-            "completed": sum(1 for s in all_statuses if s in _DONE),
-            "failed": sum(1 for s in all_statuses if s in _FAILED),
-            "total": len(tasks),
-        }
     return {"tasks": tasks, "counts": counts}
 
 
@@ -1495,7 +1496,8 @@ def _read_node_log(project_dir: str, node_id: str, limit: int) -> list[dict]:
             except _json.JSONDecodeError:
                 logs.append({"timestamp": "", "type": "", "content": line})
         return logs
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to read node log {}/{}: {}", project_dir, node_id, e)
         return []
 
 

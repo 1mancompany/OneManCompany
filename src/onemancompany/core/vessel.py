@@ -66,10 +66,10 @@ from loguru import logger
 # Constants
 # ---------------------------------------------------------------------------
 
-EXECUTION_LOG_FILENAME = "execution.log"
+# EXECUTION_LOG_FILENAME removed — per-employee summary log no longer written
 TASK_HISTORY_FILENAME = "task_history.json"
 PROGRESS_LOG_MAX_LINES = 30
-EXECUTION_LOG_MAX_SIZE = 5 * 1024 * 1024  # 5 MB rotation threshold
+# EXECUTION_LOG_MAX_SIZE removed — per-employee summary log no longer written
 MAX_SUBTASK_ITERATIONS = 3
 MAX_SUBTASK_DEPTH = 2
 MAX_RETRIES = 3
@@ -637,22 +637,8 @@ def _append_progress(employee_id: str, entry: str) -> None:
         f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
 
 
-def _append_execution_log(employee_id: str, node_id: str, log_type: str, content: str) -> None:
-    """Append a structured entry to the employee's execution log (persistent, per-agent debug file)."""
-    path = EMPLOYEES_DIR / employee_id / EXECUTION_LOG_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        # Size-based rotation: rename current log and start fresh (no large reads)
-        if path.exists() and path.stat().st_size > EXECUTION_LOG_MAX_SIZE:
-            rotated = path.with_suffix(".log.1")
-            path.rename(rotated)
-        ts = datetime.now().isoformat()[:23]
-        # Truncate content to keep log readable
-        short = content[:500].replace("\n", "\\n") if content else ""
-        with open(path, "a", encoding=ENCODING_UTF8) as f:
-            f.write(f"[{ts}] [{log_type:12s}] node={node_id[:12]} | {short}\n")
-    except Exception as exc:
-        logger.warning("Failed to write execution log for {}: {}", employee_id, exc)
+# _append_execution_log removed — node-level execution.log (JSONL) is the single source of truth.
+# Per-employee summary logs are no longer written. See _append_node_execution_log.
 
 
 def _append_node_execution_log(project_dir: str, node_id: str, log_type: str, content: str) -> None:
@@ -2806,6 +2792,7 @@ class EmployeeManager:
         if tree_dir:
             try:
                 from onemancompany.core.task_tree import evict_tree
+                tree_path = Path(tree_dir) / TASK_TREE_FILENAME
                 evict_tree(tree_path)
                 logger.debug("[cleanup] evicted tree cache for {}", tree_path)
             except Exception as e:
@@ -3019,6 +3006,8 @@ class EmployeeManager:
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
             _append_node_execution_log(_project_dir, node_id, log_type, content)
+        else:
+            logger.debug("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
         # 2. WebSocket: real-time push to frontend
         self._publish_log_event(employee_id, node_id, entry)
 
