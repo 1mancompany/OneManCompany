@@ -87,27 +87,24 @@ class AppController {
 
   async bootstrap() {
     try {
-      const [employees, tasks, rooms, tools, activityLog, stateData] = await Promise.all([
-        fetch('/api/employees').then(r => r.json()),
-        fetch('/api/task-queue').then(r => r.json()),
-        fetch('/api/rooms').then(r => r.json()),
-        fetch('/api/tools').then(r => r.json()),
-        fetch('/api/activity-log').then(r => r.json()),
-        fetch('/api/state').then(r => r.json()),
-      ]);
+      const t0 = performance.now();
+      // Single API call replaces 6 parallel fetches
+      const data = await fetch('/api/bootstrap').then(r => r.json());
+      const { employees, tasks, rooms, tools, activity_log, version, office_layout } = data;
+      console.debug(`[bootstrap] /api/bootstrap took ${(performance.now() - t0).toFixed(0)}ms`);
+
       this.updateRoster(employees);
       this.updateTaskPanel(tasks);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
       if (window.officeRenderer) {
         window.officeRenderer.updateState({
-          employees, meeting_rooms: rooms, tools,
-          office_layout: stateData.office_layout,
+          employees, meeting_rooms: rooms, tools, office_layout,
         });
       }
       // Show version
-      if (stateData.version) {
-        document.getElementById('app-version').textContent = `v${stateData.version}`;
+      if (version) {
+        document.getElementById('app-version').textContent = `v${version}`;
       }
       // Update counters
       document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
@@ -122,8 +119,21 @@ class AppController {
       this._refreshCeoInbox();
       // Restore onboarding progress modal if there's an active onboarding
       this._restoreOnboardingProgress();
+
+      // Lazy-load full task tree summaries in background (non-blocking)
+      this._lazyLoadTaskTrees();
     } catch (e) {
       console.error('Bootstrap failed:', e);
+    }
+  }
+
+  async _lazyLoadTaskTrees() {
+    // After initial render, fetch full task queue with tree summaries to enrich the panel
+    try {
+      const tasks = await fetch('/api/task-queue').then(r => r.json());
+      this.updateTaskPanel(tasks);
+    } catch (e) {
+      console.debug('[bootstrap] lazy tree load failed:', e);
     }
   }
 

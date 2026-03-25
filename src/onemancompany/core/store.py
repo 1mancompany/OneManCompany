@@ -126,8 +126,13 @@ _dirty: set[str] = set()
 
 
 def mark_dirty(*categories: str) -> None:
-    """Mark resource categories as dirty for the next sync tick."""
+    """Mark resource categories as dirty for the next sync tick.
+
+    Also invalidates read cache for the affected categories.
+    """
     _dirty.update(categories)
+    for cat in categories:
+        _read_cache_invalidate(cat)
 
 
 def flush_dirty() -> list[str]:
@@ -135,6 +140,51 @@ def flush_dirty() -> list[str]:
     changed = list(_dirty)
     _dirty.clear()
     return changed
+
+
+# ---------------------------------------------------------------------------
+# Read cache — dirty-aware, short-lived cache for read-heavy bootstrap path
+# ---------------------------------------------------------------------------
+
+import time as _time  # noqa: E402
+
+# {cache_key: (value, timestamp)}
+_read_cache: dict[str, tuple[Any, float]] = {}
+# Maps DirtyCategory value → set of cache keys to invalidate
+_cache_key_to_category: dict[str, set[str]] = {}
+
+_CACHE_TTL_SECONDS = 3.0  # Matches sync tick interval
+
+
+def _read_cache_get(key: str) -> Any | None:
+    """Get cached value if present and not expired. Returns None on miss."""
+    entry = _read_cache.get(key)
+    if entry is None:
+        return None
+    value, ts = entry
+    if (_time.monotonic() - ts) > _CACHE_TTL_SECONDS:
+        _read_cache.pop(key, None)
+        return None
+    return value
+
+
+def _read_cache_set(key: str, value: Any, category: str) -> None:
+    """Store a value in the read cache, tagged with its dirty category."""
+    _read_cache[key] = (value, _time.monotonic())
+    _cache_key_to_category.setdefault(category, set()).add(key)
+
+
+def _read_cache_invalidate(category: str) -> None:
+    """Evict all cache entries for a dirty category."""
+    keys = _cache_key_to_category.pop(category, set())
+    for k in keys:
+        _read_cache.pop(k, None)
+
+
+def cache_clear_all() -> None:
+    """Clear entire read cache. Useful for tests."""
+    _read_cache.clear()
+    _cache_key_to_category.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +220,14 @@ def load_all_employees() -> dict[str, dict]:
     """Read all employee profile.yamls from disk. Returns {emp_id: profile_dict}.
 
     Also loads work_principles and guidance_notes from their separate files.
+    Uses dirty-aware cache to avoid redundant disk reads during rapid bootstrap/tick.
     """
+    cached = _read_cache_get("all_employees")
+    if cached is not None:
+        # Return deep copy so callers can mutate without poisoning cache
+        import copy
+        return copy.deepcopy(cached)
+
     result: dict[str, dict] = {}
     if not EMPLOYEES_DIR.exists():
         return result
@@ -184,6 +241,7 @@ def load_all_employees() -> dict[str, dict]:
             data[PF_WORK_PRINCIPLES] = load_employee_work_principles(emp_id)
             data[PF_GUIDANCE_NOTES] = load_employee_guidance(emp_id)
             result[emp_id] = data
+    _read_cache_set("all_employees", result, DirtyCategory.EMPLOYEES)
     return result
 
 
@@ -402,6 +460,9 @@ def load_meeting_minute(minute_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def load_tools() -> list[dict]:
+    cached = _read_cache_get("tools")
+    if cached is not None:
+        return list(cached)
     tools_dir = DATA_ROOT / "company" / "assets" / "tools"
     if not tools_dir.exists():
         return []
@@ -412,6 +473,7 @@ def load_tools() -> list[dict]:
         tyaml = tdir / TOOL_YAML_FILENAME
         if tyaml.exists():
             results.append(_read_yaml(tyaml))
+    _read_cache_set("tools", results, DirtyCategory.TOOLS)
     return results
 
 
@@ -439,7 +501,12 @@ async def save_tree(project_dir: str, tree_data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def load_activity_log() -> list[dict]:
-    return _read_yaml_list(COMPANY_DIR / ACTIVITY_LOG_FILENAME)
+    cached = _read_cache_get("activity_log")
+    if cached is not None:
+        return list(cached)  # shallow copy — entries are dicts, safe for slicing
+    result = _read_yaml_list(COMPANY_DIR / ACTIVITY_LOG_FILENAME)
+    _read_cache_set("activity_log", result, DirtyCategory.ACTIVITY_LOG)
+    return result
 
 
 async def append_activity(entry: dict) -> None:
@@ -601,3 +668,37 @@ def save_overhead_sync(data: dict) -> None:
     path = COMPANY_DIR / OVERHEAD_FILENAME
     _write_yaml(path, data)
     mark_dirty(DirtyCategory.OVERHEAD)
+
+
+# ---------------------------------------------------------------------------
+# Async read wrappers — offload sync disk I/O to thread pool
+# ---------------------------------------------------------------------------
+
+async def aload_all_employees() -> dict[str, dict]:
+    """Async wrapper: offloads load_all_employees() to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_all_employees)
+
+
+async def aload_activity_log() -> list[dict]:
+    """Async wrapper: offloads load_activity_log() to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_activity_log)
+
+
+async def aload_tools() -> list[dict]:
+    """Async wrapper: offloads load_tools() to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_tools)
+
+
+async def aload_rooms() -> list[dict]:
+    """Async wrapper: offloads load_rooms() to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_rooms)
+
+
+async def aload_overhead() -> dict:
+    """Async wrapper: offloads load_overhead() to thread pool."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, load_overhead)
