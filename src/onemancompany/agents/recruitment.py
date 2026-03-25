@@ -349,7 +349,11 @@ class TalentMarketClient:
     async def _call(self, tool_name: str, _retry: bool = True, **kwargs) -> dict:
         """Invoke an MCP tool, auto-injecting the API key. Auto-reconnects on connection error."""
         if not self._session:
-            raise RuntimeError("Not connected to Talent Market")
+            if self._url and self._api_key and _retry:
+                logger.info("[TalentMarket] Not connected, auto-connecting before call...")
+                await self._reconnect()
+            if not self._session:
+                raise RuntimeError("Not connected to Talent Market")
         kwargs["api_key"] = self._api_key
         logger.debug("[TalentMarket] calling tool={} args={}", tool_name,
                      {k: v[:30] + "..." if isinstance(v, str) and len(v) > 30 else v for k, v in kwargs.items() if k != "api_key"})
