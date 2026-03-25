@@ -1,6 +1,6 @@
 [project]
 name = "onemancompany"
-version = "0.2.584"
+version = "0.2.585"
 description = "A one-man company simulation with pixel art visualization and LangChain AI agents"
 requires-python = ">=3.12"
 dependencies = [

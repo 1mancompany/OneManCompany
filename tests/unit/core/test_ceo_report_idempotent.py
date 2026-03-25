@@ -86,3 +86,16 @@ async def test_auto_confirm_exception_cleans_pending(manager):
     await manager._ceo_report_auto_confirm("proj-err", {})
 
     assert "proj-err" not in manager._pending_ceo_reports
+
+
+@pytest.mark.asyncio
+async def test_auto_confirm_cancel_reraises(manager):
+    """CancelledError during auto-confirm must be re-raised, not swallowed."""
+    manager.CEO_REPORT_CONFIRM_DELAY = 999  # Long sleep, will be cancelled
+
+    task = asyncio.create_task(manager._ceo_report_auto_confirm("proj-cancel", {}))
+    await asyncio.sleep(0.01)  # Let the task start sleeping
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task

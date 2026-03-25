@@ -394,6 +394,25 @@ async def project_progress_watchdog() -> list | None:
     return None
 
 
+@system_cron("holding_timeout_sweep", interval="5m", description="HOLDING 超时扫描 — 自动 fail 过期任务")
+async def holding_timeout_sweep() -> list | None:
+    """Scan all scheduled HOLDING nodes and auto-fail those exceeding MAX_HOLD_SECONDS."""
+    from onemancompany.core.vessel import employee_manager
+
+    timed_out: list[str] = []
+    for emp_id, entries in list(employee_manager._schedule.items()):
+        for entry in list(entries):
+            result = await employee_manager._check_holding_timeout(entry.tree_path, entry.node_id)
+            if result:
+                timed_out.append(entry.node_id)
+                employee_manager.unschedule(emp_id, entry.node_id)
+
+    if timed_out:
+        logger.info("[holding_timeout_sweep] Auto-failed {} timed-out HOLDING node(s): {}",
+                     len(timed_out), timed_out)
+    return None
+
+
 def clear_watchdog_nudge(project_id: str) -> None:
     """Clear the nudge flag for a project (call when EA starts working on it)."""
     _watchdog_nudged.discard(project_id)
