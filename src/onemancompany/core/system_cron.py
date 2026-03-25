@@ -394,7 +394,7 @@ async def project_progress_watchdog() -> list | None:
     return None
 
 
-@system_cron("holding_timeout_sweep", interval="5m", description="HOLDING 超时扫描 — 自动 fail 过期任务")
+@system_cron("holding_timeout_sweep", interval="10m", description="HOLDING 超时扫描 — 自动 fail 过期任务")
 async def holding_timeout_sweep() -> list | None:
     """Scan all scheduled HOLDING nodes and auto-fail those exceeding MAX_HOLD_SECONDS."""
     from onemancompany.core.vessel import employee_manager
