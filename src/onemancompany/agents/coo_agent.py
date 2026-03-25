@@ -69,6 +69,7 @@ def _load_assets_from_disk() -> None:
                 capacity=data.get("capacity", 6),
                 position=tuple(data.get("position", [1, 8])),
                 sprite=data.get("sprite", "meeting_room"),
+                agenda=data.get("agenda", {}),
             )
 
 

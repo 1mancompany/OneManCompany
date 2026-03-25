@@ -823,6 +823,8 @@ async def pull_meeting(
                 "completed": completed,
             }
             room.agenda = agenda_data
+            from onemancompany.core.store import save_room
+            await save_room(room.id, {"agenda": agenda_data})
             await _publish("meeting_agenda_update", agenda_data)
 
         await _update_agenda(agenda_items, 0, [])
@@ -971,6 +973,7 @@ async def pull_meeting(
             "is_booked": False,
             "booked_by": "",
             "participants": [],
+            "agenda": {},
         })
         await _publish("meeting_released", {
             "room_id": room.id, "room_name": room.name,
