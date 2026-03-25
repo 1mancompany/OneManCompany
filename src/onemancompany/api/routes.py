@@ -5653,7 +5653,7 @@ async def open_ceo_conversation(node_id: str):
     emp = _load_emp(employee_id) if employee_id else None
     nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
 
-    # Create session with EA auto-reply enabled by default
+    # Create session
     session = ConversationSession(
         node_id=node_id,
         employee_id=employee_id,
@@ -5661,8 +5661,11 @@ async def open_ceo_conversation(node_id: str):
         broadcast_fn=ws_manager.broadcast,
     )
     register_session(session)
-    # Auto-enable EA auto-reply so CEO doesn't need to manually toggle it
-    session.set_ea_auto_reply(True, node.description or node.description_preview or "")
+    # Auto-enable EA auto-reply — EXCEPT for HR hiring requests (CEO must select candidates)
+    from onemancompany.core.config import HR_ID
+    is_hiring_request = employee_id == HR_ID
+    if not is_hiring_request:
+        session.set_ea_auto_reply(True, node.description or node.description_preview or "")
 
     # Start conversation loop as background task
     spawn_background(_run_conversation_loop(session, node, tree, project_dir))
