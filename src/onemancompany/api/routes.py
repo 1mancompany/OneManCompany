@@ -322,6 +322,91 @@ async def admin_clear_tasks() -> dict:
     return {"status": "cleared", "tasks_removed": cleared}
 
 
+@router.get("/api/bootstrap")
+async def get_bootstrap() -> dict:
+    """Single bootstrap endpoint — replaces 6 parallel fetches with 1 call.
+
+    Returns employees, task-queue (lightweight), rooms, tools, activity-log,
+    and state metadata. Uses async I/O to read from disk in parallel via thread pool.
+    """
+    from onemancompany.core.project_archive import list_projects
+    from onemancompany.core.store import (
+        aload_activity_log,
+        aload_all_employees,
+        aload_overhead,
+        aload_tools,
+    )
+    from onemancompany.core.vessel import employee_manager as _em
+
+    from importlib.metadata import version as _pkg_version
+    try:
+        app_version = _pkg_version("onemancompany")
+    except Exception:
+        app_version = "dev"
+
+    # Parallel async disk reads
+    employees_raw, tools, activity_log, overhead = await asyncio.gather(
+        aload_all_employees(),
+        aload_tools(),
+        aload_activity_log(),
+        aload_overhead(),
+    )
+
+    # Build employee list (same logic as /api/employees)
+    employees = []
+    for emp_id, data in employees_raw.items():
+        if emp_id == CEO_ID:
+            continue
+        runtime = data.pop("runtime", {})
+        data["id"] = emp_id
+        data["employee_number"] = emp_id
+        disk_status = runtime.get("status", STATUS_IDLE)
+        if emp_id in _em._running_tasks and disk_status != STATUS_WORKING:
+            data["status"] = STATUS_WORKING
+        else:
+            data["status"] = disk_status
+        data["is_listening"] = runtime.get("is_listening", False)
+        data[PF_CURRENT_TASK_SUMMARY] = runtime.get(PF_CURRENT_TASK_SUMMARY, "")
+        data["api_online"] = runtime.get("api_online", True)
+        data["needs_setup"] = runtime.get("needs_setup", False)
+        employees.append(data)
+
+    # Lightweight task queue — skip expensive _tree_summary on bootstrap
+    loop = asyncio.get_event_loop()
+    all_projects = await loop.run_in_executor(None, list_projects)
+    tasks = []
+    for p in all_projects:
+        if p.get("is_named"):
+            continue
+        if p.get("status") == "archived":
+            continue
+        status = _normalize_project_status(p.get("status", ""))
+        tasks.append({
+            "project_id": p["project_id"],
+            "task": p.get("task", ""),
+            "routed_to": p.get("routed_to", ""),
+            "current_owner": p.get("current_owner", ""),
+            "status": status,
+            "created_at": p.get("created_at", ""),
+            "completed_at": p.get("completed_at", ""),
+            "result": "",
+            "tree": None,  # Lazy — loaded on demand via /api/task-queue
+        })
+
+    rooms = [r.to_dict() for r in company_state.meeting_rooms.values()]
+
+    return {
+        "employees": employees,
+        "tasks": tasks,
+        "rooms": rooms,
+        "tools": tools,
+        "activity_log": activity_log[-50:],
+        "version": app_version,
+        "office_layout": company_state.office_layout,
+        "company_tokens": overhead.get("company_tokens", 0),
+    }
+
+
 @router.get("/api/state")
 async def get_state() -> dict:
     """Legacy full-state endpoint — assembles state from disk via store."""
@@ -2836,6 +2921,8 @@ async def get_task_queue() -> list[dict]:
     for p in list_projects():
         # Skip v2 named projects (shown in PROJECTS panel)
         if p.get("is_named"):
+            continue
+        if p.get("status") == "archived":
             continue
         tree = _tree_summary(p["project_id"])
         # project.yaml is the single source of truth for status

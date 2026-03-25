@@ -11,8 +11,22 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, TASK_TREE_FILENAME
+import yaml
+
+from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME
 from onemancompany.core.task_lifecycle import TaskPhase
+
+
+def _is_project_archived(tree_path: Path) -> bool:
+    """Check if the project containing this tree file is archived."""
+    project_yaml = tree_path.parent / PROJECT_YAML_FILENAME
+    if not project_yaml.exists():
+        return False
+    try:
+        doc = yaml.safe_load(project_yaml.read_text()) or {}
+        return doc.get("status") == "archived"
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +59,10 @@ def recover_schedule_from_trees(
     # 1. Scan all task_tree.yaml files under projects_dir
     if projects_dir.exists():
         for tree_path in projects_dir.rglob(TASK_TREE_FILENAME):
+            # Skip archived projects — no need to restore tasks
+            if _is_project_archived(tree_path):
+                logger.debug("Skipping archived project tree: {}", tree_path)
+                continue
             try:
                 tree = get_tree(tree_path)
             except Exception:
