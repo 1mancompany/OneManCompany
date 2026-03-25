@@ -625,6 +625,27 @@
     <span class="reconnecting-text">&#128260; Reconnecting...</span>
   </div>
 
+  <!-- Trace Viewer Modal -->
+  <div id="trace-modal" class="modal-overlay hidden">
+    <div class="modal-content" style="width:90vw;max-width:1200px;height:80vh;padding:0;background:#0a0a0a;border:1px solid #333">
+      <button class="modal-close" onclick="document.getElementById('trace-modal').classList.add('hidden')">&times;</button>
+      <div class="trace-container" style="height:100%">
+        <div class="trace-header">
+          <span class="trace-header-title" id="trace-modal-title">TRACE VIEWER</span>
+          <span class="trace-header-meta" id="trace-modal-meta"></span>
+        </div>
+        <div class="trace-body">
+          <div class="trace-tree-panel" id="trace-tree-panel">
+            <span class="trace-empty">Select a project to view trace</span>
+          </div>
+          <div class="trace-detail-panel" id="trace-detail-panel">
+            <span class="trace-empty">Select a node to view execution log</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="conversation.js"></script>
   <script src="office-tileatlas.js?v=17"></script>
@@ -633,6 +654,8 @@
   <script src="office-minimap.js?v=2"></script>
   <script src="office.js?v=29"></script>
   <script src="task-tree.js"></script>
+  <link rel="stylesheet" href="trace-viewer.css">
+  <script src="trace-viewer.js"></script>
   <script src="plugin-loader.js"></script>
   <script src="app.js"></script>
 </body>

@@ -1964,6 +1964,40 @@ class AppController {
     }
   }
 
+  // ===== Trace Viewer =====
+
+  openTraceViewer(projectId, projectName) {
+    const modal = document.getElementById('trace-modal');
+    const titleEl = document.getElementById('trace-modal-title');
+    const metaEl = document.getElementById('trace-modal-meta');
+    const treePanel = document.getElementById('trace-tree-panel');
+    const detailPanel = document.getElementById('trace-detail-panel');
+
+    titleEl.textContent = `\u2588\u2588 ${(projectName || projectId).toUpperCase()} `;
+    metaEl.textContent = '';
+    detailPanel.innerHTML = '<span class="trace-empty">Select a node to view execution log</span>';
+
+    // Create trace viewer instances
+    const nodeTrace = new NodeTraceView(detailPanel);
+    const treeView = new TraceTreeView(treePanel, {
+      onNodeSelect: (nodeId, nodeData) => {
+        if (!nodeData) return;
+        const emp = nodeData.employee_info || {};
+        const name = emp.nickname || emp.name || nodeData.employee_id || '';
+        const status = nodeData.status || '';
+        const cost = nodeData.cost_usd > 0 ? ` $${nodeData.cost_usd.toFixed(4)}` : '';
+        detailPanel.innerHTML = `<div class="trace-detail-header"><span class="trace-detail-header-name">${this._escHtml(name)}</span><span class="trace-detail-header-meta">${status}${cost}</span></div><div id="trace-node-logs"></div>`;
+        const logsContainer = document.getElementById('trace-node-logs');
+        const nodeTraceInner = new NodeTraceView(logsContainer);
+        nodeTraceInner.load(nodeId, nodeData.project_dir || '');
+      },
+    });
+    window._traceTreeView = treeView;
+
+    modal.classList.remove('hidden');
+    treeView.load(projectId);
+  }
+
   // ===== Cron Management =====
 
   async _fetchCronList(empId) {
@@ -6262,6 +6296,7 @@ class AppController {
       <span class="project-name-editable" data-project-id="${this._escHtml(projectId)}" title="Click to rename" style="color:var(--pixel-cyan);font-size:8px;cursor:pointer;border-bottom:1px dashed var(--text-dim);">${this._escHtml(proj.name || projectId)}</span>
       <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
       ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
+      <button onclick="app.openTraceViewer('${this._escHtml(projectId)}','${this._escHtml(proj.name || projectId)}')" style="margin-left:auto;background:#1a1a1a;color:#4af;border:1px solid #333;padding:1px 8px;font-size:6px;cursor:pointer;font-family:monospace">TRACE</button>
     </div>`;
 
     // Build split layout: iteration list (left) + detail (right)
