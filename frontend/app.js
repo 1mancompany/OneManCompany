@@ -463,10 +463,12 @@ class AppController {
         return null;
       },
       'agent_log':           (p) => {
-        // Live-append log entry if viewing this employee
+        // Debounced re-fetch from disk for grouped trace view
         if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
-          // Re-fetch from disk to get the complete grouped view
-          this._fetchExecutionLogs(this.viewingEmployeeId);
+          clearTimeout(this._logRefetchTimer);
+          this._logRefetchTimer = setTimeout(() => {
+            this._fetchExecutionLogs(this.viewingEmployeeId);
+          }, 500);
         }
         return null;  // don't spam the activity log
       },
@@ -662,7 +664,7 @@ class AppController {
 
       // Trace button
       const traceBtn = t.project_id
-        ? `<button class="task-trace-btn" data-project-id="${this._escHtml(t.project_id)}" title="Trace" style="background:transparent;color:#4af;border:1px solid #333;padding:0 4px;font-size:5px;cursor:pointer;font-family:monospace;margin-right:2px">T</button>`
+        ? `<button class="task-trace-btn" data-project-id="${this._escHtml(t.project_id)}" title="Trace" style="background:transparent;color:#4af;border:1px solid #333;padding:0 4px;font-size:8px;cursor:pointer;font-family:monospace;margin-right:2px">T</button>`
         : '';
 
       // Cancel button for active tasks
@@ -1772,6 +1774,8 @@ class AppController {
 
   closeEmployeeDetail() {
     this.viewingEmployeeId = null;
+    this._empNodeTrace = null;
+    clearTimeout(this._logRefetchTimer);
     this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
   }
