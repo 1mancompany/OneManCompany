@@ -5764,11 +5764,9 @@ async def open_ceo_conversation(node_id: str):
         broadcast_fn=ws_manager.broadcast,
     )
     register_session(session)
-    # Auto-enable EA auto-reply — EXCEPT for HR hiring requests (CEO must select candidates)
-    from onemancompany.core.config import HR_ID
-    is_hiring_request = employee_id == HR_ID
-    if not is_hiring_request:
-        session.set_ea_auto_reply(True, node.description or node.description_preview or "")
+    # EA auto-reply is OFF by default — CEO enables it via the sidebar checkbox
+    # (POST /api/ceo/inbox/{node_id}/ea-auto-reply). This prevents unwanted
+    # auto-replies when conversations are opened by schedule_auto_open_inbox().
 
     # Start conversation loop as background task
     spawn_background(_run_conversation_loop(session, node, tree, project_dir))
