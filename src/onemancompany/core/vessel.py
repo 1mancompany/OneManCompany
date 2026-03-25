@@ -754,6 +754,45 @@ class EmployeeManager:
         entries = self._schedule.get(employee_id, [])
         self._schedule[employee_id] = [e for e in entries if e.node_id != node_id]
 
+    def cleanup_orphaned_schedule(self) -> int:
+        """Remove schedule entries pointing to missing trees or resolved/terminal nodes.
+
+        Returns the number of entries removed.
+        """
+        from onemancompany.core.task_lifecycle import RESOLVED, TERMINAL
+        from onemancompany.core.task_tree import get_tree
+
+        removed = 0
+        for emp_id in list(self._schedule.keys()):
+            entries = self._schedule.get(emp_id, [])
+            keep = []
+            for entry in entries:
+                tree_path = Path(entry.tree_path)
+                if not tree_path.exists():
+                    logger.debug("[cleanup_schedule] Removing orphan: tree {} gone", tree_path)
+                    removed += 1
+                    continue
+                try:
+                    tree = get_tree(tree_path)
+                    node = tree.get_node(entry.node_id)
+                except Exception:
+                    logger.debug("[cleanup_schedule] Removing orphan: corrupt tree {}", tree_path)
+                    removed += 1
+                    continue
+                if not node:
+                    logger.debug("[cleanup_schedule] Removing orphan: node {} not in tree", entry.node_id)
+                    removed += 1
+                    continue
+                if TaskPhase(node.status) in TERMINAL:
+                    logger.debug("[cleanup_schedule] Removing terminal node {} ({})", entry.node_id, node.status)
+                    removed += 1
+                    continue
+                keep.append(entry)
+            self._schedule[emp_id] = keep
+        if removed:
+            logger.info("[cleanup_schedule] Removed {} orphaned schedule entries", removed)
+        return removed
+
     def get_next_scheduled(self, employee_id: str) -> ScheduleEntry | None:
         """Find next scheduled node that is PENDING with deps resolved."""
         from onemancompany.core.task_tree import get_tree
@@ -2031,7 +2070,17 @@ class EmployeeManager:
                 from onemancompany.core.task_tree import get_tree_lock
                 lock = get_tree_lock(entry.tree_path)
                 with lock:
-                    await self._on_child_complete_inner(employee_id, entry, project_id)
+                    await asyncio.wait_for(
+                        self._on_child_complete_inner(employee_id, entry, project_id),
+                        timeout=60.0,
+                    )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Completion consumer TIMEOUT (60s) for node {} tree={} — "
+                    "skipping to unblock queue. Tree may be in inconsistent state; "
+                    "restart will re-evaluate via recover_schedule_from_trees.",
+                    entry.node_id, entry.tree_path,
+                )
             except asyncio.CancelledError:
                 raise
             except Exception as e:

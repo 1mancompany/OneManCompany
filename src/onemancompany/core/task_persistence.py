@@ -14,7 +14,7 @@ from loguru import logger
 import yaml
 
 from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME
-from onemancompany.core.task_lifecycle import TaskPhase
+from onemancompany.core.task_lifecycle import RESOLVED, TaskPhase
 
 
 def _is_project_archived(tree_path: Path) -> bool:
@@ -89,6 +89,25 @@ def recover_schedule_from_trees(
                     employee_manager.schedule_node(
                         node.employee_id, node.id, str(tree_path),
                     )
+
+            # 1b. Auto-finish orphaned COMPLETED nodes whose parent is already RESOLVED.
+            # These nodes were left behind when the server restarted before the
+            # completion consumer could propagate their status upward.
+            orphan_modified = False
+            for node in tree._nodes.values():
+                if node.status != TaskPhase.COMPLETED.value:
+                    continue
+                parent = tree.get_node(node.parent_id) if node.parent_id else None
+                if parent and TaskPhase(parent.status) in RESOLVED:
+                    node.set_status(TaskPhase.ACCEPTED)
+                    node.set_status(TaskPhase.FINISHED)
+                    orphan_modified = True
+                    logger.info(
+                        "Auto-finished orphaned COMPLETED node {} (parent {} is {})",
+                        node.id, parent.id, parent.status,
+                    )
+            if orphan_modified:
+                save_tree_async(tree_path)
 
     # 2. Scan system task trees
     if employees_dir.exists():
