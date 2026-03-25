@@ -2649,6 +2649,7 @@ class TestEmployeeLogsWithLoop:
         mock_em._running_tasks = {"00010": MagicMock()}
         entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
         mock_em._schedule = {"00010": [entry]}
+        mock_em._current_entries = {"00010": entry}
         mock_em._task_logs = {"n1": [
             {"type": "start", "content": "Started"},
             {"type": "result", "content": "Done"},
@@ -2673,6 +2674,7 @@ class TestEmployeeLogsWithLoop:
         mock_em._running_tasks = {"00010": MagicMock()}
         entry = ScheduleEntry(node_id="n1", tree_path="/tmp/tree.yaml")
         mock_em._schedule = {"00010": [entry]}
+        mock_em._current_entries = {"00010": entry}
         mock_em._task_logs = {"n1": [{"type": "result", "content": "Old result"}]}
 
         with patch("onemancompany.api.routes.company_state", state), \
