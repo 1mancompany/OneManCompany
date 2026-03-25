@@ -5808,7 +5808,7 @@ async def _complete_ceo_request(
     4. Resume HOLDING parent (ceo_request hold or awaiting_children hold)
     5. Broadcast inbox update
     """
-    from onemancompany.core.task_lifecycle import can_transition, transition
+    from onemancompany.core.task_lifecycle import can_transition
     from onemancompany.core.task_tree import save_tree_async
     from onemancompany.core.vessel import _trigger_dep_resolution, employee_manager
 
@@ -5819,14 +5819,18 @@ async def _complete_ceo_request(
 
     # 1. Transition node status
     current = TaskPhase(node.status)
-    if current != target_status and can_transition(current, target_status):
+    if current == target_status:
+        pass  # Already at target, idempotent
+    elif can_transition(current, target_status):
         # For ACCEPTED: may need COMPLETED as intermediate step
         if target_status == TaskPhase.ACCEPTED and current != TaskPhase.COMPLETED:
             if can_transition(current, TaskPhase.COMPLETED):
                 node.set_status(TaskPhase.COMPLETED)
         node.set_status(target_status)
-    elif current == target_status:
-        pass  # Already at target, idempotent
+    else:
+        logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
+                        node.id, current.value, target_status.value)
+        return
 
     # 2. Save tree
     tree_path = Path(project_dir) / TASK_TREE_FILENAME
@@ -5867,7 +5871,9 @@ async def _run_conversation_loop(session, node, tree, project_dir):
 
         ea_auto_replied = not session._ceo_replied
         if ea_auto_replied:
-            # EA auto-reply: stay at COMPLETED so CEO can review before accepting
+            # EA auto-reply: stay at COMPLETED so CEO can review before accepting.
+            # Parent is still resumed — EA's decision is effective immediately,
+            # CEO can override later via confirm/dismiss.
             await _complete_ceo_request(
                 node, tree, project_dir,
                 target_status=TaskPhase.COMPLETED,
@@ -5887,7 +5893,6 @@ async def _run_conversation_loop(session, node, tree, project_dir):
     finally:
         session._cancel_ea_timer()
         unregister_session(session.node_id)
-        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
 
 
 @router.post("/api/ceo/inbox/{node_id}/message")
