@@ -1,0 +1,34 @@
+diff --git a/django/utils/numberformat.py b/django/utils/numberformat.py
+index 88b35fc435..fc2b57c905 100644
+--- a/django/utils/numberformat.py
++++ b/django/utils/numberformat.py
+@@ -31,16 +31,19 @@ def format(number, decimal_sep, decimal_pos=None, grouping=0, thousand_sep='',
+         # scientific notation to avoid high memory usage in {:f}'.format().
+         _, digits, exponent = number.as_tuple()
+         if abs(exponent) + len(digits) > 200:
+-            number = '{:e}'.format(number)
+-            coefficient, exponent = number.split('e')
+-            # Format the coefficient.
+-            coefficient = format(
+-                coefficient, decimal_sep, decimal_pos, grouping,
+-                thousand_sep, force_grouping, use_l10n,
+-            )
+-            return '{}e{}'.format(coefficient, exponent)
+-        else:
+-            str_number = '{:f}'.format(number)
++            if exponent < 0 and decimal_pos is not None and abs(exponent) > decimal_pos:
++                # Very small number that will round to zero given decimal_pos.
++                number = Decimal('0')
++            else:
++                number = '{:e}'.format(number)
++                coefficient, exponent = number.split('e')
++                # Format the coefficient.
++                coefficient = format(
++                    coefficient, decimal_sep, decimal_pos, grouping,
++                    thousand_sep, force_grouping, use_l10n,
++                )
++                return '{}e{}'.format(coefficient, exponent)
++        str_number = '{:f}'.format(number)
+     else:
+         str_number = str(number)
+     if str_number[0] == '-':

@@ -1,0 +1,23 @@
+diff --git a/astropy/coordinates/sky_coordinate.py b/astropy/coordinates/sky_coordinate.py
+index ab475f7d0d..00d554dcea 100644
+--- a/astropy/coordinates/sky_coordinate.py
++++ b/astropy/coordinates/sky_coordinate.py
+@@ -894,6 +894,18 @@ class SkyCoord(ShapedLikeNDArray):
+             if frame_cls is not None and self.frame.is_transformable_to(frame_cls):
+                 return self.transform_to(attr)
+ 
++        # Call descriptors (e.g. properties) defined on the subclass.
++        # If a property raised AttributeError internally, Python's descriptor
++        # protocol swallows it and falls through to __getattr__. We need to
++        # detect this and re-invoke the descriptor so the original error
++        # propagates instead of being masked.
++        for base in type(self).__mro__:
++            if attr in base.__dict__:
++                obj = base.__dict__[attr]
++                if hasattr(obj, '__get__'):
++                    return obj.__get__(self, type(self))
++                break
++
+         # Fail
+         raise AttributeError(
+             f"'{self.__class__.__name__}' object has no attribute '{attr}'"

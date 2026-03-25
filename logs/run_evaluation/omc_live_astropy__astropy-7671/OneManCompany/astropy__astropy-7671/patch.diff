@@ -1,0 +1,34 @@
+diff --git a/astropy/utils/introspection.py b/astropy/utils/introspection.py
+index 3e784f9fc3..9b2aa53eb5 100644
+--- a/astropy/utils/introspection.py
++++ b/astropy/utils/introspection.py
+@@ -139,10 +139,25 @@ def minversion(module, version, inclusive=True, version_path='__version__'):
+     else:
+         have_version = resolve_name(module.__name__, version_path)
+ 
+-    if inclusive:
+-        return LooseVersion(have_version) >= LooseVersion(version)
+-    else:
+-        return LooseVersion(have_version) > LooseVersion(version)
++    try:
++        if inclusive:
++            return LooseVersion(have_version) >= LooseVersion(version)
++        else:
++            return LooseVersion(have_version) > LooseVersion(version)
++    except TypeError:
++        # LooseVersion comparison can fail with TypeError when comparing
++        # mixed int/str version components (e.g., '1.14.3' vs '1.14dev').
++        # Fall back to comparing version components as tuples where
++        # strings sort before ints, treating 'dev'/'alpha'/etc. as
++        # pre-release (less than any numeric component).
++        def _key(vstring):
++            lv = LooseVersion(vstring)
++            return [(0, x) if isinstance(x, int) else (-1, x)
++                    for x in lv.version]
++        if inclusive:
++            return _key(have_version) >= _key(version)
++        else:
++            return _key(have_version) > _key(version)
+ 
+ 
+ def find_current_module(depth=1, finddiff=False):

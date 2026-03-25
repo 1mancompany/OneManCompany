@@ -1,0 +1,37 @@
+diff --git a/django/db/migrations/loader.py b/django/db/migrations/loader.py
+index 8c308621d2..d075fcc5df 100644
+--- a/django/db/migrations/loader.py
++++ b/django/db/migrations/loader.py
+@@ -84,11 +84,6 @@ class MigrationLoader:
+                     continue
+                 raise
+             else:
+-                # Empty directories are namespaces.
+-                # getattr() needed on PY36 and older (replace w/attribute access).
+-                if getattr(module, '__file__', None) is None:
+-                    self.unmigrated_apps.add(app_config.label)
+-                    continue
+                 # Module is not a package (e.g. migrations.py).
+                 if not hasattr(module, '__path__'):
+                     self.unmigrated_apps.add(app_config.label)
+diff --git a/django/db/migrations/questioner.py b/django/db/migrations/questioner.py
+index 47a3052c80..090113f3a5 100644
+--- a/django/db/migrations/questioner.py
++++ b/django/db/migrations/questioner.py
+@@ -44,13 +44,12 @@ class MigrationQuestioner:
+         except ImportError:
+             return self.defaults.get("ask_initial", False)
+         else:
+-            # getattr() needed on PY36 and older (replace with attribute access).
+-            if getattr(migrations_module, "__file__", None):
+-                filenames = os.listdir(os.path.dirname(migrations_module.__file__))
+-            elif hasattr(migrations_module, "__path__"):
++            if hasattr(migrations_module, "__path__"):
+                 if len(migrations_module.__path__) > 1:
+                     return False
+                 filenames = os.listdir(list(migrations_module.__path__)[0])
++            else:
++                return self.defaults.get("ask_initial", False)
+             return not any(x.endswith(".py") for x in filenames if x != "__init__.py")
+ 
+     def ask_not_null_addition(self, field_name, model_name):

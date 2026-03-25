@@ -1,0 +1,127 @@
+diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
+index 92fe4affb9..3a462f1c4c 100644
+--- a/django/db/models/deletion.py
++++ b/django/db/models/deletion.py
+@@ -277,6 +277,7 @@ class Collector:
+             if self.can_fast_delete(instance):
+                 with transaction.mark_for_rollback_on_error():
+                     count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
++                setattr(instance, model._meta.pk.attname, None)
+                 return count, {model._meta.label: count}
+ 
+         with transaction.atomic(using=self.using, savepoint=False):
+diff --git a/result.md b/result.md
+new file mode 100644
+index 0000000000..bfdd0f3307
+--- /dev/null
++++ b/result.md
+@@ -0,0 +1,109 @@
++# Result: django__django-11179
++
++## pwd
++
++```
++/Users/yuzhengxu/swe_bench_workdir_omc/instances/django__django-11179/repo
++```
++
++## git status --short (before)
++
++```
++ M django/db/models/deletion.py
++```
++
++## git diff --name-only
++
++```
++django/db/models/deletion.py
++```
++
++## git diff django/db/models/deletion.py
++
++```diff
++diff --git a/django/db/models/deletion.py b/django/db/models/deletion.py
++index 92fe4affb9..3a462f1c4c 100644
++--- a/django/db/models/deletion.py
+++++ b/django/db/models/deletion.py
++@@ -277,6 +277,7 @@ class Collector:
++             if self.can_fast_delete(instance):
++                 with transaction.mark_for_rollback_on_error():
++                     count = sql.DeleteQuery(model).delete_batch([instance.pk], self.using)
+++                setattr(instance, model._meta.pk.attname, None)
++                 return count, {model._meta.label: count}
++
++         with transaction.atomic(using=self.using, savepoint=False):
++```
++
++## Test command and output
++
++```
++$ PYTHONPATH=/Users/yuzhengxu/swe_bench_workdir_omc/instances/django__django-11179/repo python tests/runtests.py delete -v 2
++
++Testing against Django installed in '/Users/yuzhengxu/swe_bench_workdir_omc/instances/django__django-11179/repo/django'
++Importing application delete
++Skipping setup of unused database(s): other.
++...
++System check identified no issues (0 silenced).
++test_bulk (delete.tests.DeletionTests.test_bulk) ... ok
++test_can_defer_constraint_checks (delete.tests.DeletionTests.test_can_defer_constraint_checks) ... ok
++test_cannot_defer_constraint_checks (delete.tests.DeletionTests.test_cannot_defer_constraint_checks) ... skipped 'Database has feature(s) can_defer_constraint_checks'
++test_delete_with_keeping_parents (delete.tests.DeletionTests.test_delete_with_keeping_parents) ... ok
++test_delete_with_keeping_parents_relationships (delete.tests.DeletionTests.test_delete_with_keeping_parents_relationships) ... ok
++test_deletion_order (delete.tests.DeletionTests.test_deletion_order) ... ok
++test_hidden_related (delete.tests.DeletionTests.test_hidden_related) ... ok
++test_instance_update (delete.tests.DeletionTests.test_instance_update) ... ok
++test_large_delete (delete.tests.DeletionTests.test_large_delete) ... ok
++test_large_delete_related (delete.tests.DeletionTests.test_large_delete_related) ... ok
++test_m2m (delete.tests.DeletionTests.test_m2m) ... ok
++test_model_delete_returns_num_rows (delete.tests.DeletionTests.test_model_delete_returns_num_rows) ... ok
++test_proxied_model_duplicate_queries (delete.tests.DeletionTests.test_proxied_model_duplicate_queries) ... ok
++test_queryset_delete_returns_num_rows (delete.tests.DeletionTests.test_queryset_delete_returns_num_rows) ... ok
++test_relational_post_delete_signals_happen_before_parent_object (delete.tests.DeletionTests.test_relational_post_delete_signals_happen_before_parent_object) ... ok
++test_fast_delete_empty_no_update_can_self_select (delete.tests.FastDeleteTests.test_fast_delete_empty_no_update_can_self_select) ... ok
++test_fast_delete_fk (delete.tests.FastDeleteTests.test_fast_delete_fk) ... ok
++test_fast_delete_inheritance (delete.tests.FastDeleteTests.test_fast_delete_inheritance) ... ok
++test_fast_delete_joined_qs (delete.tests.FastDeleteTests.test_fast_delete_joined_qs) ... ok
++test_fast_delete_large_batch (delete.tests.FastDeleteTests.test_fast_delete_large_batch) ... ok
++test_fast_delete_m2m (delete.tests.FastDeleteTests.test_fast_delete_m2m) ... ok
++test_fast_delete_qs (delete.tests.FastDeleteTests.test_fast_delete_qs) ... ok
++test_fast_delete_revm2m (delete.tests.FastDeleteTests.test_fast_delete_revm2m) ... ok
++test_auto (delete.tests.OnDeleteTests.test_auto) ... ok
++test_auto_nullable (delete.tests.OnDeleteTests.test_auto_nullable) ... ok
++test_cascade (delete.tests.OnDeleteTests.test_cascade) ... ok
++test_cascade_from_child (delete.tests.OnDeleteTests.test_cascade_from_child) ... ok
++test_cascade_from_parent (delete.tests.OnDeleteTests.test_cascade_from_parent) ... ok
++test_cascade_nullable (delete.tests.OnDeleteTests.test_cascade_nullable) ... ok
++test_do_nothing (delete.tests.OnDeleteTests.test_do_nothing) ... ok
++test_do_nothing_qscount (delete.tests.OnDeleteTests.test_do_nothing_qscount) ... ok
++test_inheritance_cascade_down (delete.tests.OnDeleteTests.test_inheritance_cascade_down) ... ok
++test_inheritance_cascade_up (delete.tests.OnDeleteTests.test_inheritance_cascade_up) ... ok
++test_o2o_setnull (delete.tests.OnDeleteTests.test_o2o_setnull) ... ok
++test_protect (delete.tests.OnDeleteTests.test_protect) ... ok
++test_setdefault (delete.tests.OnDeleteTests.test_setdefault) ... ok
++test_setdefault_none (delete.tests.OnDeleteTests.test_setdefault_none) ... ok
++test_setnull (delete.tests.OnDeleteTests.test_setnull) ... ok
++test_setnull_from_child (delete.tests.OnDeleteTests.test_setnull_from_child) ... ok
++test_setnull_from_parent (delete.tests.OnDeleteTests.test_setnull_from_parent) ... ok
++test_setvalue (delete.tests.OnDeleteTests.test_setvalue) ... ok
++
++----------------------------------------------------------------------
++Ran 41 tests in 0.205s
++
++OK (skipped=1)
++Destroying test database for alias 'default' ('file:memorydb_default?mode=memory&cache=shared')...
++```
++
++## git status --short (after)
++
++```
++ M django/db/models/deletion.py
++```
++
++No commit was made.
++
++## Verification
++
++- Fix adds `setattr(instance, model._meta.pk.attname, None)` in the fast-delete optimization path of `Collector.delete()`, ensuring that when a single model instance with no dependencies is deleted via the fast path, its PK is set to `None` — matching the behavior of the normal deletion path (line 327).
++- All 41 delete tests pass (1 skipped due to DB feature).
++- Only `django/db/models/deletion.py` was modified; no test files changed.

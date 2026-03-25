@@ -1,0 +1,15 @@
+diff --git a/astropy/io/ascii/html.py b/astropy/io/ascii/html.py
+index 266cf229cc..ef548b5322 100644
+--- a/astropy/io/ascii/html.py
++++ b/astropy/io/ascii/html.py
+@@ -423,6 +423,10 @@ class HTML(core.BaseReader):
+                         # requires that the weakref info._parent be maintained.
+                         new_cols = []
+ 
++                        # Apply column formats from the formats keyword argument
++                        self.data.cols = cols
++                        self.data._set_col_formats()
++
+                         for col, col_escaped in zip(cols, cols_escaped):
+                             if len(col.shape) > 1 and self.html['multicol']:
+                                 span = col.shape[1]

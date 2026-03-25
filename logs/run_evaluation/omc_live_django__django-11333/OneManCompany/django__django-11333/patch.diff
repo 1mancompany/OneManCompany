@@ -1,0 +1,150 @@
+diff --git a/django/urls/base.py b/django/urls/base.py
+index 0e1c3d909c..dd9b2e4c22 100644
+--- a/django/urls/base.py
++++ b/django/urls/base.py
+@@ -7,7 +7,7 @@ from django.utils.functional import lazy
+ from django.utils.translation import override
+ 
+ from .exceptions import NoReverseMatch, Resolver404
+-from .resolvers import get_ns_resolver, get_resolver
++from .resolvers import _get_cached_resolver, get_ns_resolver, get_resolver
+ from .utils import get_callable
+ 
+ # SCRIPT_NAME prefixes for each thread are stored here. If there's no entry for
+@@ -92,7 +92,7 @@ reverse_lazy = lazy(reverse, str)
+ 
+ def clear_url_caches():
+     get_callable.cache_clear()
+-    get_resolver.cache_clear()
++    _get_cached_resolver.cache_clear()
+     get_ns_resolver.cache_clear()
+ 
+ 
+diff --git a/django/urls/resolvers.py b/django/urls/resolvers.py
+index 247e3680c0..43095e7f61 100644
+--- a/django/urls/resolvers.py
++++ b/django/urls/resolvers.py
+@@ -63,10 +63,14 @@ class ResolverMatch:
+         )
+ 
+ 
+-@functools.lru_cache(maxsize=None)
+ def get_resolver(urlconf=None):
+     if urlconf is None:
+         urlconf = settings.ROOT_URLCONF
++    return _get_cached_resolver(urlconf)
++
++
++@functools.lru_cache(maxsize=None)
++def _get_cached_resolver(urlconf):
+     return URLResolver(RegexPattern(r'^/'), urlconf)
+ 
+ 
+diff --git a/result.md b/result.md
+new file mode 100644
+index 0000000000..bcd3958dfc
+--- /dev/null
++++ b/result.md
+@@ -0,0 +1,102 @@
++# Result: django__django-11333
++
++## Issue Summary
++
++`get_resolver(None)` and `get_resolver(settings.ROOT_URLCONF)` created two separate cached `URLResolver` instances because `@lru_cache` cached on the raw argument (`None` vs the urlconf string). This caused duplicate expensive `_populate()` calls.
++
++## Fix
++
++Split `get_resolver` into a public wrapper that normalizes `None` → `settings.ROOT_URLCONF`, and a private `@lru_cache`-decorated `_get_cached_resolver` that does the actual caching on the resolved urlconf string.
++
++Updated `clear_url_caches()` in `django/urls/base.py` to call `_get_cached_resolver.cache_clear()` instead of the now-uncached `get_resolver.cache_clear()`.
++
++## Changed Files
++
++- `django/urls/resolvers.py` — split `get_resolver` into wrapper + `_get_cached_resolver`
++- `django/urls/base.py` — import `_get_cached_resolver`, update `clear_url_caches()`
++
++## Audit Evidence
++
++### pwd
++```
++/Users/yuzhengxu/swe_bench_workdir_omc/instances/django__django-11333/repo
++```
++
++### git status --short (before change already applied)
++```
++ M django/urls/base.py
++ M django/urls/resolvers.py
++```
++
++### git diff --name-only
++```
++django/urls/base.py
++django/urls/resolvers.py
++```
++
++### Full git diff
++```diff
++diff --git a/django/urls/base.py b/django/urls/base.py
++index 0e1c3d909c..dd9b2e4c22 100644
++--- a/django/urls/base.py
+++++ b/django/urls/base.py
++@@ -7,7 +7,7 @@ from django.utils.functional import lazy
++ from django.utils.translation import override
++
++ from .exceptions import NoReverseMatch, Resolver404
++-from .resolvers import get_ns_resolver, get_resolver
+++from .resolvers import _get_cached_resolver, get_ns_resolver, get_resolver
++ from .utils import get_callable
++
++ # SCRIPT_NAME prefixes for each thread are stored here. If there's no entry for
++@@ -92,7 +92,7 @@ reverse_lazy = lazy(reverse, str)
++
++ def clear_url_caches():
++     get_callable.cache_clear()
++-    get_resolver.cache_clear()
+++    _get_cached_resolver.cache_clear()
++     get_ns_resolver.cache_clear()
++
++
++diff --git a/django/urls/resolvers.py b/django/urls/resolvers.py
++index 247e3680c0..43095e7f61 100644
++--- a/django/urls/resolvers.py
+++++ b/django/urls/resolvers.py
++@@ -63,10 +63,14 @@ class ResolverMatch:
++         )
++
++
++-@functools.lru_cache(maxsize=None)
++ def get_resolver(urlconf=None):
++     if urlconf is None:
++         urlconf = settings.ROOT_URLCONF
+++    return _get_cached_resolver(urlconf)
+++
+++
+++@functools.lru_cache(maxsize=None)
+++def _get_cached_resolver(urlconf):
++     return URLResolver(RegexPattern(r'^/'), urlconf)
++```
++
++### Verification test output
++```
++clear_url_caches works fine
++None == ROOT_URLCONF: True
++default == ROOT_URLCONF: True
++Cache info: CacheInfo(hits=2, misses=1, maxsize=None, currsize=1)
++```
++
++This confirms:
++- `get_resolver(None)` and `get_resolver(settings.ROOT_URLCONF)` return the **same** instance
++- Only **1** `URLResolver` is cached (currsize=1), not 2
++- `clear_url_caches()` works correctly
++
++### No-commit verification
++```
++git log --oneline -1
++d5010ff feat: live evaluation pipeline for SWE-bench runner (#83)
++```
++No new commits were created — only file modifications.
++
++## Verification Note
++Code reviewed: the fix is minimal and correct. The normalization of `None` → `settings.ROOT_URLCONF` happens before the cache lookup, ensuring only one resolver per urlconf string is ever created. All existing call sites work unchanged since `get_resolver`'s public API is preserved.

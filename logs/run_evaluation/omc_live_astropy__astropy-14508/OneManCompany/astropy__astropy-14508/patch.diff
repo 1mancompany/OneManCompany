@@ -1,0 +1,35 @@
+diff --git a/astropy/io/fits/card.py b/astropy/io/fits/card.py
+index 118bfced89..ed31c81da1 100644
+--- a/astropy/io/fits/card.py
++++ b/astropy/io/fits/card.py
+@@ -1299,6 +1299,30 @@ def _format_value(value):
+ 
+ def _format_float(value):
+     """Format a floating number to make sure it gets the decimal point."""
++    # Try Python's shortest repr first; it round-trips and may be shorter
++    # than the 16-digit format, avoiding unnecessary comment truncation.
++    text = str(value)
++    if (
++        len(text) <= 20
++        and not text.endswith("inf")
++        and text != "nan"
++        and float(text) == value
++    ):
++        if "." not in text and "E" not in text and "e" not in text:
++            text += ".0"
++        if len(text) <= 20:
++            if "e" in text or "E" in text:
++                text = text.upper()
++                significand, exponent = text.split("E")
++                if exponent[0] in ("+", "-"):
++                    sign = exponent[0]
++                    exponent = exponent[1:]
++                else:
++                    sign = ""
++                text = f"{significand}E{sign}{int(exponent):02d}"
++            if len(text) <= 20:
++                return text
++
+     value_str = f"{value:.16G}"
+     if "." not in value_str and "E" not in value_str:
+         value_str += ".0"
