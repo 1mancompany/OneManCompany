@@ -611,7 +611,7 @@ class BaseAgentRunner:
                 output = data.get("output", "")
                 name = event.get("name", "tool")
                 result_str = str(output)
-                last_tool_results.append(f"{name} → {result_str[:300]}")
+                last_tool_results.append(f"{name} → {result_str}")
                 on_log("tool_result", f"{name} → {result_str}")
                 # Capture ToolMessage for Debug trace
                 raw_output = data.get("output")

@@ -406,6 +406,43 @@ class TaskTreeRenderer {
             .classed('selected', d => d.data.id === nodeData.id);
 
         content.innerHTML = this._renderNodeDetail(nodeData);
+
+        const logToggles = content.querySelectorAll('.detail-log-toggle');
+        logToggles.forEach(el => {
+            el.addEventListener('click', async () => {
+                const nodeId = el.dataset.nodeId;
+                const logContent = document.getElementById(`node-log-${nodeId}`);
+                if (!logContent) return;
+                if (logContent.classList.contains('hidden')) {
+                    logContent.classList.remove('hidden');
+                    el.innerHTML = '&#9660; Execution Log';
+                    logContent.innerHTML = '<div style="color:#666;padding:8px">Loading...</div>';
+                    try {
+                        const logs = await fetch(`/api/task-tree/${nodeId}/logs`).then(r => r.json());
+                        if (logs.length === 0) {
+                            logContent.innerHTML = '<div style="color:#666;padding:8px">No logs available</div>';
+                        } else {
+                            logContent.innerHTML = logs.map(log => {
+                                const typeColors = {tool_call:'#4488ff', tool_result:'#888', llm_output:'#44cc88', llm_input:'#aa88ff', error:'#ff4444', start:'#44cc88', result:'#44cc88'};
+                                const color = typeColors[log.type] || '#666';
+                                const ts = (log.ts || '').substring(11, 19);
+                                const escapedContent = (log.content || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+                                return `<div class="node-log-entry" style="padding:3px 6px;border-bottom:1px solid #1a1a2e;font-size:11px">
+                                    <span style="color:#555">${ts}</span>
+                                    <span style="color:${color};font-weight:bold;margin:0 6px">${log.type}</span>
+                                    <pre style="white-space:pre-wrap;max-height:150px;overflow-y:auto;margin:2px 0;color:#ccc">${escapedContent}</pre>
+                                </div>`;
+                            }).join('');
+                        }
+                    } catch (e) {
+                        logContent.innerHTML = '<div style="color:#f44;padding:8px">Failed to load logs</div>';
+                    }
+                } else {
+                    logContent.classList.add('hidden');
+                    el.innerHTML = '&#9654; Execution Log';
+                }
+            });
+        });
     }
 
     _escapeHtml(str) {
@@ -426,12 +463,12 @@ class TaskTreeRenderer {
                 if (depNode) {
                     const statusColor = TaskTreeRenderer.STATUS_COLORS[depNode.status] || '#666';
                     const desc = depNode.description ? this._escapeHtml(depNode.description.slice(0, 60)) + '...' : '';
-                    html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
+                    html += `<li><span class="node-log-type" style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(depNode.employee_info?.name || depId)}: ${desc} [${this._escapeHtml(depNode.status)}]</li>`;
                 }
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">None</p>';
+            html += '<p class="node-log-empty">None</p>';
         }
         html += '</div>';
 
@@ -447,11 +484,11 @@ class TaskTreeRenderer {
             dependents.forEach(dep => {
                 const statusColor = TaskTreeRenderer.STATUS_COLORS[dep.status] || '#666';
                 const desc = dep.description ? this._escapeHtml(dep.description.slice(0, 60)) + '...' : '';
-                html += `<li><span style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
+                html += `<li><span class="node-log-type" style="color:${statusColor}">\u25cf</span> ${this._escapeHtml(dep.employee_info?.name || dep.id)}: ${desc} [${this._escapeHtml(dep.status)}]</li>`;
             });
             html += '</ul>';
         } else {
-            html += '<p style="color:#888;margin:4px 0">None</p>';
+            html += '<p class="node-log-empty">None</p>';
         }
         html += '</div>';
 
@@ -511,6 +548,13 @@ class TaskTreeRenderer {
                 <span>Tokens: ${node.input_tokens || 0} in / ${node.output_tokens || 0} out</span>
                 <span>Cost: $${(node.cost_usd || 0).toFixed(4)}</span>
                 <span>Timeout: ${node.timeout_seconds || 3600}s</span>
+            </div>
+
+            <div class="detail-section">
+                <h4 class="detail-log-toggle" data-node-id="${node.id}" style="cursor:pointer;user-select:none">
+                    &#9654; Execution Log
+                </h4>
+                <div class="detail-log-content hidden" id="node-log-${node.id}"></div>
             </div>
         `;
     }

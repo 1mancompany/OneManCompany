@@ -260,6 +260,16 @@ class OfficeRenderer {
     for (const room of (this.state.meeting_rooms || [])) {
       const [rx, ry] = room.position || [0, 0];
       if (tx >= rx && tx <= rx + 1 && ty >= ry + WALL_ROWS && ty <= ry + WALL_ROWS + 2) {
+        // Minutes icon hit test (pixel-level) — top-right corner of room when not booked
+        if (!room.is_booked) {
+          const rpx = rx * TILE, rpy = (ry + WALL_ROWS) * TILE;
+          const rw = TILE * 2 + 8;
+          const iconX = rpx + rw - 14, iconY = rpy - 2;
+          if (world.x >= iconX && world.x <= iconX + 8 && world.y >= iconY && world.y <= iconY + 6) {
+            if (window.app?.openMeetingMinutes) window.app.openMeetingMinutes(room);
+            return;
+          }
+        }
         if (window.app?.openMeetingRoom) window.app.openMeetingRoom(room);
         return;
       }
@@ -1113,6 +1123,13 @@ class OfficeRenderer {
       ctx.fillText('IN USE', px + TILE, ly + 8 + lines.length * lineH);
     }
     ctx.textAlign = 'left';
+
+    // Meeting minutes icon — small book icon on room wall when not booked
+    if (!roomData.is_booked) {
+      const iconX = px + rw - 14, iconY = py - 2;
+      this._rect(iconX, iconY, 8, 6, '#4466aa');
+      this._rect(iconX + 1, iconY + 1, 2, 4, '#fff');
+    }
   }
 
   // ── Entity drawing (Y-sorted) ──────────────────────────────────────────────

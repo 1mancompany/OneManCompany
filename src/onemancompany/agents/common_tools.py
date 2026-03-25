@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -791,6 +791,7 @@ async def pull_meeting(
     if agenda:
         await _chat(room.id, initiator_name, "employee", f"Agenda: {agenda}")
 
+    summary_text = ""  # set in try block, read in finally for archival
     try:
         # --- Parse agenda into discrete items ---
         agenda_items = _parse_agenda_items(agenda)
@@ -909,16 +910,6 @@ async def pull_meeting(
         except (json.JSONDecodeError, AttributeError) as _e:
             logger.debug("Failed to parse meeting action items: {}", _e)
 
-        from onemancompany.core.store import append_activity_sync
-        append_activity_sync({
-            "type": "pull_meeting",
-            "topic": topic,
-            "initiator": initiator_id,
-            "participants": [pid for pid, _ in valid_participants],
-            "room": room.name,
-            "rounds": rounds_used,
-        })
-
         return {
             "status": "completed",
             "room": room.name,
@@ -934,6 +925,45 @@ async def pull_meeting(
         }
 
     finally:
+        # Archive meeting activity — in finally so it runs even on error
+        from onemancompany.core.store import append_activity_sync
+        try:
+            _rounds = rounds_used
+        except NameError:
+            _rounds = 0
+        append_activity_sync({
+            "type": "pull_meeting",
+            "topic": topic,
+            "initiator": initiator_id,
+            "participants": [pid for pid, _ in valid_participants],
+            "room": room.name,
+            "rounds": _rounds,
+        })
+
+        # Archive meeting chat to minutes and clear room chat
+        try:
+            from onemancompany.core.store import load_room_chat, archive_meeting
+            chat_messages = load_room_chat(room.id)
+            if chat_messages:
+                try:
+                    _summary = summary_text
+                except NameError:
+                    _summary = ""
+                archive_meeting(room.id, {
+                    "room_id": room.id,
+                    "room_name": room.name,
+                    "topic": topic,
+                    "participants": [pid for pid, _ in valid_participants],
+                    "messages": chat_messages,
+                    "summary": _summary,
+                })
+                # Clear room chat for next meeting
+                chat_path = ROOMS_DIR / f"{room.id}_chat.yaml"
+                if chat_path.exists():
+                    chat_path.write_text("[]", encoding="utf-8")
+        except Exception as _archive_err:
+            logger.debug("Failed to archive meeting: {}", _archive_err)
+
         # Unregister CEO message queue
         _ceo_meeting_queues.pop(room.id, None)
         # Release meeting room
@@ -949,6 +979,39 @@ async def pull_meeting(
         await _publish("meeting_released", {
             "room_id": room.id, "room_name": room.name,
         })
+
+        # Archive meeting minutes
+        try:
+            from onemancompany.core.meeting_minutes import archive_meeting
+            from onemancompany.core.store import load_room_chat, clear_room_chat
+            chat_messages = load_room_chat(room.id)
+            if chat_messages:
+                _proj_id = ""
+                try:
+                    from onemancompany.core.vessel import _current_task_id
+                    _task_id = _current_task_id.get("")
+                    if _task_id:
+                        from onemancompany.core.config import PROJECTS_DIR, TASK_TREE_FILENAME
+                        from onemancompany.core.task_tree import get_tree
+                        for _tp in PROJECTS_DIR.rglob(TASK_TREE_FILENAME) if PROJECTS_DIR.exists() else []:
+                            _t = get_tree(str(_tp))
+                            _n = _t.get_node(_task_id)
+                            if _n:
+                                _proj_id = _n.project_id or ""
+                                break
+                except Exception as _pe:
+                    logger.debug("Could not resolve project_id for meeting archival: {}", _pe)
+                archive_meeting(
+                    room_id=room.id,
+                    topic=topic,
+                    project_id=_proj_id,
+                    participants=[pid for pid, _ in speakers],
+                    messages=chat_messages,
+                    conclusion=summary_text,
+                )
+                await clear_room_chat(room.id)
+        except Exception as e:
+            logger.warning("Failed to archive meeting minutes: {}", e)
 
 
 @tool
@@ -1408,6 +1471,27 @@ def update_project_team(members: list[dict]) -> dict:
     return {"status": "ok", "added": added, "total": len(team)}
 
 
+@tool
+def view_meeting_minutes(
+    room_id: str = "", project_id: str = "",
+    employee_id: str = "", limit: int = 5,
+) -> dict:
+    """View archived meeting minutes. Filter by room, project, or participant.
+
+    Args:
+        room_id: Filter by meeting room ID
+        project_id: Filter by project ID
+        employee_id: Filter by participant employee ID
+        limit: Maximum number of results
+    """
+    from onemancompany.core.meeting_minutes import query_minutes
+    results = query_minutes(
+        room_id=room_id, project_id=project_id,
+        employee_id=employee_id, limit=limit,
+    )
+    return {"status": "ok", "minutes": results, "count": len(results)}
+
+
 # ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
@@ -1426,7 +1510,7 @@ def _register_all_internal_tools() -> None:
         glob_files, grep_search,
         load_skill,
         resume_held_task, update_project_team,
-        read_node_detail,
+        read_node_detail, view_meeting_minutes,
         # Formerly gated — now available to all employees
         bash, use_tool, set_project_budget,
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
