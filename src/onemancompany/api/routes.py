@@ -5889,6 +5889,16 @@ def _parse_hold_reason(hold_reason: str | None) -> dict[str, str]:
     return result
 
 
+# Per-node lock to prevent race between conversation loop and confirm/dismiss
+_ceo_request_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_ceo_request_lock(node_id: str) -> asyncio.Lock:
+    if node_id not in _ceo_request_locks:
+        _ceo_request_locks[node_id] = asyncio.Lock()
+    return _ceo_request_locks[node_id]
+
+
 async def _complete_ceo_request(
     node, tree, project_dir: str, *,
     target_status: TaskPhase = TaskPhase.ACCEPTED,
@@ -5896,6 +5906,9 @@ async def _complete_ceo_request(
     notes: str = "",
 ) -> None:
     """Unified completion for CEO_REQUEST nodes.
+
+    Serialized per node_id to prevent race between conversation loop
+    and confirm/dismiss endpoints.
 
     Handles ALL side effects in one place:
     1. Transition node to target_status (ACCEPTED or CANCELLED)
@@ -5908,55 +5921,56 @@ async def _complete_ceo_request(
     from onemancompany.core.task_tree import save_tree_async
     from onemancompany.core.vessel import _trigger_dep_resolution, employee_manager
 
-    if result:
-        node.result = result
-    if notes:
-        node.acceptance_result = {"passed": target_status != TaskPhase.CANCELLED, "notes": notes}
+    async with _get_ceo_request_lock(node.id):
+        if result:
+            node.result = result
+        if notes:
+            node.acceptance_result = {"passed": target_status != TaskPhase.CANCELLED, "notes": notes}
 
-    # 1. Transition node status (supports multi-hop: PROCESSING→COMPLETED→ACCEPTED)
-    current = TaskPhase(node.status)
-    if current == target_status:
-        pass  # Already at target, idempotent
-    elif can_transition(current, target_status):
-        node.set_status(target_status)
-    elif target_status == TaskPhase.ACCEPTED and can_transition(current, TaskPhase.COMPLETED):
-        # Multi-hop: PROCESSING→COMPLETED→ACCEPTED
-        node.set_status(TaskPhase.COMPLETED)
-        node.set_status(TaskPhase.ACCEPTED)
-    else:
-        logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
-                        node.id, current.value, target_status.value)
-        return
+        # 1. Transition node status (supports multi-hop: PROCESSING→COMPLETED→ACCEPTED)
+        current = TaskPhase(node.status)
+        if current == target_status:
+            pass  # Already at target, idempotent
+        elif can_transition(current, target_status):
+            node.set_status(target_status)
+        elif target_status == TaskPhase.ACCEPTED and can_transition(current, TaskPhase.COMPLETED):
+            # Multi-hop: PROCESSING→COMPLETED→ACCEPTED
+            node.set_status(TaskPhase.COMPLETED)
+            node.set_status(TaskPhase.ACCEPTED)
+        else:
+            logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
+                            node.id, current.value, target_status.value)
+            return
 
-    # 2. Save tree
-    tree_path = Path(project_dir) / TASK_TREE_FILENAME
-    save_tree_async(tree_path)
+        # 2. Save tree
+        tree_path = Path(project_dir) / TASK_TREE_FILENAME
+        save_tree_async(tree_path)
 
-    # 3. Resolve sibling dependencies
-    _trigger_dep_resolution(project_dir, tree, node)
+        # 3. Resolve sibling dependencies
+        _trigger_dep_resolution(project_dir, tree, node)
 
-    # 4. Resume HOLDING parent
-    parent = tree.get_node(node.parent_id) if node.parent_id else None
-    if parent and parent.status == TaskPhase.HOLDING.value:
-        hr_meta = _parse_hold_reason(parent.hold_reason)
-        should_resume = (
-            hr_meta.get("ceo_request") == node.id
-            or "awaiting_children" in (parent.hold_reason or "")
-        )
-        if should_resume:
-            resume_text = f"CEO request {node.id} resolved ({target_status.value}): {(node.result or '')[:500]}"
-            resumed = await employee_manager.resume_held_task(
-                parent.employee_id, parent.id, resume_text,
+        # 4. Resume HOLDING parent
+        parent = tree.get_node(node.parent_id) if node.parent_id else None
+        if parent and parent.status == TaskPhase.HOLDING.value:
+            hr_meta = _parse_hold_reason(parent.hold_reason)
+            should_resume = (
+                hr_meta.get("ceo_request") == node.id
+                or "awaiting_children" in (parent.hold_reason or "")
             )
-            if resumed:
-                logger.info("[ceo_request] Resumed HOLDING parent {} after node {} → {}",
+            if should_resume:
+                resume_text = f"CEO request {node.id} resolved ({target_status.value}): {(node.result or '')[:500]}"
+                resumed = await employee_manager.resume_held_task(
+                    parent.employee_id, parent.id, resume_text,
+                )
+                if resumed:
+                    logger.info("[ceo_request] Resumed HOLDING parent {} after node {} → {}",
                             parent.id, node.id, target_status.value)
-            else:
-                logger.warning("[ceo_request] Failed to resume parent {} for node {}", parent.id, node.id)
+                else:
+                    logger.warning("[ceo_request] Failed to resume parent {} for node {}", parent.id, node.id)
 
-    # 5. Broadcast
-    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-    logger.info("[ceo_request] Completed node={} → {} notes={}", node.id, target_status.value, notes[:80])
+        # 5. Broadcast
+        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+        logger.info("[ceo_request] Completed node={} → {} notes={}", node.id, target_status.value, notes[:80])
 
 
 async def _run_conversation_loop(session, node, tree, project_dir):
