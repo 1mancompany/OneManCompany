@@ -111,6 +111,12 @@ class AppController {
       document.getElementById('tool-count').textContent = `🔧 ${tools.length}`;
       const freeRooms = rooms.filter(r => !r.is_booked).length;
       document.getElementById('room-count').textContent = `🏢 ${freeRooms}/${rooms.length}`;
+      // Restore meeting agenda cache from room data (survives page refresh)
+      for (const room of rooms) {
+        if (room.agenda && room.agenda.items && room.agenda.items.length > 0) {
+          this._meetingAgendaCache[room.id] = room.agenda;
+        }
+      }
       // Refresh meeting modal if open
       if (this.viewingRoomId) {
         const room = rooms.find(r => r.id === this.viewingRoomId);

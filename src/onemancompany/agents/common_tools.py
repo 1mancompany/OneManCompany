@@ -814,13 +814,18 @@ async def pull_meeting(
         ceo_queue: asyncio.Queue = asyncio.Queue()
         _ceo_meeting_queues[room.id] = ceo_queue
 
-        # Broadcast initial agenda to frontend
-        await _publish("meeting_agenda_update", {
-            "room_id": room.id,
-            "items": agenda_items,
-            "current_index": 0,
-            "completed": [],
-        })
+        # Persist + broadcast agenda to frontend
+        async def _update_agenda(items, current_index, completed):
+            agenda_data = {
+                "room_id": room.id,
+                "items": items,
+                "current_index": current_index,
+                "completed": completed,
+            }
+            room.agenda = agenda_data
+            await _publish("meeting_agenda_update", agenda_data)
+
+        await _update_agenda(agenda_items, 0, [])
 
         rounds_used = 0
 
@@ -829,12 +834,7 @@ async def pull_meeting(
             completed_indices: list[int] = []
             for item_idx, item_text in enumerate(agenda_items):
                 # Broadcast current agenda item
-                await _publish("meeting_agenda_update", {
-                    "room_id": room.id,
-                    "items": agenda_items,
-                    "current_index": item_idx,
-                    "completed": completed_indices,
-                })
+                await _update_agenda(agenda_items, item_idx, completed_indices)
                 await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER,
                             f"📋 Agenda item {item_idx + 1}/{len(agenda_items)}: {item_text}")
                 chat_history.append({"speaker": MEETING_SYSTEM_SENDER, "message": f"Now discussing: {item_text}"})
@@ -854,12 +854,7 @@ async def pull_meeting(
                 completed_indices.append(item_idx)
 
             # Broadcast all items completed
-            await _publish("meeting_agenda_update", {
-                "room_id": room.id,
-                "items": agenda_items,
-                "current_index": -1,
-                "completed": completed_indices,
-            })
+            await _update_agenda(agenda_items, -1, completed_indices)
             await _chat(room.id, MEETING_SYSTEM_SENDER, SYSTEM_SENDER, "All agenda items have been discussed. Meeting concluded.")
 
         else:
@@ -970,6 +965,7 @@ async def pull_meeting(
         room.is_booked = False
         room.booked_by = ""
         room.participants = []
+        room.agenda = {}  # Clear agenda on meeting end
         from onemancompany.core.store import save_room
         await save_room(room.id, {
             "is_booked": False,

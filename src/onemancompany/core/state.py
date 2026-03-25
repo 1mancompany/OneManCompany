@@ -123,6 +123,8 @@ class MeetingRoom:
     booked_by: str = ""  # employee_id who booked it
     participants: list[str] = field(default_factory=list)  # employee_ids in the meeting
     is_booked: bool = False
+    # Active agenda (persisted so it survives page refresh)
+    agenda: dict = field(default_factory=dict)  # {items, current_index, completed}
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +137,7 @@ class MeetingRoom:
             "booked_by": self.booked_by,
             "participants": self.participants,
             "is_booked": self.is_booked,
+            "agenda": self.agenda,
         }
 
 
