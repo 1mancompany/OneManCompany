@@ -110,6 +110,30 @@ def _get_current_node(tree: TaskTree, task_id: str):
     return tree.get_node(task_id)
 
 
+def schedule_auto_open_inbox(node_id: str) -> None:
+    """Schedule auto-opening of a CEO inbox conversation so EA auto-reply starts.
+
+    Must be called from a sync context (e.g., LangChain tool). Uses the main
+    event loop to schedule the async open_ceo_conversation call.
+    """
+    import asyncio
+    from onemancompany.core.vessel import employee_manager
+
+    async def _auto_open(nid: str):
+        try:
+            from onemancompany.api.routes import open_ceo_conversation
+            await open_ceo_conversation(nid)
+            logger.info("[auto_open_inbox] Opened CEO conversation for {}", nid)
+        except Exception as _e:
+            logger.warning("[auto_open_inbox] Failed for {}: {}", nid, _e)
+
+    main_loop = getattr(employee_manager, "_event_loop", None)
+    if main_loop and main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(_auto_open(node_id), main_loop)
+    else:
+        logger.warning("[auto_open_inbox] No event loop, cannot auto-open {}", node_id)
+
+
 def _create_standalone_ceo_request(
     description: str,
     requester_task_id: str,
@@ -141,6 +165,9 @@ def _create_standalone_ceo_request(
         asyncio.run_coroutine_threadsafe(coro, main_loop)
     else:
         logger.warning("No event loop for standalone ceo_inbox_updated publish")
+
+    # Auto-open conversation so EA auto-reply starts immediately
+    schedule_auto_open_inbox(node_id)
 
     return {
         "status": "dispatched",
@@ -352,17 +379,10 @@ def dispatch_child(
             main_loop = getattr(employee_manager, "_event_loop", None)
             if main_loop and main_loop.is_running():
                 asyncio.run_coroutine_threadsafe(coro, main_loop)
-                # Auto-open conversation so EA auto-reply works without CEO clicking
-                async def _auto_open_inbox(nid: str):
-                    try:
-                        from onemancompany.api.routes import open_ceo_conversation
-                        await open_ceo_conversation(nid)
-                        logger.info("[dispatch_child] Auto-opened CEO inbox conversation for {}", nid)
-                    except Exception as _e:
-                        logger.debug("[dispatch_child] Auto-open inbox failed for {}: {}", nid, _e)
-                asyncio.run_coroutine_threadsafe(_auto_open_inbox(child.id), main_loop)
             else:
                 logger.warning("No event loop for ceo_inbox_updated publish")
+            # Auto-open conversation so EA auto-reply works without CEO clicking
+            schedule_auto_open_inbox(child.id)
             return {
                 "status": "dispatched",
                 "node_id": child.id,

@@ -2398,6 +2398,9 @@ class EmployeeManager:
                 )))
             except RuntimeError:
                 logger.debug("No event loop for circuit breaker CEO escalation publish")
+            # Auto-open conversation so EA auto-reply starts immediately
+            from onemancompany.agents.tree_tools import schedule_auto_open_inbox
+            schedule_auto_open_inbox(ceo_node.id)
             return
 
         # Create a review node in the tree and schedule it
