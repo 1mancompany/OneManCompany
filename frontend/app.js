@@ -463,24 +463,12 @@ class AppController {
         return null;
       },
       'agent_log':           (p) => {
-        // Append log entry live if viewing this employee
+        // Debounced re-fetch from disk for grouped trace view
         if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
-          const container = document.getElementById('emp-detail-logs');
-          if (container && !container.querySelector('.empty-hint')) {
-            const ts = (p.timestamp || '').substring(11, 19);
-            const cls = p.log_type || 'info';
-            const raw = p.content || '';
-            const truncated = raw.length > 200;
-            let logHtml = `<div class="emp-log-entry ${cls}"><span class="log-time">${ts}</span> <span class="log-content">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
-            if (truncated) {
-              logHtml += `<span class="log-full" style="display:none">${this._escHtml(raw)}</span>`;
-              logHtml += `<span class="log-expand" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
-              logHtml += `<span class="log-collapse" style="display:none" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
-            }
-            logHtml += '</div>';
-            container.insertAdjacentHTML('beforeend', logHtml);
-            container.scrollTop = container.scrollHeight;
-          }
+          clearTimeout(this._logRefetchTimer);
+          this._logRefetchTimer = setTimeout(() => {
+            this._fetchExecutionLogs(this.viewingEmployeeId);
+          }, 500);
         }
         return null;  // don't spam the activity log
       },
@@ -674,15 +662,20 @@ class AppController {
         timeHtml = `<span class="task-card-time">${completedTime}</span>`;
       }
 
+      // Trace button
+      const traceBtn = t.project_id
+        ? `<button class="task-trace-btn" data-project-id="${this._escHtml(t.project_id)}" title="Trace" style="background:transparent;color:#4af;border:1px solid #333;padding:0 4px;font-size:8px;cursor:pointer;font-family:monospace;margin-right:2px">T</button>`
+        : '';
+
       // Cancel button for active tasks
       const cancelBtn = !isTerminal && t.project_id
-        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="取消任务">✕</button>`
+        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="Cancel">✕</button>`
         : '';
 
       card.innerHTML = `
         <div class="task-card-header">
           <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${cancelBtn}</span>
+          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${traceBtn}${cancelBtn}</span>
         </div>
         <div class="task-card-text">${taskText}</div>
         ${resultHtml}
@@ -695,6 +688,15 @@ class AppController {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           this._cancelTask(btn.dataset.projectId);
+        });
+      }
+
+      // Bind trace button
+      const trBtn = card.querySelector('.task-trace-btn');
+      if (trBtn) {
+        trBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openTraceViewer(trBtn.dataset.projectId, t.task.substring(0, 40));
         });
       }
 
@@ -1772,6 +1774,8 @@ class AppController {
 
   closeEmployeeDetail() {
     this.viewingEmployeeId = null;
+    this._empNodeTrace = null;
+    clearTimeout(this._logRefetchTimer);
     this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
   }
@@ -1827,7 +1831,17 @@ class AppController {
     try {
       const resp = await fetch(`/api/employee/${empId}/logs?tail=100`);
       const data = await resp.json();
-      this._renderExecutionLogs(data.logs || []);
+      if (data.logs && data.logs.length > 0) {
+        // Use NodeTraceView for brutalist rendering
+        const el = document.getElementById('emp-detail-logs');
+        if (!this._empNodeTrace) {
+          this._empNodeTrace = new NodeTraceView(el);
+        }
+        this._empNodeTrace._logs = data.logs;
+        this._empNodeTrace.render();
+      } else {
+        this._renderExecutionLogs([]);
+      }
     } catch (err) {
       console.error('Execution logs fetch error:', err);
     }

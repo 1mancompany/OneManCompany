@@ -173,8 +173,9 @@ def _create_standalone_ceo_request(
     else:
         logger.warning("No event loop for standalone ceo_inbox_updated publish")
 
-    # Auto-open conversation so EA auto-reply starts immediately
-    schedule_auto_open_inbox(node_id)
+    # Note: do NOT call schedule_auto_open_inbox here — standalone requests
+    # are not in any task tree, so _find_ceo_node would 404.
+    # CEO must manually open these from the inbox.
 
     return {
         "status": "dispatched",
