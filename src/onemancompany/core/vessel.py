@@ -1378,7 +1378,8 @@ class EmployeeManager:
         # (No stale-read issue: tree is in-memory cache, all tools modify the same object)
         logger.debug("[TASK LIFECYCLE] employee={} node={} status_before_completion={}",
                      employee_id, entry.node_id, node.status)
-        if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value):
+        if node.status not in (TaskPhase.FAILED.value, TaskPhase.CANCELLED.value,
+                               TaskPhase.FINISHED.value, TaskPhase.ACCEPTED.value):
             holding_meta = _parse_holding_metadata(node.result or "")
 
             # Generic auto-HOLDING: tools set node.hold_reason to request HOLDING
@@ -2172,9 +2173,12 @@ class EmployeeManager:
                         if running and not running.done():
                             running.cancel()
                             logger.debug("[TASK LIFECYCLE] parent={} cancelled running task (child failed)", parent_node.id)
-                    # Transition parent to PROCESSING so it can be re-executed
-                    parent_node.set_status(TaskPhase.PROCESSING)
-                    logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child failed, resuming)", parent_node.id)
+                    # Transition parent to PROCESSING — skip if already PROCESSING (idempotent)
+                    if parent_node.status != TaskPhase.PROCESSING.value:
+                        parent_node.set_status(TaskPhase.PROCESSING)
+                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child failed, resuming)", parent_node.id)
+                    else:
+                        logger.debug("[TASK LIFECYCLE] parent={} already PROCESSING (child failed, re-dispatching)", parent_node.id)
                     # Inject failure context into parent's description for re-execution
                     notify_node = tree.add_child(
                         parent_id=parent_node.id,
@@ -2217,8 +2221,12 @@ class EmployeeManager:
                         if running and not running.done():
                             running.cancel()
                             logger.debug("[TASK LIFECYCLE] parent={} cancelled running task (child cancelled)", parent_node.id)
-                    parent_node.set_status(TaskPhase.PROCESSING)
-                    logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child cancelled, resuming)", parent_node.id)
+                    # Transition parent to PROCESSING — skip if already PROCESSING (idempotent)
+                    if parent_node.status != TaskPhase.PROCESSING.value:
+                        parent_node.set_status(TaskPhase.PROCESSING)
+                        logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (child cancelled, resuming)", parent_node.id)
+                    else:
+                        logger.debug("[TASK LIFECYCLE] parent={} already PROCESSING (child cancelled, re-dispatching)", parent_node.id)
                     notify_node = tree.add_child(
                         parent_id=parent_node.id,
                         employee_id=parent_node.employee_id,
