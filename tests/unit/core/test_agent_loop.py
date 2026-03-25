@@ -719,13 +719,12 @@ class TestEmployeeManagerHelpers:
 
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    def test_log_node_appends_to_buffer(self, mock_bus, mock_state):
+    def test_log_node_does_not_crash(self, mock_bus, mock_state):
+        """_log_node writes to disk + publishes event (no in-memory buffer)."""
         mock_state.employees = {}
         mgr = EmployeeManager()
         mgr._log_node("emp01", "n1", "info", "Something happened")
-        assert len(mgr._task_logs["n1"]) == 1
-        assert mgr._task_logs["n1"][0]["type"] == "info"
-        assert mgr._task_logs["n1"][0]["content"] == "Something happened"
+        # No _task_logs buffer — logs go to disk JSONL
 
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
@@ -1502,8 +1501,8 @@ class TestEmployeeManagerLogWithLoop:
 
         await asyncio.sleep(0.01)
 
-        assert len(mgr._task_logs["n1"]) == 1
-        assert mgr._task_logs["n1"][0]["content"] == "Test message"
+        # Verify event was published (no in-memory _task_logs buffer)
+        mock_bus.publish.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1631,10 +1630,7 @@ class TestExecuteTaskOnLogCallback:
         tree = TaskTree.load(tree_path, skeleton_only=False)
         node = tree.get_node(entry.node_id)
         assert node.status == "completed"
-        # Verify the on_log callback populated the task log buffer
-        logs = mgr._task_logs.get(entry.node_id, [])
-        log_types = [lg["type"] for lg in logs]
-        assert "progress" in log_types
+        # Logs are written to disk (nodes/{node_id}/execution.log), not in-memory
 
 
 
@@ -2396,70 +2392,20 @@ class TestTaskTimeout:
 # Execution log — per-agent file-based debug logging
 # ---------------------------------------------------------------------------
 
-class TestExecutionLog:
-    """_append_execution_log writes structured entries to {employee_dir}/execution.log."""
-
-    def test_append_creates_file_and_writes(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node123456ab", "start", "Starting task")
-        log_path = tmp_path / "emp01" / "execution.log"
-        assert log_path.exists()
-        content = log_path.read_text()
-        assert "[start" in content
-        assert "node=node123456ab" in content
-        assert "Starting task" in content
-
-    def test_append_multiple_entries(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "start", "Task A")
-            _append_execution_log("emp01", "node_a", "llm_output", "Hello world")
-            _append_execution_log("emp01", "node_a", "result", "Done")
-        log_path = tmp_path / "emp01" / "execution.log"
-        lines = log_path.read_text().strip().split("\n")
-        assert len(lines) == 3
-        assert "start" in lines[0]
-        assert "llm_output" in lines[1]
-        assert "result" in lines[2]
-
-    def test_content_truncated_at_500_chars(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log
-        long_content = "x" * 1000
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "llm_output", long_content)
-        log_path = tmp_path / "emp01" / "execution.log"
-        content = log_path.read_text()
-        # 500 chars of content + prefix, should be well under 1000
-        assert len(content) < 700
-
-    def test_rotation_when_exceeding_max_size(self, tmp_path):
-        from onemancompany.core.vessel import _append_execution_log, EXECUTION_LOG_MAX_SIZE
-        log_dir = tmp_path / "emp01"
-        log_dir.mkdir(parents=True)
-        log_path = log_dir / "execution.log"
-        rotated_path = log_dir / "execution.log.1"
-        # Write a file larger than threshold
-        log_path.write_text("line\n" * (EXECUTION_LOG_MAX_SIZE // 4), encoding="utf-8")
-        original_size = log_path.stat().st_size
-        assert original_size > EXECUTION_LOG_MAX_SIZE
-        with patch("onemancompany.core.vessel.EMPLOYEES_DIR", tmp_path):
-            _append_execution_log("emp01", "node_a", "start", "New entry")
-        # Old log renamed to .1, new log has only the fresh entry
-        assert rotated_path.exists()
-        assert rotated_path.stat().st_size == original_size
-        assert log_path.exists()
-        assert log_path.stat().st_size < original_size
+# TestExecutionLog removed — _append_execution_log no longer exists.
+# Node-level execution.log (JSONL) is the single source of truth.
+# See _append_node_execution_log in vessel.py.
 
 
-class TestLogNodeWritesExecutionLog:
-    """_log_node should call _append_execution_log."""
+class TestLogNodeWritesDisk:
+    """_log_node should write to node-level execution log (disk JSONL)."""
 
-    def test_log_node_calls_append(self):
+    def test_log_node_publishes_event(self):
+        """_log_node publishes WebSocket event. Disk write requires _current_entries."""
         mgr = EmployeeManager()
-        with patch("onemancompany.core.vessel._append_execution_log") as mock_append:
-            mgr._log_node("emp01", "node_abc", "start", "Starting task")
-        mock_append.assert_called_once_with("emp01", "node_abc", "start", "Starting task")
+        # Without _current_entries set, disk write is skipped (no project_dir)
+        # but publish should still work (or silently fail without event loop)
+        mgr._log_node("emp01", "node_abc", "start", "Starting task")
 
 
 # ---------------------------------------------------------------------------

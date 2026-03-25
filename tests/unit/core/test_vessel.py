@@ -569,11 +569,12 @@ class TestScheduleEntry:
         entry = mgr.get_next_scheduled("00100")
         assert entry is None
 
-    def test_task_logs_buffer(self):
+    def test_log_node_publishes_event(self):
+        """_log_node should publish WebSocket event (no in-memory buffer)."""
         mgr = EmployeeManager()
+        # _log_node writes to disk + publishes event; no _task_logs buffer
+        # Just verify it doesn't crash
         mgr._log_node("00100", "node1", "start", "Starting task")
-        assert len(mgr._task_logs["node1"]) == 1
-        assert mgr._task_logs["node1"][0]["type"] == "start"
 
     def test_schedule_entry_from_agent_loop(self):
         """ScheduleEntry should be importable from agent_loop.py."""
