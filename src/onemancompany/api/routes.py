@@ -5711,6 +5711,8 @@ async def get_ceo_inbox(page: int = 1, page_size: int = 10):
 
     Returns newest first. page=1 is the first page.
     """
+    page = max(1, page)
+    page_size = max(1, min(page_size, 100))
     items = _scan_ceo_inbox_nodes()
     # Sort newest first
     items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
@@ -5935,15 +5937,18 @@ async def dismiss_ceo_inbox_item(node_id: str):
 
     # Cancel the node — this removes it from inbox on next refresh
     from onemancompany.core.task_lifecycle import can_transition
-    if can_transition(TaskPhase(node.status), TaskPhase.CANCELLED):
-        node.set_status(TaskPhase.CANCELLED)
-        node.result = "Dismissed by CEO"
-        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-        logger.info("[ceo_inbox] CEO dismissed inbox item node={}", node_id)
-        return {"status": "dismissed", "node_id": node_id}
+    if not can_transition(TaskPhase(node.status), TaskPhase.CANCELLED):
+        raise HTTPException(status_code=409, detail=f"Cannot dismiss node in {node.status} state")
 
-    return {"error": f"Cannot dismiss node in {node.status} state"}
+    node.set_status(TaskPhase.CANCELLED)
+    node.result = "Dismissed by CEO"
+    save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
+    # Propagate cancellation to unblock dependent nodes
+    from onemancompany.core.vessel import _trigger_dep_resolution
+    _trigger_dep_resolution(project_dir, tree, node)
+    await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+    logger.info("[ceo_inbox] CEO dismissed inbox item node={}", node_id)
+    return {"status": "dismissed", "node_id": node_id}
 
 
 @router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")

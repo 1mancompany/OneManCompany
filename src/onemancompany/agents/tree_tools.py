@@ -125,7 +125,7 @@ def schedule_auto_open_inbox(node_id: str) -> None:
             await open_ceo_conversation(nid)
             logger.info("[auto_open_inbox] Opened CEO conversation for {}", nid)
         except Exception as _e:
-            logger.debug("[auto_open_inbox] Failed for {}: {}", nid, _e)
+            logger.warning("[auto_open_inbox] Failed for {}: {}", nid, _e)
 
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
