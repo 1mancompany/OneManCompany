@@ -492,12 +492,13 @@ async def holding_timeout_sweep() -> list | None:
                 employee_manager.unschedule(emp_id, entry.node_id)
                 # Cascade: trigger dep resolution so dependents get BLOCKED/CANCELLED
                 try:
+                    from pathlib import Path as _Path
                     from onemancompany.core.task_tree import get_tree
                     from onemancompany.core.vessel import _trigger_dep_resolution
                     tree = get_tree(entry.tree_path)
                     node = tree.get_node(entry.node_id)
                     if node:
-                        _trigger_dep_resolution(str(Path(entry.tree_path).parent), tree, node)
+                        _trigger_dep_resolution(str(_Path(entry.tree_path).parent), tree, node)
                 except Exception as e:
                     logger.error("[holding_timeout_sweep] dep resolution failed for {}: {}", entry.node_id, e)
 

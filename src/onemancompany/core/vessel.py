@@ -2076,8 +2076,10 @@ class EmployeeManager:
                     )
             except asyncio.TimeoutError:
                 logger.error(
-                    "Completion consumer TIMEOUT (60s) for node {} — skipping to unblock queue",
-                    entry.node_id,
+                    "Completion consumer TIMEOUT (60s) for node {} tree={} — "
+                    "skipping to unblock queue. Tree may be in inconsistent state; "
+                    "restart will re-evaluate via recover_schedule_from_trees.",
+                    entry.node_id, entry.tree_path,
                 )
             except asyncio.CancelledError:
                 raise
