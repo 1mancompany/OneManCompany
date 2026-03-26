@@ -40,7 +40,7 @@ class EAAgent(BaseAgentRunner):
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": f"EA analyzing: {task[:80]}"})
+        await self._publish("agent_thinking", {"message": f"EA analyzing: {task}"})
 
         result = await self._agent.ainvoke(
             {"messages": [

@@ -256,7 +256,7 @@ class CSOAgent(BaseAgentRunner):
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": f"CSO analyzing: {task[:80]}"})
+        await self._publish("agent_thinking", {"message": f"CSO analyzing: {task}"})
 
         result = await self._agent.ainvoke(
             {"messages": [
