@@ -1816,7 +1816,6 @@ class AppController {
 
   closeEmployeeDetail() {
     this.viewingEmployeeId = null;
-    this._empNodeTrace = null;
     if (this._empXterm) { this._empXterm.dispose(); this._empXterm = null; }
     if (this._empProgressXterm) { this._empProgressXterm.dispose(); this._empProgressXterm = null; }
     clearTimeout(this._logRefetchTimer);
@@ -1876,22 +1875,14 @@ class AppController {
       const resp = await fetch(`/api/employee/${empId}/logs?tail=100`);
       const data = await resp.json();
       const el = document.getElementById('emp-detail-logs');
-      if (data.logs && data.logs.length > 0 && typeof XTermLog !== 'undefined') {
-        // Use xterm.js for terminal rendering
+      if (data.logs && data.logs.length > 0) {
         if (!this._empXterm) {
           el.innerHTML = '';
           this._empXterm = new XTermLog(el, { fontSize: 11 });
         }
         this._empXterm.renderLogs(data.logs);
-      } else if (data.logs && data.logs.length > 0) {
-        // Fallback to NodeTraceView
-        if (!this._empNodeTrace) {
-          this._empNodeTrace = new NodeTraceView(el);
-        }
-        this._empNodeTrace._logs = data.logs;
-        this._empNodeTrace.render();
       } else {
-        this._renderExecutionLogs([]);
+        el.innerHTML = '<span class="empty-hint">No logs</span>';
       }
     } catch (err) {
       console.error('Execution logs fetch error:', err);
@@ -1973,48 +1964,7 @@ class AppController {
     el.innerHTML = html;
   }
 
-  _renderExecutionLogs(logs) {
-    const el = document.getElementById('emp-detail-logs');
-    if (!logs || logs.length === 0) {
-      el.innerHTML = '<span class="empty-hint">No logs</span>';
-      return;
-    }
-
-    // Preserve which log entries are expanded before re-render
-    const expandedSet = new Set();
-    el.querySelectorAll('.emp-log-entry').forEach((entry, i) => {
-      const full = entry.querySelector('.log-full');
-      if (full && full.style.display !== 'none') expandedSet.add(i);
-    });
-    const prevScrollTop = el.scrollTop;
-    const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 20;
-
-    let html = '';
-    for (let i = 0; i < logs.length; i++) {
-      const log = logs[i];
-      const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '';
-      const typeCls = log.type || '';
-      const raw = log.content || '';
-      const truncated = raw.length > 200;
-      const isExpanded = expandedSet.has(i);
-      html += `<div class="emp-log-entry ${typeCls}">`;
-      html += `<span class="log-ts">${ts}</span>`;
-      html += `<span class="log-content" style="display:${truncated && isExpanded ? 'none' : 'inline'}">${this._escHtml(truncated ? raw.substring(0, 200) : raw)}</span>`;
-      if (truncated) {
-        html += `<span class="log-full" style="display:${isExpanded ? 'inline' : 'none'}">${this._escHtml(raw)}</span>`;
-        html += `<span class="log-expand" style="display:${isExpanded ? 'none' : 'inline'}" onclick="this.parentElement.querySelector('.log-content').style.display='none';this.parentElement.querySelector('.log-full').style.display='inline';this.style.display='none';this.nextElementSibling.style.display='inline'">...more</span>`;
-        html += `<span class="log-collapse" style="display:${isExpanded ? 'inline' : 'none'}" onclick="this.parentElement.querySelector('.log-content').style.display='inline';this.parentElement.querySelector('.log-full').style.display='none';this.style.display='none';this.previousElementSibling.style.display='inline'">less</span>`;
-      }
-      html += '</div>';
-    }
-    el.innerHTML = html;
-    // Only auto-scroll if user was already at the bottom
-    if (wasAtBottom) {
-      el.scrollTop = el.scrollHeight;
-    } else {
-      el.scrollTop = prevScrollTop;
-    }
-  }
+  // _renderExecutionLogs removed — all rendering via XTermLog
 
   _startTaskBoardPolling(empId) {
     this._stopTaskBoardPolling();
@@ -2051,33 +2001,23 @@ class AppController {
 
     modal.classList.remove('hidden');
 
-    // Use xterm.js for trace feed rendering
-    if (typeof XTermLog !== 'undefined') {
-      const xterm = new XTermLog(feedPanel, { fontSize: 11 });
-      this._traceXterm = xterm;
-      xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
+    const xterm = new XTermLog(feedPanel, { fontSize: 11 });
+    this._traceXterm = xterm;
+    xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
 
-      // Load tree + logs, then render to xterm
-      fetch(`/api/projects/${projectId}/tree`)
-        .then(r => r.json())
-        .then(async data => {
-          const nodes = {};
-          for (const n of data.nodes) nodes[n.id] = n;
-          await traceLoadAllNodeLogs(nodes);
-          xterm.clear();
-          xterm.renderTraceFeed(nodes, data.root_id);
-          metaEl.textContent = `${Object.keys(nodes).length} nodes`;
-        })
-        .catch(e => {
-          xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);
-        });
-    } else {
-      // Fallback to text-based TraceFeedView
-      const feed = new TraceFeedView(feedPanel);
-      feed.load(projectId).then(() => {
-        metaEl.textContent = `${Object.keys(feed._nodes).length} nodes`;
+    fetch(`/api/projects/${projectId}/tree`)
+      .then(r => r.json())
+      .then(async data => {
+        const nodes = {};
+        for (const n of data.nodes) nodes[n.id] = n;
+        await traceLoadAllNodeLogs(nodes);
+        xterm.clear();
+        xterm.renderTraceFeed(nodes, data.root_id);
+        metaEl.textContent = `${Object.keys(nodes).length} nodes`;
+      })
+      .catch(e => {
+        xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);
       });
-    }
   }
 
   // ===== Cron Management =====

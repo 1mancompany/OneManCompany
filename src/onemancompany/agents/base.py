@@ -122,7 +122,14 @@ def extract_final_content(result: dict) -> str:
             parts.append(f"  {name} → {snippet}")
         return "\n".join(parts)
 
-    # 3. Last resort
+    # 3. Last resort — collect ALL tool calls from the conversation
+    all_tool_calls = []
+    for msg in messages:
+        if isinstance(msg, AIMessage):
+            for tc in getattr(msg, _TC_ATTR, []) or []:
+                all_tool_calls.append(tc.get(_TC_NAME_KEY, _UNKNOWN_TOOL))
+    if all_tool_calls:
+        return f"Executed tools: {', '.join(all_tool_calls)}"
     return _extract_text(messages[-1].content) or _NO_OUTPUT
 
 
