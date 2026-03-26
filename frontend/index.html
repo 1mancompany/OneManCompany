@@ -634,13 +634,14 @@
           <span class="trace-header-title" id="trace-modal-title">TRACE VIEWER</span>
           <span class="trace-header-meta" id="trace-modal-meta"></span>
         </div>
-        <div class="trace-feed" id="trace-feed-panel">
-          <span class="trace-empty">Select a project to view trace</span>
-        </div>
+        <div id="trace-feed-panel" style="flex:1;overflow:hidden"></div>
       </div>
     </div>
   </div>
 
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="conversation.js"></script>
   <script src="office-tileatlas.js?v=17"></script>
@@ -651,6 +652,7 @@
   <script src="task-tree.js"></script>
   <link rel="stylesheet" href="trace-viewer.css">
   <script src="trace-viewer.js"></script>
+  <script src="xterm-log.js"></script>
   <script src="plugin-loader.js"></script>
   <script src="app.js"></script>
 </body>

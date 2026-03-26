@@ -1817,6 +1817,7 @@ class AppController {
   closeEmployeeDetail() {
     this.viewingEmployeeId = null;
     this._empNodeTrace = null;
+    if (this._empXterm) { this._empXterm.dispose(); this._empXterm = null; }
     clearTimeout(this._logRefetchTimer);
     this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
@@ -1873,9 +1874,16 @@ class AppController {
     try {
       const resp = await fetch(`/api/employee/${empId}/logs?tail=100`);
       const data = await resp.json();
-      if (data.logs && data.logs.length > 0) {
-        // Use NodeTraceView for brutalist rendering
-        const el = document.getElementById('emp-detail-logs');
+      const el = document.getElementById('emp-detail-logs');
+      if (data.logs && data.logs.length > 0 && typeof XTermLog !== 'undefined') {
+        // Use xterm.js for terminal rendering
+        if (!this._empXterm) {
+          el.innerHTML = '';
+          this._empXterm = new XTermLog(el, { fontSize: 11 });
+        }
+        this._empXterm.renderLogs(data.logs);
+      } else if (data.logs && data.logs.length > 0) {
+        // Fallback to NodeTraceView
         if (!this._empNodeTrace) {
           this._empNodeTrace = new NodeTraceView(el);
         }
@@ -2030,16 +2038,43 @@ class AppController {
 
     titleEl.textContent = `\u2588\u2588 ${(projectName || projectId).toUpperCase()} `;
     metaEl.textContent = 'loading...';
-    feedPanel.innerHTML = '<span class="trace-empty">Loading trace...</span>';
+    feedPanel.innerHTML = '';
 
-    // Reader Feed mode — single scrollable narrative
-    const feed = new TraceFeedView(feedPanel);
-    feed.load(projectId).then(() => {
-      const nodeCount = Object.keys(feed._nodes).length;
-      metaEl.textContent = `${nodeCount} nodes`;
-    });
+    // Dispose previous xterm instance
+    if (this._traceXterm) { this._traceXterm.dispose(); this._traceXterm = null; }
 
     modal.classList.remove('hidden');
+
+    // Use xterm.js for trace feed rendering
+    if (typeof XTermLog !== 'undefined') {
+      const xterm = new XTermLog(feedPanel, { fontSize: 11 });
+      this._traceXterm = xterm;
+      xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
+
+      // Load tree + logs via TraceFeedView, then render to xterm
+      const feed = new TraceFeedView(null);
+      feed._el = { textContent: '' };  // dummy element
+      fetch(`/api/projects/${projectId}/tree`)
+        .then(r => r.json())
+        .then(async data => {
+          feed._rootId = data.root_id;
+          feed._nodes = {};
+          for (const n of data.nodes) feed._nodes[n.id] = n;
+          await feed._loadAllLogs();
+          xterm.clear();
+          xterm.renderTraceFeed(feed._nodes, feed._rootId);
+          metaEl.textContent = `${Object.keys(feed._nodes).length} nodes`;
+        })
+        .catch(e => {
+          xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);
+        });
+    } else {
+      // Fallback to text-based TraceFeedView
+      const feed = new TraceFeedView(feedPanel);
+      feed.load(projectId).then(() => {
+        metaEl.textContent = `${Object.keys(feed._nodes).length} nodes`;
+      });
+    }
   }
 
   // ===== Cron Management =====
