@@ -25,6 +25,7 @@ import uuid
 from datetime import datetime
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
@@ -70,10 +71,107 @@ from onemancompany.core.store import append_activity_sync as _append_activity
 
 # HR operational prompt is now in employees/00002/role_guide.md (loaded by _get_role_identity_section)
 
+@tool
+async def performance_review(
+    employee_id: str,
+    score: float,
+    feedback: str = "",
+) -> dict:
+    """Give a quarterly performance review to an employee.
+
+    Only use for employees who have completed 3+ tasks this quarter.
+    Score must be one of: 3.25 (Needs Improvement), 3.5 (Satisfactory), 3.75 (Excellent).
+
+    Args:
+        employee_id: The employee ID to review (e.g. "00006").
+        score: Performance score — must be 3.25, 3.5, or 3.75.
+        feedback: Brief performance feedback for the employee.
+    """
+    emp_data = _store.load_employee(employee_id)
+    if not emp_data:
+        return {"status": "error", "message": f"Employee {employee_id} not found"}
+
+    if emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) < TASKS_PER_QUARTER:
+        return {"status": "error", "message": f"Employee {employee_id} has not completed {TASKS_PER_QUARTER} tasks this quarter"}
+
+    # Snap to nearest valid tier
+    snapped_score = min(VALID_SCORES, key=lambda s: abs(s - score))
+
+    # Record quarter and reset task counter
+    perf_history = list(emp_data.get(PF_PERFORMANCE_HISTORY, []))
+    perf_history.append({"score": snapped_score, "tasks": TASKS_PER_QUARTER})
+    if len(perf_history) > MAX_PERFORMANCE_HISTORY:
+        perf_history = perf_history[-MAX_PERFORMANCE_HISTORY:]
+
+    await _store.save_employee(employee_id, {
+        "current_quarter_tasks": 0,
+        "performance_history": perf_history,
+    })
+
+    # Publish event
+    from onemancompany.core.events import event_bus, CompanyEvent
+    from onemancompany.core.models import EventType
+    from onemancompany.core.async_utils import spawn_background
+    try:
+        spawn_background(event_bus.publish(CompanyEvent(
+            type=EventType.EMPLOYEE_REVIEWED,
+            payload={"id": employee_id, "score": snapped_score, "history": perf_history},
+            agent="HR",
+        )))
+    except Exception as e:
+        logger.debug("[hr] Broadcast failed: {}", e)
+
+    # Run performance feedback meeting
+    try:
+        await run_performance_meeting(employee_id, snapped_score, feedback)
+    except Exception as e:
+        logger.warning("Performance meeting failed for %s: %s", employee_id, e)
+
+    # Promotion check: 3 consecutive quarters of 3.75 → promote
+    level = emp_data.get(PF_LEVEL, 1)
+    promoted = False
+    if len(perf_history) >= QUARTERS_FOR_PROMOTION and level < MAX_NORMAL_LEVEL:
+        recent = [h["score"] for h in perf_history[-QUARTERS_FOR_PROMOTION:]]
+        if all(s == SCORE_EXCELLENT for s in recent):
+            new_level = level + 1
+            from onemancompany.core.state import make_title
+            new_title = make_title(new_level, emp_data.get(PF_ROLE, ""))
+            await _store.save_employee(employee_id, {"level": new_level, "title": new_title})
+            promoted = True
+            logger.info("[hr] Promoted {} to Lv.{} ({})", employee_id, new_level, new_title)
+
+    # PIP logic
+    pip = emp_data.get("pip")
+    if snapped_score == SCORE_NEEDS_IMPROVEMENT:
+        if pip:
+            # Already on PIP and scored 3.25 again → terminate
+            try:
+                from onemancompany.core.routine import run_offboarding_routine
+                await run_offboarding_routine(employee_id, "Failed PIP — consecutive low performance")
+            except Exception as e:
+                logger.warning("Offboarding routine failed for %s: %s", employee_id, e)
+            from onemancompany.agents.termination import execute_fire
+            await execute_fire(employee_id, reason="Failed PIP — consecutive low performance")
+            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "terminated_pip"}
+        else:
+            pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
+            await _store.save_employee(employee_id, {"pip": pip_data})
+            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "pip_started"}
+    elif snapped_score >= 3.5 and pip:
+        await _store.save_employee(employee_id, {"pip": None})
+
+    result = {"status": "ok", "employee_id": employee_id, "score": snapped_score, "feedback": feedback}
+    if promoted:
+        result["promoted"] = True
+        result["new_level"] = level + 1
+    return result
+
+
 def _register_hr_tools() -> None:
     from onemancompany.core.tool_registry import ToolMeta, tool_registry
 
-    for t in [search_candidates, list_open_positions, submit_shortlist]:
+    _hr_tools = [search_candidates, list_open_positions, submit_shortlist, performance_review]
+    for t in _hr_tools:
         tool_registry.register(t, ToolMeta(name=t.name, category="role", allowed_roles=["HR"]))
 
 
@@ -194,8 +292,8 @@ class HRAgent(BaseAgentRunner):
         task = (
             "Run a quarterly performance review.\n\n"
             + "\n\n".join(parts)
-            + "\n\nFor each reviewable employee, give a score of 3.25, 3.5, or 3.75.\n"
-            "After the review, check for open positions and hire one new candidate."
+            + "\n\nFor each reviewable employee, use the performance_review tool to give a score of 3.25, 3.5, or 3.75 with feedback.\n"
+            "After all reviews are done, check for open positions and hire one new candidate."
         )
         return await self.run(task)
 
