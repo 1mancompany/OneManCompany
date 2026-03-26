@@ -264,7 +264,7 @@ system_cron_manager = SystemCronManager()
 # Handler implementations
 # ---------------------------------------------------------------------------
 
-@system_cron("heartbeat", interval="1m", description="员工 API 连接检测")
+@system_cron("heartbeat", interval="1m", description="Employee API connection check")
 async def heartbeat_check() -> list | None:
     from onemancompany.core.heartbeat import run_heartbeat_cycle
     from onemancompany.core.events import CompanyEvent
@@ -275,7 +275,7 @@ async def heartbeat_check() -> list | None:
     return None
 
 
-@system_cron("review_reminder", interval="5m", description="审批超时提醒")
+@system_cron("review_reminder", interval="5m", description="Review timeout reminder")
 async def review_reminder_check() -> list | None:
     from onemancompany.core.vessel import scan_overdue_reviews
     from onemancompany.core.events import CompanyEvent
@@ -290,7 +290,7 @@ async def review_reminder_check() -> list | None:
     return None
 
 
-@system_cron("config_reload", interval="30s", description="磁盘配置定期重载")
+@system_cron("config_reload", interval="30s", description="Disk config periodic reload")
 async def config_reload_check() -> list | None:
     from onemancompany.core.state import is_idle, reload_all_from_disk
 
@@ -308,7 +308,7 @@ async def config_reload_check() -> list | None:
 # ---------------------------------------------------------------------------
 
 
-@system_cron("talent_market_keepalive", interval="15s", description="Talent Market MCP 连接保活")
+@system_cron("talent_market_keepalive", interval="15s", description="Talent Market MCP keepalive")
 async def talent_market_keepalive() -> list | None:
     """Ping the Talent Market MCP server; reconnect if the session is dead."""
     from onemancompany.agents.recruitment import talent_market, start_talent_market
@@ -337,7 +337,7 @@ async def talent_market_keepalive() -> list | None:
 _watchdog_nudged: set[str] = set()
 
 
-@system_cron("project_progress_watchdog", interval="1m", description="项目进度看门狗 — 防止项目卡死")
+@system_cron("project_progress_watchdog", interval="10m", description="Project progress watchdog — prevent stuck projects")
 async def project_progress_watchdog() -> list | None:
     """Scan active projects; nudge EA to continue any that are stuck.
 
@@ -395,26 +395,31 @@ async def project_progress_watchdog() -> list | None:
             continue
 
         # Skip if there are still unfinished watchdog nudge subtrees
-        # (previous nudge spawned tasks that haven't completed yet)
-        has_active_nudge = any(
-            n.node_type == NodeType.WATCHDOG_NUDGE
-            and TaskPhase(n.status) not in RESOLVED
-            for n in active_nodes
-        )
-        if not has_active_nudge:
-            # Also check children of finished nudge nodes — they may have
-            # dispatched tasks that are still pending/processing
-            for n in active_nodes:
-                if n.node_type == NodeType.WATCHDOG_NUDGE:
-                    nudge_children = [
-                        tree.get_node(cid) for cid in n.children_ids
-                        if cid in tree._nodes
-                    ]
-                    if any(c and TaskPhase(c.status) not in RESOLVED for c in nudge_children):
-                        has_active_nudge = True
+        # OR if a nudge was recently completed (cooldown: 10 min)
+        from datetime import datetime as _dt
+        skip_nudge = False
+        for n in active_nodes:
+            if n.node_type != NodeType.WATCHDOG_NUDGE:
+                continue
+            # Unfinished nudge or its children
+            if TaskPhase(n.status) not in RESOLVED:
+                skip_nudge = True
+                break
+            nudge_children = [tree.get_node(cid) for cid in n.children_ids if cid in tree._nodes]
+            if any(c and TaskPhase(c.status) not in RESOLVED for c in nudge_children):
+                skip_nudge = True
+                break
+            # Recently finished nudge — cooldown to avoid spam
+            if n.completed_at:
+                try:
+                    completed = _dt.fromisoformat(n.completed_at)
+                    if (_dt.now() - completed).total_seconds() < 600:
+                        skip_nudge = True
                         break
-        if has_active_nudge:
-            logger.debug("[watchdog] Skipping {} — previous nudge subtree still active", project_id)
+                except (ValueError, TypeError) as _e:
+                    logger.debug("[watchdog] Invalid completed_at for nudge {}: {}", n.id, _e)
+        if skip_nudge:
+            logger.debug("[watchdog] Skipping {} — recent or active nudge", project_id)
             continue
 
         # Skip if all active nodes are resolved (project is done)

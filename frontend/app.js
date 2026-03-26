@@ -127,6 +127,8 @@ class AppController {
         this._renderHistoricalActivityLog(activity_log);
       }
       this._refreshCeoInbox();
+      // Restore pending candidate shortlist modal if HR submitted candidates
+      this._restorePendingCandidates();
       // Restore onboarding progress modal if there's an active onboarding
       this._restoreOnboardingProgress();
 
@@ -3263,6 +3265,28 @@ class AppController {
   }
 
   // ===== Candidate Selection (Boss Online) =====
+
+  async _restorePendingCandidates() {
+    try {
+      const resp = await fetch('/api/candidates/pending');
+      const data = await resp.json();
+      const batches = data.batches || {};
+      for (const [batchId, batch] of Object.entries(batches)) {
+        const candidates = batch.candidates || [];
+        if (candidates.length > 0) {
+          this.showCandidateSelection({
+            batch_id: batchId,
+            candidates,
+            roles: batch.roles || [],
+          });
+          break;  // Show one batch at a time
+        }
+      }
+    } catch (e) {
+      console.debug('[bootstrap] No pending candidates:', e);
+    }
+  }
+
   showCandidateSelection(payload) {
     this._candidateBatchId = payload.batch_id;
     this._candidateList = payload.candidates || [];

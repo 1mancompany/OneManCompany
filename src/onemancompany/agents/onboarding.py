@@ -891,6 +891,12 @@ async def execute_hire(
         department, DEFAULT_TOOL_PERMISSIONS_FALLBACK
     ))
 
+    # Default model from settings if not specified
+    if not llm_model:
+        from onemancompany.core.config import load_app_config
+        _settings = load_app_config()
+        llm_model = _settings.default_llm_model if hasattr(_settings, 'default_llm_model') else ""
+
     # Salary
     salary = compute_salary(llm_model) if llm_model else 0.0
 
