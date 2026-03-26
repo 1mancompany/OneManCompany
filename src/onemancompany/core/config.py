@@ -501,7 +501,7 @@ class Settings(BaseSettings):
     minimax_api_key: str = ""
 
     # Default model
-    default_llm_model: str = "moonshotai/kimi-k2.5"
+    default_llm_model: str = "google/gemini-3.1-flash-lite-preview"
 
     # FastSkills MCP
     skillsmp_api_key: str = ""

@@ -3829,6 +3829,24 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
 
 # ===== Candidate Selection =====
 
+@router.get("/api/candidates/pending")
+async def get_pending_candidates() -> dict:
+    """Return any pending candidate batches awaiting CEO selection.
+
+    Used by bootstrap to restore the shortlist modal after page refresh.
+    """
+    from onemancompany.agents.recruitment import pending_candidates
+    if not pending_candidates:
+        return {"batches": {}}
+    result = {}
+    for batch_id, candidates in pending_candidates.items():
+        result[batch_id] = {
+            "candidates": candidates,
+            "roles": [],  # roles info not persisted, frontend handles gracefully
+        }
+    return {"batches": result}
+
+
 @router.post("/api/candidates/hire")
 async def hire_candidate(body: HireRequest) -> dict:
     """CEO selects a candidate to hire from the shortlist.

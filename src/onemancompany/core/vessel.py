@@ -1563,6 +1563,11 @@ class EmployeeManager:
         if not node.hold_started_at:
             return False
 
+        # Skip timeout for holds that require human action (CEO/hiring)
+        hold_reason = node.hold_reason or ""
+        if "no_watchdog" in hold_reason or "batch_id" in hold_reason:
+            return False
+
         try:
             started = datetime.fromisoformat(node.hold_started_at)
         except (ValueError, TypeError):
