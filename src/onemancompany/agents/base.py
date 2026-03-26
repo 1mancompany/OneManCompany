@@ -543,7 +543,7 @@ class BaseAgentRunner:
         from langchain_core.messages import HumanMessage, SystemMessage
 
         self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
+        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task}"})
 
         prompt = self._build_full_prompt()
         messages_input = {
@@ -1138,7 +1138,7 @@ class EmployeeAgent(BaseAgentRunner):
 
     async def run(self, task: str) -> str:
         self._set_status(STATUS_WORKING)
-        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task[:80]}"})
+        await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task}"})
 
         initial_msgs = [
             SystemMessage(content=self._build_full_prompt()),

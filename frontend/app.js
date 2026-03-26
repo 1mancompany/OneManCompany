@@ -861,13 +861,13 @@ class AppController {
       'meeting_released': (e) => ({ agent: 'COO', text: `Room released: ${e.room_name || ''}` }),
       'promotion': (e) => ({ agent: 'HR', text: `Promoted: ${e.name || ''}` }),
     };
-    const fallback = (e) => ({ agent: (e.type || 'SYS').toUpperCase(), text: `${(e.name || e.topic || e.task || e.type || '').substring(0, 60)}` });
+    const fallback = (e) => ({ agent: (e.type || 'SYS').toUpperCase(), text: `${e.name || e.topic || e.task || e.type || ''}` });
     const lines = [];
     for (const e of entries) {
       const { agent, text } = (typeMap[e.type] || fallback)(e);
       const ts = e.timestamp ? e.timestamp.substring(11, 19) : '        ';
       const color = this._logColors[agent.toLowerCase()] || '#666';
-      lines.push(`<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${this._escHtml(text)}`);
+      lines.push(this._fmtLogLine(ts, agent, color, text));
     }
     log.innerHTML = lines.join('\n');
   }
@@ -877,12 +877,18 @@ class AppController {
     if (!log) return;
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
     const color = this._logColors[cssClass] || this._logColors[agent.toLowerCase()] || '#666';
-    const line = `<span style="color:#444">${time}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${this._escHtml(message)}`;
-    // Prepend new line (newest first)
+    const line = this._fmtLogLine(time, agent, color, message);
     log.innerHTML = line + '\n' + log.innerHTML;
-    // Keep manageable
     const lines = log.innerHTML.split('\n');
     if (lines.length > 100) log.innerHTML = lines.slice(0, 100).join('\n');
+  }
+
+  _fmtLogLine(ts, agent, color, text) {
+    const escaped = this._escHtml(text);
+    if (escaped.length <= 120) {
+      return `<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${escaped}`;
+    }
+    return `<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${escaped.substring(0, 120)}<span style="color:#4af;cursor:pointer" onclick="const f=this.nextElementSibling;f.style.display=f.style.display==='none'?'inline':'none';this.textContent=f.style.display==='none'?'…more':'…less'">…more</span><span style="display:none">${escaped.substring(120)}</span>`;
   }
 
   // ===== UI Bindings =====
