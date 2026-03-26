@@ -6079,6 +6079,8 @@ async def complete_ceo_conversation(node_id: str):
     # No active session — complete the node directly (CEO never opened
     # a conversation, or session was already cleaned up).
     node, tree, project_dir = _find_ceo_node(node_id)
+    if node.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value):
+        raise HTTPException(status_code=409, detail=f"Node already {node.status}")
     await _complete_ceo_request(
         node, tree, project_dir,
         target_status=TaskPhase.ACCEPTED,
