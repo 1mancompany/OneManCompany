@@ -593,6 +593,10 @@ async def lifespan(app: FastAPI):
     from onemancompany.core import system_cron as _system_cron_mod  # triggers @system_cron registrations
     _system_cron_mod.system_cron_manager.start_all()
 
+    # Start background task manager (restores persisted state, marks stale tasks stopped)
+    from onemancompany.core.background_tasks import background_task_manager
+    background_task_manager.start()
+
     # Start code change watcher (CEO-controlled hot reload)
     code_watcher_task = asyncio.create_task(_start_code_watcher())
 
@@ -622,6 +626,9 @@ async def lifespan(app: FastAPI):
 
     # Stop system crons
     await _system_cron_mod.system_cron_manager.stop_all()
+
+    # Stop background task manager (terminates all running processes gracefully)
+    await background_task_manager.stop_all()
 
     # Stop automations (crons + webhooks)
     from onemancompany.core.automation import stop_all_automations
