@@ -2316,7 +2316,9 @@ class EmployeeManager:
                         c.set_status(TaskPhase.FINISHED)
                         logger.info("[ON_CHILD_COMPLETE] Auto-accepted orphaned COMPLETED node {} (review finished without tool call)", c.id)
                     save_tree_async(entry.tree_path)
-                    # Re-run completion check with updated statuses
+                    # Re-run completion check with updated statuses.
+                    # Safe recursion: parent is not a SYSTEM_NODE_TYPE, so the
+                    # auto-accept block above won't trigger again.
                     parent_entry = ScheduleEntry(node_id=parent_node.id, tree_path=entry.tree_path)
                     await self._on_child_complete_inner(
                         parent_node.employee_id, parent_entry, project_id

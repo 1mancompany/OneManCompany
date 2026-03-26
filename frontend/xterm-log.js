@@ -146,6 +146,11 @@ class XTermLog {
     this._renderFeedNode(nodes, rootId, '');
   }
 
+  /** Trim a string to at most maxLen chars, appending '…' if truncated */
+  _clip(s, maxLen = 1000) {
+    return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
+  }
+
   // ─────────────────────────────────────────────────────────
   // Step renderers (for execution logs)
   // ─────────────────────────────────────────────────────────
@@ -160,25 +165,25 @@ class XTermLog {
       const ok = step.result && !(step.result.content || '').includes('error');
       const icon = step.result ? (ok ? `${ANSI.green}\u2713${ANSI.reset}` : `${ANSI.red}\u2717${ANSI.reset}`) : `${ANSI.gray}\u2026${ANSI.reset}`;
 
-      this.writeln(`${ts} ${ANSI.cyan}tool${ANSI.reset} ${ANSI.brightCyan}${name}${ANSI.reset} ${input}`);
+      this.writeln(`${ts} ${ANSI.cyan}tool${ANSI.reset} ${ANSI.brightCyan}${name}${ANSI.reset} ${this._clip(input)}`);
       if (result) {
-        this.writeln(`         ${ANSI.green}\u2192 ${result}${ANSI.reset} ${icon}`);
+        this.writeln(`         ${ANSI.green}\u2192 ${this._clip(result)}${ANSI.reset} ${icon}`);
       }
     } else if (step.type === 'llm_output') {
       const content = (step.content || '').replace(/\n/g, ' ');
-      this.writeln(`${ts} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${content}${ANSI.reset}`);
+      this.writeln(`${ts} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${this._clip(content)}${ANSI.reset}`);
     } else if (step.type === 'start') {
       const content = (step.content || '').replace(/\n/g, ' ');
-      this.writeln(`${ts} ${ANSI.white}start${ANSI.reset} ${content}`);
+      this.writeln(`${ts} ${ANSI.white}start${ANSI.reset} ${this._clip(content)}`);
     } else if (step.type === 'result' || step.type === 'end') {
       const content = (step.content || '').replace(/\n/g, ' ');
-      this.writeln(`${ts} ${ANSI.green}${step.type}${ANSI.reset}  ${content}`);
+      this.writeln(`${ts} ${ANSI.green}${step.type}${ANSI.reset}  ${this._clip(content)}`);
     } else if (step.type === 'holding' || step.type === 'auto_holding') {
       const content = step.content || '';
-      this.writeln(`${ts} ${ANSI.yellow}hold${ANSI.reset}  ${content}`);
+      this.writeln(`${ts} ${ANSI.yellow}hold${ANSI.reset}  ${this._clip(content)}`);
     } else if (step.type === 'error') {
-      const content = (step.content || '').substring(0, 150);
-      this.writeln(`${ts} ${ANSI.red}error${ANSI.reset} ${content}`);
+      const content = (step.content || '').replace(/\n/g, ' ');
+      this.writeln(`${ts} ${ANSI.red}error${ANSI.reset} ${this._clip(content)}`);
     }
   }
 
@@ -205,7 +210,7 @@ class XTermLog {
     // Description
     const desc = (node.description_preview || '').replace(/\n/g, ' ');
     if (desc) {
-      this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.dim}${desc}${ANSI.reset}`);
+      this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.dim}${this._clip(desc)}${ANSI.reset}`);
     }
 
     // Inline execution logs
@@ -220,17 +225,17 @@ class XTermLog {
           const result = step.result ? traceExtractToolResult(step.result.content, toolName) : '';
           const ok = step.result && !(step.result.content || '').includes('error');
           const icon = step.result ? (ok ? `${ANSI.green}\u2713${ANSI.reset}` : `${ANSI.red}\u2717${ANSI.reset}`) : '';
-          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.cyan}tool${ANSI.reset} ${ANSI.brightCyan}${toolName}${ANSI.reset} ${input}`);
-          if (result) this.writeln(`${ANSI.gray}${prefix}           ${ANSI.green}\u2192 ${result}${ANSI.reset} ${icon}`);
+          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.cyan}tool${ANSI.reset} ${ANSI.brightCyan}${toolName}${ANSI.reset} ${this._clip(input)}`);
+          if (result) this.writeln(`${ANSI.gray}${prefix}           ${ANSI.green}\u2192 ${this._clip(result)}${ANSI.reset} ${icon}`);
         } else if (step.type === 'llm_output') {
           const content = (step.content || '').replace(/\n/g, ' ');
-          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${content}${ANSI.reset}`);
+          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${this._clip(content)}${ANSI.reset}`);
         } else if (step.type === 'start') {
           const content = (step.content || '').replace(/\n/g, ' ');
-          this.writeln(`${ANSI.gray}${prefix}  ${ts} start${ANSI.reset} ${content}`);
+          this.writeln(`${ANSI.gray}${prefix}  ${ts} start${ANSI.reset} ${this._clip(content)}`);
         } else if (step.type === 'result' || step.type === 'end') {
           const content = (step.content || '').replace(/\n/g, ' ');
-          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.green}${step.type}${ANSI.reset}  ${content}`);
+          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.green}${step.type}${ANSI.reset}  ${this._clip(content)}`);
         }
       }
     }
@@ -238,7 +243,7 @@ class XTermLog {
     // Result
     if (node.result && ['completed', 'accepted', 'finished'].includes(status)) {
       const r = node.result.replace(/\n/g, ' ');
-      this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.green}\u2192 ${r}${ANSI.reset}`);
+      this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.green}\u2192 ${this._clip(r)}${ANSI.reset}`);
     }
 
     this.writeln('');  // blank line

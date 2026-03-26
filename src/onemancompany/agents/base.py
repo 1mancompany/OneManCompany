@@ -123,10 +123,9 @@ def extract_final_content(result: dict) -> str:
         return "\n".join(parts)
 
     # 3. Last resort — collect ALL tool calls from the conversation
-    from langchain_core.messages import AIMessage as _AI2, ToolMessage as _TM2
     all_tool_calls = []
     for msg in messages:
-        if isinstance(msg, _AI2):
+        if isinstance(msg, AIMessage):
             for tc in getattr(msg, _TC_ATTR, []) or []:
                 all_tool_calls.append(tc.get(_TC_NAME_KEY, _UNKNOWN_TOOL))
     if all_tool_calls:
