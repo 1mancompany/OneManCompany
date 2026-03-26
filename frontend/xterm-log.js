@@ -209,7 +209,7 @@ class XTermLog {
     this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}${sColor}${sIcon}${ANSI.reset} ${ANSI.bold}${ANSI.white}${name}${ANSI.reset}${type ? ` ${ANSI.gray}${type}${ANSI.reset}` : ''} ${ANSI.gray}${dur}${cost}${ANSI.reset}`);
 
     // Description
-    const desc = (node.description_preview || '').replace(/\n/g, ' ');
+    const desc = (node.title || node.description_preview || '').replace(/\n/g, ' ');
     if (desc) {
       this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.dim}${this._clip(desc)}${ANSI.reset}`);
     }

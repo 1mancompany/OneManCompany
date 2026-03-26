@@ -220,7 +220,7 @@ def dispatch_child(
     Args:
         employee_id: Target employee ID
         description: The task description — preserve the original wording from upstream
-        title: Short task name (e.g. "Build login page") — shown in task tree view
+        title: Short task name (e.g. "Build login page") — shown in task tree view. Always provide a brief, descriptive title.
         acceptance_criteria: List of measurable criteria the result must meet
         timeout_seconds: Max seconds allowed for the child task (default 3600)
         depends_on: List of TaskNode IDs that must complete before this child starts

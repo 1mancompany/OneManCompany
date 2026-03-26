@@ -863,3 +863,22 @@ class TestTaskTreeMode:
         (tmp_path / "tree.yaml").write_text(yaml.dump(data, allow_unicode=True))
         loaded = TaskTree.load(tmp_path / "tree.yaml")
         assert loaded.mode == "standard"
+
+
+class TestTaskNodeTitle:
+    def test_title_in_to_dict(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(title="Build login", description="Full description here")
+        d = node.to_dict()
+        assert d["title"] == "Build login"
+
+    def test_title_from_dict(self):
+        from onemancompany.core.task_tree import TaskNode
+        d = {"id": "abc", "title": "Build login", "description": "Full desc", "status": "pending"}
+        node = TaskNode.from_dict(d)
+        assert node.title == "Build login"
+
+    def test_title_defaults_empty(self):
+        from onemancompany.core.task_tree import TaskNode
+        node = TaskNode(description="No title")
+        assert node.title == ""
