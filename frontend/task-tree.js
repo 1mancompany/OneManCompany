@@ -416,16 +416,24 @@ class TaskTreeRenderer {
                 if (logContent.classList.contains('hidden')) {
                     logContent.classList.remove('hidden');
                     el.innerHTML = '&#9660; Execution Log';
-                    // Use NodeTraceView for brutalist rendering
-                    if (typeof NodeTraceView !== 'undefined') {
-                        const traceView = new NodeTraceView(logContent);
-                        traceView.load(nodeId, nodeData.project_dir || '');
+                    // Use xterm.js for terminal rendering
+                    if (typeof XTermLog !== 'undefined') {
+                        logContent.innerHTML = '';
+                        const xterm = new XTermLog(logContent, { fontSize: 11 });
+                        const projectDir = nodeData.project_dir || '';
+                        const qs = projectDir ? `?project_dir=${encodeURIComponent(projectDir)}&tail=200` : '?tail=200';
+                        fetch(`/api/node/${nodeId}/logs${qs}`)
+                            .then(r => r.json())
+                            .then(data => { xterm.renderLogs(data.logs || []); })
+                            .catch(() => { xterm.writeln('\x1b[31mFailed to load logs\x1b[0m'); });
+                        logContent._xterm = xterm;
                     } else {
-                        logContent.innerHTML = '<div style="color:#666;padding:8px">Trace viewer not loaded</div>';
+                        logContent.innerHTML = '<div style="color:#666;padding:8px">Terminal not loaded</div>';
                     }
                 } else {
                     logContent.classList.add('hidden');
                     el.innerHTML = '&#9654; Execution Log';
+                    if (logContent._xterm) { logContent._xterm.dispose(); logContent._xterm = null; }
                 }
             });
         });
