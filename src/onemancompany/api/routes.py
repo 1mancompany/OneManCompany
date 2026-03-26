@@ -125,7 +125,7 @@ def _push_adhoc_task(
     Returns the node_id.
     """
     from pathlib import Path
-    from onemancompany.core.task_tree import TaskTree, register_tree, save_tree_async
+    from onemancompany.core.task_tree import TaskTree, register_tree, get_tree
     from onemancompany.core.config import EMPLOYEES_DIR
     from onemancompany.core.vessel import employee_manager
 
@@ -143,9 +143,22 @@ def _push_adhoc_task(
     tasks_dir.mkdir(parents=True, exist_ok=True)
     tree_path = tasks_dir / f"{root.id}_tree.yaml"
     register_tree(tree_path, tree)
-    save_tree_async(tree_path)  # initial sync save to create the file
+    # Sync save — file must exist on disk before get_next_scheduled reads it
+    tree.save(tree_path)
 
     employee_manager.schedule_node(employee_id, root.id, str(tree_path))
+
+    # Verify the entry is findable before scheduling
+    entry = employee_manager.get_next_scheduled(employee_id)
+    if entry and entry.node_id == root.id:
+        logger.debug("[ADHOC] Task {} scheduled and findable for {}", root.id, employee_id)
+    else:
+        logger.warning("[ADHOC] Task {} scheduled but NOT findable by get_next_scheduled for {}! "
+                       "schedule_len={}, tree_cache_hit={}",
+                       root.id, employee_id,
+                       len(employee_manager._schedule.get(employee_id, [])),
+                       bool(get_tree(tree_path).get_node(root.id)))
+
     employee_manager._schedule_next(employee_id)
     return root.id, str(tree_path)
 
