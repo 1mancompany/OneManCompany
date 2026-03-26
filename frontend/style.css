@@ -547,7 +547,7 @@ body {
   border-radius: 0 0 2px 2px;
   padding: 8px 10px;
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;  /* xterm.js handles its own scrolling */
   min-height: 0;
 }
 
