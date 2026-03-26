@@ -57,6 +57,7 @@ from onemancompany.core.ceo_conversation import (
     load_messages, append_message,
 )
 from onemancompany.core.errors import ErrorCode, classify_exception
+from onemancompany.core.background_tasks import background_task_manager
 
 # ---------------------------------------------------------------------------
 # Single-file constants
@@ -6157,6 +6158,41 @@ async def confirm_ceo_report(project_id: str):
     if not confirmed:
         raise HTTPException(status_code=404, detail="No pending report for this project")
     return {"status": "ok", "project_id": project_id}
+
+
+# ---------------------------------------------------------------------------
+# Background Tasks
+# ---------------------------------------------------------------------------
+
+@router.get("/api/background-tasks")
+async def list_background_tasks():
+    """List all background tasks."""
+    from onemancompany.core.background_tasks import MAX_CONCURRENT
+    tasks = background_task_manager.get_all()
+    return {
+        "tasks": [t.to_dict() for t in tasks],
+        "running_count": background_task_manager.running_count,
+        "max_concurrent": MAX_CONCURRENT,
+    }
+
+
+@router.get("/api/background-tasks/{task_id}")
+async def get_background_task(task_id: str, tail: int = 50):
+    """Get background task detail + output tail."""
+    task = background_task_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    output = background_task_manager.read_output_tail(task_id, lines=tail)
+    return {"task": task.to_dict(), "output_tail": output}
+
+
+@router.post("/api/background-tasks/{task_id}/stop")
+async def stop_background_task_api(task_id: str):
+    """Stop a running background task."""
+    result = await background_task_manager.terminate(task_id)
+    if not result:
+        raise HTTPException(status_code=409, detail="Task not found or not running")
+    return {"status": "ok", "task_id": task_id}
 
 
 # ---------------------------------------------------------------------------
