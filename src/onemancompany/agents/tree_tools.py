@@ -450,8 +450,12 @@ def dispatch_child(
 def accept_child(node_id: str, notes: str = "") -> dict:
     """Accept a child task's result after reviewing it.
 
+    IMPORTANT: node_id is a TaskNode ID (e.g. "a1b2c3d4e5f6"), NOT an employee ID.
+    You must first dispatch_child to create a child task, then accept it after it completes.
+    Use the node_id returned by dispatch_child.
+
     Args:
-        node_id: The TaskNode ID of the child to accept
+        node_id: The TaskNode ID of the child to accept (12-char hex, NOT employee ID)
         notes: Optional acceptance notes
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
@@ -472,7 +476,15 @@ def accept_child(node_id: str, notes: str = "") -> dict:
         tree = _load_tree(project_dir)
         node = tree.get_node(node_id)
         if not node:
-            return {"status": "error", "message": f"Node {node_id} not found."}
+            # Help agent: list actual children so they know what node_ids exist
+            current_node = tree.get_node(task_id)
+            children = tree.get_children(task_id) if current_node else []
+            if children:
+                child_list = ", ".join(f"{c.id} ({c.status})" for c in children)
+                hint = f" Your child nodes: {child_list}"
+            else:
+                hint = " You have no child tasks yet. Use dispatch_child first to create one."
+            return {"status": "error", "message": f"Node {node_id} not found.{hint}"}
 
         # Normalize status to string for comparison (TaskNode.status is str)
         current = node.status.value if hasattr(node.status, "value") else node.status
