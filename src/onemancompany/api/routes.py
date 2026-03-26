@@ -6072,11 +6072,19 @@ async def upload_ceo_attachment(node_id: str, file: UploadFile):
 async def complete_ceo_conversation(node_id: str):
     """CEO marks conversation as complete."""
     session = get_session(node_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="No active conversation")
+    if session:
+        await session.complete()
+        return {"status": "completing", "node_id": node_id}
 
-    await session.complete()
-    return {"status": "completing", "node_id": node_id}
+    # No active session — complete the node directly (CEO never opened
+    # a conversation, or session was already cleaned up).
+    node, tree, project_dir = _find_ceo_node(node_id)
+    await _complete_ceo_request(
+        node, tree, project_dir,
+        target_status=TaskPhase.ACCEPTED,
+        notes="CEO completed (no active session)",
+    )
+    return {"status": "completed", "node_id": node_id}
 
 
 @router.post("/api/ceo/inbox/{node_id}/confirm")
@@ -6138,7 +6146,7 @@ async def toggle_ea_auto_reply(node_id: str, body: dict):
     return {"status": "ok", "ea_auto_reply": enabled}
 
 
-@router.post("/api/ceo/report/{project_id}/confirm")
+@router.post("/api/ceo/report/{project_id:path}/confirm")
 async def confirm_ceo_report(project_id: str):
     """CEO confirms a pending project completion report (early confirmation)."""
     from onemancompany.core.vessel import employee_manager
