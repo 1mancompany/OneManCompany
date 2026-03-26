@@ -4091,7 +4091,7 @@ class AppController {
             html += `<span style="color:var(--pixel-green);">${entry.employee_id}</span> `;
             html += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
             if (entry.detail) {
-              html += `<div style="color:var(--pixel-white);margin-top:1px;">${entry.detail.substring(0, 200)}${entry.detail.length > 200 ? '...' : ''}</div>`;
+              html += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail)}</div>`;
             }
             html += `</div>`;
           }
@@ -6540,7 +6540,7 @@ class AppController {
           detailHtml += `<div class="task-result-report md-rendered">${this._renderMarkdown(taskResult)}</div>`;
         } else if (doc.output) {
           detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:8px 0 3px;">Output</div>`;
-          detailHtml += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output).substring(0, 500)}</div>`;
+          detailHtml += `<div style="font-size:5px;color:var(--pixel-white);background:var(--bg-dark);padding:4px;border:1px solid var(--border);max-height:80px;overflow-y:auto;">${this._escHtml(doc.output)}</div>`;
         }
 
         const timeline = doc.timeline || [];
@@ -6554,7 +6554,7 @@ class AppController {
             detailHtml += `<span style="color:var(--pixel-green);">${entry.employee_id}</span> `;
             detailHtml += `<span style="color:var(--pixel-yellow);">${entry.action}</span>`;
             if (entry.detail) {
-              detailHtml += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail.substring(0, 150))}${entry.detail.length > 150 ? '...' : ''}</div>`;
+              detailHtml += `<div style="color:var(--pixel-white);margin-top:1px;">${this._escHtml(entry.detail)}</div>`;
             }
             detailHtml += `</div>`;
           }
