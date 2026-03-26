@@ -442,6 +442,12 @@ class AppController {
         this._showProjectReportModal(p);
         return { text: `📊 Project Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
+      'background_task_update': (p) => {
+        if (document.getElementById('bg-tasks-modal') && !document.getElementById('bg-tasks-modal').classList.contains('hidden')) {
+          this._fetchBackgroundTasks();
+        }
+        return { text: `BG Task ${p.task_id}: ${p.status}`, cls: 'system', agent: 'SYSTEM' };
+      },
       'review_reminder': (p) => {
         const nodes = p.overdue_nodes || [];
         if (!nodes.length) return null;
@@ -1122,6 +1128,13 @@ class AppController {
     document.getElementById('dashboard-close-btn').addEventListener('click', () => this.closeDashboard());
     document.getElementById('dashboard-modal').addEventListener('click', (e) => {
       if (e.target.id === 'dashboard-modal') this.closeDashboard();
+    });
+
+    // Background Tasks modal bindings
+    document.getElementById('bg-tasks-toolbar-btn').addEventListener('click', () => this.openBackgroundTasks());
+    document.getElementById('bg-tasks-close-btn').addEventListener('click', () => this.closeBackgroundTasks());
+    document.getElementById('bg-tasks-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'bg-tasks-modal') this.closeBackgroundTasks();
     });
 
     // Candidate selection modal bindings
@@ -6950,6 +6963,144 @@ class AppController {
       `;
       list.appendChild(card);
     }
+  }
+
+  // ===== Background Tasks =====
+
+  openBackgroundTasks() {
+    document.getElementById('bg-tasks-modal').classList.remove('hidden');
+    this._bgTaskSelected = null;
+    this._bgTaskXterm = null;
+    this._fetchBackgroundTasks();
+  }
+
+  closeBackgroundTasks() {
+    document.getElementById('bg-tasks-modal').classList.add('hidden');
+    clearInterval(this._bgTaskPollTimer);
+    this._bgTaskPollTimer = null;
+    if (this._bgTaskXterm) { this._bgTaskXterm.dispose(); this._bgTaskXterm = null; }
+  }
+
+  async _fetchBackgroundTasks() {
+    try {
+      const resp = await fetch('/api/background-tasks');
+      const data = await resp.json();
+      this._renderBgTaskList(data.tasks);
+      document.getElementById('bg-tasks-slots').textContent =
+        `${data.running_count}/${data.max_concurrent} SLOTS`;
+      // If selected task is in the list, refresh detail (re-fetch with output)
+      if (this._bgTaskSelected) {
+        const current = data.tasks.find(t => t.id === this._bgTaskSelected);
+        if (current) this._fetchBgTaskDetail(this._bgTaskSelected);
+      }
+    } catch (e) {
+      console.error('[bg-tasks] fetch error:', e);
+    }
+  }
+
+  _renderBgTaskList(tasks) {
+    const el = document.getElementById('bg-tasks-list');
+    if (!tasks.length) {
+      el.innerHTML = '<div style="color:#555;font-size:10px;padding:12px;font-family:var(--font-mono);">No background tasks</div>';
+      return;
+    }
+    const statusIcon = { running: '\u2588', completed: '\u2591', failed: '\u2573', stopped: '\u2592' };
+    const statusColor = { running: '#44aa44', completed: '#666', failed: '#ff4444', stopped: '#aa4444' };
+    let html = '';
+    for (const t of tasks) {
+      const selected = t.id === this._bgTaskSelected ? ' selected' : '';
+      const dur = this._bgTaskDuration(t);
+      const cmd = this._escHtml(t.command.length > 30 ? t.command.substring(0, 30) + '...' : t.command);
+      html += `<div class="bg-task-item status-${t.status}${selected}" data-id="${t.id}">`;
+      html += `<div class="bg-task-item-status" style="color:${statusColor[t.status] || '#666'}">${statusIcon[t.status] || '\u2591'} ${t.status.toUpperCase()} ${dur}</div>`;
+      html += `<div class="bg-task-item-cmd">${cmd}</div>`;
+      if (t.port) html += `<div class="bg-task-item-port">\u25B6 :${t.port}</div>`;
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('.bg-task-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._bgTaskSelected = item.dataset.id;
+        this._fetchBgTaskDetail(item.dataset.id);
+        el.querySelectorAll('.bg-task-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+      });
+    });
+  }
+
+  async _fetchBgTaskDetail(taskId) {
+    try {
+      const resp = await fetch(`/api/background-tasks/${taskId}?tail=200`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      this._renderBgTaskDetail(data.task, data.output_tail);
+      clearInterval(this._bgTaskPollTimer);
+      if (data.task.status === 'running') {
+        this._bgTaskPollTimer = setInterval(() => this._fetchBgTaskDetail(taskId), 3000);
+      }
+    } catch (e) {
+      console.error('[bg-tasks] detail fetch error:', e);
+    }
+  }
+
+  _renderBgTaskDetail(task, outputTail) {
+    const el = document.getElementById('bg-tasks-detail');
+    const statusColor = { running: '#44aa44', completed: '#666', failed: '#ff4444', stopped: '#aa4444' };
+
+    let metaHtml = `<span style="color:${statusColor[task.status] || '#666'}">\u2588 ${task.status.toUpperCase()}</span>`;
+    if (task.port) {
+      const addr = task.address || `http://localhost:${task.port}`;
+      metaHtml += `<span style="color:#aa44ff">\u25B6 <a href="${addr}" target="_blank" style="color:#aa44ff;">${addr}</a></span>`;
+    }
+    if (task.pid) metaHtml += `<span style="color:#555">PID ${task.pid}</span>`;
+    if (task.started_by) metaHtml += `<span style="color:#555">by ${this._escHtml(task.started_by)}</span>`;
+    const dur = this._bgTaskDuration(task);
+    if (dur) metaHtml += `<span style="color:#555">${dur}</span>`;
+
+    el.innerHTML = `
+      <div class="bg-tasks-detail-header">
+        <div class="bg-tasks-detail-cmd">${this._escHtml(task.command)}</div>
+        <div class="bg-tasks-detail-desc">${this._escHtml(task.description)}</div>
+        <div class="bg-tasks-detail-meta">${metaHtml}</div>
+      </div>
+      <div class="bg-tasks-detail-output" id="bg-tasks-output"></div>
+      ${task.status === 'running' ? '<div class="bg-tasks-detail-actions"><button class="bg-tasks-stop-btn" id="bg-tasks-stop-btn">\u25A0 STOP</button></div>' : ''}
+    `;
+
+    const outputEl = document.getElementById('bg-tasks-output');
+    if (this._bgTaskXterm) { this._bgTaskXterm.dispose(); }
+    this._bgTaskXterm = new XTermLog(outputEl, { fontSize: 11 });
+    if (outputTail) {
+      for (const line of outputTail.split('\n')) {
+        this._bgTaskXterm.writeln(line);
+      }
+    } else {
+      this._bgTaskXterm.writeln(`${ANSI.gray}No output yet${ANSI.reset}`);
+    }
+
+    const stopBtn = document.getElementById('bg-tasks-stop-btn');
+    if (stopBtn) {
+      stopBtn.addEventListener('click', async () => {
+        stopBtn.disabled = true;
+        stopBtn.textContent = 'STOPPING...';
+        try {
+          await fetch(`/api/background-tasks/${task.id}/stop`, { method: 'POST' });
+          this._fetchBackgroundTasks();
+        } catch (e) {
+          console.error('[bg-tasks] stop error:', e);
+        }
+      });
+    }
+  }
+
+  _bgTaskDuration(task) {
+    if (!task.started_at) return '';
+    const start = new Date(task.started_at);
+    const end = task.ended_at ? new Date(task.ended_at) : new Date();
+    const s = Math.floor((end - start) / 1000);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m${s % 60}s`;
+    return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
   }
 }
 

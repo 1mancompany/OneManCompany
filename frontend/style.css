@@ -5200,3 +5200,82 @@ body {
 .meeting-minute-meta { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
 .meeting-minute-detail { padding: 8px; }
 .meeting-minute-detail pre { white-space: pre-wrap; color: #ccc; font-size: 10px; }
+
+/* ── Background Tasks Modal ── */
+.bg-tasks-modal-content {
+  width: 90vw;
+  max-width: 900px;
+  height: 70vh;
+  max-height: 600px;
+}
+.bg-tasks-slots {
+  color: #555;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  margin-left: auto;
+  margin-right: 12px;
+}
+.bg-tasks-body {
+  display: flex;
+  gap: 0;
+  height: calc(100% - 40px);
+  overflow: hidden;
+}
+.bg-tasks-list {
+  flex: 0 0 280px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  background: #0a0a0a;
+}
+.bg-tasks-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0a0a0a;
+  padding: 8px;
+}
+.bg-tasks-detail-empty {
+  color: #555;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.bg-task-item {
+  padding: 6px 8px;
+  border-left: 2px solid #333;
+  margin: 2px 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  transition: background 0.1s;
+}
+.bg-task-item:hover { background: #111; }
+.bg-task-item.selected { background: #111; }
+.bg-task-item.status-running { border-left-color: #44aa44; }
+.bg-task-item.status-completed { border-left-color: #555; opacity: 0.6; }
+.bg-task-item.status-failed { border-left-color: #ff4444; opacity: 0.6; }
+.bg-task-item.status-stopped { border-left-color: #aa4444; opacity: 0.6; }
+.bg-task-item-status { font-size: 9px; }
+.bg-task-item-cmd { color: #44aaff; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bg-task-item-port { color: #aa44ff; font-size: 9px; }
+.bg-tasks-detail-header { margin-bottom: 6px; }
+.bg-tasks-detail-cmd { color: #44aaff; font-size: 11px; font-weight: bold; font-family: var(--font-mono); word-break: break-all; }
+.bg-tasks-detail-desc { color: #666; font-size: 10px; font-family: var(--font-mono); margin: 4px 0; }
+.bg-tasks-detail-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 9px; font-family: var(--font-mono); margin-bottom: 8px; }
+.bg-tasks-detail-output { flex: 1; min-height: 0; border: 1px solid #222; }
+.bg-tasks-detail-actions { margin-top: 6px; text-align: right; }
+.bg-tasks-stop-btn {
+  color: #ff4444;
+  border: 1px solid #ff4444;
+  background: transparent;
+  padding: 3px 12px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.bg-tasks-stop-btn:hover { background: #ff444422; }
