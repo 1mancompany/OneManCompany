@@ -68,8 +68,87 @@ from onemancompany.core.state import LEVEL_NAMES, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
 
 
-
 # HR operational prompt is now in employees/00002/role_guide.md (loaded by _get_role_identity_section)
+
+
+async def _broadcast(event_type: str, payload: dict) -> None:
+    """Broadcast event via EventBus."""
+    from onemancompany.core.events import event_bus, CompanyEvent
+    from onemancompany.core.models import EventType
+    from onemancompany.core.async_utils import spawn_background
+    try:
+        spawn_background(event_bus.publish(CompanyEvent(
+            type=getattr(EventType, event_type.upper(), event_type),
+            payload=payload,
+            agent="HR",
+        )))
+    except Exception as e:
+        logger.debug("[hr] Broadcast failed: {}", e)
+
+
+async def _execute_review(employee_id: str, score: float, feedback: str = "") -> dict:
+    """Shared review logic: validate, record, run meeting, handle PIP.
+
+    Does NOT handle promotion — _check_promotions() does that after every run.
+
+    Returns a result dict with keys: status, employee_id, score, and optionally action/message.
+    """
+    emp_data = _store.load_employee(employee_id)
+    if not emp_data:
+        return {"status": "error", "message": f"Employee {employee_id} not found"}
+
+    if emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) < TASKS_PER_QUARTER:
+        return {
+            "status": "error",
+            "message": f"Employee {employee_id} has not completed {TASKS_PER_QUARTER} tasks this quarter",
+        }
+
+    # Snap to nearest valid tier
+    snapped_score = min(VALID_SCORES, key=lambda s: abs(s - score))
+
+    # Record quarter and reset task counter
+    perf_history = list(emp_data.get(PF_PERFORMANCE_HISTORY, []))
+    perf_history.append({"score": snapped_score, "tasks": TASKS_PER_QUARTER})
+    if len(perf_history) > MAX_PERFORMANCE_HISTORY:
+        perf_history = perf_history[-MAX_PERFORMANCE_HISTORY:]
+
+    await _store.save_employee(employee_id, {
+        "current_quarter_tasks": 0,
+        "performance_history": perf_history,
+    })
+
+    await _broadcast("employee_reviewed", {"id": employee_id, "score": snapped_score, "history": perf_history})
+
+    # Run performance feedback meeting
+    try:
+        await run_performance_meeting(employee_id, snapped_score, feedback)
+    except Exception as e:
+        logger.warning("Performance meeting failed for {}: {}", employee_id, e)
+
+    # PIP logic
+    pip = emp_data.get("pip")
+    if snapped_score == SCORE_NEEDS_IMPROVEMENT:
+        if pip:
+            # Already on PIP and scored 3.25 again → terminate
+            try:
+                from onemancompany.core.routine import run_offboarding_routine
+                await run_offboarding_routine(employee_id, "Failed PIP — consecutive low performance")
+            except Exception as e:
+                logger.warning("Offboarding routine failed for {}: {}", employee_id, e)
+            from onemancompany.agents.termination import execute_fire
+            await execute_fire(employee_id, reason="Failed PIP — consecutive low performance")
+            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "terminated_pip"}
+        else:
+            pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
+            await _store.save_employee(employee_id, {"pip": pip_data})
+            await _broadcast("pip_started", {"id": employee_id, "pip": pip_data})
+            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "pip_started"}
+    elif snapped_score >= 3.5 and pip:
+        await _store.save_employee(employee_id, {"pip": None})
+        await _broadcast("pip_resolved", {"id": employee_id})
+
+    return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "feedback": feedback}
+
 
 @tool
 async def performance_review(
@@ -87,84 +166,7 @@ async def performance_review(
         score: Performance score — must be 3.25, 3.5, or 3.75.
         feedback: Brief performance feedback for the employee.
     """
-    emp_data = _store.load_employee(employee_id)
-    if not emp_data:
-        return {"status": "error", "message": f"Employee {employee_id} not found"}
-
-    if emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) < TASKS_PER_QUARTER:
-        return {"status": "error", "message": f"Employee {employee_id} has not completed {TASKS_PER_QUARTER} tasks this quarter"}
-
-    # Snap to nearest valid tier
-    snapped_score = min(VALID_SCORES, key=lambda s: abs(s - score))
-
-    # Record quarter and reset task counter
-    perf_history = list(emp_data.get(PF_PERFORMANCE_HISTORY, []))
-    perf_history.append({"score": snapped_score, "tasks": TASKS_PER_QUARTER})
-    if len(perf_history) > MAX_PERFORMANCE_HISTORY:
-        perf_history = perf_history[-MAX_PERFORMANCE_HISTORY:]
-
-    await _store.save_employee(employee_id, {
-        "current_quarter_tasks": 0,
-        "performance_history": perf_history,
-    })
-
-    # Publish event
-    from onemancompany.core.events import event_bus, CompanyEvent
-    from onemancompany.core.models import EventType
-    from onemancompany.core.async_utils import spawn_background
-    try:
-        spawn_background(event_bus.publish(CompanyEvent(
-            type=EventType.EMPLOYEE_REVIEWED,
-            payload={"id": employee_id, "score": snapped_score, "history": perf_history},
-            agent="HR",
-        )))
-    except Exception as e:
-        logger.debug("[hr] Broadcast failed: {}", e)
-
-    # Run performance feedback meeting
-    try:
-        await run_performance_meeting(employee_id, snapped_score, feedback)
-    except Exception as e:
-        logger.warning("Performance meeting failed for %s: %s", employee_id, e)
-
-    # Promotion check: 3 consecutive quarters of 3.75 → promote
-    level = emp_data.get(PF_LEVEL, 1)
-    promoted = False
-    if len(perf_history) >= QUARTERS_FOR_PROMOTION and level < MAX_NORMAL_LEVEL:
-        recent = [h["score"] for h in perf_history[-QUARTERS_FOR_PROMOTION:]]
-        if all(s == SCORE_EXCELLENT for s in recent):
-            new_level = level + 1
-            from onemancompany.core.state import make_title
-            new_title = make_title(new_level, emp_data.get(PF_ROLE, ""))
-            await _store.save_employee(employee_id, {"level": new_level, "title": new_title})
-            promoted = True
-            logger.info("[hr] Promoted {} to Lv.{} ({})", employee_id, new_level, new_title)
-
-    # PIP logic
-    pip = emp_data.get("pip")
-    if snapped_score == SCORE_NEEDS_IMPROVEMENT:
-        if pip:
-            # Already on PIP and scored 3.25 again → terminate
-            try:
-                from onemancompany.core.routine import run_offboarding_routine
-                await run_offboarding_routine(employee_id, "Failed PIP — consecutive low performance")
-            except Exception as e:
-                logger.warning("Offboarding routine failed for %s: %s", employee_id, e)
-            from onemancompany.agents.termination import execute_fire
-            await execute_fire(employee_id, reason="Failed PIP — consecutive low performance")
-            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "terminated_pip"}
-        else:
-            pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
-            await _store.save_employee(employee_id, {"pip": pip_data})
-            return {"status": "ok", "employee_id": employee_id, "score": snapped_score, "action": "pip_started"}
-    elif snapped_score >= 3.5 and pip:
-        await _store.save_employee(employee_id, {"pip": None})
-
-    result = {"status": "ok", "employee_id": employee_id, "score": snapped_score, "feedback": feedback}
-    if promoted:
-        result["promoted"] = True
-        result["new_level"] = level + 1
-    return result
+    return await _execute_review(employee_id, score, feedback)
 
 
 def _register_hr_tools() -> None:
@@ -307,7 +309,7 @@ class HRAgent(BaseAgentRunner):
             try:
                 data = json.loads(block)
             except json.JSONDecodeError as _e:
-                logger.debug("Skipping malformed JSON block: %s", _e)
+                logger.debug("Skipping malformed JSON block: {}", _e)
                 continue
 
             if data.get("action") == "shortlist" and "candidates" in data:
@@ -355,59 +357,15 @@ class HRAgent(BaseAgentRunner):
             elif data.get("action") == "review" and "reviews" in data:
                 for review in data["reviews"]:
                     emp_id = review.get("id")
-                    emp_data = _store.load_employee(emp_id) if emp_id else {}
-                    if emp_id and emp_data:
-                        # Only review if quarter tasks >= threshold
-                        if emp_data.get(PF_CURRENT_QUARTER_TASKS, 0) < TASKS_PER_QUARTER:
-                            continue
-                        raw_score = review.get("score", 3.5)
-                        # Snap to nearest valid tier
-                        score = min(VALID_SCORES, key=lambda s: abs(s - raw_score))
-                        # Record quarter and reset task counter
-                        perf_history = list(emp_data.get(PF_PERFORMANCE_HISTORY, []))
-                        perf_history.append({"score": score, "tasks": TASKS_PER_QUARTER})
-                        # Keep only recent quarters
-                        if len(perf_history) > MAX_PERFORMANCE_HISTORY:
-                            perf_history = perf_history[-MAX_PERFORMANCE_HISTORY:]
-                        # Persist performance via store
-                        await _store.save_employee(emp_id, {
-                            "current_quarter_tasks": 0,
-                            "performance_history": perf_history,
-                        })
-                        await self._publish(
-                            "employee_reviewed",
-                            {"id": emp_id, "score": score,
-                             "history": perf_history},
-                        )
-
-                        # Run performance feedback meeting
-                        feedback = review.get("feedback", "")
-                        try:
-                            await run_performance_meeting(emp_id, score, feedback)
-                        except Exception as e:
-                            logger.warning("Performance meeting failed for %s: %s", emp_id, e)
-
-                        # PIP logic
-                        pip = emp_data.get("pip")
-                        if score == SCORE_NEEDS_IMPROVEMENT:
-                            if pip:
-                                # Already on PIP and scored 3.25 again → terminate
-                                try:
-                                    from onemancompany.core.routine import run_offboarding_routine
-                                    await run_offboarding_routine(emp_id, "Failed PIP — consecutive low performance")
-                                except Exception as e:
-                                    logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
-                                from onemancompany.agents.termination import execute_fire
-                                await execute_fire(emp_id, reason="Failed PIP — consecutive low performance")
-                            else:
-                                # Start PIP
-                                pip_data = {"started_at": datetime.now().isoformat(), "reason": "Score 3.25"}
-                                await _store.save_employee(emp_id, {"pip": pip_data})
-                                await self._publish("pip_started", {"id": emp_id, "pip": pip_data})
-                        elif score >= 3.5 and pip:
-                            # Resolve PIP
-                            await _store.save_employee(emp_id, {"pip": None})
-                            await self._publish("pip_resolved", {"id": emp_id})
+                    if not emp_id:
+                        continue
+                    result = await _execute_review(
+                        emp_id,
+                        review.get("score", 3.5),
+                        review.get("feedback", ""),
+                    )
+                    if result.get("status") == "error":
+                        logger.warning("[hr] Review skipped for {}: {}", emp_id, result.get("message"))
 
             elif data.get("action") == "fire" and "employee_id" in data:
                 emp_id = data["employee_id"]
@@ -417,7 +375,7 @@ class HRAgent(BaseAgentRunner):
                     from onemancompany.core.routine import run_offboarding_routine
                     await run_offboarding_routine(emp_id, reason)
                 except Exception as e:
-                    logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+                    logger.warning("Offboarding routine failed for {}: {}", emp_id, e)
                 from onemancompany.agents.termination import execute_fire
                 await execute_fire(emp_id, reason=reason)
 
@@ -441,7 +399,7 @@ class HRAgent(BaseAgentRunner):
                             from onemancompany.core.routine import run_offboarding_routine
                             await run_offboarding_routine(emp_id, f"Failed probation: {feedback}")
                         except Exception as e:
-                            logger.warning("Offboarding routine failed for %s: %s", emp_id, e)
+                            logger.warning("Offboarding routine failed for {}: {}", emp_id, e)
                         from onemancompany.agents.termination import execute_fire
                         await execute_fire(emp_id, reason=f"Failed probation: {feedback}")
 
