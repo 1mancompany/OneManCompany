@@ -43,6 +43,7 @@ class XTermLog {
     this._term = new Terminal({
       disableStdin: true,
       convertEol: true,
+      wordWrap: true,
       fontSize: this._fontSize,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace",
       theme: {
