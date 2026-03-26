@@ -412,7 +412,7 @@ async def project_progress_watchdog() -> list | None:
             # Recently finished nudge — cooldown to avoid spam
             if n.completed_at:
                 try:
-                    completed = _dt.fromisoformat(n.completed_at)
+                    completed = _dt.fromisoformat(n.completed_at).replace(tzinfo=None)
                     if (_dt.now() - completed).total_seconds() < 600:
                         skip_nudge = True
                         break

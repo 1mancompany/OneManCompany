@@ -895,7 +895,7 @@ async def execute_hire(
     if not llm_model:
         from onemancompany.core.config import load_app_config
         _settings = load_app_config()
-        llm_model = _settings.default_llm_model if hasattr(_settings, 'default_llm_model') else ""
+        llm_model = _settings.get("default_llm_model", "") if isinstance(_settings, dict) else getattr(_settings, "default_llm_model", "")
 
     # Salary
     salary = compute_salary(llm_model) if llm_model else 0.0
