@@ -292,8 +292,7 @@ class HRAgent(BaseAgentRunner):
         task = (
             "Run a quarterly performance review.\n\n"
             + "\n\n".join(parts)
-            + "\n\nFor each reviewable employee, use the performance_review tool to give a score of 3.25, 3.5, or 3.75 with feedback.\n"
-            "After all reviews are done, check for open positions and hire one new candidate."
+            + "\n\nFor each reviewable employee, use the performance_review tool to give a score of 3.25, 3.5, or 3.75 with feedback."
         )
         return await self.run(task)
 
