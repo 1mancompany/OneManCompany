@@ -5911,9 +5911,9 @@ class AppController {
   }
 
   /** Show a simple alert modal. htmlContent must be pre-sanitized (use _escapeHtml). */
-  _showAlertModal(title, htmlContent) {
-    // Legacy HTML alert — kept for backward compat
-    this._showXtermAlert(title, [htmlContent]);
+  _showAlertModal(title, textContent) {
+    // Legacy shim — renders plain text (HTML tags shown literally in xterm)
+    this._showXtermAlert(title, [textContent]);
   }
 
   _showXtermAlert(title, lines) {

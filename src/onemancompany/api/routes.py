@@ -3898,11 +3898,13 @@ def _fill_talent_defaults(talent_data: dict) -> None:
     Non-self-hosted talents that lack llm_model, api_provider, or auth_method
     get the company's default values instead of failing validation.
     """
-    if talent_data.get("hosting") == HostingMode.SELF:
+    hosting = talent_data.get("hosting", "")
+    if hosting in ("self", HostingMode.SELF):
         return
     if not talent_data.get("llm_model"):
-        talent_data["llm_model"] = settings.default_llm_model
-        logger.info("[hiring] Talent missing llm_model — using company default: {}", settings.default_llm_model)
+        from onemancompany.core.config import settings as _settings
+        talent_data["llm_model"] = _settings.default_llm_model
+        logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
     if not talent_data.get("api_provider"):
         talent_data["api_provider"] = "openrouter"
         logger.info("[hiring] Talent missing api_provider — using default: openrouter")
