@@ -425,7 +425,7 @@ class TaskTreeRenderer {
                         fetch(`/api/node/${nodeId}/logs${qs}`)
                             .then(r => r.json())
                             .then(data => { xterm.renderLogs(data.logs || []); })
-                            .catch(() => { xterm.writeln('\x1b[31mFailed to load logs\x1b[0m'); });
+                            .catch(() => { xterm.writeln(`${ANSI.red}Failed to load logs${ANSI.reset}`); });
                         logContent._xterm = xterm;
                     } else {
                         logContent.innerHTML = '<div style="color:#666;padding:8px">Terminal not loaded</div>';
