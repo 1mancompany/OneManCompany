@@ -2294,6 +2294,35 @@ class EmployeeManager:
                     logger.debug("[ON_CHILD_COMPLETE] parent={} — waiting (needs_review={}, active_review={})",
                                  parent_node.id, needs_review, has_active_review)
 
+        # --- Auto-accept orphaned COMPLETED children after REVIEW finishes ---
+        # If a REVIEW node finishes without explicitly accept_child/reject_child,
+        # the reviewed children stay stuck at COMPLETED forever. Auto-accept them.
+        if node.node_type in SYSTEM_NODE_TYPES and parent_node:
+            completed_siblings = [
+                c for c in tree.get_active_children(parent_node.id)
+                if c.node_type not in SYSTEM_NODE_TYPES
+                and c.status == TaskPhase.COMPLETED.value
+            ]
+            if completed_siblings:
+                has_active_review = any(
+                    c for c in tree.get_active_children(parent_node.id)
+                    if c.node_type == NodeType.REVIEW
+                    and c.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value)
+                )
+                if not has_active_review:
+                    for c in completed_siblings:
+                        c.set_status(TaskPhase.ACCEPTED)
+                        c.acceptance_result = {"passed": True, "notes": "Auto-accepted: review completed without explicit accept/reject."}
+                        c.set_status(TaskPhase.FINISHED)
+                        logger.info("[ON_CHILD_COMPLETE] Auto-accepted orphaned COMPLETED node {} (review finished without tool call)", c.id)
+                    save_tree_async(entry.tree_path)
+                    # Re-run completion check with updated statuses
+                    parent_entry = ScheduleEntry(node_id=parent_node.id, tree_path=entry.tree_path)
+                    await self._on_child_complete_inner(
+                        parent_node.employee_id, parent_entry, project_id
+                    )
+                    return
+
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
         # EA done executing + all child subtrees RESOLVED → trigger retrospective.

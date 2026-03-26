@@ -155,8 +155,8 @@ class XTermLog {
 
     if (step.type === 'tool') {
       const name = step.toolName || '';
-      const input = traceExtractToolInput(step.input).substring(0, 100);
-      const result = step.result ? traceExtractToolResult(step.result.content, name).substring(0, 120) : '';
+      const input = traceExtractToolInput(step.input);
+      const result = step.result ? traceExtractToolResult(step.result.content, name) : '';
       const ok = step.result && !(step.result.content || '').includes('error');
       const icon = step.result ? (ok ? `${ANSI.green}\u2713${ANSI.reset}` : `${ANSI.red}\u2717${ANSI.reset}`) : `${ANSI.gray}\u2026${ANSI.reset}`;
 
@@ -165,16 +165,16 @@ class XTermLog {
         this.writeln(`         ${ANSI.green}\u2192 ${result}${ANSI.reset} ${icon}`);
       }
     } else if (step.type === 'llm_output') {
-      const summary = (step.content || '').split('\n')[0].substring(0, 120);
-      this.writeln(`${ts} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${summary}${ANSI.reset}`);
+      const content = (step.content || '').replace(/\n/g, ' ');
+      this.writeln(`${ts} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${content}${ANSI.reset}`);
     } else if (step.type === 'start') {
-      const content = (step.content || '').substring(0, 120).replace(/\n/g, ' ');
+      const content = (step.content || '').replace(/\n/g, ' ');
       this.writeln(`${ts} ${ANSI.white}start${ANSI.reset} ${content}`);
     } else if (step.type === 'result' || step.type === 'end') {
-      const content = (step.content || '').substring(0, 120).replace(/\n/g, ' ');
+      const content = (step.content || '').replace(/\n/g, ' ');
       this.writeln(`${ts} ${ANSI.green}${step.type}${ANSI.reset}  ${content}`);
     } else if (step.type === 'holding' || step.type === 'auto_holding') {
-      const content = (step.content || '').substring(0, 100);
+      const content = step.content || '';
       this.writeln(`${ts} ${ANSI.yellow}hold${ANSI.reset}  ${content}`);
     } else if (step.type === 'error') {
       const content = (step.content || '').substring(0, 150);
@@ -203,7 +203,7 @@ class XTermLog {
     this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}${sColor}${sIcon}${ANSI.reset} ${ANSI.bold}${ANSI.white}${name}${ANSI.reset}${type ? ` ${ANSI.gray}${type}${ANSI.reset}` : ''} ${ANSI.gray}${dur}${cost}${ANSI.reset}`);
 
     // Description
-    const desc = (node.description_preview || '').substring(0, 100).replace(/\n/g, ' ');
+    const desc = (node.description_preview || '').replace(/\n/g, ' ');
     if (desc) {
       this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.dim}${desc}${ANSI.reset}`);
     }
@@ -216,20 +216,20 @@ class XTermLog {
         const ts = step.timestamp ? step.timestamp.substring(11, 19) : '';
         if (step.type === 'tool') {
           const toolName = step.toolName || '';
-          const input = traceExtractToolInput(step.input).substring(0, 70);
-          const result = step.result ? traceExtractToolResult(step.result.content, toolName).substring(0, 80) : '';
+          const input = traceExtractToolInput(step.input);
+          const result = step.result ? traceExtractToolResult(step.result.content, toolName) : '';
           const ok = step.result && !(step.result.content || '').includes('error');
           const icon = step.result ? (ok ? `${ANSI.green}\u2713${ANSI.reset}` : `${ANSI.red}\u2717${ANSI.reset}`) : '';
           this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.cyan}tool${ANSI.reset} ${ANSI.brightCyan}${toolName}${ANSI.reset} ${input}`);
           if (result) this.writeln(`${ANSI.gray}${prefix}           ${ANSI.green}\u2192 ${result}${ANSI.reset} ${icon}`);
         } else if (step.type === 'llm_output') {
-          const summary = (step.content || '').split('\n')[0].substring(0, 90);
-          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${summary}${ANSI.reset}`);
+          const content = (step.content || '').replace(/\n/g, ' ');
+          this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.yellow}llm${ANSI.reset}  ${ANSI.dim}${content}${ANSI.reset}`);
         } else if (step.type === 'start') {
-          const content = (step.content || '').substring(0, 90).replace(/\n/g, ' ');
+          const content = (step.content || '').replace(/\n/g, ' ');
           this.writeln(`${ANSI.gray}${prefix}  ${ts} start${ANSI.reset} ${content}`);
         } else if (step.type === 'result' || step.type === 'end') {
-          const content = (step.content || '').substring(0, 90).replace(/\n/g, ' ');
+          const content = (step.content || '').replace(/\n/g, ' ');
           this.writeln(`${ANSI.gray}${prefix}  ${ts}${ANSI.reset} ${ANSI.green}${step.type}${ANSI.reset}  ${content}`);
         }
       }
@@ -237,7 +237,7 @@ class XTermLog {
 
     // Result
     if (node.result && ['completed', 'accepted', 'finished'].includes(status)) {
-      const r = node.result.substring(0, 120).replace(/\n/g, ' ');
+      const r = node.result.replace(/\n/g, ' ');
       this.writeln(`${ANSI.gray}${prefix}${ANSI.reset}  ${ANSI.green}\u2192 ${r}${ANSI.reset}`);
     }
 

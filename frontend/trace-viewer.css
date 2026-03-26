@@ -1,4 +1,4 @@
-/* trace-viewer.css — Brutalist terminal aesthetic */
+/* trace-viewer.css — Trace modal container styles */
 
 .trace-container {
   font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
@@ -30,29 +30,4 @@
 
 .trace-header-meta {
   color: #888;
-}
-
-.trace-empty {
-  color: #555;
-  padding: 20px;
-  text-align: center;
-}
-
-/* Feed mode — embedded terminal (ink-style) */
-
-.trace-feed {
-  overflow-y: auto;
-  flex: 1;
-  background: #0a0a0a;
-}
-
-.trace-feed pre.term {
-  margin: 0;
-  padding: 10px 14px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #b0b0b0;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
