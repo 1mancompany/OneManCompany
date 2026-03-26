@@ -89,7 +89,7 @@ class XTermLog {
 
   _fit() {
     if (this._fitAddon) {
-      try { this._fitAddon.fit(); } catch {}
+      try { this._fitAddon.fit(); } catch (e) { console.warn('[XTermLog] fit failed:', e); }
     }
   }
 

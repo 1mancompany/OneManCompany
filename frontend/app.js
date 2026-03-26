@@ -2051,19 +2051,16 @@ class AppController {
       this._traceXterm = xterm;
       xterm.writeln(`${ANSI.gray}Loading trace...${ANSI.reset}`);
 
-      // Load tree + logs via TraceFeedView, then render to xterm
-      const feed = new TraceFeedView(null);
-      feed._el = { textContent: '' };  // dummy element
+      // Load tree + logs, then render to xterm
       fetch(`/api/projects/${projectId}/tree`)
         .then(r => r.json())
         .then(async data => {
-          feed._rootId = data.root_id;
-          feed._nodes = {};
-          for (const n of data.nodes) feed._nodes[n.id] = n;
-          await feed._loadAllLogs();
+          const nodes = {};
+          for (const n of data.nodes) nodes[n.id] = n;
+          await traceLoadAllNodeLogs(nodes);
           xterm.clear();
-          xterm.renderTraceFeed(feed._nodes, feed._rootId);
-          metaEl.textContent = `${Object.keys(feed._nodes).length} nodes`;
+          xterm.renderTraceFeed(nodes, data.root_id);
+          metaEl.textContent = `${Object.keys(nodes).length} nodes`;
         })
         .catch(e => {
           xterm.writeln(`${ANSI.red}Error: ${e.message}${ANSI.reset}`);

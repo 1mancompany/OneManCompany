@@ -15,6 +15,21 @@
 // Shared log processing utilities
 // ─────────────────────────────────────────────────────────
 
+async function traceLoadAllNodeLogs(nodes) {
+  const promises = Object.values(nodes).map(async (node) => {
+    if (!node.project_dir) return;
+    try {
+      const resp = await fetch(`/api/node/${node.id}/logs?project_dir=${encodeURIComponent(node.project_dir)}&tail=200`);
+      const data = await resp.json();
+      node._logs = data.logs || [];
+    } catch (e) {
+      console.warn(`[TraceFeed] Failed to load logs for ${node.id}:`, e);
+      node._logs = [];
+    }
+  });
+  await Promise.all(promises);
+}
+
 function traceGroupSteps(logs) {
   const steps = [];
   const seen = new Set();
@@ -241,18 +256,7 @@ class TraceFeedView {
   }
 
   async _loadAllLogs() {
-    const promises = Object.values(this._nodes).map(async (node) => {
-      if (!node.project_dir) return;
-      try {
-        const resp = await fetch(`/api/node/${node.id}/logs?project_dir=${encodeURIComponent(node.project_dir)}&tail=200`);
-        const data = await resp.json();
-        node._logs = data.logs || [];
-      } catch (e) {
-        console.warn(`[TraceFeed] Failed to load logs for ${node.id}:`, e);
-        node._logs = [];
-      }
-    });
-    await Promise.all(promises);
+    await traceLoadAllNodeLogs(this._nodes);
   }
 
   render() {
