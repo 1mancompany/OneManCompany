@@ -109,7 +109,7 @@ def recover_schedule_from_trees(
             if orphan_modified:
                 save_tree_async(tree_path)
 
-    # 2. Scan system task trees
+    # 2. Scan system task trees (legacy system_tasks.yaml)
     if employees_dir.exists():
         for sys_path in employees_dir.rglob("system_tasks.yaml"):
             try:
@@ -132,3 +132,30 @@ def recover_schedule_from_trees(
 
             if modified:
                 sys_tree.save(sys_path)
+
+    # 3. Scan adhoc task trees (employees/{id}/tasks/*_tree.yaml)
+    #    Created by _push_adhoc_task() for HR reviews, meeting bookings, etc.
+    if employees_dir.exists():
+        for adhoc_path in employees_dir.rglob("tasks/*_tree.yaml"):
+            try:
+                tree = get_tree(adhoc_path)
+            except Exception:
+                logger.warning("Skipping corrupt adhoc tree: {}", adhoc_path)
+                continue
+
+            modified = False
+            for node in tree._nodes.values():
+                if node.status == TaskPhase.PROCESSING.value:
+                    node.status = TaskPhase.PENDING.value
+                    modified = True
+
+            if modified:
+                save_tree_async(adhoc_path)
+
+            for node in tree._nodes.values():
+                if node.status == TaskPhase.PENDING.value and tree.all_deps_resolved(node.id):
+                    employee_manager.schedule_node(
+                        node.employee_id, node.id, str(adhoc_path),
+                    )
+                    logger.info("[RECOVER] Restored adhoc task {} for employee {}",
+                                node.id, node.employee_id)
