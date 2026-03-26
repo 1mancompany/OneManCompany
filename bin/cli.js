@@ -220,6 +220,7 @@ ${cyan("OneManCompany")} — The AI Operating System for One-Person Companies
 
 ${green("Usage:")}
   npx @1mancompany/onemancompany              Start (runs in background)
+  npx @1mancompany/onemancompany --update     Pull latest version then start
   npx @1mancompany/onemancompany --debug      Start with logs (Ctrl+C to stop)
   npx @1mancompany/onemancompany stop         Stop background service
   npx @1mancompany/onemancompany init         Re-run setup process (interactive)
@@ -232,6 +233,7 @@ ${green("Usage:")}
 ${green("Options:")}
   --dir <path>    Install directory (default: ./OneManCompany)
   --port <port>   Server port (default: 8000)
+  --update        Pull latest version before starting (default: use local)
   --debug         Run in foreground with logs (default: background)
   --help, -h      Show this help
 
@@ -328,12 +330,17 @@ ${green("What gets installed automatically:")}
   }
 
   // ── Clone or update ───────────────────────────────────────────────────
+  const wantUpdate = passthrough.includes("--update");
   if (fs.existsSync(path.join(installDir, ".git"))) {
-    info(`Updating existing installation at ${installDir}`);
-    try {
-      run("git pull --ff-only", { cwd: installDir });
-    } catch {
-      warn("git pull failed — continuing with current version");
+    if (wantUpdate) {
+      info(`Updating existing installation at ${installDir}`);
+      try {
+        run("git pull --ff-only", { cwd: installDir });
+      } catch {
+        warn("git pull failed — continuing with current version");
+      }
+    } else {
+      info(`Using existing installation at ${installDir}`);
     }
   } else if (fs.existsSync(installDir)) {
     info(`Directory ${installDir} exists (not a git repo) — using as-is`);
@@ -515,7 +522,7 @@ ${green("What gets installed automatically:")}
 
   // Start server
   const debugMode = passthrough.includes("--debug");
-  const launchArgs = passthrough.filter((a) => a !== "--debug");
+  const launchArgs = passthrough.filter((a) => a !== "--debug" && a !== "--update");
 
   // Build env: pass OMC_DEBUG=1 in debug mode
   const childEnv = { ...process.env };
