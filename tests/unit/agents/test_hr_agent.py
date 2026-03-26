@@ -756,12 +756,14 @@ class TestApplyResultsPIP:
         cs, agent = self._setup_pip_review(monkeypatch, emp)
 
         output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.25}]}\n```'
+        mock_broadcast = AsyncMock()
+        monkeypatch.setattr(hr_agent, "_broadcast", mock_broadcast)
         await hr_agent.HRAgent._apply_results(agent, output)
 
         assert emp.pip is not None
         assert "started_at" in emp.pip
-        # pip_started event should be published
-        pip_calls = [c for c in agent._publish.call_args_list
+        # pip_started event should be broadcast
+        pip_calls = [c for c in mock_broadcast.call_args_list
                      if c[0][0] == "pip_started"]
         assert len(pip_calls) == 1
 
@@ -798,10 +800,12 @@ class TestApplyResultsPIP:
         cs, agent = self._setup_pip_review(monkeypatch, emp)
 
         output = '```json\n{"action": "review", "reviews": [{"id": "00010", "score": 3.5}]}\n```'
+        mock_broadcast = AsyncMock()
+        monkeypatch.setattr(hr_agent, "_broadcast", mock_broadcast)
         await hr_agent.HRAgent._apply_results(agent, output)
 
         assert emp.pip is None
-        pip_resolved_calls = [c for c in agent._publish.call_args_list
+        pip_resolved_calls = [c for c in mock_broadcast.call_args_list
                               if c[0][0] == "pip_resolved"]
         assert len(pip_resolved_calls) == 1
 
