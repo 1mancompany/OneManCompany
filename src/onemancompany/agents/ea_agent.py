@@ -23,9 +23,10 @@ class EAAgent(BaseAgentRunner):
     def __init__(self) -> None:
         from onemancompany.core.tool_registry import tool_registry
 
+        self._agent_tools = tool_registry.get_proxied_tools_for(self.employee_id)
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
-            tools=tool_registry.get_proxied_tools_for(self.employee_id),
+            tools=self._agent_tools,
         )
 
     def _get_role_identity_section(self) -> str:

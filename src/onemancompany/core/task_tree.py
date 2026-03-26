@@ -46,6 +46,7 @@ class TaskNode:
     children_ids: list[str] = field(default_factory=list)
 
     employee_id: str = ""
+    title: str = ""                   # short task name shown in tree view
     description: str = ""
     acceptance_criteria: list[str] = field(default_factory=list)
     node_type: str = "task"  # See NodeType enum in task_lifecycle.py
@@ -188,6 +189,7 @@ class TaskNode:
             "parent_id": self.parent_id,
             "children_ids": list(self.children_ids),
             "employee_id": self.employee_id,
+            "title": self.title,
             "description_preview": self._description_preview,
             "acceptance_criteria": list(self.acceptance_criteria),
             "node_type": self.node_type.value if hasattr(self.node_type, 'value') else str(self.node_type),
@@ -273,6 +275,7 @@ class TaskTree:
         acceptance_criteria: list[str],
         timeout_seconds: int = 3600,
         depends_on: list[str] | None = None,
+        title: str = "",
     ) -> TaskNode:
         parent = self._nodes[parent_id]
         resolved_deps = depends_on or []
@@ -295,6 +298,7 @@ class TaskTree:
         child = TaskNode(
             parent_id=parent_id,
             employee_id=employee_id,
+            title=title,
             description=description,
             acceptance_criteria=acceptance_criteria,
             project_id=self.project_id,

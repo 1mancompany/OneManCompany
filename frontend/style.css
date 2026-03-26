@@ -3906,12 +3906,17 @@ body {
 .emp-taskboard-desc {
   color: var(--pixel-white);
   word-break: break-word;
+  max-height: 60px;
+  overflow-y: auto;
 }
 
 .emp-taskboard-result {
   color: var(--text-dim);
   font-size: 5px;
   margin-top: 2px;
+  max-height: 40px;
+  overflow-y: auto;
+  word-break: break-word;
 }
 
 .emp-taskboard-cost {
@@ -4973,7 +4978,7 @@ body {
 .inbox-status { font-size: 14px; flex-shrink: 0; margin-top: 2px; }
 .inbox-item-content { flex: 1; min-width: 0; }
 .inbox-item-from { font-family: var(--font-pixel); color: #f39c12; font-size: 11px; }
-.inbox-item-desc { color: #aaa; font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inbox-item-desc { color: #aaa; font-size: 11px; margin-top: 2px; max-height: 60px; overflow-y: auto; word-break: break-word; }
 .inbox-empty { color: #555; font-size: 11px; text-align: center; padding: 12px; }
 
 /* ===== CEO Conversation Dialog ===== */

@@ -1965,9 +1965,9 @@ class AppController {
         html += `<button class="emp-task-cancel-btn" onclick="window._abortAgentTask('${empId}','${task.id}')">CANCEL</button>`;
       }
       html += `</div>`;
-      html += `<div class="emp-taskboard-desc">${this._escHtml((task.description_preview || task.description || '').substring(0, 120))}</div>`;
+      html += `<div class="emp-taskboard-desc">${this._escHtml(task.description_preview || task.description || '')}</div>`;
       if (task.result) {
-        html += `<div class="emp-taskboard-result">${this._escHtml(task.result.substring(0, 100))}</div>`;
+        html += `<div class="emp-taskboard-result">${this._escHtml(task.result)}</div>`;
       }
       if (task.cost_usd > 0) {
         html += `<div class="emp-taskboard-cost">$${task.cost_usd.toFixed(4)}</div>`;
@@ -2348,7 +2348,7 @@ class AppController {
         <span class="inbox-status">${statusIcon}</span>
         <div class="inbox-item-content" style="flex:1">
           <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
-          <div class="inbox-item-desc">${this._escHtml((item.description || '').substring(0, 60))}${(item.description || '').length > 60 ? '...' : ''}</div>
+          <div class="inbox-item-desc">${this._escHtml(item.description || '')}</div>
         </div>
         ${dismissBtn}
       </div>`;
@@ -6368,7 +6368,7 @@ class AppController {
       const iterCost = it.cost_usd ? ` · $${it.cost_usd.toFixed(4)}` : '';
       iterListHtml += `<div class="project-iter-card" data-iter-id="${it.iteration_id}" data-project-id="${projectId}">
         <div style="color:${statusColor};">${statusIcon} ${it.iteration_id}${iterCost}</div>
-        <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml((it.task || '').substring(0, 60))}</div>
+        <div style="color:var(--pixel-white);margin-top:2px;">${this._escHtml(it.task || '')}</div>
         <div style="color:var(--text-dim);margin-top:1px;">${it.created_at ? it.created_at.substring(0, 16) : ''}</div>
       </div>`;
     }
@@ -6498,14 +6498,14 @@ class AppController {
           if (ar) {
             const arIcon = ar.accepted ? '\u2705' : '\u274C';
             const arLabel = ar.accepted ? 'Passed' : 'Failed';
-            const arNotes = ar.notes ? ` — ${this._escHtml(ar.notes.substring(0, 200))}${ar.notes.length > 200 ? '...' : ''}` : '';
+            const arNotes = ar.notes ? ` — ${this._escHtml(ar.notes)}` : '';
             detailHtml += `<div style="font-size:6px;color:${ar.accepted ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:4px 0;">${arIcon} Acceptance Result: ${arLabel}${arNotes}</div>`;
           }
           const ear = doc.ea_review_result;
           if (ear) {
             const earIcon = ear.approved ? '\u2705' : '\u274C';
             const earLabel = ear.approved ? 'Approved' : 'Rejected';
-            const earNotes = ear.notes ? ` — ${this._escHtml(ear.notes.substring(0, 200))}${ear.notes.length > 200 ? '...' : ''}` : '';
+            const earNotes = ear.notes ? ` — ${this._escHtml(ear.notes)}` : '';
             detailHtml += `<div style="font-size:6px;color:${ear.approved ? 'var(--pixel-green)' : 'var(--pixel-red)'};margin:2px 0;">EA Review: ${earIcon} ${earLabel}${earNotes}</div>`;
           }
         }

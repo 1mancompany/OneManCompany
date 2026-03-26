@@ -5805,7 +5805,7 @@ def _scan_ceo_inbox_nodes() -> list[dict]:
             results.append({
                 "project_id": node.project_id,
                 "node_id": node.id,
-                "description": node.description_preview or node.description or "",
+                "description": node.title or node._description_preview or "",
                 "from_employee_id": from_id,
                 "from_nickname": from_nickname,
                 "status": node.status,
@@ -5989,7 +5989,8 @@ async def _complete_ceo_request(
                 or "awaiting_children" in (parent.hold_reason or "")
             )
             if should_resume:
-                resume_text = f"CEO request {node.id} resolved ({target_status.value}): {(node.result or '')[:500]}"
+                node.load_content(project_dir)  # Ensure result is loaded (skeleton nodes have empty result)
+                resume_text = f"CEO request {node.id} resolved ({target_status.value}): {node.result or ''}"
                 resumed = await employee_manager.resume_held_task(
                     parent.employee_id, parent.id, resume_text,
                 )
