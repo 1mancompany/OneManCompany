@@ -1592,6 +1592,38 @@ async def stop_background_task(
     return {"status": "error", "message": f"Task {task_id} not found or not running"}
 
 
+@tool
+async def list_background_tasks(
+    employee_id: str = "",
+) -> dict:
+    """List all background tasks with their status, command, port, and task_id.
+
+    Use this to discover running background tasks (e.g. dev servers, deployments)
+    started by any employee. Then use check_background_task(task_id) to see output.
+
+    Args:
+        employee_id: Your employee ID.
+    """
+    tasks = background_task_manager.get_all()
+    return {
+        "status": "ok",
+        "running_count": background_task_manager.running_count,
+        "tasks": [
+            {
+                "task_id": t.id,
+                "command": t.command,
+                "description": t.description,
+                "status": t.status,
+                "port": t.port,
+                "address": t.address,
+                "started_by": t.started_by,
+                "started_at": t.started_at,
+            }
+            for t in tasks
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
@@ -1616,6 +1648,7 @@ def _register_all_internal_tools() -> None:
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
         list_automations,
         start_background_task, check_background_task, stop_background_task,
+        list_background_tasks,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
