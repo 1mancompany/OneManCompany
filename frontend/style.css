@@ -3906,12 +3906,17 @@ body {
 .emp-taskboard-desc {
   color: var(--pixel-white);
   word-break: break-word;
+  max-height: 60px;
+  overflow-y: auto;
 }
 
 .emp-taskboard-result {
   color: var(--text-dim);
   font-size: 5px;
   margin-top: 2px;
+  max-height: 40px;
+  overflow-y: auto;
+  word-break: break-word;
 }
 
 .emp-taskboard-cost {

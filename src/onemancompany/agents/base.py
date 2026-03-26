@@ -539,7 +539,7 @@ class BaseAgentRunner:
         Called before each task execution so that model changes in
         profile.yaml take effect without server restart.
         """
-        if not self._agent_tools and self._agent:
+        if self._agent_tools is None:
             return  # subclass didn't store tools — skip refresh
         self._agent = create_react_agent(
             model=make_llm(self.employee_id),
@@ -558,10 +558,10 @@ class BaseAgentRunner:
         then returns the final AI message content.
         Falls back to regular run() if _agent is not set or on_log is None.
         """
-        self._refresh_agent()
-        if not self._agent or not on_log:
-            return await self.run(task)
+        if not on_log:
+            return await self.run(task)  # run() calls _refresh_agent()
 
+        self._refresh_agent()
         from langchain_core.messages import HumanMessage, SystemMessage
 
         self._set_status(STATUS_WORKING)
