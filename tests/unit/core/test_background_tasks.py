@@ -141,3 +141,93 @@ class TestConcurrencyLimit:
         mgr._tasks["t1"] = t
         assert mgr.running_count == 0
         assert mgr.can_launch is True
+
+
+import asyncio
+
+
+class TestLaunchTask:
+    """BackgroundTaskManager.launch()."""
+
+    @pytest.mark.asyncio
+    async def test_launch_returns_task(self, tmp_path):
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        task = await mgr.launch(
+            command="echo hello",
+            description="test echo",
+            working_dir=str(tmp_path),
+            started_by="emp001",
+        )
+        assert task.status == "running"
+        assert task.pid is not None
+        assert task.id in mgr._tasks
+        # Wait for process to finish
+        await asyncio.sleep(0.5)
+        assert mgr._tasks[task.id].status == "completed"
+        assert mgr._tasks[task.id].returncode == 0
+
+    @pytest.mark.asyncio
+    async def test_launch_writes_output_log(self, tmp_path):
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        task = await mgr.launch(
+            command="echo hello_world",
+            description="test output",
+            working_dir=str(tmp_path),
+            started_by="emp001",
+        )
+        await asyncio.sleep(0.5)
+        log_path = mgr.output_log_path(task.id)
+        assert log_path.exists()
+        content = log_path.read_text()
+        assert "hello_world" in content
+
+    @pytest.mark.asyncio
+    async def test_launch_rejects_when_at_limit(self, tmp_path):
+        from onemancompany.core.background_tasks import BackgroundTaskManager, BackgroundTask
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        for i in range(5):
+            t = BackgroundTask(id=f"fake{i}", command="x", description="",
+                               working_dir="/tmp", started_by="emp001")
+            t.status = "running"
+            mgr._tasks[t.id] = t
+
+        with pytest.raises(RuntimeError, match="limit"):
+            await mgr.launch(
+                command="echo nope",
+                description="over limit",
+                working_dir=str(tmp_path),
+                started_by="emp001",
+            )
+
+
+class TestTerminateTask:
+    """BackgroundTaskManager.terminate()."""
+
+    @pytest.mark.asyncio
+    async def test_terminate_running_task(self, tmp_path):
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        task = await mgr.launch(
+            command="sleep 60",
+            description="long running",
+            working_dir=str(tmp_path),
+            started_by="emp001",
+        )
+        assert task.status == "running"
+        result = await mgr.terminate(task.id)
+        assert result is True
+        assert mgr._tasks[task.id].status == "stopped"
+
+    @pytest.mark.asyncio
+    async def test_terminate_nonexistent_task(self, tmp_path):
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+
+        mgr = BackgroundTaskManager(data_dir=tmp_path)
+        result = await mgr.terminate("nope")
+        assert result is False
