@@ -104,8 +104,10 @@ body {
 .collapsible-body.collapsible-flex {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .collapsible-body.collapsible-flex.collapsed {
@@ -549,6 +551,9 @@ body {
   flex: 1;
   overflow: hidden;  /* xterm.js handles its own scrolling */
   min-height: 0;
+  min-width: 0;      /* prevent xterm canvas from overflowing grid column */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .log-entry {

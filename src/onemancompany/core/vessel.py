@@ -2611,12 +2611,12 @@ class EmployeeManager:
         # Build completion summary from all children (skip CEO info nodes)
         _pdir = node.project_dir or str(Path(entry.tree_path).parent)
         children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
-        lines = [f"Project Completion Report — {node.description_preview[:100]}", ""]
+        lines = [f"Project Completion Report — {node.description_preview}", ""]
         for i, child in enumerate(children, 1):
             status_icon = "✓" if child.status == TaskPhase.ACCEPTED else "●"
-            lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.description_preview[:80]}")
+            lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description_preview}")
             child.load_content(_pdir)
-            lines.append(f"  Result: {(child.result or 'None')[:200]}")
+            lines.append(f"  Result: {child.result or 'None'}")
             lines.append("")
         summary = "\n".join(lines)
 

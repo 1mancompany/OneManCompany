@@ -169,7 +169,7 @@ class TaskTreeRenderer {
         // Pre-compute _extraH for each node (word-wrapped description lines)
         const _mc = this._descMaxCharsPerLine, _ml = this._descMaxLines, _lh = this._descLineHeight;
         root.descendants().forEach(d => {
-            const lines = TaskTreeRenderer._wrapText(d.data.description || '', _mc, _ml);
+            const lines = TaskTreeRenderer._wrapText(d.data.title || d.data.description_preview || d.data.description || '', _mc, _ml);
             const extraLines = Math.max(0, lines.length - 1);
             d._extraH = extraLines > 0 ? extraLines * _lh : 0;
         });
@@ -310,7 +310,7 @@ class TaskTreeRenderer {
 
         nodeGroups.each(function(d) {
             const g = d3.select(this);
-            const lines = TaskTreeRenderer._wrapText(d.data.description || '', descMaxChars, descMaxLines);
+            const lines = TaskTreeRenderer._wrapText(d.data.title || d.data.description_preview || d.data.description || '', descMaxChars, descMaxLines);
 
             const text = g.append('text')
                 .attr('x', descTextX)
