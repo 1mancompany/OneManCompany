@@ -530,7 +530,21 @@ class BaseAgentRunner:
     role: str = "agent"
     employee_id: str = ""  # maps to company_state.employees key
     _agent = None  # subclasses set this to a LangGraph compiled graph
+    _agent_tools = None  # cached tools list for agent rebuild
     _last_usage: dict = {}  # token usage from last run_streamed() call
+
+    def _refresh_agent(self) -> None:
+        """Rebuild the LangGraph agent with a fresh LLM instance.
+
+        Called before each task execution so that model changes in
+        profile.yaml take effect without server restart.
+        """
+        if not self._agent_tools and self._agent:
+            return  # subclass didn't store tools — skip refresh
+        self._agent = create_react_agent(
+            model=make_llm(self.employee_id),
+            tools=self._agent_tools,
+        )
 
     async def _publish(self, event_type: str, payload: dict) -> None:
         await event_bus.publish(
@@ -544,6 +558,7 @@ class BaseAgentRunner:
         then returns the final AI message content.
         Falls back to regular run() if _agent is not set or on_log is None.
         """
+        self._refresh_agent()
         if not self._agent or not on_log:
             return await self.run(task)
 
@@ -1054,6 +1069,7 @@ class EmployeeAgent(BaseAgentRunner):
 
         proxied_tools = tool_registry.get_proxied_tools_for(employee_id)
         self._authorized_tool_names: list[str] = [t.name for t in proxied_tools]
+        self._agent_tools = proxied_tools
 
         self._agent = create_react_agent(
             model=make_llm(employee_id),
@@ -1144,6 +1160,7 @@ class EmployeeAgent(BaseAgentRunner):
         return ""
 
     async def run(self, task: str) -> str:
+        self._refresh_agent()
         self._set_status(STATUS_WORKING)
         await self._publish("agent_thinking", {"message": f"{self.role} analyzing: {task}"})
 
