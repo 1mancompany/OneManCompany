@@ -316,16 +316,18 @@ class AppController {
       'onboarding_started': (p) => ({ text: `📋 Onboarding started: ${p.name}`, cls: 'hr', agent: 'HR' }),
       'onboarding_completed': (p) => ({ text: `✅ Onboarding completed: ${p.name}`, cls: 'hr', agent: 'HR' }),
       'talent_profile_error': (p) => {
-        // Show modal alert for talent profile issues
-        const link = p.talent_link ? `<a href="${this._escapeHtml(p.talent_link)}" target="_blank" rel="noopener">${this._escapeHtml(p.talent_link)}</a>` : '';
         const fields = (p.missing_fields || []).join(', ');
-        let detail = `<b>Talent:</b> ${this._escapeHtml(p.talent_id || '')}<br>`;
-        if (fields) detail += `<b>Missing fields:</b> ${this._escapeHtml(fields)}<br>`;
-        if (link) detail += `<b>Repo:</b> ${link}<br>`;
-        detail += `<br>Please contact the talent uploader to fix this issue.`;
-        if (link) detail += ` You can file an issue on the talent repo.`;
-        this._showAlertModal('Talent Profile Error', detail);
-        return { text: `⚠️ Talent profile error: ${p.talent_id}`, cls: 'hr', agent: 'HR' };
+        const lines = [];
+        lines.push(`${ANSI.red}${ANSI.bold}Talent Profile Error${ANSI.reset}`);
+        lines.push('');
+        lines.push(`${ANSI.cyan}Talent:${ANSI.reset}  ${p.talent_id || 'unknown'}`);
+        if (fields) lines.push(`${ANSI.cyan}Missing:${ANSI.reset} ${ANSI.yellow}${fields}${ANSI.reset}`);
+        if (p.talent_link) lines.push(`${ANSI.cyan}Repo:${ANSI.reset}    ${p.talent_link}`);
+        lines.push('');
+        lines.push(`${ANSI.dim}Please contact the talent uploader to fix this issue.${ANSI.reset}`);
+        if (p.talent_link) lines.push(`${ANSI.dim}You can file an issue on the talent repo.${ANSI.reset}`);
+        this._showXtermAlert('Talent Profile Error', lines);
+        return { text: `Talent profile error: ${p.talent_id}`, cls: 'hr', agent: 'HR' };
       },
       'probation_review':   (p) => ({ text: `📋 Probation review: #${p.id} — ${p.passed ? 'Passed' : 'Failed'}`, cls: 'hr', agent: 'HR' }),
       'pip_started':        (p) => ({ text: `⚠️ PIP started for #${p.id}`, cls: 'hr', agent: 'HR' }),
@@ -5910,6 +5912,11 @@ class AppController {
 
   /** Show a simple alert modal. htmlContent must be pre-sanitized (use _escapeHtml). */
   _showAlertModal(title, htmlContent) {
+    // Legacy HTML alert — kept for backward compat
+    this._showXtermAlert(title, [htmlContent]);
+  }
+
+  _showXtermAlert(title, lines) {
     let overlay = document.getElementById('alert-modal-overlay');
     if (!overlay) {
       overlay = document.createElement('div');
@@ -5919,20 +5926,30 @@ class AppController {
         <div class="modal-content alert-modal-content">
           <div class="modal-header">
             <h3 class="pixel-title" id="alert-modal-title"></h3>
-            <button class="modal-close" id="alert-modal-close">✕</button>
+            <button class="modal-close" id="alert-modal-close">\u2715</button>
           </div>
-          <div id="alert-modal-body" class="alert-modal-body"></div>
+          <div id="alert-modal-body" class="alert-modal-body" style="background:#0a0a0a;padding:0;"></div>
           <div class="alert-modal-footer">
             <button class="pixel-btn" id="alert-modal-ok">OK</button>
           </div>
         </div>`;
       document.body.appendChild(overlay);
-      const close = () => overlay.classList.add('hidden');
+      const close = () => {
+        overlay.classList.add('hidden');
+        if (this._alertXterm) { this._alertXterm.dispose(); this._alertXterm = null; }
+      };
       overlay.querySelector('#alert-modal-close').addEventListener('click', close);
       overlay.querySelector('#alert-modal-ok').addEventListener('click', close);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     }
     overlay.querySelector('#alert-modal-title').textContent = title;
-    overlay.querySelector('#alert-modal-body').innerHTML = htmlContent;
+    const body = overlay.querySelector('#alert-modal-body');
+    body.innerHTML = '';
+    if (this._alertXterm) { this._alertXterm.dispose(); this._alertXterm = null; }
+    this._alertXterm = new XTermLog(body, { fontSize: 12 });
+    for (const line of lines) {
+      this._alertXterm.writeln(line);
+    }
     overlay.classList.remove('hidden');
   }
 
