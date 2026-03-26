@@ -625,6 +625,7 @@ def request_hiring(
     from onemancompany.agents.tree_tools import dispatch_child
     result = dispatch_child.invoke({
         "employee_id": HR_ID,
+        "title": f"Hire {role}",
         "description": jd,
         "acceptance_criteria": [f"Successfully hired {role}", "New employee onboarding completed"],
     })
