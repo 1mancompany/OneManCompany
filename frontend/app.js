@@ -843,54 +843,52 @@ class AppController {
     this._fetchAndRenderRoster();
   }
 
-  // ===== Activity Log (terminal-style <pre>) =====
-  _logColors = {
-    ceo: '#4af', hr: '#fa4', coo: '#4a4', ea: '#fa4',
-    system: '#666', meeting: '#585', guidance: '#997',
+  // ===== Activity Log (xterm.js terminal) =====
+  _activityLogAnsi = {
+    ceo: ANSI.brightCyan, hr: ANSI.yellow, coo: ANSI.green, ea: ANSI.yellow,
+    system: ANSI.gray, meeting: ANSI.green, guidance: ANSI.dim,
+    routine: ANSI.dim, agent: ANSI.cyan,
+  }
+
+  _activityTypeMap = {
+    'pull_meeting': (e) => ({ agent: 'MEETING', text: `${e.topic || 'Meeting'} (${e.rounds || 0} rounds)` }),
+    'knowledge_deposited': (e) => ({ agent: 'SYSTEM', text: `Knowledge: ${e.name || ''}` }),
+    'employee_hired': (e) => ({ agent: 'HR', text: `New hire: ${e.name || ''} (${e.role || ''})` }),
+    'employee_fired': (e) => ({ agent: 'HR', text: `Departure: ${e.name || ''}` }),
+    'tool_added': (e) => ({ agent: 'COO', text: `New tool: ${e.name || ''}` }),
+    'ceo_task': (e) => ({ agent: 'CEO', text: `Task: ${(e.task || '').substring(0, 80)}` }),
+    'meeting_booked': (e) => ({ agent: 'COO', text: `Room booked: ${e.room_name || ''}` }),
+    'meeting_released': (e) => ({ agent: 'COO', text: `Room released: ${e.room_name || ''}` }),
+    'promotion': (e) => ({ agent: 'HR', text: `Promoted: ${e.name || ''}` }),
+  }
+
+  _ensureActivityXterm() {
+    if (this._activityXterm) return;
+    const el = document.getElementById('activity-log');
+    if (!el || typeof XTermLog === 'undefined') return;
+    el.innerHTML = '';
+    this._activityXterm = new XTermLog(el, { fontSize: 10 });
   }
 
   _renderHistoricalActivityLog(entries) {
-    const log = document.getElementById('log-entries');
-    if (!log) return;
-    const typeMap = {
-      'pull_meeting': (e) => ({ agent: 'MEETING', text: `${e.topic || 'Meeting'} (${e.rounds || 0} rounds)` }),
-      'knowledge_deposited': (e) => ({ agent: 'SYSTEM', text: `Knowledge: ${e.name || ''}` }),
-      'employee_hired': (e) => ({ agent: 'HR', text: `New hire: ${e.name || ''} (${e.role || ''})` }),
-      'employee_fired': (e) => ({ agent: 'HR', text: `Departure: ${e.name || ''}` }),
-      'tool_added': (e) => ({ agent: 'COO', text: `New tool: ${e.name || ''}` }),
-      'ceo_task': (e) => ({ agent: 'CEO', text: `Task: ${(e.task || '').substring(0, 60)}` }),
-      'meeting_booked': (e) => ({ agent: 'COO', text: `Room booked: ${e.room_name || ''}` }),
-      'meeting_released': (e) => ({ agent: 'COO', text: `Room released: ${e.room_name || ''}` }),
-      'promotion': (e) => ({ agent: 'HR', text: `Promoted: ${e.name || ''}` }),
-    };
+    this._ensureActivityXterm();
+    if (!this._activityXterm) return;
     const fallback = (e) => ({ agent: (e.type || 'SYS').toUpperCase(), text: `${e.name || e.topic || e.task || e.type || ''}` });
-    const lines = [];
     for (const e of entries) {
-      const { agent, text } = (typeMap[e.type] || fallback)(e);
+      const { agent, text } = (this._activityTypeMap[e.type] || fallback)(e);
       const ts = e.timestamp ? e.timestamp.substring(11, 19) : '        ';
-      const color = this._logColors[agent.toLowerCase()] || '#666';
-      lines.push(this._fmtLogLine(ts, agent, color, text));
+      const color = this._activityLogAnsi[agent.toLowerCase()] || ANSI.gray;
+      this._activityXterm.writeln(`${ANSI.gray}${ts}${ANSI.reset} ${color}${agent}${ANSI.reset} ${text}`);
     }
-    log.innerHTML = lines.join('\n');
   }
 
   logEntry(agent, message, cssClass = 'system') {
-    const log = document.getElementById('log-entries');
-    if (!log) return;
+    this._ensureActivityXterm();
+    if (!this._activityXterm) return;
     const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
-    const color = this._logColors[cssClass] || this._logColors[agent.toLowerCase()] || '#666';
-    const line = this._fmtLogLine(time, agent, color, message);
-    log.innerHTML = line + '\n' + log.innerHTML;
-    const lines = log.innerHTML.split('\n');
-    if (lines.length > 100) log.innerHTML = lines.slice(0, 100).join('\n');
-  }
-
-  _fmtLogLine(ts, agent, color, text) {
-    const escaped = this._escHtml(text);
-    if (escaped.length <= 120) {
-      return `<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${escaped}`;
-    }
-    return `<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${escaped.substring(0, 120)}<span style="color:#4af;cursor:pointer" onclick="const f=this.nextElementSibling;f.style.display=f.style.display==='none'?'inline':'none';this.textContent=f.style.display==='none'?'…more':'…less'">…more</span><span style="display:none">${escaped.substring(120)}</span>`;
+    const color = this._activityLogAnsi[cssClass] || this._activityLogAnsi[agent.toLowerCase()] || ANSI.gray;
+    this._activityXterm.writeln(`${ANSI.gray}${time}${ANSI.reset} ${color}${agent}${ANSI.reset} ${message}`);
+    this._activityXterm.scrollToBottom();
   }
 
   // ===== UI Bindings =====
@@ -1820,6 +1818,7 @@ class AppController {
     this.viewingEmployeeId = null;
     this._empNodeTrace = null;
     if (this._empXterm) { this._empXterm.dispose(); this._empXterm = null; }
+    if (this._empProgressXterm) { this._empProgressXterm.dispose(); this._empProgressXterm = null; }
     clearTimeout(this._logRefetchTimer);
     this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
@@ -1903,27 +1902,32 @@ class AppController {
     try {
       const resp = await fetch(`/api/employee/${empId}/progress-log?limit=30`);
       const data = await resp.json();
-      this._renderProgressLog(data.entries || []);
+      const entries = data.entries || [];
+      const el = document.getElementById('emp-detail-progress');
+      if (!el) return;
+
+      if (entries.length > 0 && typeof XTermLog !== 'undefined') {
+        if (!this._empProgressXterm) {
+          el.innerHTML = '';
+          this._empProgressXterm = new XTermLog(el, { fontSize: 10 });
+        }
+        this._empProgressXterm.clear();
+        this._empProgressXterm.writeln(`${ANSI.dim}── Work History (completed task summaries) ──${ANSI.reset}`);
+        for (const e of entries) {
+          const ts = e.timestamp ? e.timestamp.substring(5, 16).replace('T', ' ') : '';
+          const content = e.content || '';
+          if (content.startsWith('Completed:')) {
+            this._empProgressXterm.writeln(`${ANSI.gray}${ts}${ANSI.reset} ${ANSI.green}${content}${ANSI.reset}`);
+          } else {
+            this._empProgressXterm.writeln(`${ANSI.gray}${ts}${ANSI.reset} ${content}`);
+          }
+        }
+      } else {
+        el.innerHTML = '<span class="empty-hint">No work history</span>';
+      }
     } catch (err) {
       console.error('Progress log fetch error:', err);
     }
-  }
-
-  _renderProgressLog(entries) {
-    const el = document.getElementById('emp-detail-progress');
-    if (!el) return;
-    if (!entries || entries.length === 0) {
-      el.innerHTML = '<span class="empty-hint">No work history</span>';
-      return;
-    }
-    let html = '';
-    for (const e of entries) {
-      const ts = e.timestamp ? e.timestamp.substring(5, 16).replace('T', ' ') : '';
-      html += `<div style="font-size:11px;padding:2px 0;border-bottom:1px solid #222">`;
-      html += `<span style="color:#888;margin-right:6px">${ts}</span>`;
-      html += `<span>${this._escHtml(e.content || '')}</span></div>`;
-    }
-    el.innerHTML = html;
   }
 
   _renderTaskBoard(tasks, counts) {
