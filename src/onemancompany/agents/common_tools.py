@@ -1492,6 +1492,107 @@ def view_meeting_minutes(
 
 
 # ---------------------------------------------------------------------------
+# Background task tools
+# ---------------------------------------------------------------------------
+
+# Module-level singleton reference — imported here so tests can patch at this path
+from onemancompany.core.background_tasks import background_task_manager
+
+
+@tool
+async def start_background_task(
+    command: str,
+    description: str,
+    working_dir: str = "",
+    employee_id: str = "",
+) -> dict:
+    """Start a long-running background process (deploy, dev server, watcher, build).
+
+    ONLY use for processes that need to keep running after this tool returns.
+    For quick commands (< 2 minutes), use bash() instead.
+    Max 5 concurrent background tasks globally.
+
+    Args:
+        command: Shell command to run.
+        description: Brief description of what this does and why.
+        working_dir: Directory to run in (defaults to project root).
+        employee_id: Your employee ID.
+    """
+    try:
+        from onemancompany.core.config import SOURCE_ROOT
+        wd = working_dir or str(SOURCE_ROOT)
+        task = await background_task_manager.launch(
+            command=command,
+            description=description,
+            working_dir=wd,
+            started_by=employee_id,
+        )
+        return {"status": "ok", "task_id": task.id, "pid": task.pid}
+    except RuntimeError as e:
+        return {"status": "error", "message": str(e)}
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to start: {e}"}
+
+
+@tool
+async def check_background_task(
+    task_id: str,
+    tail: int = 50,
+    employee_id: str = "",
+) -> dict:
+    """Check status and recent output of a background task.
+
+    Args:
+        task_id: The task ID returned by start_background_task.
+        tail: Number of output lines to return (default 50).
+        employee_id: Your employee ID.
+    """
+    task = background_task_manager.get_task(task_id)
+    if not task:
+        return {"status": "error", "message": f"Task {task_id} not found"}
+    output = background_task_manager.read_output_tail(task_id, lines=tail)
+    from datetime import datetime, timezone
+    uptime = 0
+    if task.started_at:
+        start = datetime.fromisoformat(task.started_at)
+        end = datetime.fromisoformat(task.ended_at) if task.ended_at else datetime.now(timezone.utc)
+        # Handle naive datetimes
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        uptime = int((end - start).total_seconds())
+    return {
+        "status": task.status,
+        "returncode": task.returncode,
+        "port": task.port,
+        "address": task.address,
+        "output_tail": output,
+        "started_at": task.started_at,
+        "ended_at": task.ended_at,
+        "pid": task.pid,
+        "uptime_seconds": uptime,
+    }
+
+
+@tool
+async def stop_background_task(
+    task_id: str,
+    employee_id: str = "",
+) -> dict:
+    """Stop a running background task. Sends SIGTERM, then SIGKILL after 10s.
+
+    Args:
+        task_id: The task ID to stop.
+        employee_id: Your employee ID.
+    """
+    result = await background_task_manager.terminate(task_id)
+    if result:
+        return {"status": "ok", "task_id": task_id}
+    return {"status": "error", "message": f"Task {task_id} not found or not running"}
+
+
+# ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
 
@@ -1514,6 +1615,7 @@ def _register_all_internal_tools() -> None:
         bash, use_tool, set_project_budget,
         set_cron, stop_cron_job, setup_webhook, remove_webhook,
         list_automations,
+        start_background_task, check_background_task, stop_background_task,
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))

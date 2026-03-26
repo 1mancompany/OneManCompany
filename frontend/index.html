@@ -59,6 +59,7 @@
           <button id="company-culture-toolbar-btn" class="toolbar-icon-btn" title="Company Culture">&#127988;</button>
           <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
+          <button id="bg-tasks-toolbar-btn" class="toolbar-icon-btn" title="Background Tasks">&#9641;</button>
           <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings">&#9881;</button>
           <button id="abort-all-toolbar-btn" class="toolbar-icon-btn" title="Stop All Tasks" style="color: #ff4444;">&#9888;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
@@ -621,6 +622,23 @@
   <!-- Reconnecting overlay -->
   <div id="reconnecting-overlay" class="reconnecting-overlay hidden">
     <span class="reconnecting-text">&#128260; Reconnecting...</span>
+  </div>
+
+  <!-- Background Tasks Modal -->
+  <div id="bg-tasks-modal" class="modal-overlay hidden">
+    <div class="modal-content bg-tasks-modal-content">
+      <div class="modal-header">
+        <h3 class="pixel-title">&#9608; BACKGROUND TASKS</h3>
+        <span id="bg-tasks-slots" class="bg-tasks-slots"></span>
+        <button id="bg-tasks-close-btn" class="modal-close">&#10005;</button>
+      </div>
+      <div class="modal-body bg-tasks-body">
+        <div id="bg-tasks-list" class="bg-tasks-list"></div>
+        <div id="bg-tasks-detail" class="bg-tasks-detail">
+          <div class="bg-tasks-detail-empty">Select a task</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Trace Viewer Modal -->
