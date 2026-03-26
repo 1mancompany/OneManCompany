@@ -122,6 +122,10 @@ class AppController {
         const room = rooms.find(r => r.id === this.viewingRoomId);
         if (room) this._refreshMeetingModalStatus(room);
       }
+      // Render historical activity log entries
+      if (activity_log && activity_log.length > 0) {
+        this._renderHistoricalActivityLog(activity_log);
+      }
       this._refreshCeoInbox();
       // Restore onboarding progress modal if there's an active onboarding
       this._restoreOnboardingProgress();
@@ -837,16 +841,48 @@ class AppController {
     this._fetchAndRenderRoster();
   }
 
-  // ===== Activity Log =====
+  // ===== Activity Log (terminal-style <pre>) =====
+  _logColors = {
+    ceo: '#4af', hr: '#fa4', coo: '#4a4', ea: '#fa4',
+    system: '#666', meeting: '#585', guidance: '#997',
+  }
+
+  _renderHistoricalActivityLog(entries) {
+    const log = document.getElementById('log-entries');
+    if (!log) return;
+    const typeMap = {
+      'pull_meeting': (e) => ({ agent: 'MEETING', text: `${e.topic || 'Meeting'} (${e.rounds || 0} rounds)` }),
+      'knowledge_deposited': (e) => ({ agent: 'SYSTEM', text: `Knowledge: ${e.name || ''}` }),
+      'employee_hired': (e) => ({ agent: 'HR', text: `New hire: ${e.name || ''} (${e.role || ''})` }),
+      'employee_fired': (e) => ({ agent: 'HR', text: `Departure: ${e.name || ''}` }),
+      'tool_added': (e) => ({ agent: 'COO', text: `New tool: ${e.name || ''}` }),
+      'ceo_task': (e) => ({ agent: 'CEO', text: `Task: ${(e.task || '').substring(0, 60)}` }),
+      'meeting_booked': (e) => ({ agent: 'COO', text: `Room booked: ${e.room_name || ''}` }),
+      'meeting_released': (e) => ({ agent: 'COO', text: `Room released: ${e.room_name || ''}` }),
+      'promotion': (e) => ({ agent: 'HR', text: `Promoted: ${e.name || ''}` }),
+    };
+    const fallback = (e) => ({ agent: (e.type || 'SYS').toUpperCase(), text: `${(e.name || e.topic || e.task || e.type || '').substring(0, 60)}` });
+    const lines = [];
+    for (const e of entries) {
+      const { agent, text } = (typeMap[e.type] || fallback)(e);
+      const ts = e.timestamp ? e.timestamp.substring(11, 19) : '        ';
+      const color = this._logColors[agent.toLowerCase()] || '#666';
+      lines.push(`<span style="color:#444">${ts}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${this._escHtml(text)}`);
+    }
+    log.innerHTML = lines.join('\n');
+  }
+
   logEntry(agent, message, cssClass = 'system') {
     const log = document.getElementById('log-entries');
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${cssClass}`;
-    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    entry.innerHTML = `<span class="timestamp">[${time}]</span> <span class="agent">${agent}:</span> ${message}`;
-    log.prepend(entry);
-    // Keep log manageable
-    while (log.children.length > 80) log.removeChild(log.lastChild);
+    if (!log) return;
+    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const color = this._logColors[cssClass] || this._logColors[agent.toLowerCase()] || '#666';
+    const line = `<span style="color:#444">${time}</span> <span style="color:${color}">${this._escHtml(agent)}</span> ${this._escHtml(message)}`;
+    // Prepend new line (newest first)
+    log.innerHTML = line + '\n' + log.innerHTML;
+    // Keep manageable
+    const lines = log.innerHTML.split('\n');
+    if (lines.length > 100) log.innerHTML = lines.slice(0, 100).join('\n');
   }
 
   // ===== UI Bindings =====
@@ -1984,32 +2020,20 @@ class AppController {
     const modal = document.getElementById('trace-modal');
     const titleEl = document.getElementById('trace-modal-title');
     const metaEl = document.getElementById('trace-modal-meta');
-    const treePanel = document.getElementById('trace-tree-panel');
-    const detailPanel = document.getElementById('trace-detail-panel');
+    const feedPanel = document.getElementById('trace-feed-panel');
 
     titleEl.textContent = `\u2588\u2588 ${(projectName || projectId).toUpperCase()} `;
-    metaEl.textContent = '';
-    detailPanel.innerHTML = '<span class="trace-empty">Select a node to view execution log</span>';
+    metaEl.textContent = 'loading...';
+    feedPanel.innerHTML = '<span class="trace-empty">Loading trace...</span>';
 
-    // Create trace viewer instances
-    const nodeTrace = new NodeTraceView(detailPanel);
-    const treeView = new TraceTreeView(treePanel, {
-      onNodeSelect: (nodeId, nodeData) => {
-        if (!nodeData) return;
-        const emp = nodeData.employee_info || {};
-        const name = emp.nickname || emp.name || nodeData.employee_id || '';
-        const status = nodeData.status || '';
-        const cost = nodeData.cost_usd > 0 ? ` $${nodeData.cost_usd.toFixed(4)}` : '';
-        detailPanel.innerHTML = `<div class="trace-detail-header"><span class="trace-detail-header-name">${this._escHtml(name)}</span><span class="trace-detail-header-meta">${status}${cost}</span></div><div id="trace-node-logs"></div>`;
-        const logsContainer = document.getElementById('trace-node-logs');
-        const nodeTraceInner = new NodeTraceView(logsContainer);
-        nodeTraceInner.load(nodeId, nodeData.project_dir || '');
-      },
+    // Reader Feed mode — single scrollable narrative
+    const feed = new TraceFeedView(feedPanel);
+    feed.load(projectId).then(() => {
+      const nodeCount = Object.keys(feed._nodes).length;
+      metaEl.textContent = `${nodeCount} nodes`;
     });
-    window._traceTreeView = treeView;
 
     modal.classList.remove('hidden');
-    treeView.load(projectId);
   }
 
   // ===== Cron Management =====

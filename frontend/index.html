@@ -130,8 +130,8 @@
         <h3 class="pixel-title">ACTIVITY LOG</h3>
       </div>
       <div id="activity-body" class="collapsible-body collapsible-flex">
-        <div id="activity-log">
-          <div id="log-entries"></div>
+        <div id="activity-log" style="background:#0a0a0a;overflow-y:auto;flex:1">
+          <pre id="log-entries" style="margin:0;padding:6px 8px;font-family:'JetBrains Mono','Fira Code','SF Mono',monospace;font-size:10px;line-height:1.5;color:#888;white-space:pre-wrap;word-break:break-word"></pre>
         </div>
       </div>
     </div>
@@ -634,13 +634,8 @@
           <span class="trace-header-title" id="trace-modal-title">TRACE VIEWER</span>
           <span class="trace-header-meta" id="trace-modal-meta"></span>
         </div>
-        <div class="trace-body">
-          <div class="trace-tree-panel" id="trace-tree-panel">
-            <span class="trace-empty">Select a project to view trace</span>
-          </div>
-          <div class="trace-detail-panel" id="trace-detail-panel">
-            <span class="trace-empty">Select a node to view execution log</span>
-          </div>
+        <div class="trace-feed" id="trace-feed-panel">
+          <span class="trace-empty">Select a project to view trace</span>
         </div>
       </div>
     </div>
