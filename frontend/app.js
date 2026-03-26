@@ -6999,6 +6999,12 @@ class AppController {
   }
 
   _renderBgTaskList(tasks) {
+    // Sort: running first, then by started_at descending
+    tasks.sort((a, b) => {
+      if (a.status === 'running' && b.status !== 'running') return -1;
+      if (a.status !== 'running' && b.status === 'running') return 1;
+      return (b.started_at || '').localeCompare(a.started_at || '');
+    });
     const el = document.getElementById('bg-tasks-list');
     if (!tasks.length) {
       el.innerHTML = '<div style="color:#555;font-size:10px;padding:12px;font-family:var(--font-mono);">No background tasks</div>';
@@ -7081,6 +7087,7 @@ class AppController {
     const stopBtn = document.getElementById('bg-tasks-stop-btn');
     if (stopBtn) {
       stopBtn.addEventListener('click', async () => {
+        if (!confirm('Stop this background task?')) return;
         stopBtn.disabled = true;
         stopBtn.textContent = 'STOPPING...';
         try {

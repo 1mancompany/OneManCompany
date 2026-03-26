@@ -63,6 +63,7 @@ class TestCheckBackgroundTask:
         assert result["status"] == "running"
         assert result["port"] == 3000
         assert "server started" in result["output_tail"]
+        assert "uptime_seconds" in result
 
     @pytest.mark.asyncio
     @patch("onemancompany.agents.common_tools.background_task_manager")

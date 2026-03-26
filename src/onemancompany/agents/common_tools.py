@@ -1551,6 +1551,17 @@ async def check_background_task(
     if not task:
         return {"status": "error", "message": f"Task {task_id} not found"}
     output = background_task_manager.read_output_tail(task_id, lines=tail)
+    from datetime import datetime, timezone
+    uptime = 0
+    if task.started_at:
+        start = datetime.fromisoformat(task.started_at)
+        end = datetime.fromisoformat(task.ended_at) if task.ended_at else datetime.now(timezone.utc)
+        # Handle naive datetimes
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        uptime = int((end - start).total_seconds())
     return {
         "status": task.status,
         "returncode": task.returncode,
@@ -1560,6 +1571,7 @@ async def check_background_task(
         "started_at": task.started_at,
         "ended_at": task.ended_at,
         "pid": task.pid,
+        "uptime_seconds": uptime,
     }
 
 

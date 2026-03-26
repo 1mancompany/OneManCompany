@@ -18,6 +18,7 @@ import yaml
 from loguru import logger
 
 MAX_CONCURRENT = 5
+_MAX_RETAINED = 50
 _TASKS_FILENAME = "background_tasks.yaml"
 
 
@@ -102,8 +103,28 @@ class BackgroundTaskManager:
     def _yaml_path(self) -> Path:
         return self._data_dir / _TASKS_FILENAME
 
+    def _cleanup_old_tasks(self) -> None:
+        """Remove oldest non-running tasks if we exceed retention limit."""
+        if len(self._tasks) <= _MAX_RETAINED:
+            return
+        # Sort non-running tasks by started_at ascending (oldest first)
+        removable = sorted(
+            [t for t in self._tasks.values() if t.status != "running"],
+            key=lambda t: t.started_at,
+        )
+        to_remove = len(self._tasks) - _MAX_RETAINED
+        for t in removable[:to_remove]:
+            del self._tasks[t.id]
+            # Clean up log directory
+            log_dir = self.output_log_path(t.id).parent
+            if log_dir.exists():
+                import shutil
+                shutil.rmtree(log_dir, ignore_errors=True)
+            logger.debug("[bg_tasks] Cleaned up old task {}", t.id)
+
     def _save(self) -> None:
         """Atomic save to YAML."""
+        self._cleanup_old_tasks()
         import tempfile
         path = self._yaml_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -152,18 +173,20 @@ class BackgroundTaskManager:
 
     @staticmethod
     def _detect_port_from_command(command: str) -> int | None:
-        """Extract port from command arguments like --port 3000 or -p 8080."""
-        m = re.search(r"(?:--port|--PORT|-p)[= ](\d{2,5})", command)
+        """Extract port from command arguments like --port 3000, -p 8080, or -p3000."""
+        m = re.search(r"(?:--port|--PORT|-p)[= ]?(\d{2,5})", command)
         return int(m.group(1)) if m else None
 
     def read_output_tail(self, task_id: str, lines: int = 50) -> str:
         """Read last N lines of a task's output log."""
+        from collections import deque
         log_path = self.output_log_path(task_id)
         if not log_path.exists():
             return ""
         try:
-            all_lines = log_path.read_text().splitlines()
-            return "\n".join(all_lines[-lines:])
+            with open(log_path) as f:
+                tail = deque(f, maxlen=lines)
+            return "".join(tail)  # lines already have \n
         except Exception as e:
             logger.debug("[bg_tasks] Failed to read output for {}: {}", task_id, e)
             return ""
@@ -180,7 +203,7 @@ class BackgroundTaskManager:
                 agent="SYSTEM",
             )))
         except Exception as e:
-            logger.debug("[bg_tasks] Broadcast failed (no event loop?): {}", e)
+            logger.warning("[bg_tasks] Broadcast failed (no event loop?): {}", e)
 
     async def launch(
         self,
@@ -209,13 +232,16 @@ class BackgroundTaskManager:
         log_path = self.output_log_path(task_id)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_fd = open(log_path, "w")
-
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=log_fd,
-            stderr=asyncio.subprocess.STDOUT,
-            cwd=working_dir or None,
-        )
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=log_fd,
+                stderr=asyncio.subprocess.STDOUT,
+                cwd=working_dir or None,
+            )
+        except Exception:
+            log_fd.close()
+            raise
         task.pid = proc.pid
         self._tasks[task_id] = task
         self._processes[task_id] = proc
@@ -268,8 +294,8 @@ class BackgroundTaskManager:
         port_re = re.compile(
             r"(?:https?://[\w.-]+:|localhost:|0\.0\.0\.0:|127\.0\.0\.1:)(\d{2,5})"
         )
-        deadline = asyncio.get_event_loop().time() + 30
-        while asyncio.get_event_loop().time() < deadline:
+        deadline = asyncio.get_running_loop().time() + 30
+        while asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(2)
             task = self._tasks.get(task_id)
             if not task or task.status != "running" or task.port:

@@ -77,6 +77,10 @@ class TestPortDetection:
         from onemancompany.core.background_tasks import BackgroundTaskManager
         assert BackgroundTaskManager._detect_port_from_command("echo hello") is None
 
+    def test_detect_port_from_command_no_separator(self):
+        from onemancompany.core.background_tasks import BackgroundTaskManager
+        assert BackgroundTaskManager._detect_port_from_command("node server.js -p3000") == 3000
+
 
 class TestBackgroundTaskManagerPersistence:
     """YAML save/load."""
@@ -147,7 +151,7 @@ import asyncio
 
 
 class TestLaunchTask:
-    """BackgroundTaskManager.launch()."""
+    """BackgroundTaskManager.launch() — integration tests using real subprocesses."""
 
     @pytest.mark.asyncio
     async def test_launch_returns_task(self, tmp_path):
@@ -206,7 +210,7 @@ class TestLaunchTask:
 
 
 class TestTerminateTask:
-    """BackgroundTaskManager.terminate()."""
+    """BackgroundTaskManager.terminate() — integration tests using real subprocesses."""
 
     @pytest.mark.asyncio
     async def test_terminate_running_task(self, tmp_path):
