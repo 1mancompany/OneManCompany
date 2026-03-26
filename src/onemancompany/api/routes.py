@@ -3892,6 +3892,26 @@ async def hire_candidate(body: HireRequest) -> dict:
     }
 
 
+def _fill_talent_defaults(talent_data: dict) -> None:
+    """Fill missing LLM config fields with company defaults.
+
+    Non-self-hosted talents that lack llm_model, api_provider, or auth_method
+    get the company's default values instead of failing validation.
+    """
+    hosting = talent_data.get("hosting", "")
+    if hosting in ("self", HostingMode.SELF):
+        return
+    if not talent_data.get("llm_model"):
+        from onemancompany.core.config import settings as _settings
+        talent_data["llm_model"] = _settings.default_llm_model
+        logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
+    if not talent_data.get("api_provider"):
+        talent_data["api_provider"] = "openrouter"
+        logger.info("[hiring] Talent missing api_provider — using default: openrouter")
+    if not talent_data.get("auth_method"):
+        talent_data["auth_method"] = "api_key"
+
+
 def _check_talent_required_fields(talent_data: dict) -> list[str]:
     """Return list of required fields missing from talent profile."""
     missing = []
@@ -4020,6 +4040,9 @@ async def _do_hire_single(
             # No on-disk profile — use candidate data from Talent Market API
             logger.debug("[hiring] No local profile for talent {}, using candidate data", talent_id)
             talent_data = candidate
+
+        # Fill missing LLM config with company defaults
+        _fill_talent_defaults(talent_data)
 
         # Validate required fields
         missing = _check_talent_required_fields(talent_data)
@@ -4448,6 +4471,9 @@ async def _do_batch_hire(
                 # No on-disk profile — use candidate data from Talent Market API
                 logger.debug("[batch-hire] No local profile for talent {}, using candidate data", talent_id)
                 talent_data = candidate
+
+            # Fill missing LLM config with company defaults
+            _fill_talent_defaults(talent_data)
 
             # Validate required fields
             missing = _check_talent_required_fields(talent_data)
