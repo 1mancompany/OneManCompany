@@ -97,7 +97,7 @@ OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
 # ── Run task via openclaw agent ───────────────────────────────────────────────
 >&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID}"
 
-OUTPUT=$("$OPENCLAW_BIN" agent "$OMC_TASK_DESCRIPTION" 2>/dev/null || echo "")
+OUTPUT=$("$OPENCLAW_BIN" agent -m "$OMC_TASK_DESCRIPTION" 2>/dev/null || echo "")
 
 if [ -z "$OUTPUT" ]; then
     OUTPUT="[openclaw] No output returned"
