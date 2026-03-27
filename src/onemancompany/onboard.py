@@ -87,6 +87,8 @@ LOGO = r"""
 
 TOTAL_STEPS = 6
 
+HOSTING_LABELS = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
 
@@ -460,7 +462,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     if not families_enabled:
         families_enabled.add("company")
 
-    family_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+    family_labels = HOSTING_LABELS
     console.print(f"\n  Enabled: [cyan]{', '.join(family_labels[f] for f in sorted(families_enabled))}[/cyan]\n")
 
     # If only one family enabled, assign all founders to it
@@ -742,18 +744,22 @@ def _apply_founder_families(console: Console, founder_families: dict[str, str]) 
     import subprocess
     import yaml as _yaml
 
-    family_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+    family_labels = HOSTING_LABELS
     needs_openclaw = any(v == "openclaw" for v in founder_families.values())
 
     # Install openclaw CLI if any founder uses it
     if needs_openclaw:
-        with console.status("  Installing OpenClaw CLI..."):
+        with console.status("  [bright_cyan]Installing OpenClaw CLI...[/bright_cyan]"):
             try:
-                subprocess.run(
+                result = subprocess.run(
                     ["npm", "install", "-g", "openclaw@latest"],
                     capture_output=True, timeout=120,
                 )
-                console.print("  [green]\u2714[/green] OpenClaw CLI installed")
+                if result.returncode == 0:
+                    console.print("  [bright_green]\u2714[/bright_green] OpenClaw CLI installed")
+                else:
+                    err = result.stderr.decode(errors="replace")[:200] if result.stderr else "unknown error"
+                    console.print(f"  [yellow]\u26a0[/yellow] OpenClaw CLI install failed: {err}")
             except (subprocess.TimeoutExpired, FileNotFoundError) as e:
                 console.print(f"  [yellow]\u26a0[/yellow] OpenClaw CLI install skipped: {e}")
 
@@ -773,8 +779,13 @@ def _apply_founder_families(console: Console, founder_families: dict[str, str]) 
             changed += 1
 
     if changed:
-        summary = ", ".join(f"{eid[-1]}→{family_labels[h]}" for eid, h in sorted(founder_families.items()))
-        console.print(f"  [green]\u2714[/green] Founding employees configured: {summary}")
+        from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
+        _id_names = {EA_ID: "EA", HR_ID: "HR", COO_ID: "COO", CSO_ID: "CSO"}
+        summary = ", ".join(
+            f"{_id_names.get(eid, eid)}→{family_labels[h]}"
+            for eid, h in sorted(founder_families.items())
+        )
+        console.print(f"  [bright_green]\u2714[/bright_green] Vessels deployed: {summary}")
 
 
 def _assign_default_avatars(console: Console) -> None:
@@ -880,7 +891,7 @@ def _step_done(console: Console, host: str, port: int) -> None:
         "  ║  ╚██████╔╝███████╗██║ ╚████║███████╗     ║\n"
         "  ║   ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝     ║\n"
         "  ║                                           ║\n"
-        "  ║   S I S   C O M P L E T E                ║\n"
+        "  ║   G E N E S I S   C O M P L E T E        ║\n"
         "  ╚═══════════════════════════════════════════╝\n"
         "[/bold bright_green]\n"
         "  [bright_cyan]Your company is online. Neural cores activated.[/bright_cyan]\n\n"
