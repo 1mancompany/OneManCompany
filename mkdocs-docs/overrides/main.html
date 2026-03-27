@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block extrahead %}
+  {% if page %}
   <!-- Open Graph -->
   <meta property="og:title" content="{{ page.title }} - OneManCompany Docs" />
   <meta property="og:description" content="{{ page.meta.description | default(config.site_description) }}" />
@@ -52,7 +53,7 @@
     "description": "{{ page.meta.description | default(config.site_description) }}",
     "author": {"@type": "Organization", "name": "OneManCompany"},
     "datePublished": "2026-01-01",
-    "dateModified": "2026-03-18",
+    "dateModified": "2026-03-27",
     "publisher": {
       "@type": "Organization",
       "name": "OneManCompany",
@@ -60,5 +61,6 @@
     }
   }
   </script>
+  {% endif %}
   {% endif %}
 {% endblock %}
