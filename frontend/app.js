@@ -2490,8 +2490,8 @@ class AppController {
       const empResp = await fetch(`/api/employee/${empId}?_t=${Date.now()}`).then(r => r.json());
       const manifest = empResp.manifest;
 
-      if (empResp.hosting === 'self') {
-        // Self-hosted (Claude Code) — show login status instead of model picker
+      if (empResp.hosting === 'self' || empResp.agent_family === 'claude') {
+        // Claude Session — show login status instead of model picker
         container.innerHTML = '';
         this._renderSelfHostedSection(empId, empResp, container);
       } else if (manifest && manifest.settings && manifest.settings.sections) {
@@ -2719,7 +2719,18 @@ class AppController {
     saveBtn.textContent = 'Saving...';
 
     try {
-      // Save hosting mode via hosting endpoint
+      // Save agent family via agent-family endpoint (hot-swap, no restart)
+      if ('agent_family' in payload) {
+        const resp = await fetch(`/api/employee/${empId}/agent-family`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_family: payload.agent_family }),
+        }).then(r => r.json());
+        if (resp.status === 'updated') {
+          this.logEntry('SYSTEM', `Agent family switched to "${payload.agent_family}". Active immediately.`, 'system');
+        }
+      }
+      // Save hosting mode via hosting endpoint (legacy)
       if ('hosting' in payload) {
         const resp = await fetch(`/api/employee/${empId}/hosting`, {
           method: 'PUT',
@@ -2748,7 +2759,7 @@ class AppController {
         });
       }
       // Save custom settings (target_email, polling_interval, etc.) via generic endpoint
-      const reserved = new Set(['hosting', 'llm_model', 'temperature', 'api_key', 'api_provider']);
+      const reserved = new Set(['hosting', 'agent_family', 'llm_model', 'temperature', 'api_key', 'api_provider']);
       const customPayload = {};
       for (const [k, v] of Object.entries(payload)) {
         if (!reserved.has(k)) customPayload[k] = v;
@@ -2836,8 +2847,8 @@ class AppController {
     section.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
     section.innerHTML = `
       <div style="display:flex;align-items:center;gap:4px;">
-        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Hosting</span>
-        <span style="font-size:6px;color:var(--pixel-cyan);">Self-hosted (Claude Code)</span>
+        <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Agent Family</span>
+        <span style="font-size:6px;color:var(--pixel-cyan);">Claude Session</span>
       </div>
       <div style="display:flex;align-items:center;gap:4px;">
         <span style="font-size:6px;color:var(--pixel-yellow);min-width:55px;">Model</span>
@@ -3320,8 +3331,9 @@ class AppController {
         const llmModel = c.llm_model || 'default';
         const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
         const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
-        const hosting = c.hosting || 'company';
-        const hostingLabel = esc(hosting === 'self' ? '🏠 Self' : '🏢 Co.');
+        const agentFamily = c.agent_family || (c.hosting === 'self' ? 'claude' : 'langchain');
+        const familyLabels = { langchain: '🧠 LangChain', claude: '🤖 Claude', openclaw: '🦞 OpenClaw' };
+        const hostingLabel = esc(familyLabels[agentFamily] || agentFamily);
         const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
 
         card.innerHTML = `
@@ -3350,7 +3362,7 @@ class AppController {
               <div class="card-detail-text">${esc(llmModel)} (${esc(c.api_provider || 'openrouter')})</div>
               <div class="card-detail-title">Cost</div>
               <div class="card-detail-text">${costPer1m} | Fee: ${hiringFee}</div>
-              <div class="card-detail-title">Hosting</div>
+              <div class="card-detail-title">Agent Family</div>
               <div class="card-detail-text">${hostingLabel} | Auth: ${authLabel}</div>
             </div>
           </div>
@@ -3424,8 +3436,9 @@ class AppController {
     const llmModel = c.llm_model || 'default';
     const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
     const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
-    const hosting = c.hosting || 'company';
-    const hostingLabel = esc(hosting === 'self' ? '🏠 Self-hosted' : '🏢 Company-hosted');
+    const agentFamily = c.agent_family || (c.hosting === 'self' ? 'claude' : 'langchain');
+    const familyLabels = { langchain: '🧠 LangChain', claude: '🤖 Claude', openclaw: '🦞 OpenClaw' };
+    const hostingLabel = esc(familyLabels[agentFamily] || agentFamily);
     const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
     const reasoning = c.reasoning || '';
 
@@ -3450,7 +3463,7 @@ class AppController {
         <div><div class="detail-label">Provider</div><div class="detail-text">${esc(c.api_provider || 'openrouter')}</div></div>
         <div><div class="detail-label">Cost</div><div class="detail-text">${costPer1m}</div></div>
         <div><div class="detail-label">Hiring Fee</div><div class="detail-text">${hiringFee}</div></div>
-        <div><div class="detail-label">Hosting</div><div class="detail-text">${hostingLabel}</div></div>
+        <div><div class="detail-label">Agent Family</div><div class="detail-text">${hostingLabel}</div></div>
         <div><div class="detail-label">Auth</div><div class="detail-text">${authLabel}</div></div>
       </div>
       ${c.description_md ? `<div class="detail-section"><div class="detail-label">Description</div><div class="detail-description md-rendered">${this._renderMarkdown(c.description_md)}</div></div>` : ''}

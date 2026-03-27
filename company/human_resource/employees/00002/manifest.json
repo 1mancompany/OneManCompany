@@ -7,21 +7,25 @@
   "settings": {
     "sections": [
       {
-        "id": "hosting",
-        "title": "Hosting Mode",
+        "id": "agent_family",
+        "title": "Agent Family",
         "fields": [
           {
-            "key": "hosting",
+            "key": "agent_family",
             "type": "select",
-            "label": "Hosting",
+            "label": "Agent Family",
             "options": [
               {
-                "value": "company",
-                "label": "Company (LangChain)"
+                "value": "langchain",
+                "label": "LangChain"
               },
               {
-                "value": "self",
-                "label": "Self-hosted (Claude Code)"
+                "value": "claude",
+                "label": "Claude Session"
+              },
+              {
+                "value": "openclaw",
+                "label": "OpenClaw"
               }
             ]
           }
