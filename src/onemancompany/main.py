@@ -490,7 +490,7 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.vessel_config import load_vessel_config
     from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
 
-    # Founding employees — agent_family-aware registration
+    # Founding employees — hosting-aware registration
     from onemancompany.core.vessel import register_founding_employee
     _founding_agents = {
         _HR_ID: HRAgent, _COO_ID: COOAgent,
