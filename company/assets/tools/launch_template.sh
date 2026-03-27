@@ -5,13 +5,13 @@
 #   $1 = employee_dir (contains profile.yaml, skills/, progress.log, etc.)
 #
 # Environment variables (auto-injected by SubprocessExecutor):
-#   OMC_EMPLOYEE_ID     — Employee ID (e.g., "00010")
-#   OMC_TASK_ID         — Current task ID
-#   OMC_PROJECT_ID      — Project ID
-#   OMC_PROJECT_DIR     — Project working directory
-#   OMC_TASK_DESCRIPTION — Task description (full prompt)
-#   OMC_SERVER_URL      — Company backend URL (e.g., "http://localhost:8000")
-#   OMC_MAX_ITERATIONS  — Max iterations (default 20)
+#   OMC_EMPLOYEE_ID           — Employee ID (e.g., "00010")
+#   OMC_TASK_ID               — Current task ID
+#   OMC_PROJECT_ID            — Project ID
+#   OMC_PROJECT_DIR           — Project working directory
+#   OMC_TASK_DESCRIPTION_FILE — Path to temp file containing task prompt
+#   OMC_SERVER_URL            — Company backend URL (e.g., "http://localhost:8000")
+#   OMC_MAX_ITERATIONS        — Max iterations (default 20)
 #
 # Output convention:
 #   stdout → JSON: {"output":"...", "model":"...", "input_tokens":N, "output_tokens":N}
@@ -41,6 +41,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ── Read task description from file ──────────────────────────────────────────
+TASK_DESC_FILE="${OMC_TASK_DESCRIPTION_FILE:-}"
+if [ -z "$TASK_DESC_FILE" ] || [ ! -f "$TASK_DESC_FILE" ]; then
+    >&2 echo "ERROR: OMC_TASK_DESCRIPTION_FILE not set or file not found"
+    exit 1
+fi
+OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
+
 >&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID} PID=$$"
 >&2 echo "[launch.sh] Project=${OMC_PROJECT_ID} Dir=${OMC_PROJECT_DIR}"
 >&2 echo "[launch.sh] Description: ${OMC_TASK_DESCRIPTION:0:200}"
@@ -69,7 +77,7 @@ trap cleanup EXIT
 #     -H "Content-Type: application/json" \
 #     -d "{
 #       \"model\": \"${LLM_MODEL:-google/gemini-3.1-pro-preview}\",
-#       \"messages\": [{\"role\": \"user\", \"content\": \"${OMC_TASK_DESCRIPTION}\"}]
+#       \"messages\": [{\"role\": \"user\", \"content\": $(echo "$OMC_TASK_DESCRIPTION" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}]
 #     }")
 #
 # OUTPUT=$(echo "$RESULT" | jq -r '.choices[0].message.content // "No output"')

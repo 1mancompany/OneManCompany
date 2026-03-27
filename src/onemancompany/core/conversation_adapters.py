@@ -174,7 +174,11 @@ def _resolve_conversation_work_dir(conversation: Conversation) -> str:
 
 
 class _BaseConversationAdapter:
-    """Shared send logic — both executor types use the same prompt + execute flow."""
+    """Shared send logic — all executor types use the same prompt + execute flow."""
+
+    def _prepare_prompt(self, prompt: str, conversation: Conversation) -> str:
+        """Hook for subclasses to transform the prompt before execution."""
+        return prompt
 
     async def send(
         self, conversation: Conversation, messages: list[Message], new_message: Message,
@@ -182,6 +186,7 @@ class _BaseConversationAdapter:
         from onemancompany.core.runtime_context import _interaction_type, _interaction_work_dir
         executor = _get_employee_executor(conversation.employee_id)
         prompt = _build_conversation_prompt(conversation, messages, new_message)
+        prompt = self._prepare_prompt(prompt, conversation)
         work_dir = _resolve_conversation_work_dir(conversation)
         logger.debug(
             "[conversation] {}.send: employee={}, project_id={}, work_dir={}",
@@ -232,38 +237,10 @@ class SubprocessAdapter(_BaseConversationAdapter):
     CLAUDE.md/MCP; subprocess employees need it prepended to the prompt.
     """
 
-    async def send(
-        self, conversation: Conversation, messages: list[Message], new_message: Message,
-    ) -> str:
-        from onemancompany.core.runtime_context import _interaction_type, _interaction_work_dir
-        from onemancompany.core.vessel import TaskContext, employee_manager
+    def _prepare_prompt(self, prompt: str, conversation: Conversation) -> str:
+        from onemancompany.core.vessel import employee_manager
 
-        executor = _get_employee_executor(conversation.employee_id)
-        prompt = _build_conversation_prompt(conversation, messages, new_message)
-        work_dir = _resolve_conversation_work_dir(conversation)
-
-        # Inject company context — same as vessel._execute_task does
         company_ctx = employee_manager._build_company_context_block(conversation.employee_id)
         if company_ctx:
-            prompt = f"{company_ctx}\n\n{prompt}"
-
-        logger.debug(
-            "[conversation] SubprocessAdapter.send: employee={}, project_id={}, work_dir={}",
-            conversation.employee_id,
-            conversation.metadata.get("project_id"),
-            work_dir,
-        )
-
-        ctx = TaskContext(
-            employee_id=conversation.employee_id,
-            project_id=conversation.metadata.get("project_id", ""),
-            work_dir=work_dir,
-        )
-        tok_type = _interaction_type.set(conversation.type)
-        tok_work = _interaction_work_dir.set(work_dir)
-        try:
-            result = await executor.execute(prompt, ctx)
-            return result.output
-        finally:
-            _interaction_type.reset(tok_type)
-            _interaction_work_dir.reset(tok_work)
+            return f"{company_ctx}\n\n{prompt}"
+        return prompt
