@@ -54,7 +54,7 @@ class SubprocessExecutor(Launcher):
         prompt_file.close()
 
         try:
-            return await self._run_subprocess(prompt_file.name, context, on_log)
+            return await self._run_subprocess(task_description, prompt_file.name, context, on_log)
         finally:
             try:
                 os.unlink(prompt_file.name)
@@ -63,6 +63,7 @@ class SubprocessExecutor(Launcher):
 
     async def _run_subprocess(
         self,
+        task_description: str,
         prompt_path: str,
         context: TaskContext,
         on_log: Callable[[str, str], None] | None,
@@ -74,6 +75,8 @@ class SubprocessExecutor(Launcher):
             "OMC_PROJECT_ID": context.project_id,
             "OMC_PROJECT_DIR": context.work_dir,
             "OMC_TASK_DESCRIPTION_FILE": prompt_path,
+            # Keep OMC_TASK_DESCRIPTION for backward compat with old launch.sh scripts
+            "OMC_TASK_DESCRIPTION": task_description,
             "OMC_SERVER_URL": f"http://localhost:{os.environ.get('OMC_PORT', '8000')}",
         }
 
