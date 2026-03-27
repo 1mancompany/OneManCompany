@@ -3118,6 +3118,106 @@ def register_self_hosted(
     return employee_manager.register(employee_id, executor, config=config)
 
 
+def _register_founding_employee(
+    employee_id: str,
+    agent_cls: type,
+    emp_cfgs: dict,
+    employees_dir,
+) -> Vessel:
+    """Register a founding employee with the appropriate executor based on agent_family.
+
+    agent_family priority:
+      1. profile.yaml agent_family field (explicit)
+      2. Fallback: "claude" if hosting=="self", else "langchain"
+    """
+    from onemancompany.core.vessel_config import load_vessel_config
+
+    cfg = emp_cfgs.get(employee_id)
+    emp_dir = employees_dir / employee_id
+    vessel_cfg = load_vessel_config(emp_dir) if emp_dir.exists() else None
+
+    family = (cfg.agent_family if cfg and cfg.agent_family else "").strip().lower()
+    if not family:
+        # Auto-detect from hosting
+        if cfg and cfg.hosting == "self":
+            family = "claude"
+        else:
+            family = "langchain"
+
+    executor = _create_executor_for_family(family, employee_id, agent_cls, emp_dir)
+    vessel = employee_manager.register(employee_id, executor, config=vessel_cfg)
+    logger.info(
+        "[startup] Registered {} ({}) — {} executor",
+        cfg.name if cfg else employee_id, employee_id,
+        type(executor).__name__,
+    )
+    return vessel
+
+
+def _create_executor_for_family(
+    family: str,
+    employee_id: str,
+    agent_cls: type | None,
+    emp_dir,
+) -> Launcher:
+    """Create the appropriate executor for an agent_family string."""
+    from onemancompany.core.config import LAUNCH_SH_FILENAME
+
+    if family == "claude":
+        return ClaudeSessionExecutor(employee_id)
+    elif family == "openclaw":
+        from onemancompany.core.subprocess_executor import SubprocessExecutor
+        script_path = str(emp_dir / LAUNCH_SH_FILENAME)
+        return SubprocessExecutor(employee_id, script_path=script_path)
+    else:
+        # Default: langchain
+        runner = agent_cls() if agent_cls else None
+        if runner is None:
+            from onemancompany.agents.base import EmployeeAgent
+            runner = EmployeeAgent(employee_id)
+        return LangChainExecutor(runner)
+
+
+async def switch_agent_family(
+    employee_id: str,
+    new_family: str,
+    agent_cls: type | None = None,
+) -> str:
+    """Hot-swap an employee's executor to a different agent family.
+
+    Requires employee to be idle (not running any tasks).
+    Returns the new executor class name.
+    """
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+
+    if employee_id in employee_manager._running_tasks:
+        raise RuntimeError(f"Employee {employee_id} is currently running a task, cannot switch")
+
+    new_family = new_family.strip().lower()
+    if new_family not in ("langchain", "claude", "openclaw"):
+        raise ValueError(f"Invalid agent_family: {new_family}. Must be langchain, claude, or openclaw.")
+
+    emp_dir = EMPLOYEES_DIR / employee_id
+    executor = _create_executor_for_family(new_family, employee_id, agent_cls, emp_dir)
+
+    # Re-register: unregister first to clean up, then register new executor
+    # Preserve vessel config
+    old_config = employee_manager.configs.get(employee_id)
+    employee_manager.unregister(employee_id)
+    employee_manager.register(employee_id, executor, config=old_config)
+
+    # Update in-memory config
+    cfg = employee_configs.get(employee_id)
+    if cfg:
+        cfg.agent_family = new_family
+
+    logger.info(
+        "[agent_family] Switched {} to {} ({})",
+        employee_id, new_family, type(executor).__name__,
+    )
+    return type(executor).__name__
+
+
 def get_agent_loop(employee_id: str) -> Vessel | None:
     """Get an employee's vessel (backward compat for PersistentAgentLoop callers)."""
     return employee_manager.get_handle(employee_id)

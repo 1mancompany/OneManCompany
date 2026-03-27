@@ -490,21 +490,15 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.vessel_config import load_vessel_config
     from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
 
-    # Founding employees — hosting-aware registration
+    # Founding employees — agent_family-aware registration
+    from onemancompany.core.vessel import _register_founding_employee
     _founding_agents = {
         _HR_ID: HRAgent, _COO_ID: COOAgent,
         _EA_ID: EAAgent, _CSO_ID: CSOAgent,
     }
     _registered_founding = set()
     for _fid, _agent_cls in _founding_agents.items():
-        _fcfg = _emp_cfgs.get(_fid)
-        _emp_dir_f = _EMPLOYEES_DIR / _fid
-        _f_vessel = load_vessel_config(_emp_dir_f) if _emp_dir_f.exists() else None
-        if _fcfg and _fcfg.hosting == HostingMode.SELF:
-            register_self_hosted(_fid, config=_f_vessel)
-            print(f"[startup] Registered self-hosted founding {_fid}")
-        else:
-            register_agent(_fid, _agent_cls(), config=_f_vessel)
+        _register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
         _registered_founding.add(_fid)
 
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)

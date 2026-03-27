@@ -473,6 +473,7 @@ class EmployeeConfig(BaseModel):
     api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
     api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
     hosting: str = "company"  # "company" = company-hosted (server manages agent loop) | "self" = self-hosted (external process, e.g. Claude Code)
+    agent_family: str = ""  # "langchain" | "claude" | "openclaw" | "" (auto-detect from hosting + launch.sh)
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
     oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
 

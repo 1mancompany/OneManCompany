@@ -396,10 +396,12 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
         mock_start_all = AsyncMock()
         mock_stop_all = AsyncMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", mock_start_all)
@@ -456,7 +458,7 @@ class TestLifespan:
             mock_start_sandbox.assert_called_once()
             mock_start_tm.assert_awaited_once()
             mock_start_all.assert_awaited_once()
-            assert mock_register_agent.call_count == 4  # HR, COO, EA, CSO
+            assert mock_register_founding.call_count == 4  # HR, COO, EA, CSO
 
         # Verify shutdown was called
         mock_stop_all.assert_awaited_once()
@@ -476,8 +478,10 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -523,8 +527,9 @@ class TestLifespan:
         async with main_mod.lifespan(mock_app):
             pass
 
-        # 4 founding + 1 non-founding = 5 register_agent calls
-        assert mock_register_agent.call_count == 5
+        # 4 founding via _register_founding_employee, 1 non-founding via register_agent
+        assert mock_register_founding.call_count == 4
+        assert mock_register_agent.call_count == 1
 
     @pytest.mark.asyncio
     async def test_lifespan_registers_self_hosted_employees(self, monkeypatch):
@@ -537,8 +542,10 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -596,8 +603,10 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -639,7 +648,8 @@ class TestLifespan:
             pass
 
         # Only the 4 founding registrations (HR, COO, EA, CSO), not the extra one
-        assert mock_register_agent.call_count == 4
+        assert mock_register_founding.call_count == 4
+        assert mock_register_agent.call_count == 0
 
     @pytest.mark.asyncio
     async def test_lifespan_skips_high_level_employees(self, monkeypatch):
@@ -652,7 +662,9 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", MagicMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -694,7 +706,8 @@ class TestLifespan:
             pass
 
         # Only 4 founding, not 5
-        assert mock_register_agent.call_count == 4
+        assert mock_register_founding.call_count == 4
+        assert mock_register_agent.call_count == 0
 
     @pytest.mark.asyncio
     async def test_lifespan_skips_remote_employees(self, monkeypatch):
@@ -707,7 +720,9 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", MagicMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -749,7 +764,8 @@ class TestLifespan:
             pass
 
         # Only 4 founding
-        assert mock_register_agent.call_count == 4
+        assert mock_register_founding.call_count == 4
+        assert mock_register_agent.call_count == 0
 
     @pytest.mark.asyncio
     async def test_lifespan_employee_with_no_config(self, monkeypatch):
@@ -762,8 +778,10 @@ class TestLifespan:
         monkeypatch.setattr(main_mod, "_restore_ephemeral_state", MagicMock())
         monkeypatch.setattr(main_mod, "_save_ephemeral_state", MagicMock())
 
+        mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
+        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -805,9 +823,10 @@ class TestLifespan:
         async with main_mod.lifespan(mock_app):
             pass
 
-        # _cfg is None, so it goes to register_agent (the last else branch)
-        # 4 founding + 1 = 5
-        assert mock_register_agent.call_count == 5
+        # _cfg is None for non-founding, goes to register_agent
+        # 4 founding via _register_founding_employee, 1 non-founding via register_agent
+        assert mock_register_founding.call_count == 4
+        assert mock_register_agent.call_count == 1
         mock_register_self_hosted.assert_not_called()
 
 
