@@ -1877,6 +1877,71 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     }
 
 
+@router.put("/api/employee/{employee_id}/agent-family")
+async def update_agent_family(employee_id: str, body: dict) -> dict:
+    """Switch an employee's agent family (executor backend) with live hot-swap.
+
+    Supported families: langchain, claude, openclaw.
+    Employee must be idle (not running any tasks).
+    No server restart required — executor is swapped immediately.
+    """
+    from onemancompany.core.config import FOUNDING_IDS, employee_configs
+    from onemancompany.core.vessel import switch_agent_family
+
+    new_family = body.get("agent_family", "").strip().lower()
+    if new_family not in ("langchain", "claude", "openclaw"):
+        raise HTTPException(status_code=400, detail="Invalid agent_family. Must be langchain, claude, or openclaw.")
+
+    emp = _require_employee(employee_id)
+    cfg = employee_configs.get(employee_id)
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Employee config not found")
+
+    old_family = cfg.agent_family or "langchain"
+    if old_family == new_family:
+        return {"status": "unchanged", "agent_family": new_family}
+
+    # Resolve the LangChain agent class for founding employees
+    agent_cls = None
+    if employee_id in FOUNDING_IDS:
+        from onemancompany.agents.hr_agent import HRAgent
+        from onemancompany.agents.coo_agent import COOAgent
+        from onemancompany.agents.ea_agent import EAAgent
+        from onemancompany.agents.cso_agent import CSOAgent
+        from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
+        _founding_map = {HR_ID: HRAgent, COO_ID: COOAgent, EA_ID: EAAgent, CSO_ID: CSOAgent}
+        agent_cls = _founding_map.get(employee_id)
+
+    try:
+        executor_name = await switch_agent_family(employee_id, new_family, agent_cls=agent_cls)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Persist to profile.yaml
+    await _store.save_employee(employee_id, {"agent_family": new_family})
+
+    family_labels = {"langchain": "LangChain", "claude": "Claude Session", "openclaw": "OpenClaw"}
+    label = family_labels.get(new_family, new_family)
+
+    await event_bus.publish(
+        CompanyEvent(
+            type=EventType.AGENT_DONE,
+            payload={
+                "role": "CEO",
+                "summary": f"Switched {emp['name']} to {label} executor. Active immediately.",
+            },
+            agent="CEO",
+        )
+    )
+
+    return {
+        "status": "updated",
+        "agent_family": new_family,
+        "executor": executor_name,
+        "restart_required": False,
+    }
+
+
 
 
 # ===== Global API Settings =====
