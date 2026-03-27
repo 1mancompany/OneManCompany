@@ -5,12 +5,12 @@
 #   bash launch.sh <employee_dir>
 #
 # Environment variables (injected by platform):
-#   OMC_EMPLOYEE_ID      — Employee ID
-#   OMC_TASK_ID          — Task ID
-#   OMC_PROJECT_ID       — Project ID
-#   OMC_PROJECT_DIR      — Project workspace (cwd)
-#   OMC_TASK_DESCRIPTION — Full task description
-#   OMC_SERVER_URL       — Backend URL
+#   OMC_EMPLOYEE_ID           — Employee ID
+#   OMC_TASK_ID               — Task ID
+#   OMC_PROJECT_ID            — Project ID
+#   OMC_PROJECT_DIR           — Project workspace (cwd)
+#   OMC_TASK_DESCRIPTION_FILE — Path to file containing task/prompt text
+#   OMC_SERVER_URL            — Backend URL
 #
 # Output: single JSON line to stdout, logs to stderr.
 
@@ -85,6 +85,14 @@ if [ "$GATEWAY_RUNNING" = false ]; then
         sleep 0.5
     done
 fi
+
+# ── Read task description from file ──────────────────────────────────────────
+TASK_DESC_FILE="${OMC_TASK_DESCRIPTION_FILE:-}"
+if [ -z "$TASK_DESC_FILE" ] || [ ! -f "$TASK_DESC_FILE" ]; then
+    >&2 echo "ERROR: OMC_TASK_DESCRIPTION_FILE not set or file not found"
+    exit 1
+fi
+OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
 
 # ── Run task via openclaw agent ───────────────────────────────────────────────
 >&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID}"

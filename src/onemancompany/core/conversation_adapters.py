@@ -19,6 +19,7 @@ from onemancompany.core.models import ConversationType
 # Single-file constants
 EXECUTOR_TYPE_LANGCHAIN = "langchain"
 EXECUTOR_TYPE_CLAUDE_SESSION = "claude_session"
+EXECUTOR_TYPE_SUBPROCESS = "subprocess"
 
 
 @runtime_checkable
@@ -76,6 +77,7 @@ _EXECUTOR_CLASS_MAP: dict[str, str] = {
     "ClaudeSessionExecutor": EXECUTOR_TYPE_CLAUDE_SESSION,
     "LangChainExecutor": EXECUTOR_TYPE_LANGCHAIN,
     "EmployeeAgent": EXECUTOR_TYPE_LANGCHAIN,
+    "SubprocessExecutor": EXECUTOR_TYPE_SUBPROCESS,
 }
 
 
@@ -172,7 +174,11 @@ def _resolve_conversation_work_dir(conversation: Conversation) -> str:
 
 
 class _BaseConversationAdapter:
-    """Shared send logic — both executor types use the same prompt + execute flow."""
+    """Shared send logic — all executor types use the same prompt + execute flow."""
+
+    def _prepare_prompt(self, prompt: str, conversation: Conversation) -> str:
+        """Hook for subclasses to transform the prompt before execution."""
+        return prompt
 
     async def send(
         self, conversation: Conversation, messages: list[Message], new_message: Message,
@@ -180,6 +186,7 @@ class _BaseConversationAdapter:
         from onemancompany.core.runtime_context import _interaction_type, _interaction_work_dir
         executor = _get_employee_executor(conversation.employee_id)
         prompt = _build_conversation_prompt(conversation, messages, new_message)
+        prompt = self._prepare_prompt(prompt, conversation)
         work_dir = _resolve_conversation_work_dir(conversation)
         logger.debug(
             "[conversation] {}.send: employee={}, project_id={}, work_dir={}",
@@ -218,3 +225,22 @@ class LangChainAdapter(_BaseConversationAdapter):
 @register_adapter(EXECUTOR_TYPE_CLAUDE_SESSION)
 class ClaudeSessionAdapter(_BaseConversationAdapter):
     pass
+
+
+@register_adapter(EXECUTOR_TYPE_SUBPROCESS)
+class SubprocessAdapter(_BaseConversationAdapter):
+    """Adapter for SubprocessExecutor-based employees (e.g. OpenClaw).
+
+    Injects company context (identity, culture, SOPs, guidance, work principles)
+    into the conversation prompt — matching what vessel._execute_task does for
+    scheduled tasks. LangChain gets this via system prompt; Claude CLI via
+    CLAUDE.md/MCP; subprocess employees need it prepended to the prompt.
+    """
+
+    def _prepare_prompt(self, prompt: str, conversation: Conversation) -> str:
+        from onemancompany.core.vessel import employee_manager
+
+        company_ctx = employee_manager._build_company_context_block(conversation.employee_id)
+        if company_ctx:
+            return f"{company_ctx}\n\n{prompt}"
+        return prompt

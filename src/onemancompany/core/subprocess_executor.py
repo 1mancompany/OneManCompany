@@ -1,12 +1,18 @@
 """SubprocessExecutor — runs employee tasks as bash subprocesses.
 
 Each company-hosted employee runs via launch.sh. Cancel = OS-level kill.
+
+Prompt delivery: written to a temp file and passed via OMC_TASK_DESCRIPTION_FILE
+env var. The launch.sh reads from this file. This avoids OS limits on env var
+length (typically ~128KB on macOS, ~2MB on Linux) which conversation prompts
+with history can easily exceed.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+import tempfile
 from typing import Callable
 
 from loguru import logger
@@ -38,13 +44,36 @@ class SubprocessExecutor(Launcher):
         context: TaskContext,
         on_log: Callable[[str, str], None] | None = None,
     ) -> LaunchResult:
+        # Write prompt to temp file to avoid env var length limits.
+        # launch.sh reads from OMC_TASK_DESCRIPTION_FILE.
+        prompt_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="omc_prompt_",
+            delete=False, encoding="utf-8",
+        )
+        prompt_file.write(task_description)
+        prompt_file.close()
+
+        try:
+            return await self._run_subprocess(prompt_file.name, context, on_log)
+        finally:
+            try:
+                os.unlink(prompt_file.name)
+            except OSError as exc:
+                logger.debug("Failed to remove prompt file {}: {}", prompt_file.name, exc)
+
+    async def _run_subprocess(
+        self,
+        prompt_path: str,
+        context: TaskContext,
+        on_log: Callable[[str, str], None] | None,
+    ) -> LaunchResult:
         env = {
             **os.environ,
             "OMC_EMPLOYEE_ID": context.employee_id,
             "OMC_TASK_ID": context.task_id,
             "OMC_PROJECT_ID": context.project_id,
             "OMC_PROJECT_DIR": context.work_dir,
-            "OMC_TASK_DESCRIPTION": task_description,
+            "OMC_TASK_DESCRIPTION_FILE": prompt_path,
             "OMC_SERVER_URL": f"http://localhost:{os.environ.get('OMC_PORT', '8000')}",
         }
 

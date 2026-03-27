@@ -283,7 +283,7 @@ llm_model: google/gemini-3.1-pro-preview-customtools
 
 **How it works**:
 - The platform uses `SubprocessExecutor` to run `launch.sh` as a **foreground process**
-- Each task = one `launch.sh` invocation, task description passed via `OMC_TASK_DESCRIPTION` environment variable
+- Each task = one `launch.sh` invocation, task prompt written to a temp file and passed via `OMC_TASK_DESCRIPTION_FILE` environment variable
 - Script outputs result JSON to stdout, logs to stderr
 - Timeout and cancellation managed by the platform (SIGTERM -> 30s -> SIGKILL)
 - If no custom `launch.sh` exists, the platform falls back to `LangChainLauncher`
@@ -404,7 +404,7 @@ as a **foreground process** via `SubprocessExecutor`, unlike the background work
 |---|---|---|
 | **Execution** | `SubprocessExecutor` direct invocation | Copied to employee dir on onboarding, manually started |
 | **Lifecycle** | One process per task, exits on completion | Long-running background, polls task queue |
-| **Task source** | `OMC_TASK_DESCRIPTION` environment variable | HTTP polling `/api/remote/tasks/` |
+| **Task source** | `OMC_TASK_DESCRIPTION_FILE` (temp file path) | HTTP polling `/api/remote/tasks/` |
 | **Result output** | stdout JSON | HTTP POST `/api/remote/results` |
 | **Timeout/cancellation** | Platform-managed (SIGTERM -> 30s -> SIGKILL) | Self-managed |
 | **PID management** | Not needed | `worker.pid` file |
@@ -425,7 +425,7 @@ Environment variables (auto-injected):
     OMC_TASK_ID          — Task ID
     OMC_PROJECT_ID       — Project ID
     OMC_PROJECT_DIR      — Project working directory (cwd)
-    OMC_TASK_DESCRIPTION — Full task description
+    OMC_TASK_DESCRIPTION_FILE — Path to temp file containing task prompt
     OMC_SERVER_URL       — Backend URL (http://localhost:8000)
     OMC_MAX_ITERATIONS   — Max agent iteration count (default 20)
 
