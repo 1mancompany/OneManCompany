@@ -3124,11 +3124,12 @@ def register_founding_employee(
     emp_cfgs: dict,
     employees_dir,
 ) -> Vessel:
-    """Register a founding employee with the appropriate executor based on agent_family.
+    """Register a founding employee with the appropriate executor based on hosting mode.
 
-    agent_family priority:
-      1. profile.yaml agent_family field (explicit)
-      2. Fallback: "claude" if hosting=="self", else "langchain"
+    hosting → executor mapping:
+      company   → LangChainExecutor (with agent-specific class)
+      self      → ClaudeSessionExecutor
+      openclaw  → SubprocessExecutor (launch.sh)
     """
     from onemancompany.core.vessel_config import load_vessel_config
 
@@ -3136,15 +3137,8 @@ def register_founding_employee(
     emp_dir = employees_dir / employee_id
     vessel_cfg = load_vessel_config(emp_dir) if emp_dir.exists() else None
 
-    family = (cfg.agent_family if cfg and cfg.agent_family else "").strip().lower()
-    if not family:
-        # Auto-detect from hosting
-        if cfg and cfg.hosting == "self":
-            family = "claude"
-        else:
-            family = "langchain"
-
-    executor = _create_executor_for_family(family, employee_id, agent_cls, emp_dir)
+    hosting = (cfg.hosting if cfg else "company").strip().lower()
+    executor = _create_executor_for_hosting(hosting, employee_id, agent_cls, emp_dir)
     vessel = employee_manager.register(employee_id, executor, config=vessel_cfg)
     logger.info(
         "[startup] Registered {} ({}) — {} executor",
@@ -3154,23 +3148,23 @@ def register_founding_employee(
     return vessel
 
 
-def _create_executor_for_family(
-    family: str,
+def _create_executor_for_hosting(
+    hosting: str,
     employee_id: str,
     agent_cls: type | None,
     emp_dir,
 ) -> Launcher:
-    """Create the appropriate executor for an agent_family string."""
+    """Create the appropriate executor for a hosting mode string."""
     from onemancompany.core.config import LAUNCH_SH_FILENAME
 
-    if family == "claude":
+    if hosting == "self":
         return ClaudeSessionExecutor(employee_id)
-    elif family == "openclaw":
+    elif hosting == "openclaw":
         from onemancompany.core.subprocess_executor import SubprocessExecutor
         script_path = str(emp_dir / LAUNCH_SH_FILENAME)
         return SubprocessExecutor(employee_id, script_path=script_path)
     else:
-        # Default: langchain
+        # Default: company → langchain
         runner = agent_cls() if agent_cls else None
         if runner is None:
             from onemancompany.agents.base import EmployeeAgent
@@ -3178,12 +3172,12 @@ def _create_executor_for_family(
         return LangChainExecutor(runner)
 
 
-async def switch_agent_family(
+async def switch_hosting(
     employee_id: str,
-    new_family: str,
+    new_hosting: str,
     agent_cls: type | None = None,
 ) -> str:
-    """Hot-swap an employee's executor to a different agent family.
+    """Hot-swap an employee's executor by changing hosting mode.
 
     Requires employee to be idle (not running any tasks).
     Returns the new executor class name.
@@ -3195,15 +3189,14 @@ async def switch_agent_family(
     if employee_id in employee_manager._system_tasks:
         raise RuntimeError(f"Employee {employee_id} has a system task running, cannot switch")
 
-    new_family = new_family.strip().lower()
-    if new_family not in ("langchain", "claude", "openclaw"):
-        raise ValueError(f"Invalid agent_family: {new_family}. Must be langchain, claude, or openclaw.")
+    new_hosting = new_hosting.strip().lower()
+    if new_hosting not in ("company", "self", "openclaw"):
+        raise ValueError(f"Invalid hosting: {new_hosting}. Must be company, self, or openclaw.")
 
     emp_dir = EMPLOYEES_DIR / employee_id
-    executor = _create_executor_for_family(new_family, employee_id, agent_cls, emp_dir)
+    executor = _create_executor_for_hosting(new_hosting, employee_id, agent_cls, emp_dir)
 
     # Re-register: unregister first to clean up, then register new executor
-    # Preserve vessel config
     old_config = employee_manager.configs.get(employee_id)
     employee_manager.unregister(employee_id)
     employee_manager.register(employee_id, executor, config=old_config)
@@ -3211,11 +3204,11 @@ async def switch_agent_family(
     # Update in-memory config
     cfg = employee_configs.get(employee_id)
     if cfg:
-        cfg.agent_family = new_family
+        cfg.hosting = new_hosting
 
     logger.info(
-        "[agent_family] Switched {} to {} ({})",
-        employee_id, new_family, type(executor).__name__,
+        "[hosting] Switched {} to {} ({})",
+        employee_id, new_hosting, type(executor).__name__,
     )
     return type(executor).__name__
 

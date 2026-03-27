@@ -2490,7 +2490,7 @@ class AppController {
       const empResp = await fetch(`/api/employee/${empId}?_t=${Date.now()}`).then(r => r.json());
       const manifest = empResp.manifest;
 
-      if (empResp.hosting === 'self' || empResp.agent_family === 'claude') {
+      if (empResp.hosting === 'self') {
         // Claude Session — show login status instead of model picker
         container.innerHTML = '';
         this._renderSelfHostedSection(empId, empResp, container);
@@ -2719,27 +2719,15 @@ class AppController {
     saveBtn.textContent = 'Saving...';
 
     try {
-      // Save agent family via agent-family endpoint (hot-swap, no restart)
-      if ('agent_family' in payload) {
-        const resp = await fetch(`/api/employee/${empId}/agent-family`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agent_family: payload.agent_family }),
-        }).then(r => r.json());
-        if (resp.status === 'updated') {
-          this.logEntry('SYSTEM', `Agent family switched to "${payload.agent_family}". Active immediately.`, 'system');
-        }
-      }
-      // Save hosting mode via hosting endpoint (legacy)
+      // Save hosting (agent family) via hosting endpoint — hot-swap, no restart
       if ('hosting' in payload) {
         const resp = await fetch(`/api/employee/${empId}/hosting`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ hosting: payload.hosting }),
         }).then(r => r.json());
-        if (resp.restart_required) {
-          this.logEntry('SYSTEM', `Hosting changed to "${payload.hosting}". Restart required.`, 'system');
-          this._showRestartBanner(`Hosting mode changed for #${empId}. Restart to apply.`);
+        if (resp.status === 'updated') {
+          this.logEntry('SYSTEM', `Agent family switched to "${payload.hosting}". Active immediately.`, 'system');
         }
       }
       // Save model + temperature via model endpoint
@@ -2759,7 +2747,7 @@ class AppController {
         });
       }
       // Save custom settings (target_email, polling_interval, etc.) via generic endpoint
-      const reserved = new Set(['hosting', 'agent_family', 'llm_model', 'temperature', 'api_key', 'api_provider']);
+      const reserved = new Set(['hosting', 'llm_model', 'temperature', 'api_key', 'api_provider']);
       const customPayload = {};
       for (const [k, v] of Object.entries(payload)) {
         if (!reserved.has(k)) customPayload[k] = v;
@@ -3331,9 +3319,9 @@ class AppController {
         const llmModel = c.llm_model || 'default';
         const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
         const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
-        const agentFamily = c.agent_family || (c.hosting === 'self' ? 'claude' : 'langchain');
-        const familyLabels = { langchain: '🧠 LangChain', claude: '🤖 Claude', openclaw: '🦞 OpenClaw' };
-        const hostingLabel = esc(familyLabels[agentFamily] || agentFamily);
+        const hosting = c.hosting || 'company';
+        const familyLabels = { company: '🧠 LangChain', self: '🤖 Claude', openclaw: '🦞 OpenClaw' };
+        const hostingLabel = esc(familyLabels[hosting] || hosting);
         const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
 
         card.innerHTML = `
@@ -3436,9 +3424,9 @@ class AppController {
     const llmModel = c.llm_model || 'default';
     const costPer1m = esc(c.cost_per_1m_tokens ? `$${Number(c.cost_per_1m_tokens).toFixed(2)}/1M` : (c.salary_per_1m_tokens ? `$${Number(c.salary_per_1m_tokens).toFixed(2)}/1M` : 'N/A'));
     const hiringFee = esc(c.hiring_fee != null ? `$${Number(c.hiring_fee).toFixed(2)}` : 'Free');
-    const agentFamily = c.agent_family || (c.hosting === 'self' ? 'claude' : 'langchain');
-    const familyLabels = { langchain: '🧠 LangChain', claude: '🤖 Claude', openclaw: '🦞 OpenClaw' };
-    const hostingLabel = esc(familyLabels[agentFamily] || agentFamily);
+    const hosting = c.hosting || 'company';
+    const familyLabels = { company: '🧠 LangChain', self: '🤖 Claude', openclaw: '🦞 OpenClaw' };
+    const hostingLabel = esc(familyLabels[hosting] || hosting);
     const authLabel = esc(c.auth_method === 'oauth' ? 'OAuth' : 'API Key');
     const reasoning = c.reasoning || '';
 

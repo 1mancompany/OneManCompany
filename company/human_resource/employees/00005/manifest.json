@@ -7,21 +7,21 @@
   "settings": {
     "sections": [
       {
-        "id": "agent_family",
+        "id": "hosting",
         "title": "Agent Family",
         "fields": [
           {
-            "key": "agent_family",
+            "key": "hosting",
             "type": "select",
             "label": "Agent Family",
             "options": [
               {
-                "value": "langchain",
+                "value": "company",
                 "label": "LangChain"
               },
               {
-                "value": "claude",
-                "label": "Claude Session"
+                "value": "self",
+                "label": "Claude Code"
               },
               {
                 "value": "openclaw",

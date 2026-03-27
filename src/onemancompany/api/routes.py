@@ -1280,7 +1280,6 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
-    result["agent_family"] = cfg.agent_family if cfg and cfg.agent_family else ""
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
     # Self-hosted employees manage their own auth via Claude CLI — always considered logged in
     if cfg and cfg.hosting == HostingMode.SELF:
@@ -1783,52 +1782,61 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
 
 @router.put("/api/employee/{employee_id}/hosting")
 async def update_employee_hosting(employee_id: str, body: dict) -> dict:
-    """Switch an employee's hosting mode between company-hosted and self-hosted.
+    """Switch an employee's hosting mode (agent family) with live hot-swap.
 
-    Changing hosting mode requires a server restart to re-register the employee
-    with the appropriate executor (LangChain vs Claude Code session).
+    Supported values: company (LangChain), self (Claude Code), openclaw.
+    Employee must be idle. No server restart required.
     """
-    import yaml
-    import json as _json
+    from onemancompany.core.config import FOUNDING_IDS, employee_configs
+    from onemancompany.core.vessel import switch_hosting
 
-    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs, invalidate_manifest_cache
-
-    new_hosting = body.get("hosting", "")
-    if new_hosting not in (HostingMode.COMPANY, HostingMode.SELF):
-        return {"error": "Invalid hosting mode. Use 'company' or 'self'."}
+    new_hosting = body.get("hosting", "").strip().lower()
+    if new_hosting not in (HostingMode.COMPANY, HostingMode.SELF, HostingMode.OPENCLAW):
+        raise HTTPException(status_code=400, detail="Invalid hosting. Must be company, self, or openclaw.")
 
     emp = _require_employee(employee_id)
-
     cfg = employee_configs.get(employee_id)
     if not cfg:
-        return {"error": "Employee config not found"}
+        raise HTTPException(status_code=404, detail="Employee config not found")
 
-    old_hosting = cfg.hosting
-
-    if old_hosting == new_hosting:
+    if cfg.hosting == new_hosting:
         return {"status": "unchanged", "hosting": new_hosting}
 
-    # Update in-memory config
-    cfg.hosting = new_hosting
+    # Resolve the LangChain agent class for founding employees
+    agent_cls = None
+    if employee_id in FOUNDING_IDS:
+        from onemancompany.agents.hr_agent import HRAgent
+        from onemancompany.agents.coo_agent import COOAgent
+        from onemancompany.agents.ea_agent import EAAgent
+        from onemancompany.agents.cso_agent import CSOAgent
+        from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
+        _founding_map = {HR_ID: HRAgent, COO_ID: COOAgent, EA_ID: EAAgent, CSO_ID: CSOAgent}
+        agent_cls = _founding_map.get(employee_id)
 
-    # Persist via store
+    try:
+        executor_name = await switch_hosting(employee_id, new_hosting, agent_cls=agent_cls)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    # Persist to profile.yaml
     hosting_updates: dict = {"hosting": new_hosting}
     if new_hosting == HostingMode.SELF:
         hosting_updates["api_provider"] = "anthropic"
-        hosting_updates["auth_method"] = "api_key"  # self-hosted uses Claude CLI auth, keep valid default
+        hosting_updates["auth_method"] = "api_key"
         cfg.auth_method = "api_key"
     await _store.save_employee(employee_id, hosting_updates)
 
-    # Update manifest.json to reflect hosting change and adjust settings sections
+    # Update manifest.json sections based on new hosting mode
+    import json as _json
+    from onemancompany.core.config import EMPLOYEES_DIR, invalidate_manifest_cache
     manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if manifest_path.exists():
         manifest = _json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
         manifest["hosting"] = new_hosting
-
         sections = manifest.get("settings", {}).get("sections", [])
 
         if new_hosting == HostingMode.SELF:
-            # Add connection section if not present
+            # Claude Code: add connection section, remove LLM section
             has_connection = any(s.get("id") == "connection" for s in sections)
             if not has_connection:
                 sections.insert(0, {
@@ -1838,12 +1846,10 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
                         {"key": "sessions", "type": "readonly", "label": "Sessions", "value_from": "api:sessions"},
                     ],
                 })
-            # Remove LLM section (self-hosted uses its own model)
             sections[:] = [s for s in sections if s.get("id") != "llm"]
         else:
-            # Remove connection section
+            # LangChain or OpenClaw: remove connection section, restore LLM section
             sections[:] = [s for s in sections if s.get("id") != "connection"]
-            # Add LLM section back if not present
             has_llm = any(s.get("id") == "llm" for s in sections)
             if not has_llm:
                 sections.append({
@@ -1858,13 +1864,15 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
         manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
         invalidate_manifest_cache(employee_id)
 
-    hosting_label = "Self-hosted (Claude Code)" if new_hosting == HostingMode.SELF else "Company-hosted (LangChain)"
+    hosting_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+    label = hosting_labels.get(new_hosting, new_hosting)
+
     await event_bus.publish(
         CompanyEvent(
             type=EventType.AGENT_DONE,
             payload={
                 "role": "CEO",
-                "summary": f"Switched {emp['name']} to {hosting_label}. Restart required to take effect.",
+                "summary": f"Switched {emp['name']} to {label}. Active immediately.",
             },
             agent="CEO",
         )
@@ -1873,71 +1881,6 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     return {
         "status": "updated",
         "hosting": new_hosting,
-        "restart_required": True,
-        "message": f"Hosting changed to '{new_hosting}'. Server restart required to re-register agent.",
-    }
-
-
-@router.put("/api/employee/{employee_id}/agent-family")
-async def update_agent_family(employee_id: str, body: dict) -> dict:
-    """Switch an employee's agent family (executor backend) with live hot-swap.
-
-    Supported families: langchain, claude, openclaw.
-    Employee must be idle (not running any tasks).
-    No server restart required — executor is swapped immediately.
-    """
-    from onemancompany.core.config import FOUNDING_IDS, employee_configs
-    from onemancompany.core.vessel import switch_agent_family
-
-    new_family = body.get("agent_family", "").strip().lower()
-    if new_family not in ("langchain", "claude", "openclaw"):
-        raise HTTPException(status_code=400, detail="Invalid agent_family. Must be langchain, claude, or openclaw.")
-
-    emp = _require_employee(employee_id)
-    cfg = employee_configs.get(employee_id)
-    if not cfg:
-        raise HTTPException(status_code=404, detail="Employee config not found")
-
-    old_family = cfg.agent_family or "langchain"
-    if old_family == new_family:
-        return {"status": "unchanged", "agent_family": new_family}
-
-    # Resolve the LangChain agent class for founding employees
-    agent_cls = None
-    if employee_id in FOUNDING_IDS:
-        from onemancompany.agents.hr_agent import HRAgent
-        from onemancompany.agents.coo_agent import COOAgent
-        from onemancompany.agents.ea_agent import EAAgent
-        from onemancompany.agents.cso_agent import CSOAgent
-        from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
-        _founding_map = {HR_ID: HRAgent, COO_ID: COOAgent, EA_ID: EAAgent, CSO_ID: CSOAgent}
-        agent_cls = _founding_map.get(employee_id)
-
-    try:
-        executor_name = await switch_agent_family(employee_id, new_family, agent_cls=agent_cls)
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-
-    # Persist to profile.yaml
-    await _store.save_employee(employee_id, {"agent_family": new_family})
-
-    family_labels = {"langchain": "LangChain", "claude": "Claude Session", "openclaw": "OpenClaw"}
-    label = family_labels.get(new_family, new_family)
-
-    await event_bus.publish(
-        CompanyEvent(
-            type=EventType.AGENT_DONE,
-            payload={
-                "role": "CEO",
-                "summary": f"Switched {emp['name']} to {label} executor. Active immediately.",
-            },
-            agent="CEO",
-        )
-    )
-
-    return {
-        "status": "updated",
-        "agent_family": new_family,
         "executor": executor_name,
         "restart_required": False,
     }

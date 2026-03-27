@@ -75,6 +75,7 @@ class DecisionStatus(str, Enum):
 class HostingMode(str, Enum):
     COMPANY = "company"
     SELF = "self"
+    OPENCLAW = "openclaw"
     REMOTE = "remote"
 
 
