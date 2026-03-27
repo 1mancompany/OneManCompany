@@ -95,21 +95,40 @@ fi
 OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
 
 # ── Run task via openclaw agent ───────────────────────────────────────────────
->&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID}"
+SESSION_ID="omc-${OMC_EMPLOYEE_ID}-${OMC_TASK_ID:-conv}"
+>&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID} Session=${SESSION_ID}"
 
-OUTPUT=$("$OPENCLAW_BIN" agent -m "$OMC_TASK_DESCRIPTION" 2>/dev/null || echo "")
+RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SESSION_ID" --json 2>/dev/null || echo "")
 
-if [ -z "$OUTPUT" ]; then
-    OUTPUT="[openclaw] No output returned"
-fi
-
-# ── Emit result JSON to stdout ────────────────────────────────────────────────
+# ── Parse openclaw JSON response ────────────────────────────────────────────
 python3 -c "
 import json, sys
+
+raw = sys.argv[1] if len(sys.argv) > 1 else ''
+output = '[openclaw] No output returned'
+model = 'openclaw/openrouter'
+in_tok = 0
+out_tok = 0
+
+if raw:
+    try:
+        data = json.loads(raw)
+        payloads = data.get('payloads', [])
+        if payloads:
+            output = payloads[0].get('text', output)
+        meta = data.get('meta', {}).get('agentMeta', {})
+        model = f\"openclaw/{meta.get('model', 'unknown')}\"
+        usage = meta.get('usage', {})
+        in_tok = usage.get('input', 0)
+        out_tok = usage.get('output', 0)
+    except (json.JSONDecodeError, KeyError, IndexError):
+        if raw.strip():
+            output = raw
+
 print(json.dumps({
-    'output': sys.argv[1],
-    'model': 'openclaw/openrouter',
-    'input_tokens': 0,
-    'output_tokens': 0,
+    'output': output,
+    'model': model,
+    'input_tokens': in_tok,
+    'output_tokens': out_tok,
 }))
-" "$OUTPUT"
+" "$RAW"
