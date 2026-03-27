@@ -3118,7 +3118,7 @@ def register_self_hosted(
     return employee_manager.register(employee_id, executor, config=config)
 
 
-def _register_founding_employee(
+def register_founding_employee(
     employee_id: str,
     agent_cls: type,
     emp_cfgs: dict,
@@ -3192,6 +3192,8 @@ async def switch_agent_family(
 
     if employee_id in employee_manager._running_tasks:
         raise RuntimeError(f"Employee {employee_id} is currently running a task, cannot switch")
+    if employee_id in employee_manager._system_tasks:
+        raise RuntimeError(f"Employee {employee_id} has a system task running, cannot switch")
 
     new_family = new_family.strip().lower()
     if new_family not in ("langchain", "claude", "openclaw"):

@@ -401,7 +401,7 @@ class TestLifespan:
         mock_register_self_hosted = MagicMock()
         mock_start_all = AsyncMock()
         mock_stop_all = AsyncMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", mock_start_all)
@@ -481,7 +481,7 @@ class TestLifespan:
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -527,7 +527,7 @@ class TestLifespan:
         async with main_mod.lifespan(mock_app):
             pass
 
-        # 4 founding via _register_founding_employee, 1 non-founding via register_agent
+        # 4 founding via register_founding_employee, 1 non-founding via register_agent
         assert mock_register_founding.call_count == 4
         assert mock_register_agent.call_count == 1
 
@@ -545,7 +545,7 @@ class TestLifespan:
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -606,7 +606,7 @@ class TestLifespan:
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -664,7 +664,7 @@ class TestLifespan:
 
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", MagicMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -722,7 +722,7 @@ class TestLifespan:
 
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", MagicMock())
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -781,7 +781,7 @@ class TestLifespan:
         mock_register_founding = MagicMock()
         mock_register_agent = MagicMock()
         mock_register_self_hosted = MagicMock()
-        monkeypatch.setattr("onemancompany.core.vessel._register_founding_employee", mock_register_founding)
+        monkeypatch.setattr("onemancompany.core.vessel.register_founding_employee", mock_register_founding)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_agent", mock_register_agent)
         monkeypatch.setattr("onemancompany.core.agent_loop.register_self_hosted", mock_register_self_hosted)
         monkeypatch.setattr("onemancompany.core.agent_loop.start_all_loops", AsyncMock())
@@ -824,7 +824,7 @@ class TestLifespan:
             pass
 
         # _cfg is None for non-founding, goes to register_agent
-        # 4 founding via _register_founding_employee, 1 non-founding via register_agent
+        # 4 founding via register_founding_employee, 1 non-founding via register_agent
         assert mock_register_founding.call_count == 4
         assert mock_register_agent.call_count == 1
         mock_register_self_hosted.assert_not_called()

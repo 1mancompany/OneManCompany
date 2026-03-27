@@ -491,14 +491,14 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.config import EMPLOYEES_DIR as _EMPLOYEES_DIR, employee_configs as _emp_cfgs
 
     # Founding employees — agent_family-aware registration
-    from onemancompany.core.vessel import _register_founding_employee
+    from onemancompany.core.vessel import register_founding_employee
     _founding_agents = {
         _HR_ID: HRAgent, _COO_ID: COOAgent,
         _EA_ID: EAAgent, _CSO_ID: CSOAgent,
     }
     _registered_founding = set()
     for _fid, _agent_cls in _founding_agents.items():
-        _register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
+        register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
         _registered_founding.add(_fid)
 
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
