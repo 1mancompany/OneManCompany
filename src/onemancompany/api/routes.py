@@ -1280,6 +1280,7 @@ async def get_employee_detail(employee_id: str) -> dict:
     result["api_key_set"] = bool(api_key)
     result["api_key_preview"] = ("..." + api_key[-4:]) if len(api_key) >= 4 else ""
     result["hosting"] = cfg.hosting if cfg else HostingMode.COMPANY.value
+    result["agent_family"] = cfg.agent_family if cfg and cfg.agent_family else ""
     result["auth_method"] = cfg.auth_method if cfg else "api_key"
     # Self-hosted employees manage their own auth via Claude CLI — always considered logged in
     if cfg and cfg.hosting == HostingMode.SELF:
