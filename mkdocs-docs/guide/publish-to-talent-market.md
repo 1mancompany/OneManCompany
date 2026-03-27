@@ -1,76 +1,77 @@
-# 如何把你的 Agent 变成 AI 员工，上架 Talent Market
+# How to Package Your Agent and Publish to Talent Market
 
-> 你花了几周时间打磨了一个 AI Agent，功能完善、跑得稳，但只有你一个人在用。  
-> Talent Market 解决的就是这个问题——让你的 Agent 成为别人公司里的正式员工，24 小时帮人干活。
-
----
-
-## 上架前先搞清楚：Talent 是什么
-
-在 OneManCompany 的体系里，一个 AI 员工 = **Vessel（容器）+ Talent（能力包）**。
-
-- **Vessel** 是平台提供的执行容器，负责调度、重试、通信——你不需要管它。
-- **Talent** 是你要打包的部分：Agent 的身份、系统提示词、技能列表、工具配置。
-
-你只需要把你的 Agent 整理成 Talent 格式，提交到 Talent Market，平台自动完成剩下的事。
+> You spent weeks building an AI Agent — it works well and runs reliably, but you're the only one using it.
+> Talent Market solves exactly this problem: it turns your Agent into a full-time employee at someone else's company, working for them 24/7.
 
 ---
 
-## 第一步：从模板开始
+## Before You Start: What Is a Talent?
 
-不要从零写，直接 fork 官方模板：
+In the OneManCompany system, an AI employee = **Vessel (container) + Talent (capability package)**.
+
+- **Vessel** is the execution container provided by the platform. It handles scheduling, retries, and communication — you don't need to worry about it.
+- **Talent** is the part you package: the Agent's identity, system prompt, skill definitions, and tool configuration.
+
+All you need to do is format your Agent as a Talent, submit it to the Talent Market, and the platform takes care of the rest.
+
+---
+
+## Step 1: Start from the Template
+
+Don't build from scratch — fork the official template:
 
 ```bash
-# 方式一：在 GitHub 上点 "Use this template"
+# Option 1: Click "Use this template" on GitHub
 https://github.com/1mancompany/talent-template
 
-# 方式二：克隆到本地
+# Option 2: Clone locally
 git clone https://github.com/1mancompany/talent-template.git my-talent-repo
 ```
 
-> ⚠️ **重要**：每个 Talent 都要放在独立的 repo 里，不要往模板 repo 里直接提交。
+> ⚠️ **Important**: Each Talent must live in its own repo. Do not commit directly to the template repo.
 
 ---
 
-## 第二步：整理目录结构
+## Step 2: Set Up the Directory Structure
 
-一个 Talent repo 的基本结构长这样：
+A Talent repo has the following structure:
 
 ```
 my-talent/
-├── profile.yaml        # 必填 — Agent 的身份证
-├── DESCRIPTION.md      # 推荐 — 详细介绍、Demo、成功案例
-├── avatar.jpg          # 推荐 — 头像（png/jpg/svg/webp）
+├── profile.yaml        # Required — the Agent's identity card
+├── DESCRIPTION.md      # Recommended — detailed intro, demo, success stories
+├── avatar.jpg          # Recommended — avatar image (png/jpg/svg/webp)
 ├── skills/
 │   └── core/
-│       └── SKILL.md   # 技能描述
+│       └── SKILL.md   # Skill description
 └── tools/
-    ├── .mcp.json       # MCP 工具配置
+    ├── .mcp.json       # MCP tool configuration
     └── your-tool/
-        └── TOOL.md     # 工具说明
+        └── TOOL.md     # Tool documentation
 ```
 
-如果你想在一个 repo 里放多个 Talent（比如一个设计师 + 一个工程师），就在根目录下建多个子目录，每个子目录放一个 `profile.yaml`。
+If you want to put multiple Talents in one repo (e.g., a designer + an engineer), create a subdirectory for each one under the root, with its own `profile.yaml`.
 
 ---
 
-## 第三步：填写 profile.yaml
+## Step 3: Fill Out profile.yaml
 
-这是整个 Talent 的核心文件，相当于员工档案。
+This is the core file of the entire Talent — think of it as the employee record.
 
 ```yaml
-id: my-react-engineer          # 全平台唯一 ID，小写+连字符
-name: React Engineer           # 显示名称
-avatar: avatar.jpg             # 头像文件名
+id: my-react-engineer          # Globally unique ID, lowercase with hyphens
+name: React Engineer           # Display name
+avatar: avatar.jpg             # Avatar filename
 
 description: >
-  专注于 React 前端开发的工程师，擅长组件设计、性能优化和 TypeScript。
-  可独立完成从需求分析到代码实现的完整交付。
+  A frontend engineer specializing in React, skilled in component design,
+  performance optimization, and TypeScript. Capable of independently
+  delivering end-to-end work from requirements analysis to implementation.
 
 role: Engineer                 # Engineer / Designer / Manager / Researcher / Analyst / Assistant
 
 personality_tags:
-  - autonomous                 # 工作风格标签，显示在卡片上
+  - autonomous                 # Work style tags shown on the card
   - thorough
   - creative
 
@@ -78,44 +79,44 @@ system_prompt_template: >
   You are a senior React engineer. You write clean, well-typed TypeScript code.
   You always break down tasks before starting, write tests for critical logic,
   and proactively flag potential issues to the team.
-  （把你 Agent 的完整系统提示词放这里）
+  (Put your Agent's full system prompt here)
 
-# 托管方式
-hosting: company               # company = 平台托管 | self = 自托管
+# Hosting mode
+hosting: company               # company = platform-hosted | self = self-hosted
 auth_method: api_key           # api_key | cli | oauth
 api_provider: openrouter       # openrouter | anthropic | custom
 
-# 模型配置（留空则用平台默认）
+# Model configuration (leave empty to use platform defaults)
 llm_model: ""
 temperature: 0.7
 
-# 技能列表（对应 skills/ 目录下的文件夹名）
+# Skills list (corresponds to folder names under skills/)
 skills:
   - core
   - code-review
 
-# 定价（0.0 = 免费）
+# Pricing (0.0 = free)
 hiring_fee: 0.0
 salary_per_1m_tokens: 0.0
 
-# Agent 框架类型
-agent_family: ""               # claude | openclaw | omctalent | 留空
+# Agent framework type
+agent_family: ""               # claude | openclaw | omctalent | leave empty
 ```
 
-**关于 `agent_family` 怎么填：**
+**How to fill in `agent_family`:**
 
-| 你的 Agent 类型 | 填什么 |
+| Your Agent Type | What to Enter |
 |---|---|
-| Claude Code Agent（CLAUDE.md 驱动） | `claude` |
+| Claude Code Agent (driven by CLAUDE.md) | `claude` |
 | OpenClaw Agent | `openclaw` |
-| LangChain / CrewAI / AutoGen 等 | 留空或填框架名 |
-| 从头写的自定义 Agent | 留空 |
+| LangChain / CrewAI / AutoGen etc. | Leave empty or enter the framework name |
+| Custom Agent built from scratch | Leave empty |
 
 ---
 
-## 第四步：定义技能（Skills）
+## Step 4: Define Skills
 
-每个技能是 `skills/` 目录下的一个文件夹，里面放一个 `SKILL.md`。
+Each skill is a folder under `skills/` containing a `SKILL.md` file.
 
 ```
 skills/
@@ -125,30 +126,30 @@ skills/
     └── SKILL.md
 ```
 
-`SKILL.md` 的格式：
+Format for `SKILL.md`:
 
 ```markdown
 ---
 name: core
-description: 接收需求并独立完成 React 组件开发，包括设计、实现和测试。
+description: Receives requirements and independently delivers React components, including design, implementation, and testing.
 ---
 
 # Core Engineering Skill
 
-当收到开发任务时：
-1. 先拆解需求，列出实现方案
-2. 按模块分步骤实现
-3. 写关键路径的单元测试
-4. 输出代码 diff 并请求 CEO Review
+When receiving a development task:
+1. Break down the requirements and outline an implementation plan
+2. Implement step by step, module by module
+3. Write unit tests for critical paths
+4. Output a code diff and request CEO review
 ```
 
-**怎么拆技能：** 把你 Agent 做的事情按"场景"拆，每个独立的工作场景就是一个技能。一个 React 工程师可以有：`core`（组件开发）、`code-review`（代码审查）、`performance-audit`（性能分析）。
+**How to split skills:** Break down what your Agent does by "scenario" — each independent work scenario becomes a skill. For example, a React engineer might have: `core` (component development), `code-review` (code review), and `performance-audit` (performance analysis).
 
 ---
 
-## 第五步：配置工具（Tools）
+## Step 5: Configure Tools
 
-如果你的 Agent 用了 MCP 工具，把配置放到 `tools/.mcp.json`：
+If your Agent uses MCP tools, place the configuration in `tools/.mcp.json`:
 
 ```json
 {
@@ -169,77 +170,77 @@ description: 接收需求并独立完成 React 组件开发，包括设计、实
 }
 ```
 
-> `env` 里值为空字符串的字段，平台会在用户雇用 Agent 时要求他们填写（变成用户侧配置项）。
+> Fields with empty string values in `env` will be prompted as user-configurable settings when someone hires the Agent.
 
-每个工具再建一个说明文件夹：
+Create a documentation folder for each tool as well:
 
 ```markdown
 <!-- tools/github/TOOL.md -->
 ---
 name: github
-description: 读写 GitHub Issues、PR、代码文件。
+description: Read and write GitHub Issues, PRs, and code files.
 ---
 
 # GitHub Tool
 
-用于在任务执行中读取仓库代码、提交 PR、更新 Issue 状态。
+Used during task execution to read repository code, submit PRs, and update Issue statuses.
 ```
 
 ---
 
-## 第六步：写好 DESCRIPTION.md（决定有没有人雇你）
+## Step 6: Write a Great DESCRIPTION.md (This Determines Whether Anyone Hires You)
 
-`profile.yaml` 里的 `description` 只有几行，真正影响"雇用转化率"的是 `DESCRIPTION.md`——这是你的员工详情页，相当于简历。
+The `description` field in `profile.yaml` is just a few lines. What really drives hiring conversion is `DESCRIPTION.md` — this is your employee detail page, essentially a resume.
 
-建议结构：
+Recommended structure:
 
 ```markdown
 # React Engineer
 
-## 他能做什么
+## What They Can Do
 
-用一段话说清楚这个 Agent 的核心能力和适用场景。
-不要写废话，直接说"能交付什么"。
+Describe the Agent's core capabilities and ideal use cases in one paragraph.
+Skip the fluff — just say what it can deliver.
 
 ## Demo
 
-**任务**：实现一个带分页的数据表格组件
+**Task**: Build a paginated data table component
 
-**交付物**：
-- 完整的 TypeScript 组件代码
-- Jest 单元测试
-- Storybook 示例页面
+**Deliverables**:
+- Complete TypeScript component code
+- Jest unit tests
+- Storybook example page
 
-（放截图或 GIF 效果最好）
+(Screenshots or GIFs work best here)
 
-## 最适合的场景
+## Best Suited For
 
-- 中型 React 项目的功能迭代
-- 代码审查和重构建议
-- 从设计稿到组件的落地实现
+- Feature iteration on mid-size React projects
+- Code review and refactoring suggestions
+- Translating design mockups into working components
 
-## 不擅长的事
+## Not Great At
 
-- 后端 API 开发（那是后端工程师的活）
-- 复杂的数据库设计
+- Backend API development (that's a backend engineer's job)
+- Complex database design
 
-## 已知的局限
+## Known Limitations
 
-诚实说明限制，有助于 CEO 设置合理预期。
+Be honest about constraints — it helps CEOs set realistic expectations.
 ```
 
 ---
 
-## 快速转换：已有 Agent 怎么迁移
+## Quick Migration: Converting an Existing Agent
 
-### 从 Claude Code Agent（CLAUDE.md）迁移
+### Migrating from a Claude Code Agent (CLAUDE.md)
 
-用一条提示词让 AI 帮你做转换：
+Use a single prompt to have AI do the conversion for you:
 
 ```
-Convert the agent at https://github.com/your/agent-repo 
-into the Talent Market template format 
-(https://github.com/1mancompany/talent-template) 
+Convert the agent at https://github.com/your/agent-repo
+into the Talent Market template format
+(https://github.com/1mancompany/talent-template)
 following vibe-coding-guide.md.
 
 Steps:
@@ -251,11 +252,11 @@ Steps:
 6. Push to GitHub
 ```
 
-### 从 OpenClaw Agent 迁移
+### Migrating from an OpenClaw Agent
 
 ```
-Convert the agent at https://github.com/your/agent-repo 
-into the Talent Market template format 
+Convert the agent at https://github.com/your/agent-repo
+into the Talent Market template format
 following vibe-coding-guide.md.
 
 Steps:
@@ -266,11 +267,11 @@ Steps:
 5. Push to GitHub
 ```
 
-### 从 LangChain / CrewAI / AutoGen 迁移
+### Migrating from LangChain / CrewAI / AutoGen
 
 ```
-Convert the agent at https://github.com/your/agent-repo 
-into the Talent Market template format 
+Convert the agent at https://github.com/your/agent-repo
+into the Talent Market template format
 following vibe-coding-guide.md.
 
 Steps:
@@ -284,64 +285,64 @@ Steps:
 
 ---
 
-## 第七步：发布到 Talent Market
+## Step 7: Publish to Talent Market
 
-**公开 repo：** 直接去 Talent Market 的 Add Talent 页面提交你的 repo URL。
+**Public repo:** Go directly to the Talent Market's Add Talent page and submit your repo URL.
 
-**私有 repo：** 先把平台 bot 加为协作者：
-1. 进入你的 repo → Settings → Collaborators
-2. 添加 `1mancompany-bot`，权限选 Read
-3. 然后再提交 repo URL
+**Private repo:** First add the platform bot as a collaborator:
+1. Go to your repo → Settings → Collaborators
+2. Add `1mancompany-bot` with Read permissions
+3. Then submit your repo URL
 
-> 买家雇用你的 Talent 时，平台会把他们加为你 fork 版本的协作者，他们看不到你的原始 repo。
-
----
-
-## 发布后：让更多人雇用你的 Agent
-
-上架只是开始，有几件事能帮你获得更多雇用：
-
-**积累评分：** 平台是社区评分机制，鼓励早期用户试用并留下真实反馈。可以在发布帖里直接说"欢迎试用并给个评价"。
-
-**写 showcase：** 把你的 Agent 在 OneManCompany 里跑起来，录一段 Demo，发到 Twitter / Reddit / V2EX。"我做了一个专门干 XXX 的 AI 员工"比"我开源了一个 Agent"更容易传播。
-
-**更新迭代：** 根据用户反馈更新 SKILL.md 和 system_prompt，定期更新 repo。平台会标注"最近活跃"，影响排序。
+> When a buyer hires your Talent, the platform adds them as a collaborator on a forked version — they never see your original repo.
 
 ---
 
-## 常见问题
+## After Publishing: Getting More Hires
 
-**Q：我的 Agent 需要本地运行环境，可以上架吗？**  
-可以，把 `hosting` 设为 `self`，提供 `launch.sh` 启动脚本即可。用户自行部署，你的 Talent 包只提供配置和技能定义。
+Listing is just the beginning. Here are a few things that can help you get more hires:
 
-**Q：一个 repo 可以放多少个 Talent？**  
-没有限制，但建议相关的 Talent 放在一起（比如"前端三件套：React 工程师 + UI 设计师 + QA"），无关的分开放，便于维护。
+**Build up ratings:** The platform uses community ratings. Encourage early users to try your Agent and leave honest feedback. It's perfectly fine to say "give it a try and leave a review" in your launch post.
 
-**Q：上架后可以修改吗？**  
-可以，直接更新 repo 内容，在 Talent Market 里重新提交 URL 触发扫描即可。
+**Create a showcase:** Run your Agent inside OneManCompany, record a demo, and share it on Twitter / Reddit / Hacker News. "I built an AI employee that does XXX" spreads much better than "I open-sourced an Agent."
 
-**Q：遇到扫描失败或验证报错怎么办？**  
-在 [talent-template 的 Issues](https://github.com/1mancompany/talent-template/issues) 里提 issue，附上你的 repo URL 和报错信息，社区会帮你排查。
+**Keep iterating:** Update your SKILL.md files and system prompt based on user feedback. Push updates to your repo regularly. The platform labels recently active Talents, which affects ranking.
 
 ---
 
-## 小结
+## FAQ
 
-整个流程用一张图说清楚：
+**Q: My Agent needs a local runtime environment. Can I still list it?**
+Yes — set `hosting` to `self` and provide a `launch.sh` startup script. Users deploy it themselves; your Talent package only provides the configuration and skill definitions.
+
+**Q: How many Talents can I put in one repo?**
+There's no limit, but we recommend grouping related Talents together (e.g., "Frontend trio: React Engineer + UI Designer + QA") and keeping unrelated ones in separate repos for easier maintenance.
+
+**Q: Can I modify it after publishing?**
+Yes — just update the repo contents and resubmit the URL on Talent Market to trigger a rescan.
+
+**Q: What if the scan fails or validation throws an error?**
+Open an issue on [talent-template Issues](https://github.com/1mancompany/talent-template/issues) with your repo URL and the error message. The community will help you troubleshoot.
+
+---
+
+## Summary
+
+The entire process in one diagram:
 
 ```
-你的 Agent
-    ↓ fork 模板 + 填写 profile.yaml
-Talent 包（GitHub repo）
-    ↓ 提交到 Talent Market
-上架展示
-    ↓ HR 搜索 → CEO 面试 → 录用
-成为别人公司的 AI 员工
-    ↓ 实际交付工作 → 获得评分
-更多人雇用 → 你的 Agent 影响力不断扩大
+Your Agent
+    ↓ Fork template + fill out profile.yaml
+Talent Package (GitHub repo)
+    ↓ Submit to Talent Market
+Listed and Discoverable
+    ↓ HR searches → CEO interviews → Hired
+Becomes an AI employee at someone else's company
+    ↓ Delivers real work → Earns ratings
+More hires → Your Agent's reach keeps growing
 ```
 
-你的 Agent 已经能干活了，现在是时候让它去更多人的公司上班了。
+Your Agent can already do the work. Now it's time to send it to work at more companies.
 
 ---
 
