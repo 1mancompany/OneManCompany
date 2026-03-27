@@ -6,10 +6,14 @@ on:
     paths:
       - 'mkdocs-docs/**'
       - 'mkdocs.yml'
-      - 'docs/index.html'
-      - 'docs/index-full.html'
-      - 'docs/robots.txt'
-      - 'docs/llms.txt'
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mkdocs-docs/**'
+      - 'mkdocs.yml'
+      - 'docs/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -19,8 +23,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -44,11 +48,14 @@ jobs:
           cp docs/index-full.html _site/
           cp docs/robots.txt _site/
           cp docs/llms.txt _site/
+          cp -r docs/img _site/img 2>/dev/null || true
           cp -r img _site/ 2>/dev/null || true
 
       - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
 
   deploy:
+    if: github.event_name != 'pull_request'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
