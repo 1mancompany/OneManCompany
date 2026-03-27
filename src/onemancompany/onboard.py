@@ -78,7 +78,7 @@ LOGO = r"""
   One Man Company
 """
 
-TOTAL_STEPS = 5
+TOTAL_STEPS = 6
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
@@ -401,10 +401,96 @@ def _step_server(console: Console) -> tuple[str, int]:
     return host, port
 
 
+def _step_agent_family(console: Console) -> dict[str, str]:
+    """Ask which agent families to enable and assign to each founding employee.
+
+    Returns:
+        Dict mapping employee_id → hosting value (company/self/openclaw).
+    """
+    from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
+
+    console.print()
+    console.rule(f"[bold]Step 3/{TOTAL_STEPS}[/bold]  Agent Family")
+    console.print(
+        "\n  [dim]Choose which AI execution backends to use.\n"
+        "  Each founding employee can use a different backend.[/dim]\n"
+    )
+
+    # Show options
+    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+    table.add_column("#", style="bold")
+    table.add_column("Agent Family")
+    table.add_column("Description")
+    table.add_row("1", "LangChain", "Built-in Python agent (default, no extra setup)")
+    table.add_row("2", "Claude Code", "Claude CLI sessions via MCP bridge (requires Anthropic API key)")
+    table.add_row("3", "OpenClaw", "OpenClaw gateway agent (requires openclaw CLI + OpenRouter key)")
+    console.print(table)
+
+    # Multi-select which families to enable
+    console.print()
+    families_input = Prompt.ask(
+        "  Which families do you plan to use? (comma-separated, e.g. 1,3)",
+        default="1",
+        console=console,
+    )
+    selected_nums = {s.strip() for s in families_input.split(",")}
+    families_enabled = set()
+    if "1" in selected_nums:
+        families_enabled.add("company")
+    if "2" in selected_nums:
+        families_enabled.add("self")
+    if "3" in selected_nums:
+        families_enabled.add("openclaw")
+    if not families_enabled:
+        families_enabled.add("company")
+
+    family_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+    console.print(f"\n  Enabled: [cyan]{', '.join(family_labels[f] for f in sorted(families_enabled))}[/cyan]\n")
+
+    # If only one family enabled, assign all founders to it
+    if len(families_enabled) == 1:
+        only_family = next(iter(families_enabled))
+        founders = {HR_ID: only_family, COO_ID: only_family, EA_ID: only_family, CSO_ID: only_family}
+        console.print(f"  All founding employees will use [bold]{family_labels[only_family]}[/bold].\n")
+        return founders
+
+    # Multiple families — ask per founder
+    console.print("  [dim]Assign each founding employee an agent family:[/dim]\n")
+    options_str = " / ".join(f"[bold]{k}[/bold]={family_labels[v]}" for k, v in
+                             [("1", "company"), ("2", "self"), ("3", "openclaw")] if v in families_enabled)
+
+    founder_names = {
+        HR_ID: "Sam HR (Human Resources)",
+        COO_ID: "Alex COO (Chief Operating Officer)",
+        EA_ID: "Pat EA (Executive Assistant)",
+        CSO_ID: "Morgan CSO (Chief Sales Officer)",
+    }
+    num_to_hosting = {"1": "company", "2": "self", "3": "openclaw"}
+    default_family = "company" if "company" in families_enabled else next(iter(families_enabled))
+    default_num = {"company": "1", "self": "2", "openclaw": "3"}[default_family]
+
+    founders: dict[str, str] = {}
+    for emp_id, name in [(EA_ID, founder_names[EA_ID]), (HR_ID, founder_names[HR_ID]),
+                         (COO_ID, founder_names[COO_ID]), (CSO_ID, founder_names[CSO_ID])]:
+        choice = Prompt.ask(
+            f"  {name}  ({options_str})",
+            default=default_num,
+            console=console,
+        ).strip()
+        hosting = num_to_hosting.get(choice, default_family)
+        if hosting not in families_enabled:
+            hosting = default_family
+        founders[emp_id] = hosting
+        console.print(f"    → [green]{family_labels[hosting]}[/green]")
+
+    console.print()
+    return founders
+
+
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
-    console.rule(f"[bold]Step 3/{TOTAL_STEPS}[/bold]  Sandbox Tools")
+    console.rule(f"[bold]Step 4/{TOTAL_STEPS}[/bold]  Sandbox Tools")
     console.print(
         "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
         "  Without it, code execution happens directly on your machine.\n"
@@ -457,7 +543,7 @@ def _install_sandbox_deps(console: Console) -> None:
 
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    console.rule(f"[bold]Step 4/{TOTAL_STEPS}[/bold]  Extra Integrations")
+    console.rule(f"[bold]Step 5/{TOTAL_STEPS}[/bold]  Extra Integrations")
     console.print(
         "\n  [dim]These are all optional.\n"
         "  Paste a key and press [bold]Enter[/bold] to save it,\n"
@@ -513,9 +599,10 @@ def _step_execute(
     port: int,
     extras: dict[str, str],
     sandbox_enabled: bool = False,
+    founder_families: dict[str, str] | None = None,
 ) -> None:
     console.print()
-    console.rule(f"[bold]Step 5/{TOTAL_STEPS}[/bold]  Initializing")
+    console.rule(f"[bold]Step 6/{TOTAL_STEPS}[/bold]  Initializing")
     console.print(
         "\n  [dim]Setting up your company directory and founding team...[/dim]\n"
     )
@@ -615,10 +702,54 @@ def _step_execute(
     # 5. Assign random default avatars to founding employees
     _assign_default_avatars(console)
 
-    # 5. Generate MCP configs for founding employees
+    # 6. Generate MCP configs for founding employees
     with console.status("  Generating MCP configs..."):
         _generate_mcp_configs(extras.get(ENV_KEY_SKILLSMP, ""))
     console.print("  [green]\u2714[/green] MCP configs generated for founding employees")
+
+    # 7. Apply agent family (hosting) assignments to founding employees
+    if founder_families:
+        _apply_founder_families(console, founder_families)
+
+
+def _apply_founder_families(console: Console, founder_families: dict[str, str]) -> None:
+    """Set hosting mode in profile.yaml and install openclaw launch.sh if needed."""
+    import subprocess
+    import yaml as _yaml
+
+    family_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
+    needs_openclaw = any(v == "openclaw" for v in founder_families.values())
+
+    # Install openclaw CLI if any founder uses it
+    if needs_openclaw:
+        with console.status("  Installing OpenClaw CLI..."):
+            try:
+                subprocess.run(
+                    ["npm", "install", "-g", "openclaw@latest"],
+                    capture_output=True, timeout=120,
+                )
+                console.print("  [green]\u2714[/green] OpenClaw CLI installed")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                console.print(f"  [yellow]\u26a0[/yellow] OpenClaw CLI install skipped: {e}")
+
+    # Apply per-founder hosting
+    changed = 0
+    for emp_id, hosting in founder_families.items():
+        profile_path = EMPLOYEES_DIR / emp_id / "profile.yaml"
+        if not profile_path.exists():
+            continue
+        data = _yaml.safe_load(profile_path.read_text(encoding=ENCODING_UTF8)) or {}
+        if data.get("hosting") != hosting:
+            data["hosting"] = hosting
+            profile_path.write_text(
+                _yaml.dump(data, default_flow_style=False, allow_unicode=True),
+                encoding=ENCODING_UTF8,
+            )
+            changed += 1
+
+    if changed:
+        summary = ", ".join(f"{eid[-1]}→{family_labels[h]}" for eid, h in sorted(founder_families.items()))
+        console.print(f"  [green]\u2714[/green] Founding employees configured: {summary}")
 
 
 def _assign_default_avatars(console: Console) -> None:
@@ -757,9 +888,11 @@ def run_wizard() -> None:
 
     provider, api_key, model = _step_llm(console)
     host, port = _step_server(console)
+    founder_families = _step_agent_family(console)
     sandbox_enabled = _step_sandbox(console)
     extras = _step_optional(console)
-    _step_execute(console, provider, api_key, model, host, port, extras, sandbox_enabled=sandbox_enabled)
+    _step_execute(console, provider, api_key, model, host, port, extras,
+                  sandbox_enabled=sandbox_enabled, founder_families=founder_families)
     _step_done(console, host, port)
 
 
