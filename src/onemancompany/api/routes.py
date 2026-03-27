@@ -1819,7 +1819,50 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
         raise HTTPException(status_code=409, detail=str(e))
 
     # Persist to profile.yaml
-    await _store.save_employee(employee_id, {"hosting": new_hosting})
+    hosting_updates: dict = {"hosting": new_hosting}
+    if new_hosting == HostingMode.SELF:
+        hosting_updates["api_provider"] = "anthropic"
+        hosting_updates["auth_method"] = "api_key"
+        cfg.auth_method = "api_key"
+    await _store.save_employee(employee_id, hosting_updates)
+
+    # Update manifest.json sections based on new hosting mode
+    import json as _json
+    from onemancompany.core.config import EMPLOYEES_DIR, invalidate_manifest_cache
+    manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
+    if manifest_path.exists():
+        manifest = _json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
+        manifest["hosting"] = new_hosting
+        sections = manifest.get("settings", {}).get("sections", [])
+
+        if new_hosting == HostingMode.SELF:
+            # Claude Code: add connection section, remove LLM section
+            has_connection = any(s.get("id") == "connection" for s in sections)
+            if not has_connection:
+                sections.insert(0, {
+                    "id": "connection",
+                    "title": "Connection",
+                    "fields": [
+                        {"key": "sessions", "type": "readonly", "label": "Sessions", "value_from": "api:sessions"},
+                    ],
+                })
+            sections[:] = [s for s in sections if s.get("id") != "llm"]
+        else:
+            # LangChain or OpenClaw: remove connection section, restore LLM section
+            sections[:] = [s for s in sections if s.get("id") != "connection"]
+            has_llm = any(s.get("id") == "llm" for s in sections)
+            if not has_llm:
+                sections.append({
+                    "id": "llm",
+                    "title": "LLM Configuration",
+                    "fields": [
+                        {"key": "llm_model", "type": "select", "label": "Model", "options_from": "api:models"},
+                        {"key": "temperature", "type": "number", "label": "Temperature", "default": 0.7, "min": 0, "max": 2, "step": 0.1},
+                    ],
+                })
+
+        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
+        invalidate_manifest_cache(employee_id)
 
     hosting_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
     label = hosting_labels.get(new_hosting, new_hosting)
