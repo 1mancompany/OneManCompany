@@ -6032,7 +6032,12 @@ async def _complete_ceo_request(
 
 
 async def _run_conversation_loop(session, node, tree, project_dir):
-    """Run conversation loop and handle completion."""
+    """Run conversation loop and handle completion.
+
+    After CEO ends the conversation, EA analyzes the full dialogue to determine:
+    - accept or reject (drives node status)
+    - any follow-up tasks the CEO requested (dispatched via COO)
+    """
     try:
         summary = await session.run()
         logger.info("[ceo_inbox] conversation completed: node={}, summary_len={}", node.id, len(summary))
@@ -6040,7 +6045,6 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         ea_auto_replied = not session._ceo_replied
         if ea_auto_replied:
             # EA auto-reply: fully automatic, go straight to ACCEPTED.
-            # CEO doesn't need to confirm — can review the conversation later.
             await _complete_ceo_request(
                 node, tree, project_dir,
                 target_status=TaskPhase.ACCEPTED,
@@ -6048,13 +6052,9 @@ async def _run_conversation_loop(session, node, tree, project_dir):
                 notes="EA auto-replied",
             )
         else:
-            # CEO replied directly: go straight to ACCEPTED
-            await _complete_ceo_request(
-                node, tree, project_dir,
-                target_status=TaskPhase.ACCEPTED,
-                result=summary,
-                notes="CEO responded directly",
-            )
+            # CEO replied directly — EA analyzes the conversation for intent
+            verdict = await _ea_analyze_and_settle(session, node, tree, project_dir, summary)
+            logger.info("[ceo_inbox] verdict: node={} decision={}", node.id, verdict.get("decision"))
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -6073,6 +6073,76 @@ async def _run_conversation_loop(session, node, tree, project_dir):
         session._cancel_ea_timer()
         unregister_session(session.node_id)
         await ws_manager.broadcast({"type": "ceo_inbox_updated"})
+
+
+async def _ea_analyze_and_settle(session, node, tree, project_dir, summary) -> dict:
+    """EA analyzes CEO conversation and settles the inbox item accordingly."""
+    from onemancompany.core.ceo_conversation import (
+        _ea_analyze_conversation, load_messages, CONVERSATIONS_DIR_NAME,
+    )
+
+    conv_dir = Path(project_dir) / CONVERSATIONS_DIR_NAME
+    history = load_messages(conv_dir, node.id)
+    description = node.description or summary
+
+    verdict = await _ea_analyze_conversation(history, description, node.id)
+    decision = verdict.get("decision", "accept")
+    reason = verdict.get("reason", "")
+
+    if decision == "reject":
+        await _complete_ceo_request(
+            node, tree, project_dir,
+            target_status=TaskPhase.CANCELLED,
+            result=summary,
+            notes=f"CEO rejected: {reason}",
+        )
+    else:
+        await _complete_ceo_request(
+            node, tree, project_dir,
+            target_status=TaskPhase.ACCEPTED,
+            result=summary,
+            notes=f"CEO accepted: {reason}",
+        )
+
+    # Dispatch follow-up tasks if CEO requested additional work
+    follow_ups = verdict.get("follow_up_tasks", [])
+    if follow_ups:
+        await _dispatch_follow_up_tasks(follow_ups, node, project_dir)
+
+    return verdict
+
+
+async def _dispatch_follow_up_tasks(follow_ups: list[dict], source_node, project_dir: str):
+    """Dispatch follow-up tasks extracted from CEO conversation via COO."""
+    from onemancompany.core.vessel import employee_manager
+    from onemancompany.core.config import COO_ID
+
+    for ft in follow_ups:
+        desc = ft.get("description", "")
+        if not desc:
+            continue
+
+        try:
+            # Use COO to dispatch — it knows how to route to the right employee
+            coo_executor = employee_manager.executors.get(COO_ID)
+            if coo_executor:
+                prompt = (
+                    f"The CEO has requested the following additional task during an inbox conversation:\n\n"
+                    f"Task: {desc}\n\n"
+                    f"Context: This came from a conversation about: {source_node.description or 'N/A'}\n\n"
+                    f"Please dispatch this task to the appropriate employee."
+                )
+                logger.info(
+                    "[follow_up] dispatching via COO: desc={}, source_node={}",
+                    desc[:80], source_node.id,
+                )
+                await employee_manager.schedule_system_task(
+                    COO_ID, prompt, source=f"ceo_inbox_follow_up:{source_node.id}",
+                )
+            else:
+                logger.warning("[follow_up] COO executor not found, cannot dispatch: {}", desc[:80])
+        except Exception as exc:
+            logger.error("[follow_up] failed to dispatch task '{}': {}", desc[:80], exc)
 
 
 @router.post("/api/ceo/inbox/{node_id}/message")

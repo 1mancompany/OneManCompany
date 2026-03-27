@@ -10,6 +10,7 @@ from onemancompany.core.ceo_conversation import (
     EA_SENDER,
     EA_AUTO_REPLY_DELAY_SECONDS,
     ConversationSession,
+    _ea_analyze_conversation,
     append_message,
     load_messages,
     COMPLETE_SIGNAL,
@@ -237,3 +238,93 @@ class TestEaAutoReply:
         msgs = load_messages(tmp_path / "conversations", "ea_skip_test")
         ea_msgs = [m for m in msgs if "EA Auto-Reply" in m.get("text", "")]
         assert len(ea_msgs) == 0
+
+
+class TestEaAnalyzeConversation:
+    """Tests for _ea_analyze_conversation — CEO intent extraction."""
+
+    @pytest.mark.asyncio
+    async def test_accept_decision(self):
+        """EA correctly identifies CEO acceptance."""
+        history = [
+            {"sender": "00003", "text": "Can I hire a new engineer?"},
+            {"sender": "ceo", "text": "Yes, go ahead."},
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.content = '{"decision": "accept", "reason": "CEO approved", "follow_up_tasks": []}'
+
+        with patch("onemancompany.agents.base.make_llm"), \
+             patch("onemancompany.agents.base.tracked_ainvoke", return_value=mock_resp), \
+             patch("onemancompany.agents.base._extract_text", return_value=mock_resp.content):
+            result = await _ea_analyze_conversation(history, "Hire a new engineer", "node1")
+
+        assert result["decision"] == "accept"
+        assert result["follow_up_tasks"] == []
+
+    @pytest.mark.asyncio
+    async def test_reject_decision(self):
+        """EA correctly identifies CEO rejection."""
+        history = [
+            {"sender": "00003", "text": "Can I buy new servers?"},
+            {"sender": "ceo", "text": "No, reject this. We don't need them."},
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.content = '{"decision": "reject", "reason": "CEO said no", "follow_up_tasks": []}'
+
+        with patch("onemancompany.agents.base.make_llm"), \
+             patch("onemancompany.agents.base.tracked_ainvoke", return_value=mock_resp), \
+             patch("onemancompany.agents.base._extract_text", return_value=mock_resp.content):
+            result = await _ea_analyze_conversation(history, "Buy new servers", "node2")
+
+        assert result["decision"] == "reject"
+
+    @pytest.mark.asyncio
+    async def test_follow_up_tasks_extracted(self):
+        """EA extracts follow-up tasks from CEO instructions."""
+        history = [
+            {"sender": "00003", "text": "Report: Q1 revenue up 20%"},
+            {"sender": "ceo", "text": "Good. Also prepare a Q2 forecast and update the investor deck."},
+        ]
+
+        mock_resp = MagicMock()
+        mock_resp.content = (
+            '{"decision": "accept", "reason": "CEO approved report", '
+            '"follow_up_tasks": ['
+            '{"description": "Prepare Q2 forecast", "assignee_hint": "COO"}, '
+            '{"description": "Update investor deck", "assignee_hint": ""}'
+            ']}'
+        )
+
+        with patch("onemancompany.agents.base.make_llm"), \
+             patch("onemancompany.agents.base.tracked_ainvoke", return_value=mock_resp), \
+             patch("onemancompany.agents.base._extract_text", return_value=mock_resp.content):
+            result = await _ea_analyze_conversation(history, "Q1 report", "node3")
+
+        assert result["decision"] == "accept"
+        assert len(result["follow_up_tasks"]) == 2
+        assert result["follow_up_tasks"][0]["description"] == "Prepare Q2 forecast"
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_defaults_to_accept(self):
+        """When EA LLM call fails, default to accept with no follow-ups."""
+        with patch("onemancompany.agents.base.make_llm", side_effect=Exception("LLM down")):
+            result = await _ea_analyze_conversation([], "test", "node_err")
+
+        assert result["decision"] == "accept"
+        assert result["follow_up_tasks"] == []
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_defaults_to_accept(self):
+        """When EA returns unparseable response, default to accept."""
+        mock_resp = MagicMock()
+        mock_resp.content = "I think the CEO accepted this request."
+
+        with patch("onemancompany.agents.base.make_llm"), \
+             patch("onemancompany.agents.base.tracked_ainvoke", return_value=mock_resp), \
+             patch("onemancompany.agents.base._extract_text", return_value=mock_resp.content):
+            result = await _ea_analyze_conversation([], "test", "node_bad")
+
+        assert result["decision"] == "accept"
+        assert result["follow_up_tasks"] == []
