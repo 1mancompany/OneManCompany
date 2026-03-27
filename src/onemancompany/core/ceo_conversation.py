@@ -201,6 +201,89 @@ async def _ea_auto_reply(node_id: str, description: str, broadcast_fn) -> str:
     return reply_text
 
 
+async def _ea_analyze_conversation(
+    history: list[dict], description: str, node_id: str,
+) -> dict:
+    """EA analyzes a completed CEO inbox conversation to extract intent.
+
+    Returns:
+        {
+            "decision": "accept" | "reject",
+            "reason": "brief explanation",
+            "follow_up_tasks": [{"description": "...", "assignee_hint": "..."}]
+        }
+    """
+    from onemancompany.agents.base import make_llm, tracked_ainvoke, _extract_text
+    from onemancompany.core.config import EA_ID
+
+    # Format conversation for the prompt
+    conv_lines = []
+    for m in history:
+        role = "CEO" if m["sender"] == CEO_SENDER else "Employee"
+        conv_lines.append(f"[{role}]: {m['text']}")
+    conv_text = "\n".join(conv_lines)
+
+    try:
+        llm = make_llm(EA_ID)
+    except Exception as exc:
+        logger.error("[ea_analyze] failed to create LLM for node {}: {}", node_id, exc)
+        return {"decision": "accept", "reason": "EA analysis failed, defaulting to accept", "follow_up_tasks": []}
+
+    prompt = (
+        "You are the EA (Executive Assistant). Analyze this completed CEO inbox conversation "
+        "and determine the CEO's intent.\n\n"
+        f"Original request from employee:\n---\n{description}\n---\n\n"
+        f"Conversation:\n---\n{conv_text}\n---\n\n"
+        "Determine:\n"
+        "1. Did the CEO accept or reject the employee's request?\n"
+        "2. Did the CEO mention any follow-up tasks or additional instructions?\n\n"
+        "Guidelines:\n"
+        "- If CEO said things like 'ok', 'approved', 'go ahead', 'sounds good' → accept\n"
+        "- If CEO said things like 'no', 'reject', 'don't do this', 'not now' → reject\n"
+        "- If CEO gave instructions like 'also do X', 'add Y', 'change Z' → extract as follow_up_tasks\n"
+        "- follow_up_tasks should only include NEW tasks the CEO requested, not the original request\n"
+        "- assignee_hint can be a role like 'COO', 'HR', or empty string if unclear\n"
+        "- If the conversation is ambiguous, default to accept\n\n"
+        "Return JSON only:\n"
+        '{"decision": "accept" or "reject", "reason": "brief explanation", '
+        '"follow_up_tasks": [{"description": "task description", "assignee_hint": "role or employee_id"}]}\n'
+        "Only return JSON, no other content."
+    )
+
+    try:
+        resp = await tracked_ainvoke(llm, prompt, category="ea_analyze_conversation", employee_id=EA_ID)
+        raw = _extract_text(resp.content)
+
+        json_match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            decision = parsed.get("decision", "accept")
+            reason = parsed.get("reason", "")
+            follow_ups = parsed.get("follow_up_tasks", [])
+            # Validate follow_ups structure
+            valid_follow_ups = []
+            for ft in (follow_ups or []):
+                if isinstance(ft, dict) and ft.get("description"):
+                    valid_follow_ups.append({
+                        "description": ft["description"],
+                        "assignee_hint": ft.get("assignee_hint", ""),
+                    })
+            result = {
+                "decision": decision if decision in ("accept", "reject") else "accept",
+                "reason": reason,
+                "follow_up_tasks": valid_follow_ups,
+            }
+            logger.info(
+                "[ea_analyze] node={} decision={} reason={} follow_ups={}",
+                node_id, result["decision"], reason[:80], len(valid_follow_ups),
+            )
+            return result
+    except Exception as exc:
+        logger.error("[ea_analyze] failed for node {}: {}", node_id, exc)
+
+    return {"decision": "accept", "reason": "EA analysis failed, defaulting to accept", "follow_up_tasks": []}
+
+
 class ConversationSession:
     """Manages an async CEO<->employee conversation for one task node."""
 
