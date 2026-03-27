@@ -537,6 +537,80 @@
     footer a { color: var(--text-dim); }
     footer a:hover { color: var(--cyan); }
 
+    /* ── Terminal Animation ────────────────────────────────────── */
+    .term-anim {
+      background: #0c0c1e;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      padding: 0;
+      max-width: 720px;
+      margin: 32px auto 0;
+      overflow: hidden;
+      font-family: 'Menlo', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      text-align: left;
+    }
+    .term-anim-bar {
+      background: #1a1a3a;
+      padding: 6px 12px;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .term-anim-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .term-anim-dot:nth-child(1) { background: #ff5f57; }
+    .term-anim-dot:nth-child(2) { background: #febc2e; }
+    .term-anim-dot:nth-child(3) { background: #28c840; }
+    .term-anim-title {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-left: 8px;
+      font-family: var(--body);
+    }
+    .term-anim-body {
+      padding: 16px 20px;
+      min-height: 260px;
+      color: var(--text);
+    }
+    .term-anim-body .line {
+      opacity: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .term-anim-body .line.visible { opacity: 1; }
+    .term-anim-body .prompt-char { color: var(--green); }
+    .term-anim-body .cyan { color: var(--cyan); }
+    .term-anim-body .green { color: var(--green); }
+    .term-anim-body .yellow { color: var(--yellow); }
+    .term-anim-body .dim { color: var(--text-dim); }
+    .term-anim-body .magenta { color: var(--magenta); }
+    .term-anim-body .bold { font-weight: 700; }
+    .term-anim-body .check { color: var(--green); }
+    .term-anim-body .banner-box {
+      border: 1px solid var(--cyan);
+      padding: 6px 12px;
+      margin: 4px 0;
+      display: inline-block;
+      color: var(--cyan);
+    }
+    .term-anim-body .congrats-box {
+      border: 2px solid var(--green);
+      padding: 8px 14px;
+      margin: 4px 0;
+      color: var(--green);
+    }
+    .term-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: var(--green);
+      vertical-align: text-bottom;
+      animation: blink-cursor 1s step-end infinite;
+    }
+    @keyframes blink-cursor { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
     /* ── Responsive ───────────────────────────────────────────── */
     @media (max-width: 600px) {
       .hero { padding: 60px 0 50px; }
@@ -544,6 +618,8 @@
       nav .logo { font-size: 9px; }
       nav .links { gap: 12px; font-size: 11px; }
       .org-chart { font-size: 8px; padding: 16px; }
+      .term-anim { font-size: 10px; margin: 20px auto 0; }
+      .term-anim-body { padding: 10px 12px; min-height: 200px; }
     }
   </style>
   <!-- Analytics -->
@@ -588,6 +664,18 @@
     <div class="hero-code">
       <span class="prompt">$</span> npx @1mancompany/onemancompany
     </div>
+
+    <!-- Terminal install animation -->
+    <div class="term-anim" aria-label="Installation demo animation">
+      <div class="term-anim-bar">
+        <span class="term-anim-dot"></span>
+        <span class="term-anim-dot"></span>
+        <span class="term-anim-dot"></span>
+        <span class="term-anim-title">Terminal</span>
+      </div>
+      <div class="term-anim-body" id="term-anim-body"></div>
+    </div>
+
     <div style="margin-top: 40px;">
       <img src="img/cover.png" alt="OneManCompany — Pixel Art Office" width="3014" height="1558" loading="lazy" style="max-width: 100%; height: auto; border: 2px solid var(--border);" />
     </div>
@@ -1154,6 +1242,115 @@ document.addEventListener('click', () => {
     }
   }
 }, { once: true });
+</script>
+
+<!-- Terminal install animation script -->
+<script>
+(function() {
+  const body = document.getElementById('term-anim-body');
+  if (!body) return;
+
+  // Animation sequence — each item: [delay_ms, html_content]
+  const SEQ = [
+    [0,    '<span class="prompt-char">$</span> <span class="typing" data-text="npx @1mancompany/onemancompany"></span><span class="term-cursor"></span>'],
+    [2200, '<span class="prompt-char">$</span> npx @1mancompany/onemancompany'],
+    [300,  ''],
+    [100,  '<div class="banner-box"><span class="bold">OneManCompany</span> — AI Company OS v0.2.678</div>'],
+    [600,  ''],
+    [200,  '<span class="dim">Installing uv...</span> <span class="check">done</span>'],
+    [400,  '<span class="dim">Python 3.12...</span> <span class="check">found</span>'],
+    [300,  '<span class="dim">Cloning repo...</span> <span class="check">done</span>'],
+    [500,  '<span class="dim">Installing dependencies...</span> <span class="check">done</span>'],
+    [600,  ''],
+    [100,  '<span class="cyan bold">Setup Wizard</span>'],
+    [300,  '<span class="dim">[1/5]</span> LLM Provider <span class="yellow">OpenRouter</span> <span class="check">\u2713</span>'],
+    [350,  '<span class="dim">[2/5]</span> Server <span class="yellow">0.0.0.0:8000</span> <span class="check">\u2713</span>'],
+    [250,  '<span class="dim">[3/5]</span> Sandbox <span class="check">\u2713</span>'],
+    [250,  '<span class="dim">[4/5]</span> Integrations <span class="check">\u2713</span>'],
+    [350,  '<span class="dim">[5/5]</span> Initializing company... <span class="check">\u2713</span>'],
+    [700,  ''],
+    [100,  '<div class="congrats-box"><span class="bold">\ud83c\udf89 Congratulations, CEO!</span>\n\nYour company is ready:\n  <span class="dim">Pat EA</span>      \u2014 Executive Assistant\n  <span class="dim">Sam HR</span>      \u2014 Human Resources\n  <span class="dim">Alex COO</span>    \u2014 Chief Operating Officer\n  <span class="dim">Morgan CSO</span>  \u2014 Chief Sales Officer</div>'],
+    [1200, ''],
+    [100,  '<span class="green bold">\u2192 Open http://localhost:8000</span><span class="term-cursor"></span>'],
+    [3000, '__RESET__'],
+  ];
+
+  let running = true;
+
+  async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function typeText(el, text, speed) {
+    for (let i = 0; i <= text.length; i++) {
+      if (!running) return;
+      el.textContent = text.slice(0, i);
+      await sleep(speed);
+    }
+  }
+
+  async function runSequence() {
+    while (running) {
+      body.innerHTML = '';
+      for (let i = 0; i < SEQ.length; i++) {
+        if (!running) return;
+        const [delay, content] = SEQ[i];
+        await sleep(delay);
+        if (content === '__RESET__') break;
+
+        // Handle typing animation for the first line
+        if (i === 0) {
+          const line = document.createElement('div');
+          line.className = 'line visible';
+          line.innerHTML = '<span class="prompt-char">$</span> <span class="typing-target"></span><span class="term-cursor"></span>';
+          body.appendChild(line);
+          const target = line.querySelector('.typing-target');
+          await typeText(target, 'npx @1mancompany/onemancompany', 55);
+          await sleep(400);
+          // Remove cursor, replace with static text on next step
+          continue;
+        }
+
+        // Skip the static replacement line (i===1) — just update previous
+        if (i === 1) {
+          const prev = body.lastElementChild;
+          if (prev) {
+            prev.innerHTML = content;
+          }
+          continue;
+        }
+
+        const line = document.createElement('div');
+        line.className = 'line';
+        line.innerHTML = content;
+        body.appendChild(line);
+
+        // Fade in
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { line.classList.add('visible'); });
+        });
+
+        // Auto-scroll
+        body.scrollTop = body.scrollHeight;
+      }
+
+      // Fade out before reset
+      body.style.transition = 'opacity 0.8s';
+      body.style.opacity = '0';
+      await sleep(1000);
+      body.style.opacity = '1';
+    }
+  }
+
+  // Start animation when element is in viewport
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        observer.disconnect();
+        runSequence();
+      }
+    });
+  }, { threshold: 0.3 });
+  observer.observe(body.parentElement);
+})();
 </script>
 
 </body>
