@@ -105,7 +105,7 @@ npx @1mancompany/onemancompany
 </table>
 
 <p align="center">
-  <img src="img/task_tree.jpg" alt="OneManCompany — Task Tree" width="80%" />
+  <img src="docs/img/task_tree_1.jpg" alt="OneManCompany — Task Tree" width="80%" />
   <br><i>Hierarchical task breakdown — CEO delegates, AI employees execute.</i>
 </p>
 
