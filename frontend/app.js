@@ -370,7 +370,7 @@ class AppController {
           };
           this._appendChatMessage(chatEntry);
         }
-        return { text: `💬 [${p.speaker}] ${(p.message || '').substring(0, 50)}`, cls: 'system', agent: 'MEETING' };
+        return { text: `💬 [${p.speaker}] ${p.message || ''}`, cls: 'system', agent: 'MEETING' };
       },
       'meeting_agenda_update': (p) => {
         // Cache agenda state so it survives modal close/reopen
@@ -455,7 +455,7 @@ class AppController {
         if (!nodes.length) return null;
         const summaries = nodes.map(n => {
           const mins = Math.round(n.waiting_seconds / 60);
-          return `${n.employee_id}: ${(n.description || '').substring(0, 60)} (${mins}m)`;
+          return `${n.employee_id}: ${n.description || ''} (${mins}m)`;
         });
         return { text: `⏰ ${nodes.length} task(s) awaiting review:\n${summaries.join('\n')}`, cls: 'ceo', agent: 'SYSTEM' };
       },
@@ -864,7 +864,7 @@ class AppController {
     'employee_hired': (e) => ({ agent: 'HR', text: `New hire: ${e.name || ''} (${e.role || ''})` }),
     'employee_fired': (e) => ({ agent: 'HR', text: `Departure: ${e.name || ''}` }),
     'tool_added': (e) => ({ agent: 'COO', text: `New tool: ${e.name || ''}` }),
-    'ceo_task': (e) => ({ agent: 'CEO', text: `Task: ${(e.task || '').substring(0, 80)}` }),
+    'ceo_task': (e) => ({ agent: 'CEO', text: `Task: ${e.task || ''}` }),
     'meeting_booked': (e) => ({ agent: 'COO', text: `Room booked: ${e.room_name || ''}` }),
     'meeting_released': (e) => ({ agent: 'COO', text: `Room released: ${e.room_name || ''}` }),
     'promotion': (e) => ({ agent: 'HR', text: `Promoted: ${e.name || ''}` }),
