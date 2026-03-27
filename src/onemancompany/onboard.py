@@ -69,13 +69,20 @@ COL_PROVIDER = "Provider"
 COL_AUTH_METHODS = "Auth Methods"
 
 LOGO = r"""
-   ___  __  __  ____
-  / _ \|  \/  |/ ___|
- | | | | |\/| | |
- | |_| | |  | | |___
-  \___/|_|  |_|\____|
-
-  One Man Company
+ ╔═══════════════════════════════════════════════════╗
+ ║                                                   ║
+ ║   ██████╗ ███╗   ███╗ ██████╗                     ║
+ ║  ██╔═══██╗████╗ ████║██╔════╝                     ║
+ ║  ██║   ██║██╔████╔██║██║                          ║
+ ║  ██║   ██║██║╚██╔╝██║██║                          ║
+ ║  ╚██████╔╝██║ ╚═╝ ██║╚██████╗                    ║
+ ║   ╚═════╝ ╚═╝     ╚═╝ ╚═════╝                    ║
+ ║                                                   ║
+ ║       O N E   M A N   C O M P A N Y              ║
+ ║       ═══════════════════════════                  ║
+ ║       [ NEURAL BOOTSTRAP SEQUENCE ]               ║
+ ║                                                   ║
+ ╚═══════════════════════════════════════════════════╝
 """
 
 TOTAL_STEPS = 6
@@ -104,22 +111,25 @@ PROVIDER_DEFAULT_MODELS = {
 
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
-        Text(LOGO, style="bold cyan", justify="center"),
-        title="Welcome",
-        border_style="cyan",
+        Text(LOGO, style="bold bright_cyan"),
+        border_style="bright_magenta",
+        padding=(0, 1),
     ))
-    console.print(
-        "  You're about to set up your AI company.\n"
-        "  In a minute, you'll have a full team — EA, HR, COO, CSO — ready to work.\n"
-    )
-    console.print(
-        "  [dim]What we'll configure:[/dim]\n"
-        "  [dim]  1. LLM provider & API key  — powers your employees' brains[/dim]\n"
-        "  [dim]  2. Server settings          — where your office runs[/dim]\n"
-        "  [dim]  3. Sandbox tools            — isolated code execution (optional)[/dim]\n"
-        "  [dim]  4. Extra integrations       — Talent Market, Claude Code, etc.[/dim]\n"
-        "  [dim]  5. Initialize               — set up your company directory[/dim]\n"
-    )
+    console.print()
+    console.print("  [bold bright_green]> INITIATING NEURAL BOOTSTRAP...[/bold bright_green]")
+    console.print("  [dim bright_cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim bright_cyan]")
+    console.print()
+    console.print("  [bright_white]Your AI company is about to come online.[/bright_white]")
+    console.print("  [bright_white]In 60 seconds, a full executive team will be deployed.[/bright_white]")
+    console.print()
+    console.print("  [dim]SEQUENCE:[/dim]")
+    console.print("  [bright_cyan]  01[/bright_cyan] [dim]//[/dim] Neural Core    [dim]— LLM provider & model selection[/dim]")
+    console.print("  [bright_cyan]  02[/bright_cyan] [dim]//[/dim] Network Node   [dim]— server configuration[/dim]")
+    console.print("  [bright_cyan]  03[/bright_cyan] [dim]//[/dim] Sandbox Mesh   [dim]— isolated code execution[/dim]")
+    console.print("  [bright_cyan]  04[/bright_cyan] [dim]//[/dim] Uplink Array   [dim]— external integrations[/dim]")
+    console.print("  [bright_cyan]  05[/bright_cyan] [dim]//[/dim] Vessel Deploy  [dim]— assign agent families to your team[/dim]")
+    console.print("  [bright_cyan]  06[/bright_cyan] [dim]//[/dim] Genesis        [dim]— initialize company directory[/dim]")
+    console.print()
 
 
 def _format_price(price_str: str | None) -> str:
@@ -274,10 +284,13 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     from onemancompany.core.auth_choices import AUTH_CHOICE_GROUPS
     from onemancompany.core.config import PROVIDER_REGISTRY
 
-    console.rule(f"[bold]Step 1/{TOTAL_STEPS}[/bold]  LLM Configuration")
+    console.print()
+    console.print("[bright_magenta]  ┌─ STEP 01/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]NEURAL CORE[/bold bright_cyan] [dim]// LLM Configuration[/dim]         [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
-        "\n  [dim]This powers your AI employees' brains. Pick any LLM provider —\n"
-        "  each employee can use a different model later via the web UI.[/dim]\n"
+        "\n  [dim]Select the neural substrate for your employees.[/dim]\n"
+        "  [dim]Each agent's model can be reconfigured later via the web UI.[/dim]\n"
     )
 
     # 1. Select provider
@@ -369,10 +382,12 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
 def _step_server(console: Console) -> tuple[str, int]:
     console.print()
-    console.rule(f"[bold]Step 2/{TOTAL_STEPS}[/bold]  Server Configuration")
+    console.print("[bright_magenta]  ┌─ STEP 02/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]NETWORK NODE[/bold bright_cyan] [dim]// Server Configuration[/dim]    [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
-        "\n  [dim]Your AI company runs as a local web server.\n"
-        "  After setup, open the URL in your browser to enter your office.[/dim]\n"
+        "\n  [dim]Deploy your company node on the local network.[/dim]\n"
+        "  [dim]After genesis, open the URL to enter your office.[/dim]\n"
     )
     console.print(
         f"  Default: [bold]http://0.0.0.0:8000[/bold]\n"
@@ -410,21 +425,22 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
 
     console.print()
-    console.rule(f"[bold]Step 3/{TOTAL_STEPS}[/bold]  Agent Family")
+    console.print("[bright_magenta]  ┌─ STEP 05/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]VESSEL DEPLOY[/bold bright_cyan] [dim]// Agent Family Assignment[/dim]  [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
-        "\n  [dim]Choose which AI execution backends to use.\n"
-        "  Each founding employee can use a different backend.[/dim]\n"
+        "\n  [dim]Each vessel carries an AI consciousness.[/dim]\n"
+        "  [dim]Choose the neural architecture for your founding team.[/dim]\n"
     )
 
-    # Show options
-    table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
-    table.add_column("#", style="bold")
-    table.add_column("Agent Family")
-    table.add_column("Description")
-    table.add_row("1", "LangChain", "Built-in Python agent (default, no extra setup)")
-    table.add_row("2", "Claude Code", "Claude CLI sessions via MCP bridge (requires Anthropic API key)")
-    table.add_row("3", "OpenClaw", "OpenClaw gateway agent (requires openclaw CLI + OpenRouter key)")
-    console.print(table)
+    # Show options with cyberpunk styling
+    console.print("  [bright_cyan]╔══════╦═════════════════╦══════════════════════════════════════════╗[/bright_cyan]")
+    console.print("  [bright_cyan]║[/bright_cyan] [bold] # [/bold] [bright_cyan]║[/bright_cyan] [bold]  Vessel Type  [/bold] [bright_cyan]║[/bright_cyan] [bold]  Neural Substrate                     [/bold] [bright_cyan]║[/bright_cyan]")
+    console.print("  [bright_cyan]╠══════╬═════════════════╬══════════════════════════════════════════╣[/bright_cyan]")
+    console.print("  [bright_cyan]║[/bright_cyan] [bright_green] 1 [/bright_green]  [bright_cyan]║[/bright_cyan] [bright_green]  LangChain    [/bright_green] [bright_cyan]║[/bright_cyan]  Built-in Python agent [dim](default)[/dim]      [bright_cyan]║[/bright_cyan]")
+    console.print("  [bright_cyan]║[/bright_cyan] [bright_yellow] 2 [/bright_yellow]  [bright_cyan]║[/bright_cyan] [bright_yellow]  Claude Code  [/bright_yellow] [bright_cyan]║[/bright_cyan]  Claude CLI via MCP bridge              [bright_cyan]║[/bright_cyan]")
+    console.print("  [bright_cyan]║[/bright_cyan] [bright_red] 3 [/bright_red]  [bright_cyan]║[/bright_cyan] [bright_red]  OpenClaw     [/bright_red] [bright_cyan]║[/bright_cyan]  OpenClaw gateway subprocess  [dim]🦞[/dim]       [bright_cyan]║[/bright_cyan]")
+    console.print("  [bright_cyan]╚══════╩═════════════════╩══════════════════════════════════════════╝[/bright_cyan]")
 
     # Multi-select which families to enable
     console.print()
@@ -451,19 +467,21 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     if len(families_enabled) == 1:
         only_family = next(iter(families_enabled))
         founders = {HR_ID: only_family, COO_ID: only_family, EA_ID: only_family, CSO_ID: only_family}
-        console.print(f"  All founding employees will use [bold]{family_labels[only_family]}[/bold].\n")
+        console.print(f"\n  [bright_green]> ALL VESSELS LOCKED TO[/bright_green] [bold bright_cyan]{family_labels[only_family]}[/bold bright_cyan]\n")
         return founders
 
     # Multiple families — ask per founder
-    console.print("  [dim]Assign each founding employee an agent family:[/dim]\n")
+    console.print()
+    console.print("  [bright_magenta]━━━ VESSEL ASSIGNMENT PROTOCOL ━━━[/bright_magenta]")
+    console.print("  [dim]Designate the neural architecture for each executive:[/dim]\n")
     options_str = " / ".join(f"[bold]{k}[/bold]={family_labels[v]}" for k, v in
                              [("1", "company"), ("2", "self"), ("3", "openclaw")] if v in families_enabled)
 
     founder_names = {
-        HR_ID: "Sam HR (Human Resources)",
-        COO_ID: "Alex COO (Chief Operating Officer)",
-        EA_ID: "Pat EA (Executive Assistant)",
-        CSO_ID: "Morgan CSO (Chief Sales Officer)",
+        EA_ID: "Pat EA       [dim]// Executive Assistant[/dim]",
+        HR_ID: "Sam HR       [dim]// Human Resources[/dim]",
+        COO_ID: "Alex COO     [dim]// Chief Operating Officer[/dim]",
+        CSO_ID: "Morgan CSO   [dim]// Chief Sales Officer[/dim]",
     }
     num_to_hosting = {"1": "company", "2": "self", "3": "openclaw"}
     default_family = "company" if "company" in families_enabled else next(iter(families_enabled))
@@ -481,7 +499,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
         if hosting not in families_enabled:
             hosting = default_family
         founders[emp_id] = hosting
-        console.print(f"    → [green]{family_labels[hosting]}[/green]")
+        console.print(f"    [bright_green]▸ VESSEL LOCKED → {family_labels[hosting]}[/bright_green]")
 
     console.print()
     return founders
@@ -490,7 +508,9 @@ def _step_agent_family(console: Console) -> dict[str, str]:
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
-    console.rule(f"[bold]Step 4/{TOTAL_STEPS}[/bold]  Sandbox Tools")
+    console.print("[bright_magenta]  ┌─ STEP 03/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]SANDBOX MESH[/bold bright_cyan] [dim]// Isolated Execution[/dim]       [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
         "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
         "  Without it, code execution happens directly on your machine.\n"
@@ -543,7 +563,9 @@ def _install_sandbox_deps(console: Console) -> None:
 
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    console.rule(f"[bold]Step 5/{TOTAL_STEPS}[/bold]  Extra Integrations")
+    console.print("[bright_magenta]  ┌─ STEP 04/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]UPLINK ARRAY[/bold bright_cyan] [dim]// External Integrations[/dim]    [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
         "\n  [dim]These are all optional.\n"
         "  Paste a key and press [bold]Enter[/bold] to save it,\n"
@@ -602,9 +624,12 @@ def _step_execute(
     founder_families: dict[str, str] | None = None,
 ) -> None:
     console.print()
-    console.rule(f"[bold]Step 6/{TOTAL_STEPS}[/bold]  Initializing")
+    console.print()
+    console.print("[bright_magenta]  ┌─ STEP 06/06 ─────────────────────────────────────┐[/bright_magenta]")
+    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]GENESIS[/bold bright_cyan] [dim]// Company Initialization[/dim]         [bright_magenta]│[/bright_magenta]")
+    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
     console.print(
-        "\n  [dim]Setting up your company directory and founding team...[/dim]\n"
+        "\n  [dim]Deploying company infrastructure and founding team...[/dim]\n"
     )
 
     # 1. Copy company/ template
@@ -843,25 +868,35 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
 
 def _step_done(console: Console, host: str, port: int) -> None:
     console.print()
-    console.rule("[bold green]Setup Complete![/bold green]")
-    console.print()
-
     url = f"http://{'localhost' if host == '0.0.0.0' else host}:{port}"
     console.print(Panel(
-        f"  Your AI company is ready.\n\n"
-        f"  [bold]Your founding team:[/bold]\n"
-        f"    EA  (Executive Assistant) — routes your tasks, quality gate\n"
-        f"    HR  (Human Resources)     — hiring, performance reviews\n"
-        f"    COO (Chief Operating Officer) — operations, task dispatch\n"
-        f"    CSO (Chief Sales Officer) — sales, client relations\n\n"
-        f"  [bold]What's next:[/bold]\n"
-        f"    1. The server will start automatically after this wizard\n"
-        f"    2. Open [link={url}]{url}[/link] in your browser\n"
-        f"    3. Try your first task — just type what you want built\n\n"
-        f"  [dim]Example: \"Build me a puzzle game for mobile\"[/dim]\n\n"
-        f"  [dim]Need more employees? Set up a Talent Market key and tell HR to hire.[/dim]",
-        title="Congratulations, CEO",
-        border_style="green",
+        "[bold bright_green]"
+        "  ╔═══════════════════════════════════════════╗\n"
+        "  ║                                           ║\n"
+        "  ║   ██████╗ ███████╗███╗   ██╗███████╗     ║\n"
+        "  ║  ██╔════╝ ██╔════╝████╗  ██║██╔════╝     ║\n"
+        "  ║  ██║  ███╗█████╗  ██╔██╗ ██║█████╗       ║\n"
+        "  ║  ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝       ║\n"
+        "  ║  ╚██████╔╝███████╗██║ ╚████║███████╗     ║\n"
+        "  ║   ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝     ║\n"
+        "  ║                                           ║\n"
+        "  ║   S I S   C O M P L E T E                ║\n"
+        "  ╚═══════════════════════════════════════════╝\n"
+        "[/bold bright_green]\n"
+        "  [bright_cyan]Your company is online. Neural cores activated.[/bright_cyan]\n\n"
+        "  [bold]FOUNDING TEAM DEPLOYED:[/bold]\n"
+        "  [bright_green]  ▸[/bright_green] Pat EA       [dim]// Executive Assistant — task routing & quality gate[/dim]\n"
+        "  [bright_green]  ▸[/bright_green] Sam HR       [dim]// Human Resources — hiring & performance[/dim]\n"
+        "  [bright_green]  ▸[/bright_green] Alex COO     [dim]// Chief Operating Officer — operations & dispatch[/dim]\n"
+        "  [bright_green]  ▸[/bright_green] Morgan CSO   [dim]// Chief Sales Officer — sales & client relations[/dim]\n\n"
+        "  [bold]NEXT PROTOCOL:[/bold]\n"
+        f"  [bright_cyan]  01[/bright_cyan] Server boots automatically after this sequence\n"
+        f"  [bright_cyan]  02[/bright_cyan] Access your office → [link={url}][bold]{url}[/bold][/link]\n"
+        f"  [bright_cyan]  03[/bright_cyan] Issue your first directive to the team\n\n"
+        "  [dim]> Example: \"Build me a puzzle game for mobile\"[/dim]\n\n"
+        "  [dim]Need reinforcements? Configure Talent Market and tell HR to recruit.[/dim]",
+        border_style="bright_magenta",
+        padding=(1, 2),
     ))
 
 
@@ -888,9 +923,9 @@ def run_wizard() -> None:
 
     provider, api_key, model = _step_llm(console)
     host, port = _step_server(console)
-    founder_families = _step_agent_family(console)
     sandbox_enabled = _step_sandbox(console)
     extras = _step_optional(console)
+    founder_families = _step_agent_family(console)
     _step_execute(console, provider, api_key, model, host, port, extras,
                   sandbox_enabled=sandbox_enabled, founder_families=founder_families)
     _step_done(console, host, port)
