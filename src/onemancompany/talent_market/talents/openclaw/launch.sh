@@ -42,18 +42,16 @@ if ! command -v "$OPENCLAW_BIN" &>/dev/null; then
     fi
 fi
 
-# ── Configure openclaw ────────────────────────────────────────────────────────
+# ── Configure openclaw with OpenRouter API key ───────────────────────────────
+# openclaw stores credentials in its own credential store (not in openclaw.json).
+# We re-run onboard each time to ensure the key stays in sync with .env.
 OPENCLAW_CONFIG="$HOME/.openclaw/openclaw.json"
-if [ ! -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
-    >&2 echo "[launch.sh] First run — configuring openclaw with OpenRouter..."
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
     "$OPENCLAW_BIN" onboard --non-interactive --accept-risk \
         --auth-choice openrouter-api-key \
         --openrouter-api-key "$OPENROUTER_API_KEY" \
         --flow quickstart >&2 2>&1 || true
 fi
-
-# Note: openclaw reads OPENROUTER_API_KEY from environment directly (set via .env above).
-# No need to write it to openclaw.json — that format is deprecated in openclaw >= 2026.3.x.
 
 # ── Ensure gateway is running ─────────────────────────────────────────────────
 GATEWAY_PORT=18789
