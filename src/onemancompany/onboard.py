@@ -245,7 +245,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
     model = _inq.fuzzy(
         message="Select model (type to filter):",
         choices=choices,
-        max_height="15",
+        max_height="30",
         style=_IStyle({**INQ_STYLE.dict, "fuzzy_match": "#ff44cc"}),
     ).execute()
 
@@ -373,7 +373,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     _print_step(console, 1, "VESSEL DEPLOY", "Agent Family Assignment")
     console.print(
         "\n  [dim]Each vessel carries an AI consciousness.[/dim]\n"
-        "  [dim]Choose the neural architecture for your founding team.[/dim]\n"
+        "  [dim]Select the agent families available to your founding team.[/dim]\n"
     )
 
     # Show options with Rich Table (auto-expands to terminal width)
@@ -832,20 +832,20 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
 def _step_done(console: Console, host: str, port: int) -> None:
     console.print()
     url = f"http://{'localhost' if host == '0.0.0.0' else host}:{port}"
+    genesis_art = Text(
+        "░▒▓  ██████╗ ███████╗███╗   ██╗███████╗\n"
+        "░▒▓ ██╔════╝ ██╔════╝████╗  ██║██╔════╝\n"
+        "░▒▓ ██║  ███╗█████╗  ██╔██╗ ██║█████╗\n"
+        "░▒▓ ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝\n"
+        "░▒▓ ╚██████╔╝███████╗██║ ╚████║███████╗\n"
+        "░▒▓  ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝\n"
+        "\n"
+        "░▒▓  G E N E S I S   C O M P L E T E",
+        style="bold bright_green",
+        justify="center",
+    )
+    console.print(Panel(genesis_art, border_style="bright_green", expand=True, padding=(1, 2)))
     console.print(Panel(
-        "[bold bright_green]"
-        "  ╔═══════════════════════════════════════════╗\n"
-        "  ║                                           ║\n"
-        "  ║   ██████╗ ███████╗███╗   ██╗███████╗     ║\n"
-        "  ║  ██╔════╝ ██╔════╝████╗  ██║██╔════╝     ║\n"
-        "  ║  ██║  ███╗█████╗  ██╔██╗ ██║█████╗       ║\n"
-        "  ║  ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝       ║\n"
-        "  ║  ╚██████╔╝███████╗██║ ╚████║███████╗     ║\n"
-        "  ║   ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝     ║\n"
-        "  ║                                           ║\n"
-        "  ║   G E N E S I S   C O M P L E T E        ║\n"
-        "  ╚═══════════════════════════════════════════╝\n"
-        "[/bold bright_green]\n"
         "  [bright_cyan]Your company is online. Neural cores activated.[/bright_cyan]\n\n"
         "  [bold]FOUNDING TEAM DEPLOYED:[/bold]\n"
         "  [bright_green]  ▸[/bright_green] Pat EA       [dim]// Executive Assistant — task routing & quality gate[/dim]\n"
