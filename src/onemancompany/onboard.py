@@ -261,29 +261,12 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     )
 
     # 1. Select provider
-    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-    table.add_column(COL_NUM, style="cyan", width=4)
-    table.add_column(COL_PROVIDER, min_width=20)
-    table.add_column(COL_AUTH_METHODS, min_width=20)
-
     available_groups = [
         g for g in AUTH_CHOICE_GROUPS
         if any(c.available and c.auth_method == AuthMethod.API_KEY for c in g.choices)
     ]
-    for i, group in enumerate(available_groups, 1):
-        table.add_row(str(i), group.label, group.hint)
-
-    console.print("  Select your LLM provider:\n")
-    console.print(table)
-
-    # Find OpenRouter's actual position in the filtered list
-    or_num = next(
-        (i for i, g in enumerate(available_groups, 1) if g.group_id == PROVIDER_OPENROUTER),
-        None,
-    )
     from InquirerPy import inquirer as _inq
 
-    console.print()
     provider_choices = [
         {"name": f"{g.label}  ({g.hint})", "value": g.group_id}
         for g in available_groups
@@ -320,15 +303,6 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         all_models = _fetch_openrouter_models(console)
         if all_models:
             console.print(f"  [green]✔[/green] Found {len(all_models)} models")
-        console.print(
-            "  [dim]This only sets the [bold]default[/bold] model, used for company-level features.\n"
-            "  Each employee can use a different LLM — configurable on the web UI.\n\n"
-            "  How to pick a model:\n"
-            "    • Type a [bold]number[/bold] and press [bold]Enter[/bold] to select\n"
-            "    • Type a [bold]keyword[/bold] (e.g. \"claude\") to search\n"
-            "    • Type [bold]n[/bold]/[bold]p[/bold] to go to next/previous page\n"
-            "    • Type [bold]c[/bold] to enter a custom model ID[/dim]\n"
-        )
         model = _select_model_interactive(console, all_models)
     else:
         # For non-OpenRouter providers, ask for model ID directly
