@@ -254,7 +254,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     from onemancompany.core.auth_choices import AUTH_CHOICE_GROUPS
     from onemancompany.core.config import PROVIDER_REGISTRY
 
-    _print_step(console, 1, "NEURAL CORE", "LLM Configuration")
+    _print_step(console, 2, "NEURAL CORE", "LLM Configuration")
     console.print(
         "\n  [dim]Select the neural substrate for your employees.[/dim]\n"
         "  [dim]Each agent's model can be reconfigured later via the web UI.[/dim]\n"
@@ -318,7 +318,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
 def _step_server(console: Console) -> tuple[str, int]:
     console.print()
-    _print_step(console, 2, "NETWORK NODE", "Server Configuration")
+    _print_step(console, 5, "NETWORK NODE", "Server Configuration")
     console.print(
         "\n  [dim]Deploy your company node on the local network.[/dim]\n"
         "  [dim]After genesis, open the URL to enter your office.[/dim]\n"
@@ -366,7 +366,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     """
     from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
 
-    _print_step(console, 5, "VESSEL DEPLOY", "Agent Family Assignment")
+    _print_step(console, 1, "VESSEL DEPLOY", "Agent Family Assignment")
     console.print(
         "\n  [dim]Each vessel carries an AI consciousness.[/dim]\n"
         "  [dim]Choose the neural architecture for your founding team.[/dim]\n"
@@ -443,7 +443,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
-    _print_step(console, 3, "SANDBOX MESH", "Isolated Execution")
+    _print_step(console, 4, "SANDBOX MESH", "Isolated Execution")
     console.print(
         "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
         "  Without it, code execution happens directly on your machine.\n"
@@ -500,7 +500,7 @@ def _install_sandbox_deps(console: Console) -> None:
 
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    _print_step(console, 4, "UPLINK ARRAY", "External Integrations")
+    _print_step(console, 3, "UPLINK ARRAY", "External Integrations")
     console.print(
         "\n  [dim]These are all optional.\n"
         "  Paste a key and press [bold]Enter[/bold] to save it,\n"
@@ -880,11 +880,11 @@ def run_wizard() -> None:
             console.print("\n  Aborted. Existing configuration unchanged.")
             return
 
-    provider, api_key, model = _step_llm(console)
-    host, port = _step_server(console)
-    sandbox_enabled = _step_sandbox(console)
-    extras = _step_optional(console)
-    founder_families = _step_agent_family(console)
+    founder_families = _step_agent_family(console)      # Step 1: Agent Family
+    provider, api_key, model = _step_llm(console)       # Step 2: LLM Provider & Key
+    extras = _step_optional(console)                     # Step 3: External Integrations
+    sandbox_enabled = _step_sandbox(console)             # Step 4: Sandbox
+    host, port = _step_server(console)                   # Step 5: Server
     _step_execute(console, provider, api_key, model, host, port, extras,
                   sandbox_enabled=sandbox_enabled, founder_families=founder_families)
     _step_done(console, host, port)
