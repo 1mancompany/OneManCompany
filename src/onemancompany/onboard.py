@@ -242,8 +242,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
         message="Select model (type to filter):",
         choices=choices,
         max_height="15",
-        style={**INQ_STYLE,
-               "input": "#39ff14", "fuzzy_match": "#ff44cc"},
+        style=_IStyle({**INQ_STYLE.dict, "fuzzy_match": "#ff44cc"}),
     ).execute()
 
     console.print(f"  [bright_green]▸[/bright_green] Selected: [bold bright_cyan]{model}[/bold bright_cyan]")
@@ -422,8 +421,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     selected = _inq.checkbox(
         message="Select agent families:",
         choices=family_choices,
-        style={**INQ_STYLE,
-               "checkbox": "#39ff14", "instruction": "#888"},
+        style=_IStyle({**INQ_STYLE.dict, "instruction": "#888"}),
         instruction="(Space=toggle, Enter=confirm)",
         validate=lambda result: len(result) > 0,
         invalid_message="Select at least one agent family.",

@@ -21,6 +21,13 @@ class TestINQStyleType:
         from onemancompany.onboard import INQ_STYLE
         assert hasattr(INQ_STYLE, "dict")
 
+    def test_inq_style_can_merge_and_rewrap(self):
+        """INQ_STYLE.dict can be unpacked and re-wrapped for overrides."""
+        from onemancompany.onboard import INQ_STYLE
+        from InquirerPy.utils import InquirerPyStyle
+        merged = InquirerPyStyle({**INQ_STYLE.dict, "fuzzy_match": "#ff44cc"})
+        assert isinstance(merged, InquirerPyStyle)
+
 
 class TestProviderChoicesCompat:
     """Provider selector must use valid AuthChoiceGroup attributes."""
