@@ -68,20 +68,16 @@ COL_PROVIDER = "Provider"
 COL_AUTH_METHODS = "Auth Methods"
 
 LOGO = r"""
- ╔═══════════════════════════════════════════════════╗
- ║                                                   ║
- ║   ██████╗ ███╗   ███╗ ██████╗                     ║
- ║  ██╔═══██╗████╗ ████║██╔════╝                     ║
- ║  ██║   ██║██╔████╔██║██║                          ║
- ║  ██║   ██║██║╚██╔╝██║██║                          ║
- ║  ╚██████╔╝██║ ╚═╝ ██║╚██████╗                    ║
- ║   ╚═════╝ ╚═╝     ╚═╝ ╚═════╝                    ║
- ║                                                   ║
- ║       O N E   M A N   C O M P A N Y              ║
- ║       ═══════════════════════════                  ║
- ║       [ NEURAL BOOTSTRAP SEQUENCE ]               ║
- ║                                                   ║
- ╚═══════════════════════════════════════════════════╝
+ ░▒▓  ██████╗ ███╗   ███╗ ██████╗
+ ░▒▓ ██╔═══██╗████╗ ████║██╔════╝
+ ░▒▓ ██║   ██║██╔████╔██║██║
+ ░▒▓ ██║   ██║██║╚██╔╝██║██║
+ ░▒▓ ╚██████╔╝██║ ╚═╝ ██║╚██████╗
+ ░▒▓  ╚═════╝ ╚═╝     ╚═╝ ╚═════╝
+
+ ░▒▓  O N E   M A N   C O M P A N Y
+ ░▒▓  ═══════════════════════════
+ ░▒▓  [ NEURAL BOOTSTRAP SEQUENCE ]
 """
 
 TOTAL_STEPS = 6
@@ -118,23 +114,30 @@ PROVIDER_DEFAULT_MODELS = {
 def _print_step(console: Console, num: int, codename: str, subtitle: str) -> None:
     """Print a cyberpunk-styled step header with lightning decorations."""
     console.print()
-    console.print(f"[bright_magenta]  ⚡┌─ STEP {num:02d}/{TOTAL_STEPS:02d} ─────────────────────────────────────⚡┐[/bright_magenta]")
-    console.print(f"[bright_magenta]  ░ │[/bright_magenta] [bold bright_cyan]{codename}[/bold bright_cyan] [dim]// {subtitle}[/dim]")
-    console.print(f"[bright_magenta]  ⚡└──────────────────────────────────────────────────⚡┘[/bright_magenta]")
+    console.print(Panel(
+        f"[bold bright_cyan]{codename}[/bold bright_cyan] [dim]// {subtitle}[/dim]",
+        title=f"[bright_magenta]⚡ STEP {num:02d}/{TOTAL_STEPS:02d} ⚡[/bright_magenta]",
+        border_style="bright_magenta",
+        expand=True,
+        padding=(0, 1),
+    ))
 
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
         Text(LOGO, style="bold bright_cyan"),
         border_style="bright_magenta",
-        padding=(0, 1),
+        padding=(1, 2),
         expand=True,
     ))
     console.print()
-    console.print("  [bold bright_green]⚡ INITIATING NEURAL BOOTSTRAP ⚡[/bold bright_green]")
-    console.print("  [dim bright_cyan]░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░[/dim bright_cyan]")
-    console.print()
-    console.print("  [bright_white]Your AI company is about to come online.[/bright_white]")
-    console.print("  [bright_white]In 60 seconds, a full executive team will be deployed.[/bright_white]")
+    console.print(Panel(
+        "[bold bright_green]⚡ INITIATING NEURAL BOOTSTRAP ⚡[/bold bright_green]\n\n"
+        "[bright_white]Your AI company is about to come online.\n"
+        "In 60 seconds, a full executive team will be deployed.[/bright_white]",
+        border_style="bright_cyan",
+        expand=True,
+        padding=(1, 2),
+    ))
     console.print()
 
 
@@ -373,14 +376,18 @@ def _step_agent_family(console: Console) -> dict[str, str]:
         "  [dim]Choose the neural architecture for your founding team.[/dim]\n"
     )
 
-    # Show options with cyberpunk styling
-    console.print("  [bright_cyan]╔══════╦═════════════════╦══════════════════════════════════════════╗[/bright_cyan]")
-    console.print("  [bright_cyan]║[/bright_cyan] [bold] # [/bold] [bright_cyan]║[/bright_cyan] [bold]  Vessel Type  [/bold] [bright_cyan]║[/bright_cyan] [bold]  Neural Substrate                     [/bold] [bright_cyan]║[/bright_cyan]")
-    console.print("  [bright_cyan]╠══════╬═════════════════╬══════════════════════════════════════════╣[/bright_cyan]")
-    console.print("  [bright_cyan]║[/bright_cyan] [bright_green] 1 [/bright_green]  [bright_cyan]║[/bright_cyan] [bright_green]  LangChain    [/bright_green] [bright_cyan]║[/bright_cyan]  Built-in Python agent [dim](default)[/dim]      [bright_cyan]║[/bright_cyan]")
-    console.print("  [bright_cyan]║[/bright_cyan] [bright_yellow] 2 [/bright_yellow]  [bright_cyan]║[/bright_cyan] [bright_yellow]  Claude Code  [/bright_yellow] [bright_cyan]║[/bright_cyan]  Claude CLI via MCP bridge              [bright_cyan]║[/bright_cyan]")
-    console.print("  [bright_cyan]║[/bright_cyan] [bright_red] 3 [/bright_red]  [bright_cyan]║[/bright_cyan] [bright_red]  OpenClaw     [/bright_red] [bright_cyan]║[/bright_cyan]  OpenClaw gateway subprocess  [dim]🦞[/dim]       [bright_cyan]║[/bright_cyan]")
-    console.print("  [bright_cyan]╚══════╩═════════════════╩══════════════════════════════════════════╝[/bright_cyan]")
+    # Show options with Rich Table (auto-expands to terminal width)
+    vessel_table = Table(
+        show_header=True, header_style="bold bright_cyan",
+        border_style="bright_cyan", expand=True, padding=(0, 1),
+    )
+    vessel_table.add_column("#", style="bold", width=3, justify="center")
+    vessel_table.add_column("Vessel Type", min_width=14)
+    vessel_table.add_column("Neural Substrate")
+    vessel_table.add_row("[bright_green]1[/bright_green]", "[bright_green]LangChain[/bright_green]", "Built-in Python agent [dim](default)[/dim]")
+    vessel_table.add_row("[bright_yellow]2[/bright_yellow]", "[bright_yellow]Claude Code[/bright_yellow]", "Claude CLI via MCP bridge")
+    vessel_table.add_row("[bright_red]3[/bright_red]", "[bright_red]OpenClaw[/bright_red]", "OpenClaw gateway subprocess [dim]🦞[/dim]")
+    console.print(vessel_table)
 
     # Multi-select which families to enable (space to toggle, enter to confirm)
     from InquirerPy import inquirer as _inq
