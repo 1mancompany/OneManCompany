@@ -12,7 +12,6 @@ from pathlib import Path
 import httpx
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -209,68 +208,34 @@ def _print_model_page(
 
 
 def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
-    """Interactive model selector with search and pagination."""
+    """Interactive model selector with fuzzy search."""
+    from InquirerPy import inquirer as _inq
+
     if not all_models:
-        # Fallback if API unavailable
         console.print("  [yellow]Could not load model list.[/yellow]")
-        return Prompt.ask("  Enter model ID (e.g. anthropic/claude-sonnet-4)", console=console).strip()
+        return _inq.text(
+            message="Enter model ID (e.g. anthropic/claude-sonnet-4):",
+            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        ).execute().strip()
 
-    filtered = all_models
-    search_term = ""
-    page = 0
+    # Build choices with pricing info
+    choices = []
+    for m in all_models:
+        prompt_price = _format_price(m.get(MODEL_KEY_PROMPT_PRICE))
+        comp_price = _format_price(m.get(MODEL_KEY_COMPLETION_PRICE))
+        label = f"{m[MODEL_KEY_ID]}  [{prompt_price} / {comp_price}]"
+        choices.append({"name": label, "value": m[MODEL_KEY_ID]})
 
-    while True:
-        total_pages = max(1, (len(filtered) + PAGE_SIZE - 1) // PAGE_SIZE)
-        page = min(page, total_pages - 1)
-        _print_model_page(console, filtered, page, total_pages, search_term=search_term)
+    model = _inq.fuzzy(
+        message="Select model (type to filter):",
+        choices=choices,
+        max_height="15",
+        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+               "input": "#39ff14", "fuzzy_match": "#ff44cc"},
+    ).execute()
 
-        choice = Prompt.ask("  >", default="", console=console).strip()
-
-        if not choice:
-            continue
-
-        # Navigation commands
-        if choice.lower() == "n":
-            if page < total_pages - 1:
-                page += 1
-            else:
-                console.print("  [dim]Already on last page.[/dim]")
-            continue
-        if choice.lower() == "p":
-            if page > 0:
-                page -= 1
-            else:
-                console.print("  [dim]Already on first page.[/dim]")
-            continue
-        if choice.lower() == "a":
-            filtered = all_models
-            search_term = ""
-            page = 0
-            continue
-        if choice.lower() == "c":
-            return Prompt.ask("  Enter model ID", console=console).strip()
-
-        # Number selection
-        if choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(filtered):
-                selected = filtered[idx]
-                console.print(f"  [green]✔[/green] Selected: [bold]{selected[MODEL_KEY_ID]}[/bold]")
-                return selected[MODEL_KEY_ID]
-            console.print(f"  [red]Invalid number. Range: 1-{len(filtered)}[/red]")
-            continue
-
-        # Treat as search term
-        search_term = choice.lower()
-        filtered = [
-            m for m in all_models
-            if search_term in m[MODEL_KEY_ID].lower() or search_term in m[MODEL_KEY_NAME].lower()
-        ]
-        page = 0
-        if not filtered:
-            console.print(f"  [yellow]No models matching '{choice}'. Showing all.[/yellow]")
-            filtered = all_models
-            search_term = ""
+    console.print(f"  [bright_green]▸[/bright_green] Selected: [bold bright_cyan]{model}[/bold bright_cyan]")
+    return model
 
 
 def _step_llm(console: Console) -> tuple[str, str, str]:
@@ -359,16 +324,13 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         model = _select_model_interactive(console, all_models)
     else:
         # For non-OpenRouter providers, ask for model ID directly
+        from InquirerPy import inquirer as _inq
         default_model = PROVIDER_DEFAULT_MODELS.get(provider, "")
-        console.print(
-            f"  [dim]Type a model ID and press [bold]Enter[/bold].\n"
-            f"  Press [bold]Enter[/bold] directly to use the default: [bold]{default_model}[/bold][/dim]\n"
-        )
-        model = Prompt.ask(
-            "  Model ID",
+        model = _inq.text(
+            message=f"Model ID:",
             default=default_model,
-            console=console,
-        ).strip()
+            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        ).execute().strip()
 
     return provider, api_key.strip(), model
 
@@ -399,10 +361,16 @@ def _step_server(console: Console) -> tuple[str, int]:
         console.print("  [green]✔[/green] Using [bold]0.0.0.0:8000[/bold]\n")
         return "0.0.0.0", 8000
 
-    console.print("  [dim]Type the host address and press [bold]Enter[/bold].[/dim]")
-    host = Prompt.ask("  Host", default="0.0.0.0", console=console)
-    console.print("  [dim]Type the port number and press [bold]Enter[/bold].[/dim]")
-    port_str = Prompt.ask("  Port", default="8000", console=console)
+    host = _inq.text(
+        message="Host:",
+        default="0.0.0.0",
+        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+    ).execute()
+    port_str = _inq.text(
+        message="Port:",
+        default="8000",
+        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+    ).execute()
     try:
         port = int(port_str)
     except ValueError:
@@ -935,8 +903,12 @@ def run_wizard() -> None:
             f"[yellow]\u26a0[/yellow]  [bold].onemancompany/[/bold] already exists at\n"
             f"   {DATA_ROOT}\n"
         )
-        console.print("  [dim]Type [bold]y[/bold] to reconfigure, or [bold]n[/bold] to keep existing settings.[/dim]\n")
-        if not Confirm.ask("  Reconfigure?", default=False, console=console):
+        from InquirerPy import inquirer as _inq
+        if not _inq.confirm(
+            message="Reconfigure?",
+            default=False,
+            style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+        ).execute():
             console.print("\n  Aborted. Existing configuration unchanged.")
             return
 
@@ -1009,7 +981,12 @@ def run_auto(*, skip_confirm: bool = False) -> None:
     console.print()
 
     if not skip_confirm:
-        if not Confirm.ask("  Proceed with auto-init?", default=False, console=console):
+        from InquirerPy import inquirer as _inq
+        if not _inq.confirm(
+            message="Proceed with auto-init?",
+            default=False,
+            style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+        ).execute():
             console.print("\n  Aborted.")
             return
 
