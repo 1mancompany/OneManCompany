@@ -124,14 +124,6 @@ def _step_welcome(console: Console) -> None:
     console.print("  [bright_white]Your AI company is about to come online.[/bright_white]")
     console.print("  [bright_white]In 60 seconds, a full executive team will be deployed.[/bright_white]")
     console.print()
-    console.print("  [dim]SEQUENCE:[/dim]")
-    console.print("  [bright_cyan]  01[/bright_cyan] [dim]//[/dim] Neural Core    [dim]— LLM provider & model selection[/dim]")
-    console.print("  [bright_cyan]  02[/bright_cyan] [dim]//[/dim] Network Node   [dim]— server configuration[/dim]")
-    console.print("  [bright_cyan]  03[/bright_cyan] [dim]//[/dim] Sandbox Mesh   [dim]— isolated code execution[/dim]")
-    console.print("  [bright_cyan]  04[/bright_cyan] [dim]//[/dim] Uplink Array   [dim]— external integrations[/dim]")
-    console.print("  [bright_cyan]  05[/bright_cyan] [dim]//[/dim] Vessel Deploy  [dim]— assign agent families to your team[/dim]")
-    console.print("  [bright_cyan]  06[/bright_cyan] [dim]//[/dim] Genesis        [dim]— initialize company directory[/dim]")
-    console.print()
 
 
 def _format_price(price_str: str | None) -> str:
@@ -316,39 +308,38 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         (i for i, g in enumerate(available_groups, 1) if g.group_id == PROVIDER_OPENROUTER),
         None,
     )
-    hint = (
-        f"  Not sure? [bold]{or_num}[/bold] (OpenRouter) works with most models."
-        if or_num else "  Not sure? OpenRouter works with most models."
-    )
-    console.print(
-        f"\n  [dim]Type the number of your provider and press [bold]Enter[/bold].\n"
-        f"  {hint}[/dim]\n"
-    )
+    from InquirerPy import inquirer as _inq
 
-    while True:
-        choice = Prompt.ask("  Provider #", default=str(or_num or 1), console=console).strip()
-        if choice.isdigit() and 1 <= int(choice) <= len(available_groups):
-            selected_group = available_groups[int(choice) - 1]
-            break
-        console.print(f"  [red]Please type a number between 1 and {len(available_groups)}, then press Enter.[/red]")
+    console.print()
+    provider_choices = [
+        {"name": f"{g.label}  ({', '.join(g.auth_methods)})", "value": g.group_id}
+        for g in available_groups
+    ]
+    or_default = PROVIDER_OPENROUTER if any(g.group_id == PROVIDER_OPENROUTER for g in available_groups) else available_groups[0].group_id
 
-    provider = selected_group.group_id
-    console.print(f"  [green]✔[/green] Selected: [bold]{selected_group.label}[/bold]\n")
+    provider = _inq.select(
+        message="Select LLM provider:",
+        choices=provider_choices,
+        default=or_default,
+        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff"},
+    ).execute()
+
+    selected_group = next(g for g in available_groups if g.group_id == provider)
+    console.print(f"\n  [bright_green]▸[/bright_green] Selected: [bold bright_cyan]{selected_group.label}[/bold bright_cyan]\n")
 
     # 2. Enter API key
     console.print(
-        f"  [dim]Paste your {selected_group.label} API key and press [bold]Enter[/bold].\n"
-        f"  The input is hidden for security — you won't see what you type.[/dim]"
+        f"  [dim]Paste your {selected_group.label} API key below.[/dim]\n"
+        f"  [dim]Input is hidden for security.[/dim]"
     )
-    api_key = Prompt.ask(
-        f"  {selected_group.label} API Key",
-        password=True,
-        console=console,
-    )
-    while not api_key.strip():
+    while True:
+        api_key = _inq.secret(
+            message=f"{selected_group.label} API Key:",
+            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        ).execute()
+        if api_key.strip():
+            break
         console.print("  [red]API key is required — your employees can't think without it.[/red]")
-        console.print("  [dim]Paste your key and press [bold]Enter[/bold].[/dim]")
-        api_key = Prompt.ask(f"  {selected_group.label} API Key", password=True, console=console)
 
     # 3. Select model
     console.print()
@@ -397,11 +388,13 @@ def _step_server(console: Console) -> tuple[str, int]:
         f"  Use 127.0.0.1 for local-only access.[/dim]\n"
     )
 
-    console.print(
-        "  [dim]Type [bold]y[/bold] and press [bold]Enter[/bold] to use defaults,\n"
-        "  or [bold]n[/bold] to customize host and port.[/dim]\n"
-    )
-    use_defaults = Confirm.ask("  Use default host/port?", default=True, console=console)
+    from InquirerPy import inquirer as _inq
+    console.print()
+    use_defaults = _inq.confirm(
+        message="Use default host/port (0.0.0.0:8000)?",
+        default=True,
+        style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+    ).execute()
     if use_defaults:
         console.print("  [green]✔[/green] Using [bold]0.0.0.0:8000[/bold]\n")
         return "0.0.0.0", 8000
@@ -444,62 +437,59 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     console.print("  [bright_cyan]║[/bright_cyan] [bright_red] 3 [/bright_red]  [bright_cyan]║[/bright_cyan] [bright_red]  OpenClaw     [/bright_red] [bright_cyan]║[/bright_cyan]  OpenClaw gateway subprocess  [dim]🦞[/dim]       [bright_cyan]║[/bright_cyan]")
     console.print("  [bright_cyan]╚══════╩═════════════════╩══════════════════════════════════════════╝[/bright_cyan]")
 
-    # Multi-select which families to enable
-    console.print()
-    families_input = Prompt.ask(
-        "  Which families do you plan to use? (comma-separated, e.g. 1,3)",
-        default="1",
-        console=console,
-    )
-    selected_nums = {s.strip() for s in families_input.split(",")}
-    families_enabled = set()
-    if "1" in selected_nums:
-        families_enabled.add("company")
-    if "2" in selected_nums:
-        families_enabled.add("self")
-    if "3" in selected_nums:
-        families_enabled.add("openclaw")
-    if not families_enabled:
-        families_enabled.add("company")
+    # Multi-select which families to enable (space to toggle, enter to confirm)
+    from InquirerPy import inquirer as _inq
 
+    console.print()
+    console.print("  [dim]Use ↑↓ to navigate, Space to select, Enter to confirm[/dim]\n")
+
+    family_choices = [
+        {"name": "LangChain    — Built-in Python agent (default)", "value": "company", "enabled": True},
+        {"name": "Claude Code  — Claude CLI via MCP bridge", "value": "self"},
+        {"name": "OpenClaw     — OpenClaw gateway subprocess 🦞", "value": "openclaw"},
+    ]
+    selected = _inq.checkbox(
+        message="Select agent families:",
+        choices=family_choices,
+        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+               "checkbox": "#39ff14", "instruction": "#888"},
+        instruction="(Space=toggle, Enter=confirm)",
+        validate=lambda result: len(result) > 0,
+        invalid_message="Select at least one agent family.",
+    ).execute()
+
+    families_enabled = set(selected)
     family_labels = HOSTING_LABELS
-    console.print(f"\n  Enabled: [cyan]{', '.join(family_labels[f] for f in sorted(families_enabled))}[/cyan]\n")
+    console.print(f"\n  [bright_green]▸ ENABLED:[/bright_green] [bold bright_cyan]{', '.join(family_labels[f] for f in sorted(families_enabled))}[/bold bright_cyan]\n")
 
     # If only one family enabled, assign all founders to it
     if len(families_enabled) == 1:
         only_family = next(iter(families_enabled))
         founders = {HR_ID: only_family, COO_ID: only_family, EA_ID: only_family, CSO_ID: only_family}
-        console.print(f"\n  [bright_green]> ALL VESSELS LOCKED TO[/bright_green] [bold bright_cyan]{family_labels[only_family]}[/bold bright_cyan]\n")
+        console.print(f"  [bright_green]> ALL VESSELS LOCKED TO[/bright_green] [bold bright_cyan]{family_labels[only_family]}[/bold bright_cyan]\n")
         return founders
 
-    # Multiple families — ask per founder
+    # Multiple families — ask per founder with list selector
     console.print()
     console.print("  [bright_magenta]━━━ VESSEL ASSIGNMENT PROTOCOL ━━━[/bright_magenta]")
     console.print("  [dim]Designate the neural architecture for each executive:[/dim]\n")
-    options_str = " / ".join(f"[bold]{k}[/bold]={family_labels[v]}" for k, v in
-                             [("1", "company"), ("2", "self"), ("3", "openclaw")] if v in families_enabled)
 
-    founder_names = {
-        EA_ID: "Pat EA       [dim]// Executive Assistant[/dim]",
-        HR_ID: "Sam HR       [dim]// Human Resources[/dim]",
-        COO_ID: "Alex COO     [dim]// Chief Operating Officer[/dim]",
-        CSO_ID: "Morgan CSO   [dim]// Chief Sales Officer[/dim]",
-    }
-    num_to_hosting = {"1": "company", "2": "self", "3": "openclaw"}
-    default_family = "company" if "company" in families_enabled else next(iter(families_enabled))
-    default_num = {"company": "1", "self": "2", "openclaw": "3"}[default_family]
+    founder_display = [
+        (EA_ID, "Pat EA       // Executive Assistant"),
+        (HR_ID, "Sam HR       // Human Resources"),
+        (COO_ID, "Alex COO     // Chief Operating Officer"),
+        (CSO_ID, "Morgan CSO   // Chief Sales Officer"),
+    ]
+    family_options = [{"name": family_labels[f], "value": f} for f in ["company", "self", "openclaw"] if f in families_enabled]
 
     founders: dict[str, str] = {}
-    for emp_id, name in [(EA_ID, founder_names[EA_ID]), (HR_ID, founder_names[HR_ID]),
-                         (COO_ID, founder_names[COO_ID]), (CSO_ID, founder_names[CSO_ID])]:
-        choice = Prompt.ask(
-            f"  {name}  ({options_str})",
-            default=default_num,
-            console=console,
-        ).strip()
-        hosting = num_to_hosting.get(choice, default_family)
-        if hosting not in families_enabled:
-            hosting = default_family
+    for emp_id, display_name in founder_display:
+        hosting = _inq.select(
+            message=f"{display_name}:",
+            choices=family_options,
+            default=family_options[0]["value"],
+            style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff"},
+        ).execute()
         founders[emp_id] = hosting
         console.print(f"    [bright_green]▸ VESSEL LOCKED → {family_labels[hosting]}[/bright_green]")
 
@@ -522,10 +512,14 @@ def _step_sandbox(console: Console) -> bool:
         "  [bold]Requirements:[/bold]\n"
         "    • [cyan]Docker[/cyan] — must be installed and running\n"
         "    • Python packages will be installed automatically\n"
-        "  [dim]This is optional. You can always enable it later.\n"
-        "  Type [bold]y[/bold] or [bold]n[/bold] and press [bold]Enter[/bold].[/dim]\n"
+        "  [dim]This is optional. You can always enable it later.[/dim]\n"
     )
-    install = Confirm.ask("  Install sandbox tools?", default=False, console=console)
+    from InquirerPy import inquirer as _inq
+    install = _inq.confirm(
+        message="Install sandbox tools?",
+        default=False,
+        style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+    ).execute()
     if install:
         console.print()
         _install_sandbox_deps(console)
@@ -575,41 +569,55 @@ def _step_optional(console: Console) -> dict[str, str]:
         "  You can always add them later in [bold].onemancompany/.env[/bold][/dim]\n"
     )
 
+    from InquirerPy import inquirer as _inq
+
     extras: dict[str, str] = {}
 
     # Anthropic API Key
     console.print(
         "  [bold]Anthropic API Key[/bold]\n"
-        "  [dim]Needed for Claude Code execution mode (more capable, lower token cost).\n"
-        "  If you prefer OAuth login, skip this — you can set it up later in the\n"
-        "  browser Settings page.[/dim]"
+        "  [dim]Needed for Claude Code execution mode. Skip to configure later.[/dim]"
     )
-    key = Prompt.ask("  Anthropic API Key", default="", password=True, console=console)
+    key = _inq.secret(
+        message="Anthropic API Key (Enter to skip):",
+        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        default="",
+    ).execute()
     if key.strip():
         extras[ENV_KEY_ANTHROPIC] = key.strip()
+        console.print("  [bright_green]▸[/bright_green] Saved")
     console.print()
 
     # SkillMarket API Key
     console.print(
         "  [bold]SkillMarket API Key[/bold]\n"
-        "  [dim]Enables employees to install and use community skills (like phone apps).\n"
-        "  Get yours at[/dim] [link=https://skillsmp.com/docs/api]https://skillsmp.com/docs/api[/link]"
+        "  [dim]Enables community skills for employees.[/dim]"
     )
-    key = Prompt.ask("  SkillMarket API Key", default="", password=True, console=console)
+    key = _inq.secret(
+        message="SkillMarket API Key (Enter to skip):",
+        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        default="",
+    ).execute()
     if key.strip():
         extras[ENV_KEY_SKILLSMP] = key.strip()
+        console.print("  [bright_green]▸[/bright_green] Saved")
     console.print()
 
     # Talent Market API Key
     console.print(
-        "  [bold yellow]★ Recommended[/bold yellow]  [bold]Talent Market API Key[/bold]\n"
-        "  [dim]Lets HR hire community-verified AI employees from the marketplace.\n"
-        "  Without this, you can only use the 4 founding executives.\n"
-        "  Register at[/dim] [link=https://one-man-company.com]https://one-man-company.com[/link] [dim]to get your key.[/dim]"
+        "  [bold bright_yellow]★ Recommended[/bold bright_yellow]  [bold]Talent Market API Key[/bold]\n"
+        "  [dim]Lets HR hire AI employees from the marketplace.\n"
+        "  Without this, only 4 founding executives available.\n"
+        "  Register at[/dim] [link=https://one-man-company.com]one-man-company.com[/link]"
     )
-    key = Prompt.ask("  Talent Market API Key", default="", password=True, console=console)
+    key = _inq.secret(
+        message="Talent Market API Key (Enter to skip):",
+        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        default="",
+    ).execute()
     if key.strip():
         extras[ENV_KEY_TALENT_MARKET] = key.strip()
+        console.print("  [bright_green]▸[/bright_green] Saved")
 
     return extras
 

@@ -1,6 +1,6 @@
 [project]
 name = "onemancompany"
-version = "0.2.693"
+version = "0.2.694"
 description = "A one-man company simulation with pixel art visualization and LangChain AI agents"
 requires-python = ">=3.12"
 dependencies = [
@@ -22,6 +22,7 @@ dependencies = [
     "watchdog>=4.0",
     "loguru>=0.7",
     "rich>=13.0",
+    "InquirerPy>=0.3",
     "datasets>=4.8.3",
 ]
 
