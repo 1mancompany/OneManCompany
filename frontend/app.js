@@ -241,14 +241,11 @@ class AppController {
       if (c.includes('rooms'))          this._fetchAndRenderRooms();
       if (c.includes('tools'))          this._fetchAndRenderTools();
       if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
-      // Refresh company culture if modal is open
-      if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
+      if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      // Refresh projects panel
-      this.updateProjectsPanel();
-      // Auto-refresh dashboard costs if modal is open (debounce 2s)
-      if (!document.getElementById('dashboard-modal').classList.contains('hidden')) {
+      if (c.includes('task_queue'))    this.updateProjectsPanel();
+      if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
       }
