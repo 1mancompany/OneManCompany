@@ -287,3 +287,49 @@ class TestAtomicWrite:
         # No leftover temp files
         temps = list(tmp_path.glob("*.tmp"))
         assert temps == []
+
+
+class TestAbortUsesTransition:
+    """Abort paths must not bypass the state machine."""
+
+    def test_no_direct_status_assignment_in_vessel_abort(self):
+        """vessel.py abort_project must not directly assign node.status."""
+        import inspect
+        from onemancompany.core.vessel import EmployeeManager
+        source = inspect.getsource(EmployeeManager.abort_project)
+        assert "node.status = TaskPhase.CANCELLED" not in source, (
+            "abort_project bypasses transition() — must use set_status or force_cancel"
+        )
+
+    def test_no_direct_status_assignment_in_routes_abort(self):
+        """routes.py abort endpoint must not directly assign node.status."""
+        import ast
+        from pathlib import Path
+        routes_path = Path(__file__).parent.parent.parent.parent / "src/onemancompany/api/routes.py"
+        source = routes_path.read_text()
+        # Count direct assignments — should be zero after fix
+        # We check for the pattern "node.status = TaskPhase.CANCELLED.value"
+        count = source.count("node.status = TaskPhase.CANCELLED.value")
+        assert count == 0, (
+            f"Found {count} direct node.status = CANCELLED assignments in routes.py — "
+            "must use node.set_status() or safe_cancel() instead"
+        )
+
+    def test_safe_cancel_accepted_returns_false(self):
+        """safe_cancel on ACCEPTED node should return False without error."""
+        from onemancompany.core.task_lifecycle import safe_cancel, TaskPhase
+        from unittest.mock import MagicMock
+        node = MagicMock()
+        node.status = TaskPhase.ACCEPTED.value
+        result = safe_cancel(node)
+        assert result is False
+
+    def test_safe_cancel_pending_returns_true(self):
+        """safe_cancel on PENDING node should cancel and return True."""
+        from onemancompany.core.task_lifecycle import safe_cancel, TaskPhase
+        from unittest.mock import MagicMock
+        node = MagicMock()
+        node.status = TaskPhase.PENDING.value
+        result = safe_cancel(node)
+        assert result is True
+        node.set_status.assert_called_once_with(TaskPhase.CANCELLED)

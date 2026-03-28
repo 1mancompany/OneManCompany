@@ -1555,9 +1555,8 @@ async def _sync_tree_cancel(cancelled_node_ids: list[tuple[str, str]]) -> None:
         if not tree:
             continue
         node = tree.get_node(node_id)
-        if node and node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
-            # CEO cancellation — force status bypass for terminal override
-            node.status = TaskPhase.CANCELLED.value
+        from onemancompany.core.task_lifecycle import safe_cancel
+        if node and safe_cancel(node):
             node.result = "Cancelled by CEO"
             from onemancompany.core.events import CompanyEvent as _CE
             await event_bus.publish(_CE(
@@ -1595,10 +1594,9 @@ async def abort_task(project_id: str) -> dict:
         tree_path = _Path(pdir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(tree_path, project_id=project_id)
+            from onemancompany.core.task_lifecycle import safe_cancel as _sc
             for node in tree.all_nodes():
-                if node.status not in (TaskPhase.ACCEPTED, TaskPhase.FAILED, TaskPhase.CANCELLED):
-                    # CEO abort — force status bypass for terminal override
-                    node.status = TaskPhase.CANCELLED.value
+                if _sc(node):
                     node.result = "Cancelled by CEO (project aborted)"
                     cancelled_tree_nodes += 1
             save_tree_async(tree_path)
@@ -1685,9 +1683,9 @@ async def cancel_agent_task(employee_id: str, task_id: str) -> dict:
 
     was_in_progress = node.status == TaskPhase.PROCESSING
 
-    # Force cancel — bypass transition validation
-    node.status = TaskPhase.CANCELLED.value
-    node.completed_at = datetime.now().isoformat()
+    from onemancompany.core.task_lifecycle import safe_cancel
+    safe_cancel(node)
+    node.completed_at = node.completed_at or datetime.now().isoformat()
     node.result = "Cancelled by CEO"
     save_tree_async(tp)
 

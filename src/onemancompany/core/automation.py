@@ -154,8 +154,8 @@ def _cancel_cron_tasks(employee_id: str, task_ids: list[str]) -> list[str]:
                 continue
             tree = TaskTree.load(tp)
             node = tree.get_node(task_id)
-            if node and node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value):
-                node.status = TaskPhase.CANCELLED.value
+            from onemancompany.core.task_lifecycle import safe_cancel
+            if node and safe_cancel(node):
                 node.completed_at = datetime.now(timezone.utc).isoformat()
                 node.result = "Cancelled: cron stopped"
                 tree.save(tp)
