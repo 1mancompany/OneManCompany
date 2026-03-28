@@ -538,7 +538,9 @@ def _step_optional(console: Console) -> dict[str, str]:
     # SkillMarket API Key
     console.print(
         "  [bold]SkillMarket API Key[/bold]\n"
-        "  [dim]Enables community skills for employees.[/dim]"
+        "  [dim]Allows employees to search and install community skills from SkillMarket\n"
+        "  when they need new capabilities (web search, data analysis, coding tools, etc.).\n"
+        "  Register at[/dim] [link=https://skillsmp.com]skillsmp.com[/link]"
     )
     key = _inq.secret(
         message="SkillMarket API Key (Enter to skip):",
