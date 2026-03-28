@@ -294,7 +294,7 @@ ${green("What gets installed automatically:")}
 
   console.log();
   const verTag = `v${cliVersion}`;
-  const title = `OneManCompany — AI Company OS  ${verTag}`;
+  const title = `OneManCompany — AI Company OS ${verTag}`;
   const pad = Math.max(0, 45 - title.length);
   console.log(cyan("╔═══════════════════════════════════════════════╗"));
   console.log(cyan(`║   ${title}${" ".repeat(pad)}║`));
