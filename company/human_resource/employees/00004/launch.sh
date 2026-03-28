@@ -98,13 +98,23 @@ OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
 SESSION_ID="omc-${OMC_EMPLOYEE_ID}-${OMC_TASK_ID:-conv}"
 >&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID} Session=${SESSION_ID}"
 
-RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SESSION_ID" --json 2>/dev/null || echo "")
+STDERR_FILE=$(mktemp)
+trap 'rm -f "$STDERR_FILE"' EXIT
+RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SESSION_ID" --json 2>"$STDERR_FILE" || echo "")
+STDERR_CONTENT=$(cat "$STDERR_FILE" 2>/dev/null | tail -5)
+rm -f "$STDERR_FILE"
+
+# If no output but stderr has content, surface the error
+if [ -z "$RAW" ] && [ -n "$STDERR_CONTENT" ]; then
+    >&2 echo "[launch.sh] openclaw error: $STDERR_CONTENT"
+fi
 
 # ── Parse openclaw JSON response ────────────────────────────────────────────
 python3 -c "
 import json, sys
 
 raw = sys.argv[1] if len(sys.argv) > 1 else ''
+stderr_hint = sys.argv[2] if len(sys.argv) > 2 else ''
 output = '[openclaw] No output returned'
 model = 'openclaw/openrouter'
 in_tok = 0
@@ -124,6 +134,8 @@ if raw:
     except (json.JSONDecodeError, KeyError, IndexError):
         if raw.strip():
             output = raw
+elif stderr_hint:
+    output = f'[openclaw] Error: {stderr_hint}'
 
 print(json.dumps({
     'output': output,
@@ -131,4 +143,4 @@ print(json.dumps({
     'input_tokens': in_tok,
     'output_tokens': out_tok,
 }))
-" "$RAW"
+" "$RAW" "$STDERR_CONTENT"

@@ -145,6 +145,27 @@ class TestNoStaleRichUI:
         assert "custom model ID" not in source
 
 
+class TestOpenclawLaunchShErrorHandling:
+    """launch.sh must surface errors instead of silently returning 'No output returned'."""
+
+    def test_launch_sh_does_not_blindly_discard_stderr(self):
+        """The openclaw agent call must NOT use bare '2>/dev/null' without capturing stderr."""
+        launch_sh = Path(__file__).parent.parent.parent / "src/onemancompany/talent_market/talents/openclaw/launch.sh"
+        content = launch_sh.read_text()
+        # Old pattern: 2>/dev/null throws away all error info
+        assert '2>/dev/null || echo ""' not in content, (
+            "launch.sh blindly discards stderr — errors like '403 Key limit exceeded' "
+            "are silently swallowed, showing only 'No output returned'"
+        )
+
+    def test_launch_sh_captures_stderr_to_file(self):
+        """launch.sh should capture stderr to a temp file for error reporting."""
+        launch_sh = Path(__file__).parent.parent.parent / "src/onemancompany/talent_market/talents/openclaw/launch.sh"
+        content = launch_sh.read_text()
+        assert "STDERR_FILE" in content, "launch.sh should capture stderr to a temp file"
+        assert "STDERR_CONTENT" in content, "launch.sh should read stderr content for error reporting"
+
+
 class TestHostingLabels:
     """HOSTING_LABELS constant covers all valid hosting values."""
 
