@@ -445,10 +445,15 @@ class AppController {
         return { text: `📊 Project Report: ${p.subject}`, cls: 'ceo', agent: 'SYSTEM' };
       },
       'background_task_update': (p) => {
-        if (document.getElementById('bg-tasks-modal') && !document.getElementById('bg-tasks-modal').classList.contains('hidden')) {
+        const bgModal = document.getElementById('bg-tasks-modal');
+        if (bgModal && !bgModal.classList.contains('hidden')) {
           this._fetchBackgroundTasks();
+          // Also refresh detail if viewing this specific task
+          if (this._bgTaskSelected && this._bgTaskSelected === p.id) {
+            this._fetchBgTaskDetail(p.id);
+          }
         }
-        return { text: `BG Task ${p.task_id}: ${p.status}`, cls: 'system', agent: 'SYSTEM' };
+        return { text: `BG Task ${p.id || '?'}: ${p.status}`, cls: 'system', agent: 'SYSTEM' };
       },
       'review_reminder': (p) => {
         const nodes = p.overdue_nodes || [];
@@ -1825,8 +1830,6 @@ class AppController {
     this._fetchEmployeeProjects(emp.id);
 
     // Start auto-refresh for task board while modal is open
-    this._startTaskBoardPolling(emp.id);
-
     modal.classList.remove('hidden');
   }
 
@@ -1835,7 +1838,6 @@ class AppController {
     if (this._empXterm) { this._empXterm.dispose(); this._empXterm = null; }
     if (this._empProgressXterm) { this._empProgressXterm.dispose(); this._empProgressXterm = null; }
     clearTimeout(this._logRefetchTimer);
-    this._stopTaskBoardPolling();
     document.getElementById('employee-modal').classList.add('hidden');
   }
 
@@ -1985,23 +1987,6 @@ class AppController {
 
   // _renderExecutionLogs removed — all rendering via XTermLog
 
-  _startTaskBoardPolling(empId) {
-    this._stopTaskBoardPolling();
-    this._taskBoardPollTimer = setInterval(() => {
-      if (this.viewingEmployeeId === empId) {
-        this._fetchTaskBoard(empId);
-        this._fetchExecutionLogs(empId);
-        this._fetchCronList(empId);
-      }
-    }, 3000);
-  }
-
-  _stopTaskBoardPolling() {
-    if (this._taskBoardPollTimer) {
-      clearInterval(this._taskBoardPollTimer);
-      this._taskBoardPollTimer = null;
-    }
-  }
 
   // ===== Trace Viewer =====
 
@@ -7019,8 +7004,7 @@ class AppController {
 
   closeBackgroundTasks() {
     document.getElementById('bg-tasks-modal').classList.add('hidden');
-    clearInterval(this._bgTaskPollTimer);
-    this._bgTaskPollTimer = null;
+    this._bgTaskSelected = null;
     if (this._bgTaskXterm) { this._bgTaskXterm.dispose(); this._bgTaskXterm = null; }
   }
 
@@ -7078,15 +7062,13 @@ class AppController {
   }
 
   async _fetchBgTaskDetail(taskId) {
+    this._bgTaskSelected = taskId;
     try {
       const resp = await fetch(`/api/background-tasks/${taskId}?tail=200`);
       if (!resp.ok) return;
       const data = await resp.json();
       this._renderBgTaskDetail(data.task, data.output_tail);
-      clearInterval(this._bgTaskPollTimer);
-      if (data.task.status === 'running') {
-        this._bgTaskPollTimer = setInterval(() => this._fetchBgTaskDetail(taskId), 3000);
-      }
+      // No polling — WS background_task_update event triggers refresh
     } catch (e) {
       console.error('[bg-tasks] detail fetch error:', e);
     }
