@@ -89,8 +89,9 @@ TOTAL_STEPS = 6
 HOSTING_LABELS = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
 
 # InquirerPy theme — cyberpunk neon
-INQ_STYLE = {"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
-             "input": "#39ff14", "answer": "#39ff14", "checkbox": "#39ff14"}
+from InquirerPy.utils import InquirerPyStyle as _IStyle
+INQ_STYLE = _IStyle({"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+                      "input": "#39ff14", "answer": "#39ff14", "checkbox": "#39ff14"})
 
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
