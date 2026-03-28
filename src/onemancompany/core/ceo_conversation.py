@@ -38,7 +38,7 @@ def load_messages(conv_dir: Path, node_id: str) -> list[dict]:
     return _read_yaml_list(path)
 
 
-def append_message(
+async def append_message(
     conv_dir: Path,
     node_id: str,
     *,
@@ -46,8 +46,14 @@ def append_message(
     text: str,
     attachments: list[dict] | None = None,
 ) -> dict:
-    """Append a message to a conversation and return it."""
+    """Append a message to a conversation with lock + atomic write.
+
+    Per-conversation asyncio.Lock prevents concurrent read-append-write races.
+    Atomic write (temp file + os.replace) ensures crash safety.
+    Reuses store._get_lock and store._atomic_write_text to avoid duplication.
+    """
     import yaml as _yaml
+    from onemancompany.core.store import _get_lock, _atomic_write_text
 
     msg: dict[str, Any] = {
         "sender": sender,
@@ -58,15 +64,12 @@ def append_message(
         msg["attachments"] = attachments
 
     path = _conv_path(conv_dir, node_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
 
-    messages = load_messages(conv_dir, node_id)
-    messages.append(msg)
+    async with _get_lock(str(path)):
+        messages = load_messages(conv_dir, node_id)
+        messages.append(msg)
+        _atomic_write_text(path, _yaml.dump(messages, allow_unicode=True, default_flow_style=False))
 
-    path.write_text(
-        _yaml.dump(messages, allow_unicode=True, default_flow_style=False),
-        encoding=ENCODING_UTF8,
-    )
     return msg
 
 
@@ -335,7 +338,7 @@ class ConversationSession:
             # Persist as CEO_SENDER (EA acts on behalf of CEO — employee
             # must see it as HumanMessage). Broadcast with origin=ea so
             # the frontend can display it differently. Disk = source of truth.
-            ea_msg = append_message(
+            ea_msg = await append_message(
                 self._conv_dir, self.node_id,
                 sender=CEO_SENDER, text=reply_text,
             )
@@ -361,7 +364,7 @@ class ConversationSession:
         """Queue a CEO message for processing."""
         self._ceo_replied = True
         self._cancel_ea_timer()
-        msg = append_message(
+        msg = await append_message(
             self._conv_dir, self.node_id,
             sender=CEO_SENDER, text=text, attachments=attachments,
         )
@@ -404,7 +407,7 @@ class ConversationSession:
                 logger.error("Agent invoke failed for node {}: {}", self.node_id, e)
                 response_text = f"[Error: {e}]"
 
-            agent_msg = append_message(
+            agent_msg = await append_message(
                 self._conv_dir, self.node_id,
                 sender=self.employee_id, text=response_text,
             )

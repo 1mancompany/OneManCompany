@@ -23,14 +23,15 @@ from onemancompany.core.ceo_conversation import (
 class TestMessagePersistence:
     """Test YAML-based conversation message storage."""
 
-    def test_append_and_load_messages(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_append_and_load_messages(self, tmp_path):
         from onemancompany.core.ceo_conversation import append_message, load_messages
 
         conv_dir = tmp_path / "conversations"
         node_id = "abc123"
 
-        append_message(conv_dir, node_id, sender="ceo", text="Hello")
-        append_message(conv_dir, node_id, sender="emp001", text="Hi CEO")
+        await append_message(conv_dir, node_id, sender="ceo", text="Hello")
+        await append_message(conv_dir, node_id, sender="emp001", text="Hi CEO")
 
         msgs = load_messages(conv_dir, node_id)
         assert len(msgs) == 2
@@ -45,12 +46,13 @@ class TestMessagePersistence:
         msgs = load_messages(tmp_path / "conversations", "nonexistent")
         assert msgs == []
 
-    def test_append_with_attachments(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_append_with_attachments(self, tmp_path):
         from onemancompany.core.ceo_conversation import append_message, load_messages
 
         conv_dir = tmp_path / "conversations"
-        append_message(conv_dir, "n1", sender="ceo", text="See attached",
-                       attachments=[{"filename": "doc.pdf", "path": "/workspace/doc.pdf"}])
+        await append_message(conv_dir, "n1", sender="ceo", text="See attached",
+                             attachments=[{"filename": "doc.pdf", "path": "/workspace/doc.pdf"}])
 
         msgs = load_messages(conv_dir, "n1")
         assert msgs[0]["attachments"][0]["filename"] == "doc.pdf"
@@ -328,3 +330,40 @@ class TestEaAnalyzeConversation:
 
         assert result["decision"] == "accept"
         assert result["follow_up_tasks"] == []
+
+
+class TestAppendMessageAtomicAndLocked:
+    """append_message must use atomic writes and file locking."""
+
+    def test_append_message_uses_atomic_write(self):
+        """append_message must use _atomic_write_text, not path.write_text()."""
+        import inspect
+        source = inspect.getsource(append_message)
+        assert "path.write_text" not in source, (
+            "append_message must use _atomic_write_text, not path.write_text()"
+        )
+        assert "_atomic_write_text" in source, (
+            "append_message must delegate to _atomic_write_text"
+        )
+
+    def test_append_message_uses_lock(self):
+        """append_message must acquire a lock to prevent concurrent corruption."""
+        import inspect
+        source = inspect.getsource(append_message)
+        assert "_get_lock" in source, (
+            "append_message must use _get_lock for concurrent access protection"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_appends_no_lost_messages(self, tmp_path):
+        """Two rapid appends must both be persisted (no lost-update race)."""
+        conv_dir = tmp_path / "conversations"
+        node_id = "race_test"
+
+        await append_message(conv_dir, node_id, sender="ceo", text="msg1")
+        await append_message(conv_dir, node_id, sender="employee", text="msg2")
+
+        msgs = load_messages(conv_dir, node_id)
+        assert len(msgs) == 2
+        assert msgs[0]["text"] == "msg1"
+        assert msgs[1]["text"] == "msg2"
