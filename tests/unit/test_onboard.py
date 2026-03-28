@@ -160,11 +160,11 @@ class TestOpenclawLaunchShErrorHandling:
         )
 
     def test_launch_sh_captures_stderr_to_file(self):
-        """launch.sh should capture stderr to a temp file for error reporting."""
+        """launch.sh should capture stderr to a temp file for JSON extraction."""
         launch_sh = Path(__file__).parent.parent.parent / "src/onemancompany/talent_market/talents/openclaw/launch.sh"
         content = launch_sh.read_text()
         assert "STDERR_FILE" in content, "launch.sh should capture stderr to a temp file"
-        assert "STDERR_CONTENT" in content, "launch.sh should read stderr content for error reporting"
+        assert "raw_decode" in content, "launch.sh should use raw_decode for robust JSON extraction"
 
 
 class TestHostingLabels:
