@@ -147,6 +147,21 @@ def get_valid_targets(current: TaskPhase) -> list[TaskPhase]:
     return list(VALID_TRANSITIONS.get(current, []))
 
 
+def safe_cancel(node) -> bool:
+    """Cancel a node if the transition is valid, skipping terminal states.
+
+    Returns True if the node was cancelled, False if already terminal.
+    Uses node.set_status() which goes through the proper state machine.
+    """
+    current = TaskPhase(node.status)
+    if current in TERMINAL:
+        return False
+    if can_transition(current, TaskPhase.CANCELLED):
+        node.set_status(TaskPhase.CANCELLED)
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Documentation string for agents
 # ---------------------------------------------------------------------------

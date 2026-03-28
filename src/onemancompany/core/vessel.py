@@ -1028,10 +1028,9 @@ class EmployeeManager:
                     node = tree.get_node(entry.node_id)
                     if not node or node.project_id != project_id:
                         continue
-                    if node.status in (TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value):
-                        # Force status — may not follow normal transitions
+                    from onemancompany.core.task_lifecycle import safe_cancel
+                    if safe_cancel(node):
                         logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED (project abort)", emp_id, entry.node_id)
-                        node.status = TaskPhase.CANCELLED.value
                         node.completed_at = datetime.now().isoformat()
                         node.result = "Cancelled by CEO"
                         save_tree_async(entry.tree_path)
@@ -1072,7 +1071,6 @@ class EmployeeManager:
         from onemancompany.core.automation import stop_all_crons_for_employee
 
         count = 0
-        _cancelable = {TaskPhase.PENDING.value, TaskPhase.PROCESSING.value, TaskPhase.HOLDING.value}
 
         # 1. Clear schedule and cancel nodes
         entries = list(self._schedule.get(employee_id, []))
@@ -1093,10 +1091,9 @@ class EmployeeManager:
             try:
                 tree = get_tree(entry.tree_path)
                 node = tree.get_node(entry.node_id)
-                if node and node.status in _cancelable:
-                    # Force status — may not follow normal transitions
+                from onemancompany.core.task_lifecycle import safe_cancel as _safe_cancel
+                if node and _safe_cancel(node):
                     logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED (employee abort)", employee_id, entry.node_id)
-                    node.status = TaskPhase.CANCELLED.value
                     node.completed_at = datetime.now().isoformat()
                     node.result = f"Cancelled: employee {employee_id} aborted"
                     count += 1
@@ -1361,7 +1358,8 @@ class EmployeeManager:
 
         except asyncio.CancelledError:
             agent_error = True
-            node.status = TaskPhase.CANCELLED.value
+            from onemancompany.core.task_lifecycle import safe_cancel as _sc
+            _sc(node)
             logger.debug("[TASK LIFECYCLE] employee={} node={} → CANCELLED", employee_id, entry.node_id)
             node.result = node.result or "Cancelled by CEO"
             if not node.completed_at:
