@@ -42,7 +42,7 @@ if ! command -v "$OPENCLAW_BIN" &>/dev/null; then
     fi
 fi
 
-# ── Configure openclaw on first run ───────────────────────────────────────────
+# ── Configure openclaw ────────────────────────────────────────────────────────
 OPENCLAW_CONFIG="$HOME/.openclaw/openclaw.json"
 if [ ! -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
     >&2 echo "[launch.sh] First run — configuring openclaw with OpenRouter..."
@@ -50,6 +50,28 @@ if [ ! -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
         --auth-choice openrouter-api-key \
         --openrouter-api-key "$OPENROUTER_API_KEY" \
         --flow quickstart >&2 2>&1 || true
+fi
+
+# Sync OpenRouter API key from .env into openclaw config (keeps key in sync)
+if [ -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    python3 -c "
+import json, sys, os
+cfg_path = os.path.expanduser('~/.openclaw/openclaw.json')
+try:
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    new_key = sys.argv[1]
+    changed = False
+    if cfg.get('openRouterApiKey') != new_key:
+        cfg['openRouterApiKey'] = new_key
+        changed = True
+    if changed:
+        with open(cfg_path, 'w') as f:
+            json.dump(cfg, f, indent=2)
+        print('[launch.sh] Synced OpenRouter API key to openclaw config', file=sys.stderr)
+except Exception as e:
+    print(f'[launch.sh] Failed to sync key: {e}', file=sys.stderr)
+" "$OPENROUTER_API_KEY"
 fi
 
 # ── Ensure gateway is running ─────────────────────────────────────────────────
@@ -98,13 +120,23 @@ OMC_TASK_DESCRIPTION="$(cat "$TASK_DESC_FILE")"
 SESSION_ID="omc-${OMC_EMPLOYEE_ID}-${OMC_TASK_ID:-conv}"
 >&2 echo "[launch.sh] Employee=${OMC_EMPLOYEE_ID} Task=${OMC_TASK_ID} Session=${SESSION_ID}"
 
-RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SESSION_ID" --json 2>/dev/null || echo "")
+STDERR_FILE=$(mktemp)
+trap 'rm -f "$STDERR_FILE"' EXIT
+RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SESSION_ID" --json 2>"$STDERR_FILE" || echo "")
+STDERR_CONTENT=$(cat "$STDERR_FILE" 2>/dev/null | tail -5)
+rm -f "$STDERR_FILE"
+
+# If no output but stderr has content, surface the error
+if [ -z "$RAW" ] && [ -n "$STDERR_CONTENT" ]; then
+    >&2 echo "[launch.sh] openclaw error: $STDERR_CONTENT"
+fi
 
 # ── Parse openclaw JSON response ────────────────────────────────────────────
 python3 -c "
 import json, sys
 
 raw = sys.argv[1] if len(sys.argv) > 1 else ''
+stderr_hint = sys.argv[2] if len(sys.argv) > 2 else ''
 output = '[openclaw] No output returned'
 model = 'openclaw/openrouter'
 in_tok = 0
@@ -124,6 +156,8 @@ if raw:
     except (json.JSONDecodeError, KeyError, IndexError):
         if raw.strip():
             output = raw
+elif stderr_hint:
+    output = f'[openclaw] Error: {stderr_hint}'
 
 print(json.dumps({
     'output': output,
@@ -131,4 +165,4 @@ print(json.dumps({
     'input_tokens': in_tok,
     'output_tokens': out_tok,
 }))
-" "$RAW"
+" "$RAW" "$STDERR_CONTENT"
