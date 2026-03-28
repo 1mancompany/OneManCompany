@@ -42,36 +42,15 @@ if ! command -v "$OPENCLAW_BIN" &>/dev/null; then
     fi
 fi
 
-# ── Configure openclaw ────────────────────────────────────────────────────────
+# ── Configure openclaw with OpenRouter API key ───────────────────────────────
+# openclaw stores credentials in its own credential store (not in openclaw.json).
+# We re-run onboard each time to ensure the key stays in sync with .env.
 OPENCLAW_CONFIG="$HOME/.openclaw/openclaw.json"
-if [ ! -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
-    >&2 echo "[launch.sh] First run — configuring openclaw with OpenRouter..."
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
     "$OPENCLAW_BIN" onboard --non-interactive --accept-risk \
         --auth-choice openrouter-api-key \
         --openrouter-api-key "$OPENROUTER_API_KEY" \
         --flow quickstart >&2 2>&1 || true
-fi
-
-# Sync OpenRouter API key from .env into openclaw config (keeps key in sync)
-if [ -f "$OPENCLAW_CONFIG" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
-    python3 -c "
-import json, sys, os
-cfg_path = os.path.expanduser('~/.openclaw/openclaw.json')
-try:
-    with open(cfg_path) as f:
-        cfg = json.load(f)
-    new_key = sys.argv[1]
-    changed = False
-    if cfg.get('openRouterApiKey') != new_key:
-        cfg['openRouterApiKey'] = new_key
-        changed = True
-    if changed:
-        with open(cfg_path, 'w') as f:
-            json.dump(cfg, f, indent=2)
-        print('[launch.sh] Synced OpenRouter API key to openclaw config', file=sys.stderr)
-except Exception as e:
-    print(f'[launch.sh] Failed to sync key: {e}', file=sys.stderr)
-" "$OPENROUTER_API_KEY"
 fi
 
 # ── Ensure gateway is running ─────────────────────────────────────────────────
