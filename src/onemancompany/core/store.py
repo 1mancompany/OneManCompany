@@ -79,15 +79,34 @@ _yaml_dumper.add_multi_representer(Enum, _enum_representer)
 
 
 def _write_yaml(path: Path, data: dict) -> None:
-    """Write dict to YAML file. Creates parent dirs if needed."""
+    """Write dict to YAML file atomically (temp file + os.replace).
+
+    Crash during write leaves the original file intact.
+    """
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            yaml.dump(data, Dumper=_yaml_dumper, allow_unicode=True, default_flow_style=False, sort_keys=False),
-            encoding=ENCODING_UTF8,
-        )
+        content = yaml.dump(data, Dumper=_yaml_dumper, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        _atomic_write_text(path, content)
     except Exception as e:
         logger.error("Failed to write {}: {}", path, e)
+        raise
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write text to file atomically (temp file + os.replace)."""
+    import os
+    import tempfile
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding=ENCODING_UTF8) as f:
+            f.write(content)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError as exc:
+            logger.debug("Failed to clean up temp file {}: {}", tmp_path, exc)
         raise
 
 
@@ -324,8 +343,7 @@ async def save_guidance(emp_id: str, notes: list[str]) -> None:
 async def save_work_principles(emp_id: str, text: str) -> None:
     """Write work_principles.md for an employee."""
     path = EMPLOYEES_DIR / emp_id / WORK_PRINCIPLES_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding=ENCODING_UTF8)
+    _atomic_write_text(path, text)
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 
@@ -395,7 +413,7 @@ async def append_room_chat(room_id: str, message: dict) -> None:
         messages = _read_yaml_list(path)
         messages.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(messages, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+        _atomic_write_text(path, yaml.dump(messages, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.ROOMS)
 
 
@@ -403,11 +421,7 @@ async def clear_room_chat(room_id: str) -> None:
     """Clear all chat messages for a room (after archiving to meeting minutes)."""
     path = _rooms_dir() / f"{room_id}_chat.yaml"
     async with _get_lock(str(path)):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            yaml.dump([], allow_unicode=True, default_flow_style=False),
-            encoding=ENCODING_UTF8,
-        )
+        _atomic_write_text(path, yaml.dump([], allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.ROOMS)
 
 
@@ -517,7 +531,7 @@ async def append_activity(entry: dict) -> None:
         if len(log) > 200:
             log = log[-200:]
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+        _atomic_write_text(path, yaml.dump(log, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
@@ -529,7 +543,7 @@ def append_activity_sync(entry: dict) -> None:
     if len(log) > 200:
         log = log[-200:]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(log, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+    _atomic_write_text(path, yaml.dump(log, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.ACTIVITY_LOG)
 
 
@@ -541,7 +555,7 @@ async def save_culture(items: list[dict]) -> None:
     path = COMPANY_DIR / COMPANY_CULTURE_FILENAME
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(items, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+        _atomic_write_text(path, yaml.dump(items, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.CULTURE)
 
 
@@ -565,7 +579,7 @@ async def save_sales_tasks(tasks: list[dict]) -> None:
     path = SALES_TASKS_PATH
     async with _get_lock(str(path)):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+        _atomic_write_text(path, yaml.dump(tasks, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.SALES_TASKS)
 
 
@@ -573,7 +587,7 @@ def save_sales_tasks_sync(tasks: list[dict]) -> None:
     """Synchronous version of save_sales_tasks for use in non-async contexts (e.g., LangChain tools)."""
     path = SALES_TASKS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(tasks, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+    _atomic_write_text(path, yaml.dump(tasks, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.SALES_TASKS)
 
 
@@ -595,10 +609,7 @@ def save_task_index(employee_id: str, entries: list[dict]) -> None:
     """Overwrite the task index for an employee (sync)."""
     path = EMPLOYEES_DIR / employee_id / TASK_INDEX_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.dump(entries, allow_unicode=True, default_flow_style=False),
-        encoding=ENCODING_UTF8,
-    )
+    _atomic_write_text(path, yaml.dump(entries, allow_unicode=True, default_flow_style=False))
 
 
 def append_task_index_entry(employee_id: str, node_id: str, tree_path: str) -> None:
@@ -644,7 +655,7 @@ async def append_oneonone(emp_id: str, message: dict) -> None:
         history = _read_yaml_list(path)
         history.append(message)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.dump(history, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+        _atomic_write_text(path, yaml.dump(history, allow_unicode=True, default_flow_style=False))
     mark_dirty(DirtyCategory.EMPLOYEES)
 
 

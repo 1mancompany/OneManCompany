@@ -229,3 +229,61 @@ async def test_save_candidates_writes_yaml(tmp_path, monkeypatch):
     await store.save_candidates("batch-001", {"candidates": [{"name": "Alice"}]})
     data = store._read_yaml(tmp_path / "candidates" / "batch-001.yaml")
     assert data["candidates"][0]["name"] == "Alice"
+
+
+class TestAtomicWrite:
+    """_write_yaml must use atomic write (temp file + os.replace)."""
+
+    def test_atomic_write_text_uses_os_replace(self):
+        """Verify _atomic_write_text uses os.replace for atomic writes."""
+        import inspect
+        from onemancompany.core.store import _atomic_write_text
+        source = inspect.getsource(_atomic_write_text)
+        assert "os.replace" in source, (
+            "_atomic_write_text must use os.replace for atomic writes"
+        )
+        assert "path.write_text" not in source, (
+            "_atomic_write_text must not use path.write_text()"
+        )
+
+    def test_write_yaml_delegates_to_atomic(self):
+        """_write_yaml must use _atomic_write_text, not write directly."""
+        import inspect
+        from onemancompany.core.store import _write_yaml
+        source = inspect.getsource(_write_yaml)
+        assert "_atomic_write_text" in source, (
+            "_write_yaml must delegate to _atomic_write_text"
+        )
+
+    def test_write_yaml_creates_file(self, tmp_path):
+        """_write_yaml should create the file with correct content."""
+        from onemancompany.core.store import _write_yaml
+        target = tmp_path / "test.yaml"
+        _write_yaml(target, {"key": "value"})
+        assert target.exists()
+        import yaml
+        data = yaml.safe_load(target.read_text())
+        assert data["key"] == "value"
+
+    def test_write_yaml_preserves_existing_on_error(self, tmp_path, monkeypatch):
+        """If write fails, original file remains intact and temp is cleaned up."""
+        import os
+        from onemancompany.core.store import _write_yaml
+
+        target = tmp_path / "test.yaml"
+        _write_yaml(target, {"original": True})
+
+        def failing_replace(*a, **kw):
+            raise OSError("disk full")
+        monkeypatch.setattr(os, "replace", failing_replace)
+
+        with pytest.raises(OSError, match="disk full"):
+            _write_yaml(target, {"corrupted": True})
+
+        # Original file should be intact
+        data = yaml.safe_load(target.read_text())
+        assert data == {"original": True}
+
+        # No leftover temp files
+        temps = list(tmp_path.glob("*.tmp"))
+        assert temps == []
