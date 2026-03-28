@@ -124,7 +124,7 @@ def _print_step(console: Console, num: int, codename: str, subtitle: str) -> Non
 
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
-        Text(LOGO, style="bold bright_cyan"),
+        Text(LOGO, style="bold bright_cyan", justify="center"),
         border_style="bright_magenta",
         padding=(1, 2),
         expand=True,
