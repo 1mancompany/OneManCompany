@@ -285,7 +285,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
     console.print()
     provider_choices = [
-        {"name": f"{g.label}  ({', '.join(g.auth_methods)})", "value": g.group_id}
+        {"name": f"{g.label}  ({g.hint})", "value": g.group_id}
         for g in available_groups
     ]
     or_default = PROVIDER_OPENROUTER if any(g.group_id == PROVIDER_OPENROUTER for g in available_groups) else available_groups[0].group_id
