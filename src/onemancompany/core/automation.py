@@ -62,6 +62,25 @@ def _save_automations(employee_id: str, data: dict) -> None:
 _cron_tasks: dict[str, asyncio.Task] = {}  # key = "employee_id:cron_name"
 
 
+def _broadcast_cron_status(employee_id: str, cron_name: str, running: bool) -> None:
+    """Publish cron_status_change event via EventBus (fire-and-forget)."""
+    try:
+        from onemancompany.core.events import event_bus, CompanyEvent
+        from onemancompany.core.models import EventType
+        from onemancompany.core.async_utils import spawn_background
+        spawn_background(event_bus.publish(CompanyEvent(
+            type=EventType.CRON_STATUS_CHANGE,
+            payload={
+                "employee_id": employee_id,
+                "cron_name": cron_name,
+                "running": running,
+            },
+            agent="SYSTEM",
+        )))
+    except Exception as e:
+        logger.warning("[cron] Broadcast cron_status_change failed: {}", e)
+
+
 async def _cron_loop(employee_id: str, cron_name: str, interval_seconds: int, task_description: str) -> None:
     """Background loop that dispatches a task at regular intervals."""
     from onemancompany.core.agent_loop import get_agent_loop
@@ -132,6 +151,7 @@ def start_cron(employee_id: str, cron_name: str, interval: str, task_description
         "created": datetime.now(timezone.utc).isoformat(),
     })
     _save_automations(employee_id, data)
+    _broadcast_cron_status(employee_id, cron_name, True)
 
     return {"status": "ok", "cron_name": cron_name, "interval": interval}
 
@@ -195,6 +215,7 @@ def stop_cron(employee_id: str, cron_name: str) -> dict:
     # Remove from persistence
     data[_KEY_CRONS] = [c for c in data[_KEY_CRONS] if c.get(_KEY_NAME) != cron_name]
     _save_automations(employee_id, data)
+    _broadcast_cron_status(employee_id, cron_name, False)
 
     return {
         "status": "ok",
@@ -264,6 +285,9 @@ def stop_all_crons_for_employee(employee_id: str) -> dict:
     # Clear YAML
     data[_KEY_CRONS] = []
     _save_automations(employee_id, data)
+
+    for cron_name in stopped:
+        _broadcast_cron_status(employee_id, cron_name, False)
 
     return {
         "status": "ok",

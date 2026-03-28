@@ -10,7 +10,6 @@ class TaskTreeRenderer {
         this.zoom = null;
         this.treeData = null;
         this.selectedNodeId = null;
-        this._autoRefreshTimer = null;
         this._currentProjectId = null;
 
         this.nodeWidth = 220;
@@ -75,37 +74,7 @@ class TaskTreeRenderer {
         this.treeData = await resp.json();
         // Defer render to next frame so container has layout dimensions
         requestAnimationFrame(() => this.render());
-        this._startAutoRefresh();
-    }
-
-    _startAutoRefresh() {
-        this.stopAutoRefresh();
-        this._autoRefreshTimer = setInterval(() => this._refreshIfVisible(), 3000);
-    }
-
-    stopAutoRefresh() {
-        if (this._autoRefreshTimer) {
-            clearInterval(this._autoRefreshTimer);
-            this._autoRefreshTimer = null;
-        }
-    }
-
-    async _refreshIfVisible() {
-        if (!this._currentProjectId) return;
-        const container = document.getElementById(this.containerId);
-        if (!container || container.offsetParent === null) return;
-        try {
-            const resp = await fetch(`/api/projects/${encodeURIComponent(this._currentProjectId)}/tree`);
-            if (!resp.ok) return;
-            const newData = await resp.json();
-            if (JSON.stringify(newData) === JSON.stringify(this.treeData)) return;
-            this.treeData = newData;
-            this.render();
-            if (this.selectedNodeId) {
-                const node = this.treeData.nodes.find(n => n.id === this.selectedNodeId);
-                if (node) this.selectNode(node);
-            }
-        } catch (_) { /* network error, skip */ }
+        // No polling — updates arrive via WS tree_update events
     }
 
     render() {
