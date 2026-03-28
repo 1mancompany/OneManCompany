@@ -114,6 +114,13 @@ PROVIDER_DEFAULT_MODELS = {
 # Wizard steps
 # ---------------------------------------------------------------------------
 
+def _print_step(console: Console, num: int, codename: str, subtitle: str) -> None:
+    """Print a cyberpunk-styled step header with lightning decorations."""
+    console.print()
+    console.print(f"[bright_magenta]  ⚡┌─ STEP {num:02d}/{TOTAL_STEPS:02d} ─────────────────────────────────────⚡┐[/bright_magenta]")
+    console.print(f"[bright_magenta]  ░ │[/bright_magenta] [bold bright_cyan]{codename}[/bold bright_cyan] [dim]// {subtitle}[/dim]")
+    console.print(f"[bright_magenta]  ⚡└──────────────────────────────────────────────────⚡┘[/bright_magenta]")
+
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
         Text(LOGO, style="bold bright_cyan"),
@@ -121,8 +128,8 @@ def _step_welcome(console: Console) -> None:
         padding=(0, 1),
     ))
     console.print()
-    console.print("  [bold bright_green]> INITIATING NEURAL BOOTSTRAP...[/bold bright_green]")
-    console.print("  [dim bright_cyan]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[/dim bright_cyan]")
+    console.print("  [bold bright_green]⚡ INITIATING NEURAL BOOTSTRAP ⚡[/bold bright_green]")
+    console.print("  [dim bright_cyan]░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░[/dim bright_cyan]")
     console.print()
     console.print("  [bright_white]Your AI company is about to come online.[/bright_white]")
     console.print("  [bright_white]In 60 seconds, a full executive team will be deployed.[/bright_white]")
@@ -247,10 +254,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     from onemancompany.core.auth_choices import AUTH_CHOICE_GROUPS
     from onemancompany.core.config import PROVIDER_REGISTRY
 
-    console.print()
-    console.print("[bright_magenta]  ┌─ STEP 01/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]NEURAL CORE[/bold bright_cyan] [dim]// LLM Configuration[/dim]         [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 1, "NEURAL CORE", "LLM Configuration")
     console.print(
         "\n  [dim]Select the neural substrate for your employees.[/dim]\n"
         "  [dim]Each agent's model can be reconfigured later via the web UI.[/dim]\n"
@@ -340,9 +344,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
 
 def _step_server(console: Console) -> tuple[str, int]:
     console.print()
-    console.print("[bright_magenta]  ┌─ STEP 02/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]NETWORK NODE[/bold bright_cyan] [dim]// Server Configuration[/dim]    [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 2, "NETWORK NODE", "Server Configuration")
     console.print(
         "\n  [dim]Deploy your company node on the local network.[/dim]\n"
         "  [dim]After genesis, open the URL to enter your office.[/dim]\n"
@@ -390,10 +392,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     """
     from onemancompany.core.config import HR_ID, COO_ID, EA_ID, CSO_ID
 
-    console.print()
-    console.print("[bright_magenta]  ┌─ STEP 05/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]VESSEL DEPLOY[/bold bright_cyan] [dim]// Agent Family Assignment[/dim]  [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 5, "VESSEL DEPLOY", "Agent Family Assignment")
     console.print(
         "\n  [dim]Each vessel carries an AI consciousness.[/dim]\n"
         "  [dim]Choose the neural architecture for your founding team.[/dim]\n"
@@ -437,12 +436,12 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     if len(families_enabled) == 1:
         only_family = next(iter(families_enabled))
         founders = {HR_ID: only_family, COO_ID: only_family, EA_ID: only_family, CSO_ID: only_family}
-        console.print(f"  [bright_green]> ALL VESSELS LOCKED TO[/bright_green] [bold bright_cyan]{family_labels[only_family]}[/bold bright_cyan]\n")
+        console.print(f"\n  [bright_green]⚡ ALL VESSELS LOCKED TO[/bright_green] [bold bright_cyan]{family_labels[only_family]}[/bold bright_cyan] [bright_green]⚡[/bright_green]\n")
         return founders
 
     # Multiple families — ask per founder with list selector
     console.print()
-    console.print("  [bright_magenta]━━━ VESSEL ASSIGNMENT PROTOCOL ━━━[/bright_magenta]")
+    console.print("  [bright_magenta]⚡━━━ VESSEL ASSIGNMENT PROTOCOL ━━━⚡[/bright_magenta]")
     console.print("  [dim]Designate the neural architecture for each executive:[/dim]\n")
 
     founder_display = [
@@ -462,7 +461,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
             style=INQ_STYLE,
         ).execute()
         founders[emp_id] = hosting
-        console.print(f"    [bright_green]▸ VESSEL LOCKED → {family_labels[hosting]}[/bright_green]")
+        console.print(f"    [bright_green]⚡ VESSEL LOCKED → {family_labels[hosting]}[/bright_green]")
 
     console.print()
     return founders
@@ -471,9 +470,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
-    console.print("[bright_magenta]  ┌─ STEP 03/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]SANDBOX MESH[/bold bright_cyan] [dim]// Isolated Execution[/dim]       [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 3, "SANDBOX MESH", "Isolated Execution")
     console.print(
         "\n  [dim]Sandbox gives your AI employees a safe place to run code.\n"
         "  Without it, code execution happens directly on your machine.\n"
@@ -530,9 +527,7 @@ def _install_sandbox_deps(console: Console) -> None:
 
 def _step_optional(console: Console) -> dict[str, str]:
     console.print()
-    console.print("[bright_magenta]  ┌─ STEP 04/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]UPLINK ARRAY[/bold bright_cyan] [dim]// External Integrations[/dim]    [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 4, "UPLINK ARRAY", "External Integrations")
     console.print(
         "\n  [dim]These are all optional.\n"
         "  Paste a key and press [bold]Enter[/bold] to save it,\n"
@@ -605,10 +600,7 @@ def _step_execute(
     founder_families: dict[str, str] | None = None,
 ) -> None:
     console.print()
-    console.print()
-    console.print("[bright_magenta]  ┌─ STEP 06/06 ─────────────────────────────────────┐[/bright_magenta]")
-    console.print("[bright_magenta]  │[/bright_magenta] [bold bright_cyan]GENESIS[/bold bright_cyan] [dim]// Company Initialization[/dim]         [bright_magenta]│[/bright_magenta]")
-    console.print("[bright_magenta]  └────────────────────────────────────────────────────┘[/bright_magenta]")
+    _print_step(console, 6, "GENESIS", "Company Initialization")
     console.print(
         "\n  [dim]Deploying company infrastructure and founding team...[/dim]\n"
     )
