@@ -477,12 +477,13 @@ class AppController {
         return null;
       },
       'agent_log':           (p) => {
-        // Debounced re-fetch from disk for grouped trace view
-        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
-          clearTimeout(this._logRefetchTimer);
-          this._logRefetchTimer = setTimeout(() => {
-            this._fetchExecutionLogs(this.viewingEmployeeId);
-          }, 500);
+        // Real-time append: use WS payload directly instead of re-polling REST
+        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId && p.log) {
+          // Skip if REST fetch is in-flight (renderLogs will do a full refresh)
+          if (this._logFetchInFlight) return null;
+          if (this._empXterm) {
+            this._empXterm.appendLog(p.log);
+          }
         }
         return null;  // don't spam the activity log
       },
@@ -1886,6 +1887,7 @@ class AppController {
   }
 
   async _fetchExecutionLogs(empId) {
+    this._logFetchInFlight = true;
     try {
       const resp = await fetch(`/api/employee/${empId}/logs?tail=100`);
       const data = await resp.json();
@@ -1901,6 +1903,8 @@ class AppController {
       }
     } catch (err) {
       console.error('Execution logs fetch error:', err);
+    } finally {
+      this._logFetchInFlight = false;
     }
   }
 

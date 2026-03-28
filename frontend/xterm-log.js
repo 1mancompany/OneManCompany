@@ -136,6 +136,38 @@ class XTermLog {
   }
 
   /**
+   * Append a single log entry in real time (no clear/re-render).
+   * Used by WebSocket agent_log handler for live streaming.
+   */
+  appendLog(log) {
+    if (!log || !this._term) return;
+
+    // Buffer tool_call to pair with subsequent tool_result
+    if (log.type === 'tool_call') {
+      this._pendingToolCall = log;
+      return;  // Don't render yet — wait for result
+    }
+
+    if (log.type === 'tool_result' && this._pendingToolCall) {
+      // Pair with pending tool_call for proper grouped rendering
+      const steps = traceGroupSteps([this._pendingToolCall, log]);
+      this._pendingToolCall = null;
+      for (const step of steps) {
+        this._renderStep(step);
+      }
+    } else {
+      // Standalone entry (llm_output, result, etc.)
+      this._pendingToolCall = null;
+      const steps = traceGroupSteps([log]);
+      for (const step of steps) {
+        this._renderStep(step);
+      }
+    }
+
+    this._term.scrollToBottom();
+  }
+
+  /**
    * Render trace feed (full project tree with inline logs)
    */
   renderTraceFeed(nodes, rootId) {
