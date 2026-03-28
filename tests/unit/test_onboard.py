@@ -67,7 +67,8 @@ class TestApplyFounderFamilies:
         profile.write_text(yaml.dump({"name": "Pat EA", "hosting": "company"}))
 
         console = Console(quiet=True)
-        with patch("onemancompany.onboard.EMPLOYEES_DIR", tmp_path):
+        with patch("onemancompany.onboard.EMPLOYEES_DIR", tmp_path), \
+             patch("subprocess.run", return_value=MagicMock(returncode=0)):
             _apply_founder_families(console, {"00004": "openclaw"})
 
         data = yaml.safe_load(profile.read_text())
