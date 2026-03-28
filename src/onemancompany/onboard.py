@@ -88,6 +88,10 @@ TOTAL_STEPS = 6
 
 HOSTING_LABELS = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
 
+# InquirerPy theme — cyberpunk neon
+INQ_STYLE = {"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+             "input": "#39ff14", "answer": "#39ff14", "checkbox": "#39ff14"}
+
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PAGE_SIZE = 15
 
@@ -215,7 +219,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
         console.print("  [yellow]Could not load model list.[/yellow]")
         return _inq.text(
             message="Enter model ID (e.g. anthropic/claude-sonnet-4):",
-            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+            style=INQ_STYLE,
         ).execute().strip()
 
     # Build choices with pricing info
@@ -230,7 +234,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
         message="Select model (type to filter):",
         choices=choices,
         max_height="15",
-        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+        style={**INQ_STYLE,
                "input": "#39ff14", "fuzzy_match": "#ff44cc"},
     ).execute()
 
@@ -286,7 +290,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         message="Select LLM provider:",
         choices=provider_choices,
         default=or_default,
-        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff"},
+        style=INQ_STYLE,
     ).execute()
 
     selected_group = next(g for g in available_groups if g.group_id == provider)
@@ -300,7 +304,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
     while True:
         api_key = _inq.secret(
             message=f"{selected_group.label} API Key:",
-            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+            style=INQ_STYLE,
         ).execute()
         if api_key.strip():
             break
@@ -324,12 +328,11 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
         model = _select_model_interactive(console, all_models)
     else:
         # For non-OpenRouter providers, ask for model ID directly
-        from InquirerPy import inquirer as _inq
         default_model = PROVIDER_DEFAULT_MODELS.get(provider, "")
         model = _inq.text(
             message=f"Model ID:",
             default=default_model,
-            style={"questionmark": "#ff44cc", "input": "#39ff14"},
+            style=INQ_STYLE,
         ).execute().strip()
 
     return provider, api_key.strip(), model
@@ -355,7 +358,7 @@ def _step_server(console: Console) -> tuple[str, int]:
     use_defaults = _inq.confirm(
         message="Use default host/port (0.0.0.0:8000)?",
         default=True,
-        style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+        style=INQ_STYLE,
     ).execute()
     if use_defaults:
         console.print("  [green]✔[/green] Using [bold]0.0.0.0:8000[/bold]\n")
@@ -364,12 +367,12 @@ def _step_server(console: Console) -> tuple[str, int]:
     host = _inq.text(
         message="Host:",
         default="0.0.0.0",
-        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        style=INQ_STYLE,
     ).execute()
     port_str = _inq.text(
         message="Port:",
         default="8000",
-        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        style=INQ_STYLE,
     ).execute()
     try:
         port = int(port_str)
@@ -419,7 +422,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     selected = _inq.checkbox(
         message="Select agent families:",
         choices=family_choices,
-        style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff",
+        style={**INQ_STYLE,
                "checkbox": "#39ff14", "instruction": "#888"},
         instruction="(Space=toggle, Enter=confirm)",
         validate=lambda result: len(result) > 0,
@@ -456,7 +459,7 @@ def _step_agent_family(console: Console) -> dict[str, str]:
             message=f"{display_name}:",
             choices=family_options,
             default=family_options[0]["value"],
-            style={"questionmark": "#ff44cc", "pointer": "#00e5ff", "highlighted": "#00e5ff"},
+            style=INQ_STYLE,
         ).execute()
         founders[emp_id] = hosting
         console.print(f"    [bright_green]▸ VESSEL LOCKED → {family_labels[hosting]}[/bright_green]")
@@ -486,7 +489,7 @@ def _step_sandbox(console: Console) -> bool:
     install = _inq.confirm(
         message="Install sandbox tools?",
         default=False,
-        style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+        style=INQ_STYLE,
     ).execute()
     if install:
         console.print()
@@ -548,7 +551,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = _inq.secret(
         message="Anthropic API Key (Enter to skip):",
-        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        style=INQ_STYLE,
         default="",
     ).execute()
     if key.strip():
@@ -563,7 +566,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = _inq.secret(
         message="SkillMarket API Key (Enter to skip):",
-        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        style=INQ_STYLE,
         default="",
     ).execute()
     if key.strip():
@@ -580,7 +583,7 @@ def _step_optional(console: Console) -> dict[str, str]:
     )
     key = _inq.secret(
         message="Talent Market API Key (Enter to skip):",
-        style={"questionmark": "#ff44cc", "input": "#39ff14"},
+        style=INQ_STYLE,
         default="",
     ).execute()
     if key.strip():
@@ -907,7 +910,7 @@ def run_wizard() -> None:
         if not _inq.confirm(
             message="Reconfigure?",
             default=False,
-            style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+            style=INQ_STYLE,
         ).execute():
             console.print("\n  Aborted. Existing configuration unchanged.")
             return
@@ -985,7 +988,7 @@ def run_auto(*, skip_confirm: bool = False) -> None:
         if not _inq.confirm(
             message="Proceed with auto-init?",
             default=False,
-            style={"questionmark": "#ff44cc", "answer": "#39ff14"},
+            style=INQ_STYLE,
         ).execute():
             console.print("\n  Aborted.")
             return
