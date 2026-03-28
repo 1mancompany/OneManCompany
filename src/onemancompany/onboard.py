@@ -127,6 +127,7 @@ def _step_welcome(console: Console) -> None:
         Text(LOGO, style="bold bright_cyan"),
         border_style="bright_magenta",
         padding=(0, 1),
+        expand=True,
     ))
     console.print()
     console.print("  [bold bright_green]⚡ INITIATING NEURAL BOOTSTRAP ⚡[/bold bright_green]")
@@ -852,6 +853,7 @@ def _step_done(console: Console, host: str, port: int) -> None:
         "  [dim]Need reinforcements? Configure Talent Market and tell HR to recruit.[/dim]",
         border_style="bright_magenta",
         padding=(1, 2),
+        expand=True,
     ))
 
 
