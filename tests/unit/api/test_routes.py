@@ -1899,6 +1899,56 @@ class TestArchiveProject:
         assert resp.json()["status"] == "archived"
 
 
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/projects/{project_id}
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteProject:
+    async def test_delete_not_found(self):
+        state = _make_state()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.core.project_archive.load_named_project", return_value=None):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.delete("/api/projects/nonexistent")
+
+        assert resp.status_code == 404
+
+    async def test_delete_success(self, tmp_path):
+        state = _make_state()
+        # Create a fake project dir so rmtree has something to delete
+        proj_dir = tmp_path / "test-proj"
+        proj_dir.mkdir()
+        (proj_dir / "project.yaml").write_text("name: Test")
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", EventBus()), \
+             patch("onemancompany.core.project_archive.load_named_project", return_value={"name": "Test", "iterations": []}), \
+             patch("onemancompany.core.config.PROJECTS_DIR", tmp_path), \
+             patch("onemancompany.api.routes.shutil.rmtree") as mock_rmtree:
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.delete("/api/projects/test-proj")
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "deleted"
+        mock_rmtree.assert_called_once()
+
+    def test_path_traversal_guard_logic(self, tmp_path):
+        """Path traversal in project_id must be caught by resolve() check."""
+        from pathlib import Path
+        project_dir = (tmp_path / "../../etc").resolve()
+        assert not project_dir.is_relative_to(tmp_path.resolve()), (
+            "Path traversal should resolve outside PROJECTS_DIR"
+        )
+
 # ---------------------------------------------------------------------------
 # GET /api/projects/{project_id}
 # ---------------------------------------------------------------------------

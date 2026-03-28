@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 import uuid as _uuid
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -2724,6 +2725,38 @@ async def archive_project_endpoint(project_id: str) -> dict:
     logger.info("[archive] Archived project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
     return {"status": "archived", "project_id": project_id, "tasks_cancelled": total_cancelled}
+
+
+@router.delete("/api/projects/{project_id}")
+async def delete_project_endpoint(project_id: str) -> dict:
+    """Delete a project and all its data — cancels running tasks first."""
+    from onemancompany.core.project_archive import load_named_project
+    from onemancompany.core.config import PROJECTS_DIR
+
+    # Path traversal guard — critical for rmtree
+    project_dir = (PROJECTS_DIR / project_id).resolve()
+    if not project_dir.is_relative_to(PROJECTS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid project ID")
+
+    proj = load_named_project(project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Cancel all running/pending tasks for all iterations
+    from onemancompany.core.agent_loop import employee_manager
+    iterations = proj.get("iterations", [])
+    total_cancelled = 0
+    for iter_id in iterations:
+        full_pid = f"{project_id}/{iter_id}"
+        total_cancelled += employee_manager.abort_project(full_pid)
+
+    # Delete entire project directory
+    if project_dir.exists():
+        shutil.rmtree(project_dir)
+
+    logger.info("[delete] Deleted project {} — cancelled {} task(s)", project_id, total_cancelled)
+    await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
+    return {"status": "deleted", "project_id": project_id, "tasks_cancelled": total_cancelled}
 
 
 @router.patch("/api/projects/{project_id}/name")

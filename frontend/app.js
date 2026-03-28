@@ -6372,6 +6372,7 @@ class AppController {
       <span style="color:var(--text-dim);font-size:6px;">${proj.status}</span>
       ${totalCost > 0 ? `<span style="color:var(--pixel-yellow);font-size:6px;">$${totalCost.toFixed(4)}</span>` : ''}
       <button onclick="app.openTraceViewer('${this._escHtml(projectId)}','${this._escHtml(proj.name || projectId)}')" style="margin-left:auto;background:#1a1a1a;color:#4af;border:1px solid #333;padding:1px 8px;font-size:6px;cursor:pointer;font-family:monospace">TRACE</button>
+      <button onclick="app._deleteProject('${this._escHtml(projectId)}')" style="background:#1a1a1a;color:var(--pixel-red);border:1px solid #500;padding:1px 8px;font-size:6px;cursor:pointer;font-family:monospace" title="Delete project and all data">DELETE</button>
     </div>`;
 
     // Build split layout: iteration list (left) + detail (right)
@@ -6892,6 +6893,26 @@ class AppController {
         }
       })
       .catch(err => console.error('[archiveProject] failed:', err));
+  }
+
+  _deleteProject(projectId) {
+    if (!confirm(`Delete project "${projectId}" and ALL its data? This cannot be undone.`)) return;
+    fetch(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' })
+      .then(r => {
+        if (!r.ok) throw new Error(`Server error: ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        if (data.status === 'deleted') {
+          this.logEntry('CEO', `Project "${projectId}" deleted`, 'ceo');
+          this.updateProjectsPanel();
+          this.loadActiveProjects();
+          document.getElementById('project-modal').classList.add('hidden');
+        }
+      })
+      .catch(err => {
+        this.logEntry('SYSTEM', `Failed to delete project: ${err.message}`, 'system');
+      });
   }
 
   loadActiveProjects() {
