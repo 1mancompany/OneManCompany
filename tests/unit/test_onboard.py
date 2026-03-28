@@ -124,6 +124,27 @@ class TestApplyFounderFamilies:
         mock_run.assert_not_called()
 
 
+class TestNoStaleRichUI:
+    """Onboard must not show Rich Table/instructions alongside InquirerPy prompts."""
+
+    def test_step_llm_no_rich_table_for_providers(self):
+        """_step_llm should not render a Rich Table of providers — InquirerPy select replaces it."""
+        import inspect
+        from onemancompany.onboard import _step_llm
+        source = inspect.getsource(_step_llm)
+        assert "console.print(table)" not in source, "Rich Table still rendered before InquirerPy select"
+        assert "Select your LLM provider" not in source, "Old Rich header text still present"
+
+    def test_step_llm_no_old_model_picker_instructions(self):
+        """Model picker instructions (n/p/c/number) are replaced by InquirerPy fuzzy search."""
+        import inspect
+        from onemancompany.onboard import _step_llm
+        source = inspect.getsource(_step_llm)
+        assert "Type a number" not in source
+        assert "next/previous page" not in source
+        assert "custom model ID" not in source
+
+
 class TestHostingLabels:
     """HOSTING_LABELS constant covers all valid hosting values."""
 
