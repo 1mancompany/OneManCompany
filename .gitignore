@@ -256,3 +256,6 @@ talent-template-*/
 PR_1on1_history_update.md
 workspace/
 img/local/*
+.agents/
+skills-lock.json
+skills/
