@@ -60,23 +60,6 @@ async def _run_hook_safe(hook, conv: Conversation) -> None:
 # ---------------------------------------------------------------------------
 
 
-@register_close_hook(ConversationType.CEO_INBOX)
-async def _close_ceo_inbox(conv: Conversation) -> dict | None:
-    """Close hook for CEO inbox conversations.
-
-    TODO: Port full logic from routes.py _run_conversation_loop (lines 5635-5657):
-    - Generate conversation summary via LLM
-    - Transition node: processing -> completed -> accepted
-    - Save tree
-    - Trigger dependency resolution
-    - Auto-resume held parent tasks
-    """
-    logger.info("[conversation] ceo_inbox close hook: conv={}", conv.id)
-    node_id = conv.metadata.get("node_id")
-    logger.debug("[conversation] ceo_inbox closing for node_id={}", node_id)
-    return {"summary": "", "node_id": node_id}
-
-
 @register_close_hook(ConversationType.ONE_ON_ONE)
 async def _close_oneonone(conv: Conversation) -> dict | None:
     """Close hook for 1-on-1 conversations.

@@ -68,7 +68,6 @@ class TestResumeHeldTaskGuard:
         em._employees = {}
         em._completion_queue = None
         em._completion_consumer = None
-        em._pending_ceo_reports = {}
 
         mock_node = MagicMock()
         mock_node.status = "completed"  # already resumed

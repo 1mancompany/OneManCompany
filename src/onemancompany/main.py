@@ -554,9 +554,8 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
 
-    # Recover projects stuck in pending_confirmation (auto-confirm timer lost on restart)
-    # The _pending_ceo_reports dict is in-memory only; on restart, the auto-confirm
-    # timer is lost. We must complete the iteration AND archive the project.
+    # Recover projects stuck in pending_confirmation (legacy state from old CEO inbox).
+    # Complete the iteration and archive the project.
     from onemancompany.core.project_archive import (
         archive_project,
         complete_project,

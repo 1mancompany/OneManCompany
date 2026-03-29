@@ -428,51 +428,16 @@ class TestCeoConfirmation:
         em.register("00001", MagicMock(spec=Launcher))
 
         with (
-            patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_old_confirm,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
             patch.object(em, "schedule_node") as mock_schedule,
             patch.object(em, "_schedule_next"),
         ):
             await em._on_child_complete("00100", entry, project_id="proj_ceo")
 
-        # Old path should NOT be called; new path creates confirm node + schedules
-        mock_old_confirm.assert_not_called()
+        # New path creates confirm node + schedules via CeoExecutor
         mock_cleanup.assert_not_called()
         mock_schedule.assert_called_once()
         assert mock_schedule.call_args[0][0] == "00001"  # CEO_ID
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_ceo_confirmation_deferred(self, mock_bus, mock_state, tmp_path):
-        """_request_ceo_confirmation stores pending report; confirm triggers cleanup."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        tree, tree_path = self._make_tree_with_root(tmp_path)
-        root_node = tree.get_node(tree.root_id)
-        tree.save(tree_path)
-
-        entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))
-
-        em = EmployeeManager()
-        em.register("00100", MagicMock(spec=Launcher))
-
-        with (
-            patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-        ):
-            await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
-
-            # Cleanup is deferred — not called immediately
-            mock_cleanup.assert_not_called()
-            assert "proj_ceo" in em._pending_ceo_reports
-            ctx = em._pending_ceo_reports["proj_ceo"]["cleanup_ctx"]
-            assert ctx["run_retrospective"] is True
-
-            # CEO confirms → triggers cleanup
-            await em._confirm_ceo_report("proj_ceo")
-            mock_cleanup.assert_called_once()
-            assert mock_cleanup.call_args.kwargs.get("run_retrospective") is True
 
 
 # ---------------------------------------------------------------------------
@@ -540,12 +505,10 @@ class TestProjectConfirmViaExecutor:
             patch.object(em, "schedule_node") as mock_schedule,
             patch.object(em, "_schedule_next") as mock_next,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-            patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_old_confirm,
         ):
             await em._on_child_complete("00101", entry, project_id="proj_confirm")
 
-        # Old path should NOT be called
-        mock_old_confirm.assert_not_called()
+        # Cleanup not called directly — goes through CeoExecutor
         mock_cleanup.assert_not_called()
 
         # schedule_node should have been called with CEO_ID for the confirm node
@@ -592,7 +555,6 @@ class TestProjectConfirmViaExecutor:
             patch.object(em, "schedule_node") as mock_schedule,
             patch.object(em, "_schedule_next") as mock_next,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock),
-            patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock),
         ):
             await em._on_child_complete("00101", entry, project_id="proj_confirm")
 
@@ -640,7 +602,6 @@ class TestProjectConfirmViaExecutor:
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
             patch.object(em, "schedule_node") as mock_schedule,
             patch.object(em, "_schedule_next"),
-            patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock),
         ):
             await em._on_child_complete("00001", entry, project_id="proj_confirm")
 

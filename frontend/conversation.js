@@ -96,13 +96,12 @@ class ChatPanel {
     setConversation(convId, convType, employeeName) {
         this._convId = convId;
         this._convType = convType;
-        const typeLabels = { oneonone: '1-on-1', ceo_session: 'Session', ceo_inbox: 'Inbox' };
+        const typeLabels = { oneonone: '1-on-1', ceo_session: 'Session' };
         this._container.querySelector('.chat-panel-type').textContent =
-            typeLabels[convType] || 'Inbox';
+            typeLabels[convType] || 'Chat';
         this._container.querySelector('.chat-panel-employee').textContent = employeeName;
         this._clearBtn.style.display = convType === 'oneonone' ? '' : 'none';
-        this._closeBtn.textContent = convType === 'ceo_inbox' ? 'Complete'
-            : convType === 'ceo_session' ? 'Close' : 'End';
+        this._closeBtn.textContent = convType === 'ceo_session' ? 'Close' : 'End';
     }
 
     renderMessages(messages) {

@@ -2079,14 +2079,12 @@ class TestRootNodeCompletion:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_old, \
-             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup, \
+        with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup, \
              patch.object(mgr, "schedule_node") as mock_schedule, \
              patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00001", entry, project_id="proj1")
 
-        # New path: schedule_node called with CEO_ID; old path not used
-        mock_old.assert_not_called()
+        # schedule_node called with CEO_ID for project completion
         mock_cleanup.assert_not_called()
         mock_schedule.assert_called_once()
         assert mock_schedule.call_args[0][0] == "00001"
@@ -2114,12 +2112,10 @@ class TestRootNodeCompletion:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
-             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+        with patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
             await mgr._on_child_complete("00003", entry, project_id="real-project/iter_001")
 
         # Should NOT trigger project completion for adhoc nodes
-        mock_confirm.assert_not_called()
         mock_cleanup.assert_not_called()
 
     @pytest.mark.asyncio
@@ -2604,87 +2600,6 @@ class TestFindHoldingTask:
 
 
 class TestSimpleModeSkipsRetrospective:
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_simple_mode_skips_retrospective(self, mock_bus, mock_state):
-        """When tree.mode == 'simple', pending report stores run_retrospective=False."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-
-        tree = TaskTree(project_id="p1", mode="simple")
-        node = MagicMock()
-        node.node_type = NodeType.TASK
-        node.description_preview = "test task"
-        node.id = "n1"
-        node.project_dir = "/tmp/proj"
-        node.is_ceo_node = False
-
-        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/proj/task_tree.yaml")
-
-        with (
-            patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-            patch("onemancompany.core.vessel._store") as mock_store,
-        ):
-            mock_store.load_employee.return_value = {"name": "Test"}
-            tree._nodes = {"n1": node}
-            tree.get_children = MagicMock(return_value=[])
-
-            await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
-
-            # Cleanup is deferred — not called immediately
-            mock_cleanup.assert_not_called()
-            # Pending report should be stored with run_retrospective=False
-            assert "p1" in mgr._pending_ceo_reports
-            ctx = mgr._pending_ceo_reports["p1"]["cleanup_ctx"]
-            assert ctx["run_retrospective"] is False
-
-            # Confirm triggers cleanup
-            await mgr._confirm_ceo_report("p1")
-            mock_cleanup.assert_called_once()
-            _, kwargs = mock_cleanup.call_args
-            assert kwargs["run_retrospective"] is False
-
-    @pytest.mark.asyncio
-    @patch("onemancompany.core.vessel.company_state")
-    @patch("onemancompany.core.vessel.event_bus")
-    async def test_standard_mode_runs_retrospective(self, mock_bus, mock_state):
-        """When tree.mode == 'standard' and not system node, confirm triggers retrospective."""
-        mock_bus.publish = AsyncMock()
-        mock_state.employees = {}
-
-        mgr = EmployeeManager()
-
-        tree = TaskTree(project_id="p1", mode="standard")
-        node = MagicMock()
-        node.node_type = NodeType.TASK
-        node.description_preview = "test task"
-        node.id = "n1"
-        node.project_dir = "/tmp/proj"
-        node.is_ceo_node = False
-
-        entry = ScheduleEntry(node_id="n1", tree_path="/tmp/proj/task_tree.yaml")
-
-        with (
-            patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
-            patch("onemancompany.core.vessel._store") as mock_store,
-        ):
-            mock_store.load_employee.return_value = {"name": "Test"}
-            tree._nodes = {"n1": node}
-            tree.get_children = MagicMock(return_value=[])
-
-            await mgr._request_ceo_confirmation("00006", node, tree, entry, "p1")
-
-            # Cleanup is deferred — not called immediately
-            mock_cleanup.assert_not_called()
-            assert "p1" in mgr._pending_ceo_reports
-            ctx = mgr._pending_ceo_reports["p1"]["cleanup_ctx"]
-            assert ctx["run_retrospective"] is True
-
-            # Confirm triggers cleanup
-            await mgr._confirm_ceo_report("p1")
-            mock_cleanup.assert_called_once()
-            _, kwargs = mock_cleanup.call_args
-            assert kwargs["run_retrospective"] is True
+    """Old tests for _request_ceo_confirmation removed — project completion
+    now goes through CeoExecutor/CeoBroker."""
+    pass

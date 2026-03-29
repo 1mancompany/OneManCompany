@@ -126,7 +126,6 @@ class AppController {
       if (activity_log && activity_log.length > 0) {
         this._renderHistoricalActivityLog(activity_log);
       }
-      this._refreshCeoInbox();
       // Restore pending candidate shortlist modal if HR submitted candidates
       this._restorePendingCandidates();
       // Restore onboarding progress modal if there's an active onboarding
@@ -258,12 +257,6 @@ class AppController {
       return;
     }
 
-    // CEO inbox real-time updates
-    if (msg.type === 'ceo_inbox_updated') {
-      this._refreshCeoInbox();
-      return;
-    }
-
     // CEO session real-time updates (project-level conversations)
     if (msg.type === 'ceo_session_message') {
       const p = msg.payload || {};
@@ -279,21 +272,6 @@ class AppController {
       }
       return;
     }
-    if (msg.type === 'ceo_conversation') {
-      const p = msg.payload || msg;
-      if (this._chatPanel && this._currentConvNodeId === p.node_id) {
-        const empName = this._resolveEmployeeName(p.sender);
-        const role = p.origin === 'ea' ? 'EA' : p.sender === 'ceo' ? 'CEO' : empName;
-        this._chatPanel.appendMessage({
-          sender: p.sender,
-          role,
-          text: p.text,
-          timestamp: p.timestamp,
-        });
-      }
-      return;
-    }
-
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
@@ -2354,119 +2332,6 @@ class AppController {
     return projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  // ===== CEO Inbox =====
-  async _refreshCeoInbox(page) {
-    try {
-      const p = page || this._inboxPage || 1;
-      const resp = await fetch(`/api/ceo/inbox?page=${p}&page_size=10`);
-      const data = await resp.json();
-      this._inboxPage = data.page;
-      this._inboxTotalPages = data.total_pages;
-      this._renderCeoInbox(data.items || [], data.total, data.page, data.total_pages);
-    } catch (e) {
-      console.error('Failed to refresh CEO inbox:', e);
-    }
-  }
-
-  _renderCeoInbox(items, total, page, totalPages) {
-    const list = document.getElementById('ceo-inbox-list');
-    const badge = document.getElementById('ceo-inbox-badge');
-    if (!list) return;
-
-    if (total === 0 || items.length === 0) {
-      list.innerHTML = '<div class="inbox-empty">No pending requests</div>';
-      if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
-      return;
-    }
-
-    if (badge) {
-      badge.textContent = total;
-      badge.classList.remove('hidden');
-      badge.classList.toggle('inbox-badge-active', total > 0);
-    }
-
-    const rows = items.map(item => {
-      const statusIcon = item.status === 'processing' ? '🔄' : '⏸';
-      const dismissBtn = `<button class="inbox-dismiss-btn" onclick="event.stopPropagation();app._dismissInboxItem('${item.node_id}')" title="Dismiss" style="font-size:10px;padding:2px 4px;margin-left:4px;background:transparent;color:#888;border:1px solid #555;border-radius:3px;cursor:pointer">✕</button>`;
-      return `
-      <div class="inbox-item" data-node-id="${item.node_id}" onclick="app._openCeoConversation('${item.node_id}')">
-        <span class="inbox-status">${statusIcon}</span>
-        <div class="inbox-item-content" style="flex:1">
-          <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
-          <div class="inbox-item-desc">${this._escHtml(item.description || '')}</div>
-        </div>
-        ${dismissBtn}
-      </div>`;
-    }).join('');
-
-    // Pagination controls
-    const pager = totalPages > 1 ? `
-      <div class="inbox-pager" style="display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:#999">
-        <button onclick="app._refreshCeoInbox(${page - 1})" ${page <= 1 ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">◀</button>
-        <span>${page} / ${totalPages}</span>
-        <button onclick="app._refreshCeoInbox(${page + 1})" ${page >= totalPages ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">▶</button>
-      </div>` : '';
-
-    list.innerHTML = rows + pager;
-  }
-
-  async _dismissInboxItem(nodeId) {
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/dismiss`, { method: 'POST' });
-      this._refreshCeoInbox();
-    } catch (e) {
-      console.error('Failed to dismiss inbox item:', e);
-    }
-  }
-
-  // ===== CEO Conversation (reuses ChatPanel) =====
-  async _openCeoConversation(nodeId) {
-    try {
-      const resp = await fetch(`/api/ceo/inbox/${nodeId}/open`, { method: 'POST' });
-      const data = await resp.json();
-      this._currentConvNodeId = nodeId;
-
-      const chatContainer = document.getElementById('right-panel-chat');
-      // Hide CEO Console + CEO Inbox sections
-      for (const target of ['ceo-body', 'ceo-inbox-body']) {
-        const body = document.getElementById(target);
-        if (body) body.style.display = 'none';
-        const header = body?.previousElementSibling;
-        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
-      }
-      chatContainer.classList.remove('hidden');
-
-      if (!this._chatPanel) {
-        this._chatPanel = new ChatPanel(chatContainer);
-      }
-      // Wire callbacks for CEO inbox APIs
-      this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
-      this._chatPanel.onClear(null);
-      this._chatPanel.onClose((id) => this._completeCeoConversation(id));
-      // Show and reset EA auto-reply toggle in sidebar header
-      const eaToggle = document.getElementById('ea-autoreply-toggle');
-      const eaCb = document.getElementById('ea-autoreply-checkbox');
-      if (eaToggle) eaToggle.classList.remove('hidden');
-      if (eaCb) eaCb.checked = false;
-
-      const nickname = data.employee_nickname || data.employee_id || 'Employee';
-      this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
-      // Convert inbox messages to ChatPanel format (add role field)
-      const messages = (data.messages || []).map(m => ({
-        ...m,
-        role: m.sender === 'ceo' ? 'CEO' : nickname,
-      }));
-      // Prepend description as initial agent message if no messages exist yet
-      if (data.description && messages.length === 0) {
-        messages.unshift({ role: nickname, text: data.description, sender: 'employee' });
-      }
-      this._chatPanel.renderMessages(messages);
-      this._chatPanel.setInputEnabled(true);
-    } catch (e) {
-      console.error('Failed to open conversation:', e);
-    }
-  }
-
   // ===== CEO Session (project-level conversation via CeoExecutor) =====
   async _openCeoSession(projectId) {
     try {
@@ -2476,7 +2341,7 @@ class AppController {
 
       const chatContainer = document.getElementById('right-panel-chat');
       // Hide CEO Console + CEO Inbox sections
-      for (const target of ['ceo-body', 'ceo-inbox-body']) {
+      for (const target of ['ceo-body']) {
         const body = document.getElementById(target);
         if (body) body.style.display = 'none';
         const header = body?.previousElementSibling;
@@ -2534,64 +2399,6 @@ class AppController {
       this._currentSessionProjectId = projectId;
     } catch (e) {
       console.error('Failed to open CEO session:', e);
-    }
-  }
-
-  async _sendCeoInboxMessage(nodeId, text) {
-    if (!this._chatPanel || !nodeId) return;
-    this._chatPanel.showTyping(true);
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-    } catch (e) {
-      this._chatPanel.showTyping(false);
-      console.error('Failed to send message:', e);
-    }
-    // Reply arrives via WebSocket ceo_conversation event
-  }
-
-  async _completeCeoConversation(nodeId) {
-    if (!nodeId) nodeId = this._currentConvNodeId;
-    if (!nodeId) return;
-    if (!confirm('Complete this conversation and send your decision to the agent?')) return;
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/complete`, { method: 'POST' });
-    } catch (e) {
-      console.error('Failed to complete conversation:', e);
-    }
-    // Restore right panel
-    const chatContainer = document.getElementById('right-panel-chat');
-    chatContainer.classList.add('hidden');
-    // Hide EA auto-reply toggle
-    const eaToggle = document.getElementById('ea-autoreply-toggle');
-    if (eaToggle) eaToggle.classList.add('hidden');
-    this._restoreConsoleSections();
-    this._chatPanel = null;
-    this._currentConvNodeId = null;
-    this._refreshCeoInbox();
-  }
-
-  async _confirmEaReply(nodeId) {
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/confirm`, { method: 'POST' });
-      this._refreshCeoInbox();
-    } catch (e) {
-      console.error('Failed to confirm EA reply:', e);
-    }
-  }
-
-  async _toggleEaAutoReply(nodeId, enabled) {
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/ea-auto-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
-      });
-    } catch (e) {
-      console.error('Failed to toggle EA auto-reply:', e);
     }
   }
 
@@ -6072,7 +5879,7 @@ class AppController {
     const chatContainer = document.getElementById('right-panel-chat');
 
     // Hide CEO Console + CEO Inbox sections only, keep Activity Log visible
-    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+    for (const target of ['ceo-body']) {
       const body = document.getElementById(target);
       if (body) body.style.display = 'none';
       // Hide the corresponding collapsible header
@@ -6218,7 +6025,7 @@ class AppController {
   }
 
   _restoreConsoleSections() {
-    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+    for (const target of ['ceo-body']) {
       const body = document.getElementById(target);
       if (body) body.style.display = '';
       const header = body?.previousElementSibling;
