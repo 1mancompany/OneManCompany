@@ -2058,13 +2058,14 @@ class TestRootNodeCompletion:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_root_complete_triggers_ceo_confirmation(self, mock_bus, mock_state, tmp_path):
-        """Root node completion triggers _request_ceo_confirmation (not _full_cleanup directly)."""
+    async def test_root_complete_creates_confirm_node(self, mock_bus, mock_state, tmp_path):
+        """Root node completion creates a CEO_REQUEST confirm node (not _full_cleanup directly)."""
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
 
         mgr = EmployeeManager()
+        mgr.register("00001", MagicMock(spec=Launcher))
 
         tree = TaskTree(project_id="proj1")
         root = tree.create_root("00001", "Root task")
@@ -2078,13 +2079,17 @@ class TestRootNodeCompletion:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=root.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm, \
-             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup:
+        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_old, \
+             patch.object(mgr, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup, \
+             patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00001", entry, project_id="proj1")
 
-        # _request_ceo_confirmation should have been called, not _full_cleanup
-        mock_confirm.assert_called_once()
+        # New path: schedule_node called with CEO_ID; old path not used
+        mock_old.assert_not_called()
         mock_cleanup.assert_not_called()
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args[0][0] == "00001"
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -2158,8 +2163,10 @@ class TestProjectCompletionBottomUp:
     @patch("onemancompany.core.vessel.event_bus")
     async def test_flat_tree_all_children_accepted_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
         """CEO → EA → [c1(accepted), c2(accepted)]
-        Last review node completes → EA auto-completes → project complete → retrospective.
+        Last review node completes → EA auto-completes → project complete → CEO confirm node created.
         """
+        from onemancompany.core.task_lifecycle import NodeType
+
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
@@ -2167,6 +2174,7 @@ class TestProjectCompletionBottomUp:
         mgr = EmployeeManager()
         ea_launcher = MagicMock(spec=Launcher)
         mgr.register("00006", ea_launcher)
+        mgr.register("00001", MagicMock(spec=Launcher))
 
         tree = TaskTree(project_id="proj1")
         ceo = tree.create_root("00001", "CEO prompt")
@@ -2189,14 +2197,14 @@ class TestProjectCompletionBottomUp:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+        with patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00006", entry, project_id="proj1")
 
         # EA should auto-complete (all non-review children accepted)
-        # then is_project_complete() → True → _request_ceo_confirmation called
-        mock_confirm.assert_called_once()
-        call_args = mock_confirm.call_args
-        assert call_args[0][0] == "00006"  # employee_id = EA
+        # then is_project_complete() → True → CEO_REQUEST confirm node created + scheduled
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args[0][0] == "00001"  # CEO_ID
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -2231,11 +2239,12 @@ class TestProjectCompletionBottomUp:
         # leaf1 just got accepted via accept_child → triggers callback
         entry = ScheduleEntry(node_id=leaf1.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+        with patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00010", entry, project_id="proj2")
 
         # leaf2 still processing → mid can't auto-complete → project NOT complete
-        mock_confirm.assert_not_called()
+        mock_schedule.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
@@ -2275,12 +2284,15 @@ class TestProjectCompletionBottomUp:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=review.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+        mgr.register("00001", MagicMock(spec=Launcher))
+        with patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00006", entry, project_id="proj3")
 
         # EA is done_executing(completed), all children RESOLVED
-        # is_project_complete() → True → _request_ceo_confirmation called
-        mock_confirm.assert_called_once()
+        # is_project_complete() → True → CEO_REQUEST confirm node created
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args[0][0] == "00001"
 
 
     @pytest.mark.asyncio
@@ -2315,7 +2327,9 @@ class TestProjectCompletionBottomUp:
         tree.save(tree_path)
         entry = ScheduleEntry(node_id=c2.id, tree_path=str(tree_path))
 
-        with patch.object(mgr, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm:
+        mgr.register("00001", MagicMock(spec=Launcher))
+        with patch.object(mgr, "schedule_node") as mock_schedule, \
+             patch.object(mgr, "_schedule_next"):
             await mgr._on_child_complete("00011", entry, project_id="proj_autopromote")
 
         # EA should auto-promote from COMPLETED → ACCEPTED → FINISHED
@@ -2325,8 +2339,9 @@ class TestProjectCompletionBottomUp:
             f"Expected EA to auto-promote to FINISHED, got {ea_node.status}"
         )
 
-        # Project should complete → _request_ceo_confirmation called
-        mock_confirm.assert_called_once()
+        # Project should complete → CEO_REQUEST confirm node created
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args[0][0] == "00001"
 
 
 # ---------------------------------------------------------------------------

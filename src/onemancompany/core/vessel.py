@@ -2338,14 +2338,41 @@ class EmployeeManager:
                     logger.debug("[ON_CHILD_COMPLETE] parent={} — waiting (needs_review={}, active_review={})",
                                  parent_node.id, needs_review, has_active_review)
 
+        # --- CEO confirm node completed → trigger cleanup ---
+        # When a CEO_REQUEST confirm node (created below) finishes, run
+        # _full_cleanup to archive the project and optionally run retrospective.
+        from onemancompany.core.config import CEO_ID as _CEO_ID
+        if (node.node_type in (NodeType.CEO_REQUEST, NodeType.CEO_REQUEST.value)
+            and node.employee_id == _CEO_ID
+            and tree.is_project_complete()):
+            ea_node = tree.get_ea_node()
+            if ea_node:
+                # Advance CEO_PROMPT root: COMPLETED → ACCEPTED → FINISHED
+                ea_parent = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+                if ea_parent and ea_parent.is_ceo_node:
+                    if ea_parent.status == TaskPhase.COMPLETED.value:
+                        ea_parent.set_status(TaskPhase.ACCEPTED)
+                        ea_parent.acceptance_result = {"passed": True, "notes": f"CEO confirmed: {node.result or 'approved'}"}
+                        ea_parent.set_status(TaskPhase.FINISHED)
+                        logger.info("[TASK LIFECYCLE] CEO root {} → FINISHED (CEO confirmed)", ea_parent.id)
+                        save_tree_async(entry.tree_path)
+
+                is_system_node = ea_node.node_type in SYSTEM_NODE_TYPES
+                run_retro = not is_system_node and tree.mode != "simple"
+                await self._full_cleanup(
+                    ea_node.employee_id, ea_node, agent_error=False,
+                    project_id=project_id, run_retrospective=run_retro,
+                )
+                return  # cleanup done, no need to continue
+
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
-        # EA done executing + all child subtrees RESOLVED → trigger retrospective.
+        # EA done executing + all child subtrees RESOLVED → trigger CEO confirmation.
         # Skip non-project node types (see _SKIP_COMPLETION_TYPES).
         if node.node_type not in SKIP_COMPLETION_TYPES and tree.is_project_complete():
             ea_node = tree.get_ea_node()
             logger.info(
-                "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
+                "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — scheduling CEO confirmation",
                 ea_node.id,
             )
             # Advance CEO parent node if present
@@ -2356,10 +2383,44 @@ class EmployeeManager:
                         ea_parent.set_status(TaskPhase.PROCESSING)
                     ea_parent.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] CEO parent={} → COMPLETED", ea_parent.id)
-                save_tree_async(entry.tree_path)
-            await self._request_ceo_confirmation(
-                ea_node.employee_id, ea_node, tree, entry, project_id
+
+            # Guard: don't create duplicate confirm nodes
+            existing_confirm = any(
+                c for c in tree.get_children(ea_node.id)
+                if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
+                and c.employee_id == _CEO_ID
             )
+            if existing_confirm:
+                logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
+            else:
+                # Build completion summary
+                _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
+                ea_node.load_content(_pdir)
+                children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
+                lines = [f"Project Completion Report — {ea_node.description}", ""]
+                for i, child in enumerate(children, 1):
+                    child.load_content(_pdir)
+                    status_icon = "✓" if child.status == TaskPhase.ACCEPTED.value else "●"
+                    lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description}")
+                    lines.append(f"  Result: {child.result or 'None'}")
+                    lines.append("")
+                lines.append("Please confirm project completion or provide feedback.")
+                confirm_desc = "\n".join(lines)
+
+                # Create confirm node assigned to CEO
+                confirm_node = tree.add_child(
+                    parent_id=ea_node.id,
+                    employee_id=_CEO_ID,
+                    description=confirm_desc,
+                    acceptance_criteria=[],
+                )
+                confirm_node.node_type = NodeType.CEO_REQUEST
+                confirm_node.project_id = project_id
+                confirm_node.project_dir = _pdir
+                save_tree_async(entry.tree_path)
+
+                self.schedule_node(_CEO_ID, confirm_node.id, entry.tree_path)
+                self._schedule_next(_CEO_ID)
 
     async def _spawn_review_or_escalate(
         self, tree, node, parent_node, children, entry: ScheduleEntry, project_id: str
