@@ -501,6 +501,13 @@ async def lifespan(app: FastAPI):
         register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
         _registered_founding.add(_fid)
 
+    # Register CeoExecutor for CEO (virtual employee — routes to TUI, no LLM)
+    from onemancompany.core.ceo_broker import CeoExecutor
+    from onemancompany.core.config import CEO_ID
+    from onemancompany.core.vessel import employee_manager as _ceo_em
+    _ceo_em.executors[CEO_ID] = CeoExecutor()
+    logger.info("[startup] Registered CEO ({}) — CeoExecutor (TUI routing)", CEO_ID)
+
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
     from onemancompany.core.config import FOUNDING_LEVEL, FOUNDING_IDS

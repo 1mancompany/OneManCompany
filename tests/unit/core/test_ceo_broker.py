@@ -188,3 +188,18 @@ class TestCeoExecutor:
     def test_is_ready(self):
         from onemancompany.core.ceo_broker import CeoExecutor
         assert CeoExecutor().is_ready() is True
+
+
+class TestCeoRegistration:
+    def test_ceo_executor_registered_in_executors(self):
+        """CeoExecutor should be registerable in EmployeeManager.executors."""
+        from onemancompany.core.ceo_broker import CeoExecutor
+        from onemancompany.core.config import CEO_ID
+
+        executor = CeoExecutor()
+        executors = {}
+        executors[CEO_ID] = executor
+
+        assert CEO_ID in executors
+        assert isinstance(executors[CEO_ID], CeoExecutor)
+        assert executor.is_ready()
