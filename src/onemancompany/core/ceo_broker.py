@@ -144,6 +144,37 @@ class CeoBroker:
         summaries.sort(key=lambda s: (not s["has_pending"], s["project_id"]))
         return summaries
 
+    def recover(self, projects_dir: Path) -> None:
+        """Rebuild sessions from disk on restart.
+
+        Loads conversation history from ceo_session.yaml files.
+        Pending Futures are recreated by schedule_node -> CeoExecutor.execute().
+        """
+        from onemancompany.core.config import TASK_TREE_FILENAME
+
+        if not projects_dir.exists():
+            return
+
+        for tree_path in projects_dir.rglob(TASK_TREE_FILENAME):
+            try:
+                # Lazy import to avoid circular deps
+                from onemancompany.core.task_tree import get_tree
+                tree = get_tree(tree_path)
+            except Exception as exc:
+                logger.warning("[CeoBroker] Skipping corrupt tree {}: {}", tree_path, exc)
+                continue
+
+            project_id = tree.project_id
+            project_dir = tree_path.parent
+
+            # Load session history if it exists
+            history_path = project_dir / CEO_SESSION_FILENAME
+            session = self.get_or_create_session(project_id)
+            if history_path.exists():
+                session.load_history(project_dir)
+                logger.debug("[CeoBroker] Recovered session for project={} ({} messages)",
+                             project_id, len(session.history))
+
     async def handle_input(self, project_id: str, text: str) -> dict:
         session = self.get_or_create_session(project_id)
         if session.has_pending:

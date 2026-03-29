@@ -190,6 +190,70 @@ class TestCeoExecutor:
         assert CeoExecutor().is_ready() is True
 
 
+class TestCeoBrokerRecovery:
+    def test_recover_loads_session_history(self):
+        """recover() should load ceo_session.yaml into sessions."""
+        import tempfile
+        from onemancompany.core.ceo_broker import CeoBroker, CEO_SESSION_FILENAME
+        from onemancompany.core.task_tree import TaskTree, _cache
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a project dir with a tree and session history
+            proj_dir = Path(tmpdir) / "iter_001"
+            proj_dir.mkdir(parents=True)
+
+            tree = TaskTree(project_id="test_proj/iter_001")
+            tree.create_root("00001", "Test task")
+            tree_path = proj_dir / "task_tree.yaml"
+            tree.save(tree_path)
+
+            # Write session history
+            history = [
+                {"role": "system", "text": "Approve?", "source": "00003", "timestamp": "2026-01-01"},
+                {"role": "ceo", "text": "Approved", "timestamp": "2026-01-01"},
+            ]
+            (proj_dir / CEO_SESSION_FILENAME).write_text(
+                yaml.dump({"history": history}, allow_unicode=True),
+            )
+
+            _cache.clear()
+            broker = CeoBroker()
+            broker.recover(Path(tmpdir))
+
+            session = broker.get_session("test_proj/iter_001")
+            assert session is not None
+            assert len(session.history) == 2
+            assert session.history[0]["role"] == "system"
+            assert session.history[1]["role"] == "ceo"
+
+            _cache.clear()
+
+    def test_recover_skips_missing_history(self):
+        """recover() should create session but skip history loading if no file."""
+        import tempfile
+        from onemancompany.core.ceo_broker import CeoBroker
+        from onemancompany.core.task_tree import TaskTree, _cache
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            proj_dir = Path(tmpdir) / "iter_001"
+            proj_dir.mkdir(parents=True)
+
+            tree = TaskTree(project_id="test_proj/iter_001")
+            tree.create_root("00001", "Test task")
+            tree.save(proj_dir / "task_tree.yaml")
+
+            _cache.clear()
+            broker = CeoBroker()
+            broker.recover(Path(tmpdir))
+
+            # Session should exist but with no history
+            session = broker.get_session("test_proj/iter_001")
+            assert session is not None
+            assert len(session.history) == 0
+
+            _cache.clear()
+
+
 class TestCeoRegistration:
     def test_ceo_executor_registered_in_executors(self):
         """CeoExecutor should be registerable in EmployeeManager.executors."""
