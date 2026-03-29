@@ -254,6 +254,121 @@ class TestCeoBrokerRecovery:
             _cache.clear()
 
 
+class TestEaAutoReply:
+    @pytest.mark.asyncio
+    async def test_auto_reply_resolves_after_timeout(self):
+        """If CEO doesn't reply, EA auto-replies after timeout."""
+        import onemancompany.core.ceo_broker as _mod
+        _mod._broker = None
+
+        session = CeoSession(project_id="proj_001")
+        session.auto_reply_timeout = 0.1  # 100ms for test speed
+
+        future = asyncio.get_running_loop().create_future()
+        interaction = CeoInteraction(
+            node_id="abc", tree_path="", project_id="proj_001",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Need approval", future=future,
+        )
+
+        with patch("onemancompany.core.ceo_broker._ea_auto_reply", new_callable=AsyncMock) as mock_ea:
+            mock_ea.return_value = "[EA Auto-Reply] Decision: ACCEPT\nLooks good"
+            session.enqueue(interaction)
+
+            # Wait for auto-reply timer
+            result = await asyncio.wait_for(future, timeout=2.0)
+            assert "ACCEPT" in result
+            assert session.has_pending is False
+
+        _mod._broker = None
+
+    @pytest.mark.asyncio
+    async def test_ceo_reply_cancels_auto_reply_timer(self):
+        """CEO replying before timeout cancels the auto-reply."""
+        session = CeoSession(project_id="proj_001")
+        session.auto_reply_timeout = 10  # Long timeout
+
+        future = asyncio.get_running_loop().create_future()
+        interaction = CeoInteraction(
+            node_id="abc", tree_path="", project_id="proj_001",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Need approval", future=future,
+        )
+
+        with patch("onemancompany.core.ceo_broker._ea_auto_reply", new_callable=AsyncMock) as mock_ea:
+            session.enqueue(interaction)
+
+            # CEO replies quickly
+            popped = session.pop_pending()
+            popped.future.set_result("CEO approved")
+
+            result = await future
+            assert result == "CEO approved"
+            # EA auto-reply should NOT have been called
+            mock_ea.assert_not_called()
+            # Timer should have been cancelled
+            assert len(session._auto_reply_tasks) == 0
+
+    def test_auto_reply_disabled(self):
+        """When auto_reply_enabled is False, no timer is started."""
+        session = CeoSession(project_id="proj_001")
+        session.auto_reply_enabled = False
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        interaction = CeoInteraction(
+            node_id="abc", tree_path="", project_id="proj_001",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Need approval", future=future,
+        )
+        session.enqueue(interaction)
+        assert len(session._auto_reply_tasks) == 0
+        loop.close()
+
+    @pytest.mark.asyncio
+    async def test_cancel_all_timers(self):
+        """cancel_all_timers cancels all pending auto-reply tasks."""
+        session = CeoSession(project_id="proj_001")
+        session.auto_reply_timeout = 100  # Very long, won't fire
+
+        for i in range(3):
+            future = asyncio.get_running_loop().create_future()
+            interaction = CeoInteraction(
+                node_id=f"node_{i}", tree_path="", project_id="proj_001",
+                source_employee="00003", interaction_type="ceo_request",
+                message=f"Request {i}", future=future,
+            )
+            with patch("onemancompany.core.ceo_broker._ea_auto_reply", new_callable=AsyncMock):
+                session.enqueue(interaction)
+
+        assert len(session._auto_reply_tasks) == 3
+        session.cancel_all_timers()
+        assert len(session._auto_reply_tasks) == 0
+
+    @pytest.mark.asyncio
+    async def test_auto_reply_pushes_system_message(self):
+        """Auto-reply should push a system message to history."""
+        session = CeoSession(project_id="proj_001")
+        session.auto_reply_timeout = 0.1
+
+        future = asyncio.get_running_loop().create_future()
+        interaction = CeoInteraction(
+            node_id="abc", tree_path="", project_id="proj_001",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Need approval", future=future,
+        )
+
+        with patch("onemancompany.core.ceo_broker._ea_auto_reply", new_callable=AsyncMock) as mock_ea:
+            mock_ea.return_value = "[EA Auto-Reply] Decision: ACCEPT\nLooks good"
+            session.enqueue(interaction)
+
+            await asyncio.wait_for(future, timeout=2.0)
+
+        # Should have 2 messages: original enqueue + auto-reply
+        assert len(session.history) == 2
+        assert session.history[1]["source"] == "ea_auto_reply"
+
+
 class TestCeoRegistration:
     def test_ceo_executor_registered_in_executors(self):
         """CeoExecutor should be registerable in EmployeeManager.executors."""

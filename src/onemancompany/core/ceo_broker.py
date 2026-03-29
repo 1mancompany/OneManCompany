@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 CEO_SESSION_FILENAME = "ceo_session.yaml"
 
+# Default timeout for EA auto-reply (seconds)
+CEO_AUTO_REPLY_TIMEOUT = 120
+
 
 @dataclass
 class CeoInteraction:
@@ -50,6 +53,9 @@ class CeoSession:
         self.project_dir: Path | None = None
         self.history: list[dict] = []
         self._pending: deque[CeoInteraction] = deque()
+        self._auto_reply_tasks: dict[str, asyncio.Task] = {}  # node_id → timer task
+        self.auto_reply_enabled: bool = True
+        self.auto_reply_timeout: int = CEO_AUTO_REPLY_TIMEOUT
 
     @property
     def has_pending(self) -> bool:
@@ -69,12 +75,56 @@ class CeoSession:
             interaction.node_id,
             interaction.interaction_type,
         )
+        # Start auto-reply timer
+        if self.auto_reply_enabled:
+            self._start_auto_reply_timer(interaction)
+
+    def _start_auto_reply_timer(self, interaction: CeoInteraction) -> None:
+        """Start a background timer that auto-replies if CEO doesn't respond."""
+        async def _timer() -> None:
+            try:
+                await asyncio.sleep(self.auto_reply_timeout)
+                # Check if this interaction is still pending (CEO might have replied)
+                if interaction in self._pending:
+                    reply = await _ea_auto_reply(interaction.node_id, interaction.message)
+                    # Re-check after async call — CEO may have replied while EA was thinking
+                    if interaction in self._pending:
+                        self._pending.remove(interaction)
+                        self.push_system_message(reply, source="ea_auto_reply")
+                        interaction.future.set_result(reply)
+                        logger.info(
+                            "[CeoSession] EA auto-replied for node={} in project={}",
+                            interaction.node_id, self.project_id,
+                        )
+                        if self.project_dir:
+                            self.save_history(self.project_dir)
+            except asyncio.CancelledError:
+                logger.debug("[CeoSession] Auto-reply timer cancelled for node={}", interaction.node_id)
+            except Exception as e:
+                logger.error("[CeoSession] Auto-reply error for node={}: {}", interaction.node_id, e)
+            finally:
+                self._auto_reply_tasks.pop(interaction.node_id, None)
+
+        task = asyncio.ensure_future(_timer())
+        self._auto_reply_tasks[interaction.node_id] = task
 
     def pop_pending(self) -> CeoInteraction | None:
         """Pop the oldest pending interaction (FIFO)."""
         if self._pending:
-            return self._pending.popleft()
+            interaction = self._pending.popleft()
+            # Cancel auto-reply timer since CEO responded
+            timer = self._auto_reply_tasks.pop(interaction.node_id, None)
+            if timer and not timer.done():
+                timer.cancel()
+            return interaction
         return None
+
+    def cancel_all_timers(self) -> None:
+        """Cancel all pending auto-reply timers."""
+        for task in self._auto_reply_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._auto_reply_tasks.clear()
 
     def push_system_message(self, text: str, source: str = "") -> dict:
         """Append a system message (from an employee) to history."""
@@ -124,6 +174,49 @@ class CeoSession:
             "message_count": len(self.history),
             "last_message": self.history[-1] if self.history else None,
         }
+
+
+async def _ea_auto_reply(node_id: str, description: str) -> str:
+    """EA reads the request description and decides accept/reject on behalf of CEO."""
+    import json
+    import re
+
+    from onemancompany.agents.base import _extract_text, make_llm, tracked_ainvoke
+    from onemancompany.core.config import EA_ID
+
+    llm = make_llm(EA_ID)
+    prompt = (
+        "You are the EA (Executive Assistant), making a decision on behalf of the CEO.\n\n"
+        "An employee has sent the following request to the CEO inbox:\n"
+        f"---\n{description}\n---\n\n"
+        "The CEO has not responded within the timeout period. "
+        "You need to make a decision: accept or reject this request, with a brief reason.\n\n"
+        "Guidelines:\n"
+        "- Accept requests that are reasonable, well-scoped, and align with business goals\n"
+        "- Reject requests that are vague, out of scope, or need more information\n"
+        "- Keep your response concise (2-3 sentences)\n\n"
+        "Return your decision in JSON format:\n"
+        '{"decision": "accept" or "reject", "reason": "your brief explanation"}\n'
+        "Only return JSON, no other content."
+    )
+
+    resp = await tracked_ainvoke(llm, prompt, category="ea_auto_reply", employee_id=EA_ID)
+    raw = _extract_text(resp.content)
+
+    decision = "accept"
+    reason = "EA auto-approved (no valid response parsed)"
+    try:
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            decision = parsed.get("decision", "accept")
+            reason = parsed.get("reason", "")
+    except (json.JSONDecodeError, AttributeError) as exc:
+        logger.debug("[ea_auto_reply] failed to parse EA response: {}", exc)
+
+    reply_text = f"[EA Auto-Reply] Decision: {decision.upper()}\n{reason}"
+    logger.info("[ea_auto_reply] node={} decision={} reason={}", node_id, decision, reason)
+    return reply_text
 
 
 class CeoBroker:
