@@ -2295,13 +2295,24 @@ class AppController {
   _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
 
   async _initCeoTerminal() {
-    const convContainer = document.getElementById('ceo-conv-terminal');
-    if (!convContainer) return;
+    const messagesContainer = document.getElementById('ceo-conv-messages');
+    if (!messagesContainer) return;
 
-    this._ceoTerm = new CeoTerminal(convContainer);
+    this._ceoTerm = new CeoTerminal(messagesContainer);
 
-    this._ceoTerm.onSend(async (projectId, text) => {
-      if (!projectId) {
+    // Wire HTML input + send button
+    const input = document.getElementById('ceo-conv-input');
+    const sendBtn = document.getElementById('ceo-conv-send');
+
+    const doSend = async () => {
+      const text = (input?.value || '').trim();
+      if (!text) return;
+      input.value = '';
+
+      // Show CEO message immediately in terminal
+      this._ceoTerm?.appendCeoMessage(text);
+
+      if (!this._currentCeoProject) {
         // New task
         try {
           const formData = new FormData();
@@ -2310,16 +2321,26 @@ class AppController {
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to submit task:', e); }
-        return;
+      } else {
+        try {
+          await fetch(`/api/ceo/sessions/${encodeURIComponent(this._currentCeoProject)}/message`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text}),
+          });
+          await this._refreshCeoProjectList();
+        } catch (e) { console.error('Failed to send:', e); }
       }
-      try {
-        await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}/message`, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({text}),
-        });
-        await this._refreshCeoProjectList();
-      } catch (e) { console.error('Failed to send:', e); }
+
+      input?.focus();
+    };
+
+    sendBtn?.addEventListener('click', doSend);
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        doSend();
+      }
     });
 
     await this._refreshCeoProjectList();
