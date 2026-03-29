@@ -259,37 +259,68 @@ async def run_heartbeat_cycle() -> list[str]:
         else:  # openrouter_key or unknown
             provider_groups.setdefault(PROVIDER_OPENROUTER, []).append(emp_id)
 
-    # 3. Batched provider checks — one request per company-level key
+    # 3-7. Run all async checks in parallel via asyncio.gather()
+    async def _batch_check(provider: str, emp_ids: list[str]):
+        try:
+            prov = get_provider(provider)
+            company_key = getattr(settings, prov.env_key, "") if prov and prov.env_key else ""
+            first_emp_cfg = employee_configs.get(emp_ids[0])
+            default_model = first_emp_cfg.llm_model if first_emp_cfg else ""
+            online = await _check_provider_online(provider, company_key, default_model)
+            return [(eid, online) for eid in emp_ids]
+        except Exception as e:
+            logger.warning("[heartbeat] Batch check failed for {}: {}", provider, e)
+            return [(eid, False) for eid in emp_ids]
+
+    async def _per_employee_check(emp_id: str, provider: str, key: str):
+        try:
+            emp_cfg = employee_configs.get(emp_id)
+            emp_model = emp_cfg.llm_model if emp_cfg else ""
+            online = await _check_provider_online(provider, key, emp_model)
+            return [(emp_id, online)]
+        except Exception as e:
+            logger.warning("[heartbeat] Check failed for {}: {}", emp_id, e)
+            return [(emp_id, False)]
+
+    async def _cli_check(emp_ids: list[str]):
+        try:
+            cli_online = await _check_claude_cli()
+            return [(eid, cli_online) for eid in emp_ids]
+        except Exception as e:
+            logger.warning("[heartbeat] CLI check failed: {}", e)
+            return [(eid, False) for eid in emp_ids]
+
+    async def _script_check_one(emp_id: str):
+        try:
+            online = await _check_script(emp_id)
+            return [(emp_id, online)]
+        except Exception as e:
+            logger.warning("[heartbeat] Script check failed for {}: {}", emp_id, e)
+            return [(emp_id, False)]
+
+    tasks = []
+    # 3. Batched provider checks
     for provider, emp_ids in provider_groups.items():
-        prov = get_provider(provider)
-        company_key = getattr(settings, prov.env_key, "") if prov and prov.env_key else ""
-        first_emp_cfg = employee_configs.get(emp_ids[0])
-        default_model = first_emp_cfg.llm_model if first_emp_cfg else ""
-        online = await _check_provider_online(provider, company_key, default_model)
-        for emp_id in emp_ids:
-            _update_online(emp_id, online, changed)
-
-    # 4. Per-employee provider checks (employees with their own API keys)
+        tasks.append(_batch_check(provider, emp_ids))
+    # 4. Per-employee provider checks
     for emp_id, provider, key in per_employee_checks:
-        emp_cfg = employee_configs.get(emp_id)
-        emp_model = emp_cfg.llm_model if emp_cfg else ""
-        online = await _check_provider_online(provider, key, emp_model)
-        _update_online(emp_id, online, changed)
-
-    # 5. Claude CLI: one check covers all self-hosted employees
+        tasks.append(_per_employee_check(emp_id, provider, key))
+    # 5. Claude CLI
     if claude_cli_employees:
-        cli_online = await _check_claude_cli()
-        for emp_id in claude_cli_employees:
-            _update_online(emp_id, cli_online, changed)
-
-    # 6. PID check
+        tasks.append(_cli_check(claude_cli_employees))
+    # 6. PID check (sync, no I/O wait — run inline)
     for emp_id in pid_employees:
         online = _check_self_hosted_pid(emp_id)
         _update_online(emp_id, online, changed)
-
-    # 7. Script check
+    # 7. Script checks
     for emp_id in script_employees:
-        online = await _check_script(emp_id)
-        _update_online(emp_id, online, changed)
+        tasks.append(_script_check_one(emp_id))
+
+    # Execute all async checks in parallel
+    if tasks:
+        results = await asyncio.gather(*tasks)
+        for result in results:
+            for emp_id, online in result:
+                _update_online(emp_id, online, changed)
 
     return changed
