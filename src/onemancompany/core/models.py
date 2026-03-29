@@ -93,6 +93,7 @@ class EventType(str, Enum):
     CEO_TASK_SUBMITTED = "ceo_task_submitted"
     CEO_INBOX_UPDATED = "ceo_inbox_updated"
     CEO_REPORT = "ceo_report"
+    CEO_SESSION_MESSAGE = "ceo_session_message"
     AGENT_DONE = "agent_done"
     AGENT_LOG = "agent_log"
     AGENT_TASK_UPDATE = "agent_task_update"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -143,3 +144,47 @@ class TestCeoBroker:
         result = await broker.handle_input("proj_001", "Do more work")
         assert result["type"] == "followup"
         assert result["text"] == "Do more work"
+
+
+class TestCeoExecutor:
+    @pytest.mark.asyncio
+    async def test_execute_enqueues_and_waits(self):
+        """CeoExecutor.execute() should enqueue interaction and await CEO reply."""
+        from onemancompany.core.ceo_broker import CeoExecutor, get_ceo_broker
+        from onemancompany.core.vessel import TaskContext, LaunchResult
+        import onemancompany.core.ceo_broker as _mod
+
+        _mod._broker = None
+        broker = get_ceo_broker()
+
+        executor = CeoExecutor()
+        context = TaskContext(
+            project_id="proj_001/iter_001",
+            work_dir="/tmp",
+            employee_id="00001",
+            task_id="node_abc",
+        )
+
+        # Simulate CEO replying after a short delay
+        async def _reply_later():
+            await asyncio.sleep(0.05)
+            session = broker.get_session("proj_001/iter_001")
+            interaction = session.pop_pending()
+            interaction.future.set_result("CEO says approved")
+
+        reply_task = asyncio.create_task(_reply_later())
+
+        with patch("onemancompany.core.events.event_bus") as mock_bus:
+            mock_bus.publish = AsyncMock()
+            result = await executor.execute("Deploy approval needed", context)
+
+        await reply_task
+        assert isinstance(result, LaunchResult)
+        assert result.output == "CEO says approved"
+        assert result.model_used == "ceo"
+
+        _mod._broker = None
+
+    def test_is_ready(self):
+        from onemancompany.core.ceo_broker import CeoExecutor
+        assert CeoExecutor().is_ready() is True

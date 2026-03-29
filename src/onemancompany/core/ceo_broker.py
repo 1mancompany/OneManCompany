@@ -11,11 +11,15 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 import yaml
 from loguru import logger
 
 from onemancompany.core.config import ENCODING_UTF8
+
+if TYPE_CHECKING:
+    from onemancompany.core.vessel import LaunchResult, TaskContext
 
 CEO_SESSION_FILENAME = "ceo_session.yaml"
 
@@ -155,6 +159,69 @@ class CeoBroker:
             session.push_ceo_message(text)
             logger.info("[CeoBroker] No pending for project={} — followup", project_id)
             return {"type": "followup", "text": text}
+
+
+class CeoExecutor:
+    """Virtual executor for CEO (00001) — implements Launcher protocol (duck-typed).
+
+    Does not call any LLM. Pushes the task as a message into the project's
+    CeoSession, then waits for the CEO to reply in the TUI.
+    """
+
+    async def execute(
+        self,
+        task_description: str,
+        context: TaskContext,
+        on_log: Callable[[str, str], None] | None = None,
+    ) -> LaunchResult:
+        from onemancompany.core.events import CompanyEvent, event_bus
+        from onemancompany.core.models import EventType
+        from onemancompany.core.config import SYSTEM_AGENT
+        from onemancompany.core.vessel import LaunchResult as _LaunchResult
+
+        broker = get_ceo_broker()
+        project_id = context.project_id or "default"
+        session = broker.get_or_create_session(project_id)
+
+        future = asyncio.get_event_loop().create_future()
+        interaction = CeoInteraction(
+            node_id=context.task_id,
+            tree_path="",
+            project_id=project_id,
+            source_employee=context.employee_id,
+            interaction_type="ceo_request",
+            message=task_description,
+            future=future,
+        )
+        session.enqueue(interaction)
+
+        # Broadcast to frontend
+        await event_bus.publish(CompanyEvent(
+            type=EventType.CEO_SESSION_MESSAGE,
+            payload={
+                "project_id": project_id,
+                "node_id": context.task_id,
+                "message": task_description,
+                "source_employee": context.employee_id,
+                "interaction_type": "ceo_request",
+            },
+            agent=SYSTEM_AGENT,
+        ))
+
+        if on_log:
+            on_log("ceo_request", f"Awaiting CEO reply for: {task_description[:100]}")
+
+        logger.info("[CeoExecutor] Enqueued request for project={} node={}", project_id, context.task_id)
+
+        ceo_response = await future
+
+        if context.work_dir:
+            session.save_history(Path(context.work_dir))
+
+        return _LaunchResult(output=ceo_response, model_used="ceo")
+
+    def is_ready(self) -> bool:
+        return True
 
 
 # Singleton
