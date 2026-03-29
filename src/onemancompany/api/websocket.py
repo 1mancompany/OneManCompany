@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import WebSocket
+from loguru import logger
 
 from onemancompany.core.events import CompanyEvent, event_bus
 
@@ -25,13 +26,21 @@ class WebSocketManager:
     def disconnect(self, ws: WebSocket) -> None:
         self.connections.discard(ws)
 
+    _SEND_TIMEOUT = 5  # seconds — drop clients that stall beyond this
+
     async def broadcast(self, message: dict) -> None:
+        if not self.connections:
+            return
         dead: set[WebSocket] = set()
-        for ws in self.connections:
+
+        async def _send(ws: WebSocket):
             try:
-                await ws.send_json(message)
+                await asyncio.wait_for(ws.send_json(message), timeout=self._SEND_TIMEOUT)
             except Exception:
+                logger.debug("[ws] Dropping dead/stalled connection")
                 dead.add(ws)
+
+        await asyncio.gather(*[_send(ws) for ws in self.connections])
         self.connections -= dead
 
     async def event_broadcaster(self) -> None:
