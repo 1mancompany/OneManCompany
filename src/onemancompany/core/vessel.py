@@ -2150,6 +2150,21 @@ class EmployeeManager:
                     save_tree_async(entry.tree_path)
                     # Re-check gates below with updated statuses (children now FINISHED).
 
+        # --- Auto-accept orphaned node whose parent is already RESOLVED ---
+        # When a node completes but its parent was already promoted (e.g. review
+        # finished before its dispatched child), the node is orphaned at COMPLETED.
+        # Auto-accept it so is_subtree_resolved() sees it as resolved.
+        if parent_node and TaskPhase(parent_node.status) in RESOLVED:
+            if node.status == TaskPhase.COMPLETED.value:
+                node.set_status(TaskPhase.ACCEPTED)
+                node.acceptance_result = {"passed": True, "notes": "Auto-accepted: parent already resolved."}
+                node.set_status(TaskPhase.FINISHED)
+                logger.info(
+                    "[ON_CHILD_COMPLETE] Auto-accepted orphaned node {} (parent {} already {})",
+                    node.id, parent_node.id, parent_node.status,
+                )
+                save_tree_async(entry.tree_path)
+
         if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
             children = tree.get_active_children(parent_node.id)
             non_review_children = [c for c in children if c.node_type not in SYSTEM_NODE_TYPES]

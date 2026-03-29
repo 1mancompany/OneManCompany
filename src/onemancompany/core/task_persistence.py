@@ -14,7 +14,7 @@ from loguru import logger
 import yaml
 
 from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME, read_text_utf
-from onemancompany.core.task_lifecycle import RESOLVED, TaskPhase
+from onemancompany.core.task_lifecycle import RESOLVED, TaskPhase, NodeType
 
 
 def _is_project_archived(tree_path: Path) -> bool:
@@ -79,6 +79,9 @@ def recover_schedule_from_trees(
                 save_tree_async(tree_path)
 
             for node in tree._nodes.values():
+                # CEO_PROMPT nodes are containers, not executable tasks — skip
+                if node.node_type in (NodeType.CEO_PROMPT, NodeType.CEO_PROMPT.value):
+                    continue
                 if node.status == TaskPhase.PENDING.value and tree.all_deps_resolved(node.id):
                     employee_manager.schedule_node(
                         node.employee_id, node.id, str(tree_path),
@@ -100,6 +103,7 @@ def recover_schedule_from_trees(
                 parent = tree.get_node(node.parent_id) if node.parent_id else None
                 if parent and TaskPhase(parent.status) in RESOLVED:
                     node.set_status(TaskPhase.ACCEPTED)
+                    node.acceptance_result = {"passed": True, "notes": "Auto-accepted on recovery: parent already resolved."}
                     node.set_status(TaskPhase.FINISHED)
                     orphan_modified = True
                     logger.info(
@@ -108,6 +112,23 @@ def recover_schedule_from_trees(
                     )
             if orphan_modified:
                 save_tree_async(tree_path)
+
+            # 1c. After orphan cleanup, check if the project is now fully complete.
+            # If so, advance CEO_PROMPT from PENDING → COMPLETED so the completion
+            # flow can pick it up on the next heartbeat or confirmation cycle.
+            if orphan_modified and tree.is_project_complete():
+                ea_node = tree.get_ea_node()
+                if ea_node:
+                    ceo_root = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+                    if ceo_root and ceo_root.node_type in (NodeType.CEO_PROMPT, NodeType.CEO_PROMPT.value):
+                        if ceo_root.status == TaskPhase.PENDING.value:
+                            ceo_root.set_status(TaskPhase.PROCESSING)
+                            ceo_root.set_status(TaskPhase.COMPLETED)
+                            logger.info(
+                                "[RECOVERY] Project complete after orphan cleanup — "
+                                "CEO root {} → COMPLETED", ceo_root.id,
+                            )
+                            save_tree_async(tree_path)
 
     # 2. Scan system task trees (legacy system_tasks.yaml)
     if employees_dir.exists():
