@@ -17,7 +17,7 @@ class TestScheduleNodeDedup:
         em._schedule = {}
         em.executors = {"emp1": MagicMock()}
 
-        with patch("onemancompany.core.vessel._store"):
+        with patch("onemancompany.core.store.append_task_index_entry"):
             em.schedule_node("emp1", "node1", "/path/tree.yaml")
             em.schedule_node("emp1", "node1", "/path/tree.yaml")
 
@@ -30,13 +30,26 @@ class TestScheduleNodeDedup:
         em._schedule = {}
         em.executors = {"emp1": MagicMock()}
 
-        with patch("onemancompany.core.vessel._store"):
+        with patch("onemancompany.core.store.append_task_index_entry"):
             em.schedule_node("emp1", "node1", "/path/tree.yaml")
             em.schedule_node("emp1", "node2", "/path/tree.yaml")
 
         entries = em._schedule["emp1"]
         node_ids = [e.node_id for e in entries]
         assert node_ids == ["node1", "node2"]
+
+    def test_same_node_different_tree_path_still_deduped(self):
+        """node_id is globally unique — different tree_path should not create duplicate."""
+        em = EmployeeManager.__new__(EmployeeManager)
+        em._schedule = {}
+        em.executors = {"emp1": MagicMock()}
+
+        with patch("onemancompany.core.store.append_task_index_entry"):
+            em.schedule_node("emp1", "node1", "/path/tree_v1.yaml")
+            em.schedule_node("emp1", "node1", "/path/tree_v2.yaml")
+
+        entries = em._schedule["emp1"]
+        assert len(entries) == 1
 
 
 class TestResumeHeldTaskGuard:
