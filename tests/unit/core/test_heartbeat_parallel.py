@@ -86,3 +86,40 @@ async def test_script_checks_run_in_parallel():
 
         assert elapsed < 0.2, f"Script checks took {elapsed:.2f}s — still sequential"
         assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_check_marks_offline_not_stale():
+    """If a provider check throws, affected employees should be marked offline."""
+    call_count = 0
+
+    async def failing_probe(provider, key, model, timeout=15.0):
+        nonlocal call_count
+        call_count += 1
+        if key == "k2":
+            raise ConnectionError("network down")
+        return True, None
+
+    with patch("onemancompany.core.heartbeat._store") as mock_store, \
+         patch("onemancompany.core.heartbeat.employee_configs", {
+             "e1": MagicMock(api_provider="test", api_key="k1", llm_model="m1", hosting="company", auth_method="api_key"),
+             "e2": MagicMock(api_provider="test", api_key="k2", llm_model="m2", hosting="company", auth_method="api_key"),
+         }), \
+         patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
+         patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
+         patch("onemancompany.core.heartbeat._update_online") as mock_update, \
+         patch("onemancompany.core.auth_verify.probe_chat", side_effect=failing_probe):
+
+        mock_store.load_all_employees.return_value = {
+            "e1": {"level": 1, "runtime": {"needs_setup": False}},
+            "e2": {"level": 1, "runtime": {"needs_setup": False}},
+        }
+        mock_store.save_employee_runtime = AsyncMock()
+
+        from onemancompany.core.heartbeat import run_heartbeat_cycle
+        await run_heartbeat_cycle()
+
+        # e1 should be online (True), e2 should be offline (False) due to exception
+        calls = {c.args[0]: c.args[1] for c in mock_update.call_args_list}
+        assert calls["e1"] is True
+        assert calls["e2"] is False
