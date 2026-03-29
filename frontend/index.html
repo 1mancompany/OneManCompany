@@ -79,21 +79,7 @@
         <h2 class="pixel-title">CEO CONSOLE</h2>
       </div>
       <div id="ceo-body" class="collapsible-body collapsible-flex">
-        <div id="ceo-tui">
-          <div id="ceo-tui-tabs"></div>
-          <div id="ceo-tui-messages"></div>
-          <div id="ceo-tui-input-area">
-            <textarea id="ceo-tui-input" placeholder="Type a message..." rows="2"></textarea>
-            <input type="file" id="task-file-input" multiple hidden />
-            <div id="task-preview-bar" class="chat-preview-bar hidden"></div>
-            <div id="ceo-tui-actions">
-              <button id="ceo-tui-send" class="pixel-btn">&#9654; Send</button>
-              <button id="ceo-tui-simple" class="pixel-btn secondary" title="Quick task to a specific employee">Simple</button>
-              <button id="hr-review-btn" class="pixel-btn secondary" title="Quarterly Review">&#128203; Review</button>
-              <label class="chat-attach-btn" for="task-file-input" title="Attach file or image" style="display:flex;align-items:center;padding:0 6px;cursor:pointer;">&#128206;</label>
-            </div>
-          </div>
-        </div>
+        <div id="ceo-terminal" style="height:100%;min-height:0"></div>
       </div>
 
       <!-- Unified Conversation Chat (replaces CEO Console when active) -->
@@ -642,6 +628,7 @@
   <link rel="stylesheet" href="trace-viewer.css">
   <script src="trace-viewer.js"></script>
   <script src="xterm-log.js"></script>
+  <script src="ceo-terminal.js"></script>
   <script src="plugin-loader.js"></script>
   <script src="app.js"></script>
 </body>
