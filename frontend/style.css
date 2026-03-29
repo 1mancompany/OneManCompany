@@ -2907,6 +2907,12 @@ body {
   margin-top: 2px;
 }
 
+.ceo-pending-badge {
+  color: #f39c12;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
 /* ===== CEO Project Selector ===== */
 .ceo-project-selector {
   margin-bottom: 6px;

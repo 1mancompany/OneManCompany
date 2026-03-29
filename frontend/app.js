@@ -263,6 +263,22 @@ class AppController {
       this._refreshCeoInbox();
       return;
     }
+
+    // CEO session real-time updates (project-level conversations)
+    if (msg.type === 'ceo_session_message') {
+      const p = msg.payload || {};
+      // Refresh project list pending indicators
+      this.updateProjectsPanel();
+      // If viewing this project's session, append the message
+      if (this._currentSessionProjectId === p.project_id && this._chatPanel) {
+        this._chatPanel.appendMessage({
+          sender: 'system',
+          text: p.message,
+          role: p.source_employee || 'System',
+        });
+      }
+      return;
+    }
     if (msg.type === 'ceo_conversation') {
       const p = msg.payload || msg;
       if (this._chatPanel && this._currentConvNodeId === p.node_id) {
@@ -2448,6 +2464,76 @@ class AppController {
       this._chatPanel.setInputEnabled(true);
     } catch (e) {
       console.error('Failed to open conversation:', e);
+    }
+  }
+
+  // ===== CEO Session (project-level conversation via CeoExecutor) =====
+  async _openCeoSession(projectId) {
+    try {
+      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+
+      const chatContainer = document.getElementById('right-panel-chat');
+      // Hide CEO Console + CEO Inbox sections
+      for (const target of ['ceo-body', 'ceo-inbox-body']) {
+        const body = document.getElementById(target);
+        if (body) body.style.display = 'none';
+        const header = body?.previousElementSibling;
+        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
+      }
+      chatContainer.classList.remove('hidden');
+
+      if (!this._chatPanel) {
+        this._chatPanel = new ChatPanel(chatContainer);
+      }
+
+      const displayName = data.project_name || projectId;
+      this._chatPanel.setConversation(projectId, 'ceo_session', displayName);
+
+      // Convert session history to ChatPanel format
+      const messages = (data.history || []).map(m => ({
+        sender: m.role === 'ceo' ? 'ceo' : 'system',
+        text: m.text,
+        role: m.role === 'ceo' ? 'CEO' : (m.source || 'System'),
+        timestamp: m.timestamp,
+      }));
+      this._chatPanel.renderMessages(messages);
+      this._chatPanel.setInputEnabled(true);
+
+      // Wire send handler
+      this._chatPanel.onSend(async (id, text) => {
+        this._chatPanel.showTyping(true);
+        try {
+          await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
+          // Append CEO's message to chat
+          this._chatPanel.appendMessage({
+            sender: 'ceo',
+            text: text,
+            role: 'CEO',
+          });
+        } catch (e) {
+          this._chatPanel.showTyping(false);
+          console.error('Failed to send CEO session message:', e);
+        }
+      });
+      this._chatPanel.onClear(null);
+
+      // Wire close handler
+      this._chatPanel.onClose(() => {
+        chatContainer.classList.add('hidden');
+        this._restoreConsoleSections();
+        this._chatPanel = null;
+        this._currentSessionProjectId = null;
+      });
+
+      this._currentSessionProjectId = projectId;
+    } catch (e) {
+      console.error('Failed to open CEO session:', e);
     }
   }
 
@@ -6340,6 +6426,7 @@ class AppController {
             statusClass = 'completed';  // archived → green
           }
           card.className = `project-panel-card status-${statusClass}`;
+          card.dataset.projectId = p.project_id;
           const displayName = p.name || p.task || p.project_id;
           const meta = p.iteration_count != null
             ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
@@ -6349,11 +6436,43 @@ class AppController {
             <div class="project-panel-meta">${meta}</div>
           `;
           card.style.cursor = 'pointer';
-          card.addEventListener('click', () => this._openProjectDetail(p.project_id));
+          card.addEventListener('click', (e) => {
+            // Shift+click opens project detail modal; normal click opens CEO session
+            if (e.shiftKey) {
+              this._openProjectDetail(p.project_id);
+            } else {
+              this._openCeoSession(p.project_id);
+            }
+          });
           panel.appendChild(card);
         }
+        // Fetch CEO session data and overlay pending indicators
+        this._overlaySessionPendingBadges(panel);
       })
       .catch(err => console.error('[updateProjectsPanel] failed:', err));
+  }
+
+  async _overlaySessionPendingBadges(container) {
+    try {
+      const sessResp = await fetch('/api/ceo/sessions');
+      const sessData = await sessResp.json();
+      const pendingMap = {};
+      for (const s of sessData.sessions || []) {
+        // project_id format: "shortid_name_date/iter_001" — extract base
+        const base = s.project_id.split('/')[0];
+        if (s.has_pending) pendingMap[base] = (pendingMap[base] || 0) + (s.pending_count || 1);
+      }
+      // Add pending badge to matching project cards
+      for (const card of container.querySelectorAll('.project-panel-card')) {
+        const pid = card.dataset.projectId;
+        if (pendingMap[pid]) {
+          const badge = document.createElement('span');
+          badge.className = 'ceo-pending-badge';
+          badge.textContent = `\u25CF ${pendingMap[pid]}`;
+          card.querySelector('.project-panel-name')?.prepend(badge);
+        }
+      }
+    } catch (e) { /* session endpoint may not be available yet */ }
   }
 
   _openTaskInBoard(projectId, nodeId) {
