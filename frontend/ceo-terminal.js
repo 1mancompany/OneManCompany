@@ -25,7 +25,7 @@ class CeoTerminal {
       fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       theme: {
         background: '#0a0a0a',
-        foreground: '#b0b0b0',
+        foreground: '#d4d4d4',
         cursor: '#0a0a0a',      // hidden cursor
         cursorAccent: '#0a0a0a',
       },
@@ -116,10 +116,11 @@ class CeoTerminal {
   _writeMsg(msg) {
     const A = this._A();
     if (msg.role === 'ceo') {
-      this._term.writeln(`  ${A.brightGreen}CEO${A.reset} ${A.dim}\u203a${A.reset} ${A.white}${msg.text || ''}${A.reset}`);
+      this._term.writeln(`  ${A.brightGreen}CEO${A.reset} ${A.dim}›${A.reset} ${A.brightWhite}${msg.text || ''}${A.reset}`);
     } else {
       const src = msg.source || 'system';
-      this._term.writeln(`  ${A.blue}[${src}]${A.reset} ${A.gray}${msg.text || ''}${A.reset}`);
+      const srcColor = src === 'ea_auto_reply' ? A.yellow : A.cyan;
+      this._term.writeln(`  ${srcColor}[${src}]${A.reset} ${A.white}${msg.text || ''}${A.reset}`);
     }
   }
 }
