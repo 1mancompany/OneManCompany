@@ -285,11 +285,21 @@ body {
   padding: 10px;
 }
 
+#ceo-body.collapsible-flex {
+  flex: 3;
+}
+
+#activity-body.collapsible-flex {
+  flex: 1;
+  max-height: 120px;
+}
+
 #ceo-avatar-area {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 4px 8px;
+  flex-shrink: 0;
 }
 
 #ceo-avatar {
