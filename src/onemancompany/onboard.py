@@ -123,9 +123,16 @@ def _print_step(console: Console, num: int, codename: str, subtitle: str) -> Non
         padding=(0, 1),
     ))
 
+def _pad_art(text: str) -> str:
+    """Pad all lines in ASCII art to equal width so centering is uniform."""
+    lines = text.splitlines()
+    max_len = max((len(l) for l in lines), default=0)
+    return "\n".join(l.ljust(max_len) for l in lines)
+
+
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
-        Text(LOGO, style="bold bright_cyan", justify="center"),
+        Text(_pad_art(LOGO), style="bold bright_cyan", justify="center"),
         border_style="bright_magenta",
         padding=(1, 2),
         expand=True,
@@ -830,14 +837,16 @@ def _step_done(console: Console, host: str, port: int) -> None:
     console.print()
     url = f"http://{'localhost' if host == '0.0.0.0' else host}:{port}"
     genesis_art = Text(
-        "░▒▓  ██████╗ ███████╗███╗   ██╗███████╗\n"
-        "░▒▓ ██╔════╝ ██╔════╝████╗  ██║██╔════╝\n"
-        "░▒▓ ██║  ███╗█████╗  ██╔██╗ ██║█████╗\n"
-        "░▒▓ ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝\n"
-        "░▒▓ ╚██████╔╝███████╗██║ ╚████║███████╗\n"
-        "░▒▓  ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝\n"
-        "\n"
-        "░▒▓  G E N E S I S   C O M P L E T E",
+        _pad_art(
+            "░▒▓  ██████╗ ███████╗███╗   ██╗███████╗\n"
+            "░▒▓ ██╔════╝ ██╔════╝████╗  ██║██╔════╝\n"
+            "░▒▓ ██║  ███╗█████╗  ██╔██╗ ██║█████╗\n"
+            "░▒▓ ██║   ██║██╔══╝  ██║╚██╗██║██╔══╝\n"
+            "░▒▓ ╚██████╔╝███████╗██║ ╚████║███████╗\n"
+            "░▒▓  ╚═════╝ ╚══════╝╚═╝  ╚═══╝╚══════╝\n"
+            "\n"
+            "░▒▓  G E N E S I S   C O M P L E T E"
+        ),
         style="bold bright_green",
         justify="center",
     )
