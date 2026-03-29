@@ -6332,13 +6332,9 @@ class AppController {
             <div class="project-panel-meta">${meta}</div>
           `;
           card.style.cursor = 'pointer';
-          card.addEventListener('click', (e) => {
-            // Shift+click opens project detail modal; normal click selects in CEO TUI
-            if (e.shiftKey) {
-              this._openProjectDetail(p.project_id);
-            } else {
-              this._selectCeoProject(p.project_id);
-            }
+          card.addEventListener('click', () => {
+            this._openProjectDetail(p.project_id);
+            this._selectCeoProject(p.project_id);
           });
           panel.appendChild(card);
         }
