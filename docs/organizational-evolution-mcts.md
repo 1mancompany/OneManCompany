@@ -185,7 +185,53 @@ where:
 - CEO follow-up tasks → root node for new iteration
 - Previous iteration results accessible via `project_history_context()`
 
-### 3.2 Multi-Armed Bandit at Assignment Level
+### 3.2 Human-in-the-Loop MCTS: Theoretical Validity
+
+A natural concern: iterations are **human-triggered** (CEO decides when to follow up, retry, or pivot). Does MCTS still apply when the search loop is not automated?
+
+**Yes.** MCTS's convergence theorem (Kocsis & Szepesvari, 2006) requires only that:
+1. Each node is visited $N(v) \to \infty$ (sufficient exploration)
+2. Reward signals are unbiased estimators of true value
+
+Neither requirement demands automatic triggering. Human-triggered iterations only affect the **rate** of convergence ($N(v)$ grows slower), not its **direction**.
+
+#### Prior Art: Human-in-the-Loop Search
+
+| System | Human Role | MCTS Analogue | Our Analogue |
+|--------|-----------|---------------|--------------|
+| **AlphaGo vs. Lee Sedol** | Opponent triggers next move | External agent controls turn order | CEO triggers next iteration |
+| **SayCan / Inner Monologue** (Google, 2022) | Human gives natural language feedback at checkpoints | Reward shaping via human oracle | CEO inbox accept/reject/follow-up |
+| **Galaxy Zoo / Human Computation** | Human is the oracle for classification | Simulation oracle | Employee execution = oracle query |
+| **Waymo Level 4** | Human takeover triggers re-planning | Safety-critical re-search | CEO escalation (`_spawn_review_or_escalate`) |
+| **HITL Bayesian Optimization** (Brochu et al., 2010) | Human evaluates expensive black-box function | Human replaces simulation | CEO reviews project report |
+
+#### Why Human Triggering is Actually Better
+
+CEO-triggered iteration is not a limitation — it is **active reward shaping**:
+
+$$R_{\text{shaped}}(s, a) = R(s, a) + F(s, a, s')$$
+
+where $F$ is the CEO's shaping function (domain knowledge, strategic priorities, market feedback). This is provably convergence-preserving (Ng et al., 1999) and accelerates learning by:
+
+1. **Pruning hopeless branches early** — CEO says "stop, pivot" before burning budget
+2. **Injecting external information** — "add SEO", "change the color scheme" = new reward signals unavailable to the system
+3. **Prioritizing high-value simulations** — CEO triggers iteration on projects that matter most, not uniformly
+
+Formally, human-triggered search is a **budgeted MCTS** variant:
+
+$$\text{budget}(k) = \sum_{i=1}^{k} \mathbb{1}[\text{CEO triggers iteration } i]$$
+
+The search explores the most promising regions of the action space (CEO's judgment) rather than uniform exploration, achieving better **anytime performance** — the quality of the current best solution at any point in time.
+
+#### CEO as Meta-Controller
+
+The CEO operates as a **meta-level controller** (Russell & Wefald, 1991) deciding when computation (iteration) is worth the cost:
+
+$$\text{VOC}(k) = \mathbb{E}[\text{value}(\pi_{k+1}) - \text{value}(\pi_k)] - \text{cost}(k)$$
+
+Iterate when VOC > 0 (expected improvement exceeds cost). Stop when marginal returns diminish. This is optimal stopping theory applied to organizational search.
+
+### 3.4 Multi-Armed Bandit at Assignment Level
 
 Employee assignment is a **contextual multi-armed bandit** problem embedded within MCTS:
 
@@ -201,7 +247,7 @@ where:
 - `progress.log` (past task outcomes)
 - `work_principles.md` (accumulated guidance)
 
-### 3.3 Branch-and-Bound Pruning
+### 3.5 Branch-and-Bound Pruning
 
 The `branch` + `branch_active` mechanism implements **branch-and-bound**:
 
