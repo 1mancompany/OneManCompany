@@ -2151,6 +2151,11 @@ class EmployeeManager:
                         c.set_status(TaskPhase.FINISHED)
                         logger.info("[ON_CHILD_COMPLETE] Auto-accepted orphaned COMPLETED node {} (review finished without tool call)", c.id)
                     save_tree_async(entry.tree_path)
+                    # Trigger dep resolution for each auto-accepted node so
+                    # downstream tasks waiting on them get unblocked.
+                    _pdir = parent_node.project_dir or str(Path(entry.tree_path).parent)
+                    for c in completed_siblings:
+                        _trigger_dep_resolution(_pdir, tree, c)
                     # Re-check gates below with updated statuses (children now FINISHED).
 
         # --- Auto-accept orphaned node whose parent is already RESOLVED ---
@@ -2167,6 +2172,8 @@ class EmployeeManager:
                     node.id, parent_node.id, parent_node.status,
                 )
                 save_tree_async(entry.tree_path)
+                _pdir = node.project_dir or str(Path(entry.tree_path).parent)
+                _trigger_dep_resolution(_pdir, tree, node)
 
         if parent_node and TaskPhase(parent_node.status) not in RESOLVED:
             children = tree.get_active_children(parent_node.id)
