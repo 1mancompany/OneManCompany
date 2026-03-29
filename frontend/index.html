@@ -78,32 +78,20 @@
         <span class="collapse-arrow">&#9660;</span>
         <h2 class="pixel-title">CEO CONSOLE</h2>
       </div>
-      <div id="ceo-body" class="collapsible-body">
-        <div id="ceo-section">
-          <div id="ceo-avatar-area">
-            <img id="ceo-avatar" width="48" height="48" src="/api/employees/00001/avatar" onerror="this.style.display='none'" />
-            <span class="ceo-label">YOU</span>
-            <button id="reload-toolbar-btn" class="reload-btn" title="Force reload all data from disk. WARNING: may interrupt running agent tasks!">&#128260;</button>
-          </div>
-          <div class="ceo-project-selector">
-            <select id="project-select">
-              <option value="">&#128203; New Task</option>
-            </select>
-          </div>
-          <label class="mode-toggle" title="Simple mode: EA dispatches directly to employees, no retrospective">
-            <input type="checkbox" id="simple-mode-toggle" /> Simple
-          </label>
-          <div class="ceo-input-area">
-            <textarea id="task-input"
-                      placeholder="Enter a task or objective...&#10;e.g. 'Hire a Python engineer'&#10;     'Add a code review tool'&#10;     'Review all employee performance'"
-                      rows="3"></textarea>
+      <div id="ceo-body" class="collapsible-body collapsible-flex">
+        <div id="ceo-tui">
+          <div id="ceo-tui-tabs"></div>
+          <div id="ceo-tui-messages"></div>
+          <div id="ceo-tui-input-area">
+            <textarea id="ceo-tui-input" placeholder="Type a message..." rows="2"></textarea>
             <input type="file" id="task-file-input" multiple hidden />
-            <label class="chat-attach-btn" for="task-file-input" title="Attach file or image">&#128206;</label>
-          </div>
-          <div id="task-preview-bar" class="chat-preview-bar hidden"></div>
-          <div class="btn-row">
-            <button id="submit-btn" class="pixel-btn">&#9654; Submit Task</button>
-            <button id="hr-review-btn" class="pixel-btn secondary">&#128203; Quarterly Review</button>
+            <div id="task-preview-bar" class="chat-preview-bar hidden"></div>
+            <div id="ceo-tui-actions">
+              <button id="ceo-tui-send" class="pixel-btn">&#9654; Send</button>
+              <button id="ceo-tui-simple" class="pixel-btn secondary" title="Quick task to a specific employee">Simple</button>
+              <button id="hr-review-btn" class="pixel-btn secondary" title="Quarterly Review">&#128203; Review</button>
+              <label class="chat-attach-btn" for="task-file-input" title="Attach file or image" style="display:flex;align-items:center;padding:0 6px;cursor:pointer;">&#128206;</label>
+            </div>
           </div>
         </div>
       </div>

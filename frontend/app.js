@@ -260,16 +260,14 @@ class AppController {
     // CEO session real-time updates (project-level conversations)
     if (msg.type === 'ceo_session_message') {
       const p = msg.payload || {};
-      // Refresh project list pending indicators
-      this.updateProjectsPanel();
-      // If viewing this project's session, append the message
-      if (this._currentSessionProjectId === p.project_id && this._chatPanel) {
-        this._chatPanel.appendMessage({
-          sender: 'system',
-          text: p.message,
-          role: p.source_employee || 'System',
-        });
+      // Refresh TUI tabs (pending indicator may change)
+      this._refreshCeoTuiTabs();
+      // If viewing this project in TUI, reload messages
+      if (this._currentCeoProject === p.project_id) {
+        this._selectCeoProject(p.project_id);
       }
+      // Also refresh project list panel
+      this.updateProjectsPanel();
       return;
     }
     // Unified conversation events
@@ -908,53 +906,10 @@ class AppController {
 
   // ===== UI Bindings =====
   bindUI() {
-    const submitBtn = document.getElementById('submit-btn');
     const hrBtn = document.getElementById('hr-review-btn');
-    const input = document.getElementById('task-input');
 
-    submitBtn.addEventListener('click', () => this.submitTask());
-
-    // Paste image into task input
-    input.addEventListener('paste', (e) => {
-      const items = e.clipboardData && e.clipboardData.items;
-      if (!items) return;
-      const files = [];
-      for (const item of items) {
-        if (item.kind === 'file') {
-          files.push(item.getAsFile());
-        }
-      }
-      if (files.length) {
-        e.preventDefault();
-        this._handleTaskFileSelect(files);
-      }
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        this.submitTask();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (this._inputHistory.length === 0) return;
-        if (this._historyIndex === -1) this._historyDraft = input.value;
-        if (this._historyIndex < this._inputHistory.length - 1) {
-          this._historyIndex++;
-          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
-        }
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (this._historyIndex <= 0) {
-          this._historyIndex = -1;
-          input.value = this._historyDraft;
-        } else {
-          this._historyIndex--;
-          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
-        }
-      }
-    });
-
-    // Load active projects into selector on startup
-    this.loadActiveProjects();
+    // Initialize CEO TUI panel
+    this._initCeoTui();
 
     hrBtn.addEventListener('click', () => {
       hrBtn.disabled = true;
@@ -1130,7 +1085,7 @@ class AppController {
     });
 
     // Reload data button
-    document.getElementById('reload-toolbar-btn').addEventListener('click', () => this.adminReload());
+    document.getElementById('reload-toolbar-btn')?.addEventListener('click', () => this.adminReload());
 
     // Operations dashboard modal bindings
     document.getElementById('dashboard-toolbar-btn').addEventListener('click', () => this.openDashboard());
@@ -2332,73 +2287,217 @@ class AppController {
     return projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  // ===== CEO Session (project-level conversation via CeoExecutor) =====
-  async _openCeoSession(projectId) {
+  // ===== CEO TUI Panel ===== //
+
+  _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
+
+  _initCeoTui() {
+    const sendBtn = document.getElementById('ceo-tui-send');
+    const input = document.getElementById('ceo-tui-input');
+    const simpleBtn = document.getElementById('ceo-tui-simple');
+
+    sendBtn?.addEventListener('click', () => this._ceoTuiSend());
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this._ceoTuiSend();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this._inputHistory.length === 0) return;
+        if (this._historyIndex === -1) this._historyDraft = input.value;
+        if (this._historyIndex < this._inputHistory.length - 1) {
+          this._historyIndex++;
+          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this._historyIndex <= 0) {
+          this._historyIndex = -1;
+          input.value = this._historyDraft;
+        } else {
+          this._historyIndex--;
+          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
+        }
+      }
+    });
+
+    // Paste image into TUI input
+    input?.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') files.push(item.getAsFile());
+      }
+      if (files.length) {
+        e.preventDefault();
+        this._handleTaskFileSelect(files);
+      }
+    });
+
+    simpleBtn?.addEventListener('click', () => {
+      this.submitTask('simple');
+    });
+
+    this._refreshCeoTuiTabs();
+  }
+
+  async _refreshCeoTuiTabs() {
+    const tabsEl = document.getElementById('ceo-tui-tabs');
+    if (!tabsEl) return;
+
+    let sessions = [];
+    try {
+      const resp = await fetch('/api/ceo/sessions');
+      const data = await resp.json();
+      sessions = data.sessions || [];
+    } catch (e) { /* API not ready */ }
+
+    // Get project names for display
+    let projectNames = {};
+    try {
+      const resp = await fetch('/api/projects/named');
+      const data = await resp.json();
+      for (const p of data.projects || data || []) {
+        projectNames[p.project_id || p.id] = p.name || p.project_name || '';
+      }
+    } catch (e) {}
+
+    tabsEl.innerHTML = '';
+
+    for (const s of sessions) {
+      const tab = document.createElement('div');
+      tab.className = 'ceo-tab' + (this._currentCeoProject === s.project_id ? ' active' : '');
+
+      const pid = s.project_id || '';
+      const basePid = pid.split('/')[0];
+      let displayName = projectNames[basePid] || basePid;
+      if (displayName.length > 15) displayName = displayName.substring(0, 15) + '\u2026';
+
+      const pendingBadge = s.has_pending ? '<span class="ceo-tab-pending">\u25CF</span>' : '';
+      tab.innerHTML = pendingBadge + this._escHtml(displayName);
+      tab.dataset.projectId = s.project_id;
+      tab.addEventListener('click', () => this._selectCeoProject(s.project_id));
+      tabsEl.appendChild(tab);
+    }
+
+    // "+ New" tab
+    const newTab = document.createElement('div');
+    newTab.className = 'ceo-tab ceo-tab-new' + (!this._currentCeoProject ? ' active' : '');
+    newTab.textContent = '+ New';
+    newTab.addEventListener('click', () => this._selectCeoProject(null));
+    tabsEl.appendChild(newTab);
+
+    // If no project selected and sessions exist with pending, auto-select first pending
+    if (!this._currentCeoProject && sessions.length > 0) {
+      const firstPending = sessions.find(s => s.has_pending);
+      if (firstPending) {
+        this._selectCeoProject(firstPending.project_id);
+      } else {
+        this._selectCeoProject(null);
+      }
+    }
+  }
+
+  async _selectCeoProject(projectId) {
+    this._currentCeoProject = projectId;
+
+    // Update active tab styling
+    document.querySelectorAll('.ceo-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.projectId === projectId || (!projectId && t.classList.contains('ceo-tab-new')));
+    });
+
+    const messagesEl = document.getElementById('ceo-tui-messages');
+    if (!messagesEl) return;
+
+    if (!projectId) {
+      // "New Task" view
+      messagesEl.innerHTML = '<div class="tui-msg-empty">Type a new task and press Send to create a project.</div>';
+      const input = document.getElementById('ceo-tui-input');
+      if (input) input.placeholder = 'Enter a new task...';
+      return;
+    }
+
+    // Load session history
     try {
       const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        messagesEl.innerHTML = '<div class="tui-msg-empty">No conversation yet.</div>';
+        return;
+      }
       const data = await resp.json();
+      this._renderCeoTuiMessages(data.history || []);
 
-      const chatContainer = document.getElementById('right-panel-chat');
-      // Hide CEO Console + CEO Inbox sections
-      for (const target of ['ceo-body']) {
-        const body = document.getElementById(target);
-        if (body) body.style.display = 'none';
-        const header = body?.previousElementSibling;
-        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
+      const input = document.getElementById('ceo-tui-input');
+      if (input) {
+        input.placeholder = data.has_pending ? 'Reply to pending request...' : 'Send follow-up instruction...';
       }
-      chatContainer.classList.remove('hidden');
-
-      if (!this._chatPanel) {
-        this._chatPanel = new ChatPanel(chatContainer);
-      }
-
-      const displayName = data.project_name || projectId;
-      this._chatPanel.setConversation(projectId, 'ceo_session', displayName);
-
-      // Convert session history to ChatPanel format
-      const messages = (data.history || []).map(m => ({
-        sender: m.role === 'ceo' ? 'ceo' : 'system',
-        text: m.text,
-        role: m.role === 'ceo' ? 'CEO' : (m.source || 'System'),
-        timestamp: m.timestamp,
-      }));
-      this._chatPanel.renderMessages(messages);
-      this._chatPanel.setInputEnabled(true);
-
-      // Wire send handler
-      this._chatPanel.onSend(async (id, text) => {
-        this._chatPanel.showTyping(true);
-        try {
-          await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}/message`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text }),
-          });
-          // Append CEO's message to chat
-          this._chatPanel.appendMessage({
-            sender: 'ceo',
-            text: text,
-            role: 'CEO',
-          });
-        } catch (e) {
-          this._chatPanel.showTyping(false);
-          console.error('Failed to send CEO session message:', e);
-        }
-      });
-      this._chatPanel.onClear(null);
-
-      // Wire close handler
-      this._chatPanel.onClose(() => {
-        chatContainer.classList.add('hidden');
-        this._restoreConsoleSections();
-        this._chatPanel = null;
-        this._currentSessionProjectId = null;
-      });
-
-      this._currentSessionProjectId = projectId;
     } catch (e) {
-      console.error('Failed to open CEO session:', e);
+      messagesEl.innerHTML = '<div class="tui-msg-empty">Failed to load session.</div>';
+    }
+  }
+
+  _renderCeoTuiMessages(history) {
+    const messagesEl = document.getElementById('ceo-tui-messages');
+    if (!messagesEl) return;
+
+    if (!history.length) {
+      messagesEl.innerHTML = '<div class="tui-msg-empty">No messages yet.</div>';
+      return;
+    }
+
+    messagesEl.innerHTML = '';
+    for (const msg of history) {
+      const div = document.createElement('div');
+      const isCeo = msg.role === 'ceo';
+      div.className = 'tui-msg ' + (isCeo ? 'tui-msg-ceo' : 'tui-msg-system');
+
+      const roleLabel = isCeo ? 'CEO' : (msg.source || 'System');
+      div.innerHTML = `<div class="tui-msg-role">${this._escHtml(roleLabel)}</div><div>${this._escHtml(msg.text || '')}</div>`;
+      messagesEl.appendChild(div);
+    }
+
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async _ceoTuiSend() {
+    const input = document.getElementById('ceo-tui-input');
+    const text = (input?.value || '').trim();
+    if (!text) return;
+
+    if (!this._currentCeoProject) {
+      // New task — use /api/ceo/task endpoint
+      this.submitTask('standard');
+      return;
+    }
+
+    // Send to existing project session
+    if (!this._checkCooldown('ceoTuiSend')) return;
+
+    // Optimistically append CEO message
+    const messagesEl = document.getElementById('ceo-tui-messages');
+    const emptyMsg = messagesEl?.querySelector('.tui-msg-empty');
+    if (emptyMsg) emptyMsg.remove();
+
+    const div = document.createElement('div');
+    div.className = 'tui-msg tui-msg-ceo';
+    div.innerHTML = `<div class="tui-msg-role">CEO</div><div>${this._escHtml(text)}</div>`;
+    messagesEl?.appendChild(div);
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    input.value = '';
+
+    try {
+      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(this._currentCeoProject)}/message`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text}),
+      });
+      await resp.json();
+      // Refresh tabs (pending indicator may have changed)
+      this._refreshCeoTuiTabs();
+    } catch (e) {
+      console.error('Failed to send CEO session message:', e);
     }
   }
 
@@ -6147,15 +6246,14 @@ class AppController {
     return true;
   }
 
-  async submitTask() {
-    const input = document.getElementById('task-input');
-    const task = input.value.trim();
+  async submitTask(mode = 'standard') {
+    const input = document.getElementById('ceo-tui-input');
+    const task = (input?.value || '').trim();
     if (!task) return;
     if (!this._checkCooldown('submitTask')) return;
 
-    // Read project selector
-    const projectSelect = document.getElementById('project-select');
-    const projectId = projectSelect ? projectSelect.value : '';
+    // Use currently selected project if any
+    const projectId = this._currentCeoProject || '';
 
     // Save to input history
     if (this._inputHistory[this._inputHistory.length - 1] !== task) {
@@ -6166,11 +6264,8 @@ class AppController {
     this._historyIndex = -1;
     this._historyDraft = '';
 
-    const submitBtn = document.getElementById('submit-btn');
-    submitBtn.disabled = true;
-
-    const simpleToggle = document.getElementById('simple-mode-toggle');
-    const mode = (simpleToggle && simpleToggle.checked) ? 'simple' : 'standard';
+    const sendBtn = document.getElementById('ceo-tui-send');
+    if (sendBtn) sendBtn.disabled = true;
 
     // Build multipart FormData — task + files in one request
     const formData = new FormData();
@@ -6183,6 +6278,8 @@ class AppController {
     this._taskPendingFiles = [];
     this._updateTaskPreviewBar();
 
+    input.value = '';
+
     fetch('/api/ceo/task', {
       method: 'POST',
       body: formData,
@@ -6190,19 +6287,15 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
-        // Refresh project selector after submit
-        this.loadActiveProjects();
+        // Refresh TUI tabs — new project should appear
+        this._refreshCeoTuiTabs();
       })
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
       })
       .finally(() => {
-        setTimeout(() => { submitBtn.disabled = false; }, 2000);
+        setTimeout(() => { if (sendBtn) sendBtn.disabled = false; }, 2000);
       });
-
-    input.value = '';
-    // Reset project selector
-    if (projectSelect) projectSelect.value = '';
   }
 
   // ===== Projects Panel =====
@@ -6244,11 +6337,11 @@ class AppController {
           `;
           card.style.cursor = 'pointer';
           card.addEventListener('click', (e) => {
-            // Shift+click opens project detail modal; normal click opens CEO session
+            // Shift+click opens project detail modal; normal click selects in CEO TUI
             if (e.shiftKey) {
               this._openProjectDetail(p.project_id);
             } else {
-              this._openCeoSession(p.project_id);
+              this._selectCeoProject(p.project_id);
             }
           });
           panel.appendChild(card);
@@ -6868,28 +6961,8 @@ class AppController {
   }
 
   loadActiveProjects() {
-    const select = document.getElementById('project-select');
-    if (!select) return;
-    fetch('/api/projects/named')
-      .then(r => r.json())
-      .then(data => {
-        const projects = this._sortProjectsNewestFirst((data.projects || []).filter(p => p.status === 'active'));
-        // Preserve first two static options
-        const currentVal = select.value;
-        while (select.options.length > 2) select.remove(2);
-        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-        for (const p of projects) {
-          const opt = document.createElement('option');
-          opt.value = p.project_id;
-          opt.textContent = `📁 ${p.name} (${p.iteration_count})`;
-          select.appendChild(opt);
-        }
-        // Restore selection if still valid
-        if (currentVal && [...select.options].some(o => o.value === currentVal)) {
-          select.value = currentVal;
-        }
-      })
-      .catch(err => console.error('[loadActiveProjects] failed:', err));
+    // Replaced by CEO TUI tabs — refresh tabs instead
+    this._refreshCeoTuiTabs();
   }
 
   // ===== Admin Reload =====
