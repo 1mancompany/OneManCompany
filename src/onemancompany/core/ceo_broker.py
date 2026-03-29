@@ -47,6 +47,7 @@ class CeoSession:
 
     def __init__(self, project_id: str) -> None:
         self.project_id = project_id
+        self.project_dir: Path | None = None
         self.history: list[dict] = []
         self._pending: deque[CeoInteraction] = deque()
 
@@ -170,12 +171,17 @@ class CeoBroker:
             # Load session history if it exists
             history_path = project_dir / CEO_SESSION_FILENAME
             session = self.get_or_create_session(project_id)
+            session.project_dir = project_dir
             if history_path.exists():
                 session.load_history(project_dir)
                 logger.debug("[CeoBroker] Recovered session for project={} ({} messages)",
                              project_id, len(session.history))
 
     async def handle_input(self, project_id: str, text: str) -> dict:
+        from onemancompany.core.events import CompanyEvent, event_bus
+        from onemancompany.core.models import EventType
+        from onemancompany.core.config import SYSTEM_AGENT
+
         session = self.get_or_create_session(project_id)
         if session.has_pending:
             interaction = session.pop_pending()
@@ -185,9 +191,36 @@ class CeoBroker:
                 "[CeoBroker] Resolved pending {} for project={} node={}",
                 interaction.interaction_type, project_id, interaction.node_id,
             )
+            # Persist history to disk
+            if session.project_dir:
+                session.save_history(session.project_dir)
+            # Broadcast to frontend so TUI updates in real-time
+            await event_bus.publish(CompanyEvent(
+                type=EventType.CEO_SESSION_MESSAGE,
+                payload={
+                    "project_id": project_id,
+                    "node_id": interaction.node_id,
+                    "role": "ceo",
+                    "text": text,
+                },
+                agent=SYSTEM_AGENT,
+            ))
             return {"type": "resolved", "node_id": interaction.node_id}
         else:
             session.push_ceo_message(text)
+            # Persist history to disk
+            if session.project_dir:
+                session.save_history(session.project_dir)
+            # Broadcast to frontend
+            await event_bus.publish(CompanyEvent(
+                type=EventType.CEO_SESSION_MESSAGE,
+                payload={
+                    "project_id": project_id,
+                    "role": "ceo",
+                    "text": text,
+                },
+                agent=SYSTEM_AGENT,
+            ))
             logger.info("[CeoBroker] No pending for project={} — followup", project_id)
             return {"type": "followup", "text": text}
 
@@ -213,8 +246,10 @@ class CeoExecutor:
         broker = get_ceo_broker()
         project_id = context.project_id or "default"
         session = broker.get_or_create_session(project_id)
+        if context.work_dir:
+            session.project_dir = Path(context.work_dir)
 
-        future = asyncio.get_event_loop().create_future()
+        future = asyncio.get_running_loop().create_future()
         interaction = CeoInteraction(
             node_id=context.task_id,
             tree_path="",

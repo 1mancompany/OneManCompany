@@ -119,7 +119,7 @@ def _create_standalone_ceo_request(
     unified session UI.
     """
     import asyncio
-    from onemancompany.core.ceo_broker import CeoInteraction, get_ceo_broker
+    from onemancompany.core.ceo_broker import get_ceo_broker
     from onemancompany.core.events import CompanyEvent, event_bus
     from onemancompany.core.models import EventType
     from onemancompany.core.config import SYSTEM_AGENT
@@ -128,26 +128,21 @@ def _create_standalone_ceo_request(
     broker = get_ceo_broker()
     project_id = "default"
     session = broker.get_or_create_session(project_id)
+    source = vessel.employee_id if vessel else "unknown"
 
     main_loop = getattr(employee_manager, "_event_loop", None)
     if not main_loop or not main_loop.is_running():
         logger.warning("No event loop for standalone CEO request publish")
+        # Still record the message even without an event loop
+        session.push_system_message(description, source=source)
         return {
             "status": "error",
-            "message": "No event loop available to dispatch CEO request.",
+            "message": "No event loop available to broadcast CEO request.",
         }
 
-    future = main_loop.create_future()
-    interaction = CeoInteraction(
-        node_id=requester_task_id,
-        tree_path="",
-        project_id=project_id,
-        source_employee=vessel.employee_id if vessel else "unknown",
-        interaction_type="ceo_request",
-        message=description,
-        future=future,
-    )
-    session.enqueue(interaction)
+    # Standalone requests are fire-and-forget — push as system message
+    # without creating a Future (nothing awaits the response).
+    session.push_system_message(description, source=source)
 
     # Broadcast to frontend
     coro = event_bus.publish(CompanyEvent(
@@ -156,7 +151,7 @@ def _create_standalone_ceo_request(
             "project_id": project_id,
             "node_id": requester_task_id,
             "message": description,
-            "source_employee": vessel.employee_id if vessel else "unknown",
+            "source_employee": source,
             "interaction_type": "ceo_request",
         },
         agent=SYSTEM_AGENT,

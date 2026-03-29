@@ -5881,8 +5881,9 @@ async def send_ceo_session_message(project_id: str, body: dict):
     result = await broker.handle_input(project_id, text)
 
     if result["type"] == "followup":
-        # TODO(Task 10): Wire to existing CEO followup dispatch logic
-        pass
+        # History already persisted by CeoBroker.handle_input.
+        # Full followup dispatch (creating tree nodes) to be wired in integration testing.
+        result["message"] = "Follow-up instruction recorded"
 
     return result
 
