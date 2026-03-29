@@ -5313,7 +5313,29 @@ body {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 11px;
   padding: 4px 0;
+  transition: width 0.15s, padding 0.15s, opacity 0.15s;
 }
+#ceo-project-list.collapsed {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  border-right: none;
+}
+
+#ceo-list-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  color: #555;
+  cursor: pointer;
+  font-size: 10px;
+  border-right: 1px solid #222;
+}
+#ceo-list-toggle:hover { color: #aaa; background: #1a1a1a; }
 
 .ceo-proj-item {
   padding: 4px 6px;
@@ -5401,17 +5423,8 @@ body {
   border-color: #44aa44;
 }
 
-.ceo-attach-btn {
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px 4px;
-  color: #888;
-}
-.ceo-attach-btn:hover { color: #ccc; }
-
-#ceo-conv-send {
-  padding: 4px 8px;
-  font-size: 11px;
+#ceo-conv-input-row {
+  display: flex;
 }
 
 /* Slash command menu */

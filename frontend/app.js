@@ -2300,10 +2300,18 @@ class AppController {
 
     this._ceoTerm = new CeoTerminal(messagesContainer);
 
-    // Wire HTML input + send button
-    const input = document.getElementById('ceo-conv-input');
-    const sendBtn = document.getElementById('ceo-conv-send');
+    // Wire project list toggle
+    const toggle = document.getElementById('ceo-list-toggle');
+    const projectList = document.getElementById('ceo-project-list');
+    toggle?.addEventListener('click', () => {
+      const collapsed = projectList.classList.toggle('collapsed');
+      toggle.textContent = collapsed ? '▶' : '◀';
+      // Refit terminal after animation
+      setTimeout(() => this._ceoTerm?._fit(), 200);
+    });
 
+    // Wire HTML input
+    const input = document.getElementById('ceo-conv-input');
     const doSend = async () => {
       const text = (input?.value || '').trim();
       if (!text) return;
@@ -2335,7 +2343,6 @@ class AppController {
       input?.focus();
     };
 
-    sendBtn?.addEventListener('click', doSend);
     input?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
