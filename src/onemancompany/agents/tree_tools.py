@@ -363,42 +363,9 @@ def dispatch_child(
 
         if employee_id == CEO_ID:
             child.node_type = NodeType.CEO_REQUEST
-            # Signal vessel to auto-HOLD parent after execution (no_watchdog:
-            # routes.py handles resume when CEO responds)
+            # Signal vessel to auto-HOLD parent after execution
             current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
-            _save_tree(project_dir, tree)
-            # Persist task index entry for taskboard
-            from onemancompany.core.store import append_task_index_entry
-            append_task_index_entry(employee_id, child.id, tree_path_str)
-            # Publish WebSocket event (async from sync context — use main loop)
-            import asyncio
-            from onemancompany.core.events import CompanyEvent, event_bus
-            from onemancompany.core.vessel import employee_manager
-            coro = event_bus.publish(CompanyEvent(
-                type=EventType.CEO_INBOX_UPDATED,
-                payload={"node_id": child.id, "description": description},
-                agent=SYSTEM_AGENT,
-            ))
-            main_loop = getattr(employee_manager, "_event_loop", None)
-            if main_loop and main_loop.is_running():
-                asyncio.run_coroutine_threadsafe(coro, main_loop)
-            else:
-                logger.warning("No event loop for ceo_inbox_updated publish")
-            # Auto-open conversation so EA auto-reply works without CEO clicking
-            schedule_auto_open_inbox(child.id)
-            return {
-                "status": "dispatched",
-                "node_id": child.id,
-                "employee_id": employee_id,
-                "description": description,
-                "node_type": NodeType.CEO_REQUEST,
-                "ceo_request": True,
-                "message": (
-                    "Task dispatched to CEO inbox. Your task will automatically pause (HOLDING) "
-                    "until the CEO responds. You should finish your current output now — "
-                    "the system handles the rest."
-                ),
-            }
+            # Fall through to normal scheduling path below — CeoExecutor handles the rest
 
         # --- Normal employee dispatch (existing logic) ---
         # When dispatching to a DIFFERENT employee, the parent should HOLD
