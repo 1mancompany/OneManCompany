@@ -6311,6 +6311,58 @@ async def confirm_ceo_report(project_id: str):
     return {"status": "ok", "project_id": project_id}
 
 
+# ── Unified CEO Session endpoints ────────────────────────────────────────────
+
+
+@router.get("/api/ceo/sessions")
+async def list_ceo_sessions():
+    """List all CEO sessions, sorted by pending-first."""
+    from onemancompany.core.ceo_broker import get_ceo_broker
+
+    broker = get_ceo_broker()
+    return {"sessions": broker.list_sessions()}
+
+
+@router.get("/api/ceo/sessions/{project_id:path}")
+async def get_ceo_session(project_id: str):
+    """Get a specific CEO session's history and pending status."""
+    from onemancompany.core.ceo_broker import get_ceo_broker
+
+    broker = get_ceo_broker()
+    session = broker.get_session(project_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "project_id": project_id,
+        "history": session.history,
+        "has_pending": session.has_pending,
+        "pending_count": session.pending_count,
+    }
+
+
+@router.post("/api/ceo/sessions/{project_id:path}/message")
+async def send_ceo_session_message(project_id: str, body: dict):
+    """CEO sends a message in a project session.
+
+    If the session has pending interactions, resolves the front of the queue.
+    Otherwise, dispatches as a CEO_FOLLOWUP instruction.
+    """
+    from onemancompany.core.ceo_broker import get_ceo_broker
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Empty message")
+
+    broker = get_ceo_broker()
+    result = await broker.handle_input(project_id, text)
+
+    if result["type"] == "followup":
+        # TODO(Task 10): Wire to existing CEO followup dispatch logic
+        pass
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Background Tasks
 # ---------------------------------------------------------------------------
