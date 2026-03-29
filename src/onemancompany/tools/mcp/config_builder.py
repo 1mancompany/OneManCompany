@@ -12,9 +12,10 @@ import sys
 from pathlib import Path
 
 from onemancompany.core.config import (
-    EMPLOYEES_DIR, ENCODING_UTF8, ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR,
+    EMPLOYEES_DIR, ENV_OMC_EMPLOYEE_ID, ENV_OMC_PROJECT_DIR,
     ENV_OMC_PROJECT_ID, ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID,
     MCP_CONFIG_FILENAME, TOOLS_DIR, WORKSPACE_DIR_NAME,
+    write_text_utf,
 )
 
 
@@ -89,5 +90,5 @@ def write_mcp_config(
     config = build_mcp_config(employee_id, task_id, project_id, project_dir, server_url)
     config_path = EMPLOYEES_DIR / employee_id / MCP_CONFIG_FILENAME
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2), encoding=ENCODING_UTF8)
+    write_text_utf(config_path, json.dumps(config, indent=2))
     return config_path

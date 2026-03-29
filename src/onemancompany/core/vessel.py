@@ -52,6 +52,8 @@ from onemancompany.core.config import (
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
     TL_FIELD_TIME,
+    read_text_utf,
+    write_text_utf,
 )
 from onemancompany.core.project_archive import ITER_STATUS_FAILED, PA_TOKEN_USAGE
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -205,7 +207,7 @@ def build_role_identity(employee_id: str) -> str:
     """
     from onemancompany.core.config import (
         FOUNDING_IDS, PF_NAME, PF_NICKNAME, PF_ROLE, PF_DEPARTMENT, PF_LEVEL,
-        EMPLOYEES_DIR, ENCODING_UTF8, load_employee_profile_yaml,
+        EMPLOYEES_DIR, load_employee_profile_yaml, read_text_utf,
     )
     if employee_id in FOUNDING_IDS:
         return ""
@@ -213,7 +215,7 @@ def build_role_identity(employee_id: str) -> str:
     # Check for role_guide.md first (per-employee override)
     guide_path = EMPLOYEES_DIR / employee_id / "role_guide.md"
     if guide_path.exists():
-        return guide_path.read_text(encoding=ENCODING_UTF8)
+        return read_text_utf(guide_path)
 
     profile = load_employee_profile_yaml(employee_id)
     name = profile.get(PF_NAME, "Employee")
@@ -361,7 +363,7 @@ def _load_task_history(employee_id: str) -> tuple[list[dict], str]:
     if not path.exists():
         return [], ""
     try:
-        data = json.loads(path.read_text(encoding=ENCODING_UTF8))
+        data = json.loads(read_text_utf(path))
         return data.get("entries", []), data.get("summary", "")
     except Exception as e:
         logger.warning("Failed to load task history for {}: {}", employee_id, e)
@@ -373,10 +375,10 @@ def _save_task_history(employee_id: str, entries: list[dict], summary: str) -> N
     path = _history_path(employee_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({
+        write_text_utf(path, json.dumps({
             "entries": entries,
             "summary": summary,
-        }, ensure_ascii=False, indent=2), encoding=ENCODING_UTF8)
+        }, ensure_ascii=False, indent=2))
     except Exception as e:
         logger.warning("Failed to save task history for {}: {}", employee_id, e)
 
@@ -673,7 +675,7 @@ def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) ->
     if not path.exists():
         return ""
     try:
-        lines = path.read_text(encoding=ENCODING_UTF8).strip().split("\n")
+        lines = read_text_utf(path).strip().split("\n")
         return "\n".join(lines[-max_lines:])
     except Exception:
         return ""
@@ -1961,9 +1963,9 @@ class EmployeeManager:
         talent_persona_path = EMPLOYEES_DIR / employee_id / "prompts" / "talent_persona.md"
         persona_content = ""
         if claude_md_path.exists():
-            persona_content = claude_md_path.read_text(encoding="utf-8").strip()
+            persona_content = read_text_utf(claude_md_path).strip()
         elif talent_persona_path.exists():
-            persona_content = talent_persona_path.read_text(encoding="utf-8").strip()
+            persona_content = read_text_utf(talent_persona_path).strip()
         if persona_content:
             parts.append(f"## Your Persona\n{persona_content}")
 
@@ -2907,7 +2909,7 @@ class EmployeeManager:
         existing = ""
         if soul_path.exists():
             try:
-                existing = soul_path.read_text(encoding=ENCODING_UTF8)
+                existing = read_text_utf(soul_path)
             except Exception as exc:
                 logger.debug("Failed to read SOUL.md for {}: {}", employee_id, exc)
 
@@ -2938,7 +2940,7 @@ class EmployeeManager:
             )
             new_content = result.content.strip()
             if new_content and len(new_content) > 10:
-                soul_path.write_text(new_content, encoding=ENCODING_UTF8)
+                write_text_utf(soul_path, new_content)
                 logger.info(f"[soul] Updated SOUL.md for employee {employee_id}")
         except Exception as e:
             logger.debug(f"[soul] Failed to update SOUL.md for {employee_id}: {e}")

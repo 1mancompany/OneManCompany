@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import ENCODING_UTF8
+from onemancompany.core.config import read_text_utf, write_text_utf
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase, RESOLVED
 from onemancompany.core.task_tree import TaskNode
 
@@ -50,11 +50,11 @@ class SystemTaskTree:
             "employee_id": self.employee_id,
             "nodes": [n.to_dict() for n in self._nodes.values()],
         }
-        path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False), encoding=ENCODING_UTF8)
+        write_text_utf(path, yaml.dump(data, allow_unicode=True, sort_keys=False))
 
     @classmethod
     def load(cls, path: Path, employee_id: str = "") -> SystemTaskTree:
-        data = yaml.safe_load(path.read_text(encoding=ENCODING_UTF8)) or {}
+        data = yaml.safe_load(read_text_utf(path)) or {}
         tree = cls(employee_id=employee_id or data.get("employee_id", ""))
         for nd in data.get("nodes", []):
             node = TaskNode.from_dict(nd)

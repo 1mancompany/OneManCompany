@@ -37,7 +37,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 # Avoid importing heavy deps at module level
-from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, ENCODING_UTF8, SYSTEM_AGENT
+from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, SYSTEM_AGENT, read_text_utf, write_text_utf
 _TOKEN_DIR = _ASSETS_DIR / ".oauth_cache"
 
 # Track active authorization flows to avoid duplicate popups
@@ -96,7 +96,7 @@ def _load_tokens(service_name: str) -> dict:
     path = _token_cache_path(service_name)
     if path.exists():
         try:
-            return json.loads(path.read_text())
+            return json.loads(read_text_utf(path))
         except Exception:
             return {}
     return {}
@@ -104,7 +104,7 @@ def _load_tokens(service_name: str) -> dict:
 
 def _save_tokens(service_name: str, data: dict) -> None:
     path = _token_cache_path(service_name)
-    path.write_text(json.dumps(data, indent=2))
+    write_text_utf(path, json.dumps(data, indent=2))
 
 
 def _generate_pkce() -> tuple[str, str]:

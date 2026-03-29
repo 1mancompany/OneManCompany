@@ -14,7 +14,7 @@ from typing import Any
 
 from loguru import logger
 
-from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, ENCODING_UTF8
+from onemancompany.core.config import AGENT_DIR_NAME, CONVERSATIONS_DIR_NAME, read_text_utf
 
 CEO_SENDER = "ceo"
 EA_SENDER = "ea"
@@ -114,7 +114,7 @@ async def _build_agent_and_invoke(
     persona_path = EMPLOYEES_DIR / employee_id / AGENT_DIR_NAME / "system_prompt.md"
     if persona_path.exists():
         try:
-            builder.add("persona", persona_path.read_text(encoding=ENCODING_UTF8), priority=15)
+            builder.add("persona", read_text_utf(persona_path), priority=15)
         except Exception as exc:
             logger.debug("Failed to load persona for {}: {}", employee_id, exc)
 

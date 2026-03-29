@@ -13,7 +13,7 @@ Usage:
 
 from pathlib import Path
 
-from onemancompany.core.config import ENCODING_UTF8
+from onemancompany.core.config import write_text_utf
 
 
 TEMPLATE = r'''#!/usr/bin/env python3
@@ -307,6 +307,6 @@ def generate_run_py(employee_dir: str | Path, employee_name: str, employee_id: s
     """Generate a standalone run.py in the employee directory."""
     dest = Path(employee_dir) / "run.py"
     content = TEMPLATE.format(employee_name=employee_name, employee_id=employee_id)
-    dest.write_text(content, encoding=ENCODING_UTF8)
+    write_text_utf(dest, content)
     dest.chmod(0o755)
     return dest

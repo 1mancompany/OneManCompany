@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR, SOURCE_ROOT, SRC_DIR_NAME
+from onemancompany.core.config import COMPANY_DIR, EMPLOYEES_DIR, PROJECTS_DIR, SOURCE_ROOT, SRC_DIR_NAME, read_text_utf, write_text_utf
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import DecisionStatus
 
@@ -102,7 +102,7 @@ def propose_edit(
     old_content = ""
     if resolved.exists():
         try:
-            old_content = resolved.read_text(encoding=ENCODING_UTF8)
+            old_content = read_text_utf(resolved)
         except Exception:
             old_content = "(unable to read original file)"
 
@@ -149,7 +149,7 @@ def execute_edit(edit_id: str) -> dict:
 
     # Write new content
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(edit["new_content"], encoding=ENCODING_UTF8)
+    write_text_utf(file_path, edit["new_content"])
 
     # Request soft-reload — runs immediately if idle, defers if agents are busy
     from onemancompany.core.state import request_reload

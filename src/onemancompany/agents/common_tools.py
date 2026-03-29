@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from loguru import logger
 
 from onemancompany.agents.base import get_employee_skills_prompt, get_employee_tools_prompt, make_llm, tracked_ainvoke
-from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir
+from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir, read_text_utf, write_text_utf
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
 from onemancompany.core.store import load_employee, load_all_employees
@@ -101,7 +101,7 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
     if not resolved.is_file():
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
-        content = resolved.read_text(encoding=ENCODING_UTF8)
+        content = read_text_utf(resolved)
         lines = content.splitlines(keepends=True)
         total_lines = len(lines)
 
@@ -211,10 +211,10 @@ async def write(
                 "status": "error",
                 "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
             }
-        original_content = resolved.read_text(encoding=ENCODING_UTF8)
+        original_content = read_text_utf(resolved)
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(content, encoding=ENCODING_UTF8)
+    write_text_utf(resolved, content)
     _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
 
     result: dict = {
@@ -272,7 +272,7 @@ async def edit(
     if old_string == new_string:
         return {"status": "error", "message": "old_string and new_string are identical."}
 
-    content = resolved.read_text(encoding=ENCODING_UTF8)
+    content = read_text_utf(resolved)
     count = content.count(old_string)
 
     if count == 0:
@@ -291,7 +291,7 @@ async def edit(
         new_content = content.replace(old_string, new_string, 1)
         replacements = 1
 
-    resolved.write_text(new_content, encoding=ENCODING_UTF8)
+    write_text_utf(resolved, new_content)
     return {
         "status": "ok",
         "path": str(resolved),
@@ -957,7 +957,7 @@ async def pull_meeting(
                 # Clear room chat for next meeting
                 chat_path = ROOMS_DIR / f"{room.id}_chat.yaml"
                 if chat_path.exists():
-                    chat_path.write_text("[]", encoding="utf-8")
+                    write_text_utf(chat_path, "[]")
         except Exception as _archive_err:
             logger.debug("Failed to archive meeting: {}", _archive_err)
 
@@ -1076,7 +1076,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
                     continue
                 # Skip binary files — just report size
                 try:
-                    content = fpath.read_text(encoding=ENCODING_UTF8)
+                    content = read_text_utf(fpath)
                     result["files"][fname] = content
                 except (UnicodeDecodeError, ValueError):
                     result["files"][fname] = f"[binary file, {fpath.stat().st_size} bytes]"
@@ -1443,7 +1443,7 @@ def update_project_team(members: list[dict]) -> dict:
     if not project_yaml.exists():
         return {"status": "error", "message": "project.yaml not found."}
 
-    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
+    data = yaml.safe_load(read_text_utf(project_yaml)) or {}
     team = data.get("team", [])
 
     existing_ids = {t.get("employee_id") for t in team}
@@ -1462,10 +1462,7 @@ def update_project_team(members: list[dict]) -> dict:
         added += 1
 
     data["team"] = team
-    project_yaml.write_text(
-        yaml.dump(data, allow_unicode=True, sort_keys=False),
-        encoding=ENCODING_UTF8,
-    )
+    write_text_utf(project_yaml, yaml.dump(data, allow_unicode=True, sort_keys=False))
 
     return {"status": "ok", "added": added, "total": len(team)}
 

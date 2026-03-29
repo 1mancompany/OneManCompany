@@ -33,6 +33,7 @@ from onemancompany.core.config import (
     PF_LEVEL,
     PF_REMOTE,
     PROFILE_FILENAME,
+    open_utf,
 )
 
 # ---------------------------------------------------------------------------
@@ -168,11 +169,11 @@ def _persist_positions(position_updates: dict[str, list[int]]) -> None:
         profile_path = EMPLOYEES_DIR / emp_id / PROFILE_FILENAME
         if not profile_path.exists():
             continue
-        with open(profile_path) as f:
+        with open_utf(profile_path) as f:
             data = yaml.safe_load(f) or {}
         if data.get(PF_DESK_POSITION) != pos:
             data[PF_DESK_POSITION] = pos
-            with open(profile_path, "w") as f:
+            with open_utf(profile_path, "w") as f:
                 yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 

@@ -44,6 +44,8 @@ from onemancompany.core.config import (
     TL_FIELD_ACTION,
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
+    read_text_utf,
+    write_text_utf,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import AuthMethod, DecisionStatus, EventType, HostingMode
@@ -191,7 +193,7 @@ def _scan_employee_projects(employee_id: str, projects_dir: str = "") -> list[di
         if not pyaml.exists():
             continue
         try:
-            data = yaml.safe_load(pyaml.read_text(encoding=ENCODING_UTF8)) or {}
+            data = yaml.safe_load(read_text_utf(pyaml)) or {}
         except Exception:
             logger.warning("Failed to parse {}", pyaml)
             continue
@@ -1473,14 +1475,14 @@ async def get_employee_logs(employee_id: str, tail: int = 100) -> dict:
 @router.get("/api/employee/{employee_id}/progress-log")
 async def get_employee_progress_log(employee_id: str, limit: int = 50) -> dict:
     """Get cross-task work history summaries from progress.log."""
-    from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+    from onemancompany.core.config import EMPLOYEES_DIR
 
     limit = max(1, min(limit, 200))
     path = EMPLOYEES_DIR / employee_id / "progress.log"
     if not path.exists():
         return {"entries": []}
     try:
-        lines = path.read_text(encoding=ENCODING_UTF8).strip().split("\n")
+        lines = read_text_utf(path).strip().split("\n")
         entries = []
         for line in lines[-limit:]:
             if line.startswith("[") and "]" in line:
@@ -1501,7 +1503,7 @@ def _read_node_log(project_dir: str, node_id: str, limit: int) -> list[dict]:
     if not log_path.exists():
         return []
     try:
-        lines = log_path.read_text(encoding="utf-8").strip().split("\n")
+        lines = read_text_utf(log_path).strip().split("\n")
         logs = []
         for line in lines[-limit:]:
             try:
@@ -1830,7 +1832,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
     from onemancompany.core.config import EMPLOYEES_DIR, invalidate_manifest_cache
     manifest_path = EMPLOYEES_DIR / employee_id / MANIFEST_FILENAME
     if manifest_path.exists():
-        manifest = _json.loads(manifest_path.read_text(encoding=ENCODING_UTF8))
+        manifest = _json.loads(read_text_utf(manifest_path))
         manifest["hosting"] = new_hosting
         sections = manifest.get("settings", {}).get("sections", [])
 
@@ -1860,7 +1862,7 @@ async def update_employee_hosting(employee_id: str, body: dict) -> dict:
                     ],
                 })
 
-        manifest_path.write_text(_json.dumps(manifest, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
+        write_text_utf(manifest_path, _json.dumps(manifest, indent=2, ensure_ascii=False))
         invalidate_manifest_cache(employee_id)
 
     hosting_labels = {"company": "LangChain", "self": "Claude Code", "openclaw": "OpenClaw"}
@@ -1998,7 +2000,7 @@ async def update_api_settings(body: dict) -> dict:
         config = load_app_config()
         tm = config.setdefault("talent_market", {})
         tm["api_key"] = api_key
-        APP_CONFIG_PATH.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
+        write_text_utf(APP_CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         reload_app_config()
 
         # Reconnect Talent Market with new API key
@@ -3239,7 +3241,7 @@ async def get_node_execution_logs(node_id: str):
         return []
 
     logs = []
-    for line in log_path.read_text(encoding="utf-8").strip().split("\n"):
+    for line in read_text_utf(log_path).strip().split("\n"):
         if line:
             try:
                 logs.append(_json.loads(line))
@@ -3333,7 +3335,7 @@ async def get_employee_project_retrospective(employee_id: str, project_id: str) 
     timeline_entries: list[dict] = []
     for yaml_file in pdir.glob("*.yaml"):
         try:
-            data = yaml.safe_load(yaml_file.read_text(encoding=ENCODING_UTF8)) or {}
+            data = yaml.safe_load(read_text_utf(yaml_file)) or {}
         except Exception as exc:
             logger.debug("Failed to parse {}: {}", yaml_file, exc)
             continue
@@ -4839,7 +4841,7 @@ async def get_tool_definition(tool_id: str):
     if not tool or not tool.folder_name:
         raise HTTPException(status_code=404, detail="Tool not found")
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    raw = tool_yaml_path.read_text() if tool_yaml_path.exists() else ""
+    raw = read_text_utf(tool_yaml_path) if tool_yaml_path.exists() else ""
     tool_data = {}
     try:
         tool_data = _yaml.safe_load(raw) or {}
@@ -4965,7 +4967,7 @@ async def get_tool_definition(tool_id: str):
             for tf in sorted(templates_dir.iterdir()):
                 if tf.is_file() and not tf.name.startswith("."):
                     # Parse frontmatter for name/description
-                    content = tf.read_text(encoding=ENCODING_UTF8)
+                    content = read_text_utf(tf)
                     tmpl_meta = {"filename": tf.name, "name": tf.stem, "description": ""}
                     if content.startswith("---"):
                         parts = content.split("---", 2)
@@ -5027,7 +5029,7 @@ async def tool_oauth_login(tool_id: str):
     if not tool_yaml_path.exists():
         raise HTTPException(status_code=404, detail="Tool config not found")
 
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5070,7 +5072,7 @@ async def tool_oauth_logout(tool_id: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5098,7 +5100,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5120,7 +5122,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
     env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
-        lines = env_path.read_text().splitlines()
+        lines = read_text_utf(env_path).splitlines()
 
     # Update or append
     updated = set()
@@ -5135,7 +5137,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
         lines.append(f"{client_id_env}={client_id}")
     if client_secret_env not in updated:
         lines.append(f"{client_secret_env}={client_secret}")
-    env_path.write_text("\n".join(lines) + "\n")
+    write_text_utf(env_path, "\n".join(lines) + "\n")
 
     return {"status": "ok", "message": "Credentials saved"}
 
@@ -5166,7 +5168,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
     env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
-        lines = env_path.read_text().splitlines()
+        lines = read_text_utf(env_path).splitlines()
 
     updated = set()
     for i, line in enumerate(lines):
@@ -5177,7 +5179,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
     for name, value in to_save.items():
         if name not in updated:
             lines.append(f"{name}={value}")
-    env_path.write_text("\n".join(lines) + "\n")
+    write_text_utf(env_path, "\n".join(lines) + "\n")
 
     return {"status": "ok", "message": f"{len(to_save)} variable(s) saved"}
 
@@ -5194,7 +5196,7 @@ async def tool_get_template(tool_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5204,7 +5206,7 @@ async def tool_get_template(tool_id: str, filename: str):
     if not file_path.is_file() or not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=404, detail="Template not found")
 
-    return {"filename": filename, "content": file_path.read_text(encoding=ENCODING_UTF8)}
+    return {"filename": filename, "content": read_text_utf(file_path)}
 
 
 @router.put("/api/tools/{tool_id}/templates/{filename}")
@@ -5223,7 +5225,7 @@ async def tool_save_template(tool_id: str, filename: str, body: dict):
         raise HTTPException(status_code=400, detail="Empty content")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5234,7 +5236,7 @@ async def tool_save_template(tool_id: str, filename: str, body: dict):
     if not file_path.resolve().is_relative_to(templates_dir.resolve()):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path.write_text(content, encoding=ENCODING_UTF8)
+    write_text_utf(file_path, content)
     return {"status": "ok", "filename": filename}
 
 
@@ -5250,7 +5252,7 @@ async def tool_delete_template(tool_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(read_text_utf(tool_yaml_path)) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5459,7 +5461,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
     from onemancompany.core.config import COMPANY_ROOT
     env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     if env_path.exists():
-        existing = env_path.read_text()
+        existing = read_text_utf(env_path)
     else:
         existing = ""
 
@@ -5480,7 +5482,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
         result_lines.append(line)
 
     result_lines.extend(new_lines)
-    env_path.write_text("\n".join(result_lines) + "\n")
+    write_text_utf(env_path, "\n".join(result_lines) + "\n")
 
     await event_bus.publish(CompanyEvent(
         type=EventType.CREDENTIALS_SUBMITTED,
@@ -5499,7 +5501,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
 
     from onemancompany.core.config import COMPANY_ROOT
     env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
-    existing = env_path.read_text() if env_path.exists() else ""
+    existing = read_text_utf(env_path) if env_path.exists() else ""
 
     updated_keys = {}
     for key, value in body.items():
@@ -5517,7 +5519,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
         result_lines.append(line)
     for k, v in updated_keys.items():
         result_lines.append(f"{k}={v}")
-    env_path.write_text("\n".join(result_lines) + "\n")
+    write_text_utf(env_path, "\n".join(result_lines) + "\n")
 
     return {"status": "ok", "fields_saved": list(body.keys())}
 
@@ -6715,13 +6717,13 @@ async def clear_conversation_history(conv_id: str) -> dict:
         scanned += 1
         msg_path = conv_dir / "messages.yaml"
         if msg_path.exists():
-            msg_path.write_text("[]\n", encoding="utf-8")
+            write_text_utf(msg_path, "[]\n")
             cleared += 1
 
     # Keep legacy 1-on-1 history endpoint consistent.
     legacy_history_path = conversation_core.EMPLOYEES_DIR / conv.employee_id / "oneonone_history.yaml"
     if legacy_history_path.exists():
-        legacy_history_path.write_text("[]\n", encoding="utf-8")
+        write_text_utf(legacy_history_path, "[]\n")
 
     return {
         "status": "cleared",

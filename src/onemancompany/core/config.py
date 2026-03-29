@@ -162,6 +162,25 @@ CONFIG_YAML_FILENAME = "config.yaml"
 ENCODING_UTF8 = "utf-8"
 
 
+def open_utf(path, mode="r", **kwargs):
+    """Open a file with UTF-8 encoding. Drop-in replacement for open().
+
+    Windows defaults to GBK/CP936. This wrapper ensures all text I/O
+    uses UTF-8 regardless of platform locale.
+    """
+    return open(path, mode, encoding=ENCODING_UTF8, **kwargs)
+
+
+def read_text_utf(path) -> str:
+    """Read a file as UTF-8 text. Drop-in replacement for Path.read_text()."""
+    return Path(path).read_text(encoding=ENCODING_UTF8)
+
+
+def write_text_utf(path, content: str) -> None:
+    """Write text to a file as UTF-8. Drop-in replacement for Path.write_text()."""
+    Path(path).write_text(content, encoding=ENCODING_UTF8)
+
+
 class LogLevel(str, Enum):
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -553,7 +572,7 @@ def _read_app_config_from_disk() -> dict:
     """Read config.yaml from disk. Returns empty dict if missing."""
     if not APP_CONFIG_PATH.exists():
         return {}
-    with open(APP_CONFIG_PATH) as f:
+    with open_utf(APP_CONFIG_PATH) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -589,7 +608,7 @@ def load_employee_configs() -> dict[str, EmployeeConfig]:
         profile_path = emp_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
-        with open(profile_path) as f:
+        with open_utf(profile_path) as f:
             raw = yaml.safe_load(f) or {}
         emp_id = emp_dir.name
         try:
@@ -624,7 +643,7 @@ def load_employee_profile_yaml(employee_id: str) -> dict:
     profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     if not profile_path.exists():
         return {}
-    with open(profile_path) as f:
+    with open_utf(profile_path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -632,7 +651,7 @@ def save_employee_profile_yaml(employee_id: str, data: dict) -> None:
     """Write a full profile dict to employees/{id}/profile.yaml."""
     profile_path = EMPLOYEES_DIR / employee_id / PROFILE_FILENAME
     profile_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(profile_path, "w") as f:
+    with open_utf(profile_path, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -683,7 +702,7 @@ def load_assets() -> tuple[dict, dict]:
                 # New folder-based format
                 tool_yaml = entry / "tool.yaml"
                 if tool_yaml.exists():
-                    with open(tool_yaml) as fh:
+                    with open_utf(tool_yaml) as fh:
                         data = yaml.safe_load(fh) or {}
                     data["_folder_name"] = entry.name
                     # List extra files in the folder (excluding tool.yaml)
@@ -695,7 +714,7 @@ def load_assets() -> tuple[dict, dict]:
                     tools[tool_id] = data
             elif entry.suffix == ".yaml" and entry.is_file():
                 # Legacy flat YAML format
-                with open(entry) as fh:
+                with open_utf(entry) as fh:
                     data = yaml.safe_load(fh) or {}
                 data["_legacy"] = True
                 tools[entry.stem] = data
@@ -705,7 +724,7 @@ def load_assets() -> tuple[dict, dict]:
                 # Skip chat history files (e.g., *_chat.yaml)
                 if f.stem.endswith("_chat"):
                     continue
-                with open(f) as fh:
+                with open_utf(f) as fh:
                     data = yaml.safe_load(fh) or {}
                 if not isinstance(data, dict):
                     logger.warning("Skipping malformed room file {}: expected dict, got {}", f.name, type(data).__name__)
@@ -754,7 +773,7 @@ def load_ex_employee_configs() -> dict[str, EmployeeConfig]:
             continue
         emp_id = emp_dir.name
         try:
-            with open(profile_path) as f:
+            with open_utf(profile_path) as f:
                 raw = yaml.safe_load(f) or {}
             result[emp_id] = EmployeeConfig(**raw)
         except Exception as e:
@@ -796,7 +815,7 @@ def load_company_culture() -> list[dict]:
     """Load company culture items from company_culture.yaml."""
     if not COMPANY_CULTURE_FILE.exists():
         return []
-    with open(COMPANY_CULTURE_FILE) as f:
+    with open_utf(COMPANY_CULTURE_FILE) as f:
         data = yaml.safe_load(f)
     if isinstance(data, list):
         return data
@@ -811,7 +830,7 @@ def load_company_direction() -> str:
     """Load company direction from company_direction.yaml."""
     if not COMPANY_DIRECTION_FILE.exists():
         return ""
-    with open(COMPANY_DIRECTION_FILE) as f:
+    with open_utf(COMPANY_DIRECTION_FILE) as f:
         data = yaml.safe_load(f)
     if isinstance(data, dict):
         return data.get("direction", "")
@@ -826,7 +845,7 @@ def save_company_direction(direction: str) -> None:
         "updated_at": datetime.now().isoformat(),
         "updated_by": "CEO",
     }
-    with open(COMPANY_DIRECTION_FILE, "w") as f:
+    with open_utf(COMPANY_DIRECTION_FILE, "w") as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -890,7 +909,7 @@ def load_talent_profile(talent_id: str) -> dict:
     for base in (TALENTS_RUNTIME_DIR, TALENTS_DIR):
         profile_path = base / talent_id / PROFILE_FILENAME
         if profile_path.exists():
-            with open(profile_path) as f:
+            with open_utf(profile_path) as f:
                 return yaml.safe_load(f) or {}
     return {}
 
@@ -905,7 +924,7 @@ def load_talent_tools(talent_id: str) -> list[str]:
     manifest_path = TALENTS_DIR / talent_id / "tools" / "manifest.yaml"
     if not manifest_path.exists():
         return []
-    with open(manifest_path) as f:
+    with open_utf(manifest_path) as f:
         data = yaml.safe_load(f) or {}
     tools: list[str] = list(data.get("builtin_tools", []))
     tools.extend(data.get("custom_tools", []))
@@ -941,7 +960,7 @@ def list_available_talents() -> list[dict]:
         profile_path = talent_dir / PROFILE_FILENAME
         if not profile_path.exists():
             continue
-        with open(profile_path) as f:
+        with open_utf(profile_path) as f:
             data = yaml.safe_load(f) or {}
         result.append({
             "id": data.get("id", talent_dir.name),

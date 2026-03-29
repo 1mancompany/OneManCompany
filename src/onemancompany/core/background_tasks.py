@@ -17,6 +17,8 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
+from onemancompany.core.config import open_utf, read_text_utf
+
 MAX_CONCURRENT = 5
 _MAX_RETAINED = 50
 _TASKS_FILENAME = "background_tasks.yaml"
@@ -145,7 +147,7 @@ class BackgroundTaskManager:
         if not path.exists():
             return
         try:
-            with open(path) as f:
+            with open_utf(path) as f:
                 data = yaml.safe_load(f) or {}
         except Exception as e:
             logger.warning("Failed to load background tasks: {}", e)
@@ -184,7 +186,7 @@ class BackgroundTaskManager:
         if not log_path.exists():
             return ""
         try:
-            with open(log_path) as f:
+            with open_utf(log_path) as f:
                 tail = deque(f, maxlen=lines)
             return "".join(tail)  # lines already have \n
         except Exception as e:
@@ -231,7 +233,7 @@ class BackgroundTaskManager:
         # Prepare output log directory
         log_path = self.output_log_path(task_id)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fd = open(log_path, "w")
+        log_fd = open_utf(log_path, "w")
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -304,7 +306,7 @@ class BackgroundTaskManager:
             if not log_path.exists():
                 continue
             try:
-                text = log_path.read_text()
+                text = read_text_utf(log_path)
                 match = port_re.search(text)
                 if match:
                     task.port = int(match.group(1))

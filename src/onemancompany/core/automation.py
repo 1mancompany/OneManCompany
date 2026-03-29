@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+from onemancompany.core.config import EMPLOYEES_DIR, read_text_utf, write_text_utf
 from onemancompany.core.interval import parse_interval as _parse_interval
 
 # Single-file constants
@@ -41,7 +41,7 @@ def _load_automations(employee_id: str) -> dict:
     if not path.exists():
         return {_KEY_CRONS: [], _KEY_WEBHOOKS: []}
     try:
-        data = yaml.safe_load(path.read_text(encoding=ENCODING_UTF8)) or {}
+        data = yaml.safe_load(read_text_utf(path)) or {}
         data.setdefault(_KEY_CRONS, [])
         data.setdefault(_KEY_WEBHOOKS, [])
         return data
@@ -52,7 +52,7 @@ def _load_automations(employee_id: str) -> dict:
 def _save_automations(employee_id: str, data: dict) -> None:
     path = _automations_file(employee_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding=ENCODING_UTF8)
+    write_text_utf(path, yaml.dump(data, allow_unicode=True, default_flow_style=False))
 
 
 # ---------------------------------------------------------------------------
