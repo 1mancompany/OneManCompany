@@ -241,14 +241,11 @@ class AppController {
       if (c.includes('rooms'))          this._fetchAndRenderRooms();
       if (c.includes('tools'))          this._fetchAndRenderTools();
       if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
-      // Refresh company culture if modal is open
-      if (!document.getElementById('company-culture-modal').classList.contains('hidden')) {
+      if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      // Refresh projects panel
-      this.updateProjectsPanel();
-      // Auto-refresh dashboard costs if modal is open (debounce 2s)
-      if (!document.getElementById('dashboard-modal').classList.contains('hidden')) {
+      if (c.includes('task_queue'))    this.updateProjectsPanel();
+      if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
       }
@@ -410,11 +407,11 @@ class AppController {
         return { text: `🔑 ${p.title || 'Credentials required'}`, cls: 'system', agent: p.agent || 'SYSTEM' };
       },
       'agent_task_update':   (p) => {
-        // Refresh task board if viewing this employee
-        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
-          this._fetchTaskBoard(this.viewingEmployeeId);
+        // In-place update: use WS payload directly instead of REST re-fetch
+        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId && p.task) {
+          this._updateTaskBoardCard(p.task);
         }
-        return { text: `📋 ${p.employee_id} task: ${p.status || 'updated'}`, cls: 'system', agent: 'AGENT' };
+        return { text: `📋 ${p.employee_id} task: ${p.task?.status || 'updated'}`, cls: 'system', agent: 'AGENT' };
       },
       'dispatch_status_change': (p) => {
         // Refresh the active plugin tab if viewing that project
@@ -447,13 +444,23 @@ class AppController {
       'background_task_update': (p) => {
         const bgModal = document.getElementById('bg-tasks-modal');
         if (bgModal && !bgModal.classList.contains('hidden')) {
-          this._fetchBackgroundTasks();
-          // Also refresh detail if viewing this specific task
+          // In-place update: use WS payload to update list item
+          this._updateBgTaskListItem(p);
+          // Refresh detail view if viewing this specific task
           if (this._bgTaskSelected && this._bgTaskSelected === p.id) {
-            this._fetchBgTaskDetail(p.id);
+            this._updateBgTaskDetailStatus(p);
           }
         }
         return { text: `BG Task ${p.id || '?'}: ${p.status}`, cls: 'system', agent: 'SYSTEM' };
+      },
+      'cron_status_change': (p) => {
+        // Layer 2: refresh cron list if viewing this employee.
+        // Uses REST fetch (not in-place DOM update) because the cron list
+        // is small and the payload lacks the full cron config needed to render.
+        if (this.viewingEmployeeId && p.employee_id === this.viewingEmployeeId) {
+          this._fetchCronList(this.viewingEmployeeId);
+        }
+        return null;
       },
       'review_reminder': (p) => {
         const nodes = p.overdue_nodes || [];
@@ -1829,7 +1836,6 @@ class AppController {
     this._fetchCronList(emp.id);
     this._fetchEmployeeProjects(emp.id);
 
-    // Start auto-refresh for task board while modal is open
     modal.classList.remove('hidden');
   }
 
@@ -1837,7 +1843,6 @@ class AppController {
     this.viewingEmployeeId = null;
     if (this._empXterm) { this._empXterm.dispose(); this._empXterm = null; }
     if (this._empProgressXterm) { this._empProgressXterm.dispose(); this._empProgressXterm = null; }
-    clearTimeout(this._logRefetchTimer);
     document.getElementById('employee-modal').classList.add('hidden');
   }
 
@@ -1966,7 +1971,7 @@ class AppController {
     let html = tabs;
     for (const task of tasks) {
       const statusCls = task.status.replace('_', '-');
-      html += `<div class="emp-taskboard-item ${statusCls}">`;
+      html += `<div class="emp-taskboard-item ${statusCls}" data-task-id="${task.id}">`;
       html += `<div class="emp-taskboard-status" style="display:flex;justify-content:space-between;align-items:center;">`;
       html += `<span>${task.status}</span>`;
       if (task.status === 'pending' || task.status === 'processing') {
@@ -1983,6 +1988,39 @@ class AppController {
       html += '</div>';
     }
     el.innerHTML = html;
+  }
+
+  _updateTaskBoardCard(task) {
+    // In-place update of a single task card in the taskboard.
+    // If the task matches the current filter, re-render the full board
+    // with the updated task merged in. This avoids a REST round-trip.
+    const el = document.getElementById('emp-detail-taskboard');
+    if (!el) return;
+    // Find existing card for this task and update it, or do a full re-fetch
+    // if it's a new task (not yet in the board).
+    const existing = el.querySelector(`.emp-taskboard-item[data-task-id="${task.id}"]`);
+    if (existing) {
+      // Update status + result in-place
+      const statusEl = existing.querySelector('.emp-taskboard-status span');
+      if (statusEl) statusEl.textContent = task.status;
+      existing.className = `emp-taskboard-item ${(task.status || '').replace('_', '-')}`;
+      const descEl = existing.querySelector('.emp-taskboard-desc');
+      if (descEl) descEl.textContent = task.description_preview || task.description || '';
+      const resultEl = existing.querySelector('.emp-taskboard-result');
+      if (task.result) {
+        if (resultEl) {
+          resultEl.textContent = task.result;
+        } else {
+          const div = document.createElement('div');
+          div.className = 'emp-taskboard-result';
+          div.textContent = task.result;
+          existing.appendChild(div);
+        }
+      }
+    } else {
+      // New task not in DOM — full refresh needed (one-time)
+      this._fetchTaskBoard(this.viewingEmployeeId);
+    }
   }
 
   // _renderExecutionLogs removed — all rendering via XTermLog
@@ -3992,7 +4030,6 @@ class AppController {
 
   closeProjectWall() {
     document.getElementById('project-modal').classList.add('hidden');
-    if (this._treeRenderer) this._treeRenderer.stopAutoRefresh();
   }
 
   loadProjectList() {
@@ -7117,7 +7154,7 @@ class AppController {
         stopBtn.textContent = 'STOPPING...';
         try {
           await fetch(`/api/background-tasks/${task.id}/stop`, { method: 'POST' });
-          this._fetchBackgroundTasks();
+          // WS background_task_update event will update UI in-place
         } catch (e) {
           console.error('[bg-tasks] stop error:', e);
         }
@@ -7133,6 +7170,51 @@ class AppController {
     if (s < 60) return `${s}s`;
     if (s < 3600) return `${Math.floor(s / 60)}m${s % 60}s`;
     return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
+  }
+
+  _updateBgTaskListItem(taskData) {
+    // In-place update of a bg task list item from WS payload
+    const el = document.getElementById('bg-tasks-list');
+    if (!el) return;
+    const item = el.querySelector(`.bg-task-item[data-id="${taskData.id}"]`);
+    if (item) {
+      const statusIcon = { running: '\u2588', completed: '\u2591', failed: '\u2573', stopped: '\u2592' };
+      const statusColor = { running: '#44aa44', completed: '#666', failed: '#ff4444', stopped: '#aa4444' };
+      const statusEl = item.querySelector('.bg-task-item-status');
+      if (statusEl) {
+        statusEl.style.color = statusColor[taskData.status] || '#666';
+        statusEl.textContent = `${statusIcon[taskData.status] || '\u2591'} ${taskData.status.toUpperCase()} ${this._bgTaskDuration(taskData)}`;
+      }
+      item.className = `bg-task-item status-${taskData.status}${taskData.id === this._bgTaskSelected ? ' selected' : ''}`;
+      // Update slots counter
+      const slotsEl = document.getElementById('bg-tasks-slots');
+      if (slotsEl && taskData.status !== 'running') {
+        // Recount running items from DOM
+        const runningCount = el.querySelectorAll('.bg-task-item.status-running').length;
+        slotsEl.textContent = `${runningCount}/3 SLOTS`;
+      }
+    } else {
+      // New task not in DOM — full refresh needed (one-time)
+      this._fetchBackgroundTasks();
+    }
+  }
+
+  _updateBgTaskDetailStatus(taskData) {
+    // Update the detail panel status from WS payload without full REST re-fetch
+    const metaEl = document.querySelector('.bg-tasks-detail-meta');
+    if (!metaEl) return;
+    const statusColor = { running: '#44aa44', completed: '#666', failed: '#ff4444', stopped: '#aa4444' };
+    // Update the first span (status)
+    const statusSpan = metaEl.querySelector('span');
+    if (statusSpan) {
+      statusSpan.style.color = statusColor[taskData.status] || '#666';
+      statusSpan.textContent = `\u2588 ${taskData.status.toUpperCase()}`;
+    }
+    // If task finished, remove stop button and show final status
+    if (taskData.status !== 'running') {
+      const stopBtn = document.getElementById('bg-tasks-stop-btn');
+      if (stopBtn) stopBtn.parentElement.remove();
+    }
   }
 }
 
@@ -7160,8 +7242,7 @@ window._abortAgentTask = async function(employeeId, taskId) {
     const data = await res.json();
     if (data.status === 'ok') {
       window.app.logEntry('CEO', `Task cancelled for ${employeeId}`, 'ceo');
-      // Refresh the task board
-      window.app._fetchTaskBoard(employeeId);
+      // WS agent_task_update event will update the task card in-place
     }
   } catch (err) {
     console.error('Cancel failed:', err);

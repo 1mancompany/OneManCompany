@@ -190,16 +190,15 @@ ws.on('agent_log', (p) => appendSingleLog(p.log));
 
 ---
 
-## Current Defects (Critical per Iron Law)
+## Defects — All Fixed
 
-Per the no-duplicate-systems rule, these must be fixed:
-
-| # | Defect | Current | Fix |
-|---|--------|---------|-----|
-| 1 | Employee taskboard | WS `agent_task_update` + 3s REST poll | Remove poll, render from WS payload |
-| 2 | Employee logs | WS `agent_log` append + 3s REST poll | Remove poll, keep one-time initial load |
-| 3 | Background task detail | WS `background_task_update` + 3s poll | Remove poll, push output_tail in WS |
-| 4 | Cron list | 3s poll only, no WS | Add `cron_status_change` WS event |
+| # | Defect | Was | Fix | Status |
+|---|--------|-----|-----|--------|
+| 1 | Employee taskboard | WS + 3s REST poll | In-place render from WS payload | **Fixed** |
+| 2 | Employee logs | WS + 3s REST poll | One-time initial load, WS append | **Fixed** |
+| 3 | Background task detail | WS + 3s poll | In-place update from WS payload | **Fixed** |
+| 4 | Cron list | No WS event | Added `cron_status_change` Layer 2 event | **Fixed** |
+| 5 | Task tree | 3s REST poll | Removed polling, WS `tree_update` only | **Fixed** |
 
 ---
 

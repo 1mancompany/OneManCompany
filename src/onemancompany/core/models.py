@@ -126,6 +126,7 @@ class EventType(str, Enum):
     REMOTE_TASK_COMPLETED = "remote_task_completed"
     SALES_TASK_SUBMITTED = "sales_task_submitted"
     BACKGROUND_TASK_UPDATE = "background_task_update"
+    CRON_STATUS_CHANGE = "cron_status_change"
     TALENT_PROFILE_ERROR = "talent_profile_error"
     ACTIVITY = "activity"
     # Additional types from legacy Literal definition
