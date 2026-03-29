@@ -259,3 +259,19 @@ img/local/*
 .agents/
 skills-lock.json
 skills/
+
+# Internal dev docs (local only, not in release)
+docs/superpowers/
+docs/architecture.md
+docs/architecture_zh.md
+docs/design-principles.md
+docs/dev-test-workflow.md
+docs/PRODUCT_OVERVIEW.md
+docs/joining-the-party.md
+docs/role-prompt-*.md
+docs/task-system.md
+docs/task-system_zh.md
+docs/vessel-system.md
+docs/vessel-system_zh.md
+docs/swe-bench-prompt.md
+docs/.DS_Store
