@@ -6,6 +6,43 @@ We model the evolution of an AI-driven organization as a **Monte Carlo Tree Sear
 
 ---
 
+## 0. Two-Layer Architecture
+
+The system operates on two distinct theoretical layers:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  MCTS Layer (Organizational Evolution)              │
+│  Cross-iteration, cross-project strategic search    │
+│                                                     │
+│  Selection → Expansion → Simulation → Backprop      │
+│                              │                      │
+│                              ▼                      │
+│  ┌─────────────────────────────────────────────┐    │
+│  │  DAG Layer (Single-Iteration Execution)     │    │
+│  │  AND-tree decomposition + dependency graph  │    │
+│  │                                             │    │
+│  │  schedule → execute → review → propagate    │    │
+│  └─────────────────────────────────────────────┘    │
+│                              │                      │
+│                              ▼                      │
+│  Backpropagation ← (quality, cost, time signals)    │
+└─────────────────────────────────────────────────────┘
+```
+
+| Layer | Scope | Time Horizon | Theory | Document |
+|-------|-------|-------------|--------|----------|
+| **MCTS** | Organization | Cross-iteration, cross-project | Monte Carlo Tree Search | This document |
+| **DAG** | Single iteration | Within one task tree execution | AND-tree + DAG scheduling | [task-decomposition-algorithm.md](task-decomposition-algorithm.md) |
+
+**Relationship:** MCTS's **Simulation phase** = one complete DAG execution cycle. The DAG layer is *deterministic* given a decomposition — the MCTS layer is where the *search* happens (which decomposition? which employees? retry or pivot?).
+
+$$\text{MCTS.simulate}(s, a) = \text{DAG.execute}(\text{tree}(s, a)) \to (r, c, q)$$
+
+where $\text{tree}(s, a)$ is the task tree produced by decomposition action $a$ in state $s$.
+
+---
+
 ## 1. MCTS Primer
 
 Monte Carlo Tree Search is a best-first search algorithm that builds a decision tree incrementally through four phases:

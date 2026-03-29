@@ -1,5 +1,9 @@
 # Task Decomposition & Scheduling: Formal Algorithm Specification
 
+> **Scope:** This document covers the **DAG execution layer** — the algorithms for decomposing, scheduling, and completing tasks within a single project iteration. For the organizational-level search that spans iterations and projects (strategy selection, employee assignment, convergence), see [organizational-evolution-mcts.md](organizational-evolution-mcts.md).
+>
+> In MCTS terms, this entire document describes what happens during a single **Simulation (rollout)**.
+
 ## 1. Theoretical Foundation
 
 ### 1.1 AND-OR Tree Decomposition
