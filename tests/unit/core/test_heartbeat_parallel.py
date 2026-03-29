@@ -8,12 +8,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Import at top level — patches target module-level names in heartbeat,
+# so the function reference resolves correctly regardless of import order.
+from onemancompany.core.heartbeat import run_heartbeat_cycle
+
 
 @pytest.mark.asyncio
 async def test_per_employee_checks_run_in_parallel():
     """Per-employee provider checks should run concurrently, not sequentially.
 
-    If 3 checks each take 0.1s, sequential = 0.3s, parallel < 0.2s.
+    Asserts concurrency via start-time proximity (all checks start within 0.05s),
+    which is more robust than wall-clock elapsed time on loaded CI machines.
     """
     call_times = []
 
@@ -30,7 +35,7 @@ async def test_per_employee_checks_run_in_parallel():
          }), \
          patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="provider_key"), \
          patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
-         patch("onemancompany.core.heartbeat._update_online"), \
+         patch("onemancompany.core.heartbeat._update_online") as mock_update, \
          patch("onemancompany.core.auth_verify.probe_chat", side_effect=slow_probe):
 
         mock_store.load_all_employees.return_value = {
@@ -40,25 +45,26 @@ async def test_per_employee_checks_run_in_parallel():
         }
         mock_store.save_employee_runtime = AsyncMock()
 
-        from onemancompany.core.heartbeat import run_heartbeat_cycle
-
-        start = time.monotonic()
         await run_heartbeat_cycle()
-        elapsed = time.monotonic() - start
 
-        # 3 checks × 0.1s each: sequential = ~0.3s, parallel < 0.2s
-        assert elapsed < 0.25, f"Heartbeat took {elapsed:.2f}s — checks are still sequential"
+        # All 3 checks should have started concurrently (within 0.05s of each other)
         assert len(call_times) == 3
+        spread = max(call_times) - min(call_times)
+        assert spread < 0.05, f"Checks started {spread:.3f}s apart — not concurrent"
+
+        # All 3 employees should have _update_online called
+        assert mock_update.call_count == 3
+        called_ids = {c.args[0] for c in mock_update.call_args_list}
+        assert called_ids == {"e1", "e2", "e3"}
 
 
 @pytest.mark.asyncio
 async def test_script_checks_run_in_parallel():
     """Script-based heartbeat checks should run concurrently."""
-    call_count = 0
+    call_times = []
 
     async def slow_script(emp_id):
-        nonlocal call_count
-        call_count += 1
+        call_times.append(time.monotonic())
         await asyncio.sleep(0.1)
         return True
 
@@ -69,7 +75,7 @@ async def test_script_checks_run_in_parallel():
          }), \
          patch("onemancompany.core.heartbeat._get_heartbeat_method", return_value="script"), \
          patch("onemancompany.core.heartbeat.check_needs_setup", return_value=False), \
-         patch("onemancompany.core.heartbeat._update_online"), \
+         patch("onemancompany.core.heartbeat._update_online") as mock_update, \
          patch("onemancompany.core.heartbeat._check_script", side_effect=slow_script):
 
         mock_store.load_all_employees.return_value = {
@@ -78,24 +84,24 @@ async def test_script_checks_run_in_parallel():
         }
         mock_store.save_employee_runtime = AsyncMock()
 
-        from onemancompany.core.heartbeat import run_heartbeat_cycle
-
-        start = time.monotonic()
         await run_heartbeat_cycle()
-        elapsed = time.monotonic() - start
 
-        assert elapsed < 0.2, f"Script checks took {elapsed:.2f}s — still sequential"
-        assert call_count == 2
+        # Both started concurrently
+        assert len(call_times) == 2
+        spread = max(call_times) - min(call_times)
+        assert spread < 0.05, f"Script checks started {spread:.3f}s apart — not concurrent"
+
+        # Both employees updated
+        assert mock_update.call_count == 2
+        called_ids = {c.args[0] for c in mock_update.call_args_list}
+        assert called_ids == {"s1", "s2"}
 
 
 @pytest.mark.asyncio
 async def test_failed_check_marks_offline_not_stale():
     """If a provider check throws, affected employees should be marked offline."""
-    call_count = 0
 
     async def failing_probe(provider, key, model, timeout=15.0):
-        nonlocal call_count
-        call_count += 1
         if key == "k2":
             raise ConnectionError("network down")
         return True, None
@@ -116,7 +122,6 @@ async def test_failed_check_marks_offline_not_stale():
         }
         mock_store.save_employee_runtime = AsyncMock()
 
-        from onemancompany.core.heartbeat import run_heartbeat_cycle
         await run_heartbeat_cycle()
 
         # e1 should be online (True), e2 should be offline (False) due to exception
