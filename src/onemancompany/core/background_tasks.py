@@ -145,7 +145,7 @@ class BackgroundTaskManager:
         if not path.exists():
             return
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = yaml.safe_load(f) or {}
         except Exception as e:
             logger.warning("Failed to load background tasks: {}", e)
@@ -184,7 +184,7 @@ class BackgroundTaskManager:
         if not log_path.exists():
             return ""
         try:
-            with open(log_path) as f:
+            with open(log_path, encoding="utf-8") as f:
                 tail = deque(f, maxlen=lines)
             return "".join(tail)  # lines already have \n
         except Exception as e:
@@ -231,7 +231,7 @@ class BackgroundTaskManager:
         # Prepare output log directory
         log_path = self.output_log_path(task_id)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_fd = open(log_path, "w")
+        log_fd = open(log_path, "w", encoding="utf-8")
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -304,7 +304,7 @@ class BackgroundTaskManager:
             if not log_path.exists():
                 continue
             try:
-                text = log_path.read_text()
+                text = log_path.read_text(encoding="utf-8")
                 match = port_re.search(text)
                 if match:
                     task.port = int(match.group(1))

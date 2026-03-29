@@ -120,7 +120,7 @@ def _check_self_hosted_pid(emp_id: str) -> bool:
     if not pid_file.exists():
         return False
     try:
-        pid = int(pid_file.read_text().strip())
+        pid = int(pid_file.read_text(encoding="utf-8").strip())
         os.kill(pid, 0)  # signal 0: check existence without killing
         return True
     except (ValueError, ProcessLookupError, PermissionError, OSError):

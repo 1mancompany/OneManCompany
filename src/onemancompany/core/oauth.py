@@ -96,7 +96,7 @@ def _load_tokens(service_name: str) -> dict:
     path = _token_cache_path(service_name)
     if path.exists():
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return {}
     return {}
@@ -104,7 +104,7 @@ def _load_tokens(service_name: str) -> dict:
 
 def _save_tokens(service_name: str, data: dict) -> None:
     path = _token_cache_path(service_name)
-    path.write_text(json.dumps(data, indent=2))
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _generate_pkce() -> tuple[str, str]:

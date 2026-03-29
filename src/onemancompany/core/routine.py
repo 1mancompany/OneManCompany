@@ -1270,7 +1270,7 @@ def _load_past_action_items() -> list[dict]:
         return items
     for report_path in REPORTS_DIR.glob("*.yaml"):
         try:
-            with open(report_path) as f:
+            with open(report_path, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
             if not doc or not isinstance(doc, dict):
                 continue
@@ -1919,7 +1919,7 @@ def _save_report(report_id: str, doc: dict) -> None:
     """Save meeting report to meeting_reports/ directory."""
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / f"{report_id}.yaml"
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -1934,7 +1934,7 @@ async def execute_approved_actions(report_id: str, approved_indices: list[int]) 
         # Fallback: try loading from disk (survives server restart)
         report_path = REPORTS_DIR / f"{report_id}.yaml"
         if report_path.exists():
-            with open(report_path) as f:
+            with open(report_path, encoding="utf-8") as f:
                 doc = yaml.safe_load(f)
     if not doc:
         return "Report not found."

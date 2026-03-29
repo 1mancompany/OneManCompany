@@ -161,7 +161,7 @@ def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -
     if not tool_yaml.exists():
         logger.warning("_update_tool_allowed_users: tool.yaml not found for '{}', skipping", tool_name)
         return
-    with open(tool_yaml) as f:
+    with open(tool_yaml, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     allowed: list = data.get("allowed_users", [])
     if add:
@@ -171,7 +171,7 @@ def _update_tool_allowed_users(tool_name: str, employee_id: str, *, add: bool) -
         if employee_id in allowed:
             allowed.remove(employee_id)
     data["allowed_users"] = allowed
-    with open(tool_yaml, "w") as f:
+    with open(tool_yaml, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 
@@ -225,7 +225,7 @@ def install_talent_functions(talent_dir: Path, emp_dir, employee_id: str) -> lis
     if not fn_manifest_path.exists():
         return []
 
-    with open(fn_manifest_path) as f:
+    with open(fn_manifest_path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     declarations = raw.get("functions", [])
@@ -278,7 +278,7 @@ def install_talent_functions(talent_dir: Path, emp_dir, employee_id: str) -> lis
                 tool_meta["allowed_users"] = [employee_id]
             # scope == "company" → omit allowed_users entirely → unrestricted
 
-            with open(tool_dir / TOOL_YAML_FILENAME, "w") as f:
+            with open(tool_dir / TOOL_YAML_FILENAME, "w", encoding="utf-8") as f:
                 yaml.dump(tool_meta, f, default_flow_style=False, allow_unicode=True)
 
         # Ensure the bringing employee has access
@@ -311,7 +311,7 @@ def install_talent_agent_config(talent_dir: Path, emp_dir, employee_id: str) -> 
         shutil.rmtree(str(dst_agent_dir))
     shutil.copytree(str(agent_dir), str(dst_agent_dir))
 
-    with open(manifest_path) as f:
+    with open(manifest_path, encoding="utf-8") as f:
         manifest = yaml.safe_load(f) or {}
 
     # Validate runner module if declared
@@ -515,7 +515,7 @@ def install_talent_vessel_config(talent_dir: Path, emp_dir, employee_id: str) ->
                 shutil.copytree(str(ps_src), str(ps_dst))
 
         # Copy runner/hooks .py files
-        with open(talent_vessel_yaml) as f:
+        with open(talent_vessel_yaml, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         for key in ("runner", "hooks"):
             mod = (raw.get(key) or {}).get("module", "")
@@ -600,7 +600,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
             for sub in tmp_clone.iterdir():
                 if sub.is_dir() and (sub / PROFILE_FILENAME).exists():
                     try:
-                        profile_id = (_yaml.safe_load((sub / PROFILE_FILENAME).read_text()) or {}).get("id", "")
+                        profile_id = (_yaml.safe_load((sub / PROFILE_FILENAME).read_text(encoding="utf-8")) or {}).get("id", "")
                     except Exception:
                         profile_id = ""
                     dest_name = profile_id or sub.name
@@ -706,7 +706,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
         manifest = talent_tools / MANIFEST_YAML_FILENAME
         custom_tools: list[str] = []
         if manifest.exists():
-            with open(manifest) as f:
+            with open(manifest, encoding="utf-8") as f:
                 mdata = yaml.safe_load(f) or {}
             custom_tools = mdata.get("custom_tools", [])
 
@@ -745,7 +745,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
     else:
         talent_profile_path = talent_dir / PROFILE_FILENAME
         if talent_profile_path.exists():
-            with open(talent_profile_path) as f:
+            with open(talent_profile_path, encoding="utf-8") as f:
                 talent_data = yaml.safe_load(f) or {}
             spt = talent_data.get("system_prompt_template", "")
             if spt and spt.strip():
@@ -810,7 +810,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
         emp_tools.mkdir(exist_ok=True)
         emp_manifest = emp_tools / MANIFEST_YAML_FILENAME
         if emp_manifest.exists():
-            with open(emp_manifest) as f:
+            with open(emp_manifest, encoding="utf-8") as f:
                 emp_mdata = yaml.safe_load(f) or {}
         else:
             emp_mdata = {"builtin_tools": [], "custom_tools": []}
@@ -819,7 +819,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
             if fn not in existing:
                 existing.append(fn)
         emp_mdata["custom_tools"] = existing
-        with open(emp_manifest, "w") as f:
+        with open(emp_manifest, "w", encoding="utf-8") as f:
             yaml.dump(emp_mdata, f, allow_unicode=True, default_flow_style=False)
 
 

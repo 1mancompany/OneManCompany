@@ -67,14 +67,14 @@ async def execute_fire(employee_id: str, reason: str = "CEO decision") -> dict:
 
         manifest_path = EMPLOYEES_DIR / employee_id / "tools" / MANIFEST_YAML_FILENAME
         if manifest_path.exists():
-            with open(manifest_path) as f:
+            with open(manifest_path, encoding="utf-8") as f:
                 mdata = yaml.safe_load(f) or {}
             for tool_name in mdata.get("custom_tools", []):
                 unregister_tool_user(tool_name, employee_id)
                 # Clean up orphaned personal tools (no remaining users)
                 tool_yaml_path = TOOLS_DIR / tool_name / TOOL_YAML_FILENAME
                 if tool_yaml_path.exists():
-                    with open(tool_yaml_path) as f:
+                    with open(tool_yaml_path, encoding="utf-8") as f:
                         tool_data = yaml.safe_load(f) or {}
                     if (tool_data.get("source_talent") and
                             "allowed_users" in tool_data and

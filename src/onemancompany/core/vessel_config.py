@@ -146,7 +146,7 @@ def _parse_vessel_dict(raw: dict) -> VesselConfig:
 def _load_default_vessel_config() -> VesselConfig:
     """Load the default vessel config from src/onemancompany/core/default_vessel.yaml."""
     if _DEFAULT_VESSEL_YAML.exists():
-        with open(_DEFAULT_VESSEL_YAML) as f:
+        with open(_DEFAULT_VESSEL_YAML, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         return _parse_vessel_dict(raw)
     return VesselConfig()
@@ -163,7 +163,7 @@ def load_vessel_config(emp_dir: Path) -> VesselConfig:
     vessel_yaml = emp_dir / VESSEL_DIR_NAME / VESSEL_YAML_FILENAME
     if vessel_yaml.exists():
         try:
-            with open(vessel_yaml) as f:
+            with open(vessel_yaml, encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
             return _parse_vessel_dict(raw)
         except yaml.YAMLError:
@@ -211,7 +211,7 @@ def save_vessel_config(emp_dir: Path, config: VesselConfig) -> None:
         },
     }
 
-    with open(vessel_dir / VESSEL_YAML_FILENAME, "w") as f:
+    with open(vessel_dir / VESSEL_YAML_FILENAME, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
 

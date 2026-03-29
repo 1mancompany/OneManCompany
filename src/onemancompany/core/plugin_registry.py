@@ -91,7 +91,7 @@ class PluginRegistry:
         logger.info("Loaded {} plugin(s): {}", len(self._plugins), list(self._plugins.keys()))
 
     def _load_plugin(self, plugin_dir: Path, manifest_path: Path) -> None:
-        with open(manifest_path) as f:
+        with open(manifest_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
 
         manifest = PluginManifest.from_yaml(data)

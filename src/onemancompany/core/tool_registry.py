@@ -160,7 +160,7 @@ class ToolRegistry:
             if not tool_yaml_path.exists():
                 continue
 
-            with open(tool_yaml_path) as f:
+            with open(tool_yaml_path, encoding="utf-8") as f:
                 tool_conf = yaml.safe_load(f) or {}
 
             # Only load Python-based tool modules

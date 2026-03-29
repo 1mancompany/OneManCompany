@@ -23,7 +23,7 @@ def _is_project_archived(tree_path: Path) -> bool:
     if not project_yaml.exists():
         return False
     try:
-        doc = yaml.safe_load(project_yaml.read_text()) or {}
+        doc = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
         return doc.get("status") == "archived"
     except Exception:
         return False

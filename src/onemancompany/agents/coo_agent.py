@@ -87,7 +87,7 @@ def _persist_tool(t: OfficeTool) -> None:
     folder = TOOLS_DIR / t.folder_name
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / TOOL_YAML_FILENAME
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         yaml.dump(
             {
                 "id": t.id,
@@ -170,7 +170,7 @@ def register_asset(
                     src = Path(source_project_dir) / f
                     if src.exists():
                         try:
-                            ast.parse(src.read_text())
+                            ast.parse(src.read_text(encoding="utf-8"))
                         except SyntaxError as e:
                             return {"status": "error", "message": f"Python syntax error in {f}: {e}"}
     elif tool_type == "reference":
@@ -526,7 +526,7 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
     # Persist to assets/rooms/
     ROOMS_DIR.mkdir(parents=True, exist_ok=True)
     room_path = ROOMS_DIR / f"{room_id}.yaml"
-    with open(room_path, "w") as f:
+    with open(room_path, "w", encoding="utf-8") as f:
         yaml.dump(
             {
                 "name": name,

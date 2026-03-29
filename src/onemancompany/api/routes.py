@@ -4839,7 +4839,7 @@ async def get_tool_definition(tool_id: str):
     if not tool or not tool.folder_name:
         raise HTTPException(status_code=404, detail="Tool not found")
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    raw = tool_yaml_path.read_text() if tool_yaml_path.exists() else ""
+    raw = tool_yaml_path.read_text(encoding="utf-8") if tool_yaml_path.exists() else ""
     tool_data = {}
     try:
         tool_data = _yaml.safe_load(raw) or {}
@@ -5027,7 +5027,7 @@ async def tool_oauth_login(tool_id: str):
     if not tool_yaml_path.exists():
         raise HTTPException(status_code=404, detail="Tool config not found")
 
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5070,7 +5070,7 @@ async def tool_oauth_logout(tool_id: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5098,7 +5098,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     oauth_cfg = tool_data.get("oauth")
     if not oauth_cfg:
         raise HTTPException(status_code=400, detail="Tool does not use OAuth")
@@ -5120,7 +5120,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
     env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
-        lines = env_path.read_text().splitlines()
+        lines = env_path.read_text(encoding="utf-8").splitlines()
 
     # Update or append
     updated = set()
@@ -5166,7 +5166,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
     env_path = DATA_ROOT / DOT_ENV_FILENAME
     lines = []
     if env_path.exists():
-        lines = env_path.read_text().splitlines()
+        lines = env_path.read_text(encoding="utf-8").splitlines()
 
     updated = set()
     for i, line in enumerate(lines):
@@ -5194,7 +5194,7 @@ async def tool_get_template(tool_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5223,7 +5223,7 @@ async def tool_save_template(tool_id: str, filename: str, body: dict):
         raise HTTPException(status_code=400, detail="Empty content")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5250,7 +5250,7 @@ async def tool_delete_template(tool_id: str, filename: str):
         raise HTTPException(status_code=404, detail="Tool not found")
 
     tool_yaml_path = TOOLS_DIR / tool.folder_name / "tool.yaml"
-    tool_data = _yaml.safe_load(tool_yaml_path.read_text()) or {}
+    tool_data = _yaml.safe_load(tool_yaml_path.read_text(encoding="utf-8")) or {}
     templates_cfg = tool_data.get("templates")
     if not templates_cfg:
         raise HTTPException(status_code=400, detail="Tool does not have templates")
@@ -5459,7 +5459,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
     from onemancompany.core.config import COMPANY_ROOT
     env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
     if env_path.exists():
-        existing = env_path.read_text()
+        existing = env_path.read_text(encoding="utf-8")
     else:
         existing = ""
 
@@ -5499,7 +5499,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
 
     from onemancompany.core.config import COMPANY_ROOT
     env_path = COMPANY_ROOT.parent / DOT_ENV_FILENAME
-    existing = env_path.read_text() if env_path.exists() else ""
+    existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
 
     updated_keys = {}
     for key, value in body.items():
