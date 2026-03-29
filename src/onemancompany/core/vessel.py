@@ -722,7 +722,7 @@ class EmployeeManager:
     # ------------------------------------------------------------------
 
     def schedule_node(self, employee_id: str, node_id: str, tree_path: str) -> None:
-        """Add a node to the employee's schedule."""
+        """Add a node to the employee's schedule (idempotent — skips duplicates)."""
         # Always persist to task index for taskboard visibility
         from onemancompany.core.store import append_task_index_entry
         append_task_index_entry(employee_id, node_id, tree_path)
@@ -734,8 +734,11 @@ class EmployeeManager:
                 employee_id, node_id,
             )
             return
-        entry = ScheduleEntry(node_id=node_id, tree_path=tree_path)
-        self._schedule.setdefault(employee_id, []).append(entry)
+        entries = self._schedule.setdefault(employee_id, [])
+        if any(e.node_id == node_id for e in entries):
+            logger.debug("[SCHEDULE] node {} already in schedule for {}, skipping", node_id, employee_id)
+            return
+        entries.append(ScheduleEntry(node_id=node_id, tree_path=tree_path))
 
     def unschedule(self, employee_id: str, node_id: str) -> None:
         """Remove a completed/failed node from schedule."""
