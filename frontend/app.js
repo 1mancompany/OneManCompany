@@ -260,9 +260,9 @@ class AppController {
     // CEO session real-time updates (project-level conversations)
     if (msg.type === 'ceo_session_message') {
       const p = msg.payload || {};
-      this._refreshCeoTermSessions();
+      this._refreshCeoProjectList();
       // If viewing this project in terminal, append message
-      if (this._ceoTerm?._currentProjectId === p.project_id && this._ceoTerm?._mode === 'chat') {
+      if (this._currentCeoProject === p.project_id && this._ceoTerm) {
         this._ceoTerm.appendMessage({
           role: 'system',
           text: p.message,
@@ -2290,91 +2290,122 @@ class AppController {
     return projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  // ===== CEO Terminal (xterm.js) ===== //
+  // ===== CEO Terminal (two-column: project list + xterm conversation) ===== //
 
   _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
 
   async _initCeoTerminal() {
-    const container = document.getElementById('ceo-terminal');
-    if (!container) return;
+    const convContainer = document.getElementById('ceo-conv-terminal');
+    if (!convContainer) return;
 
-    this._ceoTerm = new CeoTerminal(container);
-
-    this._ceoTerm.onSelectProject(async (projectId) => {
-      this._currentCeoProject = projectId;
-      try {
-        const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
-        if (!resp.ok) {
-          this._ceoTerm.showChat(projectId, []);
-          return;
-        }
-        const data = await resp.json();
-        this._ceoTerm.showChat(projectId, data.history || []);
-      } catch (e) {
-        this._ceoTerm.showChat(projectId, []);
-      }
-    });
+    this._ceoTerm = new CeoTerminal(convContainer);
 
     this._ceoTerm.onSend(async (projectId, text) => {
+      if (!projectId) {
+        // New task
+        try {
+          const formData = new FormData();
+          formData.append('task', text);
+          formData.append('mode', 'standard');
+          await fetch('/api/ceo/task', { method: 'POST', body: formData });
+          await this._refreshCeoProjectList();
+        } catch (e) { console.error('Failed to submit task:', e); }
+        return;
+      }
       try {
         await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}/message`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({text}),
         });
-      } catch (e) {
-        console.error('Failed to send:', e);
-      }
-      // Re-render prompt after send
-      this._ceoTerm._renderPrompt();
-      // Refresh sessions (pending may have changed)
-      await this._refreshCeoTermSessions();
+        await this._refreshCeoProjectList();
+      } catch (e) { console.error('Failed to send:', e); }
     });
 
-    this._ceoTerm.onNewTask(async (text) => {
-      try {
-        const formData = new FormData();
-        formData.append('task', text);
-        formData.append('mode', 'standard');
-        await fetch('/api/ceo/task', { method: 'POST', body: formData });
-      } catch (e) {
-        console.error('Failed to submit task:', e);
-      }
-      await this._refreshCeoTermSessions();
-      this._ceoTerm.showSelect();
-    });
-
-    await this._refreshCeoTermSessions();
-    this._ceoTerm.showSelect();
+    await this._refreshCeoProjectList();
   }
 
-  async _refreshCeoTermSessions() {
+  async _refreshCeoProjectList() {
+    const listEl = document.getElementById('ceo-project-items');
+    if (!listEl) return;
+
+    let sessions = [];
     try {
       const resp = await fetch('/api/ceo/sessions');
-      const data = await resp.json();
+      sessions = (await resp.json()).sessions || [];
+    } catch (e) {}
 
-      // Fetch project names for display
-      let projectNames = {};
-      try {
-        const namesResp = await fetch('/api/projects/named');
-        const namesData = await namesResp.json();
-        for (const p of namesData.projects || namesData || []) {
-          projectNames[p.project_id || p.id] = p.name || p.project_name || '';
-        }
-      } catch (e) { /* ignore */ }
+    // Fetch project names for display
+    let projectNames = {};
+    try {
+      const namesResp = await fetch('/api/projects/named');
+      const namesData = await namesResp.json();
+      for (const p of namesData.projects || namesData || []) {
+        projectNames[p.project_id || p.id] = p.name || p.project_name || '';
+      }
+    } catch (e) { /* ignore */ }
 
-      this._ceoTerm?.setProjectNames(projectNames);
-      this._ceoTerm?.setSessions(data.sessions || []);
-    } catch (e) { /* API not ready */ }
+    listEl.innerHTML = '';
+
+    for (const s of sessions) {
+      const item = document.createElement('div');
+      item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '');
+      const basePid = (s.project_id || '').split('/')[0];
+      const name = projectNames[basePid] || basePid;
+      const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
+      const badge = s.has_pending ? '<span class="ceo-proj-pending">\u25CF</span>' : '';
+      item.innerHTML = badge + this._escHtml(display);
+      item.addEventListener('click', () => this._selectCeoProject(s.project_id));
+      listEl.appendChild(item);
+    }
+
+    // Separator
+    const sep = document.createElement('div');
+    sep.className = 'ceo-proj-separator';
+    listEl.appendChild(sep);
+
+    // + New Task
+    const newTask = document.createElement('div');
+    newTask.className = 'ceo-proj-action';
+    newTask.textContent = '+ New Task';
+    newTask.addEventListener('click', () => {
+      this._currentCeoProject = null;
+      this._refreshCeoProjectList();
+      this._ceoTerm?.showChat(null, []);
+    });
+    listEl.appendChild(newTask);
+
+    // + New Iteration (only if a project is selected)
+    if (this._currentCeoProject) {
+      const newIter = document.createElement('div');
+      newIter.className = 'ceo-proj-action';
+      newIter.textContent = '+ New Iter';
+      newIter.addEventListener('click', () => {
+        // TODO: wire to iteration creation API
+      });
+      listEl.appendChild(newIter);
+    }
   }
 
-  _selectCeoProject(projectId) {
-    // Called from project panel sidebar clicks — delegate to terminal
+  async _selectCeoProject(projectId) {
     this._currentCeoProject = projectId;
-    if (this._ceoTerm && projectId) {
-      this._ceoTerm._onSelectProject?.(projectId);
-    } else if (this._ceoTerm) {
-      this._ceoTerm.showSelect();
+    this._refreshCeoProjectList();
+
+    if (!projectId) {
+      this._ceoTerm?.showChat(null, []);
+      return;
+    }
+
+    try {
+      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
+      if (!resp.ok) {
+        this._ceoTerm?.showChat(projectId, []);
+        return;
+      }
+      const data = await resp.json();
+      this._ceoTerm?.showChat(projectId, data.history || []);
+    } catch (e) {
+      this._ceoTerm?.showChat(projectId, []);
     }
   }
 
@@ -6150,7 +6181,7 @@ class AppController {
       .then(data => {
         this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
         // Refresh terminal sessions — new project should appear
-        this._refreshCeoTermSessions();
+        this._refreshCeoProjectList();
       })
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
@@ -6821,7 +6852,7 @@ class AppController {
 
   loadActiveProjects() {
     // Replaced by CEO Terminal — refresh sessions instead
-    this._refreshCeoTermSessions();
+    this._refreshCeoProjectList();
   }
 
   // ===== Admin Reload =====

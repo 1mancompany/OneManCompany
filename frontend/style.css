@@ -5296,8 +5296,70 @@ body {
 }
 .bg-tasks-stop-btn:hover { background: #ff444422; }
 
-/* ===== CEO Terminal (xterm.js) ===== */
-#ceo-terminal {
+/* ===== CEO Terminal (two-column: project list + xterm conversation) ===== */
+#ceo-split {
+  display: flex;
   height: 100%;
+  min-height: 0;
+  gap: 1px;
+}
+
+#ceo-project-list {
+  width: 120px;
+  flex-shrink: 0;
+  background: #0a0a0a;
+  border-right: 1px solid #222;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.ceo-proj-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+}
+
+.ceo-proj-item:hover {
+  background: #1a1a1a;
+  color: #ccc;
+}
+
+.ceo-proj-item.active {
+  background: #112;
+  color: #fff;
+  border-left-color: #44aa44;
+}
+
+.ceo-proj-pending {
+  color: #ffaa44;
+  margin-right: 2px;
+}
+
+.ceo-proj-separator {
+  border-top: 1px solid #222;
+  margin: 4px 6px;
+}
+
+.ceo-proj-action {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #44aaff;
+  font-size: 10px;
+}
+
+.ceo-proj-action:hover {
+  background: #1a1a1a;
+  color: #66ccff;
+}
+
+#ceo-conv-terminal {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
 }
