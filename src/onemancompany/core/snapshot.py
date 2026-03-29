@@ -30,7 +30,7 @@ from typing import Protocol
 
 from loguru import logger
 
-from onemancompany.core.config import COMPANY_DIR as _COMPANY_DIR, ENCODING_UTF8
+from onemancompany.core.config import COMPANY_DIR as _COMPANY_DIR, read_text_utf, write_text_utf
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -94,7 +94,7 @@ def save_snapshot() -> None:
 
     try:
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SNAPSHOT_PATH.write_text(json.dumps(snapshot, default=str), encoding=ENCODING_UTF8)
+        write_text_utf(SNAPSHOT_PATH, json.dumps(snapshot, default=str))
         provider_names = [n for n in snapshot["providers"]]
         logger.info("Saved snapshot: {} provider(s) [{}]", len(provider_names), ", ".join(provider_names))
     except Exception as e:
@@ -106,7 +106,7 @@ def restore_snapshot() -> None:
     if not SNAPSHOT_PATH.exists():
         return
     try:
-        raw = json.loads(SNAPSHOT_PATH.read_text(encoding=ENCODING_UTF8))
+        raw = json.loads(read_text_utf(SNAPSHOT_PATH))
         saved_at = raw.get("saved_at", 0)
         age = time.time() - saved_at
         if age > SNAPSHOT_MAX_AGE_SECONDS:

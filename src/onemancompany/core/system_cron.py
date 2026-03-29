@@ -25,7 +25,7 @@ from typing import Any, Callable, Coroutine, Literal, TypedDict
 
 from loguru import logger
 
-from onemancompany.core.config import SYSTEM_SENDER
+from onemancompany.core.config import SYSTEM_SENDER, read_text_utf, write_text_utf
 from onemancompany.core.interval import parse_interval
 from onemancompany.core.models import EventType
 
@@ -117,7 +117,7 @@ class SystemCronManager:
         if not path.exists():
             return
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            data = yaml.safe_load(read_text_utf(path)) or {}
             self._disabled = set(data.get("disabled", []))
             # Restore custom intervals
             for name, interval in data.get("intervals", {}).items():
@@ -147,7 +147,7 @@ class SystemCronManager:
         }
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(yaml.dump(data, allow_unicode=True, default_flow_style=False), encoding="utf-8")
+            write_text_utf(path, yaml.dump(data, allow_unicode=True, default_flow_style=False))
         except Exception as e:
             logger.error("[system_cron] Failed to persist state: {}", e)
 

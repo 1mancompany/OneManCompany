@@ -28,7 +28,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR
+from onemancompany.core.config import BLOCK_KEY_TEXT, BLOCK_KEY_TYPE, BLOCK_TYPE_TEXT, EMPLOYEES_DIR, ENCODING_UTF8, PROJECTS_DIR, read_text_utf, write_text_utf
 
 LLM_TRACES_FILENAME = "llm_traces.jsonl"
 
@@ -95,7 +95,7 @@ def _load_sessions(employee_id: str) -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding=ENCODING_UTF8))
+        return json.loads(read_text_utf(path))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -103,7 +103,7 @@ def _load_sessions(employee_id: str) -> dict:
 def _save_sessions(employee_id: str, data: dict) -> None:
     path = _sessions_file(employee_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8)
+    write_text_utf(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def get_or_create_session(

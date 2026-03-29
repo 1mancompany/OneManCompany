@@ -19,7 +19,6 @@ from onemancompany.core.config import (
     BLOCK_TYPE_TEXT,
     CHAT_CLASS_ANTHROPIC,
     CHAT_CLASS_OPENAI,
-    ENCODING_UTF8,
     FOUNDING_IDS,
     MAX_SUMMARY_LEN,
     PF_DEPARTMENT,
@@ -43,6 +42,7 @@ from onemancompany.core.config import (
     get_provider,
     load_employee_skills,
     settings,
+    read_text_utf,
 )
 from onemancompany.core.models import AuthMethod
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -380,7 +380,7 @@ def get_employee_talent_persona(employee_id: str) -> str:
     path = EMPLOYEES_DIR / employee_id / PROMPTS_DIR_NAME / TALENT_PERSONA_FILENAME
     if not path.exists():
         return ""
-    content = path.read_text(encoding=ENCODING_UTF8).strip()
+    content = read_text_utf(path).strip()
     return f"\n{content}" if content else ""
 
 
@@ -490,7 +490,7 @@ def get_employee_tools_prompt(employee_id: str) -> str:
                     fpath = tool_folder / fname
                     if fpath.is_file():
                         try:
-                            content = fpath.read_text(encoding=ENCODING_UTF8)
+                            content = read_text_utf(fpath)
                         except (UnicodeDecodeError, ValueError):
                             content = f"[binary, {fpath.stat().st_size} bytes]"
                         parts.append(f"  - {fname}:\n```\n{content}\n```")
@@ -941,7 +941,7 @@ class BaseAgentRunner:
         """Load prompt from employee's prompts/ dir."""
         path = EMPLOYEES_DIR / self.employee_id / PROMPTS_DIR_NAME / filename
         if path.exists():
-            return path.read_text(encoding=ENCODING_UTF8)
+            return read_text_utf(path)
         return None
 
     @staticmethod
@@ -949,7 +949,7 @@ class BaseAgentRunner:
         """Load from company/shared_prompts/."""
         path = SHARED_PROMPTS_DIR / filename
         if path.exists():
-            return path.read_text(encoding=ENCODING_UTF8)
+            return read_text_utf(path)
         return None
 
     def _get_company_direction_section(self) -> str:
@@ -969,7 +969,7 @@ class BaseAgentRunner:
         soul_path = EMPLOYEES_DIR / self.employee_id / WORKSPACE_DIR_NAME / SOUL_FILENAME
         if soul_path.exists():
             try:
-                content = soul_path.read_text(encoding=ENCODING_UTF8).strip()
+                content = read_text_utf(soul_path).strip()
                 if content:
                     return (
                         "## Your Personal Knowledge (SOUL.md)\n"
@@ -1028,7 +1028,7 @@ class BaseAgentRunner:
                 if not content_path:
                     continue
                 try:
-                    content = content_path.read_text(encoding=ENCODING_UTF8)
+                    content = read_text_utf(content_path)
                     pb.add(ps.name, content, priority=ps.priority)
                 except Exception as _e:
                     logger.warning("Failed to load prompt section %s: %s", ps.name, _e)

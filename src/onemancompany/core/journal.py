@@ -21,7 +21,7 @@ from pathlib import Path
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from onemancompany.core.config import COMPANY_DIR, ENCODING_UTF8
+from onemancompany.core.config import COMPANY_DIR, read_text_utf, write_text_utf
 
 # Single-file constants
 JOURNAL_DIR_NAME = "journal"
@@ -66,7 +66,7 @@ class Journal:
         filename = f"{record.kind.value}-{ts}-{digest}.json"
 
         file_path = dir_path / filename
-        file_path.write_text(content, encoding=ENCODING_UTF8)
+        write_text_utf(file_path, content)
         return str(file_path)
 
     def query(
@@ -85,7 +85,7 @@ class Journal:
             if kind and not f.name.startswith(kind.value):
                 continue
             try:
-                record = EvidenceRecord.model_validate_json(f.read_text(encoding=ENCODING_UTF8))
+                record = EvidenceRecord.model_validate_json(read_text_utf(f))
                 results.append(record)
             except Exception as _e:
                 logger.debug("Skipping corrupted evidence record {}: {}", f.name, _e)

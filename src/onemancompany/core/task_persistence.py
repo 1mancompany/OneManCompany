@@ -13,7 +13,7 @@ from loguru import logger
 
 import yaml
 
-from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME
+from onemancompany.core.config import EMPLOYEES_DIR, PROJECT_YAML_FILENAME, TASK_TREE_FILENAME, read_text_utf
 from onemancompany.core.task_lifecycle import RESOLVED, TaskPhase
 
 
@@ -23,7 +23,7 @@ def _is_project_archived(tree_path: Path) -> bool:
     if not project_yaml.exists():
         return False
     try:
-        doc = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+        doc = yaml.safe_load(read_text_utf(project_yaml)) or {}
         return doc.get("status") == "archived"
     except Exception:
         return False

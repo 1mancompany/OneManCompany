@@ -24,7 +24,6 @@ SOURCE_ROOT = Path(__file__).parent.parent.parent
 from onemancompany.core.config import (
     COMPANY_TEMPLATE_DIR, CONFIG_YAML_FILENAME,
     DATA_DIR_NAME, DOT_ENV_FILENAME, EMPLOYEES_DIR,
-    ENCODING_UTF8,
     ENV_KEY_ANTHROPIC, ENV_KEY_ANTHROPIC_AUTH, ENV_KEY_DEFAULT_MODEL,
     ENV_KEY_DEFAULT_PROVIDER, ENV_KEY_HOST, ENV_KEY_OPENROUTER,
     ENV_KEY_PORT, ENV_KEY_SANDBOX_ENABLED, ENV_KEY_SKILLSMP,
@@ -33,6 +32,8 @@ from onemancompany.core.config import (
     ENV_OMC_SERVER_URL, ENV_OMC_TASK_ID, HR_DIR, MCP_CONFIG_FILENAME,
     PROVIDER_ANTHROPIC, PROVIDER_OPENROUTER, TOOLS_DIR,
     WORKSPACE_DIR_NAME,
+    read_text_utf,
+    write_text_utf,
 )
 from onemancompany.core.models import AuthMethod
 DATA_ROOT = Path.cwd() / DATA_DIR_NAME
@@ -640,7 +641,7 @@ def _step_execute(
         env_lines.append(f"{ENV_KEY_SKILLSMP}={extras[ENV_KEY_SKILLSMP]}")
 
     env_path = DATA_ROOT / DOT_ENV_FILENAME
-    env_path.write_text("\n".join(env_lines) + "\n", encoding=ENCODING_UTF8)
+    write_text_utf(env_path, "\n".join(env_lines) + "\n")
     console.print("  [green]\u2714[/green] .env written")
 
     # 3. Copy config.yaml and inject Talent Market API key if provided
@@ -652,14 +653,14 @@ def _step_execute(
     # Patch config.yaml with user choices
     if dst_config.exists():
         import yaml
-        cfg = yaml.safe_load(dst_config.read_text(encoding=ENCODING_UTF8)) or {}
+        cfg = yaml.safe_load(read_text_utf(dst_config)) or {}
         # Sandbox toggle
         cfg.setdefault("tools", {}).setdefault("sandbox", {})["enabled"] = sandbox_enabled
         # Talent Market API key
         tm_key = extras.get(ENV_KEY_TALENT_MARKET, "")
         if tm_key:
             cfg.setdefault("talent_market", {})["api_key"] = tm_key
-        dst_config.write_text(yaml.dump(cfg, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
+        write_text_utf(dst_config, yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
         if sandbox_enabled:
             console.print("  [green]\u2714[/green] Sandbox tools enabled")
         if tm_key:
@@ -672,10 +673,10 @@ def _step_execute(
     for _fid in FOUNDING_IDS:
         _profile = EMPLOYEES_DIR / _fid / "profile.yaml"
         if _profile.exists():
-            _pdata = _yaml.safe_load(_profile.read_text(encoding=ENCODING_UTF8)) or {}
+            _pdata = _yaml.safe_load(read_text_utf(_profile)) or {}
             if _pdata.get("llm_model") != model:
                 _pdata["llm_model"] = model
-                _profile.write_text(_yaml.dump(_pdata, default_flow_style=False, allow_unicode=True), encoding=ENCODING_UTF8)
+                write_text_utf(_profile, _yaml.dump(_pdata, default_flow_style=False, allow_unicode=True))
                 _synced += 1
     if _synced:
         console.print(f"  [green]\u2714[/green] Founding employees model set to {model}")
@@ -723,13 +724,10 @@ def _apply_founder_families(console: Console, founder_families: dict[str, str]) 
         profile_path = EMPLOYEES_DIR / emp_id / "profile.yaml"
         if not profile_path.exists():
             continue
-        data = _yaml.safe_load(profile_path.read_text(encoding=ENCODING_UTF8)) or {}
+        data = _yaml.safe_load(read_text_utf(profile_path)) or {}
         if data.get("hosting") != hosting:
             data["hosting"] = hosting
-            profile_path.write_text(
-                _yaml.dump(data, default_flow_style=False, allow_unicode=True),
-                encoding=ENCODING_UTF8,
-            )
+            write_text_utf(profile_path, _yaml.dump(data, default_flow_style=False, allow_unicode=True))
             changed += 1
 
     if changed:
@@ -825,10 +823,7 @@ def _generate_mcp_configs(skillsmp_key: str) -> None:
             }
 
         config_path = emp_dir / MCP_CONFIG_FILENAME
-        config_path.write_text(
-            json.dumps({"mcpServers": servers}, indent=2),
-            encoding=ENCODING_UTF8,
-        )
+        write_text_utf(config_path, json.dumps({"mcpServers": servers}, indent=2))
 
 
 def _step_done(console: Console, host: str, port: int) -> None:
@@ -918,7 +913,7 @@ def run_auto(*, skip_confirm: bool = False) -> None:
 
     # Parse .env
     env = {}
-    for line in env_path.read_text(encoding=ENCODING_UTF8).splitlines():
+    for line in read_text_utf(env_path).splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue

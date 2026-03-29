@@ -11,7 +11,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 from loguru import logger
 
-from onemancompany.core.config import CEO_ID, ENCODING_UTF8, PROJECT_YAML_FILENAME, SYSTEM_AGENT, TASK_TREE_FILENAME
+from onemancompany.core.config import CEO_ID, PROJECT_YAML_FILENAME, SYSTEM_AGENT, TASK_TREE_FILENAME, read_text_utf, write_text_utf
 from onemancompany.core.models import EventType
 from onemancompany.core.task_lifecycle import NodeType, TaskPhase
 from onemancompany.core.task_tree import TaskTree
@@ -86,7 +86,7 @@ def _add_to_project_team(project_dir: str, employee_id: str) -> None:
         return
     project_yaml = root / PROJECT_YAML_FILENAME
     try:
-        data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
+        data = yaml.safe_load(read_text_utf(project_yaml)) or {}
         team = data.get("team", [])
         if any(m.get("employee_id") == employee_id for m in team):
             return  # already in team
@@ -97,10 +97,7 @@ def _add_to_project_team(project_dir: str, employee_id: str) -> None:
             "joined_at": datetime.now().isoformat(),
         })
         data["team"] = team
-        project_yaml.write_text(
-            yaml.dump(data, allow_unicode=True, sort_keys=False),
-            encoding=ENCODING_UTF8,
-        )
+        write_text_utf(project_yaml, yaml.dump(data, allow_unicode=True, sort_keys=False))
     except Exception:
         logger.warning("Failed to add {} to project team in {}", employee_id, project_dir)
 
@@ -707,12 +704,9 @@ def set_project_name(name: str) -> dict:
         return {"status": "error", "message": "Project file not found."}
 
     project_yaml = root / PROJECT_YAML_FILENAME
-    data = yaml.safe_load(project_yaml.read_text(encoding=ENCODING_UTF8)) or {}
+    data = yaml.safe_load(read_text_utf(project_yaml)) or {}
     data["name"] = name.strip()
-    project_yaml.write_text(
-        yaml.dump(data, allow_unicode=True, sort_keys=False),
-        encoding=ENCODING_UTF8,
-    )
+    write_text_utf(project_yaml, yaml.dump(data, allow_unicode=True, sort_keys=False))
     return {"status": "ok", "name": name.strip()}
 
 

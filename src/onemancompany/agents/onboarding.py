@@ -23,7 +23,6 @@ from onemancompany.core.config import (
     DEFAULT_TOOL_PERMISSIONS,
     DEFAULT_TOOL_PERMISSIONS_FALLBACK,
     DEFAULT_DEPARTMENT,
-    ENCODING_UTF8,
     HR_ID,
     open_utf,
     MANIFEST_FILENAME,
@@ -44,6 +43,8 @@ from onemancompany.core.config import (
     EmployeeConfig,
     ensure_employee_dir,
     settings,
+    read_text_utf,
+    write_text_utf,
 )
 from onemancompany.core import store as _store
 from onemancompany.core.models import EventType, HostingMode
@@ -104,7 +105,7 @@ def _load_nickname_pool() -> list[str]:
 
     if src.exists():
         pool = [
-            line.strip() for line in src.read_text(encoding=ENCODING_UTF8).splitlines() if line.strip()
+            line.strip() for line in read_text_utf(src).splitlines() if line.strip()
         ]
         logger.debug("Loaded {} nicknames from {}", len(pool), src)
         return pool
@@ -601,7 +602,7 @@ async def clone_talent_repo(repo_url: str, talent_id: str) -> Path:
             for sub in tmp_clone.iterdir():
                 if sub.is_dir() and (sub / PROFILE_FILENAME).exists():
                     try:
-                        profile_id = (_yaml.safe_load((sub / PROFILE_FILENAME).read_text(encoding="utf-8")) or {}).get("id", "")
+                        profile_id = (_yaml.safe_load(read_text_utf(sub / PROFILE_FILENAME)) or {}).get("id", "")
                     except Exception:
                         profile_id = ""
                     dest_name = profile_id or sub.name
@@ -753,7 +754,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
                 prompts_dir.mkdir(exist_ok=True)
                 dst_persona = prompts_dir / TALENT_PERSONA_FILENAME
                 if not dst_persona.exists():
-                    dst_persona.write_text(spt.strip() + "\n", encoding=ENCODING_UTF8)
+                    write_text_utf(dst_persona, spt.strip() + "\n")
 
     # Copy CLAUDE.md for Claude CLI discovery
     dst_claude_md = emp_dir / CLAUDE_MD_FILENAME
@@ -778,7 +779,7 @@ def copy_talent_assets(talent_dir: Path, emp_dir) -> None:
             f"- Save all outputs to the project workspace path specified in your task.\n"
             f"- Do NOT loop or re-analyze. Produce output, verify once, then finish.\n"
         )
-        dst_claude_md.write_text(claude_md_content, encoding=ENCODING_UTF8)
+        write_text_utf(dst_claude_md, claude_md_content)
 
     # Copy manifest.json (frontend UI config — OAuth buttons, settings sections)
     talent_manifest_json = talent_dir / MANIFEST_FILENAME
@@ -971,9 +972,7 @@ async def execute_hire(
             "company_url": f"http://{settings.host}:{settings.port}",
             "talent_id": talent_id,
         }
-        (emp_dir / CONNECTION_JSON_FILENAME).write_text(
-            _json.dumps(connection, indent=2, ensure_ascii=False), encoding=ENCODING_UTF8,
-        )
+        write_text_utf(emp_dir / CONNECTION_JSON_FILENAME, _json.dumps(connection, indent=2, ensure_ascii=False))
 
     # Copy talent skills + tools
     if talent_dir and talent_dir.exists() and not remote:
@@ -1003,11 +1002,9 @@ async def execute_hire(
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_file = skill_dir / SKILL_FILENAME
         if not skill_file.exists():
-            skill_file.write_text(
+            write_text_utf(skill_file,
                 f"---\nname: {skill_name}\ndescription: \"{name}'s {skill_name} skill.\"\n---\n\n"
-                f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n",
-                encoding=ENCODING_UTF8,
-            )
+                f"# {skill_name}\n\n(Auto-created by HR during hiring.)\n")
 
     # Inject default skills (ontology, proactive-agent, self-improving-agent)
     _inject_default_skills(skills_dir)
@@ -1017,20 +1014,18 @@ async def execute_hire(
     workspace_dir.mkdir(exist_ok=True)
     soul_path = workspace_dir / SOUL_FILENAME
     if not soul_path.exists():
-        soul_path.write_text(
+        write_text_utf(soul_path,
             f"# {name} ({nickname}) — Personal Knowledge\n\n"
             f"**Role**: {role}\n"
             f"**Department**: {department}\n\n"
             f"## Lessons Learned\n\n"
-            f"(Will be updated automatically after each task.)\n",
-            encoding=ENCODING_UTF8,
-        )
+            f"(Will be updated automatically after each task.)\n")
 
     # Generate initial work_principles.md (unified location for all hosting modes)
     from onemancompany.core.store import WORK_PRINCIPLES_FILENAME
     wp_path = emp_dir / WORK_PRINCIPLES_FILENAME
     if not wp_path.exists():
-        wp_path.write_text(
+        write_text_utf(wp_path,
             f"# {name} ({nickname}) Work Principles\n\n"
             f"**Department**: {department}\n"
             f"**Title**: {make_title(1, role)}\n"
@@ -1039,9 +1034,7 @@ async def execute_hire(
             f"1. Complete assigned work diligently and maintain professional standards\n"
             f"2. Actively collaborate with the team and communicate progress promptly\n"
             f"3. Continuously learn and improve professional skills\n"
-            f"4. Follow company rules and guidelines\n",
-            encoding=ENCODING_UTF8,
-        )
+            f"4. Follow company rules and guidelines\n")
 
     # Generate standalone run.py for company-hosted employees
     if hosting == HostingMode.COMPANY:

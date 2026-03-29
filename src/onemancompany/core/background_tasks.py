@@ -17,7 +17,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import open_utf
+from onemancompany.core.config import open_utf, read_text_utf
 
 MAX_CONCURRENT = 5
 _MAX_RETAINED = 50
@@ -306,7 +306,7 @@ class BackgroundTaskManager:
             if not log_path.exists():
                 continue
             try:
-                text = log_path.read_text(encoding="utf-8")
+                text = read_text_utf(log_path)
                 match = port_re.search(text)
                 if match:
                     task.port = int(match.group(1))

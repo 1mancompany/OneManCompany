@@ -27,6 +27,7 @@ from onemancompany.core.config import (
     load_manifest,
     settings,
     FOUNDING_LEVEL,
+    read_text_utf,
 )
 from onemancompany.core import store as _store
 from onemancompany.core.models import AuthMethod, HostingMode
@@ -120,7 +121,7 @@ def _check_self_hosted_pid(emp_id: str) -> bool:
     if not pid_file.exists():
         return False
     try:
-        pid = int(pid_file.read_text(encoding="utf-8").strip())
+        pid = int(read_text_utf(pid_file).strip())
         os.kill(pid, 0)  # signal 0: check existence without killing
         return True
     except (ValueError, ProcessLookupError, PermissionError, OSError):

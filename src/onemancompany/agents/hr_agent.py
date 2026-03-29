@@ -194,10 +194,10 @@ class HRAgent(BaseAgentRunner):
         )
 
     def _get_role_identity_section(self) -> str:
-        from onemancompany.core.config import EMPLOYEES_DIR, ENCODING_UTF8
+        from onemancompany.core.config import EMPLOYEES_DIR, read_text_utf
         guide_path = EMPLOYEES_DIR / self.employee_id / "role_guide.md"
         if guide_path.exists():
-            return guide_path.read_text(encoding=ENCODING_UTF8)
+            return read_text_utf(guide_path)
         return ""
 
     def _customize_prompt(self, pb) -> None:

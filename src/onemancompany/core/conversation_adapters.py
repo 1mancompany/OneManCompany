@@ -131,7 +131,7 @@ def _build_conversation_prompt(
 
 def _load_oneonone_workspace_shared_prompt() -> str:
     """Load workspace policy prompt for one-on-one from shared_prompts."""
-    from onemancompany.core.config import SHARED_PROMPTS_DIR, SOURCE_ROOT
+    from onemancompany.core.config import SHARED_PROMPTS_DIR, SOURCE_ROOT, read_text_utf
 
     candidates = [
         SHARED_PROMPTS_DIR / "oneonone_workspace_policy.md",
@@ -140,7 +140,7 @@ def _load_oneonone_workspace_shared_prompt() -> str:
     for path in candidates:
         try:
             if path.exists():
-                return path.read_text(encoding="utf-8").strip()
+                return read_text_utf(path).strip()
         except OSError:
             logger.warning("[conversation] failed to read workspace policy prompt: {}", path)
     return ""

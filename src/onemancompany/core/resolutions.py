@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR, open_utf
+from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR, open_utf, read_text_utf
 from onemancompany.core.models import DecisionStatus
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ def list_deferred_edits() -> list[dict]:
             # Check staleness
             file_path = Path(edit.get("file_path", ""))
             if file_path.exists():
-                current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
+                current_md5 = _compute_md5(read_text_utf(file_path))
                 edit["expired"] = current_md5 != edit.get("original_md5", "")
             else:
                 edit["expired"] = True
@@ -222,7 +222,7 @@ def decide_resolution(resolution_id: str, decisions: dict[str, str]) -> dict:
             file_path = Path(edit["file_path"])
             if file_path.exists():
                 edit["original_md5"] = _compute_md5(
-                    file_path.read_text(encoding=ENCODING_UTF8)
+                    read_text_utf(file_path)
                 )
             results.append({"edit_id": eid, "decision": "defer", "status": DecisionStatus.DEFERRED.value})
 
@@ -262,7 +262,7 @@ def execute_deferred_edit(resolution_id: str, edit_id: str) -> dict:
     # Check staleness
     file_path = Path(edit["file_path"])
     if file_path.exists():
-        current_md5 = _compute_md5(file_path.read_text(encoding=ENCODING_UTF8))
+        current_md5 = _compute_md5(read_text_utf(file_path))
         if current_md5 != edit.get("original_md5", ""):
             edit["expired"] = True
             _save_resolution(resolution)

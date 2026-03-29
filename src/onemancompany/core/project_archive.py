@@ -21,7 +21,6 @@ from pathlib import Path
 import yaml
 
 from onemancompany.core.config import (
-    ENCODING_UTF8,
     NODES_DIR_NAME,
     PROJECT_YAML_FILENAME,
     PROJECTS_DIR,
@@ -31,6 +30,7 @@ from onemancompany.core.config import (
     open_utf,
     TL_FIELD_EMPLOYEE_ID,
     TL_FIELD_TIME,
+    write_text_utf,
 )
 
 ITERATIONS_DIR_NAME = "iterations"
@@ -634,7 +634,7 @@ def save_project_file(project_id: str, filename: str, content: str | bytes) -> d
     if isinstance(content, bytes):
         file_path.write_bytes(content)
     else:
-        file_path.write_text(content, encoding=ENCODING_UTF8)
+        write_text_utf(file_path, content)
 
     return {"status": "ok", "path": str(file_path), "relative": filename}
 
