@@ -2339,11 +2339,89 @@ class AppController {
     input?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        const activeItem = slashMenu?.querySelector('.slash-item.active');
+        if (activeItem && !slashMenu.classList.contains('hidden')) {
+          activeItem.click();
+          return;
+        }
         doSend();
       }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        if (slashMenu && !slashMenu.classList.contains('hidden')) {
+          e.preventDefault();
+          this._navigateSlashMenu(e.key === 'ArrowDown' ? 1 : -1);
+        }
+      }
+      if (e.key === 'Escape') {
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        slashMenu?.classList.add('hidden');
+      }
+    });
+    input?.addEventListener('input', () => this._handleSlashInput(input));
+
+    // File upload
+    const fileInput = document.getElementById('ceo-file-input');
+    fileInput?.addEventListener('change', () => {
+      if (!fileInput.files?.length) return;
+      const names = Array.from(fileInput.files).map(f => f.name).join(', ');
+      this._ceoTerm?.appendMessage({
+        role: 'system', text: `Attached: ${names}`, source: 'upload',
+      });
+      // Store files for next send
+      this._pendingFiles = Array.from(fileInput.files);
+      fileInput.value = '';
     });
 
     await this._refreshCeoProjectList();
+  }
+
+  // --- Slash command menu --- //
+
+  _slashCommands = [
+    { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
+    { cmd: '/new', desc: 'Create new task', action: () => { this._currentCeoProject = null; this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []); } },
+    { cmd: '/simple', desc: 'Simple task to employee', action: () => { /* TODO: simple task dialog */ } },
+    { cmd: '/review', desc: 'Quarterly review', action: () => { /* TODO: wire to HR review */ } },
+  ];
+
+  _handleSlashInput(input) {
+    const text = input.value;
+    const menu = document.getElementById('ceo-slash-menu');
+    if (!menu) return;
+
+    if (text.startsWith('/')) {
+      const query = text.toLowerCase();
+      const matches = this._slashCommands.filter(c => c.cmd.startsWith(query));
+      if (matches.length) {
+        menu.innerHTML = matches.map((c, i) =>
+          `<div class="slash-item${i === 0 ? ' active' : ''}" data-idx="${i}">` +
+          `<span class="slash-cmd">${c.cmd}</span><span class="slash-desc">${c.desc}</span></div>`
+        ).join('');
+        menu.classList.remove('hidden');
+        menu.querySelectorAll('.slash-item').forEach((el, i) => {
+          el.addEventListener('click', () => {
+            menu.classList.add('hidden');
+            input.value = '';
+            matches[i].action();
+          });
+        });
+        return;
+      }
+    }
+    menu.classList.add('hidden');
+  }
+
+  _navigateSlashMenu(dir) {
+    const menu = document.getElementById('ceo-slash-menu');
+    if (!menu) return;
+    const items = menu.querySelectorAll('.slash-item');
+    if (!items.length) return;
+    let idx = Array.from(items).findIndex(el => el.classList.contains('active'));
+    items[idx]?.classList.remove('active');
+    idx = Math.max(0, Math.min(items.length - 1, idx + dir));
+    items[idx]?.classList.add('active');
   }
 
   async _refreshCeoProjectList() {

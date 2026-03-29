@@ -86,8 +86,13 @@
           <div id="ceo-conv-panel">
             <div id="ceo-conv-messages"></div>
             <div id="ceo-conv-input-area">
-              <textarea id="ceo-conv-input" placeholder="$ " rows="1"></textarea>
-              <button id="ceo-conv-send" class="pixel-btn">&#9654;</button>
+              <div id="ceo-conv-input-row">
+                <textarea id="ceo-conv-input" placeholder="$ Type message or / for commands..." rows="1"></textarea>
+                <input type="file" id="ceo-file-input" multiple hidden />
+                <label class="ceo-attach-btn" for="ceo-file-input" title="Attach file">&#128206;</label>
+                <button id="ceo-conv-send" class="pixel-btn">&#9654;</button>
+              </div>
+              <div id="ceo-slash-menu" class="hidden"></div>
             </div>
           </div>
         </div>

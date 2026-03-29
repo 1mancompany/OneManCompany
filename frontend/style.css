@@ -5374,11 +5374,15 @@ body {
 
 #ceo-conv-input-area {
   flex-shrink: 0;
-  display: flex;
-  gap: 2px;
   padding: 4px;
   border-top: 1px solid #333;
   background: #0a0a0a;
+}
+
+#ceo-conv-input-row {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
 }
 
 #ceo-conv-input {
@@ -5397,7 +5401,40 @@ body {
   border-color: #44aa44;
 }
 
+.ceo-attach-btn {
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  color: #888;
+}
+.ceo-attach-btn:hover { color: #ccc; }
+
 #ceo-conv-send {
   padding: 4px 8px;
   font-size: 11px;
 }
+
+/* Slash command menu */
+#ceo-slash-menu {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+#ceo-slash-menu.hidden { display: none; }
+
+.slash-item {
+  padding: 3px 8px;
+  cursor: pointer;
+  color: #aaa;
+}
+.slash-item:hover, .slash-item.active {
+  background: #1a2a1a;
+  color: #44aa44;
+}
+.slash-cmd { color: #44aaff; margin-right: 6px; }
+.slash-desc { color: #666; }
