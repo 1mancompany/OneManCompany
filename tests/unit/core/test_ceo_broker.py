@@ -92,3 +92,54 @@ class TestCeoSession:
         popped = session.pop_pending()
         assert popped.node_id == "first"
         assert session.pending_count == 1
+
+
+class TestCeoBroker:
+    def test_get_or_create_session(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        broker = CeoBroker()
+        session = broker.get_or_create_session("proj_001")
+        assert session.project_id == "proj_001"
+        session2 = broker.get_or_create_session("proj_001")
+        assert session is session2
+
+    def test_list_sessions_sorted_by_pending(self):
+        from onemancompany.core.ceo_broker import CeoBroker, CeoInteraction
+        broker = CeoBroker()
+        s1 = broker.get_or_create_session("proj_no_pending")
+        s2 = broker.get_or_create_session("proj_with_pending")
+        loop = asyncio.get_event_loop()
+        s2.enqueue(CeoInteraction(
+            node_id="x", tree_path="", project_id="proj_with_pending",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Help", future=loop.create_future(),
+        ))
+        summaries = broker.list_sessions()
+        assert summaries[0]["project_id"] == "proj_with_pending"
+        assert summaries[1]["project_id"] == "proj_no_pending"
+
+    @pytest.mark.asyncio
+    async def test_handle_input_resolves_pending(self):
+        from onemancompany.core.ceo_broker import CeoBroker, CeoInteraction
+        broker = CeoBroker()
+        session = broker.get_or_create_session("proj_001")
+        future = asyncio.get_event_loop().create_future()
+        session.enqueue(CeoInteraction(
+            node_id="abc", tree_path="", project_id="proj_001",
+            source_employee="00003", interaction_type="ceo_request",
+            message="Need approval", future=future,
+        ))
+        result = await broker.handle_input("proj_001", "Approved")
+        assert result["type"] == "resolved"
+        assert result["node_id"] == "abc"
+        assert future.result() == "Approved"
+        assert session.has_pending is False
+
+    @pytest.mark.asyncio
+    async def test_handle_input_no_pending_returns_followup(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        broker = CeoBroker()
+        broker.get_or_create_session("proj_001")
+        result = await broker.handle_input("proj_001", "Do more work")
+        assert result["type"] == "followup"
+        assert result["text"] == "Do more work"

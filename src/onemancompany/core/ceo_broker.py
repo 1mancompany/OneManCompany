@@ -119,3 +119,50 @@ class CeoSession:
             "message_count": len(self.history),
             "last_message": self.history[-1] if self.history else None,
         }
+
+
+class CeoBroker:
+    """Central manager for all CEO per-project sessions."""
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, CeoSession] = {}
+
+    def get_or_create_session(self, project_id: str) -> CeoSession:
+        if project_id not in self._sessions:
+            self._sessions[project_id] = CeoSession(project_id=project_id)
+        return self._sessions[project_id]
+
+    def get_session(self, project_id: str) -> CeoSession | None:
+        return self._sessions.get(project_id)
+
+    def list_sessions(self) -> list[dict]:
+        summaries = [s.to_summary() for s in self._sessions.values()]
+        summaries.sort(key=lambda s: (not s["has_pending"], s["project_id"]))
+        return summaries
+
+    async def handle_input(self, project_id: str, text: str) -> dict:
+        session = self.get_or_create_session(project_id)
+        if session.has_pending:
+            interaction = session.pop_pending()
+            session.push_ceo_message(text)
+            interaction.future.set_result(text)
+            logger.info(
+                "[CeoBroker] Resolved pending {} for project={} node={}",
+                interaction.interaction_type, project_id, interaction.node_id,
+            )
+            return {"type": "resolved", "node_id": interaction.node_id}
+        else:
+            session.push_ceo_message(text)
+            logger.info("[CeoBroker] No pending for project={} — followup", project_id)
+            return {"type": "followup", "text": text}
+
+
+# Singleton
+_broker: CeoBroker | None = None
+
+
+def get_ceo_broker() -> CeoBroker:
+    global _broker
+    if _broker is None:
+        _broker = CeoBroker()
+    return _broker
