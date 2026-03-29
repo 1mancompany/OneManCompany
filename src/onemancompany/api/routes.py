@@ -5882,8 +5882,19 @@ async def send_ceo_session_message(project_id: str, body: dict):
 
     if result["type"] == "followup":
         # History already persisted by CeoBroker.handle_input.
-        # Full followup dispatch (creating tree nodes) to be wired in integration testing.
-        result["message"] = "Follow-up instruction recorded"
+        # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
+        try:
+            followup_result = await task_followup(
+                project_id, {"instructions": text}
+            )
+            result["followup"] = followup_result
+            result["message"] = "Follow-up instruction dispatched"
+        except HTTPException:
+            # Project not found or EA unavailable — degrade gracefully
+            result["message"] = "Follow-up instruction recorded (dispatch failed)"
+        except Exception as exc:
+            logger.warning("[send_ceo_session_message] followup dispatch error: {}", exc)
+            result["message"] = "Follow-up instruction recorded (dispatch error)"
 
     return result
 

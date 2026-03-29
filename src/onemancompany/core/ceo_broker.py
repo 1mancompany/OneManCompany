@@ -105,7 +105,12 @@ class CeoSession:
             finally:
                 self._auto_reply_tasks.pop(interaction.node_id, None)
 
-        task = asyncio.ensure_future(_timer())
+        try:
+            task = asyncio.create_task(_timer())
+        except RuntimeError:
+            # No running event loop (e.g. in tests) — skip auto-reply timer
+            logger.debug("[CeoSession] No event loop, skipping auto-reply timer for node={}", interaction.node_id)
+            return
         self._auto_reply_tasks[interaction.node_id] = task
 
     def pop_pending(self) -> CeoInteraction | None:
@@ -270,12 +275,33 @@ class CeoBroker:
                 logger.debug("[CeoBroker] Recovered session for project={} ({} messages)",
                              project_id, len(session.history))
 
+    def _resolve_project_dir(self, project_id: str) -> Path | None:
+        """Try to find the project directory from tree files."""
+        from onemancompany.core.config import PROJECTS_DIR, TASK_TREE_FILENAME
+
+        # project_id format: "shortid_name_date/iter_001"
+        parts = project_id.split("/")
+        if len(parts) >= 2:
+            base = parts[0]
+            iter_name = parts[1]
+            for proj_dir in PROJECTS_DIR.glob(f"{base}*/iterations/{iter_name}"):
+                if (proj_dir / TASK_TREE_FILENAME).exists():
+                    return proj_dir
+        # Fallback: try base project dir directly
+        if parts:
+            for proj_dir in PROJECTS_DIR.glob(f"{parts[0]}*"):
+                if proj_dir.is_dir() and (proj_dir / TASK_TREE_FILENAME).exists():
+                    return proj_dir
+        return None
+
     async def handle_input(self, project_id: str, text: str) -> dict:
         from onemancompany.core.events import CompanyEvent, event_bus
         from onemancompany.core.models import EventType
         from onemancompany.core.config import SYSTEM_AGENT
 
         session = self.get_or_create_session(project_id)
+        if session.project_dir is None:
+            session.project_dir = self._resolve_project_dir(project_id)
         if session.has_pending:
             interaction = session.pop_pending()
             session.push_ceo_message(text)

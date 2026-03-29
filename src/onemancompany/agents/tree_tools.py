@@ -130,37 +130,65 @@ def _create_standalone_ceo_request(
     session = broker.get_or_create_session(project_id)
     source = vessel.employee_id if vessel else "unknown"
 
-    main_loop = getattr(employee_manager, "_event_loop", None)
-    if not main_loop or not main_loop.is_running():
-        logger.warning("No event loop for standalone CEO request publish")
-        # Still record the message even without an event loop
-        session.push_system_message(description, source=source)
-        return {
-            "status": "error",
-            "message": "No event loop available to broadcast CEO request.",
-        }
+    # Create a temporary tree so the node has a tree_path and can be scheduled.
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.config import PROJECTS_DIR
+    from onemancompany.core.vessel import _save_project_tree
 
-    # Standalone requests are fire-and-forget — push as system message
-    # without creating a Future (nothing awaits the response).
+    adhoc_dir = PROJECTS_DIR / "_adhoc_ceo"
+    adhoc_dir.mkdir(parents=True, exist_ok=True)
+    tree_path_file = adhoc_dir / TASK_TREE_FILENAME
+
+    # Load existing adhoc tree or create one
+    if tree_path_file.exists():
+        from onemancompany.core.task_tree import get_tree
+        tree = get_tree(tree_path_file, project_id=project_id)
+    else:
+        tree = TaskTree(project_id=project_id)
+        # Create a synthetic CEO root
+        root = tree.create_root(employee_id=CEO_ID, description="Ad-hoc CEO requests")
+        root.node_type = NodeType.CEO_PROMPT
+        from onemancompany.core.task_lifecycle import TaskPhase
+        root.set_status(TaskPhase.PROCESSING)
+
+    # Add CEO_REQUEST node under root
+    ceo_node = tree.add_child(
+        parent_id=tree.root_id,
+        employee_id=CEO_ID,
+        description=description,
+        acceptance_criteria=[],
+    )
+    ceo_node.node_type = NodeType.CEO_REQUEST
+
+    _save_project_tree(str(adhoc_dir), tree)
+    tree_path_str = str(tree_path_file)
+
+    # Schedule the node so CeoExecutor handles it
+    employee_manager.schedule_node(CEO_ID, ceo_node.id, tree_path_str)
+    employee_manager._schedule_next(CEO_ID)
+
+    # Also push system message for session visibility
     session.push_system_message(description, source=source)
 
     # Broadcast to frontend
-    coro = event_bus.publish(CompanyEvent(
-        type=EventType.CEO_SESSION_MESSAGE,
-        payload={
-            "project_id": project_id,
-            "node_id": requester_task_id,
-            "message": description,
-            "source_employee": source,
-            "interaction_type": "ceo_request",
-        },
-        agent=SYSTEM_AGENT,
-    ))
-    asyncio.run_coroutine_threadsafe(coro, main_loop)
+    main_loop = getattr(employee_manager, "_event_loop", None)
+    if main_loop and main_loop.is_running():
+        coro = event_bus.publish(CompanyEvent(
+            type=EventType.CEO_SESSION_MESSAGE,
+            payload={
+                "project_id": project_id,
+                "node_id": ceo_node.id,
+                "message": description,
+                "source_employee": source,
+                "interaction_type": "ceo_request",
+            },
+            agent=SYSTEM_AGENT,
+        ))
+        asyncio.run_coroutine_threadsafe(coro, main_loop)
 
     return {
         "status": "dispatched",
-        "node_id": requester_task_id,
+        "node_id": ceo_node.id,
         "employee_id": CEO_ID,
         "description": description,
         "node_type": NodeType.CEO_REQUEST,
