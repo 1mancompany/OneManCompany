@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR
+from onemancompany.core.config import ENCODING_UTF8, RESOLUTIONS_DIR, open_utf
 from onemancompany.core.models import DecisionStatus
 
 # ---------------------------------------------------------------------------
@@ -83,7 +83,7 @@ def create_resolution(project_id: str, task_description: str) -> dict | None:
     }
 
     path = RESOLUTIONS_DIR / f"{resolution_id}.yaml"
-    with open(path, "w", encoding="utf-8") as f:
+    with open_utf(path, "w") as f:
         yaml.dump(resolution, f, allow_unicode=True, default_flow_style=False)
 
     return resolution
@@ -94,14 +94,14 @@ def load_resolution(resolution_id: str) -> dict | None:
     path = RESOLUTIONS_DIR / f"{resolution_id}.yaml"
     if not path.exists():
         return None
-    with open(path, encoding="utf-8") as f:
+    with open_utf(path) as f:
         return yaml.safe_load(f)
 
 
 def _save_resolution(resolution: dict) -> None:
     """Persist a resolution dict back to its YAML file."""
     path = RESOLUTIONS_DIR / f"{resolution['resolution_id']}.yaml"
-    with open(path, "w", encoding="utf-8") as f:
+    with open_utf(path, "w") as f:
         yaml.dump(resolution, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -113,7 +113,7 @@ def list_resolutions(status_filter: str | None = None) -> list[dict]:
     for p in sorted(RESOLUTIONS_DIR.iterdir(), reverse=True):
         if p.suffix != ".yaml":
             continue
-        with open(p, encoding="utf-8") as f:
+        with open_utf(p) as f:
             data = yaml.safe_load(f)
         if not data:
             continue
@@ -142,7 +142,7 @@ def list_deferred_edits() -> list[dict]:
     for p in sorted(RESOLUTIONS_DIR.iterdir(), reverse=True):
         if p.suffix != ".yaml":
             continue
-        with open(p, encoding="utf-8") as f:
+        with open_utf(p) as f:
             data = yaml.safe_load(f)
         if not data:
             continue

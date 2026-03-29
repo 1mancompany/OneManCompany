@@ -28,6 +28,7 @@ from onemancompany.core.config import (
     TASK_TREE_FILENAME,
     TL_FIELD_ACTION,
     TL_FIELD_DETAIL,
+    open_utf,
     TL_FIELD_EMPLOYEE_ID,
     TL_FIELD_TIME,
 )
@@ -293,10 +294,10 @@ def update_project_name(project_id: str, new_name: str) -> None:
     with lock:
         if not path.exists():
             return
-        with open(path, encoding="utf-8") as f:
+        with open_utf(path) as f:
             doc = yaml.safe_load(f) or {}
         doc["name"] = new_name
-        with open(path, "w", encoding="utf-8") as f:
+        with open_utf(path, "w") as f:
             yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -340,7 +341,7 @@ def create_named_project(name: str) -> str:
     }
     path = proj_dir / PROJECT_YAML_FILENAME
     lock = _get_project_lock(slug)
-    with lock, open(path, "w", encoding="utf-8") as f:
+    with lock, open_utf(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
     return slug
 
@@ -412,7 +413,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     proj[ITERATIONS_DIR_NAME] = existing + [iter_id]
     path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     lock = _get_project_lock(project_id)
-    with lock, open(path, "w", encoding="utf-8") as f:
+    with lock, open_utf(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
     # Trigger 1: dispatch → in_progress — notify sync tick
@@ -430,7 +431,7 @@ def load_iteration(project_id: str, iteration_id: str) -> dict | None:
         return None
     lock_key = f"{project_id}/{iteration_id}"
     lock = _get_project_lock(lock_key)
-    with lock, open(path, encoding="utf-8") as f:
+    with lock, open_utf(path) as f:
         return yaml.safe_load(f) or {}
 
 
@@ -441,7 +442,7 @@ def _save_iteration(project_id: str, iteration_id: str, doc: dict) -> None:
     path = iter_dir / f"{iteration_id}.yaml"
     lock_key = f"{project_id}/{iteration_id}"
     lock = _get_project_lock(lock_key)
-    with lock, open(path, "w", encoding="utf-8") as f:
+    with lock, open_utf(path, "w") as f:
         yaml.dump(doc, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -451,7 +452,7 @@ def load_named_project(project_id: str) -> dict | None:
     if not path.exists():
         return None
     lock = _get_project_lock(project_id)
-    with lock, open(path, encoding="utf-8") as f:
+    with lock, open_utf(path) as f:
         doc = yaml.safe_load(f) or {}
     # Distinguish v2 by checking for 'iterations' key
     if ITERATIONS_DIR_NAME not in doc:
@@ -470,7 +471,7 @@ def list_named_projects() -> list[dict]:
         if not yaml_path.exists():
             continue
         try:
-            with open(yaml_path, encoding="utf-8") as fh:
+            with open_utf(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
             logger.warning("Failed to load {}: {}", yaml_path, _e)
@@ -500,7 +501,7 @@ def archive_project(project_id: str) -> None:
     proj["archived_at"] = datetime.now().isoformat()
     path = PROJECTS_DIR / project_id / PROJECT_YAML_FILENAME
     lock = _get_project_lock(project_id)
-    with lock, open(path, "w", encoding="utf-8") as f:
+    with lock, open_utf(path, "w") as f:
         yaml.dump(proj, f, allow_unicode=True, default_flow_style=False)
 
 
@@ -694,7 +695,7 @@ def list_projects() -> list[dict]:
         if not yaml_path.exists():
             continue
         try:
-            with open(yaml_path, encoding="utf-8") as fh:
+            with open_utf(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
             logger.warning("Failed to load {}: {}", yaml_path, _e)
@@ -813,7 +814,7 @@ def get_cost_summary() -> dict:
         if not yaml_path.exists():
             continue
         try:
-            with open(yaml_path, encoding="utf-8") as fh:
+            with open_utf(yaml_path) as fh:
                 doc = yaml.safe_load(fh) or {}
         except Exception as _e:
             logger.warning("Failed to load {}: {}", yaml_path, _e)

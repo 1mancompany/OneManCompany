@@ -5135,7 +5135,7 @@ async def tool_oauth_set_credentials(tool_id: str, body: dict):
         lines.append(f"{client_id_env}={client_id}")
     if client_secret_env not in updated:
         lines.append(f"{client_secret_env}={client_secret}")
-    env_path.write_text("\n".join(lines) + "\n")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return {"status": "ok", "message": "Credentials saved"}
 
@@ -5177,7 +5177,7 @@ async def tool_save_env_vars(tool_id: str, body: dict):
     for name, value in to_save.items():
         if name not in updated:
             lines.append(f"{name}={value}")
-    env_path.write_text("\n".join(lines) + "\n")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     return {"status": "ok", "message": f"{len(to_save)} variable(s) saved"}
 
@@ -5480,7 +5480,7 @@ async def submit_credentials(service_name: str, request: Request) -> dict:
         result_lines.append(line)
 
     result_lines.extend(new_lines)
-    env_path.write_text("\n".join(result_lines) + "\n")
+    env_path.write_text("\n".join(result_lines) + "\n", encoding="utf-8")
 
     await event_bus.publish(CompanyEvent(
         type=EventType.CREDENTIALS_SUBMITTED,
@@ -5517,7 +5517,7 @@ async def save_employee_secrets(employee_id: str, request: Request) -> dict:
         result_lines.append(line)
     for k, v in updated_keys.items():
         result_lines.append(f"{k}={v}")
-    env_path.write_text("\n".join(result_lines) + "\n")
+    env_path.write_text("\n".join(result_lines) + "\n", encoding="utf-8")
 
     return {"status": "ok", "fields_saved": list(body.keys())}
 

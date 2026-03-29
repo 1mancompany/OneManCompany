@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from onemancompany.core.config import TOOL_YAML_FILENAME
+from onemancompany.core.config import TOOL_YAML_FILENAME, open_utf
 
 
 
@@ -160,7 +160,7 @@ class ToolRegistry:
             if not tool_yaml_path.exists():
                 continue
 
-            with open(tool_yaml_path, encoding="utf-8") as f:
+            with open_utf(tool_yaml_path) as f:
                 tool_conf = yaml.safe_load(f) or {}
 
             # Only load Python-based tool modules

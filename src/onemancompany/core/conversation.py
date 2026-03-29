@@ -20,7 +20,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR
+from onemancompany.core.config import CONVERSATIONS_DIR_NAME, PROJECTS_DIR, EMPLOYEES_DIR, open_utf
 from onemancompany.core.events import event_bus, CompanyEvent
 from onemancompany.core.models import ConversationType, ConversationPhase, EventType
 
@@ -102,14 +102,14 @@ def save_conversation_meta(conv: Conversation) -> None:
     conv_dir.mkdir(parents=True, exist_ok=True)
     meta_path = conv_dir / CONVERSATION_META_FILENAME
     logger.debug("[conversation] save meta: id={}, phase={}", conv.id, conv.phase)
-    with open(meta_path, "w", encoding="utf-8") as f:
+    with open_utf(meta_path, "w") as f:
         yaml.dump(conv.to_dict(), f, allow_unicode=True)
 
 
 def load_conversation_meta(conv_id: str, conv_dir: Path) -> Conversation:
     """Load conversation metadata from disk."""
     meta_path = conv_dir / CONVERSATION_META_FILENAME
-    with open(meta_path, encoding="utf-8") as f:
+    with open_utf(meta_path) as f:
         data = yaml.safe_load(f)
     return Conversation.from_dict(data)
 
@@ -121,10 +121,10 @@ async def append_message(conv_dir: Path, msg: Message) -> None:
     async with _get_lock(str(msg_path)):
         existing: list[dict] = []
         if msg_path.exists():
-            with open(msg_path, encoding="utf-8") as f:
+            with open_utf(msg_path) as f:
                 existing = yaml.safe_load(f) or []
         existing.append(msg.to_dict())
-        with open(msg_path, "w", encoding="utf-8") as f:
+        with open_utf(msg_path, "w") as f:
             yaml.dump(existing, f, allow_unicode=True)
     logger.debug("[conversation] appended message from {} in {}", msg.sender, conv_dir.name)
 
@@ -134,7 +134,7 @@ def load_messages(conv_dir: Path) -> list[Message]:
     msg_path = conv_dir / CONVERSATION_MESSAGES_FILENAME
     if not msg_path.exists():
         return []
-    with open(msg_path, encoding="utf-8") as f:
+    with open_utf(msg_path) as f:
         data = yaml.safe_load(f) or []
     return [Message.from_dict(m) for m in data]
 

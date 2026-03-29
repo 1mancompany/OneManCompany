@@ -17,7 +17,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
-from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PF_DEPARTMENT, PF_NAME, PF_REMOTE, PF_ROLE, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOL_YAML_FILENAME, TOOLS_DIR, WORKFLOWS_DIR, load_assets, save_company_direction, save_workflow, slugify_tool_name
+from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PF_DEPARTMENT, PF_NAME, PF_REMOTE, PF_ROLE, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOL_YAML_FILENAME, TOOLS_DIR, WORKFLOWS_DIR, load_assets, open_utf, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.models import EventType
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
@@ -87,7 +87,7 @@ def _persist_tool(t: OfficeTool) -> None:
     folder = TOOLS_DIR / t.folder_name
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / TOOL_YAML_FILENAME
-    with open(path, "w", encoding="utf-8") as f:
+    with open_utf(path, "w") as f:
         yaml.dump(
             {
                 "id": t.id,
@@ -526,7 +526,7 @@ def add_meeting_room(name: str, capacity: int = 6, description: str = "") -> dic
     # Persist to assets/rooms/
     ROOMS_DIR.mkdir(parents=True, exist_ok=True)
     room_path = ROOMS_DIR / f"{room_id}.yaml"
-    with open(room_path, "w", encoding="utf-8") as f:
+    with open_utf(room_path, "w") as f:
         yaml.dump(
             {
                 "name": name,

@@ -10,7 +10,7 @@ from typing import Any, Callable
 import yaml
 from loguru import logger
 
-from onemancompany.core.config import PLUGINS_DIR
+from onemancompany.core.config import PLUGINS_DIR, open_utf
 
 # Single-file constants
 PLUGIN_YAML_FILENAME = "plugin.yaml"
@@ -91,7 +91,7 @@ class PluginRegistry:
         logger.info("Loaded {} plugin(s): {}", len(self._plugins), list(self._plugins.keys()))
 
     def _load_plugin(self, plugin_dir: Path, manifest_path: Path) -> None:
-        with open(manifest_path, encoding="utf-8") as f:
+        with open_utf(manifest_path) as f:
             data = yaml.safe_load(f) or {}
 
         manifest = PluginManifest.from_yaml(data)
