@@ -105,16 +105,17 @@ RAW=$("$OPENCLAW_BIN" agent --local -m "$OMC_TASK_DESCRIPTION" --session-id "$SE
 
 # openclaw may output JSON to stderr instead of stdout — try both
 if [ -z "$RAW" ] && [ -f "$STDERR_FILE" ]; then
-    # Extract JSON object from stderr (skip ANSI log lines, find the JSON block)
+    # Extract the outermost JSON object from stderr (skip ANSI log lines).
+    # Scan forward to find the first '{' that parses into a complete JSON object.
+    # Scanning backward would match a tiny nested object, not the root response.
     RAW=$(python3 -c "
 import json, sys
 raw = open(sys.argv[1]).read()
 decoder = json.JSONDecoder()
-# Find the last valid JSON object (openclaw puts log lines before it)
-for i in range(len(raw) - 1, -1, -1):
+for i in range(len(raw)):
     if raw[i] == '{':
         try:
-            obj, _ = decoder.raw_decode(raw[i:])
+            obj, end = decoder.raw_decode(raw[i:])
             print(json.dumps(obj))
             break
         except (json.JSONDecodeError, ValueError):
