@@ -2147,6 +2147,20 @@ class AppController {
     const doSend = async () => {
       const text = (input?.value || '').trim();
       if (!text) return;
+
+      // Execute slash command if input matches one exactly
+      if (text.startsWith('/')) {
+        const cmdText = text.split(' ')[0].toLowerCase();
+        const match = this._slashCommands.find(c => c.cmd === cmdText);
+        if (match) {
+          input.value = '';
+          const slashMenu = document.getElementById('ceo-slash-menu');
+          slashMenu?.classList.add('hidden');
+          match.action();
+          return;
+        }
+      }
+
       // Save to input history
       if (!this._inputHistory.length || this._inputHistory[this._inputHistory.length - 1] !== text) {
         this._inputHistory.push(text);
@@ -2218,19 +2232,41 @@ class AppController {
     };
 
     input?.addEventListener('keydown', (e) => {
+      const slashMenu = document.getElementById('ceo-slash-menu');
+      const menuVisible = slashMenu && !slashMenu.classList.contains('hidden');
+
+      // Tab: autocomplete selected slash command into input (fallback to first item)
+      if (e.key === 'Tab' && menuVisible) {
+        const activeItem = slashMenu.querySelector('.slash-item.active')
+                        || slashMenu.querySelector('.slash-item');
+        if (activeItem) {
+          e.preventDefault();
+          const cmd = activeItem.querySelector('.slash-cmd')?.textContent || '';
+          if (cmd) {
+            input.value = cmd + ' ';
+            slashMenu.classList.add('hidden');
+          }
+        }
+        return;
+      }
+
+      // Enter: execute selected slash command or send message
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        const slashMenu = document.getElementById('ceo-slash-menu');
-        const activeItem = slashMenu?.querySelector('.slash-item.active');
-        if (activeItem && !slashMenu.classList.contains('hidden')) {
-          activeItem.click();
-          return;
+        if (menuVisible) {
+          const activeItem = slashMenu.querySelector('.slash-item.active');
+          if (activeItem) {
+            activeItem.click();
+            return;
+          }
         }
         doSend();
+        return;
       }
+
+      // Arrow keys: navigate slash menu or input history
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-        const slashMenu = document.getElementById('ceo-slash-menu');
-        if (slashMenu && !slashMenu.classList.contains('hidden')) {
+        if (menuVisible) {
           e.preventDefault();
           this._navigateSlashMenu(e.key === 'ArrowDown' ? 1 : -1);
         } else if (this._inputHistory?.length) {
@@ -2248,9 +2284,11 @@ class AppController {
             }
           }
         }
+        return;
       }
+
+      // Escape: close slash menu
       if (e.key === 'Escape') {
-        const slashMenu = document.getElementById('ceo-slash-menu');
         slashMenu?.classList.add('hidden');
       }
     });
