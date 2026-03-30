@@ -553,64 +553,10 @@ class AppController {
     });
   }
 
-  // ===== Panel Divider Drag =====
+  // ===== Panel Divider Drag (removed — grid gap replaces dividers) =====
   _initPanelDividers() {
-    const app = document.getElementById('app');
-    const dividerL = document.getElementById('divider-left');
-    const dividerR = document.getElementById('divider-right');
-
-    // Restore saved widths
-    const savedLeft = localStorage.getItem('panel_left_w');
-    const savedRight = localStorage.getItem('panel_right_w');
-    if (savedLeft || savedRight) {
-      const lw = parseInt(savedLeft) || 240;
-      const rw = parseInt(savedRight) || 340;
-      app.style.gridTemplateColumns = `${lw}px 6px 1fr 6px ${rw}px`;
-    }
-
-    const startDrag = (divider, side) => {
-      return (eDown) => {
-        eDown.preventDefault();
-        divider.classList.add('dragging');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        const startX = eDown.clientX;
-        const cols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
-        const leftW = parseFloat(cols[0]);
-        const rightW = parseFloat(cols[4]);
-
-        const onMove = (eMove) => {
-          const dx = eMove.clientX - startX;
-          if (side === 'left') {
-            const newW = Math.max(120, Math.min(leftW + dx, window.innerWidth * 0.4));
-            app.style.gridTemplateColumns = `${newW}px 6px 1fr 6px ${rightW}px`;
-          } else {
-            const newW = Math.max(200, Math.min(rightW - dx, window.innerWidth * 0.5));
-            app.style.gridTemplateColumns = `${leftW}px 6px 1fr 6px ${newW}px`;
-          }
-        };
-
-        const onUp = () => {
-          divider.classList.remove('dragging');
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          // Save widths
-          const finalCols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
-          localStorage.setItem('panel_left_w', parseInt(finalCols[0]));
-          localStorage.setItem('panel_right_w', parseInt(finalCols[4]));
-          // Resize canvas
-          if (window.officeRenderer) window.officeRenderer._resizeCanvas();
-        };
-
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      };
-    };
-
-    dividerL.addEventListener('mousedown', startDrag(dividerL, 'left'));
-    dividerR.addEventListener('mousedown', startDrag(dividerR, 'right'));
+    // No-op: dividers removed in 2D grid layout.
+    // Left column width is fixed at 240px via CSS grid-template-columns.
   }
 
   // ===== Task Panel =====

@@ -32,26 +32,38 @@ body {
   overflow: hidden;
 }
 
-/* ===== 3-Column Layout: Left Roster | Center Canvas | Right Console ===== */
+/* ===== 2D Grid Layout ===== */
 #app {
   display: grid;
-  grid-template-columns: 240px 6px 1fr 6px 340px;
+  grid-template-columns: 240px 1fr 280px;
+  grid-template-rows: 1fr 1fr;
+  grid-template-areas:
+    "left-top    canvas   roster"
+    "left-bottom console  console";
   height: 100vh;
-  gap: 0;
+  gap: 4px;
   padding: 4px;
 }
 
-.panel-divider {
-  width: 6px;
-  cursor: col-resize;
-  background: var(--border);
-  transition: background 0.15s;
-  position: relative;
+#left-top-panel {
+  grid-area: left-top;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.panel-divider:hover,
-.panel-divider.dragging {
-  background: var(--pixel-cyan);
+#left-bottom-panel {
+  grid-area: left-bottom;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#roster-panel {
+  grid-area: roster;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ===== Collapsible Panels ===== */
@@ -114,14 +126,10 @@ body {
   flex: 0;
 }
 
-/* ===== Left Sidebar: Team Roster ===== */
-#roster-sidebar {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#roster-sidebar .collapsible-body {
+/* ===== Left Panels + Roster ===== */
+#left-top-panel .collapsible-body,
+#left-bottom-panel .collapsible-body,
+#roster-panel .collapsible-body {
   background: var(--bg-panel);
   border: 2px solid var(--border);
   border-top: none;
@@ -130,8 +138,9 @@ body {
   flex: 1;
 }
 
-/* ===== Office Panel (Center) ===== */
+/* ===== Office Panel (Center top) ===== */
 #office-panel {
+  grid-area: canvas;
   background: var(--bg-panel);
   border: 2px solid var(--border);
   border-radius: 2px;
@@ -273,11 +282,11 @@ body {
   padding: 8px 12px;
 }
 
-/* ===== Console Panel (Right) ===== */
+/* ===== Console Panel (Bottom, spans center+right) ===== */
 #console-panel {
+  grid-area: console;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   overflow: hidden;
 }
 
@@ -286,12 +295,11 @@ body {
 }
 
 #ceo-body.collapsible-flex {
-  flex: 3;
+  flex: 1;
 }
 
 #activity-body.collapsible-flex {
   flex: 1;
-  max-height: 120px;
 }
 
 #ceo-avatar-area {

@@ -12,8 +12,8 @@
 </head>
 <body>
   <div id="app">
-    <!-- Left Sidebar: Task Panel + Team Roster -->
-    <div id="roster-sidebar">
+    <!-- Left top: Projects + Task Queue -->
+    <div id="left-top-panel">
       <div class="collapsible-header" data-target="projects-panel-body">
         <span class="collapse-arrow">&#9660;</span>
         <h3 class="pixel-title">PROJECTS</h3>
@@ -29,24 +29,20 @@
       <div id="task-panel-body" class="collapsible-body">
         <div id="task-panel-list"></div>
       </div>
+    </div>
 
-      <div class="collapsible-header" data-target="roster-body">
+    <!-- Left bottom: Activity Log -->
+    <div id="left-bottom-panel">
+      <div class="collapsible-header" data-target="activity-body">
         <span class="collapse-arrow">&#9660;</span>
-        <h3 class="pixel-title">TEAM ROSTER</h3>
+        <h3 class="pixel-title">ACTIVITY LOG</h3>
       </div>
-      <div id="roster-body" class="collapsible-body">
-        <div id="roster-filters" class="roster-filters">
-          <select id="roster-filter-role" class="roster-filter-select"><option value="">All Roles</option></select>
-          <select id="roster-filter-dept" class="roster-filter-select"><option value="">All Departments</option></select>
-          <select id="roster-filter-level" class="roster-filter-select"><option value="">All Levels</option></select>
-        </div>
-        <div id="roster-list"></div>
+      <div id="activity-body" class="collapsible-body collapsible-flex">
+        <div id="activity-log" style="background:#0a0a0a;flex:1"></div>
       </div>
     </div>
 
-    <div class="panel-divider" id="divider-left"></div>
-
-    <!-- Center: Pixel art office -->
+    <!-- Center top: Office Canvas -->
     <div id="office-panel">
       <div class="panel-header">
         <h1 class="pixel-title">&#127970; ONE MAN COMPANY <span id="app-version" class="version-badge"></span></h1>
@@ -70,9 +66,23 @@
       <div id="tooltip" class="tooltip hidden"></div>
     </div>
 
-    <div class="panel-divider" id="divider-right"></div>
+    <!-- Right top: Team Roster -->
+    <div id="roster-panel">
+      <div class="collapsible-header" data-target="roster-body">
+        <span class="collapse-arrow">&#9660;</span>
+        <h3 class="pixel-title">TEAM ROSTER</h3>
+      </div>
+      <div id="roster-body" class="collapsible-body">
+        <div id="roster-filters" class="roster-filters">
+          <select id="roster-filter-role" class="roster-filter-select"><option value="">All Roles</option></select>
+          <select id="roster-filter-dept" class="roster-filter-select"><option value="">All Departments</option></select>
+          <select id="roster-filter-level" class="roster-filter-select"><option value="">All Levels</option></select>
+        </div>
+        <div id="roster-list"></div>
+      </div>
+    </div>
 
-    <!-- Right Sidebar: CEO Console + Activity Log -->
+    <!-- Bottom spanning center+right: CEO Console -->
     <div id="console-panel">
       <div class="collapsible-header" data-target="ceo-body">
         <span class="collapse-arrow">&#9660;</span>
@@ -110,14 +120,6 @@
 
       <!-- Unified Conversation Chat (replaces CEO Console when active) -->
       <div id="right-panel-chat" class="hidden"></div>
-
-      <div class="collapsible-header" data-target="activity-body">
-        <span class="collapse-arrow">&#9660;</span>
-        <h3 class="pixel-title">ACTIVITY LOG</h3>
-      </div>
-      <div id="activity-body" class="collapsible-body collapsible-flex">
-        <div id="activity-log" style="background:#0a0a0a;flex:1"></div>
-      </div>
     </div>
   </div>
 
