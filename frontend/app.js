@@ -276,18 +276,20 @@ class AppController {
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
-      // ChatPanel path (non-terminal conversations)
-      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
+      // xterm terminal path takes priority when viewing a 1-on-1
+      if (this._currentConvId === p.conv_id && this._ceoTerm && this._currentConvType === 'oneonone') {
+        // Skip CEO's own messages (already shown via optimistic append)
+        if (p.sender !== 'ceo' && p.text != null) {
+          const empName = this._resolveEmployeeName(p.employee_id || this._currentConvEmployeeId || '');
+          this._ceoTerm.appendMessage({
+            role: 'system',
+            text: p.text,
+            source: empName,
+          });
+        }
+      } else if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
+        // ChatPanel path (only for non-terminal conversations)
         this._chatPanel.appendMessage(p);
-      }
-      // xterm terminal path (1-on-1 viewed in terminal)
-      if (this._currentConvId === p.conv_id && this._ceoTerm && p.sender !== 'ceo' && p.text != null) {
-        const empName = this._resolveEmployeeName(p.employee_id || this._currentConvEmployeeId || '');
-        this._ceoTerm.appendMessage({
-          role: 'system',
-          text: p.text,
-          source: empName,
-        });
       }
       return;
     }
