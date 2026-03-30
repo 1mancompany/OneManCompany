@@ -280,11 +280,11 @@ class AppController {
       if (this._currentConvId === p.conv_id && this._ceoTerm && this._currentConvType === 'oneonone') {
         // Skip CEO's own messages (already shown via optimistic append)
         if (p.sender !== 'ceo' && p.text != null) {
-          const empName = this._resolveEmployeeName(p.employee_id || this._currentConvEmployeeId || '');
+          const empNick = this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
           this._ceoTerm.appendMessage({
             role: 'system',
             text: p.text,
-            source: empName,
+            source: empNick,
           });
         }
       } else if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
@@ -2608,14 +2608,14 @@ class AppController {
     }
 
     // Convert to terminal format
-    const empName = this._resolveEmployeeName(conv.employee_id);
+    const empNick = this._resolveEmployeeNickname(conv.employee_id);
     const history = messages.map(m => ({
       role: m.sender === 'ceo' ? 'ceo' : 'system',
       text: m.text || '',
-      source: m.sender === 'ceo' ? undefined : empName,
+      source: m.sender === 'ceo' ? undefined : empNick,
     }));
 
-    this._ceoTerm?.showChat(`1on1:${empName}`, history);
+    this._ceoTerm?.showChat(`1on1:${empNick}`, history);
   }
 
   async _selectCeoProject(projectId) {
@@ -6179,11 +6179,12 @@ class AppController {
       window.app?._lastSnapshot?.employees,
     ];
     for (const employees of sources) {
-      if (!Array.isArray(employees)) continue;
-      const emp = employees.find(e => e.id === employeeId);
+      if (!employees) continue;
+      const list = Array.isArray(employees) ? employees : Object.values(employees);
+      const emp = list.find(e => e.id === employeeId || e.employee_id === employeeId);
       if (emp) {
         const nick = emp.nickname || emp.name || employeeId;
-        return `${nick} (${employeeId})`;
+        return nick === employeeId ? employeeId : `${nick} (${employeeId})`;
       }
     }
     return employeeId;
