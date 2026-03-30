@@ -259,3 +259,11 @@ img/local/*
 .agents/
 skills-lock.json
 skills/
+
+# Internal dev docs (local only, not in release)
+docs/superpowers/
+docs/role-prompt-*.md
+docs/swe-bench-prompt.md
+docs/task-decomposition-algorithm.md
+docs/organizational-evolution-mcts.md
+docs/.DS_Store

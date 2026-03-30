@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 import httpx
+from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -124,7 +125,12 @@ def _print_step(console: Console, num: int, codename: str, subtitle: str) -> Non
     ))
 
 def _pad_art(text: str) -> str:
-    """Pad all lines in ASCII art to equal width so centering is uniform."""
+    """Pad all lines in ASCII art to equal width with trailing spaces.
+
+    Rich's justify="center" strips trailing spaces before centering,
+    so we must NOT rely on ljust + center. Instead, the art is rendered
+    with justify="left" inside a centered Align wrapper.
+    """
     lines = text.splitlines()
     max_len = max((len(l) for l in lines), default=0)
     return "\n".join(l.ljust(max_len) for l in lines)
@@ -132,7 +138,7 @@ def _pad_art(text: str) -> str:
 
 def _step_welcome(console: Console) -> None:
     console.print(Panel(
-        Text(_pad_art(LOGO), style="bold bright_cyan", justify="center"),
+        Align.center(Text(_pad_art(LOGO), style="bold bright_cyan")),
         border_style="bright_magenta",
         padding=(1, 2),
         expand=True,
@@ -848,9 +854,8 @@ def _step_done(console: Console, host: str, port: int) -> None:
             "░▒▓  G E N E S I S   C O M P L E T E"
         ),
         style="bold bright_green",
-        justify="center",
     )
-    console.print(Panel(genesis_art, border_style="bright_green", expand=True, padding=(1, 2)))
+    console.print(Panel(Align.center(genesis_art), border_style="bright_green", expand=True, padding=(1, 2)))
     console.print(Panel(
         "  [bright_cyan]Your company is online. Neural cores activated.[/bright_cyan]\n\n"
         "  [bold]FOUNDING TEAM DEPLOYED:[/bold]\n"
