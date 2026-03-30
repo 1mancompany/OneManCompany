@@ -2368,6 +2368,7 @@ class AppController {
   _eaChatConvId = null;  // Persistent conversation ID for EA chat
 
   async _openEaChat() {
+    await this._cleanupMeetingIfActive();
     // Clear pending modes that could interfere
     this._pendingIterProject = null;
     this._pendingSimpleMode = false;
@@ -2721,6 +2722,17 @@ class AppController {
 
   _currentMeetingType = null;  // 'all_hands' or 'discussion'
 
+  async _cleanupMeetingIfActive() {
+    if (this._currentConvType === 'meeting') {
+      try {
+        await fetch('/api/meeting/end', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        this.logEntry('SYSTEM', 'Meeting auto-ended (navigated away)', 'system');
+      } catch (e) { console.error('Failed to auto-end meeting:', e); }
+      this._currentMeetingType = null;
+      this._currentConvType = null;
+    }
+  }
+
   async _startMeetingInConsole(meetingType, initialMessage) {
     this._ceoTerm?.appendMessage({ role: 'system', text: `Starting ${meetingType === 'all_hands' ? 'All-Hands' : 'Discussion'} meeting...`, source: 'system' });
 
@@ -2741,6 +2753,9 @@ class AppController {
       this._currentMeetingType = meetingType;
       this._currentCeoProject = null;
       this._currentConvId = null;
+      this._currentConvEmployeeId = null;
+      this._pendingIterProject = null;
+      this._pendingSimpleMode = false;
 
       const typeLabel = meetingType === 'all_hands' ? 'All-Hands' : 'Discussion';
       const participantNames = res.participants.map(p => p.nickname || p.name).join(', ');
@@ -2849,6 +2864,7 @@ class AppController {
   }
 
   async _selectCeoProject(projectId) {
+    await this._cleanupMeetingIfActive();
     this._currentCeoProject = projectId;
     this._currentConvId = null;
     this._currentConvType = null;
