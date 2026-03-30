@@ -2265,6 +2265,13 @@ class AppController {
         const input = document.getElementById('ceo-conv-input');
         if (input) input.placeholder = `$ New iteration for ${projName}...`;
       }},
+      { cmd: '/end', desc: this._currentConvType === 'oneonone' ? 'End current 1-on-1 (triggers reflection)' : 'No active 1-on-1', action: () => {
+        if (this._currentConvType !== 'oneonone' || !this._currentConvId) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'No active 1-on-1 to end.', source: 'system' });
+          return;
+        }
+        this._endOneononeFromTerminal();
+      }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
       { cmd: '/simple', desc: 'Quick task to a specific employee', action: () => { /* TODO */ } },
       { cmd: '/review', desc: 'Quarterly performance review', action: () => { /* TODO */ } },
@@ -2420,6 +2427,46 @@ class AppController {
     }));
 
     this._ceoTerm?.showChat(`1on1:${empNick}`, history);
+  }
+
+  async _endOneononeFromTerminal() {
+    const convId = this._currentConvId;
+    if (!convId) return;
+
+    this._ceoTerm?.appendMessage({ role: 'system', text: 'Ending 1-on-1... employee is reflecting on the conversation...', source: 'system' });
+    this.logEntry('SYSTEM', 'Ending 1-on-1... employee is reflecting on the conversation...', 'system');
+
+    try {
+      const resp = await fetch(`/api/conversation/${convId}/close?wait_hooks=true`, {
+        method: 'POST',
+      }).then(r => r.json()).catch(() => ({}));
+
+      if (resp.hook_result) {
+        const hr = resp.hook_result;
+        const empName = this._resolveEmployeeNickname(resp.employee_id || this._currentConvEmployeeId || '');
+        if (hr.principles_updated) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `${empName} updated their work principles based on the meeting.`, source: 'system' });
+          this.logEntry('SYSTEM', `${empName} updated their work principles based on the meeting.`, 'system');
+        }
+        if (hr.note_saved) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `1-on-1 note saved to ${empName}'s guidance record.`, source: 'system' });
+          this.logEntry('SYSTEM', `1-on-1 note saved to ${empName}'s guidance record.`, 'system');
+        }
+        if (!hr.principles_updated && !hr.note_saved) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `1-on-1 ended (no reflection generated).`, source: 'system' });
+        }
+      } else {
+        this._ceoTerm?.appendMessage({ role: 'system', text: '1-on-1 ended.', source: 'system' });
+      }
+    } catch (e) {
+      this._ceoTerm?.appendMessage({ role: 'system', text: `Failed to end 1-on-1: ${e.message}`, source: 'system' });
+    }
+
+    // Clear 1-on-1 state
+    this._currentConvId = null;
+    this._currentConvType = null;
+    this._currentConvEmployeeId = null;
+    this._refreshCeoProjectList();
   }
 
   async _selectCeoProject(projectId) {
