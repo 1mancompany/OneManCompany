@@ -2421,8 +2421,8 @@ class AppController {
           formData.append('task', arg);
           formData.append('mode', 'standard');
           fetch('/api/ceo/task', { method: 'POST', body: formData })
-            .then(() => this._refreshCeoProjectList())
-            .catch(e => console.error('Failed to create task:', e));
+            .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ Project created', source: 'system' }); })
+            .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
         } else {
           // /new with no arg → switch to EA chat for input
           this._openEaChat();
@@ -2442,8 +2442,8 @@ class AppController {
           formData.append('project_id', pid.split('/')[0]);
           formData.append('mode', 'standard');
           fetch('/api/ceo/task', { method: 'POST', body: formData })
-            .then(() => this._refreshCeoProjectList())
-            .catch(e => console.error('Failed to create iteration:', e));
+            .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ New iteration created', source: 'system' }); })
+            .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
         } else {
           // /iter with no arg → prompt for input
           this._pendingIterProject = this._currentCeoProject;
@@ -2467,8 +2467,8 @@ class AppController {
           formData.append('task', arg);
           formData.append('mode', 'simple');
           fetch('/api/ceo/task', { method: 'POST', body: formData })
-            .then(() => this._refreshCeoProjectList())
-            .catch(e => console.error('Failed to create simple task:', e));
+            .then(() => { this._refreshCeoProjectList(); this._ceoTerm?.appendMessage({ role: 'system', text: '✓ Simple task created', source: 'system' }); })
+            .catch(e => { this._ceoTerm?.appendMessage({ role: 'system', text: `✗ Failed: ${e.message}`, source: 'system' }); });
         } else {
           // /simple with no arg → enter simple mode
           this._pendingSimpleMode = true;
@@ -2538,7 +2538,7 @@ class AppController {
           el.addEventListener('click', () => {
             menu.classList.add('hidden');
             input.value = '';
-            matches[i].action();
+            matches[i].action('');
           });
         });
         return;
