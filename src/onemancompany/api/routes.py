@@ -6059,7 +6059,7 @@ def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation
         except Exception:
             logger.warning("[conversation] failed to load meta from {}", conv_dir)
             continue
-        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
+        if conv.type not in ("oneonone", "ea_chat") or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
             continue
 
         try:
@@ -6193,8 +6193,8 @@ async def create_conversation(body: dict) -> dict:
     if conv_type == ConversationType.CEO_INBOX.value and not body.get("project_dir"):
         raise HTTPException(status_code=400, detail="project_dir is required for ceo_inbox conversations")
 
-    # Reuse prior one-on-one thread per employee so restarting meeting preserves history.
-    if conv_type == ConversationType.ONE_ON_ONE.value and body.get("reuse_existing", True):
+    # Reuse prior conversation thread per employee (one-on-one and ea_chat)
+    if conv_type in (ConversationType.ONE_ON_ONE.value, ConversationType.EA_CHAT.value) and body.get("reuse_existing", True):
         reusable = _pick_reusable_oneonone_conversation(employee_id)
         if reusable:
             conv, conv_dir = reusable

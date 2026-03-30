@@ -118,6 +118,14 @@ def _build_conversation_prompt(
             lines.append(shared_prompt)
     elif conversation.type == ConversationType.CEO_INBOX:
         lines.append("The CEO is responding to your request. Answer their questions.")
+    elif conversation.type == ConversationType.EA_CHAT:
+        lines.append(
+            "This is a direct chat with the CEO. You are their EA (Executive Assistant).\n"
+            "- Answer questions directly and concisely.\n"
+            "- If the CEO gives a task that requires team execution, use create_project() to start a project.\n"
+            "- For simple questions (weather, info, advice), just answer — do NOT create a project.\n"
+            "- Only create projects for tasks that need employee work (development, research, hiring, etc.)."
+        )
 
     if messages:
         lines.append("\n--- Conversation History ---")

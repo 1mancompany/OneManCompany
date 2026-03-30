@@ -694,6 +694,106 @@ def set_project_name(name: str) -> dict:
     return {"status": "ok", "name": name.strip()}
 
 
+@tool
+def create_project(task: str, mode: str = "standard") -> dict:
+    """Create a new project from a CEO task description.
+
+    Use this when the CEO gives a task that requires team execution
+    (development, research, hiring, marketing, etc.). Do NOT use this
+    for simple questions or conversations — just answer those directly.
+
+    This creates a project with a task tree and schedules EA to analyze
+    and dispatch the work to appropriate team members.
+
+    Args:
+        task: The full task description from the CEO.
+        mode: "standard" (with retrospective) or "simple" (no retrospective).
+    """
+    import asyncio
+    from pathlib import Path
+    from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
+    from onemancompany.core.task_lifecycle import NodeType, TaskPhase
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.vessel import employee_manager
+
+    if not task:
+        return {"status": "error", "message": "Task description is required"}
+    if mode not in ("simple", "standard"):
+        mode = "standard"
+
+    try:
+        from onemancompany.core.project_archive import (
+            async_create_project_from_task,
+            get_project_dir,
+        )
+
+        # Create project (sync wrapper for async function)
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None  # No event loop — will use asyncio.run() below
+
+        if loop and loop.is_running():
+            # We're in an async context — use a thread to run the async function
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                pid, iter_id = pool.submit(
+                    lambda: asyncio.run(async_create_project_from_task(task, "pending"))
+                ).result(timeout=30)
+        else:
+            pid, iter_id = asyncio.run(async_create_project_from_task(task, "pending"))
+
+        pdir = get_project_dir(pid)
+        ctx_id = f"{pid}/{iter_id}" if iter_id else pid
+
+        # Build task tree
+        tree_path = Path(pdir) / TASK_TREE_FILENAME
+        tree = TaskTree(project_id=ctx_id, mode=mode)
+        ceo_root = tree.create_root(employee_id=CEO_ID, description=task)
+        ceo_root.node_type = NodeType.CEO_PROMPT
+        ceo_root.set_status(TaskPhase.PROCESSING)
+
+        ea_task = (
+            f"CEO has assigned a new task. Please analyze and dispatch to the appropriate owner:\n\n"
+            f"Task: {task}\n\n"
+            f"[Project ID: {ctx_id}] [Project workspace: {pdir}]"
+        )
+        ea_node = tree.add_child(
+            parent_id=ceo_root.id,
+            employee_id=EA_ID,
+            description=ea_task,
+            acceptance_criteria=[],
+        )
+
+        from onemancompany.core.vessel import _save_project_tree
+        _save_project_tree(pdir, tree)
+        _add_to_project_team(pdir, CEO_ID)
+        _add_to_project_team(pdir, EA_ID)
+
+        # Create CEO session for the project
+        from onemancompany.core.ceo_broker import get_ceo_broker
+        broker = get_ceo_broker()
+        session = broker.get_or_create_session(ctx_id)
+        session.project_dir = Path(pdir)
+        session.push_system_message(f"Project created: {task[:100]}", source="system")
+        session.save_history(Path(pdir))
+
+        # Schedule EA
+        employee_manager.schedule_node(EA_ID, ea_node.id, str(tree_path))
+        employee_manager._schedule_next(EA_ID)
+
+        logger.info("[create_project] Created project {} from EA chat", ctx_id)
+        return {
+            "status": "ok",
+            "project_id": ctx_id,
+            "message": f"Project created and assigned to EA for analysis. Project ID: {ctx_id}",
+        }
+    except Exception as e:
+        logger.error("[create_project] Failed: {}", e)
+        return {"status": "error", "message": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -706,3 +806,4 @@ tool_registry.register(reject_child, ToolMeta(name="reject_child", category="bas
 tool_registry.register(unblock_child, ToolMeta(name="unblock_child", category="base"))
 tool_registry.register(cancel_child, ToolMeta(name="cancel_child", category="base"))
 tool_registry.register(set_project_name, ToolMeta(name="set_project_name", category="base"))
+tool_registry.register(create_project, ToolMeta(name="create_project", category="base"))
