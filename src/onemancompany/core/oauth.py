@@ -105,6 +105,7 @@ def _load_tokens(service_name: str) -> dict:
 def _save_tokens(service_name: str, data: dict) -> None:
     path = _token_cache_path(service_name)
     write_text_utf(path, json.dumps(data, indent=2))
+    logger.debug("[oauth] Saved tokens to {}", path)
 
 
 def _generate_pkce() -> tuple[str, str]:
@@ -225,9 +226,13 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                              b"<p>You can close this tab.</p>")
             # Exchange code for tokens immediately
             if self._config:
-                _exchange_code(
+                result = _exchange_code(
                     self._config, self.auth_code, self._verifier
                 )
+                if result.get("error"):
+                    logger.error("[oauth] Token exchange failed: {}", result)
+                else:
+                    logger.info("[oauth] Token exchange succeeded for {}", self._config.service_name)
         else:
             error = params.get("error", ["unknown"])[0]
             self.send_response(400)
