@@ -5319,11 +5319,63 @@ body {
   flex-shrink: 0;
   background: #0a0a0a;
   border-right: 1px solid #222;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
   font-size: 11px;
-  padding: 4px 0;
+  padding: 0;
   transition: width 0.15s, padding 0.15s, opacity 0.15s;
+}
+
+#ceo-projects-section {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+#ceo-oneonone-section {
+  flex-shrink: 0;
+  border-top: 1px solid #333;
+}
+
+.ceo-section-header {
+  padding: 4px 6px;
+  color: #888;
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.ceo-section-header:hover { color: #ccc; }
+.ceo-section-arrow { font-size: 8px; }
+
+#ceo-oneonone-items.collapsed { display: none; }
+
+.ceo-oneonone-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #c8a2ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+  font-size: 10px;
+}
+.ceo-oneonone-item:hover {
+  background: #1a1a1a;
+  color: #dfc4ff;
+}
+.ceo-oneonone-item.active {
+  background: #1a112a;
+  color: #fff;
+  border-left-color: #9966ff;
+}
+
+#ceo-actions-section {
+  flex-shrink: 0;
+  border-top: 1px solid #333;
+  padding: 4px 0;
 }
 #ceo-project-list.collapsed {
   width: 0;

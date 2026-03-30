@@ -276,8 +276,18 @@ class AppController {
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
+      // ChatPanel path (non-terminal conversations)
       if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
         this._chatPanel.appendMessage(p);
+      }
+      // xterm terminal path (1-on-1 viewed in terminal)
+      if (this._currentConvId === p.conv_id && this._ceoTerm && p.sender !== 'ceo' && p.text != null) {
+        const empName = this._resolveEmployeeName(p.employee_id || this._currentConvEmployeeId || '');
+        this._ceoTerm.appendMessage({
+          role: 'system',
+          text: p.text,
+          source: empName,
+        });
       }
       return;
     }
@@ -285,6 +295,21 @@ class AppController {
       const p = msg.payload || msg;
       if (p.phase === 'closed' && this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
         this._chatPanel.setInputEnabled(false);
+      }
+      // Refresh 1-on-1 list when a conversation closes
+      if (p.phase === 'closed') {
+        this._refreshOneononeList();
+        // If we were viewing this closed conversation, show a notice
+        if (this._currentConvId === p.conv_id && this._ceoTerm) {
+          this._ceoTerm.appendMessage({
+            role: 'system',
+            text: '1-on-1 session ended.',
+            source: 'system',
+          });
+          this._currentConvId = null;
+          this._currentConvType = null;
+          this._currentConvEmployeeId = null;
+        }
       }
       return;
     }
@@ -2310,6 +2335,14 @@ class AppController {
       setTimeout(() => this._ceoTerm?._fit(), 200);
     });
 
+    // Wire 1-on-1 section collapsible toggle
+    document.getElementById('ceo-oneonone-toggle')?.addEventListener('click', () => {
+      const items = document.getElementById('ceo-oneonone-items');
+      const arrow = document.querySelector('#ceo-oneonone-toggle .ceo-section-arrow');
+      items?.classList.toggle('collapsed');
+      if (arrow) arrow.textContent = items.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+    });
+
     // Wire HTML input
     const input = document.getElementById('ceo-conv-input');
     const doSend = async () => {
@@ -2319,6 +2352,19 @@ class AppController {
 
       // Show CEO message immediately in terminal
       this._ceoTerm?.appendCeoMessage(text);
+
+      // 1-on-1 conversation mode: send via conversation API
+      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+        try {
+          await fetch(`/api/conversation/${this._currentConvId}/message`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text }),
+          });
+        } catch (e) { console.error('Failed to send 1-on-1 message:', e); }
+        input?.focus();
+        return;
+      }
 
       if (!this._currentCeoProject) {
         // New task
@@ -2388,7 +2434,7 @@ class AppController {
 
   _slashCommands = [
     { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
-    { cmd: '/new', desc: 'Create new task', action: () => { this._currentCeoProject = null; this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []); } },
+    { cmd: '/new', desc: 'Create new task', action: () => { this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null; this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []); } },
     { cmd: '/simple', desc: 'Simple task to employee', action: () => { /* TODO: simple task dialog */ } },
     { cmd: '/review', desc: 'Quarterly review', action: () => { /* TODO: wire to HR review */ } },
   ];
@@ -2432,7 +2478,7 @@ class AppController {
   }
 
   async _refreshCeoProjectList() {
-    const listEl = document.getElementById('ceo-project-items');
+    const listEl = document.getElementById('ceo-projects-section');
     if (!listEl) return;
 
     let sessions = [];
@@ -2465,36 +2511,116 @@ class AppController {
       listEl.appendChild(item);
     }
 
-    // Separator
-    const sep = document.createElement('div');
-    sep.className = 'ceo-proj-separator';
-    listEl.appendChild(sep);
+    // Render actions pinned at bottom
+    const actionsEl = document.getElementById('ceo-actions-section');
+    if (actionsEl) {
+      actionsEl.innerHTML = '';
 
-    // + New Task
-    const newTask = document.createElement('div');
-    newTask.className = 'ceo-proj-action';
-    newTask.textContent = '+ New Task';
-    newTask.addEventListener('click', () => {
-      this._currentCeoProject = null;
-      this._refreshCeoProjectList();
-      this._ceoTerm?.showChat(null, []);
-    });
-    listEl.appendChild(newTask);
-
-    // + New Iteration (only if a project is selected)
-    if (this._currentCeoProject) {
-      const newIter = document.createElement('div');
-      newIter.className = 'ceo-proj-action';
-      newIter.textContent = '+ New Iter';
-      newIter.addEventListener('click', () => {
-        // TODO: wire to iteration creation API
+      const newTask = document.createElement('div');
+      newTask.className = 'ceo-proj-action';
+      newTask.textContent = '+ New Task';
+      newTask.addEventListener('click', () => {
+        this._currentCeoProject = null;
+        this._currentConvId = null;
+        this._currentConvType = null;
+        this._refreshCeoProjectList();
+        this._ceoTerm?.showChat(null, []);
       });
-      listEl.appendChild(newIter);
+      actionsEl.appendChild(newTask);
+
+      if (this._currentCeoProject) {
+        const newIter = document.createElement('div');
+        newIter.className = 'ceo-proj-action';
+        newIter.textContent = '+ New Iter';
+        newIter.addEventListener('click', () => {
+          // TODO: wire to iteration creation API
+        });
+        actionsEl.appendChild(newIter);
+      }
     }
+
+    // Also refresh 1-on-1 list
+    this._refreshOneononeList();
+  }
+
+  async _refreshOneononeList() {
+    const container = document.getElementById('ceo-oneonone-items');
+    if (!container) return;
+
+    let convs = [];
+    try {
+      const resp = await fetch('/api/conversations?type=oneonone');
+      convs = (await resp.json()).conversations || [];
+    } catch (e) { /* ignore */ }
+
+    // Filter to active only
+    convs = convs.filter(c => c.phase === 'active');
+
+    container.innerHTML = '';
+    if (!convs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ceo-section-header';
+      empty.style.fontStyle = 'italic';
+      empty.textContent = 'No active sessions';
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const conv of convs) {
+      const item = document.createElement('div');
+      const empName = this._resolveEmployeeName(conv.employee_id);
+      item.className = 'ceo-oneonone-item' + (this._currentConvId === conv.id ? ' active' : '');
+      item.textContent = empName;
+      item.title = `1-on-1 with ${empName}`;
+      item.addEventListener('click', () => this._openOneononeInTerminal(conv));
+      container.appendChild(item);
+    }
+  }
+
+  async _openOneononeInTerminal(conv) {
+    // Clear project selection
+    this._currentCeoProject = null;
+    this._currentConvId = conv.id;
+    this._currentConvType = 'oneonone';
+    this._currentConvEmployeeId = conv.employee_id;
+
+    // Update active states in lists
+    document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
+    // Find and activate this one
+    const items = document.querySelectorAll('.ceo-oneonone-item');
+    items.forEach(el => {
+      if (el.textContent === this._resolveEmployeeName(conv.employee_id)) {
+        el.classList.add('active');
+      }
+    });
+
+    // Load conversation messages
+    let messages = [];
+    try {
+      const resp = await fetch(`/api/conversation/${conv.id}/messages`);
+      const data = await resp.json();
+      messages = data.messages || [];
+    } catch (e) {
+      console.error('Failed to load conversation messages:', e);
+    }
+
+    // Convert to terminal format
+    const empName = this._resolveEmployeeName(conv.employee_id);
+    const history = messages.map(m => ({
+      role: m.sender === 'ceo' ? 'ceo' : 'system',
+      text: m.text || '',
+      source: m.sender === 'ceo' ? undefined : empName,
+    }));
+
+    this._ceoTerm?.showChat(`1on1:${empName}`, history);
   }
 
   async _selectCeoProject(projectId) {
     this._currentCeoProject = projectId;
+    this._currentConvId = null;
+    this._currentConvType = null;
+    this._currentConvEmployeeId = null;
     this._refreshCeoProjectList();
 
     if (!projectId) {
@@ -6053,7 +6179,9 @@ class AppController {
       }),
     });
     const conv = await resp.json();
-    await this._openConversation(conv.id);
+    // Open 1-on-1 in the xterm terminal instead of ChatPanel
+    await this._openOneononeInTerminal(conv);
+    await this._refreshOneononeList();
   }
 
   async _sendConversationMessage(convId, text, attachments) {
