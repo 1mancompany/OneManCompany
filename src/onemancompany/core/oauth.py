@@ -37,7 +37,8 @@ from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
 # Avoid importing heavy deps at module level
-from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, SYSTEM_AGENT, read_text_utf, write_text_utf
+from loguru import logger
+from onemancompany.core.config import ASSETS_DIR as _ASSETS_DIR, ENCODING_UTF8, SYSTEM_AGENT, read_text_utf, write_text_utf
 _TOKEN_DIR = _ASSETS_DIR / ".oauth_cache"
 
 # Track active authorization flows to avoid duplicate popups
