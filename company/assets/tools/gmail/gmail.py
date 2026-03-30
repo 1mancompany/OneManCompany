@@ -211,13 +211,18 @@ def gmail_read_thread(thread_id: str) -> dict:
 
 
 def _build_message(to: str, subject: str, body: str, cc: str = "", bcc: str = "",
-                    attachments: str = "") -> MIMEMultipart | MIMEText:
+                    attachments: str = "") -> dict:
     """Build a MIME message, with optional file attachments.
 
     Args:
         attachments: Comma-separated file paths. Files must exist on disk.
+
+    Returns:
+        {"msg": MIMEBase, "attached": [...], "missing": [...]}
     """
     attach_paths = [p.strip() for p in attachments.split(",") if p.strip()] if attachments else []
+    attached = []
+    missing = []
 
     if not attach_paths:
         msg = MIMEText(body, "plain", "utf-8")
@@ -226,6 +231,7 @@ def _build_message(to: str, subject: str, body: str, cc: str = "", bcc: str = ""
         msg.attach(MIMEText(body, "plain", "utf-8"))
         for fpath in attach_paths:
             if not os.path.isfile(fpath):
+                missing.append(fpath)
                 continue
             ctype, _ = mimetypes.guess_type(fpath)
             maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
@@ -235,6 +241,7 @@ def _build_message(to: str, subject: str, body: str, cc: str = "", bcc: str = ""
                 encoders.encode_base64(part)
                 part.add_header("Content-Disposition", "attachment", filename=os.path.basename(fpath))
                 msg.attach(part)
+                attached.append(fpath)
 
     msg["To"] = to
     msg["Subject"] = subject
@@ -242,7 +249,7 @@ def _build_message(to: str, subject: str, body: str, cc: str = "", bcc: str = ""
         msg["Cc"] = cc
     if bcc:
         msg["Bcc"] = bcc
-    return msg
+    return {"msg": msg, "attached": attached, "missing": missing}
 
 
 @tool
@@ -256,16 +263,24 @@ def gmail_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "",
         body: Email body text (plain text).
         cc: CC recipients, comma-separated (optional).
         bcc: BCC recipients, comma-separated (optional).
-        attachments: Comma-separated file paths to attach (optional).
-                     Files must exist in your workspace directory.
+        attachments: Comma-separated absolute file paths to attach (optional).
+                     Example: "/path/to/report.pdf,/path/to/data.zip"
+                     Files must exist on disk. Missing files will be reported in the response.
     """
-    msg = _build_message(to, subject, body, cc, bcc, attachments)
+    built = _build_message(to, subject, body, cc, bcc, attachments)
+    msg = built["msg"]
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
     result = _api_request("POST", "messages/send", body={"raw": raw})
 
     if "error" in result.get("status", ""):
         return result
-    return {"status": "ok", "message_id": result.get("id", ""), "thread_id": result.get("threadId", "")}
+    resp = {"status": "ok", "message_id": result.get("id", ""), "thread_id": result.get("threadId", "")}
+    if built["attached"]:
+        resp["attachments_sent"] = built["attached"]
+    if built["missing"]:
+        resp["attachments_missing"] = built["missing"]
+        resp["warning"] = f"These files were not found and NOT attached: {built['missing']}"
+    return resp
 
 
 @tool
@@ -279,15 +294,20 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str 
         body: Email body text (plain text).
         cc: CC recipients, comma-separated (optional).
         bcc: BCC recipients, comma-separated (optional).
-        attachments: Comma-separated file paths to attach (optional).
+        attachments: Comma-separated absolute file paths to attach (optional).
     """
-    msg = _build_message(to, subject, body, cc, bcc, attachments)
+    built = _build_message(to, subject, body, cc, bcc, attachments)
+    msg = built["msg"]
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
     result = _api_request("POST", "drafts", body={"message": {"raw": raw}})
 
     if "error" in result.get("status", ""):
         return result
-    return {"status": "ok", "draft_id": result.get("id", ""), "message": "Draft created"}
+    resp = {"status": "ok", "draft_id": result.get("id", ""), "message": "Draft created"}
+    if built["missing"]:
+        resp["attachments_missing"] = built["missing"]
+        resp["warning"] = f"These files were not found and NOT attached: {built['missing']}"
+    return resp
 
 
 @tool
