@@ -2112,6 +2112,7 @@ class AppController {
 
   // ===== CEO Terminal (two-column: project list + xterm conversation) ===== //
 
+  _EA_CHAT = '_ea_chat';  // Reserved sentinel — not a real project ID
   _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
 
   async _initCeoTerminal() {
@@ -2120,13 +2121,17 @@ class AppController {
 
     this._ceoTerm = new CeoTerminal(messagesContainer);
 
+    // Wire Chat button — switches to EA default chat
+    document.getElementById('ceo-chat-btn')?.addEventListener('click', () => {
+      this._openEaChat();
+    });
+
     // Wire project list toggle
     const toggle = document.getElementById('ceo-list-toggle');
     const projectList = document.getElementById('ceo-project-list');
     toggle?.addEventListener('click', () => {
       const collapsed = projectList.classList.toggle('collapsed');
       toggle.textContent = collapsed ? '▶' : '◀';
-      // Refit terminal after animation
       setTimeout(() => this._ceoTerm?._fit(), 200);
     });
 
@@ -2202,8 +2207,8 @@ class AppController {
         return;
       }
 
-      if (!this._currentCeoProject) {
-        // New task (simple or standard mode)
+      if (!this._currentCeoProject || this._currentCeoProject === this._EA_CHAT) {
+        // New task from EA chat (simple or standard mode)
         const mode = this._pendingSimpleMode ? 'simple' : 'standard';
         this._pendingSimpleMode = false;
         const inp = document.getElementById('ceo-conv-input');
@@ -2306,6 +2311,21 @@ class AppController {
     });
 
     await this._refreshCeoProjectList();
+
+    // Default: open EA chat
+    this._openEaChat();
+  }
+
+  _openEaChat() {
+    // Clear pending modes that could interfere
+    this._pendingIterProject = null;
+    this._pendingSimpleMode = false;
+    // Update active states in sidebar
+    document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('ceo-chat-btn')?.classList.add('active');
+    // Delegate to _selectCeoProject which handles all state clearing
+    this._selectCeoProject(this._EA_CHAT);
   }
 
   // --- Slash command menu --- //
@@ -2444,7 +2464,13 @@ class AppController {
 
     listEl.innerHTML = '';
 
+    // Update Chat button active state
+    const chatBtn = document.getElementById('ceo-chat-btn');
+    chatBtn?.classList.toggle('active', this._currentCeoProject === this._EA_CHAT || !this._currentCeoProject);
+
     for (const s of sessions) {
+      // Skip EA chat session from project list (it has its own Chat button)
+      if (s.project_id === this._EA_CHAT) continue;
       const item = document.createElement('div');
       const hasPending = s.has_pending;
       item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
@@ -2453,7 +2479,10 @@ class AppController {
       const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
       const badge = hasPending ? '<span class="ceo-proj-pending">●</span>' : '';
       item.innerHTML = badge + this._escHtml(display);
-      item.addEventListener('click', () => this._selectCeoProject(s.project_id));
+      item.addEventListener('click', () => {
+        chatBtn?.classList.remove('active');
+        this._selectCeoProject(s.project_id);
+      });
       listEl.appendChild(item);
     }
 

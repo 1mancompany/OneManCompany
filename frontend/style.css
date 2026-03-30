@@ -5323,6 +5323,20 @@ body.resize-dragging {
 }
 #ceo-list-toggle:hover { color: #aaa; background: #1a1a1a; }
 
+.ceo-nav-btn {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #4af;
+  font-size: 10px;
+  border-bottom: 1px solid #222;
+}
+.ceo-nav-btn:hover { background: #1a1a1a; }
+.ceo-nav-btn.active {
+  color: #fff;
+  background: #112;
+  border-left: 2px solid #4af;
+}
+
 .ceo-proj-item {
   padding: 4px 6px;
   cursor: pointer;

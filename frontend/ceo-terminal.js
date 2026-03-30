@@ -81,7 +81,7 @@ class CeoTerminal {
     this._term.reset();
 
     const A = this._A();
-    const name = projectId ? projectId.split('/')[0] : 'New Task';
+    const name = projectId === '_ea_chat' ? 'Chat with EA' : (projectId ? projectId.split('/')[0] : 'New Task');
     const displayName = name.length > 25 ? name.substring(0, 25) + '\u2026' : name;
     this._term.writeln(`${A.cyan}${A.bold} ${displayName}${A.reset}`);
     this._divider();
