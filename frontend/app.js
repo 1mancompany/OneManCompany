@@ -2570,7 +2570,7 @@ class AppController {
 
     for (const conv of convs) {
       const item = document.createElement('div');
-      const empName = this._resolveEmployeeName(conv.employee_id);
+      const empName = this._resolveEmployeeNickname(conv.employee_id);
       item.className = 'ceo-oneonone-item' + (this._currentConvId === conv.id ? ' active' : '');
       item.textContent = empName;
       item.title = `1-on-1 with ${empName}`;
@@ -6168,6 +6168,23 @@ class AppController {
       if (!Array.isArray(employees)) continue;
       const emp = employees.find(e => e.id === employeeId);
       if (emp) return emp.name || emp.nickname || employeeId;
+    }
+    return employeeId;
+  }
+
+  _resolveEmployeeNickname(employeeId) {
+    // Returns "花名 (编号)" format for compact display
+    const sources = [
+      window.officeRenderer?.state?.employees,
+      window.app?._lastSnapshot?.employees,
+    ];
+    for (const employees of sources) {
+      if (!Array.isArray(employees)) continue;
+      const emp = employees.find(e => e.id === employeeId);
+      if (emp) {
+        const nick = emp.nickname || emp.name || employeeId;
+        return `${nick} (${employeeId})`;
+      }
     }
     return employeeId;
   }
