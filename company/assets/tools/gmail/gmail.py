@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
+import os
 import urllib.error
 import urllib.request
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
 from urllib.parse import urlencode
 
 from langchain_core.tools import tool
@@ -205,9 +210,45 @@ def gmail_read_thread(thread_id: str) -> dict:
     return {"status": "ok", "thread_id": thread_id, "message_count": len(messages), "messages": messages}
 
 
+def _build_message(to: str, subject: str, body: str, cc: str = "", bcc: str = "",
+                    attachments: str = "") -> MIMEMultipart | MIMEText:
+    """Build a MIME message, with optional file attachments.
+
+    Args:
+        attachments: Comma-separated file paths. Files must exist on disk.
+    """
+    attach_paths = [p.strip() for p in attachments.split(",") if p.strip()] if attachments else []
+
+    if not attach_paths:
+        msg = MIMEText(body, "plain", "utf-8")
+    else:
+        msg = MIMEMultipart()
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        for fpath in attach_paths:
+            if not os.path.isfile(fpath):
+                continue
+            ctype, _ = mimetypes.guess_type(fpath)
+            maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
+            with open(fpath, "rb") as f:
+                part = MIMEBase(maintype, subtype)
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", "attachment", filename=os.path.basename(fpath))
+                msg.attach(part)
+
+    msg["To"] = to
+    msg["Subject"] = subject
+    if cc:
+        msg["Cc"] = cc
+    if bcc:
+        msg["Bcc"] = bcc
+    return msg
+
+
 @tool
-def gmail_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
-    """Send an email via Gmail.
+def gmail_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "",
+               attachments: str = "") -> dict:
+    """Send an email via Gmail, optionally with file attachments.
 
     Args:
         to: Recipient email address(es), comma-separated for multiple.
@@ -215,15 +256,10 @@ def gmail_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") ->
         body: Email body text (plain text).
         cc: CC recipients, comma-separated (optional).
         bcc: BCC recipients, comma-separated (optional).
+        attachments: Comma-separated file paths to attach (optional).
+                     Files must exist in your workspace directory.
     """
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["To"] = to
-    msg["Subject"] = subject
-    if cc:
-        msg["Cc"] = cc
-    if bcc:
-        msg["Bcc"] = bcc
-
+    msg = _build_message(to, subject, body, cc, bcc, attachments)
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
     result = _api_request("POST", "messages/send", body={"raw": raw})
 
@@ -233,8 +269,9 @@ def gmail_send(to: str, subject: str, body: str, cc: str = "", bcc: str = "") ->
 
 
 @tool
-def gmail_create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "") -> dict:
-    """Create a Gmail draft (does not send).
+def gmail_create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str = "",
+                       attachments: str = "") -> dict:
+    """Create a Gmail draft (does not send), optionally with file attachments.
 
     Args:
         to: Recipient email address(es), comma-separated for multiple.
@@ -242,15 +279,9 @@ def gmail_create_draft(to: str, subject: str, body: str, cc: str = "", bcc: str 
         body: Email body text (plain text).
         cc: CC recipients, comma-separated (optional).
         bcc: BCC recipients, comma-separated (optional).
+        attachments: Comma-separated file paths to attach (optional).
     """
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["To"] = to
-    msg["Subject"] = subject
-    if cc:
-        msg["Cc"] = cc
-    if bcc:
-        msg["Bcc"] = bcc
-
+    msg = _build_message(to, subject, body, cc, bcc, attachments)
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
     result = _api_request("POST", "drafts", body={"message": {"raw": raw}})
 
