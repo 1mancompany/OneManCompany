@@ -268,15 +268,16 @@ class AppController {
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
-      // xterm terminal path takes priority when viewing a 1-on-1
-      if (this._currentConvId === p.conv_id && this._ceoTerm && this._currentConvType === 'oneonone') {
-        // Skip CEO's own messages (already shown via optimistic append)
+      // xterm terminal path: 1-on-1 or EA chat
+      if (this._currentConvId === p.conv_id && this._ceoTerm && (this._currentConvType === 'oneonone' || this._currentConvType === 'ea_chat')) {
         if (p.sender !== 'ceo' && p.text != null) {
-          const empNick = this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
+          const source = this._currentConvType === 'ea_chat'
+            ? '玲珑阁 (EA)'
+            : this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
           this._ceoTerm.appendMessage({
             role: 'system',
             text: p.text,
-            source: empNick,
+            source,
           });
         }
       } else if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
@@ -2207,12 +2208,20 @@ class AppController {
         return;
       }
 
-      if (!this._currentCeoProject || this._currentCeoProject === this._EA_CHAT) {
-        // New task from EA chat (simple or standard mode)
+      if (this._currentCeoProject === this._EA_CHAT && this._eaChatConvId) {
+        // EA Chat: send as conversation message — EA decides whether to create project
+        try {
+          await fetch(`/api/conversation/${this._eaChatConvId}/message`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text }),
+          });
+          // EA response arrives via WebSocket conversation_message event
+        } catch (e) { console.error('Failed to send EA chat message:', e); }
+      } else if (!this._currentCeoProject) {
+        // No project selected and no EA chat — fallback to task creation
         const mode = this._pendingSimpleMode ? 'simple' : 'standard';
         this._pendingSimpleMode = false;
-        const inp = document.getElementById('ceo-conv-input');
-        if (inp) inp.placeholder = '$ Type message, / for commands (Enter to send)';
         try {
           const formData = new FormData();
           formData.append('task', text);
@@ -2316,16 +2325,74 @@ class AppController {
     this._openEaChat();
   }
 
-  _openEaChat() {
+  _eaChatConvId = null;  // Persistent conversation ID for EA chat
+
+  async _openEaChat() {
     // Clear pending modes that could interfere
     this._pendingIterProject = null;
     this._pendingSimpleMode = false;
+    this._currentCeoProject = this._EA_CHAT;
+    this._currentConvType = 'ea_chat';
+    this._currentConvId = this._eaChatConvId;
+    this._currentConvEmployeeId = '00004';  // EA
+
     // Update active states in sidebar
     document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
     document.getElementById('ceo-chat-btn')?.classList.add('active');
-    // Delegate to _selectCeoProject which handles all state clearing
-    this._selectCeoProject(this._EA_CHAT);
+
+    // Ensure EA chat conversation exists
+    if (!this._eaChatConvId) {
+      await this._ensureEaChatConversation();
+    }
+
+    // Load conversation history
+    let messages = [];
+    if (this._eaChatConvId) {
+      try {
+        const resp = await fetch(`/api/conversation/${this._eaChatConvId}/messages`);
+        const data = await resp.json();
+        messages = (data.messages || []).map(m => ({
+          role: m.sender === 'ceo' ? 'ceo' : 'system',
+          text: m.text || '',
+          source: m.sender === 'ceo' ? undefined : '玲珑阁 (EA)',
+        }));
+      } catch (e) {}
+    }
+    this._ceoTerm?.showChat(this._EA_CHAT, messages);
+  }
+
+  async _ensureEaChatConversation() {
+    // Check localStorage for existing EA chat conv_id
+    this._eaChatConvId = localStorage.getItem('ea-chat-conv-id') || null;
+    if (this._eaChatConvId) {
+      // Verify it still exists
+      try {
+        const resp = await fetch(`/api/conversation/${this._eaChatConvId}/messages`);
+        if (resp.ok) {
+          this._currentConvId = this._eaChatConvId;
+          return;
+        }
+      } catch (e) {}
+      // Stale — clear and recreate
+      this._eaChatConvId = null;
+      localStorage.removeItem('ea-chat-conv-id');
+    }
+
+    // Create a new persistent EA chat conversation
+    try {
+      const resp = await fetch('/api/conversation/create', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ type: 'ea_chat', employee_id: '00004', tools_enabled: true }),
+      });
+      const conv = await resp.json();
+      this._eaChatConvId = conv.id;
+      this._currentConvId = conv.id;
+      localStorage.setItem('ea-chat-conv-id', conv.id);
+    } catch (e) {
+      console.error('Failed to create EA chat conversation:', e);
+    }
   }
 
   // --- Slash command menu --- //

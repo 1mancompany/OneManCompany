@@ -45,6 +45,7 @@ class ConversationType(str, Enum):
     """Types of conversation channels."""
     CEO_INBOX = "ceo_inbox"
     ONE_ON_ONE = "oneonone"
+    EA_CHAT = "ea_chat"
 
 
 class ConversationPhase(str, Enum):
