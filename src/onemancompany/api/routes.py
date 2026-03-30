@@ -6019,6 +6019,7 @@ from onemancompany.core.models import ConversationType, ConversationPhase
 
 _conversation_service = ConversationService()
 _active_adapter_tasks: set[asyncio.Task] = set()
+_active_adapter_by_conv: dict[str, asyncio.Task] = {}  # conv_id → running adapter task
 
 _VALID_CONV_TYPES = {t.value for t in ConversationType}
 _VALID_CONV_PHASES = {p.value for p in ConversationPhase}
@@ -6259,8 +6260,23 @@ async def send_conversation_message(conv_id: str, body: dict) -> dict:
     # Dispatch to adapter in background (don't await — async reply via WebSocket)
     task = asyncio.create_task(_dispatch_conversation_to_adapter(conv_id, msg))
     _active_adapter_tasks.add(task)
-    task.add_done_callback(_active_adapter_tasks.discard)
+    _active_adapter_by_conv[conv_id] = task
+    def _cleanup(t, _cid=conv_id):
+        _active_adapter_tasks.discard(t)
+        _active_adapter_by_conv.pop(_cid, None)
+    task.add_done_callback(_cleanup)
     return {"status": "sent", "message": msg.to_dict()}
+
+
+@router.post("/api/conversation/{conv_id}/cancel")
+async def cancel_conversation_response(conv_id: str) -> dict:
+    """Cancel the in-progress agent response for a conversation."""
+    task = _active_adapter_by_conv.get(conv_id)
+    if not task or task.done():
+        return {"status": "no_active_task"}
+    task.cancel()
+    logger.info("[conversation] Cancelled adapter task for conv={}", conv_id)
+    return {"status": "cancelled"}
 
 
 @router.post("/api/conversation/{conv_id}/upload")
