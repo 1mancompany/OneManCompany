@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 from loguru import logger
@@ -492,19 +493,21 @@ class EmployeeConfig(BaseModel):
     api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
     api_key: str = ""  # Custom API key (used when api_provider != default)
     hosting: str = "company"  # "company" | "self" | "openclaw" — also serves as agent family selector
+    auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
+    oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
+
+    # Fields where empty string should be treated as missing (use field default)
+    _NON_EMPTY_FIELDS: ClassVar[frozenset] = frozenset({"api_provider", "hosting", "auth_method"})
 
     @model_validator(mode="before")
     @classmethod
     def _normalize_empty_strings(cls, data):
         """Treat empty strings as missing so Pydantic uses field defaults."""
-        _FIELDS_WITH_DEFAULTS = {"api_provider": "openrouter", "hosting": "company"}
         if isinstance(data, dict):
-            for field, default in _FIELDS_WITH_DEFAULTS.items():
-                if not data.get(field):
-                    data[field] = default
+            for field_name in cls._NON_EMPTY_FIELDS:
+                if not data.get(field_name):
+                    data[field_name] = cls.model_fields[field_name].default
         return data
-    auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
-    oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
 
 
 class Settings(BaseSettings):
