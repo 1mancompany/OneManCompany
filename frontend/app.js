@@ -2301,7 +2301,15 @@ class AppController {
 
       // Escape: close slash menu
       if (e.key === 'Escape') {
-        slashMenu?.classList.add('hidden');
+        if (menuVisible) {
+          slashMenu.classList.add('hidden');
+        } else if (this._currentConvType === 'ea_chat' && this._eaChatConvId) {
+          // Cancel in-progress EA response
+          this._cancelConversationResponse(this._eaChatConvId);
+        } else if (this._currentConvType === 'oneonone' && this._currentConvId) {
+          // Cancel in-progress 1-on-1 response
+          this._cancelConversationResponse(this._currentConvId);
+        }
       }
     });
     input?.addEventListener('input', () => this._handleSlashInput(input));
@@ -2629,6 +2637,18 @@ class AppController {
     }));
 
     this._ceoTerm?.showChat(`1on1:${empNick}`, history);
+  }
+
+  async _cancelConversationResponse(convId) {
+    try {
+      const resp = await fetch(`/api/conversation/${convId}/cancel`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.status === 'cancelled') {
+        this._ceoTerm?.appendMessage({ role: 'system', text: '⏹ Response cancelled', source: 'system' });
+      }
+    } catch (e) {
+      console.error('Failed to cancel:', e);
+    }
   }
 
   async _endOneononeFromTerminal() {
