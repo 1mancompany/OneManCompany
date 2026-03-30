@@ -2152,15 +2152,16 @@ class AppController {
       const text = (input?.value || '').trim();
       if (!text) return;
 
-      // Execute slash command if input matches one exactly
+      // Execute slash command if input starts with /command
       if (text.startsWith('/')) {
         const cmdText = text.split(' ')[0].toLowerCase();
+        const argText = text.slice(cmdText.length).trim();
         const match = this._slashCommands.find(c => c.cmd === cmdText);
         if (match) {
           input.value = '';
           const slashMenu = document.getElementById('ceo-slash-menu');
           slashMenu?.classList.add('hidden');
-          match.action();
+          match.action(argText);
           return;
         }
       }
@@ -2303,11 +2304,15 @@ class AppController {
       if (e.key === 'Escape') {
         if (menuVisible) {
           slashMenu.classList.add('hidden');
+        } else if (this._pendingIterProject || this._pendingSimpleMode) {
+          // Cancel pending input mode (/iter or /simple without args)
+          this._pendingIterProject = null;
+          this._pendingSimpleMode = false;
+          input.placeholder = '$ Type message, / for commands (Enter to send)';
+          this._ceoTerm?.appendMessage({ role: 'system', text: '⏹ Cancelled', source: 'system' });
         } else if (this._currentConvType === 'ea_chat' && this._eaChatConvId) {
-          // Cancel in-progress EA response
           this._cancelConversationResponse(this._eaChatConvId);
         } else if (this._currentConvType === 'oneonone' && this._currentConvId) {
-          // Cancel in-progress 1-on-1 response
           this._cancelConversationResponse(this._currentConvId);
         }
       }
@@ -2408,20 +2413,44 @@ class AppController {
   get _slashCommands() {
     const projName = this._currentCeoProject ? this._currentCeoProject.split('/')[0] : null;
     return [
-      { cmd: '/new', desc: 'Create a new project', action: () => {
-        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
-        this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []);
+      { cmd: '/new', desc: 'Create a new project', action: (arg) => {
+        if (arg) {
+          // /new 做一个网站 → create task immediately
+          this._ceoTerm?.appendCeoMessage(`/new ${arg}`);
+          const formData = new FormData();
+          formData.append('task', arg);
+          formData.append('mode', 'standard');
+          fetch('/api/ceo/task', { method: 'POST', body: formData })
+            .then(() => this._refreshCeoProjectList())
+            .catch(e => console.error('Failed to create task:', e));
+        } else {
+          // /new with no arg → switch to EA chat for input
+          this._openEaChat();
+        }
       }},
-      { cmd: '/iter', desc: projName ? `New iteration on "${projName}"` : 'Select a project first', action: () => {
-        if (!this._currentCeoProject) {
+      { cmd: '/iter', desc: projName ? `New iteration on "${projName}"` : 'Select a project first', action: (arg) => {
+        if (!this._currentCeoProject || this._currentCeoProject === this._EA_CHAT) {
           this._ceoTerm?.appendMessage({ role: 'system', text: 'Select a project first, then use /iter', source: 'system' });
           return;
         }
-        // Switch to new-iter mode: next Enter submits as iteration
-        this._pendingIterProject = this._currentCeoProject;
-        this._ceoTerm?.appendMessage({ role: 'system', text: `Type the iteration goal for "${projName}". Press Enter to create.`, source: 'system' });
-        const input = document.getElementById('ceo-conv-input');
-        if (input) input.placeholder = `$ New iteration for ${projName}...`;
+        if (arg) {
+          // /iter 优化页面 → create iteration immediately
+          this._ceoTerm?.appendCeoMessage(`/iter ${arg}`);
+          const pid = this._currentCeoProject;
+          const formData = new FormData();
+          formData.append('task', arg);
+          formData.append('project_id', pid.split('/')[0]);
+          formData.append('mode', 'standard');
+          fetch('/api/ceo/task', { method: 'POST', body: formData })
+            .then(() => this._refreshCeoProjectList())
+            .catch(e => console.error('Failed to create iteration:', e));
+        } else {
+          // /iter with no arg → prompt for input
+          this._pendingIterProject = this._currentCeoProject;
+          this._ceoTerm?.appendMessage({ role: 'system', text: `Type the iteration goal for "${projName}". Press Enter to create.`, source: 'system' });
+          const input = document.getElementById('ceo-conv-input');
+          if (input) input.placeholder = `$ New iteration for ${projName}...`;
+        }
       }},
       { cmd: '/end', desc: this._currentConvType === 'oneonone' ? 'End current 1-on-1 (triggers reflection)' : 'No active 1-on-1', action: () => {
         if (this._currentConvType !== 'oneonone' || !this._currentConvId) {
@@ -2430,14 +2459,26 @@ class AppController {
         }
         this._endOneononeFromTerminal();
       }},
-      { cmd: '/simple', desc: 'Simple task (no retrospective)', action: () => {
-        this._pendingSimpleMode = true;
-        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
-        this._refreshCeoProjectList();
-        this._ceoTerm?.showChat(null, []);
-        this._ceoTerm?.appendMessage({ role: 'system', text: 'Simple mode: type task and press Enter. EA will dispatch directly, no retrospective.', source: 'system' });
-        const input = document.getElementById('ceo-conv-input');
-        if (input) input.placeholder = '$ Simple task (Enter to submit)...';
+      { cmd: '/simple', desc: 'Simple task (no retrospective)', action: (arg) => {
+        if (arg) {
+          // /simple 快速查一下 → create simple task immediately
+          this._ceoTerm?.appendCeoMessage(`/simple ${arg}`);
+          const formData = new FormData();
+          formData.append('task', arg);
+          formData.append('mode', 'simple');
+          fetch('/api/ceo/task', { method: 'POST', body: formData })
+            .then(() => this._refreshCeoProjectList())
+            .catch(e => console.error('Failed to create simple task:', e));
+        } else {
+          // /simple with no arg → enter simple mode
+          this._pendingSimpleMode = true;
+          this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
+          this._refreshCeoProjectList();
+          this._ceoTerm?.showChat(null, []);
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'Simple mode: type task and press Enter.', source: 'system' });
+          const input = document.getElementById('ceo-conv-input');
+          if (input) input.placeholder = '$ Simple task (Enter to submit)...';
+        }
       }},
       { cmd: '/review', desc: 'Trigger quarterly performance review', action: () => {
         this._ceoTerm?.appendMessage({ role: 'system', text: 'Triggering quarterly review...', source: 'system' });
