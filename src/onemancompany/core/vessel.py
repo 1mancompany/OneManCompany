@@ -1185,6 +1185,7 @@ class EmployeeManager:
             clear_watchdog_nudge(node.project_id)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
+        self._push_to_ceo_session(node, f"▶ {node.title or node.description_preview[:80]}")
 
         await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
@@ -1457,6 +1458,10 @@ class EmployeeManager:
                 self._append_history_from_node(employee_id, node)
                 summary = (node.result or "")[:200]
                 _append_progress(employee_id, f"Completed: {node.description[:100]} → {summary}")
+                # Push result to CEO session
+                result_preview = (node.result or "").strip().split("\n")[0][:150]
+                if result_preview:
+                    self._push_to_ceo_session(node, f"✓ {result_preview}")
 
             # Post-task hook
             post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
@@ -2398,18 +2403,30 @@ class EmployeeManager:
             if existing_confirm:
                 logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
             else:
-                # Build completion summary
+                # Build concise completion summary for CEO
                 _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
                 ea_node.load_content(_pdir)
                 children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
-                lines = [f"Project Completion Report — {ea_node.description}", ""]
-                for i, child in enumerate(children, 1):
+                task_preview = (ea_node.description or "")[:120]
+                total = len(children)
+                succeeded = sum(1 for c in children if c.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value))
+                failed = sum(1 for c in children if c.status == TaskPhase.FAILED.value)
+
+                lines = [f"✅ Project complete: {task_preview}", ""]
+                lines.append(f"Result: {succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
+                lines.append("")
+
+                # Key deliverables — first line of each child's result
+                for child in children:
                     child.load_content(_pdir)
-                    status_icon = "✓" if child.status == TaskPhase.ACCEPTED.value else "●"
-                    lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description}")
-                    lines.append(f"  Result: {child.result or 'None'}")
-                    lines.append("")
-                lines.append("Please confirm project completion or provide feedback.")
+                    result_line = (child.result or "").strip().split("\n")[0][:150]
+                    if result_line:
+                        status_icon = "✓" if child.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value) else "✗"
+                        title = child.title or child.description_preview[:60]
+                        lines.append(f"  {status_icon} {title}: {result_line}")
+
+                lines.append("")
+                lines.append("Reply to confirm, or provide feedback for a new iteration.")
                 confirm_desc = "\n".join(lines)
 
                 # Create confirm node assigned to CEO
@@ -2540,22 +2557,9 @@ class EmployeeManager:
             ceo_node.project_dir = project_dir
             save_tree_async(entry.tree_path)
 
-            # Publish event to notify frontend of new CEO interaction
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(event_bus.publish(CompanyEvent(
-                    type=EventType.CEO_SESSION_MESSAGE,
-                    payload={
-                        "project_id": project_id,
-                        "node_id": ceo_node.id,
-                        "message": escalation_desc,
-                        "source_employee": parent_node.employee_id,
-                        "interaction_type": "ceo_request",
-                    },
-                    agent=SYSTEM_AGENT,
-                )))
-            except RuntimeError:
-                logger.debug("No event loop for circuit breaker CEO escalation publish")
+            # Schedule via CeoExecutor (creates pending interaction in CeoBroker)
+            self.schedule_node(CEO_ID, ceo_node.id, entry.tree_path)
+            self._schedule_next(CEO_ID)
             return
 
         # Create a review node in the tree and schedule it
@@ -3021,6 +3025,46 @@ class EmployeeManager:
             ))
         except RuntimeError:
             logger.warning("No event loop for log publish ({})", employee_id)
+
+    def _push_to_ceo_session(self, node, message: str) -> None:
+        """Push a progress message to the CEO session for this project.
+
+        Surfaces task execution progress in the CEO console conversation.
+        Skips CEO's own nodes and nodes without a project_id.
+        """
+        from onemancompany.core.config import CEO_ID
+
+        project_id = node.project_id
+        if not project_id or node.employee_id == CEO_ID:
+            return
+        if node.is_ceo_node:
+            return
+
+        try:
+            from onemancompany.core.ceo_broker import get_ceo_broker
+
+            broker = get_ceo_broker()
+            session = broker.get_session(project_id)
+            if not session:
+                return
+            session.push_system_message(message, source=node.employee_id)
+            # No save_history here — progress messages are ephemeral.
+            # History is saved on significant events (CEO replies, project confirms).
+
+            # Broadcast to frontend
+            loop = asyncio.get_running_loop()
+            loop.create_task(event_bus.publish(CompanyEvent(
+                type=EventType.CEO_SESSION_MESSAGE,
+                payload={
+                    "project_id": project_id,
+                    "message": message,
+                    "source_employee": node.employee_id,
+                    "interaction_type": "progress",
+                },
+                agent=SYSTEM_AGENT,
+            )))
+        except Exception as e:
+            logger.warning("[ceo_session_push] Failed to push progress for node {}: {}", node.id, e)
 
     def _publish_node_update(self, employee_id: str, node) -> None:
         """Publish a task update event for a TaskNode (ScheduleEntry path)."""

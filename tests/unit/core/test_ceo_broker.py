@@ -95,6 +95,33 @@ class TestCeoSession:
         assert session.pending_count == 1
 
 
+class TestBaseProjectId:
+    """Tests for _base_project_id — strips iteration suffix from project IDs."""
+
+    def test_with_iteration(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        assert CeoBroker._base_project_id("abc123_name/iter_001") == "abc123_name"
+
+    def test_without_iteration(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        assert CeoBroker._base_project_id("abc123_name") == "abc123_name"
+
+    def test_empty_string(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        assert CeoBroker._base_project_id("") == ""
+
+    def test_multi_slash(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        assert CeoBroker._base_project_id("a/b/c") == "a"
+
+    def test_iterations_share_session(self):
+        from onemancompany.core.ceo_broker import CeoBroker
+        broker = CeoBroker()
+        s1 = broker.get_or_create_session("proj/iter_001")
+        s2 = broker.get_or_create_session("proj/iter_002")
+        assert s1 is s2  # Same session object
+
+
 class TestCeoBroker:
     def test_get_or_create_session(self):
         from onemancompany.core.ceo_broker import CeoBroker
