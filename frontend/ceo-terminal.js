@@ -119,14 +119,14 @@ class CeoTerminal {
     if (msg.role === 'ceo') {
       this._term.writeln(`  ${A.brightGreen}CEO${A.reset} ${A.dim}›${A.reset} ${A.brightWhite}${lines[0]}${A.reset}`);
       for (let i = 1; i < lines.length; i++) {
-        this._term.writeln(`       ${A.brightWhite}${lines[i]}${A.reset}`);
+        this._term.writeln(`  ${A.brightWhite}${lines[i]}${A.reset}`);
       }
     } else {
       const src = msg.source || 'system';
       const srcColor = src === 'ea_auto_reply' ? A.yellow : A.cyan;
       this._term.writeln(`  ${srcColor}[${src}]${A.reset} ${A.white}${lines[0]}${A.reset}`);
       for (let i = 1; i < lines.length; i++) {
-        this._term.writeln(`          ${A.white}${lines[i]}${A.reset}`);
+        this._term.writeln(`  ${A.white}${lines[i]}${A.reset}`);
       }
     }
   }
