@@ -521,7 +521,7 @@ class TestProjectConfirmViaExecutor:
         ea_children = reloaded.get_children(ea.id)
         confirm_nodes = [c for c in ea_children if c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST]
         assert len(confirm_nodes) == 1
-        assert "Project Completion Report" in confirm_nodes[0].description_preview
+        assert "Project complete" in confirm_nodes[0].description_preview
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")

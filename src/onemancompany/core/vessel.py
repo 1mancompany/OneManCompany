@@ -2398,18 +2398,30 @@ class EmployeeManager:
             if existing_confirm:
                 logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
             else:
-                # Build completion summary
+                # Build concise completion summary for CEO
                 _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
                 ea_node.load_content(_pdir)
                 children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
-                lines = [f"Project Completion Report — {ea_node.description}", ""]
-                for i, child in enumerate(children, 1):
+                task_preview = (ea_node.description or "")[:120]
+                total = len(children)
+                succeeded = sum(1 for c in children if c.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value))
+                failed = sum(1 for c in children if c.status == TaskPhase.FAILED.value)
+
+                lines = [f"✅ Project complete: {task_preview}", ""]
+                lines.append(f"Result: {succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
+                lines.append("")
+
+                # Key deliverables — first line of each child's result
+                for child in children:
                     child.load_content(_pdir)
-                    status_icon = "✓" if child.status == TaskPhase.ACCEPTED.value else "●"
-                    lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description}")
-                    lines.append(f"  Result: {child.result or 'None'}")
-                    lines.append("")
-                lines.append("Please confirm project completion or provide feedback.")
+                    result_line = (child.result or "").strip().split("\n")[0][:150]
+                    if result_line:
+                        status_icon = "✓" if child.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value) else "✗"
+                        title = child.title or child.description_preview[:60]
+                        lines.append(f"  {status_icon} {title}: {result_line}")
+
+                lines.append("")
+                lines.append("Reply to confirm, or provide feedback for a new iteration.")
                 confirm_desc = "\n".join(lines)
 
                 # Create confirm node assigned to CEO
@@ -2540,22 +2552,9 @@ class EmployeeManager:
             ceo_node.project_dir = project_dir
             save_tree_async(entry.tree_path)
 
-            # Publish event to notify frontend of new CEO interaction
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(event_bus.publish(CompanyEvent(
-                    type=EventType.CEO_SESSION_MESSAGE,
-                    payload={
-                        "project_id": project_id,
-                        "node_id": ceo_node.id,
-                        "message": escalation_desc,
-                        "source_employee": parent_node.employee_id,
-                        "interaction_type": "ceo_request",
-                    },
-                    agent=SYSTEM_AGENT,
-                )))
-            except RuntimeError:
-                logger.debug("No event loop for circuit breaker CEO escalation publish")
+            # Schedule via CeoExecutor (creates pending interaction in CeoBroker)
+            self.schedule_node(CEO_ID, ceo_node.id, entry.tree_path)
+            self._schedule_next(CEO_ID)
             return
 
         # Create a review node in the tree and schedule it

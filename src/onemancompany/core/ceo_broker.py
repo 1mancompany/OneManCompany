@@ -238,13 +238,22 @@ class CeoBroker:
     def __init__(self) -> None:
         self._sessions: dict[str, CeoSession] = {}
 
+    @staticmethod
+    def _base_project_id(project_id: str) -> str:
+        """Extract base project ID, stripping iteration suffix.
+
+        e.g. "abc123_name_date/iter_001" → "abc123_name_date"
+        """
+        return project_id.split("/")[0] if "/" in project_id else project_id
+
     def get_or_create_session(self, project_id: str) -> CeoSession:
-        if project_id not in self._sessions:
-            self._sessions[project_id] = CeoSession(project_id=project_id)
-        return self._sessions[project_id]
+        key = self._base_project_id(project_id)
+        if key not in self._sessions:
+            self._sessions[key] = CeoSession(project_id=key)
+        return self._sessions[key]
 
     def get_session(self, project_id: str) -> CeoSession | None:
-        return self._sessions.get(project_id)
+        return self._sessions.get(self._base_project_id(project_id))
 
     def list_sessions(self) -> list[dict]:
         summaries = [s.to_summary() for s in self._sessions.values()]
