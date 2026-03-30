@@ -542,14 +542,19 @@ async def ceo_submit_task(
 
             tree_path = Path(pdir) / TASK_TREE_FILENAME
 
-            # For new iterations on existing projects: archive old tree
+            # For new iterations on existing projects: cancel old iteration + archive tree
             if iter_id and tree_path.exists():
-                # Find previous iteration ID from project.yaml
                 from onemancompany.core.project_archive import load_named_project
                 meta = load_named_project(project_id) if project_id else {}
                 iters = meta.get("iterations", [])
                 if len(iters) >= 2:
-                    prev_iter = iters[-2]  # second to last is the previous
+                    prev_iter = iters[-2]
+                    prev_project_id = f"{pid}/{prev_iter}"
+                    # Cancel all running tasks from old iteration
+                    cancelled = employee_manager.abort_project(prev_project_id)
+                    if cancelled:
+                        logger.info("Cancelled {} tasks from old iteration {}", cancelled, prev_project_id)
+                    # Archive old tree
                     archive_name = f"task_tree_{prev_iter}.yaml"
                     archive_path = tree_path.parent / archive_name
                     if not archive_path.exists():
