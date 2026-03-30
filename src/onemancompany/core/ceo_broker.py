@@ -313,7 +313,8 @@ class CeoBroker:
         if session.has_pending:
             interaction = session.pop_pending()
             session.push_ceo_message(text)
-            interaction.future.set_result(text)
+            if not interaction.future.done():
+                interaction.future.set_result(text)
             logger.info(
                 "[CeoBroker] Resolved pending {} for project={} node={}",
                 interaction.interaction_type, project_id, interaction.node_id,
