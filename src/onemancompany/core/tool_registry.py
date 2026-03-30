@@ -97,6 +97,20 @@ class ToolRegistry:
                 result.append(tool)
         return result
 
+    def get_all_tools_except_roles(self, exclude_roles: frozenset[str] | None = None) -> list:
+        """Return all tools, bypassing role restrictions except for specific excluded roles.
+
+        Used for EA chat where EA needs near-full access.
+        """
+        result = []
+        for name, tool in self._tools.items():
+            meta = self._meta[name]
+            if meta.category == "role" and meta.allowed_roles and exclude_roles:
+                if any(r in exclude_roles for r in meta.allowed_roles):
+                    continue
+            result.append(tool)
+        return result
+
     @staticmethod
     def _is_allowed(meta: ToolMeta, emp_data: dict, employee_id: str) -> bool:
         """Check whether an employee is allowed to use a tool based on its category."""

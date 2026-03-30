@@ -192,6 +192,11 @@ class _BaseConversationAdapter:
         self, conversation: Conversation, messages: list[Message], new_message: Message,
     ) -> str:
         from onemancompany.core.runtime_context import _interaction_type, _interaction_work_dir
+
+        # EA chat: use a one-shot agent with full tools (except HR role tools)
+        if conversation.type == ConversationType.EA_CHAT:
+            return await self._send_ea_chat(conversation, messages, new_message)
+
         executor = _get_employee_executor(conversation.employee_id)
         prompt = _build_conversation_prompt(conversation, messages, new_message)
         prompt = self._prepare_prompt(prompt, conversation)
@@ -214,6 +219,42 @@ class _BaseConversationAdapter:
         try:
             result = await executor.execute(prompt, ctx)
             return result.output
+        finally:
+            _interaction_type.reset(tok_type)
+            _interaction_work_dir.reset(tok_work)
+
+    async def _send_ea_chat(
+        self, conversation: Conversation, messages: list[Message], new_message: Message,
+    ) -> str:
+        """EA chat: build a one-shot agent with full tools (except HR role tools)."""
+        from onemancompany.core.runtime_context import _interaction_type, _interaction_work_dir
+        from onemancompany.core.tool_registry import tool_registry
+        from onemancompany.agents.base import make_llm, tracked_ainvoke, _extract_text
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        prompt = _build_conversation_prompt(conversation, messages, new_message)
+        work_dir = _resolve_conversation_work_dir(conversation)
+
+        # Get all tools except HR role tools
+        _HR_EXCLUDED = frozenset({"HR"})
+        tools = tool_registry.get_all_tools_except_roles(exclude_roles=_HR_EXCLUDED)
+
+        # Build a LangGraph react agent with full tools
+        from langgraph.prebuilt import create_react_agent
+
+        llm = make_llm(conversation.employee_id)
+        agent = create_react_agent(model=llm, tools=tools)
+
+        tok_type = _interaction_type.set(conversation.type)
+        tok_work = _interaction_work_dir.set(work_dir)
+        try:
+            result = await agent.ainvoke({"messages": [HumanMessage(content=prompt)]})
+            # Extract final text from agent output
+            msgs = result.get("messages", [])
+            for msg in reversed(msgs):
+                if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
+                    return msg.content if isinstance(msg.content, str) else str(msg.content)
+            return ""
         finally:
             _interaction_type.reset(tok_type)
             _interaction_work_dir.reset(tok_work)
