@@ -2196,6 +2196,33 @@ class AppController {
         return;
       }
 
+      // Meeting mode: send via meeting/chat API
+      if (this._currentConvType === 'meeting') {
+        try {
+          const res = await fetch('/api/meeting/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text }),
+          }).then(r => r.json());
+
+          if (res.error) {
+            this._ceoTerm?.appendMessage({ role: 'system', text: `Error: ${res.error}`, source: 'system' });
+          } else if (res.responses) {
+            for (const r of res.responses) {
+              const display = r.nickname || r.name || 'Employee';
+              this._ceoTerm?.appendMessage({ role: 'system', text: r.message, source: display });
+            }
+            if (res.responses.length === 0 && this._currentMeetingType === 'discussion') {
+              this._ceoTerm?.appendMessage({ role: 'system', text: 'No one wants to speak. Send another message or /end.', source: 'system' });
+            }
+          }
+        } catch (e) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `Meeting error: ${e.message}`, source: 'system' });
+        }
+        input?.focus();
+        return;
+      }
+
       // 1-on-1 conversation mode: send via conversation API
       if (this._currentConvType === 'oneonone' && this._currentConvId) {
         try {
@@ -2341,6 +2368,7 @@ class AppController {
   _eaChatConvId = null;  // Persistent conversation ID for EA chat
 
   async _openEaChat() {
+    await this._cleanupMeetingIfActive();
     // Clear pending modes that could interfere
     this._pendingIterProject = null;
     this._pendingSimpleMode = false;
@@ -2452,12 +2480,14 @@ class AppController {
           if (input) input.placeholder = `$ New iteration for ${projName}...`;
         }
       }},
-      { cmd: '/end', desc: this._currentConvType === 'oneonone' ? 'End current 1-on-1 (triggers reflection)' : 'No active 1-on-1', action: () => {
-        if (this._currentConvType !== 'oneonone' || !this._currentConvId) {
-          this._ceoTerm?.appendMessage({ role: 'system', text: 'No active 1-on-1 to end.', source: 'system' });
-          return;
+      { cmd: '/end', desc: this._currentConvType === 'meeting' ? 'End current meeting' : (this._currentConvType === 'oneonone' ? 'End 1-on-1' : 'No active session'), action: () => {
+        if (this._currentConvType === 'meeting') {
+          this._endMeetingInConsole();
+        } else if (this._currentConvType === 'oneonone' && this._currentConvId) {
+          this._endOneononeFromTerminal();
+        } else {
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'No active meeting or 1-on-1 to end.', source: 'system' });
         }
-        this._endOneononeFromTerminal();
       }},
       { cmd: '/simple', desc: 'Simple task (no retrospective)', action: (arg) => {
         if (arg) {
@@ -2506,15 +2536,11 @@ class AppController {
           modal.classList.remove('hidden');
         }
       }},
-      { cmd: '/allhands', desc: 'Start All-Hands meeting (CEO address)', action: () => {
-        this._ceoTerm?.appendMessage({ role: 'system', text: 'Starting All-Hands meeting...', source: 'system' });
-        document.getElementById('oneonone-modal')?.classList.remove('hidden');
-        this._startGroupMeeting('all_hands');
+      { cmd: '/allhands', desc: 'Start All-Hands meeting (CEO address)', action: async (arg) => {
+        await this._startMeetingInConsole('all_hands', arg);
       }},
-      { cmd: '/discuss', desc: 'Start discussion meeting (open floor)', action: () => {
-        this._ceoTerm?.appendMessage({ role: 'system', text: 'Starting discussion meeting...', source: 'system' });
-        document.getElementById('oneonone-modal')?.classList.remove('hidden');
-        this._startGroupMeeting('discussion');
+      { cmd: '/discuss', desc: 'Start discussion meeting (open floor)', action: async (arg) => {
+        await this._startMeetingInConsole('discussion', arg);
       }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
     ];
@@ -2692,6 +2718,111 @@ class AppController {
     }
   }
 
+  // --- Group meetings in CEO console --- //
+
+  _currentMeetingType = null;  // 'all_hands' or 'discussion'
+
+  async _cleanupMeetingIfActive() {
+    if (this._currentConvType === 'meeting') {
+      try {
+        await fetch('/api/meeting/end', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        this.logEntry('SYSTEM', 'Meeting auto-ended (navigated away)', 'system');
+      } catch (e) { console.error('Failed to auto-end meeting:', e); }
+      this._currentMeetingType = null;
+      this._currentConvType = null;
+    }
+  }
+
+  async _startMeetingInConsole(meetingType, initialMessage) {
+    this._ceoTerm?.appendMessage({ role: 'system', text: `Starting ${meetingType === 'all_hands' ? 'All-Hands' : 'Discussion'} meeting...`, source: 'system' });
+
+    try {
+      const res = await fetch('/api/meeting/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: meetingType }),
+      }).then(r => r.json());
+
+      if (res.error) {
+        this._ceoTerm?.appendMessage({ role: 'system', text: `Failed: ${res.error}`, source: 'system' });
+        return;
+      }
+
+      // Enter meeting mode
+      this._currentConvType = 'meeting';
+      this._currentMeetingType = meetingType;
+      this._currentCeoProject = null;
+      this._currentConvId = null;
+      this._currentConvEmployeeId = null;
+      this._pendingIterProject = null;
+      this._pendingSimpleMode = false;
+
+      const typeLabel = meetingType === 'all_hands' ? 'All-Hands' : 'Discussion';
+      const participantNames = res.participants.map(p => p.nickname || p.name).join(', ');
+      const history = [
+        { role: 'system', text: `${typeLabel} meeting started. Participants: ${participantNames}`, source: 'system' },
+        { role: 'system', text: meetingType === 'all_hands'
+            ? 'All-Hands mode: send your address. Employees absorb silently.'
+            : 'Discussion mode: send a message. Employees compete to respond. /end to finish.',
+          source: 'system' },
+      ];
+      this._ceoTerm?.showChat(`meeting:${typeLabel}`, history);
+
+      // Update sidebar
+      document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
+      document.getElementById('ceo-chat-btn')?.classList.remove('active');
+
+      // Send initial message if provided
+      if (initialMessage) {
+        this._ceoTerm?.appendCeoMessage(initialMessage);
+        const chatRes = await fetch('/api/meeting/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: initialMessage }),
+        }).then(r => r.json());
+
+        if (chatRes.responses) {
+          for (const r of chatRes.responses) {
+            this._ceoTerm?.appendMessage({ role: 'system', text: r.message, source: r.nickname || r.name || 'Employee' });
+          }
+        }
+      }
+    } catch (e) {
+      this._ceoTerm?.appendMessage({ role: 'system', text: `Meeting error: ${e.message}`, source: 'system' });
+    }
+  }
+
+  async _endMeetingInConsole() {
+    this._ceoTerm?.appendMessage({ role: 'system', text: 'Ending meeting... EA summarizing...', source: 'system' });
+
+    try {
+      const data = await fetch('/api/meeting/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(r => r.json());
+
+      if (data.error) {
+        this._ceoTerm?.appendMessage({ role: 'system', text: `Error: ${data.error}`, source: 'system' });
+      } else {
+        if (data.summary) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `Summary: ${data.summary}`, source: 'EA' });
+        }
+        if (data.action_items?.length) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `Action items: ${data.action_items.join(', ')}`, source: 'EA' });
+        }
+        this._ceoTerm?.appendMessage({ role: 'system', text: '✓ Meeting ended', source: 'system' });
+        this.logEntry('CEO', `🎓 ${this._currentMeetingType === 'all_hands' ? 'All-Hands' : 'Discussion'} meeting ended`, 'guidance');
+      }
+    } catch (e) {
+      this._ceoTerm?.appendMessage({ role: 'system', text: `Error: ${e.message}`, source: 'system' });
+    }
+
+    // Exit meeting mode → return to EA chat
+    this._currentConvType = null;
+    this._currentMeetingType = null;
+    await this._openEaChat();
+  }
+
   async _endOneononeFromTerminal() {
     const convId = this._currentConvId;
     if (!convId) return;
@@ -2733,6 +2864,7 @@ class AppController {
   }
 
   async _selectCeoProject(projectId) {
+    await this._cleanupMeetingIfActive();
     this._currentCeoProject = projectId;
     this._currentConvId = null;
     this._currentConvType = null;
