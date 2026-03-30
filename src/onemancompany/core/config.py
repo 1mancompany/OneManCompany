@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Source root — for package-relative resources (frontend, talent_market, etc.)
@@ -490,8 +490,19 @@ class EmployeeConfig(BaseModel):
     pip: dict | None = None  # Performance Improvement Plan (if active)
     onboarding_completed: bool = False  # set True after onboarding routine
     api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
-    api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
+    api_key: str = ""  # Custom API key (used when api_provider != default)
     hosting: str = "company"  # "company" | "self" | "openclaw" — also serves as agent family selector
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_empty_strings(cls, data):
+        """Treat empty strings as missing so Pydantic uses field defaults."""
+        _FIELDS_WITH_DEFAULTS = {"api_provider": "openrouter", "hosting": "company"}
+        if isinstance(data, dict):
+            for field, default in _FIELDS_WITH_DEFAULTS.items():
+                if not data.get(field):
+                    data[field] = default
+        return data
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
     oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
 
