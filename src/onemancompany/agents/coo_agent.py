@@ -631,7 +631,8 @@ def request_hiring(
     })
 
     if result.get("status") in ("dispatched", "dispatched_waiting"):
-        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR child node in tree", hire_id, role)
+        req["hr_node_id"] = result.get("node_id", "")
+        logger.info("[hiring] Auto-approved hire_id={} role='{}' → HR child node {} in tree", hire_id, role, req["hr_node_id"])
     else:
         # No tree context — fallback to adhoc task
         from onemancompany.api.routes import _push_adhoc_task
