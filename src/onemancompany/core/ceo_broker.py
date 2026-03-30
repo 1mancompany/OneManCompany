@@ -387,14 +387,19 @@ class CeoExecutor:
             session.project_dir = Path(context.work_dir)
 
         future = asyncio.get_running_loop().create_future()
-        # Strip injected context (e.g. [Company Context]...) from the message
+        # Strip injected [Company Context]...[/Company Context] block from the message
         # shown to CEO — only show the original task description
         clean_message = task_description
         ctx_start = clean_message.find("[Company Context]")
         if ctx_start >= 0:
-            clean_message = clean_message[:ctx_start].strip()
+            ctx_end = clean_message.find("[/Company Context]")
+            if ctx_end >= 0:
+                ctx_end += len("[/Company Context]")
+                clean_message = (clean_message[:ctx_start] + clean_message[ctx_end:]).strip()
+            else:
+                clean_message = clean_message[:ctx_start].strip()
         if not clean_message:
-            clean_message = task_description[:500]
+            clean_message = "(task description unavailable)"
 
         interaction = CeoInteraction(
             node_id=context.task_id,
@@ -413,7 +418,7 @@ class CeoExecutor:
             payload={
                 "project_id": project_id,
                 "node_id": context.task_id,
-                "message": task_description,
+                "message": clean_message,
                 "source_employee": context.employee_id,
                 "interaction_type": "ceo_request",
             },
