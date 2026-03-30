@@ -404,6 +404,67 @@ def tool_beta(x: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# ToolRegistry — get_all_tools_except_roles
+# ---------------------------------------------------------------------------
+
+class TestGetAllToolsExceptRoles:
+    def _build_registry_with_roles(self):
+        """Build a registry with tools across different roles."""
+        from onemancompany.core.tool_registry import ToolMeta, ToolRegistry
+
+        reg = ToolRegistry()
+
+        reg.register(
+            _make_mock_tool("list_colleagues"),
+            ToolMeta(name="list_colleagues", category="base"),
+        )
+        reg.register(
+            _make_mock_tool("bash"),
+            ToolMeta(name="bash", category="gated"),
+        )
+        reg.register(
+            _make_mock_tool("hire_employee"),
+            ToolMeta(name="hire_employee", category="role", allowed_roles=["HR"]),
+        )
+        reg.register(
+            _make_mock_tool("deploy"),
+            ToolMeta(name="deploy", category="role", allowed_roles=["Engineer"]),
+        )
+        reg.register(
+            _make_mock_tool("gmail"),
+            ToolMeta(name="gmail", category="asset", source="asset"),
+        )
+        return reg
+
+    def test_exclude_hr_returns_all_non_hr_tools(self):
+        reg = self._build_registry_with_roles()
+        tools = reg.get_all_tools_except_roles(exclude_roles=frozenset({"HR"}))
+        tool_names = [t.name for t in tools]
+
+        assert "list_colleagues" in tool_names
+        assert "bash" in tool_names
+        assert "deploy" in tool_names
+        assert "gmail" in tool_names
+        assert "hire_employee" not in tool_names
+
+    def test_no_exclusion_returns_everything(self):
+        reg = self._build_registry_with_roles()
+        tools = reg.get_all_tools_except_roles(exclude_roles=None)
+        tool_names = [t.name for t in tools]
+
+        assert len(tool_names) == 5
+        assert "hire_employee" in tool_names
+        assert "deploy" in tool_names
+
+    def test_empty_registry_returns_empty(self):
+        from onemancompany.core.tool_registry import ToolRegistry
+
+        reg = ToolRegistry()
+        tools = reg.get_all_tools_except_roles(exclude_roles=frozenset({"HR"}))
+        assert tools == []
+
+
+# ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
