@@ -3611,7 +3611,7 @@ async def download_employee_workspace(employee_id: str):
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # TODO: O(N) scan — consider node-to-project index if this becomes slow
+
         for fpath in ws.rglob("*"):
             if fpath.is_file():
                 zf.write(fpath, fpath.relative_to(ws))
@@ -3654,7 +3654,7 @@ async def download_project_workspace(project_id: str):
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        # TODO: O(N) scan — consider node-to-project index if this becomes slow
+
         for fpath in pdir.rglob("*"):
             if fpath.is_file():
                 zf.write(fpath, fpath.relative_to(pdir))
@@ -3869,20 +3869,46 @@ async def decide_hiring_request(request_id: str, body: dict) -> dict:
     note = body.get("note", "")
 
     if not approved:
-        # CEO rejects — remove from pending and cancel
+        # CEO rejects — remove from pending, cancel HR task if running, notify
         pending_hiring_requests.pop(request_id, None)
         await event_bus.publish(CompanyEvent(
             type=EventType.HIRING_REQUEST_DECIDED,
             payload={"hire_id": request_id, "approved": False, "role": req["role"], "note": note},
             agent="CEO",
         ))
-        # TODO: cancel HR task if already dispatched
+        # Cancel HR task node in the project tree (if one was auto-dispatched)
+        _cancel_hiring_task(req)
 
     return {
         "status": DecisionStatus.APPROVED.value if approved else DecisionStatus.REJECTED.value,
         "hire_id": request_id,
         "role": req["role"],
     }
+
+
+def _cancel_hiring_task(req: dict) -> None:
+    """Cancel the HR task node that was auto-dispatched for a rejected hiring request."""
+    from onemancompany.core.config import TASK_TREE_FILENAME
+    from onemancompany.core.task_lifecycle import safe_cancel
+
+    project_dir = req.get("project_dir", "")
+    hr_node_id = req.get("hr_node_id", "")
+    if not project_dir or not hr_node_id:
+        logger.debug("[hiring] No project_dir or hr_node_id — cannot cancel HR task for hire '{}'", req.get("role", ""))
+        return
+    tree_path = Path(project_dir) / TASK_TREE_FILENAME
+    if not tree_path.exists():
+        return
+
+    from onemancompany.core.task_tree import get_tree, save_tree_async
+
+    tree = get_tree(tree_path)
+    node = tree.get_node(hr_node_id)
+    if node and safe_cancel(node):
+        logger.info("[hiring] Cancelled HR task node {} for rejected hire '{}'", hr_node_id, req.get("role", ""))
+        save_tree_async(tree_path)
+    elif not node:
+        logger.debug("[hiring] HR node {} not found in tree — may have already completed", hr_node_id)
 
 
 # ===== Candidate Selection =====
