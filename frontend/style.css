@@ -5348,6 +5348,10 @@ body.resize-dragging {
   color: #ffaa44;
   margin-right: 2px;
 }
+.ceo-proj-item.has-pending {
+  font-weight: bold;
+  color: #ddd;
+}
 
 .ceo-proj-separator {
   border-top: 1px solid #222;

@@ -2333,11 +2333,12 @@ class AppController {
 
     for (const s of sessions) {
       const item = document.createElement('div');
-      item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '');
+      const hasPending = s.has_pending;
+      item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
       const basePid = (s.project_id || '').split('/')[0];
       const name = projectNames[basePid] || basePid;
       const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
-      const badge = s.has_pending ? '<span class="ceo-proj-pending">\u25CF</span>' : '';
+      const badge = hasPending ? '<span class="ceo-proj-pending">●</span>' : '';
       item.innerHTML = badge + this._escHtml(display);
       item.addEventListener('click', () => this._selectCeoProject(s.project_id));
       listEl.appendChild(item);
