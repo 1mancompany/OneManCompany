@@ -91,7 +91,8 @@ class CeoSession:
                     if interaction in self._pending:
                         self._pending.remove(interaction)
                         self.push_system_message(reply, source="ea_auto_reply")
-                        interaction.future.set_result(reply)
+                        if not interaction.future.done():
+                            interaction.future.set_result(reply)
                         logger.info(
                             "[CeoSession] EA auto-replied for node={} in project={}",
                             interaction.node_id, self.project_id,
@@ -205,7 +206,14 @@ async def _ea_auto_reply(node_id: str, description: str) -> str:
         "Only return JSON, no other content."
     )
 
-    resp = await tracked_ainvoke(llm, prompt, category="ea_auto_reply", employee_id=EA_ID)
+    try:
+        resp = await asyncio.wait_for(
+            tracked_ainvoke(llm, prompt, category="ea_auto_reply", employee_id=EA_ID),
+            timeout=60,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[ea_auto_reply] LLM call timed out for node={}, defaulting to accept", node_id)
+        return "[EA Auto-Reply] Decision: ACCEPT\nAuto-approved (EA LLM call timed out)"
     raw = _extract_text(resp.content)
 
     decision = "accept"

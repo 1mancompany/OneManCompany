@@ -2296,8 +2296,6 @@ class AppController {
         this._endOneononeFromTerminal();
       }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
-      { cmd: '/simple', desc: 'Quick task to a specific employee', action: () => { /* TODO */ } },
-      { cmd: '/review', desc: 'Quarterly performance review', action: () => { /* TODO */ } },
     ];
   }
 

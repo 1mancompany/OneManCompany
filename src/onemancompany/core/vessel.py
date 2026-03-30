@@ -3196,6 +3196,12 @@ async def stop_all_loops() -> None:
         employee_manager._completion_consumer = None
         employee_manager._completion_queue = None
 
+    # Cancel CEO session auto-reply timers
+    from onemancompany.core.ceo_broker import get_ceo_broker
+    broker = get_ceo_broker()
+    for session in broker._sessions.values():
+        session.cancel_all_timers()
+
     # _task_logs removed — logs are on disk (nodes/{node_id}/execution.log)
 
 
