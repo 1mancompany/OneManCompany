@@ -10,6 +10,7 @@ so reviewers have concrete data instead of relying on the employee's claims.
 """
 from __future__ import annotations
 
+import ast
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,8 +103,6 @@ def collect_evidence(project_dir: str, node_id: str) -> VerificationEvidence:
     if not log_path.exists():
         return evidence
 
-    # Track pending tool calls to match with results
-    pending_calls: dict[str, str] = {}  # tool_call_id → tool_name
     # Track tool errors: tool_name → error_msg (cleared on success)
     error_tracker: dict[str, str] = {}
 
@@ -119,7 +118,7 @@ def collect_evidence(project_dir: str, node_id: str) -> VerificationEvidence:
             content = entry.get("content", "")
 
             if log_type == "tool_call":
-                _parse_tool_call(content, evidence, pending_calls)
+                _parse_tool_call(content, evidence)
             elif log_type == "tool_result":
                 _parse_tool_result(content, evidence, error_tracker)
     except Exception as e:
@@ -132,7 +131,7 @@ def collect_evidence(project_dir: str, node_id: str) -> VerificationEvidence:
     return evidence
 
 
-def _parse_tool_call(content: str, evidence: VerificationEvidence, pending: dict) -> None:
+def _parse_tool_call(content: str, evidence: VerificationEvidence) -> None:
     """Parse a tool_call log entry."""
     # Format: "tool_name({args})" or "tool_name → ..."
     if not content:
@@ -147,15 +146,14 @@ def _parse_tool_call(content: str, evidence: VerificationEvidence, pending: dict
         # Extract args for specific tools
         args_str = content[paren_idx + 1:].rstrip(")")
         args = {}
-        try:
-            # Try JSON first, then eval-style dict with single quotes
-            if args_str.startswith("{"):
+        if args_str.startswith("{"):
+            try:
+                args = json.loads(args_str)
+            except json.JSONDecodeError:
                 try:
-                    args = json.loads(args_str)
-                except json.JSONDecodeError:
-                    args = json.loads(args_str.replace("'", '"'))
-        except (json.JSONDecodeError, ValueError):
-            args = {}
+                    args = ast.literal_eval(args_str)
+                except (ValueError, SyntaxError):
+                    args = {}
 
         if tool_name == "write" and args.get("file_path"):
             evidence.files_written.append(args["file_path"])

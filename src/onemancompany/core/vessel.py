@@ -1403,14 +1403,15 @@ class EmployeeManager:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
 
-        # 7b. Collect verification evidence from execution log
+        # 7b. Collect verification evidence from execution log → store as file
         if project_dir and not agent_error:
             try:
                 from onemancompany.core.task_verification import collect_evidence
                 evidence = collect_evidence(project_dir, entry.node_id)
                 if evidence.tools_called:
-                    node.acceptance_result = node.acceptance_result or {}
-                    node.acceptance_result["verification"] = evidence.to_dict()
+                    ev_path = Path(project_dir) / "nodes" / entry.node_id / "verification.json"
+                    ev_path.parent.mkdir(parents=True, exist_ok=True)
+                    ev_path.write_text(json.dumps(evidence.to_dict(), ensure_ascii=False), encoding=ENCODING_UTF8)
                     if evidence.has_unresolved_errors:
                         logger.info(
                             "[VERIFICATION] employee={} node={}: {} unresolved error(s)",
@@ -2497,12 +2498,16 @@ class EmployeeManager:
                 lines.append(f"  Status: {child.status}")
                 if child.acceptance_result and not child.acceptance_result.get("passed"):
                     lines.append(f"  \u26a0 This task was previously rejected: {child.acceptance_result.get('notes', '')}")
-                # Inject verification evidence if available
-                verification = (child.acceptance_result or {}).get("verification")
-                if verification:
-                    from onemancompany.core.task_verification import VerificationEvidence
-                    ev = VerificationEvidence(**verification)
-                    lines.append(f"  {ev.to_review_block()}")
+                # Inject verification evidence from file
+                ev_path = Path(project_dir) / "nodes" / child.id / "verification.json"
+                if ev_path.exists():
+                    try:
+                        ev_data = json.loads(ev_path.read_text(encoding=ENCODING_UTF8))
+                        from onemancompany.core.task_verification import VerificationEvidence
+                        ev = VerificationEvidence(**ev_data)
+                        lines.append(f"  {ev.to_review_block()}")
+                    except Exception as e:
+                        logger.debug("[VERIFICATION] Failed to read evidence file: {}", e)
                 lines.append("")
         else:
             lines.append("All subtasks have passed review.")
