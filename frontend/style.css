@@ -5372,11 +5372,6 @@ body {
   border-left-color: #9966ff;
 }
 
-#ceo-actions-section {
-  flex-shrink: 0;
-  border-top: 1px solid #333;
-  padding: 4px 0;
-}
 #ceo-project-list.collapsed {
   width: 0;
   padding: 0;

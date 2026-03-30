@@ -2355,6 +2355,24 @@ class AppController {
       // Show CEO message immediately in terminal
       this._ceoTerm?.appendCeoMessage(text);
 
+      // /iter mode: create new iteration on pending project
+      if (this._pendingIterProject) {
+        const pid = this._pendingIterProject;
+        this._pendingIterProject = null;
+        if (input) input.placeholder = '$ Type message, / for commands (Enter to send)';
+        try {
+          const formData = new FormData();
+          formData.append('task', text);
+          formData.append('project_id', pid.split('/')[0]);
+          formData.append('mode', 'standard');
+          await fetch('/api/ceo/task', { method: 'POST', body: formData });
+          await this._refreshCeoProjectList();
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'New iteration created.', source: 'system' });
+        } catch (e) { console.error('Failed to create iteration:', e); }
+        input?.focus();
+        return;
+      }
+
       // 1-on-1 conversation mode: send via conversation API
       if (this._currentConvType === 'oneonone' && this._currentConvId) {
         try {
@@ -2434,12 +2452,29 @@ class AppController {
 
   // --- Slash command menu --- //
 
-  _slashCommands = [
-    { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
-    { cmd: '/new', desc: 'Create new task', action: () => { this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null; this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []); } },
-    { cmd: '/simple', desc: 'Simple task to employee', action: () => { /* TODO: simple task dialog */ } },
-    { cmd: '/review', desc: 'Quarterly review', action: () => { /* TODO: wire to HR review */ } },
-  ];
+  get _slashCommands() {
+    const projName = this._currentCeoProject ? this._currentCeoProject.split('/')[0] : null;
+    return [
+      { cmd: '/new', desc: 'Create a new project', action: () => {
+        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
+        this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []);
+      }},
+      { cmd: '/iter', desc: projName ? `New iteration on "${projName}"` : 'Select a project first', action: () => {
+        if (!this._currentCeoProject) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'Select a project first, then use /iter', source: 'system' });
+          return;
+        }
+        // Switch to new-iter mode: next Enter submits as iteration
+        this._pendingIterProject = this._currentCeoProject;
+        this._ceoTerm?.appendMessage({ role: 'system', text: `Type the iteration goal for "${projName}". Press Enter to create.`, source: 'system' });
+        const input = document.getElementById('ceo-conv-input');
+        if (input) input.placeholder = `$ New iteration for ${projName}...`;
+      }},
+      { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
+      { cmd: '/simple', desc: 'Quick task to a specific employee', action: () => { /* TODO */ } },
+      { cmd: '/review', desc: 'Quarterly performance review', action: () => { /* TODO */ } },
+    ];
+  }
 
   _handleSlashInput(input) {
     const text = input.value;
@@ -2514,33 +2549,6 @@ class AppController {
     }
 
     // Render actions pinned at bottom
-    const actionsEl = document.getElementById('ceo-actions-section');
-    if (actionsEl) {
-      actionsEl.innerHTML = '';
-
-      const newTask = document.createElement('div');
-      newTask.className = 'ceo-proj-action';
-      newTask.textContent = '+ New Task';
-      newTask.addEventListener('click', () => {
-        this._currentCeoProject = null;
-        this._currentConvId = null;
-        this._currentConvType = null;
-        this._refreshCeoProjectList();
-        this._ceoTerm?.showChat(null, []);
-      });
-      actionsEl.appendChild(newTask);
-
-      if (this._currentCeoProject) {
-        const newIter = document.createElement('div');
-        newIter.className = 'ceo-proj-action';
-        newIter.textContent = '+ New Iter';
-        newIter.addEventListener('click', () => {
-          // TODO: wire to iteration creation API
-        });
-        actionsEl.appendChild(newIter);
-      }
-    }
-
     // Also refresh 1-on-1 list
     this._refreshOneononeList();
   }
