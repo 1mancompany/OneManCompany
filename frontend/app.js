@@ -547,8 +547,8 @@ class AppController {
 
   // ===== Panel Divider Drag (removed — grid gap replaces dividers) =====
   _initPanelDividers() {
-    // No-op: dividers removed in 2D grid layout.
-    // Left column width is fixed at 240px via CSS grid-template-columns.
+    // Draggable resize handles for all grid panel borders
+    this._gridResizer = new GridResizer();
   }
 
   // ===== Cancel Task (used by project card overlay) =====

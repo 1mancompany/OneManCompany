@@ -36,13 +36,21 @@ body {
 #app {
   display: grid;
   grid-template-columns: 240px 1fr 280px;
-  grid-template-rows: 1fr 1fr;
+  grid-template-rows: 1fr 1fr; /* overridden by resize-handler.js */
   grid-template-areas:
     "left-top    canvas   roster"
     "left-bottom console  console";
   height: 100vh;
   gap: 4px;
   padding: 4px;
+}
+
+/* During resize drag: prevent canvas/iframes from stealing pointer events */
+body.resize-dragging * {
+  pointer-events: none !important;
+}
+body.resize-dragging {
+  pointer-events: auto !important;
 }
 
 #left-top-panel {
