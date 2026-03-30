@@ -1403,6 +1403,22 @@ class EmployeeManager:
             _current_vessel.reset(loop_token)
             _current_task_id.reset(task_token)
 
+        # 7b. Collect verification evidence from execution log
+        if project_dir and not agent_error:
+            try:
+                from onemancompany.core.task_verification import collect_evidence
+                evidence = collect_evidence(project_dir, entry.node_id)
+                if evidence.tools_called:
+                    node.acceptance_result = node.acceptance_result or {}
+                    node.acceptance_result["verification"] = evidence.to_dict()
+                    if evidence.has_unresolved_errors:
+                        logger.info(
+                            "[VERIFICATION] employee={} node={}: {} unresolved error(s)",
+                            employee_id, entry.node_id, len(evidence.unresolved_errors),
+                        )
+            except Exception as e:
+                logger.debug("[VERIFICATION] Failed to collect evidence: {}", e)
+
         # 8. Mark completed (or HOLDING)
         # (No stale-read issue: tree is in-memory cache, all tools modify the same object)
         logger.debug("[TASK LIFECYCLE] employee={} node={} status_before_completion={}",
@@ -2481,6 +2497,12 @@ class EmployeeManager:
                 lines.append(f"  Status: {child.status}")
                 if child.acceptance_result and not child.acceptance_result.get("passed"):
                     lines.append(f"  \u26a0 This task was previously rejected: {child.acceptance_result.get('notes', '')}")
+                # Inject verification evidence if available
+                verification = (child.acceptance_result or {}).get("verification")
+                if verification:
+                    from onemancompany.core.task_verification import VerificationEvidence
+                    ev = VerificationEvidence(**verification)
+                    lines.append(f"  {ev.to_review_block()}")
                 lines.append("")
         else:
             lines.append("All subtasks have passed review.")
