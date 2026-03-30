@@ -2235,11 +2235,12 @@ class AppController {
       const slashMenu = document.getElementById('ceo-slash-menu');
       const menuVisible = slashMenu && !slashMenu.classList.contains('hidden');
 
-      // Tab: autocomplete selected slash command into input
+      // Tab: autocomplete selected slash command into input (fallback to first item)
       if (e.key === 'Tab' && menuVisible) {
-        e.preventDefault();
-        const activeItem = slashMenu.querySelector('.slash-item.active');
+        const activeItem = slashMenu.querySelector('.slash-item.active')
+                        || slashMenu.querySelector('.slash-item');
         if (activeItem) {
+          e.preventDefault();
           const cmd = activeItem.querySelector('.slash-cmd')?.textContent || '';
           if (cmd) {
             input.value = cmd + ' ';
