@@ -797,9 +797,7 @@ class AppController {
 
     // 1-on-1 meeting modal bindings
     const oneononeModal = document.getElementById('oneonone-modal');
-    document.getElementById('guidance-toolbar-btn').addEventListener('click', () => {
-      oneononeModal.classList.remove('hidden');
-    });
+    // Meeting button removed from toolbar — meetings now via /1on1, /allhands, /discuss
     document.getElementById('oneonone-close-btn').addEventListener('click', () => this.closeOneononeModal());
     document.getElementById('oneonone-close-btn2').addEventListener('click', () => this.closeOneononeModal());
     oneononeModal.addEventListener('click', (e) => {
@@ -2363,6 +2361,24 @@ class AppController {
           .catch(e => {
             this._ceoTerm?.appendMessage({ role: 'system', text: `Review error: ${e.message}`, source: 'system' });
           });
+      }},
+      { cmd: '/1on1', desc: 'Start 1-on-1 meeting with an employee', action: () => {
+        const modal = document.getElementById('oneonone-modal');
+        if (modal) {
+          document.getElementById('meeting-type-select').value = 'oneonone';
+          document.getElementById('meeting-type-select').dispatchEvent(new Event('change'));
+          modal.classList.remove('hidden');
+        }
+      }},
+      { cmd: '/allhands', desc: 'Start All-Hands meeting (CEO address)', action: () => {
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Starting All-Hands meeting...', source: 'system' });
+        document.getElementById('oneonone-modal')?.classList.remove('hidden');
+        this._startGroupMeeting('all_hands');
+      }},
+      { cmd: '/discuss', desc: 'Start discussion meeting (open floor)', action: () => {
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Starting discussion meeting...', source: 'system' });
+        document.getElementById('oneonone-modal')?.classList.remove('hidden');
+        this._startGroupMeeting('discussion');
       }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
     ];
