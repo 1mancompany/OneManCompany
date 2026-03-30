@@ -2112,6 +2112,7 @@ class AppController {
 
   // ===== CEO Terminal (two-column: project list + xterm conversation) ===== //
 
+  _EA_CHAT = '_ea_chat';  // Reserved sentinel — not a real project ID
   _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
 
   async _initCeoTerminal() {
@@ -2206,7 +2207,7 @@ class AppController {
         return;
       }
 
-      if (!this._currentCeoProject || this._currentCeoProject === '_ea_chat') {
+      if (!this._currentCeoProject || this._currentCeoProject === this._EA_CHAT) {
         // New task from EA chat (simple or standard mode)
         const mode = this._pendingSimpleMode ? 'simple' : 'standard';
         this._pendingSimpleMode = false;
@@ -2316,15 +2317,15 @@ class AppController {
   }
 
   _openEaChat() {
-    this._currentCeoProject = null;
-    this._currentConvId = null;
-    this._currentConvType = null;
-    // Update active states
+    // Clear pending modes that could interfere
+    this._pendingIterProject = null;
+    this._pendingSimpleMode = false;
+    // Update active states in sidebar
     document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
     document.getElementById('ceo-chat-btn')?.classList.add('active');
-    // Load EA session
-    this._selectCeoProject('_ea_chat');
+    // Delegate to _selectCeoProject which handles all state clearing
+    this._selectCeoProject(this._EA_CHAT);
   }
 
   // --- Slash command menu --- //
@@ -2465,11 +2466,11 @@ class AppController {
 
     // Update Chat button active state
     const chatBtn = document.getElementById('ceo-chat-btn');
-    chatBtn?.classList.toggle('active', this._currentCeoProject === '_ea_chat' || !this._currentCeoProject);
+    chatBtn?.classList.toggle('active', this._currentCeoProject === this._EA_CHAT || !this._currentCeoProject);
 
     for (const s of sessions) {
       // Skip EA chat session from project list (it has its own Chat button)
-      if (s.project_id === '_ea_chat') continue;
+      if (s.project_id === this._EA_CHAT) continue;
       const item = document.createElement('div');
       const hasPending = s.has_pending;
       item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
