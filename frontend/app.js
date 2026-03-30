@@ -2191,11 +2191,15 @@ class AppController {
       }
 
       if (!this._currentCeoProject) {
-        // New task
+        // New task (simple or standard mode)
+        const mode = this._pendingSimpleMode ? 'simple' : 'standard';
+        this._pendingSimpleMode = false;
+        const inp = document.getElementById('ceo-conv-input');
+        if (inp) inp.placeholder = '$ Type message, / for commands (Enter to send)';
         try {
           const formData = new FormData();
           formData.append('task', text);
-          formData.append('mode', 'standard');
+          formData.append('mode', mode);
           await fetch('/api/ceo/task', { method: 'POST', body: formData });
           await this._refreshCeoProjectList();
         } catch (e) { console.error('Failed to submit task:', e); }
@@ -2294,6 +2298,33 @@ class AppController {
           return;
         }
         this._endOneononeFromTerminal();
+      }},
+      { cmd: '/simple', desc: 'Simple task (no retrospective)', action: () => {
+        this._pendingSimpleMode = true;
+        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
+        this._refreshCeoProjectList();
+        this._ceoTerm?.showChat(null, []);
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Simple mode: type task and press Enter. EA will dispatch directly, no retrospective.', source: 'system' });
+        const input = document.getElementById('ceo-conv-input');
+        if (input) input.placeholder = '$ Simple task (Enter to submit)...';
+      }},
+      { cmd: '/review', desc: 'Trigger quarterly performance review', action: () => {
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Triggering quarterly review...', source: 'system' });
+        this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
+        fetch('/api/hr/review', { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) {
+              this._ceoTerm?.appendMessage({ role: 'system', text: `Review failed: ${data.error}`, source: 'system' });
+              this.logEntry('SYSTEM', `Review failed: ${data.error}`, 'system');
+            } else {
+              this._ceoTerm?.appendMessage({ role: 'system', text: '📋 Quarterly review task assigned to HR', source: 'system' });
+              this.logEntry('HR', '📋 Quarterly review task assigned to HR', 'hr');
+            }
+          })
+          .catch(e => {
+            this._ceoTerm?.appendMessage({ role: 'system', text: `Review error: ${e.message}`, source: 'system' });
+          });
       }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
     ];
