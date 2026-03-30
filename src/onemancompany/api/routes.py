@@ -572,6 +572,13 @@ async def ceo_submit_task(
                 acceptance_criteria=[],
             )
             _save_project_tree(pdir, tree)
+            # Create CEO session for the new project
+            from onemancompany.core.ceo_broker import get_ceo_broker
+            broker = get_ceo_broker()
+            session = broker.get_or_create_session(ctx_id)
+            session.project_dir = Path(pdir)
+            session.push_system_message(f"Project created: {task[:100]}", source="system")
+            session.save_history(Path(pdir))
             # Register CEO and EA in project team for project history
             from onemancompany.agents.tree_tools import _add_to_project_team
             _add_to_project_team(pdir, CEO_ID)
