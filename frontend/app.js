@@ -94,7 +94,6 @@ class AppController {
       console.debug(`[bootstrap] /api/bootstrap took ${(performance.now() - t0).toFixed(0)}ms`);
 
       this.updateRoster(employees);
-      this.updateTaskPanel(tasks);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
       if (window.officeRenderer) {
@@ -139,10 +138,9 @@ class AppController {
   }
 
   async _lazyLoadTaskTrees() {
-    // After initial render, fetch full task queue with tree summaries to enrich the panel
+    // After initial render, fetch task queue to overlay progress on project cards
     try {
-      const tasks = await fetch('/api/task-queue').then(r => r.json());
-      this.updateTaskPanel(tasks);
+      this.updateProjectsPanel();
     } catch (e) {
       console.debug('[bootstrap] lazy tree load failed:', e);
     }
@@ -204,11 +202,6 @@ class AppController {
     document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
   }
 
-  async _fetchAndRenderTaskPanel() {
-    const tasks = await fetch('/api/task-queue').then(r => r.json());
-    this.updateTaskPanel(tasks);
-  }
-
   async _fetchAndRenderRooms() {
     const rooms = await fetch('/api/rooms').then(r => r.json());
     if (window.officeRenderer) {
@@ -236,7 +229,6 @@ class AppController {
     if (msg.type === 'state_changed') {
       const c = msg.changed || [];
       if (c.includes('employees'))       this._fetchAndRenderRoster();
-      if (c.includes('task_queue'))     this._fetchAndRenderTaskPanel();
       if (c.includes('rooms'))          this._fetchAndRenderRooms();
       if (c.includes('tools'))          this._fetchAndRenderTools();
       if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
@@ -559,157 +551,14 @@ class AppController {
     // Left column width is fixed at 240px via CSS grid-template-columns.
   }
 
-  // ===== Task Panel =====
-  updateTaskPanel(tasks) {
-    if (tasks) {
-      this._renderTaskPanel(tasks);
-      return;
-    }
-    fetch('/api/task-queue')
-      .then(r => r.json())
-      .then(t => this._renderTaskPanel(t))
-      .catch(err => console.error('[loadTaskQueue] failed:', err));
-  }
-
-  _renderTaskPanel(tasks) {
-    const panel = document.getElementById('task-panel-list');
-    if (!tasks || tasks.length === 0) {
-      panel.innerHTML = '<div class="task-empty">No active tasks</div>';
-      return;
-    }
-    panel.innerHTML = '';
-    for (const t of tasks) {
-      const card = document.createElement('div');
-      const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
-      card.className = `task-card ${t.status}`;
-
-      // Status icon
-      const statusMap = {
-        pending: ['⏳', 'Pending'],
-        processing: ['🔄', 'Processing'],
-        completed: ['✅', 'Completed'],
-        finished: ['🏁', 'Finished'],
-        failed: ['❌', 'Failed'],
-        cancelled: ['🚫', 'Cancelled'],
-        holding: ['⏸️', 'Holding'],
-      };
-      const [icon, label] = statusMap[t.status] || ['⏳', t.status];
-
-      // Owner — resolve from tree root node for better display
-      let ownerLabel = '';
-      if (!isTerminal) {
-        const ownerEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === t.current_owner);
-        ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
-        if (t.current_owner === 'pending' || !ownerLabel) {
-          ownerLabel = t.routed_to || '';
-        }
-      } else if (t.tree) {
-        const rootNode = t.tree.active_nodes?.[0];
-        if (rootNode) {
-          const rootEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === rootNode.employee_id);
-          ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
-        }
-      }
-
-      // Task description
-      const taskText = this._escHtml(t.task.substring(0, 80)) + (t.task.length > 80 ? '...' : '');
-
-      // Result from tree root node for completed tasks
-      let resultHtml = '';
-      if (isTerminal && t.tree) {
-        const rootNode = t.tree.root_result;
-        if (rootNode) {
-          const firstLine = rootNode.split('\n').find(l => l.trim()) || '';
-          const summary = firstLine.substring(0, 120);
-          resultHtml = `<div class="task-card-result">${this._escHtml(summary)}${firstLine.length > 120 ? '...' : ''}</div>`;
-        }
-      }
-
-      // Tree progress — only for active multi-node trees
-      let treeHtml = '';
-      if (!isTerminal && t.tree) {
-        const tr = t.tree;
-        const childCount = tr.total - 1;
-        if (childCount > 0) {
-          const done = tr.terminal;
-          const pct = Math.round((done / childCount) * 100);
-          treeHtml = `<div class="task-card-tree">
-            <div class="task-tree-progress"><div class="task-tree-bar" style="width:${pct}%"></div></div>
-            <span class="task-tree-label">${done}/${childCount} subtasks</span>
-          </div>`;
-        }
-        if (tr.active_nodes && tr.active_nodes.length > 0) {
-          const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
-            const nEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === n.employee_id);
-            const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
-            const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
-            return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
-          }).join('');
-          const extra = tr.active_nodes.length > 3 ? `<div style="color:var(--text-dim);font-size:5px;">+${tr.active_nodes.length - 3} more</div>` : '';
-          treeHtml += `<div class="task-tree-nodes">${nodesHtml}${extra}</div>`;
-        }
-      }
-
-      // Completed time
-      let timeHtml = '';
-      if (isTerminal && t.completed_at) {
-        const completedTime = t.completed_at.substring(11, 19);
-        timeHtml = `<span class="task-card-time">${completedTime}</span>`;
-      }
-
-      // Trace button
-      const traceBtn = t.project_id
-        ? `<button class="task-trace-btn" data-project-id="${this._escHtml(t.project_id)}" title="Trace" style="background:transparent;color:#4af;border:1px solid #333;padding:0 4px;font-size:8px;cursor:pointer;font-family:monospace;margin-right:2px">T</button>`
-        : '';
-
-      // Cancel button for active tasks
-      const cancelBtn = !isTerminal && t.project_id
-        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="Cancel">✕</button>`
-        : '';
-
-      card.innerHTML = `
-        <div class="task-card-header">
-          <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${traceBtn}${cancelBtn}</span>
-        </div>
-        <div class="task-card-text">${taskText}</div>
-        ${resultHtml}
-        ${treeHtml}
-      `;
-
-      // Bind cancel button
-      const btn = card.querySelector('.task-cancel-btn');
-      if (btn) {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._cancelTask(btn.dataset.projectId);
-        });
-      }
-
-      // Bind trace button
-      const trBtn = card.querySelector('.task-trace-btn');
-      if (trBtn) {
-        trBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.openTraceViewer(trBtn.dataset.projectId, t.task.substring(0, 40));
-        });
-      }
-
-      if (t.project_id && !t.project_id.startsWith('_auto_')) {
-        card.style.cursor = 'pointer';
-        card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
-      }
-      panel.appendChild(card);
-    }
-  }
-
+  // ===== Cancel Task (used by project card overlay) =====
   async _cancelTask(projectId) {
     if (!confirm('Are you sure you want to cancel this task?')) return;
     try {
       const resp = await fetch(`/api/task/${projectId}/abort`, { method: 'POST' });
       const data = await resp.json();
       if (data.status === 'ok') {
-        this.updateTaskPanel();
+        this.updateProjectsPanel();
       }
     } catch (e) {
       console.error('Cancel task failed:', e);
@@ -6442,6 +6291,8 @@ class AppController {
         }
         // Fetch CEO session data and overlay pending indicators
         this._overlaySessionPendingBadges(panel);
+        // Fetch task queue and overlay progress info on matching project cards
+        this._overlayTaskProgress(panel);
       })
       .catch(err => console.error('[updateProjectsPanel] failed:', err));
   }
@@ -6467,6 +6318,77 @@ class AppController {
         }
       }
     } catch (e) { /* session endpoint may not be available yet */ }
+  }
+
+  async _overlayTaskProgress(container) {
+    try {
+      const taskResp = await fetch('/api/task-queue');
+      const tasks = await taskResp.json();
+
+      for (const t of tasks) {
+        if (!t.project_id) continue;
+        const basePid = t.project_id.split('/')[0];
+        const card = container.querySelector(`.project-panel-card[data-project-id="${basePid}"]`);
+        if (!card) continue;
+
+        const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
+
+        let progressHtml = '';
+
+        if (!isTerminal && t.tree) {
+          const childCount = t.tree.total - 1;
+          if (childCount > 0) {
+            const done = t.tree.terminal;
+            const pct = Math.round((done / childCount) * 100);
+            progressHtml += `<div class="proj-progress"><div class="proj-progress-track"><div class="proj-progress-bar" style="width:${pct}%"></div></div><span>${done}/${childCount}</span></div>`;
+          }
+          // Current executor
+          if (t.tree.active_nodes?.length > 0) {
+            const node = t.tree.active_nodes[0];
+            const emp = (window.officeRenderer?.state?.employees || []).find(e => e.id === node.employee_id);
+            const name = emp ? (emp.nickname || emp.name) : node.employee_id;
+            progressHtml += `<div class="proj-executor">${this._escHtml(name)}</div>`;
+          }
+        }
+
+        // Cancel button for active tasks
+        if (!isTerminal && t.project_id) {
+          progressHtml += `<button class="proj-cancel-btn" data-pid="${this._escHtml(t.project_id)}" title="Cancel">&#10005;</button>`;
+        }
+
+        // Trace button
+        if (t.project_id) {
+          progressHtml += `<button class="proj-trace-btn" data-pid="${this._escHtml(t.project_id)}" data-task="${this._escHtml(t.task.substring(0, 40))}" title="Trace">T</button>`;
+        }
+
+        if (progressHtml) {
+          const overlay = document.createElement('div');
+          overlay.className = 'proj-card-progress';
+          overlay.innerHTML = progressHtml;
+          card.appendChild(overlay);
+
+          // Wire cancel
+          const cancelBtn = overlay.querySelector('.proj-cancel-btn');
+          if (cancelBtn) {
+            cancelBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this._cancelTask(cancelBtn.dataset.pid);
+            });
+          }
+
+          // Wire trace
+          const traceBtn = overlay.querySelector('.proj-trace-btn');
+          if (traceBtn) {
+            traceBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.openTraceViewer(traceBtn.dataset.pid, traceBtn.dataset.task);
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.debug('[_overlayTaskProgress] failed:', e);
+    }
   }
 
   _openTaskInBoard(projectId, nodeId) {
