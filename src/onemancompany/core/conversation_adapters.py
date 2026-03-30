@@ -122,7 +122,7 @@ def _build_conversation_prompt(
         lines.append(
             "This is a direct chat with the CEO. You are their EA (Executive Assistant).\n"
             "- Answer questions directly and concisely.\n"
-            "- If the CEO gives a task that requires team execution, use dispatch_child() to create a project.\n"
+            "- If the CEO gives a task that requires team execution, use create_project() to start a project.\n"
             "- For simple questions (weather, info, advice), just answer — do NOT create a project.\n"
             "- Only create projects for tasks that need employee work (development, research, hiring, etc.)."
         )

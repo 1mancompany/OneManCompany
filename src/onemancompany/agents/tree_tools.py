@@ -713,7 +713,7 @@ def create_project(task: str, mode: str = "standard") -> dict:
     from pathlib import Path
     from onemancompany.core.config import CEO_ID, EA_ID, TASK_TREE_FILENAME
     from onemancompany.core.task_lifecycle import NodeType, TaskPhase
-    from onemancompany.core.task_tree import TaskTree, evict_tree
+    from onemancompany.core.task_tree import TaskTree
     from onemancompany.core.vessel import employee_manager
 
     if not task:

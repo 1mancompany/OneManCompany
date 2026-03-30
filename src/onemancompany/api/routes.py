@@ -6059,7 +6059,7 @@ def _pick_reusable_oneonone_conversation(employee_id: str) -> tuple[Conversation
         except Exception:
             logger.warning("[conversation] failed to load meta from {}", conv_dir)
             continue
-        if conv.type != "oneonone" or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
+        if conv.type not in ("oneonone", "ea_chat") or conv.employee_id != employee_id or conv.phase == ConversationPhase.CLOSING.value:
             continue
 
         try:

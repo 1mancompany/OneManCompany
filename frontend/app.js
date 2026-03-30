@@ -2357,7 +2357,7 @@ class AppController {
           text: m.text || '',
           source: m.sender === 'ceo' ? undefined : '玲珑阁 (EA)',
         }));
-      } catch (e) {}
+      } catch (e) { console.error('EA chat history load error:', e); }
     }
     this._ceoTerm?.showChat(this._EA_CHAT, messages);
   }
@@ -2373,7 +2373,7 @@ class AppController {
           this._currentConvId = this._eaChatConvId;
           return;
         }
-      } catch (e) {}
+      } catch (e) { console.error('EA chat error:', e); }
       // Stale — clear and recreate
       this._eaChatConvId = null;
       localStorage.removeItem('ea-chat-conv-id');
