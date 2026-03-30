@@ -501,6 +501,13 @@ async def lifespan(app: FastAPI):
         register_founding_employee(_fid, _agent_cls, _emp_cfgs, _EMPLOYEES_DIR)
         _registered_founding.add(_fid)
 
+    # Register CeoExecutor for CEO (virtual employee — routes to TUI, no LLM)
+    from onemancompany.core.ceo_broker import CeoExecutor
+    from onemancompany.core.config import CEO_ID
+    from onemancompany.core.vessel import employee_manager as _ceo_em
+    _ceo_em.executors[CEO_ID] = CeoExecutor()
+    logger.info("[startup] Registered CEO ({}) — CeoExecutor (TUI routing)", CEO_ID)
+
     # Non-founding employees — register ALL in EmployeeManager (unified dispatch)
     from onemancompany.agents.base import EmployeeAgent
     from onemancompany.core.config import FOUNDING_LEVEL, FOUNDING_IDS
@@ -547,9 +554,8 @@ async def lifespan(app: FastAPI):
         print(f"[startup] Restored {restored_count} task(s) from disk — auto-resuming")
         _em.drain_pending()
 
-    # Recover projects stuck in pending_confirmation (auto-confirm timer lost on restart)
-    # The _pending_ceo_reports dict is in-memory only; on restart, the auto-confirm
-    # timer is lost. We must complete the iteration AND archive the project.
+    # Recover projects stuck in pending_confirmation (legacy state from old CEO inbox).
+    # Complete the iteration and archive the project.
     from onemancompany.core.project_archive import (
         archive_project,
         complete_project,

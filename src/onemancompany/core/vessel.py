@@ -714,8 +714,6 @@ class EmployeeManager:
         # Tree completion event queue — serializes all child-complete callbacks
         self._completion_queue: asyncio.Queue | None = None
         self._completion_consumer: asyncio.Task | None = None
-        # Pending CEO report confirmations: project_id → {timer_task, cleanup_context}
-        self._pending_ceo_reports: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
     # ScheduleEntry-based node scheduling
@@ -2345,14 +2343,41 @@ class EmployeeManager:
                     logger.debug("[ON_CHILD_COMPLETE] parent={} — waiting (needs_review={}, active_review={})",
                                  parent_node.id, needs_review, has_active_review)
 
+        # --- CEO confirm node completed → trigger cleanup ---
+        # When a CEO_REQUEST confirm node (created below) finishes, run
+        # _full_cleanup to archive the project and optionally run retrospective.
+        from onemancompany.core.config import CEO_ID as _CEO_ID
+        if (node.node_type in (NodeType.CEO_REQUEST, NodeType.CEO_REQUEST.value)
+            and node.employee_id == _CEO_ID
+            and tree.is_project_complete()):
+            ea_node = tree.get_ea_node()
+            if ea_node:
+                # Advance CEO_PROMPT root: COMPLETED → ACCEPTED → FINISHED
+                ea_parent = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
+                if ea_parent and ea_parent.is_ceo_node:
+                    if ea_parent.status == TaskPhase.COMPLETED.value:
+                        ea_parent.set_status(TaskPhase.ACCEPTED)
+                        ea_parent.acceptance_result = {"passed": True, "notes": f"CEO confirmed: {node.result or 'approved'}"}
+                        ea_parent.set_status(TaskPhase.FINISHED)
+                        logger.info("[TASK LIFECYCLE] CEO root {} → FINISHED (CEO confirmed)", ea_parent.id)
+                        save_tree_async(entry.tree_path)
+
+                is_system_node = ea_node.node_type in SYSTEM_NODE_TYPES
+                run_retro = not is_system_node and tree.mode != "simple"
+                await self._full_cleanup(
+                    ea_node.employee_id, ea_node, agent_error=False,
+                    project_id=project_id, run_retrospective=run_retro,
+                )
+                return  # cleanup done, no need to continue
+
         # --- Bottom-up project completion check ---
         # After any status change, check if the entire project tree is resolved.
-        # EA done executing + all child subtrees RESOLVED → trigger retrospective.
+        # EA done executing + all child subtrees RESOLVED → trigger CEO confirmation.
         # Skip non-project node types (see _SKIP_COMPLETION_TYPES).
         if node.node_type not in SKIP_COMPLETION_TYPES and tree.is_project_complete():
             ea_node = tree.get_ea_node()
             logger.info(
-                "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — triggering retrospective",
+                "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — scheduling CEO confirmation",
                 ea_node.id,
             )
             # Advance CEO parent node if present
@@ -2363,10 +2388,44 @@ class EmployeeManager:
                         ea_parent.set_status(TaskPhase.PROCESSING)
                     ea_parent.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] CEO parent={} → COMPLETED", ea_parent.id)
-                save_tree_async(entry.tree_path)
-            await self._request_ceo_confirmation(
-                ea_node.employee_id, ea_node, tree, entry, project_id
+
+            # Guard: don't create duplicate confirm nodes
+            existing_confirm = any(
+                c for c in tree.get_children(ea_node.id)
+                if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
+                and c.employee_id == _CEO_ID
             )
+            if existing_confirm:
+                logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
+            else:
+                # Build completion summary
+                _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
+                ea_node.load_content(_pdir)
+                children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
+                lines = [f"Project Completion Report — {ea_node.description}", ""]
+                for i, child in enumerate(children, 1):
+                    child.load_content(_pdir)
+                    status_icon = "✓" if child.status == TaskPhase.ACCEPTED.value else "●"
+                    lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description}")
+                    lines.append(f"  Result: {child.result or 'None'}")
+                    lines.append("")
+                lines.append("Please confirm project completion or provide feedback.")
+                confirm_desc = "\n".join(lines)
+
+                # Create confirm node assigned to CEO
+                confirm_node = tree.add_child(
+                    parent_id=ea_node.id,
+                    employee_id=_CEO_ID,
+                    description=confirm_desc,
+                    acceptance_criteria=[],
+                )
+                confirm_node.node_type = NodeType.CEO_REQUEST
+                confirm_node.project_id = project_id
+                confirm_node.project_dir = _pdir
+                save_tree_async(entry.tree_path)
+
+                self.schedule_node(_CEO_ID, confirm_node.id, entry.tree_path)
+                self._schedule_next(_CEO_ID)
 
     async def _spawn_review_or_escalate(
         self, tree, node, parent_node, children, entry: ScheduleEntry, project_id: str
@@ -2481,19 +2540,22 @@ class EmployeeManager:
             ceo_node.project_dir = project_dir
             save_tree_async(entry.tree_path)
 
-            # Publish inbox event
+            # Publish event to notify frontend of new CEO interaction
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(event_bus.publish(CompanyEvent(
-                    type=EventType.CEO_INBOX_UPDATED,
-                    payload={"node_id": ceo_node.id, "description": escalation_desc},
+                    type=EventType.CEO_SESSION_MESSAGE,
+                    payload={
+                        "project_id": project_id,
+                        "node_id": ceo_node.id,
+                        "message": escalation_desc,
+                        "source_employee": parent_node.employee_id,
+                        "interaction_type": "ceo_request",
+                    },
                     agent=SYSTEM_AGENT,
                 )))
             except RuntimeError:
                 logger.debug("No event loop for circuit breaker CEO escalation publish")
-            # Auto-open conversation so EA auto-reply starts immediately
-            from onemancompany.agents.tree_tools import schedule_auto_open_inbox
-            schedule_auto_open_inbox(ceo_node.id)
             return
 
         # Create a review node in the tree and schedule it
@@ -2613,135 +2675,6 @@ class EmployeeManager:
                 if emp_id not in self._running_tasks:
                     self._schedule_next(emp_id)
 
-    CEO_REPORT_CONFIRM_DELAY = 120  # seconds before auto-confirm
-
-    async def _request_ceo_confirmation(
-        self,
-        employee_id: str,
-        node,
-        tree,
-        entry: ScheduleEntry,
-        project_id: str,
-    ) -> None:
-        """Publish project completion report and wait for CEO confirmation.
-
-        The report is shown to the CEO. If the CEO does not confirm within
-        CEO_REPORT_CONFIRM_DELAY seconds, the system auto-confirms.
-        """
-        # Build completion summary from all children (skip CEO info nodes)
-        _pdir = node.project_dir or str(Path(entry.tree_path).parent)
-        node.load_content(_pdir)
-        children = [c for c in tree.get_children(node.id) if not c.is_ceo_node]
-        lines = [f"Project Completion Report — {node.description}", ""]
-        for i, child in enumerate(children, 1):
-            status_icon = "✓" if child.status == TaskPhase.ACCEPTED else "●"
-            child.load_content(_pdir)
-            lines.append(f"{status_icon} Subtask {i} ({child.employee_id}): {child.title or child.description}")
-            lines.append(f"  Result: {child.result or 'None'}")
-            lines.append("")
-        summary = "\n".join(lines)
-
-        # Store report in iteration doc and set pending_confirmation status
-        from onemancompany.core.project_archive import (
-            ITER_STATUS_PENDING_CONFIRMATION,
-            update_project_status,
-        )
-        update_project_status(
-            project_id,
-            ITER_STATUS_PENDING_CONFIRMATION,
-            ceo_report=summary,
-        )
-
-        payload = {
-            "subject": f"Project Completion Confirmation: {node.description_preview[:60]}",
-            "report": summary,
-            "employee_id": employee_id,
-            "project_id": project_id,
-            "timestamp": datetime.now().isoformat(),
-            "auto_confirm_seconds": self.CEO_REPORT_CONFIRM_DELAY,
-        }
-        emp_data = _store.load_employee(employee_id)
-        if emp_data:
-            payload["employee_name"] = emp_data.get(PF_NAME, "")
-        await event_bus.publish(CompanyEvent(type=EventType.CEO_REPORT, payload=payload, agent=SYSTEM_AGENT))
-
-        # Prepare cleanup context and start auto-confirm timer
-        is_system_node = node.node_type in SYSTEM_NODE_TYPES
-        run_retro = not is_system_node and tree.mode != "simple"
-        cleanup_ctx = {
-            "employee_id": employee_id,
-            "node": node,
-            "project_id": project_id,
-            "run_retrospective": run_retro,
-        }
-        timer_task = asyncio.ensure_future(
-            self._ceo_report_auto_confirm(project_id, cleanup_ctx)
-        )
-        self._pending_ceo_reports[project_id] = {
-            "timer_task": timer_task,
-            "cleanup_ctx": cleanup_ctx,
-        }
-        logger.debug(
-            "[ceo_report] pending confirmation for project={}, auto-confirm in {}s",
-            project_id, self.CEO_REPORT_CONFIRM_DELAY,
-        )
-
-    async def _ceo_report_auto_confirm(self, project_id: str, cleanup_ctx: dict) -> None:
-        """Auto-confirm CEO report after timeout."""
-        try:
-            await asyncio.sleep(self.CEO_REPORT_CONFIRM_DELAY)
-            logger.info("[ceo_report] auto-confirming project={}", project_id)
-            await self._confirm_ceo_report(project_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.error("[ceo_report] auto-confirm error for {}: {}", project_id, e)
-            self._pending_ceo_reports.pop(project_id, None)  # Ensure cleanup
-
-    async def _confirm_ceo_report(self, project_id: str) -> bool:
-        """Confirm a pending CEO report and run cleanup. Returns True if confirmed."""
-        pending = self._pending_ceo_reports.pop(project_id, None)
-        if not pending:
-            # Idempotency: if project already archived on disk, treat as success
-            from onemancompany.core.project_archive import load_named_project, PROJECT_STATUS_ARCHIVED
-            base_pid = project_id.split("/")[0] if "/" in project_id else project_id
-            proj = load_named_project(base_pid)
-            if proj and proj.get("status") == PROJECT_STATUS_ARCHIVED:
-                logger.debug("[ceo_report] project={} already archived, idempotent confirm", project_id)
-                return True
-            logger.debug("[ceo_report] no pending report for project={}", project_id)
-            return False
-
-        timer = pending.get("timer_task")
-        if timer and not timer.done():
-            timer.cancel()
-
-        ctx = pending["cleanup_ctx"]
-        logger.info("[ceo_report] confirmed project={}", project_id)
-
-        # Advance CEO_PROMPT root node: COMPLETED → ACCEPTED → FINISHED
-        # The node in cleanup_ctx is the EA node; its parent is the CEO_PROMPT root.
-        ea_node = ctx["node"]
-        tree_dir = ea_node.project_dir or ""
-        if tree_dir:
-            from onemancompany.core.task_tree import get_tree, save_tree_async
-            tree_path = Path(tree_dir) / TASK_TREE_FILENAME
-            if tree_path.exists():
-                tree = get_tree(tree_path)
-                ceo_root = tree.get_node(ea_node.parent_id) if ea_node.parent_id else None
-                if ceo_root and ceo_root.is_ceo_node and ceo_root.status == TaskPhase.COMPLETED.value:
-                    ceo_root.set_status(TaskPhase.ACCEPTED)
-                    ceo_root.acceptance_result = {"passed": True, "notes": "CEO confirmed project completion."}
-                    ceo_root.set_status(TaskPhase.FINISHED)
-                    logger.info("[ceo_report] CEO root {} → ACCEPTED → FINISHED", ceo_root.id)
-                    save_tree_async(tree_path)
-
-        await self._full_cleanup(
-            ctx["employee_id"], ctx["node"], agent_error=False,
-            project_id=project_id,
-            run_retrospective=ctx["run_retrospective"],
-        )
-        return True
 
     async def _full_cleanup(
         self, employee_id: str, node, agent_error: bool,
@@ -3263,12 +3196,11 @@ async def stop_all_loops() -> None:
         employee_manager._completion_consumer = None
         employee_manager._completion_queue = None
 
-    # Cancel pending CEO report timers
-    for pid, pending in list(employee_manager._pending_ceo_reports.items()):
-        timer = pending.get("timer_task")
-        if timer and not timer.done():
-            timer.cancel()
-    employee_manager._pending_ceo_reports.clear()
+    # Cancel CEO session auto-reply timers
+    from onemancompany.core.ceo_broker import get_ceo_broker
+    broker = get_ceo_broker()
+    for session in broker._sessions.values():
+        session.cancel_all_timers()
 
     # _task_logs removed — logs are on disk (nodes/{node_id}/execution.log)
 

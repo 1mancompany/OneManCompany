@@ -92,7 +92,7 @@ class TestStandaloneCeoRequest:
 
 
 class TestDispatchChildCeo:
-    """dispatch_child targeting CEO creates ceo_request node without scheduling."""
+    """dispatch_child targeting CEO creates ceo_request node and schedules via normal path."""
 
     def test_ceo_request_node_type_recognized(self):
         """is_ceo_node returns True for ceo_request."""
@@ -103,8 +103,8 @@ class TestDispatchChildCeo:
         child.node_type = "ceo_request"
         assert child.is_ceo_node is True
 
-    def test_dispatch_child_ceo_skips_scheduling(self):
-        """dispatch_child to CEO should NOT call employee_manager.schedule_node."""
+    def test_dispatch_child_ceo_calls_schedule_node(self):
+        """dispatch_child to CEO SHOULD call employee_manager.schedule_node (normal path)."""
         from onemancompany.agents.tree_tools import dispatch_child
 
         tree = _make_tree()
@@ -126,16 +126,14 @@ class TestDispatchChildCeo:
                     "acceptance_criteria": ["Approve"],
                 })
 
-            mock_em.schedule_node.assert_not_called()
+            mock_em.schedule_node.assert_called_once()
             assert result["status"] == "dispatched"
-            assert result.get("ceo_request") is True
-            assert result.get("node_type") == "ceo_request"
+            assert result["node_id"] is not None
         finally:
             _reset_context(tok_v, tok_t)
 
-    def test_dispatch_child_ceo_publishes_event(self):
-        """dispatch_child to CEO should publish ceo_inbox_updated via run_coroutine_threadsafe."""
-        import asyncio
+    def test_dispatch_child_ceo_sets_node_type(self):
+        """dispatch_child to CEO sets node_type to CEO_REQUEST."""
         from onemancompany.agents.tree_tools import dispatch_child
 
         tree = _make_tree()
@@ -143,11 +141,6 @@ class TestDispatchChildCeo:
         vessel = MagicMock()
         tok_v, tok_t = _set_context(vessel, root_id)
         mock_em = _make_mock_em(root_id)
-        # Simulate a running main event loop
-        mock_loop = MagicMock()
-        mock_loop.is_running.return_value = True
-        mock_em._event_loop = mock_loop
-        mock_event_bus = AsyncMock()
 
         try:
             with (
@@ -155,8 +148,6 @@ class TestDispatchChildCeo:
                 patch("onemancompany.agents.tree_tools._save_tree"),
                 patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
-                patch("onemancompany.core.events.event_bus", mock_event_bus),
-                patch("asyncio.run_coroutine_threadsafe") as mock_rcts,
             ):
                 result = dispatch_child.invoke({
                     "employee_id": CEO_ID,
@@ -164,17 +155,8 @@ class TestDispatchChildCeo:
                     "acceptance_criteria": ["Approve"],
                 })
 
-            assert mock_rcts.called, "run_coroutine_threadsafe should have been called"
-            coro_arg = mock_rcts.call_args[0][0]
-            loop_arg = mock_rcts.call_args[0][1]
-            assert loop_arg is mock_loop
-            # Verify event_bus.publish was called to create the coroutine
-            assert mock_event_bus.publish.called
-            call_args = mock_event_bus.publish.call_args
-            event = call_args[0][0] if call_args[0] else call_args[1].get("event")
-            assert event.type == "ceo_inbox_updated"
-            # Clean up unawaited coroutine
-            coro_arg.close()
+            child_node = tree.get_node(result["node_id"])
+            assert child_node.node_type == "ceo_request"
         finally:
             _reset_context(tok_v, tok_t)
 
@@ -191,9 +173,6 @@ class TestCeoRequestIdempotency:
         vessel = MagicMock()
         tok_v, tok_t = _set_context(vessel, root_id)
         mock_em = _make_mock_em(root_id)
-        mock_loop = MagicMock()
-        mock_loop.is_running.return_value = True
-        mock_em._event_loop = mock_loop
 
         try:
             with (
@@ -201,8 +180,6 @@ class TestCeoRequestIdempotency:
                 patch("onemancompany.agents.tree_tools._save_tree"),
                 patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
-                patch("onemancompany.core.events.event_bus", AsyncMock()),
-                patch("asyncio.run_coroutine_threadsafe"),
             ):
                 result1 = dispatch_child.invoke({
                     "employee_id": CEO_ID,
@@ -234,9 +211,6 @@ class TestHoldReason:
         vessel = MagicMock()
         tok_v, tok_t = _set_context(vessel, root_id)
         mock_em = _make_mock_em(root_id)
-        mock_loop = MagicMock()
-        mock_loop.is_running.return_value = True
-        mock_em._event_loop = mock_loop
 
         try:
             with (
@@ -244,8 +218,6 @@ class TestHoldReason:
                 patch("onemancompany.agents.tree_tools._save_tree"),
                 patch("onemancompany.core.store.load_employee", return_value={"id": CEO_ID, "name": "CEO"}),
                 patch("onemancompany.core.vessel.employee_manager", mock_em),
-                patch("onemancompany.core.events.event_bus", AsyncMock()),
-                patch("asyncio.run_coroutine_threadsafe"),
             ):
                 result = dispatch_child.invoke({
                     "employee_id": CEO_ID,

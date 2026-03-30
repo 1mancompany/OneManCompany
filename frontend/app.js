@@ -94,7 +94,6 @@ class AppController {
       console.debug(`[bootstrap] /api/bootstrap took ${(performance.now() - t0).toFixed(0)}ms`);
 
       this.updateRoster(employees);
-      this.updateTaskPanel(tasks);
       this.updateOneononeDropdown(employees);
       this.updateProjectsPanel();
       if (window.officeRenderer) {
@@ -126,7 +125,6 @@ class AppController {
       if (activity_log && activity_log.length > 0) {
         this._renderHistoricalActivityLog(activity_log);
       }
-      this._refreshCeoInbox();
       // Restore pending candidate shortlist modal if HR submitted candidates
       this._restorePendingCandidates();
       // Restore onboarding progress modal if there's an active onboarding
@@ -140,10 +138,9 @@ class AppController {
   }
 
   async _lazyLoadTaskTrees() {
-    // After initial render, fetch full task queue with tree summaries to enrich the panel
+    // After initial render, fetch task queue to overlay progress on project cards
     try {
-      const tasks = await fetch('/api/task-queue').then(r => r.json());
-      this.updateTaskPanel(tasks);
+      this.updateProjectsPanel();
     } catch (e) {
       console.debug('[bootstrap] lazy tree load failed:', e);
     }
@@ -205,11 +202,6 @@ class AppController {
     document.getElementById('employee-count').textContent = `👥 ${employees.length}`;
   }
 
-  async _fetchAndRenderTaskPanel() {
-    const tasks = await fetch('/api/task-queue').then(r => r.json());
-    this.updateTaskPanel(tasks);
-  }
-
   async _fetchAndRenderRooms() {
     const rooms = await fetch('/api/rooms').then(r => r.json());
     if (window.officeRenderer) {
@@ -237,7 +229,6 @@ class AppController {
     if (msg.type === 'state_changed') {
       const c = msg.changed || [];
       if (c.includes('employees'))       this._fetchAndRenderRoster();
-      if (c.includes('task_queue'))     this._fetchAndRenderTaskPanel();
       if (c.includes('rooms'))          this._fetchAndRenderRooms();
       if (c.includes('tools'))          this._fetchAndRenderTools();
       if (c.includes('office_layout'))  this._fetchAndRenderOfficeLayout();
@@ -258,30 +249,38 @@ class AppController {
       return;
     }
 
-    // CEO inbox real-time updates
-    if (msg.type === 'ceo_inbox_updated') {
-      this._refreshCeoInbox();
-      return;
-    }
-    if (msg.type === 'ceo_conversation') {
-      const p = msg.payload || msg;
-      if (this._chatPanel && this._currentConvNodeId === p.node_id) {
-        const empName = this._resolveEmployeeName(p.sender);
-        const role = p.origin === 'ea' ? 'EA' : p.sender === 'ceo' ? 'CEO' : empName;
-        this._chatPanel.appendMessage({
-          sender: p.sender,
-          role,
-          text: p.text,
-          timestamp: p.timestamp,
+    // CEO session real-time updates (project-level conversations)
+    if (msg.type === 'ceo_session_message') {
+      const p = msg.payload || {};
+      this._refreshCeoProjectList();
+      // If viewing this project in terminal, append message
+      if (this._currentCeoProject === p.project_id && this._ceoTerm) {
+        this._ceoTerm.appendMessage({
+          role: 'system',
+          text: p.message,
+          source: p.source_employee || 'system',
         });
       }
+      // Also refresh project list panel
+      this.updateProjectsPanel();
       return;
     }
-
     // Unified conversation events
     if (msg.type === 'conversation_message') {
       const p = msg.payload || msg;
-      if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
+      // xterm terminal path takes priority when viewing a 1-on-1
+      if (this._currentConvId === p.conv_id && this._ceoTerm && this._currentConvType === 'oneonone') {
+        // Skip CEO's own messages (already shown via optimistic append)
+        if (p.sender !== 'ceo' && p.text != null) {
+          const empNick = this._resolveEmployeeNickname(p.employee_id || this._currentConvEmployeeId || '');
+          this._ceoTerm.appendMessage({
+            role: 'system',
+            text: p.text,
+            source: empNick,
+          });
+        }
+      } else if (this._chatPanel && p.conv_id === this._chatPanel.getConvId() && p.text != null) {
+        // ChatPanel path (only for non-terminal conversations)
         this._chatPanel.appendMessage(p);
       }
       return;
@@ -290,6 +289,21 @@ class AppController {
       const p = msg.payload || msg;
       if (p.phase === 'closed' && this._chatPanel && p.conv_id === this._chatPanel.getConvId()) {
         this._chatPanel.setInputEnabled(false);
+      }
+      // Refresh 1-on-1 list when a conversation closes
+      if (p.phase === 'closed') {
+        this._refreshOneononeList();
+        // If we were viewing this closed conversation, show a notice
+        if (this._currentConvId === p.conv_id && this._ceoTerm) {
+          this._ceoTerm.appendMessage({
+            role: 'system',
+            text: '1-on-1 session ended.',
+            source: 'system',
+          });
+          this._currentConvId = null;
+          this._currentConvType = null;
+          this._currentConvEmployeeId = null;
+        }
       }
       return;
     }
@@ -531,217 +545,20 @@ class AppController {
     });
   }
 
-  // ===== Panel Divider Drag =====
+  // ===== Panel Divider Drag (removed — grid gap replaces dividers) =====
   _initPanelDividers() {
-    const app = document.getElementById('app');
-    const dividerL = document.getElementById('divider-left');
-    const dividerR = document.getElementById('divider-right');
-
-    // Restore saved widths
-    const savedLeft = localStorage.getItem('panel_left_w');
-    const savedRight = localStorage.getItem('panel_right_w');
-    if (savedLeft || savedRight) {
-      const lw = parseInt(savedLeft) || 240;
-      const rw = parseInt(savedRight) || 340;
-      app.style.gridTemplateColumns = `${lw}px 6px 1fr 6px ${rw}px`;
-    }
-
-    const startDrag = (divider, side) => {
-      return (eDown) => {
-        eDown.preventDefault();
-        divider.classList.add('dragging');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        const startX = eDown.clientX;
-        const cols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
-        const leftW = parseFloat(cols[0]);
-        const rightW = parseFloat(cols[4]);
-
-        const onMove = (eMove) => {
-          const dx = eMove.clientX - startX;
-          if (side === 'left') {
-            const newW = Math.max(120, Math.min(leftW + dx, window.innerWidth * 0.4));
-            app.style.gridTemplateColumns = `${newW}px 6px 1fr 6px ${rightW}px`;
-          } else {
-            const newW = Math.max(200, Math.min(rightW - dx, window.innerWidth * 0.5));
-            app.style.gridTemplateColumns = `${leftW}px 6px 1fr 6px ${newW}px`;
-          }
-        };
-
-        const onUp = () => {
-          divider.classList.remove('dragging');
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-          // Save widths
-          const finalCols = getComputedStyle(app).gridTemplateColumns.split(/\s+/);
-          localStorage.setItem('panel_left_w', parseInt(finalCols[0]));
-          localStorage.setItem('panel_right_w', parseInt(finalCols[4]));
-          // Resize canvas
-          if (window.officeRenderer) window.officeRenderer._resizeCanvas();
-        };
-
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-      };
-    };
-
-    dividerL.addEventListener('mousedown', startDrag(dividerL, 'left'));
-    dividerR.addEventListener('mousedown', startDrag(dividerR, 'right'));
+    // Draggable resize handles for all grid panel borders
+    this._gridResizer = new GridResizer();
   }
 
-  // ===== Task Panel =====
-  updateTaskPanel(tasks) {
-    if (tasks) {
-      this._renderTaskPanel(tasks);
-      return;
-    }
-    fetch('/api/task-queue')
-      .then(r => r.json())
-      .then(t => this._renderTaskPanel(t))
-      .catch(err => console.error('[loadTaskQueue] failed:', err));
-  }
-
-  _renderTaskPanel(tasks) {
-    const panel = document.getElementById('task-panel-list');
-    if (!tasks || tasks.length === 0) {
-      panel.innerHTML = '<div class="task-empty">No active tasks</div>';
-      return;
-    }
-    panel.innerHTML = '';
-    for (const t of tasks) {
-      const card = document.createElement('div');
-      const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
-      card.className = `task-card ${t.status}`;
-
-      // Status icon
-      const statusMap = {
-        pending: ['⏳', 'Pending'],
-        processing: ['🔄', 'Processing'],
-        completed: ['✅', 'Completed'],
-        finished: ['🏁', 'Finished'],
-        failed: ['❌', 'Failed'],
-        cancelled: ['🚫', 'Cancelled'],
-        holding: ['⏸️', 'Holding'],
-      };
-      const [icon, label] = statusMap[t.status] || ['⏳', t.status];
-
-      // Owner — resolve from tree root node for better display
-      let ownerLabel = '';
-      if (!isTerminal) {
-        const ownerEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === t.current_owner);
-        ownerLabel = ownerEmp ? (ownerEmp.nickname || ownerEmp.name) : '';
-        if (t.current_owner === 'pending' || !ownerLabel) {
-          ownerLabel = t.routed_to || '';
-        }
-      } else if (t.tree) {
-        const rootNode = t.tree.active_nodes?.[0];
-        if (rootNode) {
-          const rootEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === rootNode.employee_id);
-          ownerLabel = rootEmp ? (rootEmp.nickname || rootEmp.name) : rootNode.employee_id;
-        }
-      }
-
-      // Task description
-      const taskText = this._escHtml(t.task.substring(0, 80)) + (t.task.length > 80 ? '...' : '');
-
-      // Result from tree root node for completed tasks
-      let resultHtml = '';
-      if (isTerminal && t.tree) {
-        const rootNode = t.tree.root_result;
-        if (rootNode) {
-          const firstLine = rootNode.split('\n').find(l => l.trim()) || '';
-          const summary = firstLine.substring(0, 120);
-          resultHtml = `<div class="task-card-result">${this._escHtml(summary)}${firstLine.length > 120 ? '...' : ''}</div>`;
-        }
-      }
-
-      // Tree progress — only for active multi-node trees
-      let treeHtml = '';
-      if (!isTerminal && t.tree) {
-        const tr = t.tree;
-        const childCount = tr.total - 1;
-        if (childCount > 0) {
-          const done = tr.terminal;
-          const pct = Math.round((done / childCount) * 100);
-          treeHtml = `<div class="task-card-tree">
-            <div class="task-tree-progress"><div class="task-tree-bar" style="width:${pct}%"></div></div>
-            <span class="task-tree-label">${done}/${childCount} subtasks</span>
-          </div>`;
-        }
-        if (tr.active_nodes && tr.active_nodes.length > 0) {
-          const nodesHtml = tr.active_nodes.slice(0, 3).map(n => {
-            const nEmp = (window.officeRenderer?.state?.employees || []).find(e => e.id === n.employee_id);
-            const nName = nEmp ? (nEmp.nickname || nEmp.name) : n.employee_id;
-            const nColor = n.status === 'processing' ? 'var(--pixel-green)' : 'var(--text-dim)';
-            return `<div class="task-tree-node" style="border-left-color:${nColor};"><span class="task-tree-node-name">${this._escHtml(nName)}</span> <span class="task-tree-node-desc">${this._escHtml(n.description)}</span></div>`;
-          }).join('');
-          const extra = tr.active_nodes.length > 3 ? `<div style="color:var(--text-dim);font-size:5px;">+${tr.active_nodes.length - 3} more</div>` : '';
-          treeHtml += `<div class="task-tree-nodes">${nodesHtml}${extra}</div>`;
-        }
-      }
-
-      // Completed time
-      let timeHtml = '';
-      if (isTerminal && t.completed_at) {
-        const completedTime = t.completed_at.substring(11, 19);
-        timeHtml = `<span class="task-card-time">${completedTime}</span>`;
-      }
-
-      // Trace button
-      const traceBtn = t.project_id
-        ? `<button class="task-trace-btn" data-project-id="${this._escHtml(t.project_id)}" title="Trace" style="background:transparent;color:#4af;border:1px solid #333;padding:0 4px;font-size:8px;cursor:pointer;font-family:monospace;margin-right:2px">T</button>`
-        : '';
-
-      // Cancel button for active tasks
-      const cancelBtn = !isTerminal && t.project_id
-        ? `<button class="task-cancel-btn" data-project-id="${this._escHtml(t.project_id)}" title="Cancel">✕</button>`
-        : '';
-
-      card.innerHTML = `
-        <div class="task-card-header">
-          <span class="task-card-status">${icon} ${label}</span>
-          <span class="task-card-meta">${ownerLabel ? this._escHtml(ownerLabel) : ''}${timeHtml ? (ownerLabel ? ' · ' : '') + timeHtml : ''}${traceBtn}${cancelBtn}</span>
-        </div>
-        <div class="task-card-text">${taskText}</div>
-        ${resultHtml}
-        ${treeHtml}
-      `;
-
-      // Bind cancel button
-      const btn = card.querySelector('.task-cancel-btn');
-      if (btn) {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._cancelTask(btn.dataset.projectId);
-        });
-      }
-
-      // Bind trace button
-      const trBtn = card.querySelector('.task-trace-btn');
-      if (trBtn) {
-        trBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.openTraceViewer(trBtn.dataset.projectId, t.task.substring(0, 40));
-        });
-      }
-
-      if (t.project_id && !t.project_id.startsWith('_auto_')) {
-        card.style.cursor = 'pointer';
-        card.addEventListener('click', () => this._openTaskInBoard(t.project_id));
-      }
-      panel.appendChild(card);
-    }
-  }
-
+  // ===== Cancel Task (used by project card overlay) =====
   async _cancelTask(projectId) {
     if (!confirm('Are you sure you want to cancel this task?')) return;
     try {
       const resp = await fetch(`/api/task/${projectId}/abort`, { method: 'POST' });
       const data = await resp.json();
       if (data.status === 'ok') {
-        this.updateTaskPanel();
+        this.updateProjectsPanel();
       }
     } catch (e) {
       console.error('Cancel task failed:', e);
@@ -914,55 +731,12 @@ class AppController {
 
   // ===== UI Bindings =====
   bindUI() {
-    const submitBtn = document.getElementById('submit-btn');
     const hrBtn = document.getElementById('hr-review-btn');
-    const input = document.getElementById('task-input');
 
-    submitBtn.addEventListener('click', () => this.submitTask());
+    // Initialize CEO Terminal (xterm.js-based)
+    this._initCeoTerminal();
 
-    // Paste image into task input
-    input.addEventListener('paste', (e) => {
-      const items = e.clipboardData && e.clipboardData.items;
-      if (!items) return;
-      const files = [];
-      for (const item of items) {
-        if (item.kind === 'file') {
-          files.push(item.getAsFile());
-        }
-      }
-      if (files.length) {
-        e.preventDefault();
-        this._handleTaskFileSelect(files);
-      }
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        this.submitTask();
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        if (this._inputHistory.length === 0) return;
-        if (this._historyIndex === -1) this._historyDraft = input.value;
-        if (this._historyIndex < this._inputHistory.length - 1) {
-          this._historyIndex++;
-          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
-        }
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        if (this._historyIndex <= 0) {
-          this._historyIndex = -1;
-          input.value = this._historyDraft;
-        } else {
-          this._historyIndex--;
-          input.value = this._inputHistory[this._inputHistory.length - 1 - this._historyIndex];
-        }
-      }
-    });
-
-    // Load active projects into selector on startup
-    this.loadActiveProjects();
-
-    hrBtn.addEventListener('click', () => {
+    hrBtn?.addEventListener('click', () => {
       hrBtn.disabled = true;
       this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
       fetch('/api/hr/review', { method: 'POST' })
@@ -1136,7 +910,7 @@ class AppController {
     });
 
     // Reload data button
-    document.getElementById('reload-toolbar-btn').addEventListener('click', () => this.adminReload());
+    document.getElementById('reload-toolbar-btn')?.addEventListener('click', () => this.adminReload());
 
     // Operations dashboard modal bindings
     document.getElementById('dashboard-toolbar-btn').addEventListener('click', () => this.openDashboard());
@@ -1231,8 +1005,8 @@ class AppController {
       e.target.value = '';
     });
 
-    // CEO task file upload
-    document.getElementById('task-file-input').addEventListener('change', (e) => {
+    // CEO task file upload (element may not exist if terminal mode)
+    document.getElementById('task-file-input')?.addEventListener('change', (e) => {
       this._handleTaskFileSelect(e.target.files);
       e.target.value = '';
     });
@@ -2338,174 +2112,437 @@ class AppController {
     return projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   }
 
-  // ===== CEO Inbox =====
-  async _refreshCeoInbox(page) {
-    try {
-      const p = page || this._inboxPage || 1;
-      const resp = await fetch(`/api/ceo/inbox?page=${p}&page_size=10`);
-      const data = await resp.json();
-      this._inboxPage = data.page;
-      this._inboxTotalPages = data.total_pages;
-      this._renderCeoInbox(data.items || [], data.total, data.page, data.total_pages);
-    } catch (e) {
-      console.error('Failed to refresh CEO inbox:', e);
-    }
+  // ===== CEO Terminal (two-column: project list + xterm conversation) ===== //
+
+  _currentCeoProject = null;  // Currently selected project_id (session-level, e.g. "proj/iter_001")
+
+  async _initCeoTerminal() {
+    const messagesContainer = document.getElementById('ceo-conv-messages');
+    if (!messagesContainer) return;
+
+    this._ceoTerm = new CeoTerminal(messagesContainer);
+
+    // Wire project list toggle
+    const toggle = document.getElementById('ceo-list-toggle');
+    const projectList = document.getElementById('ceo-project-list');
+    toggle?.addEventListener('click', () => {
+      const collapsed = projectList.classList.toggle('collapsed');
+      toggle.textContent = collapsed ? '▶' : '◀';
+      // Refit terminal after animation
+      setTimeout(() => this._ceoTerm?._fit(), 200);
+    });
+
+    // Wire 1-on-1 section collapsible toggle
+    document.getElementById('ceo-oneonone-toggle')?.addEventListener('click', () => {
+      const items = document.getElementById('ceo-oneonone-items');
+      const arrow = document.querySelector('#ceo-oneonone-toggle .ceo-section-arrow');
+      items?.classList.toggle('collapsed');
+      if (arrow) arrow.textContent = items.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+    });
+
+    // Wire HTML input
+    const input = document.getElementById('ceo-conv-input');
+    this._inputHistory = JSON.parse(localStorage.getItem('ceo-input-history') || '[]');
+    this._inputHistoryIdx = this._inputHistory.length;
+    const doSend = async () => {
+      const text = (input?.value || '').trim();
+      if (!text) return;
+      // Save to input history
+      if (!this._inputHistory.length || this._inputHistory[this._inputHistory.length - 1] !== text) {
+        this._inputHistory.push(text);
+        if (this._inputHistory.length > 100) this._inputHistory.shift();
+        localStorage.setItem('ceo-input-history', JSON.stringify(this._inputHistory));
+      }
+      this._inputHistoryIdx = this._inputHistory.length;
+      input.value = '';
+
+      // Show CEO message immediately in terminal
+      this._ceoTerm?.appendCeoMessage(text);
+
+      // /iter mode: create new iteration on pending project
+      if (this._pendingIterProject) {
+        const pid = this._pendingIterProject;
+        this._pendingIterProject = null;
+        if (input) input.placeholder = '$ Type message, / for commands (Enter to send)';
+        try {
+          const formData = new FormData();
+          formData.append('task', text);
+          formData.append('project_id', pid.split('/')[0]);
+          formData.append('mode', 'standard');
+          await fetch('/api/ceo/task', { method: 'POST', body: formData });
+          await this._refreshCeoProjectList();
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'New iteration created.', source: 'system' });
+        } catch (e) { console.error('Failed to create iteration:', e); }
+        input?.focus();
+        return;
+      }
+
+      // 1-on-1 conversation mode: send via conversation API
+      if (this._currentConvType === 'oneonone' && this._currentConvId) {
+        try {
+          await fetch(`/api/conversation/${this._currentConvId}/message`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text }),
+          });
+        } catch (e) { console.error('Failed to send 1-on-1 message:', e); }
+        input?.focus();
+        return;
+      }
+
+      if (!this._currentCeoProject) {
+        // New task (simple or standard mode)
+        const mode = this._pendingSimpleMode ? 'simple' : 'standard';
+        this._pendingSimpleMode = false;
+        const inp = document.getElementById('ceo-conv-input');
+        if (inp) inp.placeholder = '$ Type message, / for commands (Enter to send)';
+        try {
+          const formData = new FormData();
+          formData.append('task', text);
+          formData.append('mode', mode);
+          await fetch('/api/ceo/task', { method: 'POST', body: formData });
+          await this._refreshCeoProjectList();
+        } catch (e) { console.error('Failed to submit task:', e); }
+      } else {
+        try {
+          await fetch(`/api/ceo/sessions/${encodeURIComponent(this._currentCeoProject)}/message`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text}),
+          });
+          await this._refreshCeoProjectList();
+        } catch (e) { console.error('Failed to send:', e); }
+      }
+
+      input?.focus();
+    };
+
+    input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        const activeItem = slashMenu?.querySelector('.slash-item.active');
+        if (activeItem && !slashMenu.classList.contains('hidden')) {
+          activeItem.click();
+          return;
+        }
+        doSend();
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        if (slashMenu && !slashMenu.classList.contains('hidden')) {
+          e.preventDefault();
+          this._navigateSlashMenu(e.key === 'ArrowDown' ? 1 : -1);
+        } else if (this._inputHistory?.length) {
+          e.preventDefault();
+          if (e.key === 'ArrowUp' && this._inputHistoryIdx > 0) {
+            this._inputHistoryIdx--;
+            input.value = this._inputHistory[this._inputHistoryIdx];
+          } else if (e.key === 'ArrowDown') {
+            if (this._inputHistoryIdx < this._inputHistory.length - 1) {
+              this._inputHistoryIdx++;
+              input.value = this._inputHistory[this._inputHistoryIdx];
+            } else {
+              this._inputHistoryIdx = this._inputHistory.length;
+              input.value = '';
+            }
+          }
+        }
+      }
+      if (e.key === 'Escape') {
+        const slashMenu = document.getElementById('ceo-slash-menu');
+        slashMenu?.classList.add('hidden');
+      }
+    });
+    input?.addEventListener('input', () => this._handleSlashInput(input));
+
+    // File upload
+    const fileInput = document.getElementById('ceo-file-input');
+    fileInput?.addEventListener('change', () => {
+      if (!fileInput.files?.length) return;
+      const names = Array.from(fileInput.files).map(f => f.name).join(', ');
+      this._ceoTerm?.appendMessage({
+        role: 'system', text: `Attached: ${names}`, source: 'upload',
+      });
+      // Store files for next send
+      this._pendingFiles = Array.from(fileInput.files);
+      fileInput.value = '';
+    });
+
+    await this._refreshCeoProjectList();
   }
 
-  _renderCeoInbox(items, total, page, totalPages) {
-    const list = document.getElementById('ceo-inbox-list');
-    const badge = document.getElementById('ceo-inbox-badge');
-    if (!list) return;
+  // --- Slash command menu --- //
 
-    if (total === 0 || items.length === 0) {
-      list.innerHTML = '<div class="inbox-empty">No pending requests</div>';
-      if (badge) { badge.textContent = '0'; badge.classList.add('hidden'); }
+  get _slashCommands() {
+    const projName = this._currentCeoProject ? this._currentCeoProject.split('/')[0] : null;
+    return [
+      { cmd: '/new', desc: 'Create a new project', action: () => {
+        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
+        this._refreshCeoProjectList(); this._ceoTerm?.showChat(null, []);
+      }},
+      { cmd: '/iter', desc: projName ? `New iteration on "${projName}"` : 'Select a project first', action: () => {
+        if (!this._currentCeoProject) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'Select a project first, then use /iter', source: 'system' });
+          return;
+        }
+        // Switch to new-iter mode: next Enter submits as iteration
+        this._pendingIterProject = this._currentCeoProject;
+        this._ceoTerm?.appendMessage({ role: 'system', text: `Type the iteration goal for "${projName}". Press Enter to create.`, source: 'system' });
+        const input = document.getElementById('ceo-conv-input');
+        if (input) input.placeholder = `$ New iteration for ${projName}...`;
+      }},
+      { cmd: '/end', desc: this._currentConvType === 'oneonone' ? 'End current 1-on-1 (triggers reflection)' : 'No active 1-on-1', action: () => {
+        if (this._currentConvType !== 'oneonone' || !this._currentConvId) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: 'No active 1-on-1 to end.', source: 'system' });
+          return;
+        }
+        this._endOneononeFromTerminal();
+      }},
+      { cmd: '/simple', desc: 'Simple task (no retrospective)', action: () => {
+        this._pendingSimpleMode = true;
+        this._currentCeoProject = null; this._currentConvId = null; this._currentConvType = null;
+        this._refreshCeoProjectList();
+        this._ceoTerm?.showChat(null, []);
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Simple mode: type task and press Enter. EA will dispatch directly, no retrospective.', source: 'system' });
+        const input = document.getElementById('ceo-conv-input');
+        if (input) input.placeholder = '$ Simple task (Enter to submit)...';
+      }},
+      { cmd: '/review', desc: 'Trigger quarterly performance review', action: () => {
+        this._ceoTerm?.appendMessage({ role: 'system', text: 'Triggering quarterly review...', source: 'system' });
+        this.logEntry('CEO', '🔄 Triggering quarterly review...', 'ceo');
+        fetch('/api/hr/review', { method: 'POST' })
+          .then(r => r.json())
+          .then(data => {
+            if (data.error) {
+              this._ceoTerm?.appendMessage({ role: 'system', text: `Review failed: ${data.error}`, source: 'system' });
+              this.logEntry('SYSTEM', `Review failed: ${data.error}`, 'system');
+            } else {
+              this._ceoTerm?.appendMessage({ role: 'system', text: '📋 Quarterly review task assigned to HR', source: 'system' });
+              this.logEntry('HR', '📋 Quarterly review task assigned to HR', 'hr');
+            }
+          })
+          .catch(e => {
+            this._ceoTerm?.appendMessage({ role: 'system', text: `Review error: ${e.message}`, source: 'system' });
+          });
+      }},
+      { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
+    ];
+  }
+
+  _handleSlashInput(input) {
+    const text = input.value;
+    const menu = document.getElementById('ceo-slash-menu');
+    if (!menu) return;
+
+    if (text.startsWith('/')) {
+      const query = text.toLowerCase();
+      const matches = this._slashCommands.filter(c => c.cmd.startsWith(query));
+      if (matches.length) {
+        menu.innerHTML = matches.map((c, i) =>
+          `<div class="slash-item${i === 0 ? ' active' : ''}" data-idx="${i}">` +
+          `<span class="slash-cmd">${c.cmd}</span><span class="slash-desc">${c.desc}</span></div>`
+        ).join('');
+        menu.classList.remove('hidden');
+        menu.querySelectorAll('.slash-item').forEach((el, i) => {
+          el.addEventListener('click', () => {
+            menu.classList.add('hidden');
+            input.value = '';
+            matches[i].action();
+          });
+        });
+        return;
+      }
+    }
+    menu.classList.add('hidden');
+  }
+
+  _navigateSlashMenu(dir) {
+    const menu = document.getElementById('ceo-slash-menu');
+    if (!menu) return;
+    const items = menu.querySelectorAll('.slash-item');
+    if (!items.length) return;
+    let idx = Array.from(items).findIndex(el => el.classList.contains('active'));
+    items[idx]?.classList.remove('active');
+    idx = Math.max(0, Math.min(items.length - 1, idx + dir));
+    items[idx]?.classList.add('active');
+  }
+
+  async _refreshCeoProjectList() {
+    const listEl = document.getElementById('ceo-projects-section');
+    if (!listEl) return;
+
+    let sessions = [];
+    try {
+      const resp = await fetch('/api/ceo/sessions');
+      sessions = (await resp.json()).sessions || [];
+    } catch (e) {}
+
+    // Fetch project names for display
+    let projectNames = {};
+    try {
+      const namesResp = await fetch('/api/projects/named');
+      const namesData = await namesResp.json();
+      for (const p of namesData.projects || namesData || []) {
+        projectNames[p.project_id || p.id] = p.name || p.project_name || '';
+      }
+    } catch (e) { /* ignore */ }
+
+    listEl.innerHTML = '';
+
+    for (const s of sessions) {
+      const item = document.createElement('div');
+      const hasPending = s.has_pending;
+      item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
+      const basePid = (s.project_id || '').split('/')[0];
+      const name = projectNames[basePid] || basePid;
+      const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
+      const badge = hasPending ? '<span class="ceo-proj-pending">●</span>' : '';
+      item.innerHTML = badge + this._escHtml(display);
+      item.addEventListener('click', () => this._selectCeoProject(s.project_id));
+      listEl.appendChild(item);
+    }
+
+    // Render actions pinned at bottom
+    // Also refresh 1-on-1 list
+    this._refreshOneononeList();
+  }
+
+  async _refreshOneononeList() {
+    const container = document.getElementById('ceo-oneonone-items');
+    if (!container) return;
+
+    let convs = [];
+    try {
+      const resp = await fetch('/api/conversations?type=oneonone');
+      convs = (await resp.json()).conversations || [];
+    } catch (e) { /* ignore */ }
+
+    // Filter to active only
+    convs = convs.filter(c => c.phase === 'active');
+
+    container.innerHTML = '';
+    if (!convs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'ceo-section-header';
+      empty.style.fontStyle = 'italic';
+      empty.textContent = 'No active sessions';
+      container.appendChild(empty);
       return;
     }
 
-    if (badge) {
-      badge.textContent = total;
-      badge.classList.remove('hidden');
-      badge.classList.toggle('inbox-badge-active', total > 0);
-    }
-
-    const rows = items.map(item => {
-      const statusIcon = item.status === 'processing' ? '🔄' : '⏸';
-      const dismissBtn = `<button class="inbox-dismiss-btn" onclick="event.stopPropagation();app._dismissInboxItem('${item.node_id}')" title="Dismiss" style="font-size:10px;padding:2px 4px;margin-left:4px;background:transparent;color:#888;border:1px solid #555;border-radius:3px;cursor:pointer">✕</button>`;
-      return `
-      <div class="inbox-item" data-node-id="${item.node_id}" onclick="app._openCeoConversation('${item.node_id}')">
-        <span class="inbox-status">${statusIcon}</span>
-        <div class="inbox-item-content" style="flex:1">
-          <div class="inbox-item-from">${this._escHtml(item.from_nickname || item.from_employee_id)}</div>
-          <div class="inbox-item-desc">${this._escHtml(item.description || '')}</div>
-        </div>
-        ${dismissBtn}
-      </div>`;
-    }).join('');
-
-    // Pagination controls
-    const pager = totalPages > 1 ? `
-      <div class="inbox-pager" style="display:flex;justify-content:center;align-items:center;gap:8px;padding:4px 0;font-size:11px;color:#999">
-        <button onclick="app._refreshCeoInbox(${page - 1})" ${page <= 1 ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">◀</button>
-        <span>${page} / ${totalPages}</span>
-        <button onclick="app._refreshCeoInbox(${page + 1})" ${page >= totalPages ? 'disabled' : ''} style="background:transparent;color:#aaa;border:1px solid #555;border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px">▶</button>
-      </div>` : '';
-
-    list.innerHTML = rows + pager;
-  }
-
-  async _dismissInboxItem(nodeId) {
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/dismiss`, { method: 'POST' });
-      this._refreshCeoInbox();
-    } catch (e) {
-      console.error('Failed to dismiss inbox item:', e);
+    for (const conv of convs) {
+      const item = document.createElement('div');
+      const empName = this._resolveEmployeeNickname(conv.employee_id);
+      item.className = 'ceo-oneonone-item' + (this._currentConvId === conv.id ? ' active' : '');
+      item.textContent = empName;
+      item.title = `1-on-1 with ${empName}`;
+      item.addEventListener('click', () => this._openOneononeInTerminal(conv));
+      container.appendChild(item);
     }
   }
 
-  // ===== CEO Conversation (reuses ChatPanel) =====
-  async _openCeoConversation(nodeId) {
+  async _openOneononeInTerminal(conv) {
+    // Clear project selection
+    this._currentCeoProject = null;
+    this._currentConvId = conv.id;
+    this._currentConvType = 'oneonone';
+    this._currentConvEmployeeId = conv.employee_id;
+
+    // Update active states in lists
+    document.querySelectorAll('.ceo-proj-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.ceo-oneonone-item').forEach(el => el.classList.remove('active'));
+    // Find and activate this one
+    const items = document.querySelectorAll('.ceo-oneonone-item');
+    items.forEach(el => {
+      if (el.textContent === this._resolveEmployeeName(conv.employee_id)) {
+        el.classList.add('active');
+      }
+    });
+
+    // Load conversation messages
+    let messages = [];
     try {
-      const resp = await fetch(`/api/ceo/inbox/${nodeId}/open`, { method: 'POST' });
+      const resp = await fetch(`/api/conversation/${conv.id}/messages`);
       const data = await resp.json();
-      this._currentConvNodeId = nodeId;
-
-      const chatContainer = document.getElementById('right-panel-chat');
-      // Hide CEO Console + CEO Inbox sections
-      for (const target of ['ceo-body', 'ceo-inbox-body']) {
-        const body = document.getElementById(target);
-        if (body) body.style.display = 'none';
-        const header = body?.previousElementSibling;
-        if (header?.classList.contains('collapsible-header')) header.style.display = 'none';
-      }
-      chatContainer.classList.remove('hidden');
-
-      if (!this._chatPanel) {
-        this._chatPanel = new ChatPanel(chatContainer);
-      }
-      // Wire callbacks for CEO inbox APIs
-      this._chatPanel.onSend((id, text) => this._sendCeoInboxMessage(id, text));
-      this._chatPanel.onClear(null);
-      this._chatPanel.onClose((id) => this._completeCeoConversation(id));
-      // Show and reset EA auto-reply toggle in sidebar header
-      const eaToggle = document.getElementById('ea-autoreply-toggle');
-      const eaCb = document.getElementById('ea-autoreply-checkbox');
-      if (eaToggle) eaToggle.classList.remove('hidden');
-      if (eaCb) eaCb.checked = false;
-
-      const nickname = data.employee_nickname || data.employee_id || 'Employee';
-      this._chatPanel.setConversation(nodeId, 'ceo_inbox', nickname);
-      // Convert inbox messages to ChatPanel format (add role field)
-      const messages = (data.messages || []).map(m => ({
-        ...m,
-        role: m.sender === 'ceo' ? 'CEO' : nickname,
-      }));
-      // Prepend description as initial agent message if no messages exist yet
-      if (data.description && messages.length === 0) {
-        messages.unshift({ role: nickname, text: data.description, sender: 'employee' });
-      }
-      this._chatPanel.renderMessages(messages);
-      this._chatPanel.setInputEnabled(true);
+      messages = data.messages || [];
     } catch (e) {
-      console.error('Failed to open conversation:', e);
+      console.error('Failed to load conversation messages:', e);
     }
+
+    // Convert to terminal format
+    const empNick = this._resolveEmployeeNickname(conv.employee_id);
+    const history = messages.map(m => ({
+      role: m.sender === 'ceo' ? 'ceo' : 'system',
+      text: m.text || '',
+      source: m.sender === 'ceo' ? undefined : empNick,
+    }));
+
+    this._ceoTerm?.showChat(`1on1:${empNick}`, history);
   }
 
-  async _sendCeoInboxMessage(nodeId, text) {
-    if (!this._chatPanel || !nodeId) return;
-    this._chatPanel.showTyping(true);
+  async _endOneononeFromTerminal() {
+    const convId = this._currentConvId;
+    if (!convId) return;
+
+    this._ceoTerm?.appendMessage({ role: 'system', text: 'Ending 1-on-1... employee is reflecting on the conversation...', source: 'system' });
+    this.logEntry('SYSTEM', 'Ending 1-on-1... employee is reflecting on the conversation...', 'system');
+
     try {
-      await fetch(`/api/ceo/inbox/${nodeId}/message`, {
+      const resp = await fetch(`/api/conversation/${convId}/close?wait_hooks=true`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
+      }).then(r => r.json()).catch(() => ({}));
+
+      if (resp.hook_result) {
+        const hr = resp.hook_result;
+        const empName = this._resolveEmployeeNickname(resp.employee_id || this._currentConvEmployeeId || '');
+        if (hr.principles_updated) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `${empName} updated their work principles based on the meeting.`, source: 'system' });
+          this.logEntry('SYSTEM', `${empName} updated their work principles based on the meeting.`, 'system');
+        }
+        if (hr.note_saved) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `1-on-1 note saved to ${empName}'s guidance record.`, source: 'system' });
+          this.logEntry('SYSTEM', `1-on-1 note saved to ${empName}'s guidance record.`, 'system');
+        }
+        if (!hr.principles_updated && !hr.note_saved) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: `1-on-1 ended (no reflection generated).`, source: 'system' });
+        }
+      } else {
+        this._ceoTerm?.appendMessage({ role: 'system', text: '1-on-1 ended.', source: 'system' });
+      }
     } catch (e) {
-      this._chatPanel.showTyping(false);
-      console.error('Failed to send message:', e);
+      this._ceoTerm?.appendMessage({ role: 'system', text: `Failed to end 1-on-1: ${e.message}`, source: 'system' });
     }
-    // Reply arrives via WebSocket ceo_conversation event
+
+    // Clear 1-on-1 state
+    this._currentConvId = null;
+    this._currentConvType = null;
+    this._currentConvEmployeeId = null;
+    this._refreshCeoProjectList();
   }
 
-  async _completeCeoConversation(nodeId) {
-    if (!nodeId) nodeId = this._currentConvNodeId;
-    if (!nodeId) return;
-    if (!confirm('Complete this conversation and send your decision to the agent?')) return;
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/complete`, { method: 'POST' });
-    } catch (e) {
-      console.error('Failed to complete conversation:', e);
-    }
-    // Restore right panel
-    const chatContainer = document.getElementById('right-panel-chat');
-    chatContainer.classList.add('hidden');
-    // Hide EA auto-reply toggle
-    const eaToggle = document.getElementById('ea-autoreply-toggle');
-    if (eaToggle) eaToggle.classList.add('hidden');
-    this._restoreConsoleSections();
-    this._chatPanel = null;
-    this._currentConvNodeId = null;
-    this._refreshCeoInbox();
-  }
+  async _selectCeoProject(projectId) {
+    this._currentCeoProject = projectId;
+    this._currentConvId = null;
+    this._currentConvType = null;
+    this._currentConvEmployeeId = null;
+    this._refreshCeoProjectList();
 
-  async _confirmEaReply(nodeId) {
-    try {
-      await fetch(`/api/ceo/inbox/${nodeId}/confirm`, { method: 'POST' });
-      this._refreshCeoInbox();
-    } catch (e) {
-      console.error('Failed to confirm EA reply:', e);
+    if (!projectId) {
+      this._ceoTerm?.showChat(null, []);
+      return;
     }
-  }
 
-  async _toggleEaAutoReply(nodeId, enabled) {
     try {
-      await fetch(`/api/ceo/inbox/${nodeId}/ea-auto-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled }),
-      });
+      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
+      if (!resp.ok) {
+        this._ceoTerm?.showChat(projectId, []);
+        return;
+      }
+      const data = await resp.json();
+      this._ceoTerm?.showChat(projectId, data.history || []);
     } catch (e) {
-      console.error('Failed to toggle EA auto-reply:', e);
+      this._ceoTerm?.showChat(projectId, []);
     }
   }
 
@@ -5473,6 +5510,7 @@ class AppController {
 
   _updateTaskPreviewBar() {
     const bar = document.getElementById('task-preview-bar');
+    if (!bar) return;
     if (!this._taskPendingFiles.length) {
       bar.classList.add('hidden');
       bar.innerHTML = '';
@@ -5986,7 +6024,7 @@ class AppController {
     const chatContainer = document.getElementById('right-panel-chat');
 
     // Hide CEO Console + CEO Inbox sections only, keep Activity Log visible
-    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+    for (const target of ['ceo-body']) {
       const body = document.getElementById(target);
       if (body) body.style.display = 'none';
       // Hide the corresponding collapsible header
@@ -6037,6 +6075,24 @@ class AppController {
     return employeeId;
   }
 
+  _resolveEmployeeNickname(employeeId) {
+    // Returns "花名 (编号)" format for compact display
+    const sources = [
+      window.officeRenderer?.state?.employees,
+      window.app?._lastSnapshot?.employees,
+    ];
+    for (const employees of sources) {
+      if (!employees) continue;
+      const list = Array.isArray(employees) ? employees : Object.values(employees);
+      const emp = list.find(e => e.id === employeeId || e.employee_id === employeeId);
+      if (emp) {
+        const nick = emp.nickname || emp.name || employeeId;
+        return nick === employeeId ? employeeId : `${nick} (${employeeId})`;
+      }
+    }
+    return employeeId;
+  }
+
   async _startOneononeConversation(employeeId) {
     const resp = await fetch('/api/conversation/create', {
       method: 'POST',
@@ -6046,7 +6102,9 @@ class AppController {
       }),
     });
     const conv = await resp.json();
-    await this._openConversation(conv.id);
+    // Open 1-on-1 in the xterm terminal instead of ChatPanel
+    await this._openOneononeInTerminal(conv);
+    await this._refreshOneononeList();
   }
 
   async _sendConversationMessage(convId, text, attachments) {
@@ -6132,7 +6190,7 @@ class AppController {
   }
 
   _restoreConsoleSections() {
-    for (const target of ['ceo-body', 'ceo-inbox-body']) {
+    for (const target of ['ceo-body']) {
       const body = document.getElementById(target);
       if (body) body.style.display = '';
       const header = body?.previousElementSibling;
@@ -6254,30 +6312,13 @@ class AppController {
     return true;
   }
 
-  async submitTask() {
-    const input = document.getElementById('task-input');
-    const task = input.value.trim();
+  async submitTask(mode = 'standard', taskText = null) {
+    const task = taskText || '';
     if (!task) return;
     if (!this._checkCooldown('submitTask')) return;
 
-    // Read project selector
-    const projectSelect = document.getElementById('project-select');
-    const projectId = projectSelect ? projectSelect.value : '';
-
-    // Save to input history
-    if (this._inputHistory[this._inputHistory.length - 1] !== task) {
-      this._inputHistory.push(task);
-      if (this._inputHistory.length > 20) this._inputHistory.shift();
-      localStorage.setItem('ceo_input_history', JSON.stringify(this._inputHistory));
-    }
-    this._historyIndex = -1;
-    this._historyDraft = '';
-
-    const submitBtn = document.getElementById('submit-btn');
-    submitBtn.disabled = true;
-
-    const simpleToggle = document.getElementById('simple-mode-toggle');
-    const mode = (simpleToggle && simpleToggle.checked) ? 'simple' : 'standard';
+    // Use currently selected project if any
+    const projectId = this._currentCeoProject || '';
 
     // Build multipart FormData — task + files in one request
     const formData = new FormData();
@@ -6288,7 +6329,6 @@ class AppController {
       formData.append('files', f.file);
     }
     this._taskPendingFiles = [];
-    this._updateTaskPreviewBar();
 
     fetch('/api/ceo/task', {
       method: 'POST',
@@ -6297,19 +6337,12 @@ class AppController {
       .then(r => r.json())
       .then(data => {
         this.logEntry('CEO', `Task assigned to ${data.routed_to}`, 'ceo');
-        // Refresh project selector after submit
-        this.loadActiveProjects();
+        // Refresh terminal sessions — new project should appear
+        this._refreshCeoProjectList();
       })
       .catch(err => {
         this.logEntry('SYSTEM', `Submit failed: ${err.message}`, 'system');
-      })
-      .finally(() => {
-        setTimeout(() => { submitBtn.disabled = false; }, 2000);
       });
-
-    input.value = '';
-    // Reset project selector
-    if (projectSelect) projectSelect.value = '';
   }
 
   // ===== Projects Panel =====
@@ -6340,6 +6373,7 @@ class AppController {
             statusClass = 'completed';  // archived → green
           }
           card.className = `project-panel-card status-${statusClass}`;
+          card.dataset.projectId = p.project_id;
           const displayName = p.name || p.task || p.project_id;
           const meta = p.iteration_count != null
             ? `${p.iteration_count} iteration${p.iteration_count !== 1 ? 's' : ''} · ${p.status}`
@@ -6349,11 +6383,112 @@ class AppController {
             <div class="project-panel-meta">${meta}</div>
           `;
           card.style.cursor = 'pointer';
-          card.addEventListener('click', () => this._openProjectDetail(p.project_id));
+          card.addEventListener('click', () => {
+            this._openProjectDetail(p.project_id);
+            this._selectCeoProject(p.project_id);
+          });
           panel.appendChild(card);
         }
+        // Fetch CEO session data and overlay pending indicators
+        this._overlaySessionPendingBadges(panel);
+        // Fetch task queue and overlay progress info on matching project cards
+        this._overlayTaskProgress(panel);
       })
       .catch(err => console.error('[updateProjectsPanel] failed:', err));
+  }
+
+  async _overlaySessionPendingBadges(container) {
+    try {
+      const sessResp = await fetch('/api/ceo/sessions');
+      const sessData = await sessResp.json();
+      const pendingMap = {};
+      for (const s of sessData.sessions || []) {
+        // project_id format: "shortid_name_date/iter_001" — extract base
+        const base = s.project_id.split('/')[0];
+        if (s.has_pending) pendingMap[base] = (pendingMap[base] || 0) + (s.pending_count || 1);
+      }
+      // Add pending badge to matching project cards
+      for (const card of container.querySelectorAll('.project-panel-card')) {
+        const pid = card.dataset.projectId;
+        if (pendingMap[pid]) {
+          const badge = document.createElement('span');
+          badge.className = 'ceo-pending-badge';
+          badge.textContent = `\u25CF ${pendingMap[pid]}`;
+          card.querySelector('.project-panel-name')?.prepend(badge);
+        }
+      }
+    } catch (e) { /* session endpoint may not be available yet */ }
+  }
+
+  async _overlayTaskProgress(container) {
+    try {
+      const taskResp = await fetch('/api/task-queue');
+      const tasks = await taskResp.json();
+
+      for (const t of tasks) {
+        if (!t.project_id) continue;
+        const basePid = t.project_id.split('/')[0];
+        const card = container.querySelector(`.project-panel-card[data-project-id="${basePid}"]`);
+        if (!card) continue;
+
+        const isTerminal = ['completed', 'finished', 'failed', 'cancelled'].includes(t.status);
+
+        let progressHtml = '';
+
+        if (!isTerminal && t.tree) {
+          const childCount = t.tree.total - 1;
+          if (childCount > 0) {
+            const done = t.tree.terminal;
+            const pct = Math.round((done / childCount) * 100);
+            progressHtml += `<div class="proj-progress"><div class="proj-progress-track"><div class="proj-progress-bar" style="width:${pct}%"></div></div><span>${done}/${childCount}</span></div>`;
+          }
+          // Current executor
+          if (t.tree.active_nodes?.length > 0) {
+            const node = t.tree.active_nodes[0];
+            const emp = (window.officeRenderer?.state?.employees || []).find(e => e.id === node.employee_id);
+            const name = emp ? (emp.nickname || emp.name) : node.employee_id;
+            progressHtml += `<div class="proj-executor">${this._escHtml(name)}</div>`;
+          }
+        }
+
+        // Cancel button for active tasks
+        if (!isTerminal && t.project_id) {
+          progressHtml += `<button class="proj-cancel-btn" data-pid="${this._escHtml(t.project_id)}" title="Cancel">&#10005;</button>`;
+        }
+
+        // Trace button
+        if (t.project_id) {
+          progressHtml += `<button class="proj-trace-btn" data-pid="${this._escHtml(t.project_id)}" data-task="${this._escHtml(t.task.substring(0, 40))}" title="Trace">T</button>`;
+        }
+
+        if (progressHtml) {
+          const overlay = document.createElement('div');
+          overlay.className = 'proj-card-progress';
+          overlay.innerHTML = progressHtml;
+          card.appendChild(overlay);
+
+          // Wire cancel
+          const cancelBtn = overlay.querySelector('.proj-cancel-btn');
+          if (cancelBtn) {
+            cancelBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this._cancelTask(cancelBtn.dataset.pid);
+            });
+          }
+
+          // Wire trace
+          const traceBtn = overlay.querySelector('.proj-trace-btn');
+          if (traceBtn) {
+            traceBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.openTraceViewer(traceBtn.dataset.pid, traceBtn.dataset.task);
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.debug('[_overlayTaskProgress] failed:', e);
+    }
   }
 
   _openTaskInBoard(projectId, nodeId) {
@@ -6942,28 +7077,8 @@ class AppController {
   }
 
   loadActiveProjects() {
-    const select = document.getElementById('project-select');
-    if (!select) return;
-    fetch('/api/projects/named')
-      .then(r => r.json())
-      .then(data => {
-        const projects = this._sortProjectsNewestFirst((data.projects || []).filter(p => p.status === 'active'));
-        // Preserve first two static options
-        const currentVal = select.value;
-        while (select.options.length > 2) select.remove(2);
-        projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-        for (const p of projects) {
-          const opt = document.createElement('option');
-          opt.value = p.project_id;
-          opt.textContent = `📁 ${p.name} (${p.iteration_count})`;
-          select.appendChild(opt);
-        }
-        // Restore selection if still valid
-        if (currentVal && [...select.options].some(o => o.value === currentVal)) {
-          select.value = currentVal;
-        }
-      })
-      .catch(err => console.error('[loadActiveProjects] failed:', err));
+    // Replaced by CEO Terminal — refresh sessions instead
+    this._refreshCeoProjectList();
   }
 
   // ===== Admin Reload =====

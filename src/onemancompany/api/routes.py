@@ -55,10 +55,6 @@ from onemancompany.agents.recruitment import HireRequest, InterviewRequest, Inte
 from onemancompany.core.state import company_state
 from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee as _load_emp, load_all_employees as _load_all
-from onemancompany.core.ceo_conversation import (
-    ConversationSession, get_session, register_session, unregister_session,
-    load_messages, append_message,
-)
 from onemancompany.core.errors import ErrorCode, classify_exception
 from onemancompany.core.background_tasks import background_task_manager
 
@@ -576,6 +572,13 @@ async def ceo_submit_task(
                 acceptance_criteria=[],
             )
             _save_project_tree(pdir, tree)
+            # Create CEO session for the new project
+            from onemancompany.core.ceo_broker import get_ceo_broker
+            broker = get_ceo_broker()
+            session = broker.get_or_create_session(ctx_id)
+            session.project_dir = Path(pdir)
+            session.push_system_message(f"Project created: {task[:100]}", source="system")
+            session.save_history(Path(pdir))
             # Register CEO and EA in project team for project history
             from onemancompany.agents.tree_tools import _add_to_project_team
             _add_to_project_team(pdir, CEO_ID)
@@ -5839,476 +5842,68 @@ async def get_activity_log():
     return log[-50:]
 
 
-# ===== CEO Inbox =====
+# ── Unified CEO Session endpoints ────────────────────────────────────────────
 
 
-def _scan_ceo_inbox_nodes() -> list[dict]:
-    """Scan all active task trees for ceo_request nodes that aren't terminal."""
-    from onemancompany.core.config import PROJECTS_DIR
-    from onemancompany.core.task_tree import get_tree
+@router.get("/api/ceo/sessions")
+async def list_ceo_sessions():
+    """List all CEO sessions, sorted by pending-first."""
+    from onemancompany.core.ceo_broker import get_ceo_broker
 
-    results = []
-    if not PROJECTS_DIR.exists():
-        return results
-
-    # Recursively find all task_tree.yaml files under projects/
-    # TODO: O(N) scan — consider node-to-project index if this becomes slow
-    for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
-        tree = get_tree(tree_path)
-        for node in tree.all_nodes():
-            if node.node_type != NodeType.CEO_REQUEST:
-                continue
-            # ACCEPTED/FINISHED/CANCELLED are fully resolved — hide from inbox
-            if TaskPhase(node.status) in (TaskPhase.ACCEPTED, TaskPhase.FINISHED, TaskPhase.CANCELLED):
-                continue
-            # COMPLETED nodes stay visible if EA auto-replied (awaiting CEO confirmation)
-            # Find dispatching employee (parent)
-            from_id = ""
-            from_nickname = ""
-            parent = tree.get_node(node.parent_id) if node.parent_id else None
-            if parent:
-                from_id = parent.employee_id
-                emp = _load_emp(from_id)
-                from_nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
-            results.append({
-                "project_id": node.project_id,
-                "node_id": node.id,
-                "description": node.title or node._description_preview or "",
-                "from_employee_id": from_id,
-                "from_nickname": from_nickname,
-                "status": node.status,
-                "created_at": node.created_at,
-            })
-    return results
+    broker = get_ceo_broker()
+    return {"sessions": broker.list_sessions()}
 
 
-def _find_ceo_node(node_id: str):
-    """Find a ceo_request node across all project trees.
+@router.get("/api/ceo/sessions/{project_id:path}")
+async def get_ceo_session(project_id: str):
+    """Get a specific CEO session's history and pending status."""
+    from onemancompany.core.ceo_broker import get_ceo_broker
 
-    Returns (node, tree, project_dir) or raises HTTPException(404).
-    """
-    from onemancompany.core.config import PROJECTS_DIR
-    from onemancompany.core.task_tree import get_tree
-
-    if PROJECTS_DIR.exists():
-        # TODO: O(N) scan — consider node-to-project index if this becomes slow
-        for tree_path in PROJECTS_DIR.rglob(TASK_TREE_FILENAME):
-            tree = get_tree(tree_path)
-            node = tree.get_node(node_id)
-            if node and node.node_type == NodeType.CEO_REQUEST:
-                return node, tree, str(tree_path.parent)
-    raise HTTPException(status_code=404, detail=f"CEO request node {node_id} not found")
-
-
-@router.get("/api/ceo/inbox")
-async def get_ceo_inbox(page: int = 1, page_size: int = 10):
-    """List CEO request nodes with pagination.
-
-    Returns newest first. page=1 is the first page.
-    """
-    page = max(1, page)
-    page_size = max(1, min(page_size, 100))
-    items = _scan_ceo_inbox_nodes()
-    # Sort newest first
-    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    total = len(items)
-    start = (page - 1) * page_size
-    end = start + page_size
-    return {
-        "items": items[start:end],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size if total else 1,
-    }
-
-
-@router.post("/api/ceo/inbox/{node_id}/open")
-async def open_ceo_conversation(node_id: str):
-    """Open a conversation with the dispatching employee."""
-    from onemancompany.core.task_lifecycle import transition
-
-    node, tree, project_dir = _find_ceo_node(node_id)
-
-    # Check if session already exists (reopen)
-    session = get_session(node_id)
-    if session:
-        messages = load_messages(Path(project_dir) / "conversations", node_id)
-        return {"status": "resumed", "node_id": node_id, "messages": messages}
-
-    # Transition to processing
-    if node.status == TaskPhase.PENDING.value:
-        transition(node.id, TaskPhase.PENDING, TaskPhase.PROCESSING)
-        node.status = TaskPhase.PROCESSING.value
-        from onemancompany.core.task_tree import save_tree_async
-        save_tree_async(Path(project_dir) / TASK_TREE_FILENAME)
-
-    # Find the dispatching employee (parent node's employee)
-    parent = tree.get_node(node.parent_id) if node.parent_id else None
-    employee_id = parent.employee_id if parent else ""
-
-    # Resolve nickname
-    emp = _load_emp(employee_id) if employee_id else None
-    nickname = emp.get("nickname", emp.get("name", "")) if emp else ""
-
-    # Create session
-    session = ConversationSession(
-        node_id=node_id,
-        employee_id=employee_id,
-        project_dir=project_dir,
-        broadcast_fn=ws_manager.broadcast,
-    )
-    register_session(session)
-    # EA auto-reply is OFF by default — CEO enables it via the sidebar checkbox
-    # (POST /api/ceo/inbox/{node_id}/ea-auto-reply). This prevents unwanted
-    # auto-replies when conversations are opened by schedule_auto_open_inbox().
-
-    # Start conversation loop as background task
-    spawn_background(_run_conversation_loop(session, node, tree, project_dir))
-
-    messages = load_messages(Path(project_dir) / "conversations", node_id)
-    node.load_content(project_dir)
-    return {
-        "status": "opened",
-        "node_id": node_id,
-        "messages": messages,
-        "description": node.description,
-        "employee_id": employee_id,
-        "employee_nickname": nickname,
-    }
-
-
-def _parse_hold_reason(hold_reason: str | None) -> dict[str, str]:
-    """Parse a hold_reason string like 'ceo_request=node_id,no_watchdog=1' into a dict."""
-    result: dict[str, str] = {}
-    for pair in (hold_reason or "").split(","):
-        if "=" in pair:
-            k, v = pair.split("=", 1)
-            result[k.strip()] = v.strip()
-    return result
-
-
-# Per-node lock to prevent race between conversation loop and confirm/dismiss
-_ceo_request_locks: dict[str, asyncio.Lock] = {}
-
-
-def _get_ceo_request_lock(node_id: str) -> asyncio.Lock:
-    if node_id not in _ceo_request_locks:
-        _ceo_request_locks[node_id] = asyncio.Lock()
-    return _ceo_request_locks[node_id]
-
-
-async def _complete_ceo_request(
-    node, tree, project_dir: str, *,
-    target_status: TaskPhase = TaskPhase.ACCEPTED,
-    result: str = "",
-    notes: str = "",
-) -> None:
-    """Unified completion for CEO_REQUEST nodes.
-
-    Serialized per node_id to prevent race between conversation loop
-    and confirm/dismiss endpoints.
-
-    Handles ALL side effects in one place:
-    1. Transition node to target_status (ACCEPTED or CANCELLED)
-    2. Save tree to disk
-    3. Resolve sibling dependencies (_trigger_dep_resolution)
-    4. Resume HOLDING parent (ceo_request hold or awaiting_children hold)
-    5. Broadcast inbox update
-    """
-    from onemancompany.core.task_lifecycle import can_transition
-    from onemancompany.core.task_tree import save_tree_async
-    from onemancompany.core.vessel import _trigger_dep_resolution, employee_manager
-
-    async with _get_ceo_request_lock(node.id):
-        if result:
-            node.result = result
-        if notes:
-            node.acceptance_result = {"passed": target_status != TaskPhase.CANCELLED, "notes": notes}
-
-        # 1. Transition node status (supports multi-hop: PROCESSING→COMPLETED→ACCEPTED)
-        current = TaskPhase(node.status)
-        if current == target_status:
-            pass  # Already at target, idempotent
-        elif can_transition(current, target_status):
-            node.set_status(target_status)
-        elif target_status == TaskPhase.ACCEPTED and can_transition(current, TaskPhase.COMPLETED):
-            # Multi-hop: PROCESSING→COMPLETED→ACCEPTED
-            node.set_status(TaskPhase.COMPLETED)
-            node.set_status(TaskPhase.ACCEPTED)
-        else:
-            logger.warning("[ceo_request] Cannot transition node {} from {} to {} — skipping",
-                            node.id, current.value, target_status.value)
-            return
-
-        # 2. Save tree
-        tree_path = Path(project_dir) / TASK_TREE_FILENAME
-        save_tree_async(tree_path)
-
-        # 3. Resolve sibling dependencies
-        _trigger_dep_resolution(project_dir, tree, node)
-
-        # 4. Resume HOLDING parent
-        parent = tree.get_node(node.parent_id) if node.parent_id else None
-        if parent and parent.status == TaskPhase.HOLDING.value:
-            hr_meta = _parse_hold_reason(parent.hold_reason)
-            should_resume = (
-                hr_meta.get("ceo_request") == node.id
-                or "awaiting_children" in (parent.hold_reason or "")
-            )
-            if should_resume:
-                node.load_content(project_dir)  # Ensure result is loaded (skeleton nodes have empty result)
-                resume_text = f"CEO request {node.id} resolved ({target_status.value}): {node.result or ''}"
-                resumed = await employee_manager.resume_held_task(
-                    parent.employee_id, parent.id, resume_text,
-                )
-                if resumed:
-                    logger.info("[ceo_request] Resumed HOLDING parent {} after node {} → {}",
-                            parent.id, node.id, target_status.value)
-                else:
-                    logger.warning("[ceo_request] Failed to resume parent {} for node {}", parent.id, node.id)
-
-        # 5. Broadcast
-        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-        logger.info("[ceo_request] Completed node={} → {} notes={}", node.id, target_status.value, notes[:80])
-
-
-async def _run_conversation_loop(session, node, tree, project_dir):
-    """Run conversation loop and handle completion.
-
-    After CEO ends the conversation, EA analyzes the full dialogue to determine:
-    - accept or reject (drives node status)
-    - any follow-up tasks the CEO requested (dispatched via COO)
-    """
-    try:
-        summary = await session.run()
-        logger.info("[ceo_inbox] conversation completed: node={}, summary_len={}", node.id, len(summary))
-
-        ea_auto_replied = not session._ceo_replied
-        if ea_auto_replied:
-            # EA auto-reply: fully automatic, go straight to ACCEPTED.
-            await _complete_ceo_request(
-                node, tree, project_dir,
-                target_status=TaskPhase.ACCEPTED,
-                result=summary,
-                notes="EA auto-replied",
-            )
-        else:
-            # CEO replied directly — EA analyzes the conversation for intent
-            verdict = await _ea_analyze_and_settle(session, node, tree, project_dir, summary)
-            logger.info("[ceo_inbox] verdict: node={} decision={}", node.id, verdict.get("decision"))
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        logger.error("Conversation loop error for {}: {}", session.node_id, e)
-        # Fail the node so it doesn't stay zombie PROCESSING
-        try:
-            await _complete_ceo_request(
-                node, tree, project_dir,
-                target_status=TaskPhase.CANCELLED,
-                result=f"Conversation error: {e}",
-                notes="Conversation loop failed",
-            )
-        except Exception:
-            logger.error("Failed to cancel node {} after conversation error", session.node_id)
-    finally:
-        session._cancel_ea_timer()
-        unregister_session(session.node_id)
-        await ws_manager.broadcast({"type": "ceo_inbox_updated"})
-
-
-async def _ea_analyze_and_settle(session, node, tree, project_dir, summary) -> dict:
-    """EA analyzes CEO conversation and settles the inbox item accordingly."""
-    from onemancompany.core.ceo_conversation import (
-        _ea_analyze_conversation, load_messages, CONVERSATIONS_DIR_NAME,
-    )
-
-    conv_dir = Path(project_dir) / CONVERSATIONS_DIR_NAME
-    history = load_messages(conv_dir, node.id)
-    description = node.description or summary
-
-    verdict = await _ea_analyze_conversation(history, description, node.id)
-    decision = verdict.get("decision", "accept")
-    reason = verdict.get("reason", "")
-
-    if decision == "reject":
-        await _complete_ceo_request(
-            node, tree, project_dir,
-            target_status=TaskPhase.CANCELLED,
-            result=summary,
-            notes=f"CEO rejected: {reason}",
-        )
-    else:
-        await _complete_ceo_request(
-            node, tree, project_dir,
-            target_status=TaskPhase.ACCEPTED,
-            result=summary,
-            notes=f"CEO accepted: {reason}",
-        )
-
-    # Dispatch follow-up tasks if CEO requested additional work
-    follow_ups = verdict.get("follow_up_tasks", [])
-    if follow_ups:
-        await _dispatch_follow_up_tasks(follow_ups, node, project_dir)
-
-    return verdict
-
-
-async def _dispatch_follow_up_tasks(follow_ups: list[dict], source_node, project_dir: str):
-    """Dispatch follow-up tasks extracted from CEO conversation via COO."""
-    from onemancompany.core.vessel import employee_manager
-    from onemancompany.core.config import COO_ID
-
-    for ft in follow_ups:
-        desc = ft.get("description", "")
-        if not desc:
-            continue
-
-        try:
-            # Use COO to dispatch — it knows how to route to the right employee
-            coo_executor = employee_manager.executors.get(COO_ID)
-            if coo_executor:
-                prompt = (
-                    f"The CEO has requested the following additional task during an inbox conversation:\n\n"
-                    f"Task: {desc}\n\n"
-                    f"Context: This came from a conversation about: {source_node.description or 'N/A'}\n\n"
-                    f"Please dispatch this task to the appropriate employee."
-                )
-                logger.info(
-                    "[follow_up] dispatching via COO: desc={}, source_node={}",
-                    desc[:80], source_node.id,
-                )
-                await employee_manager.schedule_system_task(
-                    COO_ID, prompt, source=f"ceo_inbox_follow_up:{source_node.id}",
-                )
-            else:
-                logger.warning("[follow_up] COO executor not found, cannot dispatch: {}", desc[:80])
-        except Exception as exc:
-            logger.error("[follow_up] failed to dispatch task '{}': {}", desc[:80], exc)
-
-
-@router.post("/api/ceo/inbox/{node_id}/message")
-async def send_ceo_message(node_id: str, body: dict):
-    """CEO sends a message in an open conversation."""
-    session = get_session(node_id)
+    broker = get_ceo_broker()
+    session = broker.get_session(project_id)
     if not session:
-        raise HTTPException(status_code=404, detail="No active conversation for this node")
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "project_id": project_id,
+        "history": session.history,
+        "has_pending": session.has_pending,
+        "pending_count": session.pending_count,
+    }
 
-    text = body.get("text", "")
+
+@router.post("/api/ceo/sessions/{project_id:path}/message")
+async def send_ceo_session_message(project_id: str, body: dict):
+    """CEO sends a message in a project session.
+
+    If the session has pending interactions, resolves the front of the queue.
+    Otherwise, dispatches as a CEO_FOLLOWUP instruction.
+    """
+    from onemancompany.core.ceo_broker import get_ceo_broker
+
+    text = (body.get("text") or "").strip()
     if not text:
-        raise HTTPException(status_code=400, detail="Message text required")
+        raise HTTPException(status_code=400, detail="Empty message")
 
-    msg = await session.send(text)
-    return {"status": "sent", "message": msg}
+    broker = get_ceo_broker()
+    result = await broker.handle_input(project_id, text)
 
+    if result["type"] == "followup":
+        # History already persisted by CeoBroker.handle_input.
+        # Dispatch as a CEO_FOLLOWUP via the existing task_followup logic.
+        try:
+            followup_result = await task_followup(
+                project_id, {"instructions": text}
+            )
+            result["followup"] = followup_result
+            result["message"] = "Follow-up instruction dispatched"
+        except HTTPException:
+            # Project not found or EA unavailable — degrade gracefully
+            result["message"] = "Follow-up instruction recorded (dispatch failed)"
+        except Exception as exc:
+            logger.warning("[send_ceo_session_message] followup dispatch error: {}", exc)
+            result["message"] = "Follow-up instruction recorded (dispatch error)"
 
-@router.post("/api/ceo/inbox/{node_id}/upload")
-async def upload_ceo_attachment(node_id: str, file: UploadFile):
-    """CEO uploads a file attachment."""
-    session = get_session(node_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="No active conversation")
-
-    workspace = Path(session.project_dir) / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-    dest = workspace / file.filename
-    content = await file.read()
-    dest.write_bytes(content)
-
-    attachment = {"filename": file.filename, "path": str(dest)}
-    msg = await session.send(f"[Attached file: {file.filename}]", attachments=[attachment])
-    return {"status": "uploaded", "message": msg}
-
-
-@router.post("/api/ceo/inbox/{node_id}/complete")
-async def complete_ceo_conversation(node_id: str):
-    """CEO marks conversation as complete."""
-    session = get_session(node_id)
-    if session:
-        await session.complete()
-        return {"status": "completing", "node_id": node_id}
-
-    # No active session — complete the node directly (CEO never opened
-    # a conversation, or session was already cleaned up).
-    node, tree, project_dir = _find_ceo_node(node_id)
-    if node.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value, TaskPhase.CANCELLED.value):
-        raise HTTPException(status_code=409, detail=f"Node already {node.status}")
-    await _complete_ceo_request(
-        node, tree, project_dir,
-        target_status=TaskPhase.ACCEPTED,
-        notes="CEO completed (no active session)",
-    )
-    return {"status": "completed", "node_id": node_id}
-
-
-@router.post("/api/ceo/inbox/{node_id}/confirm")
-async def confirm_ea_auto_reply(node_id: str):
-    """CEO confirms an EA auto-replied inbox item → ACCEPTED, removed from inbox."""
-    node, tree, project_dir = _find_ceo_node(node_id)
-    if node.status not in (TaskPhase.COMPLETED.value, TaskPhase.PROCESSING.value):
-        raise HTTPException(status_code=409, detail=f"Node is {node.status}, expected completed or processing")
-
-    await _complete_ceo_request(
-        node, tree, project_dir,
-        target_status=TaskPhase.ACCEPTED,
-        notes="CEO confirmed",
-    )
-    return {"status": "confirmed", "node_id": node_id}
-
-
-@router.post("/api/ceo/inbox/{node_id}/dismiss")
-async def dismiss_ceo_inbox_item(node_id: str):
-    """Dismiss (hide) a CEO inbox item by marking it CANCELLED.
-
-    Used for old/stale requests that CEO no longer needs to respond to.
-    """
-    from onemancompany.core.task_lifecycle import can_transition
-
-    node, tree, project_dir = _find_ceo_node(node_id)
-    if TaskPhase(node.status) in (TaskPhase.FINISHED, TaskPhase.CANCELLED):
-        return {"status": "already_dismissed", "node_id": node_id}
-
-    if not can_transition(TaskPhase(node.status), TaskPhase.CANCELLED):
-        raise HTTPException(status_code=409, detail=f"Cannot dismiss node in {node.status} state")
-
-    await _complete_ceo_request(
-        node, tree, project_dir,
-        target_status=TaskPhase.CANCELLED,
-        result="Dismissed by CEO",
-        notes="Dismissed by CEO",
-    )
-    return {"status": "dismissed", "node_id": node_id}
-
-
-@router.post("/api/ceo/inbox/{node_id}/ea-auto-reply")
-async def toggle_ea_auto_reply(node_id: str, body: dict):
-    """Toggle EA auto-reply for a CEO inbox conversation.
-
-    When enabled, if CEO doesn't reply within 60 seconds, EA will
-    auto-reply with accept/reject decision on behalf of CEO.
-    """
-    enabled = body.get("enabled", False)
-    session = get_session(node_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="No active conversation")
-
-    # Get description from node for EA to evaluate
-    node, _tree, _project_dir = _find_ceo_node(node_id)
-    description = node.description or node.description_preview or ""
-
-    session.set_ea_auto_reply(enabled, description)
-    return {"status": "ok", "ea_auto_reply": enabled}
-
-
-@router.post("/api/ceo/report/{project_id:path}/confirm")
-async def confirm_ceo_report(project_id: str):
-    """CEO confirms a pending project completion report (early confirmation)."""
-    from onemancompany.core.vessel import employee_manager
-
-    confirmed = await employee_manager._confirm_ceo_report(project_id)
-    if not confirmed:
-        raise HTTPException(status_code=404, detail="No pending report for this project")
-    return {"status": "ok", "project_id": project_id}
+    return result
 
 
 # ---------------------------------------------------------------------------

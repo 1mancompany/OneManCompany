@@ -180,3 +180,8 @@ def recover_schedule_from_trees(
                     )
                     logger.info("[RECOVER] Restored adhoc task {} for employee {}",
                                 node.id, node.employee_id)
+
+    # 4. Recover CeoBroker sessions (conversation history)
+    from onemancompany.core.ceo_broker import get_ceo_broker
+    broker = get_ceo_broker()
+    broker.recover(projects_dir)

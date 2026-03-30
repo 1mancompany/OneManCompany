@@ -32,26 +32,46 @@ body {
   overflow: hidden;
 }
 
-/* ===== 3-Column Layout: Left Roster | Center Canvas | Right Console ===== */
+/* ===== 2D Grid Layout ===== */
 #app {
   display: grid;
-  grid-template-columns: 240px 6px 1fr 6px 340px;
+  grid-template-columns: 240px 1fr 280px;
+  grid-template-rows: 1fr 1fr; /* overridden by resize-handler.js */
+  grid-template-areas:
+    "left-top    canvas   roster"
+    "left-bottom console  console";
   height: 100vh;
-  gap: 0;
+  gap: 4px;
   padding: 4px;
 }
 
-.panel-divider {
-  width: 6px;
-  cursor: col-resize;
-  background: var(--border);
-  transition: background 0.15s;
-  position: relative;
+/* During resize drag: prevent canvas/iframes from stealing pointer events */
+body.resize-dragging * {
+  pointer-events: none !important;
+}
+body.resize-dragging {
+  pointer-events: auto !important;
 }
 
-.panel-divider:hover,
-.panel-divider.dragging {
-  background: var(--pixel-cyan);
+#left-top-panel {
+  grid-area: left-top;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#left-bottom-panel {
+  grid-area: left-bottom;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#roster-panel {
+  grid-area: roster;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ===== Collapsible Panels ===== */
@@ -114,14 +134,10 @@ body {
   flex: 0;
 }
 
-/* ===== Left Sidebar: Team Roster ===== */
-#roster-sidebar {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#roster-sidebar .collapsible-body {
+/* ===== Left Panels + Roster ===== */
+#left-top-panel .collapsible-body,
+#left-bottom-panel .collapsible-body,
+#roster-panel .collapsible-body {
   background: var(--bg-panel);
   border: 2px solid var(--border);
   border-top: none;
@@ -130,8 +146,9 @@ body {
   flex: 1;
 }
 
-/* ===== Office Panel (Center) ===== */
+/* ===== Office Panel (Center top) ===== */
 #office-panel {
+  grid-area: canvas;
   background: var(--bg-panel);
   border: 2px solid var(--border);
   border-radius: 2px;
@@ -273,11 +290,11 @@ body {
   padding: 8px 12px;
 }
 
-/* ===== Console Panel (Right) ===== */
+/* ===== Console Panel (Bottom, spans center+right) ===== */
 #console-panel {
+  grid-area: console;
   display: flex;
   flex-direction: column;
-  gap: 4px;
   overflow: hidden;
 }
 
@@ -285,11 +302,20 @@ body {
   padding: 10px;
 }
 
+#ceo-body.collapsible-flex {
+  flex: 1;
+}
+
+#activity-body.collapsible-flex {
+  flex: 1;
+}
+
 #ceo-avatar-area {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 4px 8px;
+  flex-shrink: 0;
 }
 
 #ceo-avatar {
@@ -2667,110 +2693,6 @@ body {
   text-align: center;
 }
 
-.task-card {
-  padding: 6px 8px;
-  border-left: 3px solid var(--border);
-  margin-bottom: 4px;
-  background: var(--bg-dark);
-  font-size: 6px;
-  transition: background 0.15s;
-}
-.task-card[style*="cursor: pointer"]:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-left-width: 4px;
-}
-
-.task-card.processing {
-  border-left-color: var(--pixel-green);
-  background: rgba(0, 255, 136, 0.05);
-}
-.task-card.pending {
-  border-left-color: var(--pixel-yellow);
-  background: rgba(255, 221, 0, 0.03);
-}
-.task-card.completed, .task-card.finished {
-  border-left-color: var(--pixel-yellow);
-  background: rgba(255, 221, 0, 0.03);
-}
-.task-card.cancelled {
-  border-left-color: var(--text-dim);
-  background: rgba(136, 136, 136, 0.03);
-}
-.task-card.failed {
-  border-left-color: #ff4444;
-  background: rgba(255, 68, 68, 0.05);
-}
-.task-card.holding {
-  border-left-color: var(--pixel-orange);
-  background: rgba(255, 170, 0, 0.03);
-}
-
-.task-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2px;
-}
-
-.task-card-status {
-  font-size: 5px;
-  color: var(--text-dim);
-}
-.task-card.processing .task-card-status { color: var(--pixel-green); }
-.task-card.pending .task-card-status { color: var(--pixel-yellow); }
-.task-card.completed .task-card-status { color: var(--pixel-yellow); }
-.task-card.failed .task-card-status { color: #ff4444; }
-.task-card.cancelled .task-card-status { color: var(--text-dim); }
-
-.task-card-text {
-  color: var(--pixel-white);
-  line-height: 1.6;
-  margin-bottom: 3px;
-}
-
-.task-card-meta {
-  color: var(--pixel-cyan);
-  font-size: 5px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.task-cancel-btn {
-  background: none;
-  border: 1px solid var(--pixel-red);
-  color: var(--pixel-red);
-  font-size: 6px;
-  cursor: pointer;
-  padding: 0 3px;
-  line-height: 1.4;
-  border-radius: 2px;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.task-cancel-btn:hover {
-  opacity: 1;
-  background: var(--pixel-red);
-  color: var(--pixel-black);
-}
-.task-card-time {
-  color: var(--text-dim);
-}
-
-.task-card-result {
-  font-size: 5px;
-  color: var(--pixel-green);
-  background: rgba(0, 255, 136, 0.05);
-  padding: 2px 4px;
-  border-radius: 2px;
-  margin-bottom: 2px;
-  line-height: 1.5;
-}
-.task-card.failed .task-card-result,
-.task-card.cancelled .task-card-result {
-  color: #ff4444;
-  background: rgba(255, 68, 68, 0.05);
-}
-
 /* Follow-up input in detail view */
 .task-followup-section .hidden {
   display: none;
@@ -2817,57 +2739,9 @@ body {
 .task-result-report strong { color: var(--pixel-yellow); }
 .task-result-report em { color: var(--pixel-cyan); }
 
-/* Tree progress in task card */
-.task-card-tree {
-  margin-top: 4px;
-  padding-top: 3px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.task-tree-progress {
-  height: 3px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 2px;
-}
-.task-tree-bar {
-  height: 100%;
-  background: var(--pixel-green);
-  border-radius: 2px;
-  transition: width 0.3s ease;
-}
-
-.task-tree-label {
-  font-size: 5px;
-  color: var(--text-dim);
-}
-
-.task-tree-nodes {
-  margin-top: 3px;
-}
-
-.task-tree-node {
-  padding: 2px 4px;
-  margin-bottom: 1px;
-  border-left: 2px solid var(--text-dim);
-  font-size: 5px;
-  display: flex;
-  gap: 4px;
-}
-.task-tree-node-name {
-  color: var(--pixel-cyan);
-  white-space: nowrap;
-}
-.task-tree-node-desc {
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ===== Projects Panel ===== */
 .project-panel-card {
+  position: relative;
   padding: 6px 8px;
   border-left: 3px solid var(--pixel-white);
   margin-bottom: 3px;
@@ -2906,6 +2780,77 @@ body {
   font-size: 5px;
   margin-top: 2px;
 }
+
+.ceo-pending-badge {
+  color: #f39c12;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+/* Project card task progress overlay */
+.proj-card-progress {
+  margin-top: 2px;
+  font-size: 8px;
+}
+
+.proj-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 5px;
+  color: var(--text-dim);
+}
+
+.proj-progress-track {
+  flex: 1;
+  max-width: 60px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.proj-progress-bar {
+  height: 100%;
+  background: var(--pixel-green);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.proj-executor {
+  color: var(--text-dim);
+  font-size: 5px;
+  margin-top: 1px;
+}
+
+.proj-cancel-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 8px;
+  padding: 0 2px;
+}
+.proj-cancel-btn:hover { color: #ff4444; }
+
+.proj-trace-btn {
+  position: absolute;
+  top: 2px;
+  right: 16px;
+  background: transparent;
+  border: 1px solid #333;
+  color: #4af;
+  cursor: pointer;
+  font-size: 6px;
+  font-family: monospace;
+  padding: 0 3px;
+  line-height: 1.4;
+}
+.proj-trace-btn:hover { border-color: #4af; }
 
 /* ===== CEO Project Selector ===== */
 .ceo-project-selector {
@@ -5289,3 +5234,210 @@ body {
   letter-spacing: 1px;
 }
 .bg-tasks-stop-btn:hover { background: #ff444422; }
+
+/* ===== CEO Terminal (two-column: project list + xterm conversation) ===== */
+#ceo-split {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: 1px;
+}
+
+#ceo-project-list {
+  width: 120px;
+  flex-shrink: 0;
+  background: #0a0a0a;
+  border-right: 1px solid #222;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  padding: 0;
+  transition: width 0.15s, padding 0.15s, opacity 0.15s;
+}
+
+#ceo-projects-section {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+#ceo-oneonone-section {
+  flex-shrink: 0;
+  border-top: 1px solid #333;
+}
+
+.ceo-section-header {
+  padding: 4px 6px;
+  color: #888;
+  font-size: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.ceo-section-header:hover { color: #ccc; }
+.ceo-section-arrow { font-size: 8px; }
+
+#ceo-oneonone-items.collapsed { display: none; }
+
+.ceo-oneonone-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #c8a2ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+  font-size: 10px;
+}
+.ceo-oneonone-item:hover {
+  background: #1a1a1a;
+  color: #dfc4ff;
+}
+.ceo-oneonone-item.active {
+  background: #1a112a;
+  color: #fff;
+  border-left-color: #9966ff;
+}
+
+#ceo-project-list.collapsed {
+  width: 0;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  border-right: none;
+}
+
+#ceo-list-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #111;
+  color: #555;
+  cursor: pointer;
+  font-size: 10px;
+  border-right: 1px solid #222;
+}
+#ceo-list-toggle:hover { color: #aaa; background: #1a1a1a; }
+
+.ceo-proj-item {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+}
+
+.ceo-proj-item:hover {
+  background: #1a1a1a;
+  color: #ccc;
+}
+
+.ceo-proj-item.active {
+  background: #112;
+  color: #fff;
+  border-left-color: #44aa44;
+}
+
+.ceo-proj-pending {
+  color: #ffaa44;
+  margin-right: 2px;
+}
+.ceo-proj-item.has-pending {
+  font-weight: bold;
+  color: #ddd;
+}
+
+.ceo-proj-separator {
+  border-top: 1px solid #222;
+  margin: 4px 6px;
+}
+
+.ceo-proj-action {
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #44aaff;
+  font-size: 10px;
+}
+
+.ceo-proj-action:hover {
+  background: #1a1a1a;
+  color: #66ccff;
+}
+
+#ceo-conv-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+#ceo-conv-messages {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#ceo-conv-input-area {
+  flex-shrink: 0;
+  padding: 4px;
+  border-top: 1px solid #333;
+  background: #0a0a0a;
+}
+
+#ceo-conv-input-row {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+#ceo-conv-input {
+  flex: 1;
+  background: #111;
+  color: #44aa44;
+  border: 1px solid #222;
+  padding: 4px 6px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  resize: none;
+  outline: none;
+}
+
+#ceo-conv-input:focus {
+  border-color: #44aa44;
+}
+
+#ceo-conv-input-row {
+  display: flex;
+}
+
+/* Slash command menu */
+#ceo-slash-menu {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 3px;
+  margin-bottom: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+#ceo-slash-menu.hidden { display: none; }
+
+.slash-item {
+  padding: 3px 8px;
+  cursor: pointer;
+  color: #aaa;
+}
+.slash-item:hover, .slash-item.active {
+  background: #1a2a1a;
+  color: #44aa44;
+}
+.slash-cmd { color: #44aaff; margin-right: 6px; }
+.slash-desc { color: #666; }

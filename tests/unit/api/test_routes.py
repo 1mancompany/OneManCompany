@@ -6470,52 +6470,6 @@ class TestHireFromCV:
 
 
 # ---------------------------------------------------------------------------
-# _parse_hold_reason
-# ---------------------------------------------------------------------------
-
-
-class TestParseHoldReason:
-    def test_none_returns_empty(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        assert _parse_hold_reason(None) == {}
-
-    def test_empty_string_returns_empty(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        assert _parse_hold_reason("") == {}
-
-    def test_single_pair(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        result = _parse_hold_reason("ceo_request=node_123")
-        assert result == {"ceo_request": "node_123"}
-
-    def test_multiple_pairs(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        result = _parse_hold_reason("ceo_request=node_id,no_watchdog=1")
-        assert result == {"ceo_request": "node_id", "no_watchdog": "1"}
-
-    def test_whitespace_trimmed(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        result = _parse_hold_reason(" key1 = val1 , key2 = val2 ")
-        assert result == {"key1": "val1", "key2": "val2"}
-
-    def test_no_equals_sign_ignored(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        result = _parse_hold_reason("ceo_request=val,garbage,other=ok")
-        assert result == {"ceo_request": "val", "other": "ok"}
-
-    def test_value_with_equals(self):
-        from onemancompany.api.routes import _parse_hold_reason
-
-        result = _parse_hold_reason("key=val=extra")
-        assert result == {"key": "val=extra"}
-
-
 # ---------------------------------------------------------------------------
 # POST /api/rooms/{room_id}/chat
 # ---------------------------------------------------------------------------

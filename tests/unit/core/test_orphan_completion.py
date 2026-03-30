@@ -144,7 +144,6 @@ class TestOrphanAutoAccept:
             # Build minimal EmployeeManager
             from onemancompany.core.vessel import EmployeeManager, ScheduleEntry
             em = EmployeeManager.__new__(EmployeeManager)
-            em._pending_ceo_reports = {}
             em._running_tasks = {}
             em._schedule = {}
             em._restart_pending = False
@@ -155,7 +154,6 @@ class TestOrphanAutoAccept:
 
             # Mock methods that have side effects
             em._publish_node_update = MagicMock()
-            em._request_ceo_confirmation = AsyncMock()
             em._schedule_next = MagicMock()
 
             entry = ScheduleEntry(node_id=orphan_id, tree_path=str(tree_path))

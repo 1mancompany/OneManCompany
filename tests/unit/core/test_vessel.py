@@ -407,8 +407,10 @@ class TestCeoConfirmation:
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_root_complete_sends_ceo_report(self, mock_bus, mock_state, tmp_path):
-        """Root node completion should call _request_ceo_confirmation, not _full_cleanup."""
+    async def test_root_complete_creates_confirm_node(self, mock_bus, mock_state, tmp_path):
+        """Root node completion should create a CEO_REQUEST confirm node, not call old path."""
+        from onemancompany.core.task_lifecycle import NodeType
+
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
         mock_state.active_tasks = []
@@ -423,49 +425,191 @@ class TestCeoConfirmation:
 
         em = EmployeeManager()
         em.register("00100", MagicMock(spec=Launcher))
+        em.register("00001", MagicMock(spec=Launcher))
 
         with (
-            patch.object(em, "_request_ceo_confirmation", new_callable=AsyncMock) as mock_confirm,
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
+            patch.object(em, "schedule_node") as mock_schedule,
+            patch.object(em, "_schedule_next"),
         ):
             await em._on_child_complete("00100", entry, project_id="proj_ceo")
 
-        # Should call _request_ceo_confirmation, NOT _full_cleanup
-        mock_confirm.assert_called_once()
+        # New path creates confirm node + schedules via CeoExecutor
         mock_cleanup.assert_not_called()
+        mock_schedule.assert_called_once()
+        assert mock_schedule.call_args[0][0] == "00001"  # CEO_ID
+
+
+# ---------------------------------------------------------------------------
+# Project completion via CeoExecutor (CEO_REQUEST confirm node)
+# ---------------------------------------------------------------------------
+
+class TestProjectConfirmViaExecutor:
+    """Test project completion creates a CEO_REQUEST confirm node under EA."""
+
+    def _make_project_tree(self, tmp_path, *, ea_status="finished", child_status="accepted"):
+        """Create a project tree: CEO_PROMPT → EA → child (all resolved by default)."""
+        from onemancompany.core.task_lifecycle import NodeType
+
+        tree = TaskTree(project_id="proj_confirm")
+        # CEO_PROMPT root
+        root = tree.create_root(employee_id="00001", description="CEO prompt")
+        root.node_type = NodeType.CEO_PROMPT
+        root.status = TaskPhase.PROCESSING.value
+
+        # EA node
+        ea = tree.add_child(
+            parent_id=root.id, employee_id="00100",
+            description="Build feature X",
+            acceptance_criteria=["done"],
+        )
+        ea.node_type = NodeType.TASK
+        ea.status = ea_status
+        ea.result = "Feature built"
+
+        # Child subtask under EA
+        child = tree.add_child(
+            parent_id=ea.id, employee_id="00101",
+            description="Implement module",
+            acceptance_criteria=["tests pass"],
+        )
+        child.status = child_status
+        child.result = "Module done"
+
+        iter_dir = tmp_path / "iterations" / "iter_001"
+        iter_dir.mkdir(parents=True)
+        tree_path = iter_dir / "task_tree.yaml"
+        tree.save(tree_path)
+        return tree, tree_path, root, ea, child
 
     @pytest.mark.asyncio
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_ceo_confirmation_deferred(self, mock_bus, mock_state, tmp_path):
-        """_request_ceo_confirmation stores pending report; confirm triggers cleanup."""
+    async def test_project_completion_creates_confirm_node(self, mock_bus, mock_state, tmp_path):
+        """When project completes, a CEO_REQUEST confirm node is created under EA."""
+        from onemancompany.core.task_lifecycle import NodeType
+
         mock_bus.publish = AsyncMock()
         mock_state.employees = {}
+        mock_state.active_tasks = []
 
-        tree, tree_path = self._make_tree_with_root(tmp_path)
-        root_node = tree.get_node(tree.root_id)
-        tree.save(tree_path)
-
-        entry = ScheduleEntry(node_id=root_node.id, tree_path=str(tree_path))
+        tree, tree_path, root, ea, child = self._make_project_tree(tmp_path)
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
         em = EmployeeManager()
+        em.register("00100", MagicMock(spec=Launcher))
+        em.register("00101", MagicMock(spec=Launcher))
+        em.register("00001", MagicMock(spec=Launcher))
+
+        with (
+            patch.object(em, "schedule_node") as mock_schedule,
+            patch.object(em, "_schedule_next") as mock_next,
+            patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
+        ):
+            await em._on_child_complete("00101", entry, project_id="proj_confirm")
+
+        # Cleanup not called directly — goes through CeoExecutor
+        mock_cleanup.assert_not_called()
+
+        # schedule_node should have been called with CEO_ID for the confirm node
+        mock_schedule.assert_called_once()
+        call_args = mock_schedule.call_args
+        assert call_args[0][0] == "00001"  # CEO_ID
+
+        # Verify a CEO_REQUEST node was added under EA in the tree
+        reloaded = TaskTree.load(tree_path)
+        ea_children = reloaded.get_children(ea.id)
+        confirm_nodes = [c for c in ea_children if c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST]
+        assert len(confirm_nodes) == 1
+        assert "Project Completion Report" in confirm_nodes[0].description_preview
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_duplicate_confirm_node_guard(self, mock_bus, mock_state, tmp_path):
+        """If a confirm node already exists under EA, don't create another."""
+        from onemancompany.core.task_lifecycle import NodeType
+
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        tree, tree_path, root, ea, child = self._make_project_tree(tmp_path)
+
+        # Pre-add an existing CEO_REQUEST confirm node under EA
+        existing = tree.add_child(
+            parent_id=ea.id, employee_id="00001",
+            description="Existing confirm", acceptance_criteria=[],
+        )
+        existing.node_type = NodeType.CEO_REQUEST
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
+
+        em = EmployeeManager()
+        em.register("00100", MagicMock(spec=Launcher))
+        em.register("00101", MagicMock(spec=Launcher))
+        em.register("00001", MagicMock(spec=Launcher))
+
+        with (
+            patch.object(em, "schedule_node") as mock_schedule,
+            patch.object(em, "_schedule_next") as mock_next,
+            patch.object(em, "_full_cleanup", new_callable=AsyncMock),
+        ):
+            await em._on_child_complete("00101", entry, project_id="proj_confirm")
+
+        # Should NOT schedule a new confirm node
+        mock_schedule.assert_not_called()
+
+        # Still only one CEO_REQUEST under EA
+        reloaded = TaskTree.load(tree_path)
+        ea_children = reloaded.get_children(ea.id)
+        confirm_nodes = [c for c in ea_children if c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST]
+        assert len(confirm_nodes) == 1
+
+    @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel.company_state")
+    @patch("onemancompany.core.vessel.event_bus")
+    async def test_confirm_node_completion_triggers_cleanup(self, mock_bus, mock_state, tmp_path):
+        """When a CEO_REQUEST confirm node finishes, _full_cleanup is triggered."""
+        from onemancompany.core.task_lifecycle import NodeType
+
+        mock_bus.publish = AsyncMock()
+        mock_state.employees = {}
+        mock_state.active_tasks = []
+
+        tree, tree_path, root, ea, child = self._make_project_tree(tmp_path)
+
+        # Add a finished confirm node under EA
+        confirm = tree.add_child(
+            parent_id=ea.id, employee_id="00001",
+            description="Confirm project", acceptance_criteria=[],
+        )
+        confirm.node_type = NodeType.CEO_REQUEST
+        confirm.project_id = "proj_confirm"
+        confirm.project_dir = str(tmp_path / "iterations" / "iter_001")
+        confirm.status = TaskPhase.FINISHED.value
+        confirm.result = "Approved"
+        tree.save(tree_path)
+
+        entry = ScheduleEntry(node_id=confirm.id, tree_path=str(tree_path))
+
+        em = EmployeeManager()
+        em.register("00001", MagicMock(spec=Launcher))
         em.register("00100", MagicMock(spec=Launcher))
 
         with (
             patch.object(em, "_full_cleanup", new_callable=AsyncMock) as mock_cleanup,
+            patch.object(em, "schedule_node") as mock_schedule,
+            patch.object(em, "_schedule_next"),
         ):
-            await em._request_ceo_confirmation("00100", root_node, tree, entry, "proj_ceo")
+            await em._on_child_complete("00001", entry, project_id="proj_confirm")
 
-            # Cleanup is deferred — not called immediately
-            mock_cleanup.assert_not_called()
-            assert "proj_ceo" in em._pending_ceo_reports
-            ctx = em._pending_ceo_reports["proj_ceo"]["cleanup_ctx"]
-            assert ctx["run_retrospective"] is True
-
-            # CEO confirms → triggers cleanup
-            await em._confirm_ceo_report("proj_ceo")
-            mock_cleanup.assert_called_once()
-            assert mock_cleanup.call_args.kwargs.get("run_retrospective") is True
+        mock_cleanup.assert_called_once()
+        # Should run retrospective for project mode
+        assert mock_cleanup.call_args.kwargs.get("run_retrospective") is True
+        # Should NOT create another confirm node (guard prevents it)
+        mock_schedule.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -107,76 +107,93 @@ def _get_current_node(tree: TaskTree, task_id: str):
     return tree.get_node(task_id)
 
 
-def schedule_auto_open_inbox(node_id: str) -> None:
-    """Schedule auto-opening of a CEO inbox conversation so EA auto-reply starts.
-
-    Must be called from a sync context (e.g., LangChain tool). Uses the main
-    event loop to schedule the async open_ceo_conversation call.
-    """
-    import asyncio
-    from onemancompany.core.vessel import employee_manager
-
-    async def _auto_open(nid: str):
-        try:
-            from onemancompany.api.routes import open_ceo_conversation
-            await open_ceo_conversation(nid)
-            logger.info("[auto_open_inbox] Opened CEO conversation for {}", nid)
-            # EA auto-reply is NOT enabled here — CEO must explicitly turn it on
-            # via the sidebar checkbox. This prevents unwanted auto-replies.
-        except Exception as _e:
-            logger.warning("[auto_open_inbox] Failed for {}: {}", nid, _e)
-
-    main_loop = getattr(employee_manager, "_event_loop", None)
-    if main_loop and main_loop.is_running():
-        asyncio.run_coroutine_threadsafe(_auto_open(node_id), main_loop)
-    else:
-        logger.warning("[auto_open_inbox] No event loop, cannot auto-open {}", node_id)
-
-
 def _create_standalone_ceo_request(
     description: str,
     requester_task_id: str,
     vessel,
 ) -> dict:
-    """Create a CEO inbox request without requiring a task tree context.
+    """Create a CEO request via CeoBroker without requiring a task tree context.
 
     Used when agents running system/adhoc tasks (no tree) need to escalate to CEO.
+    Enqueues a CeoInteraction on the 'default' session so CEO sees it in the
+    unified session UI.
     """
-    import uuid
-    node_id = f"ceo_req_{uuid.uuid4().hex[:8]}"
-
-    # Publish WebSocket event so CEO sees it
     import asyncio
+    from onemancompany.core.ceo_broker import get_ceo_broker
     from onemancompany.core.events import CompanyEvent, event_bus
+    from onemancompany.core.models import EventType
+    from onemancompany.core.config import SYSTEM_AGENT
     from onemancompany.core.vessel import employee_manager
-    coro = event_bus.publish(CompanyEvent(
-        type=EventType.CEO_INBOX_UPDATED,
-        payload={
-            "node_id": node_id,
-            "description": description,
-            "source_task_id": requester_task_id,
-            "source_employee": vessel.employee_id if vessel else "unknown",
-        },
-        agent=SYSTEM_AGENT,
-    ))
+
+    broker = get_ceo_broker()
+    project_id = "default"
+    session = broker.get_or_create_session(project_id)
+    source = vessel.employee_id if vessel else "unknown"
+
+    # Create a temporary tree so the node has a tree_path and can be scheduled.
+    from onemancompany.core.task_tree import TaskTree
+    from onemancompany.core.config import PROJECTS_DIR
+    from onemancompany.core.vessel import _save_project_tree
+
+    adhoc_dir = PROJECTS_DIR / "_adhoc_ceo"
+    adhoc_dir.mkdir(parents=True, exist_ok=True)
+    tree_path_file = adhoc_dir / TASK_TREE_FILENAME
+
+    # Load existing adhoc tree or create one
+    if tree_path_file.exists():
+        from onemancompany.core.task_tree import get_tree
+        tree = get_tree(tree_path_file, project_id=project_id)
+    else:
+        tree = TaskTree(project_id=project_id)
+        # Create a synthetic CEO root
+        root = tree.create_root(employee_id=CEO_ID, description="Ad-hoc CEO requests")
+        root.node_type = NodeType.CEO_PROMPT
+        from onemancompany.core.task_lifecycle import TaskPhase
+        root.set_status(TaskPhase.PROCESSING)
+
+    # Add CEO_REQUEST node under root
+    ceo_node = tree.add_child(
+        parent_id=tree.root_id,
+        employee_id=CEO_ID,
+        description=description,
+        acceptance_criteria=[],
+    )
+    ceo_node.node_type = NodeType.CEO_REQUEST
+
+    _save_project_tree(str(adhoc_dir), tree)
+    tree_path_str = str(tree_path_file)
+
+    # Schedule the node so CeoExecutor handles it
+    employee_manager.schedule_node(CEO_ID, ceo_node.id, tree_path_str)
+    employee_manager._schedule_next(CEO_ID)
+
+    # Also push system message for session visibility
+    session.push_system_message(description, source=source)
+
+    # Broadcast to frontend
     main_loop = getattr(employee_manager, "_event_loop", None)
     if main_loop and main_loop.is_running():
+        coro = event_bus.publish(CompanyEvent(
+            type=EventType.CEO_SESSION_MESSAGE,
+            payload={
+                "project_id": project_id,
+                "node_id": ceo_node.id,
+                "message": description,
+                "source_employee": source,
+                "interaction_type": "ceo_request",
+            },
+            agent=SYSTEM_AGENT,
+        ))
         asyncio.run_coroutine_threadsafe(coro, main_loop)
-    else:
-        logger.warning("No event loop for standalone ceo_inbox_updated publish")
-
-    # Note: do NOT call schedule_auto_open_inbox here — standalone requests
-    # are not in any task tree, so _find_ceo_node would 404.
-    # CEO must manually open these from the inbox.
 
     return {
         "status": "dispatched",
-        "node_id": node_id,
+        "node_id": ceo_node.id,
         "employee_id": CEO_ID,
         "description": description,
         "node_type": NodeType.CEO_REQUEST,
         "ceo_request": True,
-        "message": "Task dispatched to CEO inbox. CEO will respond when available.",
+        "message": "Task dispatched to CEO via CeoBroker. CEO will respond when available.",
     }
 
 
@@ -363,42 +380,9 @@ def dispatch_child(
 
         if employee_id == CEO_ID:
             child.node_type = NodeType.CEO_REQUEST
-            # Signal vessel to auto-HOLD parent after execution (no_watchdog:
-            # routes.py handles resume when CEO responds)
+            # Signal vessel to auto-HOLD parent after execution
             current_node.hold_reason = f"ceo_request={child.id},no_watchdog=1"
-            _save_tree(project_dir, tree)
-            # Persist task index entry for taskboard
-            from onemancompany.core.store import append_task_index_entry
-            append_task_index_entry(employee_id, child.id, tree_path_str)
-            # Publish WebSocket event (async from sync context — use main loop)
-            import asyncio
-            from onemancompany.core.events import CompanyEvent, event_bus
-            from onemancompany.core.vessel import employee_manager
-            coro = event_bus.publish(CompanyEvent(
-                type=EventType.CEO_INBOX_UPDATED,
-                payload={"node_id": child.id, "description": description},
-                agent=SYSTEM_AGENT,
-            ))
-            main_loop = getattr(employee_manager, "_event_loop", None)
-            if main_loop and main_loop.is_running():
-                asyncio.run_coroutine_threadsafe(coro, main_loop)
-            else:
-                logger.warning("No event loop for ceo_inbox_updated publish")
-            # Auto-open conversation so EA auto-reply works without CEO clicking
-            schedule_auto_open_inbox(child.id)
-            return {
-                "status": "dispatched",
-                "node_id": child.id,
-                "employee_id": employee_id,
-                "description": description,
-                "node_type": NodeType.CEO_REQUEST,
-                "ceo_request": True,
-                "message": (
-                    "Task dispatched to CEO inbox. Your task will automatically pause (HOLDING) "
-                    "until the CEO responds. You should finish your current output now — "
-                    "the system handles the rest."
-                ),
-            }
+            # Fall through to normal scheduling path below — CeoExecutor handles the rest
 
         # --- Normal employee dispatch (existing logic) ---
         # When dispatching to a DIFFERENT employee, the parent should HOLD

@@ -44,22 +44,6 @@ async def test_run_close_hook_unknown_type_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_ceo_inbox_hook_returns_summary():
-    from onemancompany.core.conversation_hooks import _close_ceo_inbox
-
-    conv = Conversation(
-        id="c3", type="ceo_inbox", phase="closing",
-        employee_id="00100", tools_enabled=False,
-        metadata={"node_id": "node-1", "project_dir": "/tmp/test"},
-        created_at="2026-03-18T10:00:00",
-    )
-    result = await _close_ceo_inbox(conv)
-    assert result is not None
-    assert "summary" in result
-    assert result["node_id"] == "node-1"
-
-
-@pytest.mark.asyncio
 async def test_oneonone_hook_returns_reflection():
     from onemancompany.core.conversation_hooks import _close_oneonone
 
