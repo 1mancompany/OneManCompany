@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Source root — for package-relative resources (frontend, talent_market, etc.)
@@ -490,10 +491,23 @@ class EmployeeConfig(BaseModel):
     pip: dict | None = None  # Performance Improvement Plan (if active)
     onboarding_completed: bool = False  # set True after onboarding routine
     api_provider: str = "openrouter"  # provider name from PROVIDER_REGISTRY
-    api_key: str = ""  # Custom API key (used when api_provider != "openrouter")
+    api_key: str = ""  # Custom API key (used when api_provider != default)
     hosting: str = "company"  # "company" | "self" | "openclaw" — also serves as agent family selector
     auth_method: str = "api_key"  # "api_key" | "oauth" (OAuth PKCE for Anthropic)
     oauth_refresh_token: str = ""  # OAuth refresh token (long-lived)
+
+    # Fields where empty string should be treated as missing (use field default)
+    _NON_EMPTY_FIELDS: ClassVar[frozenset] = frozenset({"api_provider", "hosting", "auth_method"})
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_empty_strings(cls, data):
+        """Treat empty strings as missing so Pydantic uses field defaults."""
+        if isinstance(data, dict):
+            for field_name in cls._NON_EMPTY_FIELDS:
+                if not data.get(field_name):
+                    data[field_name] = cls.model_fields[field_name].default
+        return data
 
 
 class Settings(BaseSettings):
