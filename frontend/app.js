@@ -2142,9 +2142,18 @@ class AppController {
 
     // Wire HTML input
     const input = document.getElementById('ceo-conv-input');
+    this._inputHistory = JSON.parse(localStorage.getItem('ceo-input-history') || '[]');
+    this._inputHistoryIdx = this._inputHistory.length;
     const doSend = async () => {
       const text = (input?.value || '').trim();
       if (!text) return;
+      // Save to input history
+      if (!this._inputHistory.length || this._inputHistory[this._inputHistory.length - 1] !== text) {
+        this._inputHistory.push(text);
+        if (this._inputHistory.length > 100) this._inputHistory.shift();
+        localStorage.setItem('ceo-input-history', JSON.stringify(this._inputHistory));
+      }
+      this._inputHistoryIdx = this._inputHistory.length;
       input.value = '';
 
       // Show CEO message immediately in terminal
@@ -2220,6 +2229,20 @@ class AppController {
         if (slashMenu && !slashMenu.classList.contains('hidden')) {
           e.preventDefault();
           this._navigateSlashMenu(e.key === 'ArrowDown' ? 1 : -1);
+        } else if (this._inputHistory?.length) {
+          e.preventDefault();
+          if (e.key === 'ArrowUp' && this._inputHistoryIdx > 0) {
+            this._inputHistoryIdx--;
+            input.value = this._inputHistory[this._inputHistoryIdx];
+          } else if (e.key === 'ArrowDown') {
+            if (this._inputHistoryIdx < this._inputHistory.length - 1) {
+              this._inputHistoryIdx++;
+              input.value = this._inputHistory[this._inputHistoryIdx];
+            } else {
+              this._inputHistoryIdx = this._inputHistory.length;
+              input.value = '';
+            }
+          }
         }
       }
       if (e.key === 'Escape') {
