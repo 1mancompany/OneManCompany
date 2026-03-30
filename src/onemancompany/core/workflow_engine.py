@@ -45,6 +45,8 @@ class WorkflowStep:
     output_description: str  # what this step produces
     raw_text: str  # full markdown text of this section
     collaborators: str = ""  # optional collaborators at step level
+    goal: str = ""  # what this step must achieve
+    depends_on: list[int] = field(default_factory=list)  # indices of prerequisite phases
 
 
 @dataclass
@@ -104,6 +106,7 @@ def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
             wf.steps.append(step)
             step_index += 1
 
+    _resolve_depends_on(wf.steps)
     return wf
 
 
@@ -127,6 +130,22 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     collab_match = re.search(r"\*\*Collaborators\*\*:\s*(.+)", section_text)
     if collab_match:
         collaborators = collab_match.group(1).strip()
+
+    # Extract goal
+    goal = ""
+    goal_match = re.search(r"\*\*Goal\*\*:\s*(.+)", section_text)
+    if goal_match:
+        goal = goal_match.group(1).strip()
+
+    # Extract raw depends_on phase number strings (resolved later)
+    raw_depends_on: list[str] = []
+    dep_match = re.search(r"\*\*Depends on\*\*:\s*(.+)", section_text)
+    if dep_match:
+        dep_raw = dep_match.group(1).strip()
+        for part in dep_raw.split(","):
+            phase_num_match = re.search(r"Phase\s+([\d.]+)", part.strip(), re.IGNORECASE)
+            if phase_num_match:
+                raw_depends_on.append(phase_num_match.group(1))
 
     # Extract numbered instructions from the Steps section
     instructions: list[str] = []
@@ -155,7 +174,7 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     if output_match:
         output_desc = output_match.group(1).strip()
 
-    return WorkflowStep(
+    step = WorkflowStep(
         index=index,
         title=title,
         owner=owner,
@@ -163,7 +182,31 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
         output_description=output_desc,
         raw_text=full_text,
         collaborators=collaborators,
+        goal=goal,
     )
+    step._raw_depends_on = raw_depends_on  # type: ignore[attr-defined]
+    return step
+
+
+def _resolve_depends_on(steps: list[WorkflowStep]) -> None:
+    """Resolve raw phase number strings into 0-based step indices in-place.
+
+    Builds a map from phase number (e.g. "1", "1.5") to step index by
+    scanning each step's title for a ``Phase N:`` prefix, then fills in
+    ``step.depends_on`` from the temporary ``_raw_depends_on`` attribute.
+    """
+    phase_num_to_index: dict[str, int] = {}
+    for step in steps:
+        phase_match = re.match(r"Phase\s+([\d.]+)", step.title, re.IGNORECASE)
+        if phase_match:
+            phase_num_to_index[phase_match.group(1)] = step.index
+
+    for step in steps:
+        raw: list[str] = getattr(step, "_raw_depends_on", [])
+        step.depends_on = [phase_num_to_index[num] for num in raw if num in phase_num_to_index]
+        # Clean up temporary attribute set by _parse_step_section
+        if hasattr(step, "_raw_depends_on"):
+            del step._raw_depends_on  # type: ignore[attr-defined]
 
 
 def classify_step_owner(owner_text: str) -> str:

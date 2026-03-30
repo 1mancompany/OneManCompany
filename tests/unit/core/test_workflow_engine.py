@@ -321,3 +321,78 @@ class TestWorkflowDataclasses:
             instructions=[], output_description="", raw_text="",
         )
         assert step.collaborators == ""
+
+
+# ---------------------------------------------------------------------------
+# Goal and depends_on parsing
+# ---------------------------------------------------------------------------
+
+WORKFLOW_WITH_GOAL_MD = """\
+# Goal Workflow
+
+- **Flow ID**: goal_test
+- **Owner**: HR
+
+## Phase 1: Prepare
+
+- **Goal**: Ensure meeting room is booked and all participants notified
+- **Responsible**: HR
+- **Steps**:
+  1. Book room
+  2. Notify team
+- **Output**: Room booked
+
+## Phase 2: Execute
+
+- **Goal**: Complete all action items from the meeting
+- **Responsible**: COO
+- **Depends on**: Phase 1
+- **Steps**:
+  1. Review action items
+  2. Execute each item
+- **Output**: Execution report
+"""
+
+
+class TestGoalAndDependsParsing:
+    def test_goal_parsed(self):
+        wf = parse_workflow("goal_test", WORKFLOW_WITH_GOAL_MD)
+        assert wf.steps[0].goal == "Ensure meeting room is booked and all participants notified"
+        assert wf.steps[1].goal == "Complete all action items from the meeting"
+
+    def test_depends_on_parsed(self):
+        wf = parse_workflow("goal_test", WORKFLOW_WITH_GOAL_MD)
+        assert wf.steps[0].depends_on == []
+        assert wf.steps[1].depends_on == [0]  # Phase 1 = index 0
+
+    def test_goal_missing_defaults_empty(self):
+        md = "## Step\n\n- **Responsible**: HR\n- **Steps**:\n  1. Do it\n"
+        wf = parse_workflow("no_goal", md)
+        assert wf.steps[0].goal == ""
+
+    def test_depends_on_missing_defaults_empty(self):
+        md = "## Step\n\n- **Goal**: Do stuff\n- **Responsible**: HR\n"
+        wf = parse_workflow("no_deps", md)
+        assert wf.steps[0].depends_on == []
+
+    def test_depends_on_multiple_phases(self):
+        md = (
+            "# Multi Dep\n\n- **Flow ID**: multi\n- **Owner**: HR\n\n"
+            "## Phase 1: A\n\n- **Goal**: First\n- **Responsible**: HR\n\n"
+            "## Phase 2: B\n\n- **Goal**: Second\n- **Responsible**: COO\n\n"
+            "## Phase 3: C\n\n- **Goal**: Third\n- **Responsible**: HR\n"
+            "- **Depends on**: Phase 1, Phase 2\n"
+        )
+        wf = parse_workflow("multi", md)
+        assert wf.steps[2].depends_on == [0, 1]
+
+    def test_depends_on_with_half_phases(self):
+        md = (
+            "# Half\n\n- **Flow ID**: half\n- **Owner**: HR\n\n"
+            "## Phase 1: A\n\n- **Goal**: First\n- **Responsible**: HR\n\n"
+            "## Phase 1.5: B\n\n- **Goal**: Second\n- **Responsible**: HR\n\n"
+            "## Phase 2: C\n\n- **Goal**: Third\n- **Responsible**: HR\n"
+            "- **Depends on**: Phase 1.5\n"
+        )
+        wf = parse_workflow("half", md)
+        assert wf.steps[2].depends_on == [1]  # Phase 1.5 = index 1
