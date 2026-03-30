@@ -3048,8 +3048,8 @@ class EmployeeManager:
             if not session:
                 return
             session.push_system_message(message, source=node.employee_id)
-            if session.project_dir:
-                session.save_history(session.project_dir)
+            # No save_history here — progress messages are ephemeral.
+            # History is saved on significant events (CEO replies, project confirms).
 
             # Broadcast to frontend
             loop = asyncio.get_running_loop()
@@ -3064,7 +3064,7 @@ class EmployeeManager:
                 agent=SYSTEM_AGENT,
             )))
         except Exception as e:
-            logger.debug("[ceo_session_push] Failed to push progress for node {}: {}", node.id, e)
+            logger.warning("[ceo_session_push] Failed to push progress for node {}: {}", node.id, e)
 
     def _publish_node_update(self, employee_id: str, node) -> None:
         """Publish a task update event for a TaskNode (ScheduleEntry path)."""
