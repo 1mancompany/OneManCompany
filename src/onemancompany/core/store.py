@@ -161,15 +161,22 @@ def flush_dirty() -> list[str]:
     return changed
 
 
-def _build_path_dirty_registry() -> list[tuple[Path, str]]:
+def _build_path_dirty_registry() -> list[tuple[Path, DirtyCategory]]:
     """Build path→category registry from config directories.
 
     Sorted by path depth (deepest first) so most-specific match wins.
+    Paths are resolved at build time for consistent matching.
+
+    Categories NOT in this registry (single-file or event-driven):
+      CULTURE, DIRECTION — single YAML files, written via dedicated store functions
+      ACTIVITY_LOG, OVERHEAD — single YAML files in COMPANY_DIR
+      SALES_TASKS — single file at company/sales/tasks.yaml
+      OFFICE_LAYOUT — event-driven, no disk directory
+    These categories already call mark_dirty() in their store write functions.
     """
     from onemancompany.core.config import (
         EMPLOYEES_DIR, EX_EMPLOYEES_DIR, ROOMS_DIR, TOOLS_DIR,
-        PROJECTS_DIR,
-        DirtyCategory,
+        PROJECTS_DIR, DirtyCategory,
     )
     entries = [
         (EMPLOYEES_DIR, DirtyCategory.EMPLOYEES),
@@ -177,12 +184,14 @@ def _build_path_dirty_registry() -> list[tuple[Path, str]]:
         (ROOMS_DIR, DirtyCategory.ROOMS),
         (TOOLS_DIR, DirtyCategory.TOOLS),
         (PROJECTS_DIR, DirtyCategory.TASK_QUEUE),
+        (CANDIDATES_DIR, DirtyCategory.CANDIDATES),
     ]
-    # Deepest paths first → most-specific match wins
-    return sorted(entries, key=lambda e: len(e[0].parts), reverse=True)
+    # Resolve once at build time, sort deepest first
+    resolved = [(d.resolve(), cat) for d, cat in entries]
+    return sorted(resolved, key=lambda e: len(e[0].parts), reverse=True)
 
 
-_path_dirty_registry: list[tuple[Path, str]] | None = None
+_path_dirty_registry: list[tuple[Path, DirtyCategory]] | None = None
 
 
 def mark_dirty_for_path(path: Path) -> None:
@@ -199,7 +208,7 @@ def mark_dirty_for_path(path: Path) -> None:
     try:
         resolved = path.resolve()
         for dir_path, category in _path_dirty_registry:
-            if resolved.is_relative_to(dir_path.resolve()):
+            if resolved.is_relative_to(dir_path):
                 mark_dirty(category)
                 return
     except Exception as exc:
