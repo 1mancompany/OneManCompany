@@ -1224,14 +1224,24 @@ async def get_workflow(name: str) -> dict:
 
 
 @router.put("/api/workflows/{name}")
-async def update_workflow(name: str, body: dict) -> dict:
+async def update_workflow(name: str, body: dict):
     """Update (or create) a workflow document. CEO edits the company rules."""
     from onemancompany.core.config import save_workflow
+    from onemancompany.core.workflow_engine import WorkflowValidationError
 
     content = body.get("content", "")
     if not content:
         return {"error": "Missing content"}
-    save_workflow(name, content)
+
+    try:
+        save_workflow(name, content)
+    except WorkflowValidationError as exc:
+        from starlette.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=422,
+            content={"error": "Workflow validation failed", "errors": exc.errors},
+        )
 
     await event_bus.publish(
         CompanyEvent(

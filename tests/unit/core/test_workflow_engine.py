@@ -7,8 +7,11 @@ import pytest
 from onemancompany.core.workflow_engine import (
     WorkflowDefinition,
     WorkflowStep,
+    WorkflowValidationError,
+    WORKFLOW_SCHEMA_DOC,
     classify_step_owner,
     parse_workflow,
+    validate_workflow,
     _parse_step_section,
 )
 
@@ -321,3 +324,180 @@ class TestWorkflowDataclasses:
             instructions=[], output_description="", raw_text="",
         )
         assert step.collaborators == ""
+
+
+# ---------------------------------------------------------------------------
+# Goal and depends_on parsing
+# ---------------------------------------------------------------------------
+
+WORKFLOW_WITH_GOAL_MD = """\
+# Goal Workflow
+
+- **Flow ID**: goal_test
+- **Owner**: HR
+
+## Phase 1: Prepare
+
+- **Goal**: Ensure meeting room is booked and all participants notified
+- **Responsible**: HR
+- **Steps**:
+  1. Book room
+  2. Notify team
+- **Output**: Room booked
+
+## Phase 2: Execute
+
+- **Goal**: Complete all action items from the meeting
+- **Responsible**: COO
+- **Depends on**: Phase 1
+- **Steps**:
+  1. Review action items
+  2. Execute each item
+- **Output**: Execution report
+"""
+
+
+class TestGoalAndDependsParsing:
+    def test_goal_parsed(self):
+        wf = parse_workflow("goal_test", WORKFLOW_WITH_GOAL_MD)
+        assert wf.steps[0].goal == "Ensure meeting room is booked and all participants notified"
+        assert wf.steps[1].goal == "Complete all action items from the meeting"
+
+    def test_depends_on_parsed(self):
+        wf = parse_workflow("goal_test", WORKFLOW_WITH_GOAL_MD)
+        assert wf.steps[0].depends_on == []
+        assert wf.steps[1].depends_on == [0]  # Phase 1 = index 0
+
+    def test_goal_missing_defaults_empty(self):
+        md = "## Step\n\n- **Responsible**: HR\n- **Steps**:\n  1. Do it\n"
+        wf = parse_workflow("no_goal", md)
+        assert wf.steps[0].goal == ""
+
+    def test_depends_on_missing_defaults_empty(self):
+        md = "## Step\n\n- **Goal**: Do stuff\n- **Responsible**: HR\n"
+        wf = parse_workflow("no_deps", md)
+        assert wf.steps[0].depends_on == []
+
+    def test_depends_on_multiple_phases(self):
+        md = (
+            "# Multi Dep\n\n- **Flow ID**: multi\n- **Owner**: HR\n\n"
+            "## Phase 1: A\n\n- **Goal**: First\n- **Responsible**: HR\n\n"
+            "## Phase 2: B\n\n- **Goal**: Second\n- **Responsible**: COO\n\n"
+            "## Phase 3: C\n\n- **Goal**: Third\n- **Responsible**: HR\n"
+            "- **Depends on**: Phase 1, Phase 2\n"
+        )
+        wf = parse_workflow("multi", md)
+        assert wf.steps[2].depends_on == [0, 1]
+
+    def test_depends_on_with_half_phases(self):
+        md = (
+            "# Half\n\n- **Flow ID**: half\n- **Owner**: HR\n\n"
+            "## Phase 1: A\n\n- **Goal**: First\n- **Responsible**: HR\n\n"
+            "## Phase 1.5: B\n\n- **Goal**: Second\n- **Responsible**: HR\n\n"
+            "## Phase 2: C\n\n- **Goal**: Third\n- **Responsible**: HR\n"
+            "- **Depends on**: Phase 1.5\n"
+        )
+        wf = parse_workflow("half", md)
+        assert wf.steps[2].depends_on == [1]  # Phase 1.5 = index 1
+
+
+# ---------------------------------------------------------------------------
+# validate_workflow + WorkflowValidationError
+# ---------------------------------------------------------------------------
+
+class TestValidateWorkflow:
+    def _make_wf(self, **overrides) -> WorkflowDefinition:
+        defaults = dict(
+            name="test", flow_id="test_flow", owner="HR",
+            collaborators="", trigger="manual", raw_text="",
+        )
+        defaults.update(overrides)
+        return WorkflowDefinition(**defaults)
+
+    def _make_step(self, **overrides) -> WorkflowStep:
+        defaults = dict(
+            index=0, title="Phase 1: Test", owner="HR",
+            instructions=["Do it"], output_description="Done",
+            raw_text="## Phase 1: Test", goal="Achieve something",
+        )
+        defaults.update(overrides)
+        return WorkflowStep(**defaults)
+
+    def test_valid_workflow_no_errors(self):
+        wf = self._make_wf(steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert errors == []
+
+    def test_missing_flow_id(self):
+        wf = self._make_wf(flow_id="", steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert any("flow_id" in e.lower() or "Flow ID" in e for e in errors)
+
+    def test_missing_workflow_owner(self):
+        wf = self._make_wf(owner="", steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert any("owner" in e.lower() for e in errors)
+
+    def test_step_missing_goal(self):
+        step = self._make_step(goal="")
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("goal" in e.lower() for e in errors)
+
+    def test_step_missing_responsible(self):
+        step = self._make_step(owner="")
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("responsible" in e.lower() or "owner" in e.lower() for e in errors)
+
+    def test_depends_on_self_reference(self):
+        step = self._make_step(index=0, depends_on=[0])
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("self" in e.lower() or "itself" in e.lower() for e in errors)
+
+    def test_depends_on_out_of_bounds(self):
+        step = self._make_step(index=0, depends_on=[5])
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("does not exist" in e.lower() for e in errors)
+
+    def test_depends_on_valid_reference(self):
+        step0 = self._make_step(index=0, title="Phase 1: A")
+        step1 = self._make_step(index=1, title="Phase 2: B", depends_on=[0])
+        wf = self._make_wf(steps=[step0, step1])
+        errors = validate_workflow(wf)
+        assert errors == []
+
+    def test_multiple_errors_collected(self):
+        step = self._make_step(goal="", owner="")
+        wf = self._make_wf(flow_id="", steps=[step])
+        errors = validate_workflow(wf)
+        assert len(errors) >= 3
+
+    def test_error_class_has_errors_list(self):
+        err = WorkflowValidationError(["error1", "error2"])
+        assert err.errors == ["error1", "error2"]
+        assert "error1" in str(err)
+        assert "error2" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# WORKFLOW_SCHEMA_DOC constant
+# ---------------------------------------------------------------------------
+
+class TestWorkflowSchemaDoc:
+    def test_schema_doc_exists_and_nonempty(self):
+        assert isinstance(WORKFLOW_SCHEMA_DOC, str)
+        assert len(WORKFLOW_SCHEMA_DOC) > 100
+
+    def test_schema_doc_mentions_required_fields(self):
+        assert "**Goal**" in WORKFLOW_SCHEMA_DOC
+        assert "**Responsible**" in WORKFLOW_SCHEMA_DOC
+        assert "**Flow ID**" in WORKFLOW_SCHEMA_DOC
+
+    def test_schema_doc_mentions_optional_fields(self):
+        assert "**Depends on**" in WORKFLOW_SCHEMA_DOC
+
+    def test_schema_doc_has_example(self):
+        assert "## Phase" in WORKFLOW_SCHEMA_DOC

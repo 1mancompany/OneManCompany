@@ -9,6 +9,7 @@
 
 ## Phase 1: Review Preparation
 
+- **Goal**: Secure a meeting room and ensure all participants are notified
 - **Responsible**: HR
 - **Steps**:
   1. HR requests a meeting room booking from COO
@@ -18,6 +19,7 @@
 
 ## Phase 2: Self-Evaluation
 
+- **Goal**: Each employee honestly assesses their own performance
 - **Responsible**: Each participating employee
 - **Steps**:
   1. Each employee conducts a self-evaluation of their performance on the project
@@ -27,6 +29,7 @@
 
 ## Phase 3: Senior Peer Review
 
+- **Goal**: Senior employees provide objective evaluations of junior work
 - **Responsible**: Lv.3 and above employees
 - **Steps**:
   1. Senior employees evaluate the work of junior employees
@@ -36,6 +39,7 @@
 
 ## Phase 4: HR Summary and Improvement Points
 
+- **Goal**: Consolidate feedback into actionable improvement suggestions per employee
 - **Responsible**: HR
 - **Steps**:
   1. Consolidate self-evaluation and peer review results
@@ -46,6 +50,7 @@
 
 ## Phase 4.5: Internalize Feedback into Employee Records
 
+- **Goal**: Persist improvement feedback into employee records for long-term growth
 - **Responsible**: HR
 - **Steps**:
   1. For each employee who received improvement suggestions in Phase 4:
@@ -57,6 +62,7 @@
 
 ## Phase 5: COO Operations Report
 
+- **Goal**: Produce operations status and cost analysis report
 - **Responsible**: COO
 - **Steps**:
   1. Produce a company operations status report based on project completion
@@ -73,6 +79,7 @@
 
 ## Phase 5.5: Asset Consolidation
 
+- **Goal**: Identify and preserve valuable project deliverables as company assets
 - **Responsible**: COO
 - **Steps**:
   1. Review all files in the project workspace
@@ -83,6 +90,7 @@
 
 ## Phase 6: Employee Open Floor
 
+- **Goal**: Give all employees a voice to raise concerns and suggestions
 - **Responsible**: All meeting attendees
 - **Steps**:
   1. Each employee speaks, and may raise:
@@ -94,6 +102,7 @@
 
 ## Phase 7: Action Plan Organization
 
+- **Goal**: Organize actionable plans with clear owners and priorities
 - **Responsible**: COO + HR
 - **Steps**:
   1. COO organizes operations-related action plans (equipment procurement, process optimization)
@@ -103,6 +112,7 @@
 
 ## Phase 8: EA Approval and Execution
 
+- **Goal**: EA reviews and approves action plans for execution
 - **Responsible**: EA
 - **Steps**:
   1. All materials are compiled into a complete meeting document
@@ -114,6 +124,7 @@
 
 ## Phase 9: Process Improvement Consolidation
 
+- **Goal**: Standardize process improvements discovered during retrospective
 - **Responsible**: COO
 - **Steps**:
   1. Review all findings from the retrospective (improvement suggestions, action plans, recurring issues)

@@ -18,7 +18,9 @@ Markdown format expected (by convention used in business/workflows/):
 
     ## Phase 1: Step Title
 
+    - **Goal**: What this phase must achieve
     - **Responsible**: HR / COO / Each participating employee / ...
+    - **Depends on**: Phase N (optional)
     - **Steps**:
       1. Do something
       2. Do something else
@@ -33,6 +35,75 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+WORKFLOW_SCHEMA_DOC = """\
+# Workflow Schema Reference
+
+## Header Section
+
+Every workflow file must start with an H1 title followed by these metadata fields:
+
+- **Flow ID** *(required)*: unique snake_case identifier, e.g. `project_retrospective`
+- **Owner** *(required)*: which role owns this workflow, e.g. `HR`, `COO`
+- **Collaborators** *(optional)*: other roles involved at the workflow level
+- **Trigger** *(optional)*: what event starts this workflow
+
+## Phase Section
+
+Each `## Phase N: Title` block defines one step in the workflow:
+
+- **Goal** *(required)*: what outcome this phase must achieve
+- **Responsible** *(required)*: who executes this phase, e.g. `HR`, `COO`, `Each participating employee`
+- **Collaborators** *(optional)*: supporting roles for this phase only
+- **Depends on** *(optional)*: prerequisite phases, e.g. `Phase 1` or `Phase 1, Phase 2`
+- **Steps** *(optional)*: numbered or bulleted sub-tasks
+- **Output** *(optional)*: concrete deliverable produced by this phase
+
+## Field Rules
+
+| Field | Scope | Required |
+|---|---|---|
+| Flow ID | Header | Yes |
+| Owner | Header | Yes |
+| Collaborators | Header / Phase | No |
+| Trigger | Header | No |
+| Goal | Phase | Yes |
+| Responsible | Phase | Yes |
+| Depends on | Phase | No |
+| Steps | Phase | No |
+| Output | Phase | No |
+
+## Example
+
+```markdown
+# Onboarding Workflow
+
+- **Flow ID**: onboarding
+- **Owner**: HR
+- **Trigger**: New employee joins
+
+---
+
+## Phase 1: Prepare Workstation
+
+- **Goal**: Ensure workstation and accounts are ready before day one
+- **Responsible**: COO
+- **Steps**:
+  1. Set up computer and access credentials
+  2. Add to company communication channels
+- **Output**: Workstation ready checklist
+
+## Phase 2: Welcome Orientation
+
+- **Goal**: New hire understands company culture and their role
+- **Responsible**: HR
+- **Depends on**: Phase 1
+- **Steps**:
+  1. Walk through company handbook
+  2. Introduce to team members
+- **Output**: Signed onboarding confirmation
+```
+"""
+
 
 @dataclass
 class WorkflowStep:
@@ -45,6 +116,8 @@ class WorkflowStep:
     output_description: str  # what this step produces
     raw_text: str  # full markdown text of this section
     collaborators: str = ""  # optional collaborators at step level
+    goal: str = ""  # what this step must achieve
+    depends_on: list[int] = field(default_factory=list)  # indices of prerequisite phases
 
 
 @dataclass
@@ -58,6 +131,45 @@ class WorkflowDefinition:
     trigger: str  # Trigger
     steps: list[WorkflowStep] = field(default_factory=list)
     raw_text: str = ""  # full original markdown
+
+
+class WorkflowValidationError(Exception):
+    """Raised when a workflow document fails schema validation."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__(f"Workflow validation failed: {'; '.join(errors)}")
+
+
+def validate_workflow(wf: WorkflowDefinition) -> list[str]:
+    """Validate a parsed workflow against the schema.
+
+    Returns a list of error strings. Empty list means valid.
+    """
+    errors: list[str] = []
+
+    if not wf.flow_id.strip():
+        errors.append("Workflow missing required field: Flow ID")
+    if not wf.owner.strip():
+        errors.append("Workflow missing required field: Owner")
+
+    valid_indices = {s.index for s in wf.steps}
+    for step in wf.steps:
+        prefix = f"Step '{step.title}'"
+        if not step.goal.strip():
+            errors.append(f"{prefix}: missing required field Goal")
+        if not step.owner.strip():
+            errors.append(f"{prefix}: missing required field Responsible")
+        for dep in step.depends_on:
+            if dep == step.index:
+                errors.append(f"{prefix}: depends_on references itself (index {dep})")
+            elif dep not in valid_indices:
+                errors.append(
+                    f"{prefix}: depends_on index {dep} does not exist "
+                    f"(valid: {sorted(valid_indices)})"
+                )
+
+    return errors
 
 
 def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
@@ -104,6 +216,7 @@ def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
             wf.steps.append(step)
             step_index += 1
 
+    _resolve_depends_on(wf.steps)
     return wf
 
 
@@ -128,13 +241,29 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     if collab_match:
         collaborators = collab_match.group(1).strip()
 
+    # Extract goal
+    goal = ""
+    goal_match = re.search(r"\*\*Goal\*\*:\s*(.+)", section_text)
+    if goal_match:
+        goal = goal_match.group(1).strip()
+
+    # Extract raw depends_on phase number strings (resolved later)
+    raw_depends_on: list[str] = []
+    dep_match = re.search(r"\*\*Depends on\*\*:\s*(.+)", section_text)
+    if dep_match:
+        dep_raw = dep_match.group(1).strip()
+        for part in dep_raw.split(","):
+            phase_num_match = re.search(r"Phase\s+([\d.]+)", part.strip(), re.IGNORECASE)
+            if phase_num_match:
+                raw_depends_on.append(phase_num_match.group(1))
+
     # Extract numbered instructions from the Steps section
     instructions: list[str] = []
     in_steps = False
     for line in lines:
         stripped = line.strip()
         # Detect start of the Steps block
-        if "**Steps**:" in stripped or "**Steps**:" in stripped:
+        if "**Steps**:" in stripped:
             in_steps = True
             continue
         # Detect end: another **keyword**: field or a new section
@@ -155,7 +284,7 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     if output_match:
         output_desc = output_match.group(1).strip()
 
-    return WorkflowStep(
+    step = WorkflowStep(
         index=index,
         title=title,
         owner=owner,
@@ -163,7 +292,31 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
         output_description=output_desc,
         raw_text=full_text,
         collaborators=collaborators,
+        goal=goal,
     )
+    step._raw_depends_on = raw_depends_on  # type: ignore[attr-defined]
+    return step
+
+
+def _resolve_depends_on(steps: list[WorkflowStep]) -> None:
+    """Resolve raw phase number strings into 0-based step indices in-place.
+
+    Builds a map from phase number (e.g. "1", "1.5") to step index by
+    scanning each step's title for a ``Phase N:`` prefix, then fills in
+    ``step.depends_on`` from the temporary ``_raw_depends_on`` attribute.
+    """
+    phase_num_to_index: dict[str, int] = {}
+    for step in steps:
+        phase_match = re.match(r"Phase\s+([\d.]+)", step.title, re.IGNORECASE)
+        if phase_match:
+            phase_num_to_index[phase_match.group(1)] = step.index
+
+    for step in steps:
+        raw: list[str] = getattr(step, "_raw_depends_on", [])
+        step.depends_on = [phase_num_to_index[num] for num in raw if num in phase_num_to_index]
+        # Clean up temporary attribute set by _parse_step_section
+        if hasattr(step, "_raw_depends_on"):
+            del step._raw_depends_on  # type: ignore[attr-defined]
 
 
 def classify_step_owner(owner_text: str) -> str:
