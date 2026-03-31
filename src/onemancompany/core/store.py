@@ -167,23 +167,24 @@ def _build_path_dirty_registry() -> list[tuple[Path, DirtyCategory]]:
     Sorted by path depth (deepest first) so most-specific match wins.
     Paths are resolved at build time for consistent matching.
 
-    Categories NOT in this registry (single-file or event-driven):
+    Categories NOT in this registry (handled by dedicated store functions):
+      TASK_QUEUE — project metadata changes (create_iteration, save_project_status,
+        LLM rename) already call mark_dirty(TASK_QUEUE) explicitly. Agent file
+        writes to PROJECTS_DIR are deliverables, not metadata.
       CULTURE, DIRECTION — single YAML files, written via dedicated store functions
       ACTIVITY_LOG, OVERHEAD — single YAML files in COMPANY_DIR
       SALES_TASKS — single file at company/sales/tasks.yaml
       OFFICE_LAYOUT — event-driven, no disk directory
-    These categories already call mark_dirty() in their store write functions.
     """
     from onemancompany.core.config import (
         EMPLOYEES_DIR, EX_EMPLOYEES_DIR, ROOMS_DIR, TOOLS_DIR,
-        PROJECTS_DIR, DirtyCategory,
+        DirtyCategory,
     )
     entries = [
         (EMPLOYEES_DIR, DirtyCategory.EMPLOYEES),
         (EX_EMPLOYEES_DIR, DirtyCategory.EX_EMPLOYEES),
         (ROOMS_DIR, DirtyCategory.ROOMS),
         (TOOLS_DIR, DirtyCategory.TOOLS),
-        (PROJECTS_DIR, DirtyCategory.TASK_QUEUE),
         (CANDIDATES_DIR, DirtyCategory.CANDIDATES),
     ]
     # Resolve once at build time, sort deepest first
