@@ -3302,6 +3302,32 @@ def register_self_hosted(
     return employee_manager.register(employee_id, executor, config=config)
 
 
+def _ensure_work_principles(employee_id: str, emp_dir, cfg=None) -> None:
+    """Ensure work_principles.md exists. Founding employees skip onboarding,
+    so this creates a default file if missing."""
+    from onemancompany.core.store import WORK_PRINCIPLES_FILENAME
+
+    wp_path = emp_dir / WORK_PRINCIPLES_FILENAME
+    if wp_path.exists():
+        return
+    name = cfg.name if cfg else employee_id
+    nickname = cfg.nickname if cfg and hasattr(cfg, "nickname") else ""
+    role = cfg.role if cfg else "Employee"
+    dept = cfg.department if cfg and hasattr(cfg, "department") else ""
+    label = f"{name} ({nickname})" if nickname else name
+    from onemancompany.core.config import write_text_utf
+    write_text_utf(wp_path,
+        f"# {label} Work Principles\n\n"
+        f"**Department**: {dept}\n"
+        f"**Role**: {role}\n\n"
+        f"## Core Principles\n"
+        f"1. Complete assigned work diligently and maintain professional standards\n"
+        f"2. Actively collaborate with the team and communicate progress promptly\n"
+        f"3. Continuously learn and improve professional skills\n"
+        f"4. Follow company rules and guidelines\n")
+    logger.info("[startup] Created default work_principles.md for {}", employee_id)
+
+
 def register_founding_employee(
     employee_id: str,
     agent_cls: type,
@@ -3320,6 +3346,9 @@ def register_founding_employee(
     cfg = emp_cfgs.get(employee_id)
     emp_dir = employees_dir / employee_id
     vessel_cfg = load_vessel_config(emp_dir) if emp_dir.exists() else None
+
+    # Ensure work_principles.md exists (founding employees skip onboarding)
+    _ensure_work_principles(employee_id, emp_dir, cfg)
 
     hosting = (cfg.hosting if cfg else "company").strip().lower()
     executor = _create_executor_for_hosting(hosting, employee_id, agent_cls, emp_dir)
