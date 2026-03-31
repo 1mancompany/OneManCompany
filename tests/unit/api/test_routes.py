@@ -1030,6 +1030,28 @@ class TestWorkflows:
 
         assert resp.json()["error"] == "Missing content"
 
+    async def test_update_workflow_validation_error_returns_422(self):
+        from onemancompany.core.workflow_engine import WorkflowValidationError
+
+        state = _make_state()
+        bus = EventBus()
+
+        with patch("onemancompany.api.routes.company_state", state), \
+             _store_patches(state), \
+             patch("onemancompany.api.routes.event_bus", bus), \
+             patch(
+                 "onemancompany.core.config.save_workflow",
+                 side_effect=WorkflowValidationError(["Missing 'owner' field", "Missing 'trigger' field"]),
+             ):
+            app = _make_test_app()
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+                resp = await c.put("/api/workflows/bad_wf", json={"content": "# Bad workflow"})
+
+        assert resp.status_code == 422
+        data = resp.json()
+        assert "errors" in data
+        assert len(data["errors"]) > 0
+
 
 # ---------------------------------------------------------------------------
 # GET /api/employee/{employee_id}/taskboard

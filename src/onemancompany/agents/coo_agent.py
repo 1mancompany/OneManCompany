@@ -706,7 +706,13 @@ def deposit_company_knowledge(
         }
 
     if category == OrgDir.WORKFLOW:
-        save_workflow(name, content)
+        try:
+            save_workflow(name, content)
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": f"Workflow validation failed: {exc}",
+            }
         path = str(WORKFLOWS_DIR / f"{name}.md")
 
     elif category == OrgDir.CULTURE:
