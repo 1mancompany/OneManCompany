@@ -8,6 +8,7 @@ from onemancompany.core.workflow_engine import (
     WorkflowDefinition,
     WorkflowStep,
     WorkflowValidationError,
+    WORKFLOW_SCHEMA_DOC,
     classify_step_owner,
     parse_workflow,
     validate_workflow,
@@ -479,3 +480,24 @@ class TestValidateWorkflow:
         assert err.errors == ["error1", "error2"]
         assert "error1" in str(err)
         assert "error2" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# WORKFLOW_SCHEMA_DOC constant
+# ---------------------------------------------------------------------------
+
+class TestWorkflowSchemaDoc:
+    def test_schema_doc_exists_and_nonempty(self):
+        assert isinstance(WORKFLOW_SCHEMA_DOC, str)
+        assert len(WORKFLOW_SCHEMA_DOC) > 100
+
+    def test_schema_doc_mentions_required_fields(self):
+        assert "**Goal**" in WORKFLOW_SCHEMA_DOC
+        assert "**Responsible**" in WORKFLOW_SCHEMA_DOC
+        assert "**Flow ID**" in WORKFLOW_SCHEMA_DOC
+
+    def test_schema_doc_mentions_optional_fields(self):
+        assert "**Depends on**" in WORKFLOW_SCHEMA_DOC
+
+    def test_schema_doc_has_example(self):
+        assert "## Phase" in WORKFLOW_SCHEMA_DOC
