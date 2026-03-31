@@ -682,6 +682,121 @@ def _trunc(s: str | None, limit: int = 3000) -> str:
     return text[:limit] + ("..." if len(text) > limit else "")
 
 
+def _result_preview(result: str, max_lines: int = 3, max_chars: int = 500) -> str:
+    """Extract a multi-line preview of a task result for CEO consumption."""
+    text = result.strip()
+    if not text:
+        return ""
+    lines = text.split("\n")[:max_lines]
+    preview = "\n    ".join(lines)
+    return preview[:max_chars]
+
+
+def _collect_work_results(tree, project_dir: str) -> list:
+    """Collect all completed/failed work nodes from the entire tree.
+
+    Returns task-type nodes that have results, excluding system and CEO nodes.
+    This recurses the full tree rather than only looking at direct children.
+    """
+    from onemancompany.core.task_lifecycle import SYSTEM_NODE_TYPES, TaskPhase
+
+    done_statuses = {
+        TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value,
+        TaskPhase.FINISHED.value, TaskPhase.FAILED.value,
+    }
+    results = []
+    for node in tree.all_nodes():
+        if node.node_type in SYSTEM_NODE_TYPES or node.is_ceo_node:
+            continue
+        if node.status not in done_statuses:
+            continue
+        node.load_content(project_dir)
+        if node.result and node.result.strip():
+            results.append(node)
+    return results
+
+
+def _list_deliverables(project_dir: str) -> list[str]:
+    """List non-system files in project directory as deliverables."""
+    _skip = {"nodes", "task_tree.yaml", "llm_traces.jsonl", "iteration.yaml", ".DS_Store"}
+    pdir = Path(project_dir)
+    if not pdir.exists():
+        return []
+    files = []
+    for f in sorted(pdir.iterdir()):
+        if f.name in _skip or f.name.startswith("."):
+            continue
+        if f.is_file():
+            files.append(f.name)
+    return files
+
+
+async def _summarize_project_for_ceo(
+    project_name: str,
+    work_nodes: list,
+    deliverables: list[str],
+) -> str:
+    """Have EA write a concise project completion summary for the CEO.
+
+    Falls back to a simple result listing if the LLM call fails.
+    """
+    from onemancompany.agents.base import tracked_ainvoke
+    from onemancompany.core.config import EA_ID
+    from onemancompany.core.task_lifecycle import TaskPhase
+
+    # Build raw results context for EA
+    raw_parts: list[str] = []
+    for node in work_nodes:
+        status = "succeeded" if node.status != TaskPhase.FAILED.value else "FAILED"
+        title = node.title or node.description_preview[:80]
+        result = (node.result or "").strip()[:1000]
+        raw_parts.append(f"[{node.employee_id}] {title} ({status}):\n{result}")
+
+    if not raw_parts:
+        return ""
+
+    raw_context = "\n\n---\n\n".join(raw_parts)
+    deliverables_ctx = "\n".join(f"  - {f}" for f in deliverables) if deliverables else "(none)"
+
+    prompt = (
+        f"You are the Executive Assistant. Write a concise project completion report "
+        f"for the CEO.\n\n"
+        f"Project: {project_name}\n\n"
+        f"Deliverables:\n{deliverables_ctx}\n\n"
+        f"Raw task results:\n{raw_context}\n\n"
+        f"Instructions:\n"
+        f"- Summarize what was accomplished in 3-5 sentences\n"
+        f"- Highlight key deliverables and their quality\n"
+        f"- Note any failures or issues that need CEO attention\n"
+        f"- Use the project's language (Chinese if results are in Chinese)\n"
+        f"- Do NOT include greetings or signatures\n"
+        f"- Be direct and factual"
+    )
+
+    try:
+        llm = make_llm(EA_ID)
+        result = await tracked_ainvoke(llm, prompt, category="project_summary", employee_id=EA_ID)
+        summary = result.content.strip()
+        if summary:
+            logger.debug("[PROJECT SUMMARY] EA generated {}-char summary for {}", len(summary), project_name)
+            return summary
+    except Exception as e:
+        logger.warning("[PROJECT SUMMARY] EA summary failed for {}: {}", project_name, e)
+
+    # Fallback: simple result listing with previews
+    fallback_lines = ["Work summary:"]
+    for node in work_nodes:
+        status_icon = "✓" if node.status != TaskPhase.FAILED.value else "✗"
+        title = node.title or node.description_preview[:60]
+        preview = _result_preview(node.result or "")
+        if preview:
+            fallback_lines.append(f"  {status_icon} [{node.employee_id}] {title}:")
+            fallback_lines.append(f"    {preview}")
+        else:
+            fallback_lines.append(f"  {status_icon} [{node.employee_id}] {title}")
+    return "\n".join(fallback_lines)
+
+
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
     """Load recent entries from the employee's progress log."""
     path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
@@ -2446,27 +2561,42 @@ class EmployeeManager:
             if existing_confirm:
                 logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
             else:
-                # Build concise completion summary for CEO
+                # Build completion summary for CEO
                 _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
-                ea_node.load_content(_pdir)
-                children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
-                task_preview = (ea_node.description or "")[:120]
-                total = len(children)
-                succeeded = sum(1 for c in children if c.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value))
-                failed = sum(1 for c in children if c.status == TaskPhase.FAILED.value)
 
-                lines = [f"✅ Project complete: {task_preview}", ""]
-                lines.append(f"Result: {succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
-                lines.append("")
+                # Project name from project.yaml (not EA description)
+                _base_pid = project_id.split("/")[0] if project_id else ""
+                from onemancompany.core.project_archive import load_project as _load_proj
+                _proj_doc = _load_proj(_base_pid) if _base_pid else None
+                project_name = (_proj_doc or {}).get("name", "") or ea_node.description_preview[:80]
 
-                # Key deliverables — first line of each child's result
-                for child in children:
-                    child.load_content(_pdir)
-                    result_line = (child.result or "").strip().split("\n")[0][:150]
-                    if result_line:
-                        status_icon = "✓" if child.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value) else "✗"
-                        title = child.title or child.description_preview[:60]
-                        lines.append(f"  {status_icon} {title}: {result_line}")
+                # Recursively collect all work results from the tree
+                work_nodes = _collect_work_results(tree, _pdir)
+                succeeded = sum(
+                    1 for n in work_nodes
+                    if n.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value, TaskPhase.COMPLETED.value)
+                )
+                failed = sum(1 for n in work_nodes if n.status == TaskPhase.FAILED.value)
+                total = succeeded + failed
+
+                lines = [f"✅ {project_name} — complete", ""]
+                lines.append(f"{succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
+
+                # Deliverable files in project directory
+                deliverables = _list_deliverables(_pdir)
+                if deliverables:
+                    lines.append("")
+                    lines.append("Deliverables:")
+                    for fname in deliverables:
+                        lines.append(f"  {fname}")
+
+                # EA-written summary of work results for CEO
+                ea_summary = await _summarize_project_for_ceo(
+                    project_name, work_nodes, deliverables,
+                )
+                if ea_summary:
+                    lines.append("")
+                    lines.append(ea_summary)
 
                 lines.append("")
                 lines.append("Reply to confirm, or provide feedback for a new iteration.")
