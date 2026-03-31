@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from onemancompany.agents.common_tools import _mark_dirty_if_employee_path
+from onemancompany.core.store import DirtyCategory
 
 
 class TestMarkDirtyIfEmployeePath:
@@ -26,7 +27,7 @@ class TestMarkDirtyIfEmployeePath:
         with patch("onemancompany.core.config.EMPLOYEES_DIR", emp_dir), \
              patch("onemancompany.core.store.mark_dirty") as mock_dirty:
             _mark_dirty_if_employee_path(target)
-            mock_dirty.assert_called_once()
+            mock_dirty.assert_called_once_with(DirtyCategory.EMPLOYEES)
 
     def test_non_employee_path_does_not_mark_dirty(self, tmp_path):
         emp_dir = tmp_path / "company" / "human_resource" / "employees"

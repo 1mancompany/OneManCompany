@@ -59,18 +59,18 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 _files_read_by_employee: dict[str, set[str]] = {}
 
 
-def _mark_dirty_if_employee_path(resolved_path) -> None:
+def _mark_dirty_if_employee_path(resolved_path: Path) -> None:
     """If the written path is under EMPLOYEES_DIR, mark employees dirty for sync."""
     from onemancompany.core.config import EMPLOYEES_DIR
     from onemancompany.core.store import DirtyCategory, mark_dirty
 
     try:
-        resolved_str = str(resolved_path.resolve())
-        employees_str = str(EMPLOYEES_DIR.resolve())
-        if resolved_str.startswith(employees_str):
-            mark_dirty(DirtyCategory.EMPLOYEES)
+        resolved_path.resolve().relative_to(EMPLOYEES_DIR.resolve())
+        mark_dirty(DirtyCategory.EMPLOYEES)
+    except ValueError:
+        return  # not under EMPLOYEES_DIR — no dirty flag needed
     except Exception as exc:
-        logger.debug("_mark_dirty_if_employee_path failed: {}", exc)
+        logger.warning("_mark_dirty_if_employee_path failed: {}", exc)
 
 
 def _resolve_employee_path(file_path: str, employee_id: str = ""):
