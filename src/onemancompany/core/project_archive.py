@@ -281,7 +281,7 @@ async def async_create_project_from_task(
             # Notify frontend via store dirty so next sync tick picks it up
             from onemancompany.core.config import DirtyCategory
             from onemancompany.core.store import mark_dirty
-            mark_dirty(DirtyCategory.TASK_QUEUE)
+            mark_dirty(DirtyCategory.PROJECTS)
 
     spawn_background(_rename_when_ready())
     return project_id, iter_id
@@ -419,7 +419,7 @@ def create_iteration(project_id: str, task: str, routed_to: str) -> str:
     # Trigger 1: dispatch → in_progress — notify sync tick
     from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty(DirtyCategory.TASK_QUEUE)
+    mark_dirty(DirtyCategory.PROJECTS)
 
     return iter_id
 
@@ -555,7 +555,7 @@ def complete_project(project_id: str, output: str = "") -> None:
     # Signal sync tick that task queue changed
     from onemancompany.core.config import DirtyCategory
     from onemancompany.core.store import mark_dirty
-    mark_dirty(DirtyCategory.TASK_QUEUE)
+    mark_dirty(DirtyCategory.PROJECTS)
 
 
 def update_project_status(project_id: str, status: str, **extra) -> None:

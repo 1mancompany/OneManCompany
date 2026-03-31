@@ -283,7 +283,7 @@ class DirtyCategory(str, Enum):
     EX_EMPLOYEES = "ex_employees"
     ROOMS = "rooms"
     TOOLS = "tools"
-    TASK_QUEUE = "task_queue"
+    PROJECTS = "projects"
     CULTURE = "culture"
     ACTIVITY_LOG = "activity_log"
     SALES_TASKS = "sales_tasks"

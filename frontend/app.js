@@ -235,7 +235,7 @@ class AppController {
       if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      if (c.includes('task_queue'))    this.updateProjectsPanel();
+      if (c.includes('projects'))      this.updateProjectsPanel();
       if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
@@ -6689,7 +6689,15 @@ class AppController {
   }
 
   // ===== Projects Panel =====
+  _projectsPanelTimer = null;
+
   updateProjectsPanel() {
+    // Debounce: rapid dirty ticks should not cause DOM thrashing
+    clearTimeout(this._projectsPanelTimer);
+    this._projectsPanelTimer = setTimeout(() => this._doUpdateProjectsPanel(), 300);
+  }
+
+  _doUpdateProjectsPanel() {
     const panel = document.getElementById('projects-panel-list');
     if (!panel) return;
     fetch('/api/projects/named')
@@ -6700,20 +6708,19 @@ class AppController {
           panel.innerHTML = '<div class="task-empty">No projects</div>';
           return;
         }
-        panel.innerHTML = '';
+        // Build new content in a fragment, then swap — no visible flicker
+        const frag = document.createDocumentFragment();
         projects.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
         for (const p of projects) {
           const card = document.createElement('div');
-          // Determine sidebar border color class by iteration status:
-          // white=running, yellow=pending/holding, green=completed
           const iterStatus = p.latest_iter_status || '';
-          let statusClass = 'running';  // white (default for active)
+          let statusClass = 'running';
           if (iterStatus === 'completed') {
-            statusClass = 'completed';  // green
+            statusClass = 'completed';
           } else if (iterStatus === 'pending_confirmation' || iterStatus === 'pending' || iterStatus === 'holding') {
-            statusClass = 'pending';  // yellow
+            statusClass = 'pending';
           } else if (p.status === 'archived') {
-            statusClass = 'completed';  // archived → green
+            statusClass = 'completed';
           }
           card.className = `project-panel-card status-${statusClass}`;
           card.dataset.projectId = p.project_id;
@@ -6730,11 +6737,11 @@ class AppController {
             this._openProjectDetail(p.project_id);
             this._selectCeoProject(p.project_id);
           });
-          panel.appendChild(card);
+          frag.appendChild(card);
         }
-        // Fetch CEO session data and overlay pending indicators
+        panel.innerHTML = '';
+        panel.appendChild(frag);
         this._overlaySessionPendingBadges(panel);
-        // Fetch task queue and overlay progress info on matching project cards
         this._overlayTaskProgress(panel);
       })
       .catch(err => console.error('[updateProjectsPanel] failed:', err));
