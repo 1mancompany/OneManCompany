@@ -363,7 +363,7 @@ def reload_all_from_disk() -> dict:
 
     mark_dirty(
         DirtyCategory.EMPLOYEES, DirtyCategory.EX_EMPLOYEES,
-        DirtyCategory.ROOMS, DirtyCategory.TOOLS, DirtyCategory.TASK_QUEUE,
+        DirtyCategory.ROOMS, DirtyCategory.TOOLS, DirtyCategory.PROJECTS,
         DirtyCategory.CULTURE, DirtyCategory.ACTIVITY_LOG,
         DirtyCategory.SALES_TASKS, DirtyCategory.DIRECTION,
     )

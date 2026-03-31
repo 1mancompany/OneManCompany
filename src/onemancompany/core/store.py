@@ -168,8 +168,8 @@ def _build_path_dirty_registry() -> list[tuple[Path, DirtyCategory]]:
     Paths are resolved at build time for consistent matching.
 
     Categories NOT in this registry (handled by dedicated store functions):
-      TASK_QUEUE — project metadata changes (create_iteration, save_project_status,
-        LLM rename) already call mark_dirty(TASK_QUEUE) explicitly. Agent file
+      PROJECTS — project metadata changes (create_iteration, save_project_status,
+        LLM rename) already call mark_dirty(PROJECTS) explicitly. Agent file
         writes to PROJECTS_DIR are deliverables, not metadata.
       CULTURE, DIRECTION — single YAML files, written via dedicated store functions
       ACTIVITY_LOG, OVERHEAD — single YAML files in COMPANY_DIR
@@ -422,7 +422,7 @@ def load_project(project_id: str) -> dict:
 async def save_project_status(project_id: str, status: str, **extra) -> None:
     from onemancompany.core.project_archive import update_project_status
     update_project_status(project_id, status, **extra)
-    mark_dirty(DirtyCategory.TASK_QUEUE)
+    mark_dirty(DirtyCategory.PROJECTS)
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ async def save_tree(project_dir: str, tree_data: dict) -> None:
     path = Path(project_dir) / TASK_TREE_FILENAME
     async with _get_lock(str(path)):
         _write_yaml(path, tree_data)
-    mark_dirty(DirtyCategory.TASK_QUEUE)
+    mark_dirty(DirtyCategory.PROJECTS)
 
 
 # ---------------------------------------------------------------------------

@@ -235,7 +235,7 @@ class AppController {
       if (c.includes('culture') && !document.getElementById('company-culture-modal').classList.contains('hidden')) {
         this._renderCompanyCulture();
       }
-      if (c.includes('task_queue'))    this.updateProjectsPanel();
+      if (c.includes('projects'))      this.updateProjectsPanel();
       if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
