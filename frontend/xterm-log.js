@@ -179,9 +179,9 @@ class XTermLog {
     this._renderFeedNode(nodes, rootId, '');
   }
 
-  /** Pass-through — no truncation. Full content visible to CEO. */
-  _clip(s, _maxLen) {
-    return s;
+  /** Clip very large strings to prevent xterm.js rendering lag. */
+  _clip(s, maxLen = 10000) {
+    return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
   }
 
   // ─────────────────────────────────────────────────────────

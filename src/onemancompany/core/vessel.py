@@ -78,7 +78,6 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [5, 15, 30]
 MAX_HISTORY_ENTRIES = 8
 MAX_HISTORY_CHARS = 3000
-RESULT_SNIPPET_LEN = 300
 
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
@@ -644,12 +643,16 @@ class Vessel:
 # Progress log — file-based cross-task context (ralph-inspired)
 # ---------------------------------------------------------------------------
 
+_PROGRESS_LINE_MAX = 1000  # per-line cap for progress log (agent context, not CEO-facing)
+
+
 def _append_progress(employee_id: str, entry: str) -> None:
     """Append an entry to the employee's progress log (persistent across tasks)."""
     path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
+    capped = entry[:_PROGRESS_LINE_MAX]
     with open(path, "a", encoding=ENCODING_UTF8) as f:
-        f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
+        f.write(f"[{datetime.now().isoformat()[:19]}] {capped}\n")
 
 
 # _append_execution_log removed — node-level execution.log (JSONL) is the single source of truth.
@@ -1534,7 +1537,7 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            self._push_to_ceo_session(node, f"\u2717 {e!s}")
+            self._push_to_ceo_session(node, f"\u2717 {str(e)[:500]}")
             _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 {e!s}")
             logger.exception("Unhandled error")
         finally:
@@ -1825,8 +1828,8 @@ class EmployeeManager:
         """Append task history from a TaskNode."""
         history = self.task_histories.setdefault(employee_id, [])
         history.append({
-            "task": node.description,
-            "result": node.result or "",
+            "task": (node.description or "")[:2000],
+            "result": (node.result or "")[:2000],
             "completed_at": node.completed_at or datetime.now().isoformat(),
         })
         _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))

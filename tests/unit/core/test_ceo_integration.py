@@ -184,11 +184,15 @@ class TestProjectCompletionConfirmFlow:
             # The child just finished — trigger completion propagation
             entry = ScheduleEntry(node_id=child.id, tree_path=str(tree_path))
 
+            mock_summary_resp = MagicMock()
+            mock_summary_resp.content = "Project completed successfully."
             with (
                 patch(_SAVE_TREE_PATH),
                 patch(_STORE_PATH) as mock_store,
                 patch("onemancompany.core.vessel._store") as mock_store2,
                 patch.object(em, "_publish_node_update"),
+                patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_summary_resp),
+                patch("onemancompany.core.vessel.make_llm"),
             ):
                 mock_store.save_project_status = AsyncMock()
                 mock_store2.save_project_status = AsyncMock()
