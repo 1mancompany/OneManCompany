@@ -161,6 +161,51 @@ def flush_dirty() -> list[str]:
     return changed
 
 
+def _build_path_dirty_registry() -> list[tuple[Path, str]]:
+    """Build path→category registry from config directories.
+
+    Sorted by path depth (deepest first) so most-specific match wins.
+    """
+    from onemancompany.core.config import (
+        EMPLOYEES_DIR, EX_EMPLOYEES_DIR, ROOMS_DIR, TOOLS_DIR,
+        PROJECTS_DIR,
+        DirtyCategory,
+    )
+    entries = [
+        (EMPLOYEES_DIR, DirtyCategory.EMPLOYEES),
+        (EX_EMPLOYEES_DIR, DirtyCategory.EX_EMPLOYEES),
+        (ROOMS_DIR, DirtyCategory.ROOMS),
+        (TOOLS_DIR, DirtyCategory.TOOLS),
+        (PROJECTS_DIR, DirtyCategory.TASK_QUEUE),
+    ]
+    # Deepest paths first → most-specific match wins
+    return sorted(entries, key=lambda e: len(e[0].parts), reverse=True)
+
+
+_path_dirty_registry: list[tuple[Path, str]] | None = None
+
+
+def mark_dirty_for_path(path: Path) -> None:
+    """Auto-detect dirty category from file path and mark it.
+
+    Uses a registry mapping directory prefixes to DirtyCategory values.
+    Called by generic write/edit tools after file operations to ensure
+    the sync tick broadcasts changes to the frontend.
+    """
+    global _path_dirty_registry
+    if _path_dirty_registry is None:
+        _path_dirty_registry = _build_path_dirty_registry()
+
+    try:
+        resolved = path.resolve()
+        for dir_path, category in _path_dirty_registry:
+            if resolved.is_relative_to(dir_path.resolve()):
+                mark_dirty(category)
+                return
+    except Exception as exc:
+        logger.warning("mark_dirty_for_path failed for {}: {}", path, exc)
+
+
 # ---------------------------------------------------------------------------
 # Read cache — dirty-aware, short-lived cache for read-heavy bootstrap path
 # ---------------------------------------------------------------------------
