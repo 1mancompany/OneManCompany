@@ -252,7 +252,8 @@ class TestScriptLauncher:
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             with patch("asyncio.wait_for", new_callable=AsyncMock, side_effect=asyncio.TimeoutError):
                 result = await launcher.execute("task desc", ctx)
-                assert "[script timeout]" in result.output
+                assert result.error is not None
+                assert "[script timeout]" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_exception(self):
@@ -261,8 +262,9 @@ class TestScriptLauncher:
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, side_effect=OSError("No such file")):
             result = await launcher.execute("task desc", ctx)
-            assert "[script error]" in result.output
-            assert "No such file" in result.output
+            assert result.error is not None
+            assert "[script error]" in result.error
+            assert "No such file" in result.error
 
     def test_is_ready(self):
         launcher = ScriptLauncher("emp01")
@@ -931,8 +933,9 @@ class TestScriptLauncherErrorCode:
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc):
             with patch("asyncio.wait_for", new_callable=AsyncMock, return_value=(b"", b"some error")):
                 result = await launcher.execute("task desc", ctx)
-                assert "[script error]" in result.output
-                assert "some error" in result.output
+                assert result.error is not None
+                assert "[script error]" in result.error
+                assert "some error" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_nonzero_exit_with_stdout(self):

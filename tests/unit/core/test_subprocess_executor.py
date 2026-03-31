@@ -72,8 +72,9 @@ class TestSubprocessExecutor:
         with patch("onemancompany.core.subprocess_executor.asyncio.create_subprocess_exec", return_value=mock_proc):
             result = await exe.execute("do work", ctx)
 
-        assert "Error" in result.output
-        assert "exit 1" in result.output
+        assert result.error is not None
+        assert "Error" in result.error
+        assert "exit 1" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_timeout_raises(self):

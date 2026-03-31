@@ -111,9 +111,10 @@ class SubprocessExecutor(Launcher):
 
         if self._process.returncode != 0:
             err_msg = stderr.decode(errors="replace")[:500] if stderr else "Unknown error"
+            error = f"Error (exit {self._process.returncode}): {err_msg}"
             if on_log:
-                on_log("error", f"Exit code {self._process.returncode}: {err_msg}")
-            return LaunchResult(output=f"Error (exit {self._process.returncode}): {err_msg}")
+                on_log("error", error)
+            return LaunchResult(error=error)
 
         raw = stdout.decode(errors="replace").strip()
         try:

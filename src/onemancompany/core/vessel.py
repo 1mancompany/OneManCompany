@@ -420,11 +420,16 @@ def _parse_holding_metadata(result: str | None) -> dict | None:
 class LaunchResult:
     """Result from a single task execution."""
     output: str = ""
+    error: str | None = None  # structured error; None = no error
     model_used: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
     cost_usd: float | None = None  # provider-reported cost; None = use catalog price
+
+
+class ExecutionError(Exception):
+    """Raised when a task execution fails in a way the caller should handle."""
 
 
 @dataclass
@@ -506,12 +511,17 @@ class ClaudeSessionExecutor(Launcher):
             task_id=context.task_id,
         )
         output = result.get("output", "")
+        error: str | None = None
+        if output and output.startswith("[claude-daemon error]"):
+            error = output
+            output = ""
         if on_log:
-            on_log("result", (output or "")[:500])
+            on_log("error" if error else "result", (error or output or "")[:500])
         input_tokens = result.get("input_tokens", 0)
         output_tokens = result.get("output_tokens", 0)
         return LaunchResult(
             output=output or "",
+            error=error,
             model_used=result.get("model", ""),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -557,14 +567,17 @@ class ScriptExecutor(Launcher):
             output = stdout.decode(ENCODING_UTF8, errors="replace").strip()
             if proc.returncode != 0 and not output:
                 err = stderr.decode(ENCODING_UTF8, errors="replace").strip()
-                output = f"[script error] exit={proc.returncode}\n{err[:2000]}"
+                error_msg = f"[script error] exit={proc.returncode}\n{err[:2000]}"
+                if on_log:
+                    on_log("error", error_msg[:500])
+                return LaunchResult(error=error_msg)
             if on_log:
                 on_log("result", output[:500])
             return LaunchResult(output=output)
         except asyncio.TimeoutError:
-            return LaunchResult(output="[script timeout] Timed out after 600s")
+            return LaunchResult(error="[script timeout] Timed out after 600s")
         except Exception as e:
-            return LaunchResult(output=f"[script error] {e}")
+            return LaunchResult(error=f"[script error] {e}")
 
 
 
@@ -1334,6 +1347,10 @@ class EmployeeManager:
             if last_err is not None:
                 raise last_err
 
+            # Check for executor-reported errors
+            if launch_result and launch_result.error:
+                raise ExecutionError(launch_result.error)
+
             node.result = launch_result.output if launch_result else ""
             logger.debug("[TASK RESPONSE] employee={} node={}:\n{}",
                          employee_id, entry.node_id, _trunc(node.result))
@@ -1392,12 +1409,18 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
+            self._push_to_ceo_session(node, f"\u2717 Timeout ({node.timeout_seconds or 3600}s)")
+            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 timeout")
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
             logger.debug("[TASK LIFECYCLE] employee={} node={} → FAILED (error: {})", employee_id, entry.node_id, e)
             node.result = f"Error: {e!s}"
+            if not node.completed_at:
+                node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
+            self._push_to_ceo_session(node, f"\u2717 {e!s}"[:150])
+            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 {e!s}"[:300])
             logger.exception("Unhandled error")
         finally:
             _current_vessel.reset(loop_token)
@@ -3030,7 +3053,7 @@ class EmployeeManager:
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
             _append_node_execution_log(_project_dir, node_id, log_type, content)
         else:
-            logger.debug("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
+            logger.warning("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
         # 2. WebSocket: real-time push to frontend
         self._publish_log_event(employee_id, node_id, entry)
 
