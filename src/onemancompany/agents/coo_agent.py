@@ -19,6 +19,7 @@ from langgraph.prebuilt import create_react_agent
 from onemancompany.agents.base import BaseAgentRunner, extract_final_content, make_llm
 from onemancompany.core.config import COO_ID, HR_ID, MAX_SUMMARY_LEN, OrgDir, PF_DEPARTMENT, PF_NAME, PF_REMOTE, PF_ROLE, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, STATUS_WORKING, TOOL_YAML_FILENAME, TOOLS_DIR, WORKFLOWS_DIR, load_assets, open_utf, read_text_utf, save_company_direction, save_workflow, slugify_tool_name
 from onemancompany.core.events import CompanyEvent, event_bus
+from onemancompany.core.workflow_engine import WorkflowValidationError
 from onemancompany.core.models import EventType
 from onemancompany.core.state import MeetingRoom, OfficeTool, company_state
 from onemancompany.core.store import append_activity_sync as _append_activity
@@ -708,10 +709,16 @@ def deposit_company_knowledge(
     if category == OrgDir.WORKFLOW:
         try:
             save_workflow(name, content)
-        except Exception as exc:
+        except WorkflowValidationError as exc:
             return {
                 "status": "error",
                 "message": f"Workflow validation failed: {exc}",
+            }
+        except Exception as exc:
+            logger.error("Unexpected error saving workflow '{}': {}", name, exc)
+            return {
+                "status": "error",
+                "message": f"Failed to save workflow: {exc}",
             }
         path = str(WORKFLOWS_DIR / f"{name}.md")
 

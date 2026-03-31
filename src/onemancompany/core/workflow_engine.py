@@ -263,7 +263,7 @@ def _parse_step_section(index: int, section_text: str) -> WorkflowStep | None:
     for line in lines:
         stripped = line.strip()
         # Detect start of the Steps block
-        if "**Steps**:" in stripped or "**Steps**:" in stripped:
+        if "**Steps**:" in stripped:
             in_steps = True
             continue
         # Detect end: another **keyword**: field or a new section
