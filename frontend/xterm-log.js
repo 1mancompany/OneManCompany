@@ -179,8 +179,8 @@ class XTermLog {
     this._renderFeedNode(nodes, rootId, '');
   }
 
-  /** Trim a string to at most maxLen chars, appending '…' if truncated */
-  _clip(s, maxLen = 1000) {
+  /** Clip very large strings to prevent xterm.js rendering lag. */
+  _clip(s, maxLen = 10000) {
     return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
   }
 

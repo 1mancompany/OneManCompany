@@ -34,7 +34,6 @@ from onemancompany.core.vessel import (  # noqa: F401 — explicit re-exports fo
     RETRY_DELAYS,
     MAX_HISTORY_ENTRIES,
     MAX_HISTORY_CHARS,
-    RESULT_SNIPPET_LEN,
     # Backward-compat aliases
     EmployeeHandle,
     _AgentRef,

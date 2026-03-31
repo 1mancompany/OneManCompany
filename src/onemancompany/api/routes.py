@@ -633,31 +633,34 @@ async def task_followup(project_id: str, body: dict) -> dict:
 
     original_task = doc.get("task", "")
 
-    # Load task tree for context
+    # Load task tree and collect all previous work results
     tree_path = Path(pdir) / TASK_TREE_FILENAME
-    previous_result = ""
+    work_summary_lines: list[str] = []
     if tree_path.exists():
         tree = get_tree(tree_path, project_id=project_id)
-        root = tree.get_node(tree.root_id)
-        if root:
-            root.load_content(tree_path.parent)
-            if root.result:
-                previous_result = root.result
+        from onemancompany.core.vessel import _collect_work_results, _list_deliverables
+        work_nodes = _collect_work_results(tree, pdir)
+        for wn in work_nodes:
+            title = wn.title or wn.description_preview[:80]
+            result = (wn.result or "").strip()
+            work_summary_lines.append(f"  [{wn.employee_id}] {title}: {result}")
+        deliverables = _list_deliverables(pdir)
+        if deliverables:
+            work_summary_lines.append("")
+            work_summary_lines.append("Deliverable files in project directory:")
+            for fname in deliverables:
+                work_summary_lines.append(f"  {fname}")
 
     # Build follow-up task for EA
     context_parts = [
         f"CEO has added follow-up instructions to a completed task:\n",
         f"Original task: {original_task}\n",
     ]
-    if previous_result:
-        # Truncate very long results
-        prev = previous_result[:2000]
-        if len(previous_result) > 2000:
-            prev += "...(truncated)"
-        context_parts.append(f"Previous task result:\n{prev}\n")
+    if work_summary_lines:
+        context_parts.append(f"Previous work results:\n" + "\n".join(work_summary_lines) + "\n")
     context_parts.append(f"CEO follow-up instructions: {instructions}\n")
     context_parts.append(
-        f"\nPlease continue execution based on the CEO's follow-up instructions and previous task context."
+        f"\nBuild on the existing work — do NOT redo completed subtasks unless the CEO explicitly asks."
         f" Use dispatch_child() if subtasks are needed.\n\n"
         f"[Project ID: {project_id}] [Project workspace: {pdir}]"
     )

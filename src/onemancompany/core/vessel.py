@@ -78,7 +78,6 @@ MAX_RETRIES = 3
 RETRY_DELAYS = [5, 15, 30]
 MAX_HISTORY_ENTRIES = 8
 MAX_HISTORY_CHARS = 3000
-RESULT_SNIPPET_LEN = 300
 
 # ---------------------------------------------------------------------------
 # ScheduleEntry — pure pointer to a TaskNode (replaces AgentTask)
@@ -516,7 +515,7 @@ class ClaudeSessionExecutor(Launcher):
             error = output
             output = ""
         if on_log:
-            on_log("error" if error else "result", (error or output or "")[:500])
+            on_log("error" if error else "result", error or output or "")
         input_tokens = result.get("input_tokens", 0)
         output_tokens = result.get("output_tokens", 0)
         return LaunchResult(
@@ -569,10 +568,10 @@ class ScriptExecutor(Launcher):
                 err = stderr.decode(ENCODING_UTF8, errors="replace").strip()
                 error_msg = f"[script error] exit={proc.returncode}\n{err[:2000]}"
                 if on_log:
-                    on_log("error", error_msg[:500])
+                    on_log("error", error_msg)
                 return LaunchResult(error=error_msg)
             if on_log:
-                on_log("result", output[:500])
+                on_log("result", output)
             return LaunchResult(output=output)
         except asyncio.TimeoutError:
             return LaunchResult(error="[script timeout] Timed out after 600s")
@@ -644,12 +643,16 @@ class Vessel:
 # Progress log — file-based cross-task context (ralph-inspired)
 # ---------------------------------------------------------------------------
 
+_PROGRESS_LINE_MAX = 1000  # per-line cap for progress log (agent context, not CEO-facing)
+
+
 def _append_progress(employee_id: str, entry: str) -> None:
     """Append an entry to the employee's progress log (persistent across tasks)."""
     path = EMPLOYEES_DIR / employee_id / PROGRESS_LOG_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
+    capped = entry[:_PROGRESS_LINE_MAX]
     with open(path, "a", encoding=ENCODING_UTF8) as f:
-        f.write(f"[{datetime.now().isoformat()[:19]}] {entry}\n")
+        f.write(f"[{datetime.now().isoformat()[:19]}] {capped}\n")
 
 
 # _append_execution_log removed — node-level execution.log (JSONL) is the single source of truth.
@@ -680,6 +683,121 @@ def _trunc(s: str | None, limit: int = 3000) -> str:
     """Truncate string for debug logging."""
     text = s or ""
     return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _result_preview(result: str, max_lines: int = 3, max_chars: int = 500) -> str:
+    """Extract a multi-line preview of a task result for CEO consumption."""
+    text = result.strip()
+    if not text:
+        return ""
+    lines = text.split("\n")[:max_lines]
+    preview = "\n    ".join(lines)
+    return preview[:max_chars]
+
+
+def _collect_work_results(tree, project_dir: str) -> list:
+    """Collect all completed/failed work nodes from the entire tree.
+
+    Returns task-type nodes that have results, excluding system and CEO nodes.
+    This recurses the full tree rather than only looking at direct children.
+    """
+    from onemancompany.core.task_lifecycle import SYSTEM_NODE_TYPES, TaskPhase
+
+    done_statuses = {
+        TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value,
+        TaskPhase.FINISHED.value, TaskPhase.FAILED.value,
+    }
+    results = []
+    for node in tree.all_nodes():
+        if node.node_type in SYSTEM_NODE_TYPES or node.is_ceo_node:
+            continue
+        if node.status not in done_statuses:
+            continue
+        node.load_content(project_dir)
+        if node.result and node.result.strip():
+            results.append(node)
+    return results
+
+
+def _list_deliverables(project_dir: str) -> list[str]:
+    """List non-system files in project directory as deliverables."""
+    _skip = {"nodes", "task_tree.yaml", "llm_traces.jsonl", "iteration.yaml", ".DS_Store"}
+    pdir = Path(project_dir)
+    if not pdir.exists():
+        return []
+    files = []
+    for f in sorted(pdir.iterdir()):
+        if f.name in _skip or f.name.startswith("."):
+            continue
+        if f.is_file():
+            files.append(f.name)
+    return files
+
+
+async def _summarize_project_for_ceo(
+    project_name: str,
+    work_nodes: list,
+    deliverables: list[str],
+) -> str:
+    """Have EA write a concise project completion summary for the CEO.
+
+    Falls back to a simple result listing if the LLM call fails.
+    """
+    from onemancompany.agents.base import tracked_ainvoke
+    from onemancompany.core.config import EA_ID
+    from onemancompany.core.task_lifecycle import TaskPhase
+
+    # Build raw results context for EA
+    raw_parts: list[str] = []
+    for node in work_nodes:
+        status = "succeeded" if node.status != TaskPhase.FAILED.value else "FAILED"
+        title = node.title or node.description_preview[:80]
+        result = (node.result or "").strip()[:1000]
+        raw_parts.append(f"[{node.employee_id}] {title} ({status}):\n{result}")
+
+    if not raw_parts:
+        return ""
+
+    raw_context = "\n\n---\n\n".join(raw_parts)
+    deliverables_ctx = "\n".join(f"  - {f}" for f in deliverables) if deliverables else "(none)"
+
+    prompt = (
+        f"You are the Executive Assistant. Write a concise project completion report "
+        f"for the CEO.\n\n"
+        f"Project: {project_name}\n\n"
+        f"Deliverables:\n{deliverables_ctx}\n\n"
+        f"Raw task results:\n{raw_context}\n\n"
+        f"Instructions:\n"
+        f"- Summarize what was accomplished in 3-5 sentences\n"
+        f"- Highlight key deliverables and their quality\n"
+        f"- Note any failures or issues that need CEO attention\n"
+        f"- Use the project's language (Chinese if results are in Chinese)\n"
+        f"- Do NOT include greetings or signatures\n"
+        f"- Be direct and factual"
+    )
+
+    try:
+        llm = make_llm(EA_ID)
+        result = await tracked_ainvoke(llm, prompt, category="project_summary", employee_id=EA_ID)
+        summary = result.content.strip()
+        if summary:
+            logger.debug("[PROJECT SUMMARY] EA generated {}-char summary for {}", len(summary), project_name)
+            return summary
+    except Exception as e:
+        logger.warning("[PROJECT SUMMARY] EA summary failed for {}: {}", project_name, e)
+
+    # Fallback: simple result listing with previews
+    fallback_lines = ["Work summary:"]
+    for node in work_nodes:
+        status_icon = "✓" if node.status != TaskPhase.FAILED.value else "✗"
+        title = node.title or node.description_preview[:60]
+        preview = _result_preview(node.result or "")
+        if preview:
+            fallback_lines.append(f"  {status_icon} [{node.employee_id}] {title}:")
+            fallback_lines.append(f"    {preview}")
+        else:
+            fallback_lines.append(f"  {status_icon} [{node.employee_id}] {title}")
+    return "\n".join(fallback_lines)
 
 
 def _load_progress(employee_id: str, max_lines: int = PROGRESS_LOG_MAX_LINES) -> str:
@@ -1410,7 +1528,7 @@ class EmployeeManager:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
             self._push_to_ceo_session(node, f"\u2717 Timeout ({node.timeout_seconds or 3600}s)")
-            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 timeout")
+            _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 timeout")
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
@@ -1419,8 +1537,8 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            self._push_to_ceo_session(node, f"\u2717 {e!s}"[:150])
-            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 {e!s}"[:300])
+            self._push_to_ceo_session(node, f"\u2717 {str(e)[:500]}")
+            _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 {e!s}")
             logger.exception("Unhandled error")
         finally:
             _current_vessel.reset(loop_token)
@@ -1496,12 +1614,12 @@ class EmployeeManager:
             # Record to history + progress
             if node.status in (TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value):
                 self._append_history_from_node(employee_id, node)
-                summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed: {node.description[:100]} → {summary}")
+                summary = node.result or ""
+                _append_progress(employee_id, f"Completed: {node.description_preview} → {summary}")
                 # Push result to CEO session
-                result_preview = (node.result or "").strip().split("\n")[0][:150]
-                if result_preview:
-                    self._push_to_ceo_session(node, f"✓ {result_preview}")
+                result_first_line = (node.result or "").strip().split("\n")[0]
+                if result_first_line:
+                    self._push_to_ceo_session(node, f"✓ {result_first_line}")
 
             # Post-task hook
             post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
@@ -1677,12 +1795,12 @@ class EmployeeManager:
                 save_tree_async(entry.tree_path)
 
                 final_status = node.status
-                self._log_node(employee_id, task_id, "resumed", f"HOLDING → {final_status} with result: {result[:200]}")
+                self._log_node(employee_id, task_id, "resumed", f"HOLDING → {final_status} with result: {result}")
                 self._publish_node_update(employee_id, node)
 
                 self._append_history_from_node(employee_id, node)
-                summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed (resumed): {node.description_preview[:100]} → {summary}")
+                summary = node.result or ""
+                _append_progress(employee_id, f"Completed (resumed): {node.description_preview} → {summary}")
 
                 if node.project_dir:
                     try:
@@ -1710,8 +1828,8 @@ class EmployeeManager:
         """Append task history from a TaskNode."""
         history = self.task_histories.setdefault(employee_id, [])
         history.append({
-            "task": node.description[:200],
-            "result": (node.result or "")[:RESULT_SNIPPET_LEN],
+            "task": (node.description or "")[:2000],
+            "result": (node.result or "")[:2000],
             "completed_at": node.completed_at or datetime.now().isoformat(),
         })
         _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
@@ -2289,7 +2407,7 @@ class EmployeeManager:
                         if c.status == TaskPhase.FAILED.value
                     ]
                     failure_summary = "; ".join(
-                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'no details')[:150]}"
+                        f"[{c.employee_id}] {c.description_preview}: {c.result or 'no details'}"
                         for c in failed_children
                     )
                     resume_desc = (
@@ -2338,7 +2456,7 @@ class EmployeeManager:
                         if c.status == TaskPhase.CANCELLED.value
                     ]
                     cancel_summary = "; ".join(
-                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'cancelled')[:150]}"
+                        f"[{c.employee_id}] {c.description_preview}: {c.result or 'cancelled'}"
                         for c in cancelled_children
                     )
                     resume_desc = (
@@ -2446,27 +2564,42 @@ class EmployeeManager:
             if existing_confirm:
                 logger.debug("[PROJECT COMPLETE] Confirm node already exists for EA {} — skipping", ea_node.id)
             else:
-                # Build concise completion summary for CEO
+                # Build completion summary for CEO
                 _pdir = ea_node.project_dir or str(Path(entry.tree_path).parent)
-                ea_node.load_content(_pdir)
-                children = [c for c in tree.get_children(ea_node.id) if not c.is_ceo_node]
-                task_preview = (ea_node.description or "")[:120]
-                total = len(children)
-                succeeded = sum(1 for c in children if c.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value))
-                failed = sum(1 for c in children if c.status == TaskPhase.FAILED.value)
 
-                lines = [f"✅ Project complete: {task_preview}", ""]
-                lines.append(f"Result: {succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
-                lines.append("")
+                # Project name from project.yaml (not EA description)
+                _base_pid = project_id.split("/")[0] if project_id else ""
+                from onemancompany.core.project_archive import load_project as _load_proj
+                _proj_doc = _load_proj(_base_pid) if _base_pid else None
+                project_name = (_proj_doc or {}).get("name", "") or ea_node.description_preview[:80]
 
-                # Key deliverables — first line of each child's result
-                for child in children:
-                    child.load_content(_pdir)
-                    result_line = (child.result or "").strip().split("\n")[0][:150]
-                    if result_line:
-                        status_icon = "✓" if child.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value) else "✗"
-                        title = child.title or child.description_preview[:60]
-                        lines.append(f"  {status_icon} {title}: {result_line}")
+                # Recursively collect all work results from the tree
+                work_nodes = _collect_work_results(tree, _pdir)
+                succeeded = sum(
+                    1 for n in work_nodes
+                    if n.status in (TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value, TaskPhase.COMPLETED.value)
+                )
+                failed = sum(1 for n in work_nodes if n.status == TaskPhase.FAILED.value)
+                total = succeeded + failed
+
+                lines = [f"✅ {project_name} — complete", ""]
+                lines.append(f"{succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
+
+                # Deliverable files in project directory
+                deliverables = _list_deliverables(_pdir)
+                if deliverables:
+                    lines.append("")
+                    lines.append("Deliverables:")
+                    for fname in deliverables:
+                        lines.append(f"  {fname}")
+
+                # EA-written summary of work results for CEO
+                ea_summary = await _summarize_project_for_ceo(
+                    project_name, work_nodes, deliverables,
+                )
+                if ea_summary:
+                    lines.append("")
+                    lines.append(ea_summary)
 
                 lines.append("")
                 lines.append("Reply to confirm, or provide feedback for a new iteration.")
@@ -3368,7 +3501,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
                 "node_id": node.id,
                 "employee_id": node.employee_id,
                 "reviewer_id": reviewer_id,
-                "description": (node.description or "")[:200],
+                "description": node.description or "",
                 "completed_at": node.completed_at,
                 "waiting_seconds": int(elapsed),
                 "project_id": node.project_id or project_dir.name,
