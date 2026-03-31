@@ -642,7 +642,7 @@ async def task_followup(project_id: str, body: dict) -> dict:
         work_nodes = _collect_work_results(tree, pdir)
         for wn in work_nodes:
             title = wn.title or wn.description_preview[:80]
-            result = (wn.result or "").strip()[:800]
+            result = (wn.result or "").strip()
             work_summary_lines.append(f"  [{wn.employee_id}] {title}: {result}")
         deliverables = _list_deliverables(pdir)
         if deliverables:

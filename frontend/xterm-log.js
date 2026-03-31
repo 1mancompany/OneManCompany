@@ -179,9 +179,9 @@ class XTermLog {
     this._renderFeedNode(nodes, rootId, '');
   }
 
-  /** Trim a string to at most maxLen chars, appending '…' if truncated */
-  _clip(s, maxLen = 1000) {
-    return s.length > maxLen ? s.substring(0, maxLen) + '…' : s;
+  /** Pass-through — no truncation. Full content visible to CEO. */
+  _clip(s, _maxLen) {
+    return s;
   }
 
   // ─────────────────────────────────────────────────────────

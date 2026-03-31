@@ -516,7 +516,7 @@ class ClaudeSessionExecutor(Launcher):
             error = output
             output = ""
         if on_log:
-            on_log("error" if error else "result", (error or output or "")[:500])
+            on_log("error" if error else "result", error or output or "")
         input_tokens = result.get("input_tokens", 0)
         output_tokens = result.get("output_tokens", 0)
         return LaunchResult(
@@ -569,10 +569,10 @@ class ScriptExecutor(Launcher):
                 err = stderr.decode(ENCODING_UTF8, errors="replace").strip()
                 error_msg = f"[script error] exit={proc.returncode}\n{err[:2000]}"
                 if on_log:
-                    on_log("error", error_msg[:500])
+                    on_log("error", error_msg)
                 return LaunchResult(error=error_msg)
             if on_log:
-                on_log("result", output[:500])
+                on_log("result", output)
             return LaunchResult(output=output)
         except asyncio.TimeoutError:
             return LaunchResult(error="[script timeout] Timed out after 600s")
@@ -1525,7 +1525,7 @@ class EmployeeManager:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "timeout", f"Task timed out after {node.timeout_seconds or 3600}s")
             self._push_to_ceo_session(node, f"\u2717 Timeout ({node.timeout_seconds or 3600}s)")
-            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 timeout")
+            _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 timeout")
         except Exception as e:
             agent_error = True
             node.set_status(TaskPhase.FAILED)
@@ -1534,8 +1534,8 @@ class EmployeeManager:
             if not node.completed_at:
                 node.completed_at = datetime.now().isoformat()
             self._log_node(employee_id, entry.node_id, "error", f"Task failed: {e!s}")
-            self._push_to_ceo_session(node, f"\u2717 {e!s}"[:150])
-            _append_progress(employee_id, f"Failed: {node.description_preview[:100]} \u2014 {e!s}"[:300])
+            self._push_to_ceo_session(node, f"\u2717 {e!s}")
+            _append_progress(employee_id, f"Failed: {node.description_preview} \u2014 {e!s}")
             logger.exception("Unhandled error")
         finally:
             _current_vessel.reset(loop_token)
@@ -1611,12 +1611,12 @@ class EmployeeManager:
             # Record to history + progress
             if node.status in (TaskPhase.COMPLETED.value, TaskPhase.ACCEPTED.value, TaskPhase.FINISHED.value):
                 self._append_history_from_node(employee_id, node)
-                summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed: {node.description[:100]} → {summary}")
+                summary = node.result or ""
+                _append_progress(employee_id, f"Completed: {node.description_preview} → {summary}")
                 # Push result to CEO session
-                result_preview = (node.result or "").strip().split("\n")[0][:150]
-                if result_preview:
-                    self._push_to_ceo_session(node, f"✓ {result_preview}")
+                result_first_line = (node.result or "").strip().split("\n")[0]
+                if result_first_line:
+                    self._push_to_ceo_session(node, f"✓ {result_first_line}")
 
             # Post-task hook
             post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
@@ -1792,12 +1792,12 @@ class EmployeeManager:
                 save_tree_async(entry.tree_path)
 
                 final_status = node.status
-                self._log_node(employee_id, task_id, "resumed", f"HOLDING → {final_status} with result: {result[:200]}")
+                self._log_node(employee_id, task_id, "resumed", f"HOLDING → {final_status} with result: {result}")
                 self._publish_node_update(employee_id, node)
 
                 self._append_history_from_node(employee_id, node)
-                summary = (node.result or "")[:200]
-                _append_progress(employee_id, f"Completed (resumed): {node.description_preview[:100]} → {summary}")
+                summary = node.result or ""
+                _append_progress(employee_id, f"Completed (resumed): {node.description_preview} → {summary}")
 
                 if node.project_dir:
                     try:
@@ -1825,8 +1825,8 @@ class EmployeeManager:
         """Append task history from a TaskNode."""
         history = self.task_histories.setdefault(employee_id, [])
         history.append({
-            "task": node.description[:200],
-            "result": (node.result or "")[:RESULT_SNIPPET_LEN],
+            "task": node.description,
+            "result": node.result or "",
             "completed_at": node.completed_at or datetime.now().isoformat(),
         })
         _save_task_history(employee_id, history, self._history_summaries.get(employee_id, ""))
@@ -2404,7 +2404,7 @@ class EmployeeManager:
                         if c.status == TaskPhase.FAILED.value
                     ]
                     failure_summary = "; ".join(
-                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'no details')[:150]}"
+                        f"[{c.employee_id}] {c.description_preview}: {c.result or 'no details'}"
                         for c in failed_children
                     )
                     resume_desc = (
@@ -2453,7 +2453,7 @@ class EmployeeManager:
                         if c.status == TaskPhase.CANCELLED.value
                     ]
                     cancel_summary = "; ".join(
-                        f"[{c.employee_id}] {c.description_preview}: {(c.result or 'cancelled')[:150]}"
+                        f"[{c.employee_id}] {c.description_preview}: {c.result or 'cancelled'}"
                         for c in cancelled_children
                     )
                     resume_desc = (
@@ -3498,7 +3498,7 @@ def scan_overdue_reviews(threshold_seconds: int = 300) -> list[dict]:
                 "node_id": node.id,
                 "employee_id": node.employee_id,
                 "reviewer_id": reviewer_id,
-                "description": (node.description or "")[:200],
+                "description": node.description or "",
                 "completed_at": node.completed_at,
                 "waiting_seconds": int(elapsed),
                 "project_id": node.project_id or project_dir.name,

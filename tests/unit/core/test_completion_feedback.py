@@ -1,7 +1,6 @@
 """Unit tests for project completion feedback — CEO confirmation message quality."""
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -125,32 +124,29 @@ class TestSummarizeProjectForCeo:
         node.status = status
         return node
 
-    def test_ea_summary_returned_on_success(self):
+    @pytest.mark.asyncio
+    async def test_ea_summary_returned_on_success(self):
         mock_response = MagicMock()
         mock_response.content = "项目已完成，提案已修订。"
         nodes = [self._make_work_node("00005", "Write proposal", "Done writing")]
 
         with patch("onemancompany.core.vessel.make_llm"), \
              patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, return_value=mock_response):
-            result = asyncio.get_event_loop().run_until_complete(
-                _summarize_project_for_ceo("Test Project", nodes, ["proposal.md"])
-            )
+            result = await _summarize_project_for_ceo("Test Project", nodes, ["proposal.md"])
         assert result == "项目已完成，提案已修订。"
 
-    def test_fallback_on_llm_failure(self):
+    @pytest.mark.asyncio
+    async def test_fallback_on_llm_failure(self):
         nodes = [self._make_work_node("00005", "Write proposal", "Done writing")]
 
         with patch("onemancompany.core.vessel.make_llm"), \
              patch("onemancompany.agents.base.tracked_ainvoke", new_callable=AsyncMock, side_effect=Exception("LLM down")):
-            result = asyncio.get_event_loop().run_until_complete(
-                _summarize_project_for_ceo("Test Project", nodes, [])
-            )
+            result = await _summarize_project_for_ceo("Test Project", nodes, [])
         assert "Work summary:" in result
         assert "00005" in result
         assert "Write proposal" in result
 
-    def test_empty_work_nodes_returns_empty(self):
-        result = asyncio.get_event_loop().run_until_complete(
-            _summarize_project_for_ceo("Test Project", [], [])
-        )
+    @pytest.mark.asyncio
+    async def test_empty_work_nodes_returns_empty(self):
+        result = await _summarize_project_for_ceo("Test Project", [], [])
         assert result == ""
