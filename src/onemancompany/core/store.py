@@ -161,6 +161,60 @@ def flush_dirty() -> list[str]:
     return changed
 
 
+def _build_path_dirty_registry() -> list[tuple[Path, DirtyCategory]]:
+    """Build path→category registry from config directories.
+
+    Sorted by path depth (deepest first) so most-specific match wins.
+    Paths are resolved at build time for consistent matching.
+
+    Categories NOT in this registry (single-file or event-driven):
+      CULTURE, DIRECTION — single YAML files, written via dedicated store functions
+      ACTIVITY_LOG, OVERHEAD — single YAML files in COMPANY_DIR
+      SALES_TASKS — single file at company/sales/tasks.yaml
+      OFFICE_LAYOUT — event-driven, no disk directory
+    These categories already call mark_dirty() in their store write functions.
+    """
+    from onemancompany.core.config import (
+        EMPLOYEES_DIR, EX_EMPLOYEES_DIR, ROOMS_DIR, TOOLS_DIR,
+        PROJECTS_DIR, DirtyCategory,
+    )
+    entries = [
+        (EMPLOYEES_DIR, DirtyCategory.EMPLOYEES),
+        (EX_EMPLOYEES_DIR, DirtyCategory.EX_EMPLOYEES),
+        (ROOMS_DIR, DirtyCategory.ROOMS),
+        (TOOLS_DIR, DirtyCategory.TOOLS),
+        (PROJECTS_DIR, DirtyCategory.TASK_QUEUE),
+        (CANDIDATES_DIR, DirtyCategory.CANDIDATES),
+    ]
+    # Resolve once at build time, sort deepest first
+    resolved = [(d.resolve(), cat) for d, cat in entries]
+    return sorted(resolved, key=lambda e: len(e[0].parts), reverse=True)
+
+
+_path_dirty_registry: list[tuple[Path, DirtyCategory]] | None = None
+
+
+def mark_dirty_for_path(path: Path) -> None:
+    """Auto-detect dirty category from file path and mark it.
+
+    Uses a registry mapping directory prefixes to DirtyCategory values.
+    Called by generic write/edit tools after file operations to ensure
+    the sync tick broadcasts changes to the frontend.
+    """
+    global _path_dirty_registry
+    if _path_dirty_registry is None:
+        _path_dirty_registry = _build_path_dirty_registry()
+
+    try:
+        resolved = path.resolve()
+        for dir_path, category in _path_dirty_registry:
+            if resolved.is_relative_to(dir_path):
+                mark_dirty(category)
+                return
+    except Exception as exc:
+        logger.warning("mark_dirty_for_path failed for {}: {}", path, exc)
+
+
 # ---------------------------------------------------------------------------
 # Read cache — dirty-aware, short-lived cache for read-heavy bootstrap path
 # ---------------------------------------------------------------------------
