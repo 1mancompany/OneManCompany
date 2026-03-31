@@ -59,6 +59,20 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 _files_read_by_employee: dict[str, set[str]] = {}
 
 
+def _mark_dirty_if_employee_path(resolved_path) -> None:
+    """If the written path is under EMPLOYEES_DIR, mark employees dirty for sync."""
+    from onemancompany.core.config import EMPLOYEES_DIR
+    from onemancompany.core.store import DirtyCategory, mark_dirty
+
+    try:
+        resolved_str = str(resolved_path.resolve())
+        employees_str = str(EMPLOYEES_DIR.resolve())
+        if resolved_str.startswith(employees_str):
+            mark_dirty(DirtyCategory.EMPLOYEES)
+    except Exception as exc:
+        logger.debug("_mark_dirty_if_employee_path failed: {}", exc)
+
+
 def _resolve_employee_path(file_path: str, employee_id: str = ""):
     """Resolve a file path using employee permissions. Returns Path or None."""
     from pathlib import Path
@@ -215,6 +229,7 @@ async def write(
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
     write_text_utf(resolved, content)
+    _mark_dirty_if_employee_path(resolved)
     _files_read_by_employee.setdefault(employee_id, set()).add(str(resolved))
 
     result: dict = {
@@ -292,6 +307,7 @@ async def edit(
         replacements = 1
 
     write_text_utf(resolved, new_content)
+    _mark_dirty_if_employee_path(resolved)
     return {
         "status": "ok",
         "path": str(resolved),
