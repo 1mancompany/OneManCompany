@@ -2119,10 +2119,11 @@ class EmployeeManager:
         # 4. Work principles
         principles = _store.load_employee_work_principles(employee_id)
         wp_path = EMPLOYEES_DIR / employee_id / "work_principles.md"
+        wp_hint = "To update: read() this file first, then edit() to modify."
         if principles and principles.strip():
-            parts.append(f"## Your Work Principles\nFile: {wp_path}\n{principles.strip()}")
+            parts.append(f"## Your Work Principles\nFile: {wp_path}\n{wp_hint}\n{principles.strip()}")
         else:
-            parts.append(f"## Your Work Principles\nFile: {wp_path}\n(not yet written)")
+            parts.append(f"## Your Work Principles\nFile: {wp_path}\n{wp_hint}\n(not yet written)")
 
         # 5. Talent-provided prompt (CLAUDE.md or talent_persona.md from onboarding)
         #    CLAUDE.md takes priority; fall back to talent_persona.md for LangChain talents.
