@@ -78,12 +78,14 @@ class TestBuildCompanyContextBlock:
     @patch(f"{_STORE}.load_employee_guidance", return_value=[])
     @patch(f"{_CONFIG}.load_workflows", return_value={})
     @patch(f"{_STORE}.load_culture", return_value=[])
-    def test_empty_when_no_data_founding(self, _cult, _wf, _guid, _wp, _prof):
-        """Founding employees get no role identity from this block."""
+    def test_minimal_when_no_data_founding(self, _cult, _wf, _guid, _wp, _prof):
+        """Founding employees get only work_principles path (no role identity)."""
         mgr = _make_manager("00003")
         mgr.executors = {"00003": MagicMock()}
         result = mgr._build_company_context_block("00003")
-        assert result == ""
+        assert "Work Principles" in result
+        assert "work_principles.md" in result
+        assert "not yet written" in result
 
     @_patch_profile(_MOCK_PROFILE)
     @patch(f"{_STORE}.load_employee_work_principles", return_value="")
@@ -109,8 +111,9 @@ class TestBuildCompanyContextBlock:
         mgr = _make_manager()
         mgr.executors["00010"] = MagicMock(spec=LangChainExecutor)
         result = mgr._build_company_context_block("00010")
-        # No identity, no other data → empty
-        assert result == ""
+        # No identity, but work_principles path is always present
+        assert "Who You Are" not in result
+        assert "work_principles.md" in result
 
     @_patch_profile(_MOCK_PROFILE)
     @patch(f"{_STORE}.load_employee_work_principles", return_value="")
@@ -189,12 +192,13 @@ class TestBuildCompanyContextBlock:
     @patch(f"{_STORE}.load_employee_guidance", return_value=[])
     @patch(f"{_CONFIG}.load_workflows", return_value={})
     @patch(f"{_STORE}.load_culture", return_value=[])
-    def test_whitespace_only_principles_skipped(self, _cult, _wf, _guid, _wp, _prof):
-        """Founding employee with whitespace-only principles → empty."""
+    def test_whitespace_only_principles_shows_path(self, _cult, _wf, _guid, _wp, _prof):
+        """Whitespace-only principles still shows file path."""
         mgr = _make_manager("00003")
         mgr.executors = {"00003": MagicMock()}
         result = mgr._build_company_context_block("00003")
-        assert result == ""
+        assert "work_principles.md" in result
+        assert "not yet written" in result
 
 
 class TestTalentPersonaLoading:
