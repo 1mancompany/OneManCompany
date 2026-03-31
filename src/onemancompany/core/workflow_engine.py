@@ -62,6 +62,45 @@ class WorkflowDefinition:
     raw_text: str = ""  # full original markdown
 
 
+class WorkflowValidationError(Exception):
+    """Raised when a workflow document fails schema validation."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__(f"Workflow validation failed: {'; '.join(errors)}")
+
+
+def validate_workflow(wf: WorkflowDefinition) -> list[str]:
+    """Validate a parsed workflow against the schema.
+
+    Returns a list of error strings. Empty list means valid.
+    """
+    errors: list[str] = []
+
+    if not wf.flow_id.strip():
+        errors.append("Workflow missing required field: Flow ID")
+    if not wf.owner.strip():
+        errors.append("Workflow missing required field: Owner")
+
+    valid_indices = {s.index for s in wf.steps}
+    for step in wf.steps:
+        prefix = f"Step '{step.title}'"
+        if not step.goal.strip():
+            errors.append(f"{prefix}: missing required field Goal")
+        if not step.owner.strip():
+            errors.append(f"{prefix}: missing required field Responsible")
+        for dep in step.depends_on:
+            if dep == step.index:
+                errors.append(f"{prefix}: depends_on references itself (index {dep})")
+            elif dep not in valid_indices:
+                errors.append(
+                    f"{prefix}: depends_on index {dep} does not exist "
+                    f"(valid: {sorted(valid_indices)})"
+                )
+
+    return errors
+
+
 def parse_workflow(name: str, markdown_text: str) -> WorkflowDefinition:
     """Parse a markdown workflow document into a WorkflowDefinition.
 

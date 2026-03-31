@@ -7,8 +7,10 @@ import pytest
 from onemancompany.core.workflow_engine import (
     WorkflowDefinition,
     WorkflowStep,
+    WorkflowValidationError,
     classify_step_owner,
     parse_workflow,
+    validate_workflow,
     _parse_step_section,
 )
 
@@ -396,3 +398,84 @@ class TestGoalAndDependsParsing:
         )
         wf = parse_workflow("half", md)
         assert wf.steps[2].depends_on == [1]  # Phase 1.5 = index 1
+
+
+# ---------------------------------------------------------------------------
+# validate_workflow + WorkflowValidationError
+# ---------------------------------------------------------------------------
+
+class TestValidateWorkflow:
+    def _make_wf(self, **overrides) -> WorkflowDefinition:
+        defaults = dict(
+            name="test", flow_id="test_flow", owner="HR",
+            collaborators="", trigger="manual", raw_text="",
+        )
+        defaults.update(overrides)
+        return WorkflowDefinition(**defaults)
+
+    def _make_step(self, **overrides) -> WorkflowStep:
+        defaults = dict(
+            index=0, title="Phase 1: Test", owner="HR",
+            instructions=["Do it"], output_description="Done",
+            raw_text="## Phase 1: Test", goal="Achieve something",
+        )
+        defaults.update(overrides)
+        return WorkflowStep(**defaults)
+
+    def test_valid_workflow_no_errors(self):
+        wf = self._make_wf(steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert errors == []
+
+    def test_missing_flow_id(self):
+        wf = self._make_wf(flow_id="", steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert any("flow_id" in e.lower() or "Flow ID" in e for e in errors)
+
+    def test_missing_workflow_owner(self):
+        wf = self._make_wf(owner="", steps=[self._make_step()])
+        errors = validate_workflow(wf)
+        assert any("owner" in e.lower() for e in errors)
+
+    def test_step_missing_goal(self):
+        step = self._make_step(goal="")
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("goal" in e.lower() for e in errors)
+
+    def test_step_missing_responsible(self):
+        step = self._make_step(owner="")
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("responsible" in e.lower() or "owner" in e.lower() for e in errors)
+
+    def test_depends_on_self_reference(self):
+        step = self._make_step(index=0, depends_on=[0])
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("self" in e.lower() or "itself" in e.lower() for e in errors)
+
+    def test_depends_on_out_of_bounds(self):
+        step = self._make_step(index=0, depends_on=[5])
+        wf = self._make_wf(steps=[step])
+        errors = validate_workflow(wf)
+        assert any("does not exist" in e.lower() for e in errors)
+
+    def test_depends_on_valid_reference(self):
+        step0 = self._make_step(index=0, title="Phase 1: A")
+        step1 = self._make_step(index=1, title="Phase 2: B", depends_on=[0])
+        wf = self._make_wf(steps=[step0, step1])
+        errors = validate_workflow(wf)
+        assert errors == []
+
+    def test_multiple_errors_collected(self):
+        step = self._make_step(goal="", owner="")
+        wf = self._make_wf(flow_id="", steps=[step])
+        errors = validate_workflow(wf)
+        assert len(errors) >= 3
+
+    def test_error_class_has_errors_list(self):
+        err = WorkflowValidationError(["error1", "error2"])
+        assert err.errors == ["error1", "error2"]
+        assert "error1" in str(err)
+        assert "error2" in str(err)
