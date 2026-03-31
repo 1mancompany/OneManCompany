@@ -3311,9 +3311,9 @@ def _ensure_work_principles(employee_id: str, emp_dir, cfg=None) -> None:
     if wp_path.exists():
         return
     name = cfg.name if cfg else employee_id
-    nickname = cfg.nickname if cfg and hasattr(cfg, "nickname") else ""
+    nickname = cfg.nickname if cfg else ""
     role = cfg.role if cfg else "Employee"
-    dept = cfg.department if cfg and hasattr(cfg, "department") else ""
+    dept = cfg.department if cfg else ""
     label = f"{name} ({nickname})" if nickname else name
     from onemancompany.core.config import write_text_utf
     write_text_utf(wp_path,
