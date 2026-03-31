@@ -1224,7 +1224,7 @@ async def get_workflow(name: str) -> dict:
 
 
 @router.put("/api/workflows/{name}")
-async def update_workflow(name: str, body: dict) -> dict:
+async def update_workflow(name: str, body: dict):
     """Update (or create) a workflow document. CEO edits the company rules."""
     from onemancompany.core.config import save_workflow
     from onemancompany.core.workflow_engine import WorkflowValidationError
