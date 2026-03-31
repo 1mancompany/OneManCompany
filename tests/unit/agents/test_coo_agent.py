@@ -675,7 +675,18 @@ class TestDepositCompanyKnowledge:
         result = coo_mod.deposit_company_knowledge.invoke({
             "category": "workflow",
             "name": "deploy_process",
-            "content": "# Deploy SOP\n1. Build\n2. Test\n3. Deploy",
+            "content": (
+                "# Deploy SOP\n\n"
+                "- **Flow ID**: deploy_process\n"
+                "- **Owner**: COO\n\n"
+                "## Phase 1: Build and Deploy\n\n"
+                "- **Goal**: Ship the release\n"
+                "- **Responsible**: COO\n"
+                "- **Steps**:\n"
+                "  1. Build\n"
+                "  2. Test\n"
+                "  3. Deploy\n"
+            ),
         })
 
         assert result["status"] == "success"

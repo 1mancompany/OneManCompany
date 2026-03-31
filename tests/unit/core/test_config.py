@@ -325,10 +325,54 @@ class TestWorkflows:
         wf_dir = tmp_path / "workflows"
         monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", wf_dir)
 
-        config_mod.save_workflow("new_flow", "# New Flow\nContent")
+        config_mod.save_workflow("new_flow", (
+            "# New Flow\n\n"
+            "- **Flow ID**: new_flow\n"
+            "- **Owner**: HR\n\n"
+            "## Phase 1: Start\n\n"
+            "- **Goal**: Begin the process\n"
+            "- **Responsible**: HR\n"
+        ))
 
         assert (wf_dir / "new_flow.md").exists()
         assert "New Flow" in (wf_dir / "new_flow.md").read_text()
+
+    def test_save_rejects_invalid_workflow(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+        from onemancompany.core.workflow_engine import WorkflowValidationError
+
+        wf_dir = tmp_path / "workflows"
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", wf_dir)
+
+        # Missing Flow ID, Owner, Goal, Responsible — should fail validation
+        bad_content = "## Step 1: Do Something\n\n- **Steps**:\n  1. Action\n"
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            config_mod.save_workflow("bad_flow", bad_content)
+
+        assert len(exc_info.value.errors) > 0
+        assert not (wf_dir / "bad_flow.md").exists()  # not written to disk
+
+    def test_save_accepts_valid_workflow(self, tmp_path, monkeypatch):
+        import onemancompany.core.config as config_mod
+
+        wf_dir = tmp_path / "workflows"
+        monkeypatch.setattr(config_mod, "WORKFLOWS_DIR", wf_dir)
+
+        valid_content = (
+            "# Test Workflow\n\n"
+            "- **Flow ID**: test\n"
+            "- **Owner**: HR\n\n"
+            "## Phase 1: Do It\n\n"
+            "- **Goal**: Achieve something\n"
+            "- **Responsible**: HR\n"
+            "- **Steps**:\n"
+            "  1. Action one\n"
+            "- **Output**: Done\n"
+        )
+
+        config_mod.save_workflow("valid_flow", valid_content)
+        assert (wf_dir / "valid_flow.md").exists()
 
 
 # ---------------------------------------------------------------------------

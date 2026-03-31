@@ -768,7 +768,21 @@ def load_workflows() -> dict[str, str]:
 
 
 def save_workflow(name: str, content: str) -> None:
-    """Save a workflow .md file to business/workflows/."""
+    """Save a workflow .md file to business/workflows/ after validation.
+
+    Raises WorkflowValidationError if the content does not pass schema validation.
+    """
+    from onemancompany.core.workflow_engine import (
+        WorkflowValidationError,
+        parse_workflow,
+        validate_workflow,
+    )
+
+    wf = parse_workflow(name, content)
+    errors = validate_workflow(wf)
+    if errors:
+        raise WorkflowValidationError(errors)
+
     WORKFLOWS_DIR.mkdir(parents=True, exist_ok=True)
     path = WORKFLOWS_DIR / f"{name}.md"
     path.write_text(content, encoding=ENCODING_UTF8)
