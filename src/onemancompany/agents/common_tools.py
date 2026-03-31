@@ -1727,7 +1727,7 @@ def _register_all_internal_tools() -> None:
         list_automations,
         start_background_task, check_background_task, stop_background_task,
         list_background_tasks,
-        update_work_principles,  # dedicated employee data tool
+        update_work_principles, update_guidance,  # dedicated employee data tools
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))

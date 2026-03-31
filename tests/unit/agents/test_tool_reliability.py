@@ -48,3 +48,47 @@ class TestUpdateWorkPrinciples:
         )
         assert result["status"] == "error"
         assert "empty" in result["message"].lower()
+
+
+class TestUpdateGuidance:
+    @pytest.mark.asyncio
+    async def test_appends_note_and_returns_ok(self):
+        with patch("onemancompany.agents.common_tools._store") as mock_store:
+            mock_store.load_employee = lambda eid: {"id": eid} if eid == "00005" else None
+            mock_store.load_employee_guidance = lambda eid: ["Be proactive"]
+            mock_store.save_guidance = AsyncMock()
+
+            from onemancompany.agents.common_tools import update_guidance
+            result = await update_guidance.coroutine(
+                target_employee_id="00005",
+                note="Focus on client communication",
+                employee_id="00004",
+            )
+        assert result["status"] == "ok"
+        assert result["notes_count"] == 2
+        mock_store.save_guidance.assert_awaited_once_with("00005", ["Be proactive", "Focus on client communication"])
+
+    @pytest.mark.asyncio
+    async def test_invalid_employee_returns_error(self):
+        with patch("onemancompany.agents.common_tools._store") as mock_store:
+            mock_store.load_employee = lambda eid: None
+
+            from onemancompany.agents.common_tools import update_guidance
+            result = await update_guidance.coroutine(
+                target_employee_id="99999",
+                note="anything",
+                employee_id="00004",
+            )
+        assert result["status"] == "error"
+        assert "99999" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_empty_note_returns_error(self):
+        from onemancompany.agents.common_tools import update_guidance
+        result = await update_guidance.coroutine(
+            target_employee_id="00005",
+            note="   ",
+            employee_id="00004",
+        )
+        assert result["status"] == "error"
+        assert "empty" in result["message"].lower()
