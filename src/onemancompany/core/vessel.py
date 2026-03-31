@@ -3307,6 +3307,8 @@ def _ensure_work_principles(employee_id: str, emp_dir, cfg=None) -> None:
     so this creates a default file if missing."""
     from onemancompany.core.store import WORK_PRINCIPLES_FILENAME
 
+    if not emp_dir.exists():
+        return
     wp_path = emp_dir / WORK_PRINCIPLES_FILENAME
     if wp_path.exists():
         return
