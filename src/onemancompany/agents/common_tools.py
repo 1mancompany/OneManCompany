@@ -77,6 +77,25 @@ def _resolve_employee_path(file_path: str, employee_id: str = ""):
     return _resolve_path(file_path, permissions=permissions)
 
 
+# Files that have dedicated tools — block write/edit to enforce single path
+_PROTECTED_FILES = {
+    "work_principles.md": "update_work_principles",
+    "guidance.yaml": "update_guidance",
+}
+
+
+def _check_protected_file(resolved_path) -> dict | None:
+    """Return error dict if path is a protected file, None otherwise."""
+    name = resolved_path.name if resolved_path else ""
+    if name in _PROTECTED_FILES:
+        tool = _PROTECTED_FILES[name]
+        return {
+            "status": "error",
+            "message": f"Use {tool}() instead of write/edit for {name}.",
+        }
+    return None
+
+
 @tool
 def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0) -> dict:
     """Read the contents of a file.
@@ -202,6 +221,10 @@ async def write(
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
 
+    blocked = _check_protected_file(resolved)
+    if blocked:
+        return blocked
+
     is_update = resolved.exists()
     original_content = ""
 
@@ -262,6 +285,11 @@ async def edit(
 
     if resolved is None:
         return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+
+    blocked = _check_protected_file(resolved)
+    if blocked:
+        return blocked
+
     if not resolved.exists():
         return {"status": "error", "message": f"File not found: {file_path}"}
 
