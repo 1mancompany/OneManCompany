@@ -60,6 +60,13 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 _files_read_by_employee: dict[str, set[str]] = {}
 
 
+def _validate_employee_id(employee_id: str) -> dict | None:
+    """Validate employee_id is non-empty. Returns error dict or None if valid."""
+    if not employee_id or not employee_id.strip():
+        return {"status": "error", "message": "employee_id is required. Use list_colleagues() to find valid IDs."}
+    return None
+
+
 def _resolve_employee_path(file_path: str, employee_id: str = ""):
     """Resolve a file path using employee permissions. Returns Path or None."""
     from pathlib import Path
@@ -226,6 +233,7 @@ async def write(
         "status": "ok",
         "path": str(resolved),
         "type": "update" if is_update else "create",
+        "next_step": f"Verify with read('{file_path}').",
     }
     if is_update and original_content != content:
         # Compute a simple line-level diff summary
@@ -303,6 +311,7 @@ async def edit(
         "status": "ok",
         "path": str(resolved),
         "replacements": replacements,
+        "next_step": f"Verify with read('{file_path}').",
     }
 
 
@@ -1692,6 +1701,9 @@ async def update_work_principles(
         content: The complete new work principles content (Markdown).
         employee_id: Your own employee ID (auto-filled).
     """
+    id_err = _validate_employee_id(target_employee_id)
+    if id_err:
+        return id_err
     if not content or not content.strip():
         return {"status": "error", "message": "Content cannot be empty."}
 
@@ -1705,7 +1717,7 @@ async def update_work_principles(
     await _store.save_work_principles(target_employee_id, content)
     from onemancompany.core.config import EMPLOYEES_DIR
     path = EMPLOYEES_DIR / target_employee_id / "work_principles.md"
-    return {"status": "ok", "employee_id": target_employee_id, "path": str(path)}
+    return {"status": "ok", "employee_id": target_employee_id, "path": str(path), "next_step": "Verify by reading the employee's detail page."}
 
 
 @tool
@@ -1726,6 +1738,9 @@ async def update_guidance(
         note: The guidance note text (one clear, actionable instruction).
         employee_id: Your own employee ID (auto-filled).
     """
+    id_err = _validate_employee_id(target_employee_id)
+    if id_err:
+        return id_err
     if not note or not note.strip():
         return {"status": "error", "message": "Note cannot be empty."}
 

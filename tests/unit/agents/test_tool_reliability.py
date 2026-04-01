@@ -110,3 +110,58 @@ class TestToolSelectionGuide:
         assert "IMPORTANT" in prompt
         assert "verify the change" in prompt.lower()
         assert "Internal vs External" in prompt
+
+
+class TestInputValidation:
+    def test_validate_employee_id_valid(self):
+        from onemancompany.agents.common_tools import _validate_employee_id
+        assert _validate_employee_id("00004") is None
+        assert _validate_employee_id("00010") is None
+
+    def test_validate_employee_id_non_empty_passes(self):
+        from onemancompany.agents.common_tools import _validate_employee_id
+        assert _validate_employee_id("abc") is None  # format not enforced, existence check handles it
+
+    def test_validate_employee_id_empty(self):
+        from onemancompany.agents.common_tools import _validate_employee_id
+        result = _validate_employee_id("")
+        assert result["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_update_work_principles_empty_id(self):
+        from onemancompany.agents.common_tools import update_work_principles
+        result = await update_work_principles.coroutine(
+            target_employee_id="",
+            content="anything",
+            employee_id="00004",
+        )
+        assert result["status"] == "error"
+        assert "required" in result["message"].lower()
+
+
+class TestNextStepHints:
+    @pytest.mark.asyncio
+    async def test_write_returns_next_step(self, tmp_path):
+        from onemancompany.agents.common_tools import write
+        target = tmp_path / "test.md"
+
+        with patch("onemancompany.agents.common_tools._resolve_employee_path", return_value=target):
+            result = await write.coroutine(file_path=str(target), content="hello", employee_id="00010")
+        assert result["status"] == "ok"
+        assert "next_step" in result
+        assert "read" in result["next_step"].lower()
+
+    @pytest.mark.asyncio
+    async def test_update_work_principles_returns_next_step(self):
+        with patch("onemancompany.agents.common_tools._store") as mock_store:
+            mock_store.save_work_principles = AsyncMock()
+            mock_store.load_employee = lambda eid: {"id": eid} if eid == "00004" else None
+
+            from onemancompany.agents.common_tools import update_work_principles
+            result = await update_work_principles.coroutine(
+                target_employee_id="00004",
+                content="# Principles",
+                employee_id="00004",
+            )
+        assert result["status"] == "ok"
+        assert "next_step" in result

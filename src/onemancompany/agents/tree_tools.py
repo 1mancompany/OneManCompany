@@ -255,7 +255,11 @@ def dispatch_child(
             )
         return {"status": "error", "message": "No project directory in current task context."}
 
-    # Validate employee exists
+    # Validate employee_id format and existence
+    from onemancompany.agents.common_tools import _validate_employee_id
+    id_err = _validate_employee_id(employee_id)
+    if id_err:
+        return id_err
     from onemancompany.core.store import load_employee
     if not load_employee(employee_id):
         return {"status": "error", "message": f"Employee {employee_id} not found. Use list_colleagues() to find valid IDs."}
