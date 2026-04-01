@@ -1685,79 +1685,6 @@ async def list_background_tasks(
 
 
 # ---------------------------------------------------------------------------
-# Dedicated employee-data tools (work principles & guidance)
-# ---------------------------------------------------------------------------
-
-@tool
-async def update_work_principles(
-    target_employee_id: str,
-    content: str,
-    employee_id: str = "",
-) -> dict:
-    """Update an employee's work principles.
-
-    Replaces the entire work_principles.md for the target employee.
-    Use this instead of write()/edit() for work principles — it handles
-    dirty-marking and ensures the frontend updates immediately.
-
-    To add a new principle: read the current principles from your task context
-    under "Your Work Principles", then call this with the full updated content
-    including the new principle.
-
-    Args:
-        target_employee_id: The employee whose principles to update (e.g. "00004").
-            Use list_colleagues() to find valid employee IDs.
-        content: The complete new work principles content (Markdown).
-        employee_id: Your own employee ID (auto-filled).
-    """
-    id_err = _validate_employee_id(target_employee_id)
-    if id_err:
-        return id_err
-    if not content or not content.strip():
-        return _tool_error("Content cannot be empty.")
-
-    emp = _store.load_employee(target_employee_id)
-    if not emp:
-        return _tool_error(f"Employee '{target_employee_id}' not found.", hint="Use list_colleagues() to find valid IDs.")
-
-    await _store.save_work_principles(target_employee_id, content)
-    from onemancompany.core.config import EMPLOYEES_DIR
-    path = EMPLOYEES_DIR / target_employee_id / "work_principles.md"
-    return {"status": "ok", "employee_id": target_employee_id, "path": str(path), "next_step": "Verify by reading the employee's detail page."}
-
-
-@tool
-async def update_guidance(
-    target_employee_id: str,
-    note: str,
-    employee_id: str = "",
-) -> dict:
-    """Add a CEO guidance note to an employee's record.
-
-    Appends a new guidance note. Does NOT replace existing notes.
-    Use this after 1-on-1 meetings or when the CEO provides direction
-    that should persist as ongoing guidance for the employee.
-
-    Args:
-        target_employee_id: The employee to add guidance for (e.g. "00005").
-            Use list_colleagues() to find valid employee IDs.
-        note: The guidance note text (one clear, actionable instruction).
-        employee_id: Your own employee ID (auto-filled).
-    """
-    id_err = _validate_employee_id(target_employee_id)
-    if id_err:
-        return id_err
-    if not note or not note.strip():
-        return _tool_error("Note cannot be empty.")
-
-    emp = _store.load_employee(target_employee_id)
-    if not emp:
-        return _tool_error(f"Employee '{target_employee_id}' not found.", hint="Use list_colleagues() to find valid IDs.")
-
-    existing = _store.load_employee_guidance(target_employee_id)
-    existing.append(note.strip())
-    await _store.save_guidance(target_employee_id, existing)
-    return {"status": "ok", "employee_id": target_employee_id, "notes_count": len(existing)}
 
 
 # ---------------------------------------------------------------------------
@@ -1785,7 +1712,6 @@ def _register_all_internal_tools() -> None:
         list_automations,
         start_background_task, check_background_task, stop_background_task,
         list_background_tasks,
-        update_work_principles, update_guidance,  # dedicated employee data tools
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
