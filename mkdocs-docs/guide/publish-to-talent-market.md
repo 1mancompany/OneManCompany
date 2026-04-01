@@ -346,4 +346,4 @@ Your Agent can already do the work. Now it's time to send it to work at more com
 
 ---
 
-*Built with [OneManCompany](https://github.com/1mancompany/OneManCompany) — The AI Operating System for One-Person Companies*
+*Built with [OneManCompany](https://github.com/1mancompany/OneManCompany) — The Agent Operating System for One-Person Companies*

@@ -151,6 +151,35 @@ class TestNextStepHints:
         assert "next_step" in result
         assert "read" in result["next_step"].lower()
 
+
+class TestToolError:
+    def test_basic_error(self):
+        from onemancompany.agents.common_tools import _tool_error
+        result = _tool_error("File not found.")
+        assert result["status"] == "error"
+        assert result["is_error"] is True
+        assert result["message"].startswith("ERROR:")
+        assert "File not found" in result["message"]
+
+    def test_error_with_hint(self):
+        from onemancompany.agents.common_tools import _tool_error
+        result = _tool_error("Employee not found.", hint="Use list_colleagues().")
+        assert "Use list_colleagues()" in result["message"]
+
+    def test_error_with_retry(self):
+        from onemancompany.agents.common_tools import _tool_error
+        result = _tool_error("Invalid path.", retry_with="write('correct/path', content)")
+        assert "Retry:" in result["message"]
+        assert "write('correct/path'" in result["message"]
+
+    def test_validate_employee_id_uses_tool_error(self):
+        from onemancompany.agents.common_tools import _validate_employee_id
+        result = _validate_employee_id("")
+        assert result["is_error"] is True
+        assert result["message"].startswith("ERROR:")
+
+
+class TestNextStepHints:
     @pytest.mark.asyncio
     async def test_update_work_principles_returns_next_step(self):
         with patch("onemancompany.agents.common_tools._store") as mock_store:
