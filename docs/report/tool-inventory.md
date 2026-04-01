@@ -4,8 +4,8 @@
 
 ## Summary
 
-- **Total tools**: 35 existing + 2 planned
-- **Quality**: Excellent 5, Good 17, Adequate 11, Poor 2
+- **Total tools**: 37
+- **Quality**: Excellent 7, Good 17, Adequate 11, Poor 2
 - **Categories**: base (27), role (8+), gated (0), asset (dynamic)
 
 ---
@@ -107,12 +107,12 @@
 
 ---
 
-## Planned New Tools (Batch 1)
+## Employee Data Tools (2) — Added in Batch 1
 
-| Tool | Category | Description | Rationale |
-|------|----------|------------|-----------|
-| `update_work_principles` | base | Update any employee's work principles | Generic write/edit unreliable for this; store.save_work_principles already exists |
-| `update_guidance` | base | Add CEO guidance note to an employee | Same issue; store.save_guidance exists but not exposed as tool |
+| Tool | Description | Params | Quality |
+|------|------------|--------|---------|
+| `update_work_principles` | Update any employee's work_principles.md (replaces write/edit) | `target_employee_id`, `content`, `employee_id` | Excellent |
+| `update_guidance` | Append CEO guidance note (does not replace existing) | `target_employee_id`, `note`, `employee_id` | Excellent |
 
 ---
 
@@ -127,8 +127,8 @@
 
 | Pattern | Claude Code | Our Status |
 |---------|------------|------------|
-| System prompt "use X for Y" guide | Explicit tool selection matrix | Missing — only dispatch/email rules |
-| Dedicated tools for common operations | Every frequent action has its own tool | Missing — work_principles, guidance use generic write/edit |
+| System prompt "use X for Y" guide | Explicit tool selection matrix | **Done (Batch 1)** — tool selection guide in prompt |
+| Dedicated tools for common operations | Every frequent action has its own tool | **Done (Batch 1)** — update_work_principles, update_guidance |
 | Structured error codes | `error_code` field in all errors | Missing — only `status` + `message` |
 | Recovery hints in errors | `"hint": "try X instead"` | Missing |
 | Input validation | Strict schema + validateInput() | Missing — no param validation |
