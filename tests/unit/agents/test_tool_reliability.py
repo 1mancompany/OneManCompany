@@ -1,7 +1,7 @@
 """Tests for tool reliability Batch 1 — dedicated tools + prompt guide."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -92,3 +92,21 @@ class TestUpdateGuidance:
         )
         assert result["status"] == "error"
         assert "empty" in result["message"].lower()
+
+
+class TestToolSelectionGuide:
+    def test_prompt_contains_tool_selection_guide(self):
+        from onemancompany.agents.base import get_employee_tools_prompt
+        from onemancompany.core.tool_registry import tool_registry
+
+        with patch.object(tool_registry, "get_tools_for", return_value=[
+            MagicMock(name="read", description="Read a file"),
+        ]), patch.object(tool_registry, "get_meta", return_value=None):
+            prompt = get_employee_tools_prompt("00010")
+
+        assert "Tool Selection Guide" in prompt
+        assert "update_work_principles" in prompt
+        assert "update_guidance" in prompt
+        assert "IMPORTANT" in prompt
+        assert "verify the change" in prompt.lower()
+        assert "Internal vs External" in prompt
