@@ -2748,6 +2748,11 @@ async def archive_project_endpoint(project_id: str) -> dict:
         total_cancelled += employee_manager.abort_project(full_pid)
 
     archive_project(project_id)
+
+    # Remove CEO session so it disappears from the project list
+    from onemancompany.core.ceo_broker import get_ceo_broker
+    get_ceo_broker().remove_session(project_id)
+
     logger.info("[archive] Archived project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
     return {"status": "archived", "project_id": project_id, "tasks_cancelled": total_cancelled}
@@ -2779,6 +2784,10 @@ async def delete_project_endpoint(project_id: str) -> dict:
     # Delete entire project directory
     if project_dir.exists():
         shutil.rmtree(project_dir)
+
+    # Remove CEO session so it disappears from the project list
+    from onemancompany.core.ceo_broker import get_ceo_broker
+    get_ceo_broker().remove_session(project_id)
 
     logger.info("[delete] Deleted project {} — cancelled {} task(s)", project_id, total_cancelled)
     await event_bus.publish(CompanyEvent(type=EventType.STATE_SNAPSHOT, payload={}, agent=SYSTEM_AGENT))
