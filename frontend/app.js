@@ -7399,6 +7399,7 @@ class AppController {
         if (data.status === 'archived') {
           this.logEntry('CEO', `Project "${projectId}" archived`, 'ceo');
           this.updateProjectsPanel();
+          this._refreshCeoProjectList();
           this.loadActiveProjects();
           document.getElementById('project-modal').classList.add('hidden');
         }
@@ -7417,6 +7418,7 @@ class AppController {
         if (data.status === 'deleted') {
           this.logEntry('CEO', `Project "${projectId}" deleted`, 'ceo');
           this.updateProjectsPanel();
+          this._refreshCeoProjectList();
           this.loadActiveProjects();
           document.getElementById('project-modal').classList.add('hidden');
         }
