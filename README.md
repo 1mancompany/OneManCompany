@@ -6,7 +6,7 @@
 
 <h1 align="center">OneManCompany</h1>
 
-<p align="center"><b>The AI Operating System for One-Person Companies</b></p>
+<p align="center"><b>The Agent Operating System for One-Person Companies</b></p>
 
 <p align="center">
   <a href="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml"><img src="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
@@ -453,7 +453,7 @@ If you use OneManCompany in your research or project, please cite it:
 
 ```bibtex
 @software{onemancompany2026,
-  title = {OneManCompany: The AI Operating System for One-Person Companies},
+  title = {OneManCompany: The Agent Operating System for One-Person Companies},
   author = {Zhengxu Yu, Fu Yu, Zhiyuan He, Yuxuan Huang, Lee Ka Yiu, Meng Fang, Weilin Luo, Jun Wang},
   email = {yuzxfred@gmail.com},
   url = {https://github.com/1mancompany/OneManCompany},

@@ -216,7 +216,7 @@ async function main() {
   // Help
   if (args.includes("--help") || args.includes("-h")) {
     console.log(`
-${cyan("OneManCompany")} — The AI Operating System for One-Person Companies
+${cyan("OneManCompany")} — The Agent Operating System for One-Person Companies
 
 ${green("Usage:")}
   npx @1mancompany/onemancompany              Start (runs in background)
