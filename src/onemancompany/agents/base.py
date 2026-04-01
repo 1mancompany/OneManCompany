@@ -506,6 +506,26 @@ def get_employee_tools_prompt(employee_id: str) -> str:
         for t in equipment_tools:
             parts.append(f"- **{t.name}** ({t.id}): {t.description[:100] if t.description else 'No description'}")
 
+    parts.append(
+        "\n### Tool Selection Guide — Use the Right Tool\n\n"
+        "| Task | Tool | NOT this |\n"
+        "|------|------|----------|\n"
+        "| Update employee work principles | update_work_principles() | write/edit on .md file |\n"
+        "| Add CEO guidance note | update_guidance() | write/edit on guidance.yaml |\n"
+        "| Read/modify any file | read() then edit() or write() | bash cat/sed/echo |\n"
+        "| Search for files | glob_files() | bash find |\n"
+        "| Search file contents | grep_search() | bash grep/rg |\n"
+        "| Run shell commands | bash() | Only when no dedicated tool exists |\n"
+        "| Assign work to a colleague | dispatch_child() | Email/Gmail |\n"
+        "| Learn about colleagues | list_colleagues() | Reading profile files directly |\n"
+        "| Discuss with colleagues | pull_meeting() | dispatch_child with chat-like messages |\n"
+        "| View task details | read_node_detail() | Reading task_tree.yaml directly |\n\n"
+        "IMPORTANT:\n"
+        "- Always prefer dedicated tools over generic file operations.\n"
+        "- After modifying a file, verify the change: read() the file to confirm.\n"
+        "- If a tool returns an error, read the message — it tells you what to do next."
+    )
+
     parts.append("\n### Tool Usage Rules — Internal vs External")
     parts.append(
         "- **Internal task dispatch**: Use dispatch_child() to assign work to employees. "

@@ -18,6 +18,7 @@ from onemancompany.agents.base import get_employee_skills_prompt, get_employee_t
 from onemancompany.core.config import COO_ID, ENCODING_UTF8, HR_ID, MAX_DISCUSSION_SUMMARY_LEN, MAX_PRINCIPLES_LEN, MEETING_SYSTEM_SENDER, PF_CURRENT_TASK_SUMMARY, PF_DEPARTMENT, PF_EMPLOYEE_NUMBER, PF_ID, PF_LEVEL, PF_NAME, PF_NICKNAME, PF_PERMISSIONS, PF_ROLE, PF_RUNTIME, PF_SKILLS, PF_STATUS, PF_TOOL_PERMISSIONS, PF_WORK_PRINCIPLES, PROJECT_YAML_FILENAME, PROJECTS_DIR, ROOMS_DIR, STATUS_IDLE, SYSTEM_SENDER, get_workspace_dir, read_text_utf, write_text_utf
 from onemancompany.core.events import CompanyEvent, event_bus
 from onemancompany.core.state import company_state
+from onemancompany.core import store as _store
 from onemancompany.core.store import load_employee, load_all_employees
 
 from onemancompany.tools.sandbox import SANDBOX_TOOLS, is_sandbox_enabled
@@ -74,6 +75,8 @@ def _resolve_employee_path(file_path: str, employee_id: str = ""):
         if emp_data:
             permissions = emp_data.get(PF_PERMISSIONS, [])
     return _resolve_path(file_path, permissions=permissions)
+
+
 
 
 @tool
@@ -1626,6 +1629,82 @@ async def list_background_tasks(
 
 
 # ---------------------------------------------------------------------------
+# Dedicated employee-data tools (work principles & guidance)
+# ---------------------------------------------------------------------------
+
+@tool
+async def update_work_principles(
+    target_employee_id: str,
+    content: str,
+    employee_id: str = "",
+) -> dict:
+    """Update an employee's work principles.
+
+    Replaces the entire work_principles.md for the target employee.
+    Use this instead of write()/edit() for work principles — it handles
+    dirty-marking and ensures the frontend updates immediately.
+
+    To add a new principle: read the current principles from your task context
+    under "Your Work Principles", then call this with the full updated content
+    including the new principle.
+
+    Args:
+        target_employee_id: The employee whose principles to update (e.g. "00004").
+            Use list_colleagues() to find valid employee IDs.
+        content: The complete new work principles content (Markdown).
+        employee_id: Your own employee ID (auto-filled).
+    """
+    if not content or not content.strip():
+        return {"status": "error", "message": "Content cannot be empty."}
+
+    emp = _store.load_employee(target_employee_id)
+    if not emp:
+        return {
+            "status": "error",
+            "message": f"Employee '{target_employee_id}' not found. Use list_colleagues() to find valid IDs.",
+        }
+
+    await _store.save_work_principles(target_employee_id, content)
+    from onemancompany.core.config import EMPLOYEES_DIR
+    path = EMPLOYEES_DIR / target_employee_id / "work_principles.md"
+    return {"status": "ok", "employee_id": target_employee_id, "path": str(path)}
+
+
+@tool
+async def update_guidance(
+    target_employee_id: str,
+    note: str,
+    employee_id: str = "",
+) -> dict:
+    """Add a CEO guidance note to an employee's record.
+
+    Appends a new guidance note. Does NOT replace existing notes.
+    Use this after 1-on-1 meetings or when the CEO provides direction
+    that should persist as ongoing guidance for the employee.
+
+    Args:
+        target_employee_id: The employee to add guidance for (e.g. "00005").
+            Use list_colleagues() to find valid employee IDs.
+        note: The guidance note text (one clear, actionable instruction).
+        employee_id: Your own employee ID (auto-filled).
+    """
+    if not note or not note.strip():
+        return {"status": "error", "message": "Note cannot be empty."}
+
+    emp = _store.load_employee(target_employee_id)
+    if not emp:
+        return {
+            "status": "error",
+            "message": f"Employee '{target_employee_id}' not found. Use list_colleagues() to find valid IDs.",
+        }
+
+    existing = _store.load_employee_guidance(target_employee_id)
+    existing.append(note.strip())
+    await _store.save_guidance(target_employee_id, existing)
+    return {"status": "ok", "employee_id": target_employee_id, "notes_count": len(existing)}
+
+
+# ---------------------------------------------------------------------------
 # Tool registration — register all internal tools into the unified registry
 # ---------------------------------------------------------------------------
 
@@ -1650,6 +1729,7 @@ def _register_all_internal_tools() -> None:
         list_automations,
         start_background_task, check_background_task, stop_background_task,
         list_background_tasks,
+        update_work_principles, update_guidance,  # dedicated employee data tools
     ]
     for t in _base:
         tool_registry.register(t, ToolMeta(name=t.name, category="base"))
