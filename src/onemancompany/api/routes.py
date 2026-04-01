@@ -1350,6 +1350,11 @@ async def fire_employee(employee_id: str, body: dict) -> dict:
         result = await execute_fire(employee_id, reason)
     except Exception as e:
         logger.error("fire_employee failed for {}: {}", employee_id, e)
+        # Check if employee was actually removed despite the error
+        from onemancompany.core.store import load_employee as _load_emp
+        if _load_emp(employee_id) is None:
+            logger.info("Employee {} was removed despite error — returning success", employee_id)
+            return {"status": "fired", "id": employee_id, "name": "", "nickname": "", "reason": reason}
         return {"error": str(e)}
     return result
 

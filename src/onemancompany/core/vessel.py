@@ -1344,43 +1344,50 @@ class EmployeeManager:
                              entry.node_id, _effective_dir)
                 save_tree_async(entry.tree_path)
 
-            # Tree context includes current node description + ancestors + children
-            tree_ctx = _build_tree_context(tree, node, _effective_dir)
-            task_with_ctx = tree_ctx if tree_ctx else node.description
+            # CEO_REQUEST nodes (confirm/inbox) get clean description only —
+            # no tree context, no SOPs, no progress log. The confirm message
+            # built by _on_child_complete already contains the full summary.
+            is_ceo_request = node.node_type in (NodeType.CEO_REQUEST, NodeType.CEO_REQUEST.value)
+            if is_ceo_request:
+                task_with_ctx = node.description
+            else:
+                # Tree context includes current node description + ancestors + children
+                tree_ctx = _build_tree_context(tree, node, _effective_dir)
+                task_with_ctx = tree_ctx if tree_ctx else node.description
 
-            # Inject dependency context if this node has depends_on
-            dep_ctx = _build_dependency_context(tree, node, _effective_dir)
-            if dep_ctx:
-                task_with_ctx = dep_ctx + task_with_ctx
+                # Inject dependency context if this node has depends_on
+                dep_ctx = _build_dependency_context(tree, node, _effective_dir)
+                if dep_ctx:
+                    task_with_ctx = dep_ctx + task_with_ctx
 
-            if project_id:
-                identity = self._build_project_identity(project_id)
-                if identity:
-                    task_with_ctx = f"{identity}\n\n{task_with_ctx}"
+                if project_id:
+                    identity = self._build_project_identity(project_id)
+                    if identity:
+                        task_with_ctx = f"{identity}\n\n{task_with_ctx}"
 
-            if _effective_dir:
-                task_with_ctx += f"\n\n[Project workspace: {_effective_dir} — save all outputs here]"
+                if _effective_dir:
+                    task_with_ctx += f"\n\n[Project workspace: {_effective_dir} — save all outputs here]"
 
-            if project_id:
-                proj_ctx = self._get_project_history_context(project_id)
-                if proj_ctx:
-                    task_with_ctx = f"{task_with_ctx}\n\n{proj_ctx}"
+                if project_id:
+                    proj_ctx = self._get_project_history_context(project_id)
+                    if proj_ctx:
+                        task_with_ctx = f"{task_with_ctx}\n\n{proj_ctx}"
 
-            if project_id:
-                workflow_ctx = self._get_project_workflow_context(employee_id, project_id)
-                if workflow_ctx:
-                    task_with_ctx = f"{task_with_ctx}\n\n{workflow_ctx}"
+                if project_id:
+                    workflow_ctx = self._get_project_workflow_context(employee_id, project_id)
+                    if workflow_ctx:
+                        task_with_ctx = f"{task_with_ctx}\n\n{workflow_ctx}"
 
-            inject_progress = cfg.context.inject_progress_log if cfg else True
-            if inject_progress:
-                progress = _load_progress(employee_id)
-                if progress:
-                    task_with_ctx += f"\n\n[Previous Work Learnings]\n{progress}"
+                inject_progress = cfg.context.inject_progress_log if cfg else True
+                if inject_progress:
+                    progress = _load_progress(employee_id)
+                    if progress:
+                        task_with_ctx += f"\n\n[Previous Work Learnings]\n{progress}"
 
-            # Company context: culture, SOPs, guidance, work principles
-            company_ctx = self._build_company_context_block(employee_id)
-            if company_ctx:
-                task_with_ctx = f"{company_ctx}\n\n{task_with_ctx}"
+                # Company context: culture, SOPs, guidance, work principles
+                company_ctx = self._build_company_context_block(employee_id)
+                if company_ctx:
+                    task_with_ctx = f"{company_ctx}\n\n{task_with_ctx}"
 
             # Debug: print full task prompt (without history)
             logger.debug("[TASK PROMPT] employee={} node={} project={}:\n{}",
