@@ -258,7 +258,7 @@ def dispatch_child(
     # Validate employee exists
     from onemancompany.core.store import load_employee
     if not load_employee(employee_id):
-        return {"status": "error", "message": f"Employee {employee_id} not found."}
+        return {"status": "error", "message": f"Employee {employee_id} not found. Use list_colleagues() to find valid IDs."}
 
     from onemancompany.core.task_tree import get_tree_lock
     tree_lock = get_tree_lock(tree_path_str)
@@ -517,7 +517,7 @@ def reject_child(node_id: str, reason: str, retry: bool = True) -> dict:
         tree = _load_tree(project_dir)
         node = tree.get_node(node_id)
         if not node:
-            return {"status": "error", "message": f"Node {node_id} not found."}
+            return {"status": "error", "message": f"Node {node_id} not found. Check dispatch_child() return value for correct node_id."}
 
         current = node.status
 
@@ -595,7 +595,7 @@ def unblock_child(node_id: str, new_description: str = "") -> dict:
         tree = _load_tree(project_dir)
         node = tree.get_node(node_id)
         if not node:
-            return {"status": "error", "message": f"Node {node_id} not found."}
+            return {"status": "error", "message": f"Node {node_id} not found. Check dispatch_child() return value for correct node_id."}
         if node.status != TaskPhase.BLOCKED.value:
             return {"status": "error", "message": f"Node {node_id} is {node.status}, not blocked."}
 
@@ -654,7 +654,7 @@ def cancel_child(node_id: str, reason: str = "") -> dict:
         tree = _load_tree(project_dir)
         node = tree.get_node(node_id)
         if not node:
-            return {"status": "error", "message": f"Node {node_id} not found."}
+            return {"status": "error", "message": f"Node {node_id} not found. Check dispatch_child() return value for correct node_id."}
         if node.is_resolved:
             return {"status": "error", "message": f"Node {node_id} already resolved ({node.status})."}
 

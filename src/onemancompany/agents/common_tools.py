@@ -98,9 +98,9 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
     if not resolved.exists():
-        return {"status": "error", "message": f"File not found: {file_path}"}
+        return {"status": "error", "message": f"File not found: {file_path}. Use glob_files() to search or ls() to browse."}
     if not resolved.is_file():
         return {"status": "error", "message": f"Not a file: {file_path}"}
     try:
@@ -160,9 +160,9 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
         resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {dir_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {dir_path}. Check the path with ls()."}
     if not resolved.exists() or not resolved.is_dir():
-        return {"status": "error", "message": f"Directory not found: {dir_path}"}
+        return {"status": "error", "message": f"Directory not found: {dir_path}. Use ls() to check parent directory."}
     try:
         entries = []
         for item in sorted(resolved.iterdir()):
@@ -202,7 +202,7 @@ async def write(
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
 
     is_update = resolved.exists()
     original_content = ""
@@ -263,9 +263,9 @@ async def edit(
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}"}
+        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
     if not resolved.exists():
-        return {"status": "error", "message": f"File not found: {file_path}"}
+        return {"status": "error", "message": f"File not found: {file_path}. Use glob_files() to search or ls() to browse."}
 
     # Safety: must read before editing
     if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
@@ -1056,7 +1056,7 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
                     break
 
     if not found:
-        return {"status": "error", "message": f"Tool '{tool_name_or_id}' not found."}
+        return {"status": "error", "message": f"Tool '{tool_name_or_id}' not found. Use list_automations() to see available tools."}
 
     # Auth check
     if found.allowed_users and employee_id not in found.allowed_users:
@@ -1143,7 +1143,7 @@ def request_tool_access(tool_name: str, reason: str, employee_id: str = "") -> d
     """
     emp_data = load_employee(employee_id)
     if not emp_data:
-        return {"status": "error", "message": "Employee not found."}
+        return {"status": "error", "message": "Employee not found. Use list_colleagues() to find valid employee IDs."}
 
     tool_perms = emp_data.get(PF_TOOL_PERMISSIONS, [])
     if tool_name in (tool_perms or []):
@@ -1195,7 +1195,7 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
     # Read from store to validate existence; mutations still go through company_state (Task 9)
     emp_data = load_employee(employee_id)
     if not emp_data:
-        return {"status": "error", "message": f"Employee {employee_id} not found."}
+        return {"status": "error", "message": f"Employee {employee_id} not found. Use list_colleagues() to find valid IDs."}
 
     current_perms = list(emp_data.get(PF_TOOL_PERMISSIONS, []) or [])
 
@@ -1429,7 +1429,7 @@ def read_node_detail(node_id: str) -> dict:
     tree = get_tree(tree_path)
     node = tree.get_node(node_id)
     if not node:
-        return {"status": "error", "message": f"Node {node_id} not found."}
+        return {"status": "error", "message": f"Node {node_id} not found. Use read_node_detail() to check node IDs."}
 
     project_dir = str(Path(tree_path).parent)
     node.load_content(project_dir)
@@ -1586,7 +1586,7 @@ async def check_background_task(
     """
     task = background_task_manager.get_task(task_id)
     if not task:
-        return {"status": "error", "message": f"Task {task_id} not found"}
+        return {"status": "error", "message": f"Task {task_id} not found. Use list_background_tasks() to see active tasks."}
     output = background_task_manager.read_output_tail(task_id, lines=tail)
     from datetime import datetime, timezone
     uptime = 0
@@ -1631,7 +1631,7 @@ async def stop_background_task(
     result = await background_task_manager.terminate(task_id)
     if result:
         return {"status": "ok", "task_id": task_id}
-    return {"status": "error", "message": f"Task {task_id} not found or not running"}
+    return {"status": "error", "message": f"Task {task_id} not found or not running. Use list_background_tasks() to check status."}
 
 
 @tool
