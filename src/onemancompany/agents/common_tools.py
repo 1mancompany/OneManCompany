@@ -60,10 +60,29 @@ async def _chat(room_id: str, speaker: str, role: str, message: str) -> None:
 _files_read_by_employee: dict[str, set[str]] = {}
 
 
+def _tool_error(message: str, hint: str = "", retry_with: str = "") -> dict:
+    """Build a structured tool error response.
+
+    All tool errors MUST use this function for consistent formatting.
+    The is_error flag + ERROR: prefix help LLMs reliably detect failures.
+
+    Args:
+        message: What went wrong.
+        hint: Recovery suggestion (e.g. "Use list_colleagues() to find valid IDs").
+        retry_with: Explicit retry instruction (e.g. "retry with employee_id='00004'").
+    """
+    parts = [f"ERROR: {message}"]
+    if hint:
+        parts.append(hint)
+    if retry_with:
+        parts.append(f"Retry: {retry_with}")
+    return {"status": "error", "is_error": True, "message": " ".join(parts)}
+
+
 def _validate_employee_id(employee_id: str) -> dict | None:
     """Validate employee_id is non-empty. Returns error dict or None if valid."""
     if not employee_id or not employee_id.strip():
-        return {"status": "error", "message": "employee_id is required. Use list_colleagues() to find valid IDs."}
+        return _tool_error("employee_id is required.", hint="Use list_colleagues() to find valid IDs.")
     return None
 
 
@@ -105,11 +124,11 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
+        return _tool_error(f"Access denied: {file_path}", hint="Use ls() to browse or glob_files() to search.")
     if not resolved.exists():
-        return {"status": "error", "message": f"File not found: {file_path}. Use glob_files() to search or ls() to browse."}
+        return _tool_error(f"File not found: {file_path}", hint="Use glob_files() to search or ls() to browse.")
     if not resolved.is_file():
-        return {"status": "error", "message": f"Not a file: {file_path}"}
+        return _tool_error(f"Not a file: {file_path}", hint="Use ls() to check the path.")
     try:
         content = read_text_utf(resolved)
         lines = content.splitlines(keepends=True)
@@ -129,7 +148,7 @@ def read(file_path: str, employee_id: str = "", offset: int = 0, limit: int = 0)
             "total_lines": total_lines,
         }
     except Exception as e:
-        return {"status": "error", "message": f"Read failed: {e}"}
+        return _tool_error(f"Read failed: {e}")
 
 
 
@@ -167,9 +186,9 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
         resolved = _resolve_path(dir_path or ".", permissions=permissions)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {dir_path}. Check the path with ls()."}
+        return _tool_error(f"Access denied: {dir_path}", hint="Check the path with ls() on the parent directory.")
     if not resolved.exists() or not resolved.is_dir():
-        return {"status": "error", "message": f"Directory not found: {dir_path}. Use ls() to check parent directory."}
+        return _tool_error(f"Directory not found: {dir_path}", hint="Use ls() to check parent directory.")
     try:
         entries = []
         for item in sorted(resolved.iterdir()):
@@ -181,7 +200,7 @@ def ls(dir_path: str = "", employee_id: str = "") -> dict:
             })
         return {"status": "ok", "path": dir_path or ".", "entries": entries}
     except Exception as e:
-        return {"status": "error", "message": f"Failed to read directory: {e}"}
+        return _tool_error(f"Failed to read directory: {e}")
 
 
 
@@ -209,7 +228,7 @@ async def write(
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
+        return _tool_error(f"Access denied: {file_path}", hint="Use ls() to browse or glob_files() to search.")
 
     is_update = resolved.exists()
     original_content = ""
@@ -217,10 +236,7 @@ async def write(
     # Safety: must read before overwriting existing files
     if is_update:
         if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
-            return {
-                "status": "error",
-                "message": f"You must read '{file_path}' before overwriting it. Use read() first.",
-            }
+            return _tool_error(f"Must read before overwriting: {file_path}", retry_with=f"read('{file_path}') first, then write()")
         original_content = read_text_utf(resolved)
 
     resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -271,31 +287,24 @@ async def edit(
     resolved = _resolve_employee_path(file_path, employee_id)
 
     if resolved is None:
-        return {"status": "error", "message": f"Access denied or invalid path: {file_path}. Use ls() to browse or glob_files() to search."}
+        return _tool_error(f"Access denied: {file_path}", hint="Use ls() to browse or glob_files() to search.")
     if not resolved.exists():
-        return {"status": "error", "message": f"File not found: {file_path}. Use glob_files() to search or ls() to browse."}
+        return _tool_error(f"File not found: {file_path}", hint="Use glob_files() to search or ls() to browse.")
 
     # Safety: must read before editing
     if str(resolved) not in _files_read_by_employee.get(employee_id, set()):
-        return {
-            "status": "error",
-            "message": f"You must read '{file_path}' before editing it. Use read() first.",
-        }
+        return _tool_error(f"Must read before editing: {file_path}", retry_with=f"read('{file_path}') first, then edit()")
 
     if old_string == new_string:
-        return {"status": "error", "message": "old_string and new_string are identical."}
+        return _tool_error("old_string and new_string are identical.")
 
     content = read_text_utf(resolved)
     count = content.count(old_string)
 
     if count == 0:
-        return {"status": "error", "message": "old_string not found in the file."}
+        return _tool_error("old_string not found in the file.", hint="Check exact whitespace and indentation.")
     if count > 1 and not replace_all:
-        return {
-            "status": "error",
-            "message": f"old_string appears {count} times. Provide more context to make "
-                       f"it unique, or set replace_all=True.",
-        }
+        return _tool_error(f"old_string appears {count} times. Provide more context to make it unique, or set replace_all=True.")
 
     if replace_all:
         new_content = content.replace(old_string, new_string)
@@ -359,9 +368,9 @@ async def bash(
             "stderr": proc.stderr[:2000] if proc.stderr else "",
         }
     except subprocess.TimeoutExpired:
-        return {"status": "error", "message": f"Command timed out after {timeout_seconds}s"}
+        return _tool_error(f"Command timed out after {timeout_seconds}s", hint="Increase timeout_seconds or simplify the command.")
     except Exception as e:
-        return {"status": "error", "message": f"Execution failed: {e}"}
+        return _tool_error(f"Execution failed: {e}")
 
 
 @tool
@@ -1595,7 +1604,7 @@ async def check_background_task(
     """
     task = background_task_manager.get_task(task_id)
     if not task:
-        return {"status": "error", "message": f"Task {task_id} not found. Use list_background_tasks() to see active tasks."}
+        return _tool_error(f"Task {task_id} not found.", hint="Use list_background_tasks() to see active tasks.")
     output = background_task_manager.read_output_tail(task_id, lines=tail)
     from datetime import datetime, timezone
     uptime = 0
@@ -1640,7 +1649,7 @@ async def stop_background_task(
     result = await background_task_manager.terminate(task_id)
     if result:
         return {"status": "ok", "task_id": task_id}
-    return {"status": "error", "message": f"Task {task_id} not found or not running. Use list_background_tasks() to check status."}
+    return _tool_error(f"Task {task_id} not found or not running.", hint="Use list_background_tasks() to check status.")
 
 
 @tool
@@ -1705,14 +1714,11 @@ async def update_work_principles(
     if id_err:
         return id_err
     if not content or not content.strip():
-        return {"status": "error", "message": "Content cannot be empty."}
+        return _tool_error("Content cannot be empty.")
 
     emp = _store.load_employee(target_employee_id)
     if not emp:
-        return {
-            "status": "error",
-            "message": f"Employee '{target_employee_id}' not found. Use list_colleagues() to find valid IDs.",
-        }
+        return _tool_error(f"Employee '{target_employee_id}' not found.", hint="Use list_colleagues() to find valid IDs.")
 
     await _store.save_work_principles(target_employee_id, content)
     from onemancompany.core.config import EMPLOYEES_DIR
@@ -1742,14 +1748,11 @@ async def update_guidance(
     if id_err:
         return id_err
     if not note or not note.strip():
-        return {"status": "error", "message": "Note cannot be empty."}
+        return _tool_error("Note cannot be empty.")
 
     emp = _store.load_employee(target_employee_id)
     if not emp:
-        return {
-            "status": "error",
-            "message": f"Employee '{target_employee_id}' not found. Use list_colleagues() to find valid IDs.",
-        }
+        return _tool_error(f"Employee '{target_employee_id}' not found.", hint="Use list_colleagues() to find valid IDs.")
 
     existing = _store.load_employee_guidance(target_employee_id)
     existing.append(note.strip())
