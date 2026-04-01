@@ -1316,7 +1316,7 @@ class EmployeeManager:
             clear_watchdog_nudge(node.project_id)
         self._log_node(employee_id, entry.node_id, "start", f"Starting task: {node.description_preview}")
         self._publish_node_update(employee_id, node)
-        self._push_to_ceo_session(node, f"▶ {node.title or node.description_preview[:80]}")
+        self._push_to_ceo_session(node, f"▶ {node.title or node.description_preview}")
 
         await _store.save_employee_runtime(employee_id, current_task_summary=node.description_preview[:100])
 
@@ -2418,13 +2418,13 @@ class EmployeeManager:
                         for c in failed_children
                     )
                     resume_desc = (
-                        f"[子任务失败通知] 以下子任务执行失败，请决定后续处理：\n\n"
+                        f"[Child Task Failure] The following child tasks have failed:\n\n"
                         f"{failure_summary}\n\n"
-                        f"可选操作：\n"
-                        f"- reject_child(node_id, reason, retry=True) 重新分配任务\n"
-                        f"- reject_child(node_id, reason, retry=False) 放弃该任务\n"
-                        f"- dispatch_child 分配给其他员工重试\n"
-                        f"- 如项目无法继续，请说明原因"
+                        f"Options:\n"
+                        f"- reject_child(node_id, reason, retry=True) to reassign the task\n"
+                        f"- reject_child(node_id, reason, retry=False) to abandon the task\n"
+                        f"- dispatch_child to assign to a different employee\n"
+                        f"- If the project cannot continue, explain why"
                     )
                     was_processing = parent_node.status == TaskPhase.PROCESSING.value
                     logger.info(
@@ -2467,12 +2467,12 @@ class EmployeeManager:
                         for c in cancelled_children
                     )
                     resume_desc = (
-                        f"[子任务取消通知] 以下子任务已被取消，请决定后续处理：\n\n"
+                        f"[Child Task Cancelled] The following child tasks have been cancelled:\n\n"
                         f"{cancel_summary}\n\n"
-                        f"可选操作：\n"
-                        f"- dispatch_child 重新分配任务给其他员工\n"
-                        f"- 继续处理剩余子任务\n"
-                        f"- 如项目无法继续，请说明原因"
+                        f"Options:\n"
+                        f"- dispatch_child to reassign to a different employee\n"
+                        f"- Continue with remaining child tasks\n"
+                        f"- If the project cannot continue, explain why"
                     )
                     was_processing = parent_node.status == TaskPhase.PROCESSING.value
                     logger.info(

@@ -42,6 +42,7 @@ class SystemCronDef:
     default_interval: str
     description: str
     handler: Callable[[], Coroutine[Any, Any, list | None]]
+    enabled_by_default: bool = True
     current_interval: str = ""
     current_interval_seconds: int = 0
     last_run: datetime | None = None
@@ -73,6 +74,7 @@ def system_cron(
     *,
     interval: str,
     description: str,
+    enabled_by_default: bool = True,
     registry: dict[str, SystemCronDef] | None = None,
 ):
     """Decorator to register a system cron handler."""
@@ -87,6 +89,7 @@ def system_cron(
             default_interval=interval,
             description=description,
             handler=fn,
+            enabled_by_default=enabled_by_default,
         )
         return fn
     return decorator
@@ -102,6 +105,7 @@ class SystemCronManager:
         self._registry = registry if registry is not None else _registry
         self._tasks: dict[str, asyncio.Task] = {}
         self._disabled: set[str] = set()  # crons explicitly disabled by user
+        self._enabled: set[str] = set()   # crons explicitly enabled (overrides enabled_by_default=False)
         # Only load persisted state for the global registry (not test registries)
         if registry is None:
             self._load_persisted_state()
@@ -119,6 +123,7 @@ class SystemCronManager:
         try:
             data = yaml.safe_load(read_text_utf(path)) or {}
             self._disabled = set(data.get("disabled", []))
+            self._enabled = set(data.get("enabled", []))
             # Restore custom intervals
             for name, interval in data.get("intervals", {}).items():
                 defn = self._registry.get(name)
@@ -143,6 +148,7 @@ class SystemCronManager:
         }
         data = {
             "disabled": sorted(self._disabled),
+            "enabled": sorted(self._enabled),
             "intervals": intervals,
         }
         try:
@@ -152,7 +158,14 @@ class SystemCronManager:
             logger.error("[system_cron] Failed to persist state: {}", e)
 
     def start_all(self) -> None:
-        """Start all registered system crons, skipping user-disabled ones."""
+        """Start all registered system crons, skipping disabled ones.
+
+        Crons with enabled_by_default=False are skipped unless the user
+        has explicitly enabled them (persisted in _enabled set on disk).
+        """
+        for name, defn in self._registry.items():
+            if not defn.enabled_by_default and name not in self._enabled:
+                self._disabled.add(name)
         for name in self._registry:
             if name in self._disabled:
                 logger.info("[system_cron] Skipping disabled cron: {}", name)
@@ -183,7 +196,8 @@ class SystemCronManager:
         self._tasks[name] = task
         if name in self._disabled:
             self._disabled.discard(name)
-            self._persist_state()
+        self._enabled.add(name)
+        self._persist_state()
         return {"status": "ok", "name": name}
 
     def stop(self, name: str) -> dict:
@@ -192,6 +206,7 @@ class SystemCronManager:
         if task and not task.done():
             task.cancel()
         self._disabled.add(name)
+        self._enabled.discard(name)
         self._persist_state()
         return {"status": "ok", "name": name}
 
@@ -337,7 +352,7 @@ async def talent_market_keepalive() -> list | None:
 _watchdog_nudged: set[str] = set()
 
 
-@system_cron("project_progress_watchdog", interval="10m", description="Project progress watchdog — prevent stuck projects")
+@system_cron("project_progress_watchdog", interval="10m", description="Project progress watchdog — prevent stuck projects", enabled_by_default=False)
 async def project_progress_watchdog() -> list | None:
     """Scan active projects; nudge EA to continue any that are stuck.
 
@@ -440,15 +455,15 @@ async def project_progress_watchdog() -> list | None:
 
         project_abs_path = str(tree_path.parent.resolve())
         nudge_desc = (
-            f"[项目进度看门狗] 项目 {project_id} 存在未完成的任务节点且当前无人在执行。\n"
-            f"项目路径: {project_abs_path}\n\n"
-            f"请查看以下任务树状态，尝试继续推进项目完成：\n\n"
+            f"[Project Progress Watchdog] Project {project_id} has unfinished task nodes with no one executing.\n"
+            f"Project path: {project_abs_path}\n\n"
+            f"Review the task tree status and take action to continue:\n\n"
             f"{status_summary}\n\n"
-            f"请根据当前状态采取适当行动：\n"
-            f"- 如有 completed 状态的子任务，请 accept_child 或 reject_child\n"
-            f"- 如有 failed/blocked 的任务，请决定重试或跳过\n"
-            f"- 如需新增任务，请 dispatch_child\n"
-            f"- 如项目已无法继续，请说明原因"
+            f"Actions based on current state:\n"
+            f"- If tasks are completed: accept_child or reject_child\n"
+            f"- If tasks are failed/blocked: decide to retry or skip\n"
+            f"- If new tasks are needed: dispatch_child\n"
+            f"- If the project cannot continue: explain why"
         )
 
         lock = get_tree_lock(tree_path_str)
@@ -543,11 +558,11 @@ def _build_tree_status_summary(tree) -> str:
         nodes = by_status.get(status, [])
         if not nodes:
             continue
-        lines.append(f"【{status}】({len(nodes)}个):")
+        lines.append(f"[{status}] ({len(nodes)}):")
         for n in nodes[:5]:  # Cap at 5 per status to keep prompt manageable
             preview = n.description_preview or n.id
             lines.append(f"  - [{n.employee_id}] {preview[:100]}")
         if len(nodes) > 5:
-            lines.append(f"  ... 还有 {len(nodes) - 5} 个")
+            lines.append(f"  ... and {len(nodes) - 5} more")
 
     return "\n".join(lines)

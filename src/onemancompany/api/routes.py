@@ -4386,7 +4386,7 @@ async def dismiss_shortlist(body: dict) -> dict:
 
     # Resume HR's HOLDING task so it doesn't hang forever
     from onemancompany.core.vessel import employee_manager as _em
-    dismiss_reason = "CEO认为这次招聘是不需要的或者错误的，已取消本轮招聘"
+    dismiss_reason = "CEO decided this hiring round is unnecessary or incorrect — cancelled"
     held_node_id = _em.find_holding_task(HR_ID, f"batch_id={batch_id}")
     if held_node_id:
         await _em.resume_held_task(HR_ID, held_node_id, dismiss_reason)
