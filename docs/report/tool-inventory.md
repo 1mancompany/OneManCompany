@@ -5,7 +5,7 @@
 ## Summary
 
 - **Total tools**: 37
-- **Quality**: Excellent 7, Good 17, Adequate 11, Poor 2
+- **Quality**: Excellent 7, Good 27, Adequate 1, Poor 0
 - **Categories**: base (27), role (8+), gated (0), asset (dynamic)
 
 ---

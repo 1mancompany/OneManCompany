@@ -357,14 +357,17 @@ async def bash(
 
 @tool
 def glob_files(pattern: str, path: str = "", employee_id: str = "") -> dict:
-    """Fast file search by glob pattern. Returns matching file paths sorted by modification time.
+    """Find files by glob pattern. Use this instead of bash find.
 
-    Supports patterns like "**/*.py", "src/**/*.yaml", "*.md".
+    Returns matching file paths sorted by modification time (newest first).
+    Maximum 100 results returned.
 
     Args:
-        pattern: Glob pattern to match files against (e.g. "**/*.py").
+        pattern: Glob pattern (e.g. "**/*.py", "src/**/*.yaml", "*.md").
+            Use "**/" for recursive search across subdirectories.
         path: Directory to search in. Defaults to company root if empty.
-        employee_id: Your employee ID.
+            Use "workspace/" prefix for your personal workspace.
+        employee_id: Your employee ID (auto-filled).
     """
     from pathlib import Path
 
@@ -1093,11 +1096,15 @@ def use_tool(tool_name_or_id: str, employee_id: str) -> dict:
 
 @tool
 def set_project_budget(budget_usd: float) -> dict:
-    """Set the estimated budget for the current project (in USD).
-    Call this BEFORE dispatching tasks to establish a cost baseline.
+    """Set the estimated LLM cost budget for the current project iteration.
+
+    Call this BEFORE dispatching child tasks to establish a cost baseline.
+    The budget is tracked per-iteration and compared against actual token costs.
+    Does NOT enforce a hard limit — it is advisory for cost awareness.
 
     Args:
-        budget_usd: Estimated budget in USD for LLM costs.
+        budget_usd: Estimated budget in USD (e.g. 0.50 for a simple task,
+            5.0 for a complex project). Covers all LLM calls in this iteration.
     """
     from onemancompany.core.agent_loop import _current_vessel, _current_task_id
     from onemancompany.core.project_archive import set_project_budget as _set_budget
@@ -1226,15 +1233,20 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
 
 @tool
 def set_cron(cron_name: str, interval: str, task_description: str, employee_id: str = "") -> dict:
-    """Schedule a recurring task (cron job).
+    """Schedule a recurring task that runs automatically at a fixed interval.
 
-    The task will be dispatched to you at regular intervals automatically.
+    The task is dispatched to YOU (the caller) each interval. Use this for
+    monitoring, periodic reports, inbox checks, or any repeating work.
+    Use list_automations() to check existing crons before creating duplicates.
+    Use stop_cron_job() to cancel.
 
     Args:
-        cron_name: Unique name for this cron job (e.g. 'daily_report', 'check_inbox').
-        interval: How often to run. Examples: '30s', '5m', '1h', '6h', '1d'.
-        task_description: What task to perform each time.
-        employee_id: Your employee ID.
+        cron_name: Unique name (e.g. "daily_report", "check_inbox").
+            If a cron with this name already exists, it will be updated.
+        interval: How often to run: "30s", "5m", "1h", "6h", "1d".
+            Minimum 30s. Use longer intervals for non-urgent tasks.
+        task_description: The task prompt dispatched each interval.
+        employee_id: Your employee ID (auto-filled).
     """
     from onemancompany.core.automation import start_cron
     return start_cron(employee_id, cron_name, interval, task_description)
@@ -1242,11 +1254,15 @@ def set_cron(cron_name: str, interval: str, task_description: str, employee_id: 
 
 @tool
 def stop_cron_job(cron_name: str, employee_id: str = "") -> dict:
-    """Stop a running cron job.
+    """Stop a recurring cron job by name.
+
+    Use list_automations() first to see your active cron jobs and their names.
+    Stopping a cron job removes it permanently — use set_cron() to recreate.
 
     Args:
-        cron_name: Name of the cron job to stop.
-        employee_id: Your employee ID.
+        cron_name: Name of the cron job to stop (e.g. "daily_report").
+            Use list_automations() to find active cron names.
+        employee_id: Your employee ID (auto-filled).
     """
     from onemancompany.core.automation import stop_cron
     return stop_cron(employee_id, cron_name)
@@ -1270,11 +1286,15 @@ def setup_webhook(hook_name: str, task_template: str = "", employee_id: str = ""
 
 @tool
 def remove_webhook(hook_name: str, employee_id: str = "") -> dict:
-    """Remove a registered webhook.
+    """Remove a registered webhook by name.
+
+    Use list_automations() first to see your active webhooks and their names.
+    Removing a webhook deletes the HTTP endpoint permanently.
 
     Args:
-        hook_name: Name of the webhook to remove.
-        employee_id: Your employee ID.
+        hook_name: Name of the webhook to remove (e.g. "on_deploy").
+            Use list_automations() to find active webhook names.
+        employee_id: Your employee ID (auto-filled).
     """
     from onemancompany.core.automation import unregister_webhook
     return unregister_webhook(employee_id, hook_name)
@@ -1282,10 +1302,16 @@ def remove_webhook(hook_name: str, employee_id: str = "") -> dict:
 
 @tool
 def list_automations(employee_id: str = "") -> dict:
-    """List all your cron jobs and webhooks.
+    """List all your active cron jobs and webhooks.
+
+    Use this to check what automations are running before creating new ones
+    (to avoid duplicates) or to find names for stop_cron_job/remove_webhook.
+
+    Returns cron jobs with their interval and last run time, and webhooks
+    with their endpoint URL and task template.
 
     Args:
-        employee_id: Your employee ID.
+        employee_id: Your employee ID (auto-filled).
     """
     from onemancompany.core.automation import list_crons, list_webhooks
     return {
@@ -1366,14 +1392,17 @@ def resume_held_task(task_id: str, result: str, employee_id: str = "") -> dict:
 def read_node_detail(node_id: str) -> dict:
     """Read the full details of a task node by ID.
 
-    Use this to inspect any task node's full description, result, and metadata
-    when the context summary isn't enough.
+    Use this to inspect a task's complete description, result, acceptance
+    criteria, and metadata when the context summary is insufficient.
+    Useful before accept_child/reject_child to review work quality,
+    or to check status of tasks you dispatched.
 
     Args:
-        node_id: The TaskNode ID to read.
+        node_id: The TaskNode ID to read (returned by dispatch_child).
 
     Returns:
-        Full node details including description, result, status, and criteria.
+        Full node details: description, result, status, acceptance_criteria,
+        employee_id, cost, timestamps, and dependency info.
     """
     from onemancompany.core.vessel import employee_manager
     from onemancompany.core.task_tree import get_tree
@@ -1479,13 +1508,17 @@ def view_meeting_minutes(
     room_id: str = "", project_id: str = "",
     employee_id: str = "", limit: int = 5,
 ) -> dict:
-    """View archived meeting minutes. Filter by room, project, or participant.
+    """View archived meeting minutes. Use at least one filter.
+
+    Returns meeting summaries including topic, participants, action items,
+    and timestamps. Use this to review past discussions before starting
+    related work, or to find action items assigned to you.
 
     Args:
-        room_id: Filter by meeting room ID
-        project_id: Filter by project ID
-        employee_id: Filter by participant employee ID
-        limit: Maximum number of results
+        room_id: Filter by meeting room ID (e.g. "room_01").
+        project_id: Filter by project ID.
+        employee_id: Filter by participant — shows only meetings you attended.
+        limit: Maximum results to return (default 5, max 20).
     """
     from onemancompany.core.meeting_minutes import query_minutes
     results = query_minutes(
@@ -1584,11 +1617,16 @@ async def stop_background_task(
     task_id: str,
     employee_id: str = "",
 ) -> dict:
-    """Stop a running background task. Sends SIGTERM, then SIGKILL after 10s.
+    """Stop a running background task.
+
+    Sends SIGTERM for graceful shutdown, then SIGKILL after 10 seconds if
+    the process doesn't exit. Use check_background_task() first to verify
+    the task is still running. Use list_background_tasks() to find task IDs.
 
     Args:
-        task_id: The task ID to stop.
-        employee_id: Your employee ID.
+        task_id: The background task ID (returned by start_background_task,
+            or found via list_background_tasks).
+        employee_id: Your employee ID (auto-filled).
     """
     result = await background_task_manager.terminate(task_id)
     if result:

@@ -623,11 +623,19 @@ def unblock_child(node_id: str, new_description: str = "") -> dict:
 
 @tool
 def cancel_child(node_id: str, reason: str = "") -> dict:
-    """Cancel a task node. Triggers dependency resolution for dependents.
+    """Cancel a pending or running child task.
+
+    Use this when a subtask is no longer needed (e.g. requirements changed,
+    duplicate work, or parent task is being abandoned). Cancellation triggers
+    dependency resolution — any tasks depending on this node will be blocked
+    or resolved based on their fail_strategy.
+
+    Cannot cancel tasks that are already finished, accepted, or cancelled.
 
     Args:
-        node_id: The task node ID to cancel.
-        reason: Cancellation reason (optional).
+        node_id: The task node ID to cancel. Use read_node_detail() to inspect
+            node state before cancelling.
+        reason: Why the task is being cancelled (shown to the assigned employee).
     """
     from onemancompany.core.vessel import _current_vessel, _current_task_id
 
