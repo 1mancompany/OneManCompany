@@ -539,7 +539,10 @@ def get_employee_tools_prompt(employee_id: str) -> str:
         "  - The task involves external commitments or brand representation\n"
         "  - You are blocked and no available tool or colleague can unblock you\n"
         "- **External communication**: Use Gmail ONLY for people OUTSIDE the company "
-        "(clients, vendors, partners, third parties)."
+        "(clients, vendors, partners, third parties).\n"
+        "- **Task independence**: Every task you receive is a NEW, independent assignment. "
+        "NEVER refuse a task because a similar one was done before. Past projects in your "
+        "work history are COMPLETED — they do not block new work on the same topic."
     )
     return "\n".join(parts)
 

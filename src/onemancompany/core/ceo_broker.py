@@ -256,9 +256,21 @@ class CeoBroker:
         return self._sessions.get(self._base_project_id(project_id))
 
     def list_sessions(self) -> list[dict]:
-        summaries = [s.to_summary() for s in self._sessions.values()]
+        summaries = [
+            s.to_summary() for s in self._sessions.values()
+            if s.project_id != "default"  # filter out fallback session
+        ]
         summaries.sort(key=lambda s: (not s["has_pending"], s["project_id"]))
         return summaries
+
+    def remove_session(self, project_id: str) -> bool:
+        """Remove a session from memory. Returns True if session existed.
+
+        Disk history (ceo_session.yaml) is cleaned up by the caller
+        (e.g. project directory deletion via shutil.rmtree).
+        """
+        key = self._base_project_id(project_id)
+        return self._sessions.pop(key, None) is not None
 
     def recover(self, projects_dir: Path) -> None:
         """Rebuild sessions from disk on restart.
