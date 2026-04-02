@@ -68,17 +68,28 @@ def _resolve_anthropic_auth() -> tuple[str, dict]:
     auth_method = _load_env_var("ANTHROPIC_AUTH_METHOD")
 
     if auth_method == "oauth":
-        # OAuth PKCE: refresh token if needed, use Bearer header
+        # OAuth: refresh token if needed, use Bearer header
         access_token = _load_env_var(_ENV_KEY_NAME)
         refresh_token = _load_env_var("ANTHROPIC_REFRESH_TOKEN")
         if not access_token and not refresh_token:
             return "", {}
 
-        # Try refreshing via Anthropic PKCE (no client_secret needed)
-        if refresh_token:
-            fresh = _refresh_anthropic_token(refresh_token)
-            if fresh:
-                return fresh, {"Authorization": f"Bearer {fresh}"}
+        # Try refreshing via the OAuth module
+        try:
+            from onemancompany.core.oauth import get_oauth_token, OAuthServiceConfig
+            config = OAuthServiceConfig(
+                service_name="anthropic",
+                authorize_url="https://console.anthropic.com/oauth/authorize",
+                token_url="https://console.anthropic.com/oauth/token",
+                scopes="",
+                client_id_env="ANTHROPIC_CLIENT_ID",
+                client_secret_env="ANTHROPIC_CLIENT_SECRET",
+            )
+            fresh_token = get_oauth_token(config)
+            if fresh_token:
+                return fresh_token, {"Authorization": f"Bearer {fresh_token}"}
+        except Exception as exc:
+            logger.debug("[web_search] OAuth refresh failed: {}", exc)
 
         # Fallback: use the stored access token directly (may be expired)
         if access_token:
@@ -90,48 +101,6 @@ def _resolve_anthropic_auth() -> tuple[str, dict]:
     if not api_key:
         return "", {}
     return api_key, {"x-api-key": api_key}
-
-
-_ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
-_ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-
-
-def _refresh_anthropic_token(refresh_token: str) -> str:
-    """Refresh an Anthropic OAuth access token using PKCE (no client_secret).
-
-    On success, updates .env with the new access token and returns it.
-    Returns empty string on failure.
-    """
-    payload = json.dumps({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": _ANTHROPIC_CLIENT_ID,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        _ANTHROPIC_TOKEN_URL,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        new_token = body.get("access_token", "")
-        new_refresh = body.get("refresh_token", "")
-        if new_token:
-            # Update .env so subsequent calls use the fresh token
-            try:
-                from onemancompany.core.config import update_env_var
-                update_env_var(_ENV_KEY_NAME, new_token)
-                if new_refresh:
-                    update_env_var("ANTHROPIC_REFRESH_TOKEN", new_refresh)
-            except Exception as exc:
-                logger.debug("[web_search] Failed to persist refreshed token: {}", exc)
-            return new_token
-    except Exception as exc:
-        logger.debug("[web_search] Anthropic token refresh failed: {}", exc)
-    return ""
 
 
 def _post_json(url: str, headers: dict, payload: dict, timeout: int = 30) -> tuple[dict | None, str | None]:
