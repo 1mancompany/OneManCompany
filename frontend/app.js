@@ -5250,7 +5250,14 @@ class AppController {
                 <label class="api-field-label">Setup Token (Recommended)</label>
                 <div class="api-card-actions">
                   <button class="pixel-btn small" onclick="app._startCompanyOAuth()">Authorize with Anthropic</button>
-                  <span id="api-${providerId}-oauth-result" class="api-test-result"></span>
+                  <span id="api-oauth-result" class="api-test-result"></span>
+                  <div id="oauth-code-input" style="display:none;margin-top:4px;">
+                    <label style="font-size:5.5px;color:var(--pixel-yellow);">Paste the code from Anthropic:</label>
+                    <div style="display:flex;gap:4px;margin-top:2px;">
+                      <input id="oauth-code-field" type="text" placeholder="code#state" style="flex:1;font-size:6px;padding:3px 6px;background:var(--bg-dark);color:var(--pixel-green);border:1px solid var(--border);font-family:monospace;" />
+                      <button class="pixel-btn small" onclick="app._submitOAuthCode()">Submit</button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div style="border-top:1px solid var(--border);padding-top:4px;margin-top:4px;">
@@ -5481,37 +5488,54 @@ class AppController {
     }
   }
 
+  _oauthState = null;
+
   async _startCompanyOAuth() {
     try {
       const resp = await fetch('/api/settings/api/oauth/start', { method: 'POST' });
       const data = await resp.json();
       if (!data.auth_url) return;
 
-      // Open Anthropic OAuth in popup
+      this._oauthState = data.state;
       window.open(data.auth_url, 'anthropic_oauth', 'width=600,height=700');
 
-      // Prompt user to paste the code from the callback page
-      const code = prompt(
-        'After authorizing in the popup, copy the code shown on the page and paste it here.\n\n' +
-        'The code format is: {code}#{state}'
-      );
-      if (!code) return;
-
-      // Exchange the pasted code for tokens
-      const exResp = await fetch('/api/settings/api/oauth/exchange', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, state: data.state }),
-      });
-      const exData = await exResp.json();
-      if (exData.status === 'ok') {
-        this.logEntry('CEO', 'Anthropic OAuth login successful', 'ceo');
-        this._refreshSettingsPanel?.();
-      } else {
-        alert(`OAuth failed: ${exData.error || 'Unknown error'}`);
+      // Show the code input box
+      const inputDiv = document.getElementById('oauth-code-input');
+      if (inputDiv) {
+        inputDiv.style.display = 'block';
+        document.getElementById('oauth-code-field')?.focus();
       }
+      const resultEl = document.getElementById('api-oauth-result');
+      if (resultEl) resultEl.textContent = 'Waiting for code...';
     } catch (e) {
       console.error('Company OAuth error:', e);
+    }
+  }
+
+  async _submitOAuthCode() {
+    const field = document.getElementById('oauth-code-field');
+    const resultEl = document.getElementById('api-oauth-result');
+    const code = (field?.value || '').trim();
+    if (!code) { if (resultEl) resultEl.textContent = 'Paste the code first'; return; }
+
+    if (resultEl) resultEl.textContent = 'Exchanging...';
+    try {
+      const resp = await fetch('/api/settings/api/oauth/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state: this._oauthState || '' }),
+      });
+      const data = await resp.json();
+      if (data.status === 'ok') {
+        if (resultEl) { resultEl.textContent = '✓ Login successful'; resultEl.style.color = 'var(--pixel-green)'; }
+        this.logEntry('CEO', 'Anthropic OAuth login successful', 'ceo');
+        document.getElementById('oauth-code-input').style.display = 'none';
+        field.value = '';
+      } else {
+        if (resultEl) { resultEl.textContent = `✗ ${data.error}`; resultEl.style.color = 'var(--pixel-red)'; }
+      }
+    } catch (e) {
+      if (resultEl) { resultEl.textContent = `✗ ${e.message}`; resultEl.style.color = 'var(--pixel-red)'; }
     }
   }
 
