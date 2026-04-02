@@ -69,6 +69,37 @@ ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 ANTHROPIC_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
 
+def _curl_token_exchange(token_data: dict) -> dict:
+    """Exchange OAuth tokens via curl subprocess.
+
+    httpx gets rejected by Cloudflare/Anthropic (400 Invalid request format)
+    while curl works. This is a known issue with Python HTTP clients vs
+    Anthropic's OAuth endpoint.
+    """
+    import json as _json
+    import subprocess
+    import urllib.parse
+
+    body = urllib.parse.urlencode(token_data)
+    result = subprocess.run(
+        ["curl", "-s", "-X", "POST", ANTHROPIC_TOKEN_URL,
+         "-H", "Content-Type: application/x-www-form-urlencoded",
+         "-d", body, "-L"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        return {"error": f"curl failed: {result.stderr[:200]}"}
+    try:
+        data = _json.loads(result.stdout)
+    except _json.JSONDecodeError:
+        return {"error": f"Invalid response: {result.stdout[:200]}"}
+    if "error" in data:
+        err = data["error"]
+        msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+        return {"error": f"Token exchange: {msg}"}
+    return data
+
+
 _TALENT_REQUIRED_FIELDS = ["hosting"]
 
 _MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB per file
@@ -2163,11 +2194,9 @@ async def company_oauth_exchange(body: dict) -> dict:
         "redirect_uri": ANTHROPIC_REDIRECT_URI,
     }
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(ANTHROPIC_TOKEN_URL, data=token_data, timeout=15.0)
-            if resp.status_code != 200:
-                return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
-            tokens = resp.json()
+        tokens = _curl_token_exchange(token_data)
+        if "error" in tokens:
+            return {"error": tokens["error"]}
     except Exception as e:
         return {"error": f"Token exchange error: {e}"}
 
@@ -2284,24 +2313,9 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
         "redirect_uri": redirect_uri,
     }
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            # Try form-urlencoded first (OAuth spec standard)
-            resp = await client.post(
-                ANTHROPIC_TOKEN_URL,
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=15.0,
-            )
-            # If form fails, try JSON
-            if resp.status_code != 200:
-                resp = await client.post(
-                    ANTHROPIC_TOKEN_URL,
-                    data=token_data,
-                    timeout=15.0,
-                )
-            if resp.status_code != 200:
-                return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
-            tokens = resp.json()
+        tokens = _curl_token_exchange(token_data)
+        if "error" in tokens:
+            return tokens
     except Exception as e:
         return {"error": f"Token exchange error: {e}"}
 
@@ -2386,18 +2400,11 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         "redirect_uri": redirect_uri,
     }
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(
-                ANTHROPIC_TOKEN_URL, data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0,
-            )
-            if resp.status_code != 200:
-                resp = await client.post(ANTHROPIC_TOKEN_URL, data=token_data, timeout=15.0)
-            if resp.status_code != 200:
-                return HTMLResponse(f"<html><body><h2>Token exchange failed</h2>"
-                                    f"<p>{resp.status_code}: {resp.text}</p>"
-                                    "<script>window.close()</script></body></html>")
-            tokens = resp.json()
+        tokens = _curl_token_exchange(token_data)
+        if "error" in tokens:
+            return HTMLResponse(f"<html><body><h2>Token exchange failed</h2>"
+                                f"<p>{tokens['error']}</p>"
+                                "<script>window.close()</script></body></html>")
     except Exception as e:
         return HTMLResponse(f"<html><body><h2>Token exchange error</h2><p>{e}</p>"
                             "<script>window.close()</script></body></html>")
@@ -2487,19 +2494,13 @@ async def oauth_refresh(employee_id: str) -> dict:
         return {"error": "No refresh token available"}
 
     try:
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(
-                ANTHROPIC_TOKEN_URL,
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": cfg.oauth_refresh_token,
-                    "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
-                },
-                timeout=15.0,
-            )
-            if resp.status_code != 200:
-                return {"error": f"Refresh failed: {resp.status_code}"}
-            tokens = resp.json()
+        tokens = _curl_token_exchange({
+            "grant_type": "refresh_token",
+            "refresh_token": cfg.oauth_refresh_token,
+            "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
+        })
+        if "error" in tokens:
+            return tokens
     except Exception as e:
         return {"error": f"Refresh error: {e}"}
 
