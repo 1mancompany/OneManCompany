@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for version comparison
 
       - uses: actions/setup-python@v5
         with:
@@ -18,6 +20,20 @@ jobs:
         run: |
           pip install -e .
           pip install pytest pytest-asyncio pytest-timeout
+
+      - name: Version bump check
+        run: |
+          PR_VERSION=$(grep '^version = ' pyproject.toml | head -1 | sed 's/version = "//;s/"//')
+          MAIN_VERSION=$(git show origin/main:pyproject.toml | grep '^version = ' | head -1 | sed 's/version = "//;s/"//')
+          echo "PR version: $PR_VERSION"
+          echo "Main version: $MAIN_VERSION"
+          python3 -c "
+          from packaging.version import Version
+          pr, main = Version('$PR_VERSION'), Version('$MAIN_VERSION')
+          if pr <= main:
+              raise SystemExit(f'ERROR: PR version {pr} must be greater than main version {main}. Run pre-commit hook or bump manually.')
+          print(f'OK: {pr} > {main}')
+          "
 
       - name: Compilation check
         run: python -c "from onemancompany.api.routes import router; print('OK')"
