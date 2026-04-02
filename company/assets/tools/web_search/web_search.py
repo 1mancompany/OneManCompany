@@ -92,7 +92,7 @@ def _resolve_anthropic_auth() -> tuple[str, dict]:
     return api_key, {"x-api-key": api_key}
 
 
-_ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/api/oauth/token"
+_ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 _ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
 
