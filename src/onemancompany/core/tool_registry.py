@@ -114,6 +114,10 @@ class ToolRegistry:
     @staticmethod
     def _is_allowed(meta: ToolMeta, emp_data: dict, employee_id: str) -> bool:
         """Check whether an employee is allowed to use a tool based on its category."""
+        # EA has full access to all tools — privileged role
+        if emp_data.get("role", "") == "EA":
+            return True
+
         category = meta.category
 
         if category in ("base", "gated"):
