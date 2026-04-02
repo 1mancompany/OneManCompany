@@ -66,7 +66,7 @@ ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", 
 ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 ANTHROPIC_AUTH_URL = "https://claude.ai/oauth/authorize"
 ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/api/oauth/token"
-ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
+ANTHROPIC_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
 
 _TALENT_REQUIRED_FIELDS = ["hosting"]
@@ -2126,6 +2126,70 @@ async def company_oauth_start() -> dict:
     )
 
     return {"auth_url": auth_url, "state": state}
+
+
+@router.post("/api/settings/api/oauth/exchange")
+async def company_oauth_exchange(body: dict) -> dict:
+    """Exchange a pasted authorization code for tokens (company-level).
+
+    The Anthropic OAuth callback page shows the code for the user to copy.
+    Frontend sends it here as {code}#{state} or just {code} with {state} separate.
+    """
+    import httpx
+
+    raw = body.get("code", "").strip()
+    state = body.get("state", "").strip()
+
+    # Handle combined format: code#state
+    if "#" in raw and not state:
+        raw, state = raw.split("#", 1)
+
+    if not raw:
+        return {"error": "No authorization code provided"}
+
+    session = _oauth_sessions.pop(state, None)
+    if not session:
+        return {"error": "Invalid or expired state. Please start OAuth again."}
+
+    code_verifier = session["code_verifier"]
+    employee_id = session["employee_id"]
+
+    # Exchange code for tokens
+    token_data = {
+        "grant_type": "authorization_code",
+        "code": raw,
+        "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
+        "code_verifier": code_verifier,
+        "redirect_uri": ANTHROPIC_REDIRECT_URI,
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(ANTHROPIC_TOKEN_URL, json=token_data, timeout=15.0)
+            if resp.status_code != 200:
+                return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
+            tokens = resp.json()
+    except Exception as e:
+        return {"error": f"Token exchange error: {e}"}
+
+    access_token = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+    if not access_token:
+        return {"error": "No access_token in response"}
+
+    # Save to .env (company level)
+    from onemancompany.core.config import update_env_var
+    update_env_var("ANTHROPIC_API_KEY", access_token)
+    update_env_var("ANTHROPIC_AUTH_METHOD", "oauth")
+    if refresh_token:
+        update_env_var("ANTHROPIC_REFRESH_TOKEN", refresh_token)
+
+    await event_bus.publish(CompanyEvent(
+        type=EventType.AGENT_DONE,
+        payload={"role": "CEO", "summary": "Anthropic OAuth login successful."},
+        agent="CEO",
+    ))
+
+    return {"status": "ok", "token_type": tokens.get("token_type", ""), "has_refresh": bool(refresh_token)}
 
 
 # ===== OAuth Login (Anthropic PKCE) =====
