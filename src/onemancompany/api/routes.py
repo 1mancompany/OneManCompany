@@ -2164,7 +2164,7 @@ async def company_oauth_exchange(body: dict) -> dict:
     }
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.post(ANTHROPIC_TOKEN_URL, json=token_data, timeout=15.0)
+            resp = await client.post(ANTHROPIC_TOKEN_URL, data=token_data, timeout=15.0)
             if resp.status_code != 200:
                 return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
             tokens = resp.json()
@@ -2296,7 +2296,7 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
             if resp.status_code != 200:
                 resp = await client.post(
                     ANTHROPIC_TOKEN_URL,
-                    json=token_data,
+                    data=token_data,
                     timeout=15.0,
                 )
             if resp.status_code != 200:
@@ -2392,7 +2392,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
                 headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0,
             )
             if resp.status_code != 200:
-                resp = await client.post(ANTHROPIC_TOKEN_URL, json=token_data, timeout=15.0)
+                resp = await client.post(ANTHROPIC_TOKEN_URL, data=token_data, timeout=15.0)
             if resp.status_code != 200:
                 return HTMLResponse(f"<html><body><h2>Token exchange failed</h2>"
                                     f"<p>{resp.status_code}: {resp.text}</p>"
@@ -2490,7 +2490,7 @@ async def oauth_refresh(employee_id: str) -> dict:
         async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 ANTHROPIC_TOKEN_URL,
-                json={
+                data={
                     "grant_type": "refresh_token",
                     "refresh_token": cfg.oauth_refresh_token,
                     "client_id": ANTHROPIC_OAUTH_CLIENT_ID,
