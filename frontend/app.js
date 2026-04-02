@@ -5485,11 +5485,33 @@ class AppController {
     try {
       const resp = await fetch('/api/settings/api/oauth/start', { method: 'POST' });
       const data = await resp.json();
-      if (data.auth_url) {
-        window.open(data.auth_url, 'anthropic_oauth', 'width=600,height=700');
+      if (!data.auth_url) return;
+
+      // Open Anthropic OAuth in popup
+      window.open(data.auth_url, 'anthropic_oauth', 'width=600,height=700');
+
+      // Prompt user to paste the code from the callback page
+      const code = prompt(
+        'After authorizing in the popup, copy the code shown on the page and paste it here.\n\n' +
+        'The code format is: {code}#{state}'
+      );
+      if (!code) return;
+
+      // Exchange the pasted code for tokens
+      const exResp = await fetch('/api/settings/api/oauth/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, state: data.state }),
+      });
+      const exData = await exResp.json();
+      if (exData.status === 'ok') {
+        this.logEntry('CEO', 'Anthropic OAuth login successful', 'ceo');
+        this._refreshSettingsPanel?.();
+      } else {
+        alert(`OAuth failed: ${exData.error || 'Unknown error'}`);
       }
     } catch (e) {
-      console.error('Company OAuth start error:', e);
+      console.error('Company OAuth error:', e);
     }
   }
 
