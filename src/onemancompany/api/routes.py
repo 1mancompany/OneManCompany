@@ -3569,6 +3569,41 @@ async def get_project_file(project_id: str, file_path: str):
         return Response(content=content, media_type=media)
 
 
+@router.get("/api/projects/{project_id}/download")
+async def download_project_files(project_id: str):
+    """Download all project workspace files as a zip archive."""
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from fastapi.responses import StreamingResponse
+
+    from onemancompany.core.project_archive import get_project_dir, list_project_files
+
+    workspace = Path(get_project_dir(project_id))
+    if not workspace.exists():
+        raise HTTPException(status_code=404, detail="Project workspace not found")
+
+    files = list_project_files(project_id)
+    if not files:
+        raise HTTPException(status_code=404, detail="No files to download")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel_path in files:
+            abs_path = workspace / rel_path
+            if abs_path.is_file():
+                zf.write(abs_path, rel_path)
+    buf.seek(0)
+
+    slug = project_id.split("/")[0]
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{slug}-files.zip"'},
+    )
+
+
 # ===== Employee Workspace =====
 
 @router.get("/api/employee/{employee_id}/workspace")

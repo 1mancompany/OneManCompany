@@ -6612,6 +6612,49 @@ class AppController {
    * Lightweight Markdown → HTML renderer.
    * Handles: headers, bold, italic, inline code, code blocks, lists, links, newlines.
    */
+  _renderFileTree(files, baseUrl) {
+    // Build tree structure from flat file paths
+    const root = {};
+    for (const f of files) {
+      const parts = f.split('/');
+      let node = root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!node[parts[i]]) node[parts[i]] = {};
+        node = node[parts[i]];
+      }
+      node[parts[parts.length - 1]] = f; // leaf = full path string
+    }
+
+    const esc = s => this._escHtml(s);
+    const iconFor = ext => ({png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'})[ext] || '\uD83D\uDCC4';
+
+    const renderNode = (obj, depth) => {
+      let html = '';
+      const entries = Object.entries(obj).sort(([a, av], [b, bv]) => {
+        const aDir = typeof av === 'object', bDir = typeof bv === 'object';
+        if (aDir !== bDir) return aDir ? -1 : 1; // dirs first
+        return a.localeCompare(b);
+      });
+      for (const [name, val] of entries) {
+        if (typeof val === 'object') {
+          // Directory — collapsible
+          const pad = depth * 10;
+          html += `<div class="file-tree-dir" style="padding-left:${pad}px;font-size:6px;color:var(--pixel-yellow);padding-top:2px;padding-bottom:2px;cursor:pointer;" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('hidden');">\u25BE ${esc(name)}/</div>`;
+          html += `<div class="file-tree-children">${renderNode(val, depth + 1)}</div>`;
+        } else {
+          // File — clickable
+          const fullPath = val;
+          const ext = name.split('.').pop().toLowerCase();
+          const pad = depth * 10;
+          html += `<div class="project-file-item" data-file="${esc(fullPath)}" data-url="${baseUrl}${encodeURIComponent(fullPath)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:2px 2px 2px ${pad}px;border-bottom:1px solid var(--border);cursor:pointer;">${iconFor(ext)} ${esc(name)}</div>`;
+        }
+      }
+      return html;
+    };
+
+    return renderNode(root, 0);
+  }
+
   _renderMarkdown(md) {
     if (!md) return '';
     let html = this._escapeHtml(md);
@@ -7061,13 +7104,13 @@ class AppController {
 
         const files = doc.files || [];
         const fileBaseUrl = `/api/projects/${qualifiedPath}/files/`;
-        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;">Documents (${files.length})</div>`;
+        const downloadUrl = `/api/projects/${qualifiedPath}/download`;
+        detailHtml += `<div style="font-size:7px;color:var(--pixel-cyan);margin:6px 0 3px;display:flex;justify-content:space-between;align-items:center;">
+          <span>Documents (${files.length})</span>
+          ${files.length > 0 ? `<a href="${downloadUrl}" style="font-size:5px;color:var(--pixel-green);text-decoration:none;border:1px solid var(--border);padding:1px 6px;cursor:pointer;">Download ZIP</a>` : ''}
+        </div>`;
         if (files.length > 0) {
-          for (const f of files) {
-            const ext = f.split('.').pop().toLowerCase();
-            const icon = {png:'\uD83D\uDDBC',jpg:'\uD83D\uDDBC',jpeg:'\uD83D\uDDBC',gif:'\uD83D\uDDBC',svg:'\uD83D\uDDBC',pdf:'\uD83D\uDCC3'}[ext] || '\uD83D\uDCC4';
-            detailHtml += `<div class="project-file-item" data-file="${this._escHtml(f)}" data-url="${fileBaseUrl}${encodeURIComponent(f)}" data-ext="${ext}" style="font-size:6px;color:var(--pixel-green);padding:3px 2px;border-bottom:1px solid var(--border);cursor:pointer;">${icon} ${this._escHtml(f)}</div>`;
-          }
+          detailHtml += this._renderFileTree(files, fileBaseUrl);
         } else {
           detailHtml += `<div style="font-size:5px;color:var(--text-dim);">No output documents yet</div>`;
         }
