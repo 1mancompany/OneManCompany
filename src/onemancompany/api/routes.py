@@ -65,7 +65,7 @@ ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", 
 
 ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 ANTHROPIC_AUTH_URL = "https://claude.ai/oauth/authorize"
-ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/api/oauth/token"
+ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
 ANTHROPIC_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
 
@@ -1264,7 +1264,7 @@ async def list_available_models() -> dict:
     from onemancompany.core.config import settings
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.get(
                 f"{settings.openrouter_base_url}/models",
                 headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
@@ -2163,7 +2163,7 @@ async def company_oauth_exchange(body: dict) -> dict:
         "redirect_uri": ANTHROPIC_REDIRECT_URI,
     }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(ANTHROPIC_TOKEN_URL, json=token_data, timeout=15.0)
             if resp.status_code != 200:
                 return {"error": f"Token exchange failed ({resp.status_code}): {resp.text[:300]}"}
@@ -2284,7 +2284,7 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
         "redirect_uri": redirect_uri,
     }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             # Try form-urlencoded first (OAuth spec standard)
             resp = await client.post(
                 ANTHROPIC_TOKEN_URL,
@@ -2312,7 +2312,7 @@ async def oauth_exchange(employee_id: str, body: dict) -> dict:
     # Step 2: Try to create a permanent API key using the OAuth token
     api_key = access_token  # fallback: use access token directly
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 ANTHROPIC_CREATE_KEY_URL,
                 headers={
@@ -2386,7 +2386,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
         "redirect_uri": redirect_uri,
     }
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 ANTHROPIC_TOKEN_URL, data=token_data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0,
@@ -2487,7 +2487,7 @@ async def oauth_refresh(employee_id: str) -> dict:
         return {"error": "No refresh token available"}
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             resp = await client.post(
                 ANTHROPIC_TOKEN_URL,
                 json={
