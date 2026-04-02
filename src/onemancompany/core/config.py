@@ -39,6 +39,11 @@ MEETING_REPORTS_DIR = REPORTS_DIR / "meeting_reports"
 RESOLUTIONS_DIR = BUSINESS_DIR / "resolutions"
 COMPANY_CULTURE_FILE = COMPANY_DIR / "company_culture.yaml"
 COMPANY_DIRECTION_FILE = COMPANY_DIR / "company_direction.yaml"
+PETS_DIR = COMPANY_DIR / "pets"
+PET_SPECIES_DIR = PETS_DIR / "species"
+PET_INSTANCES_DIR = PETS_DIR / "instances"
+PET_FACILITIES_DIR = PETS_DIR / "facilities"
+PET_FACILITY_TYPES_DIR = PETS_DIR / "facility_types"
 SHARED_PROMPTS_DIR = COMPANY_DIR / "shared_prompts"
 SOP_DIR = COMPANY_DIR / "operations" / "sops"
 PROFILE_TEMPLATE = EMPLOYEES_DIR / "profile_template.yaml"
@@ -291,6 +296,7 @@ class DirtyCategory(str, Enum):
     CANDIDATES = "candidates"
     OVERHEAD = "overhead"
     OFFICE_LAYOUT = "office_layout"
+    PETS = "pets"
 
 
 # ---------------------------------------------------------------------------
