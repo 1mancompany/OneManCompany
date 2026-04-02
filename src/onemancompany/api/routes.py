@@ -63,9 +63,9 @@ from onemancompany.core.background_tasks import background_task_manager
 # ---------------------------------------------------------------------------
 ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", "completed"]
 
-ANTHROPIC_OAUTH_CLIENT_ID = "8ccecd22-59d4-4db0-a971-530cf734fd17"
-ANTHROPIC_AUTH_URL = "https://api.anthropic.com/authorize"
-ANTHROPIC_TOKEN_URL = "https://api.anthropic.com/token"
+ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+ANTHROPIC_AUTH_URL = "https://claude.ai/oauth/authorize"
+ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/api/oauth/token"
 ANTHROPIC_REDIRECT_URI = "http://localhost:8000/api/oauth/callback"
 ANTHROPIC_CREATE_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
 
