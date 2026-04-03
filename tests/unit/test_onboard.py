@@ -213,3 +213,63 @@ class TestCreateExecutorForHosting:
         from onemancompany.core.subprocess_executor import SubprocessExecutor
         executor = _create_executor_for_hosting("openclaw", "00002", MagicMock, Path("/tmp"))
         assert isinstance(executor, SubprocessExecutor)
+
+
+class TestAiSearchPrompt:
+    """AI Search Talent prompt appears only when TM API key is provided."""
+
+    def test_ai_search_prompt_shown_when_api_key_provided(self):
+        """When user enters a TM API key, the AI search confirm is shown."""
+        from onemancompany.onboard import _step_optional, ENV_KEY_TALENT_MARKET
+
+        mock_console = MagicMock()
+
+        # Mock inquirer: Anthropic=skip, SkillMarket=skip, TM=key, AI search=True
+        mock_secret = MagicMock()
+        mock_secret.execute = MagicMock(side_effect=["", "", "tm-key-123"])
+        mock_confirm = MagicMock()
+        mock_confirm.execute = MagicMock(return_value=True)
+
+        with patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.confirm", return_value=mock_confirm) as mock_confirm_fn:
+            extras = _step_optional(mock_console)
+
+        assert extras[ENV_KEY_TALENT_MARKET] == "tm-key-123"
+        assert extras.get("USE_AI_SEARCH") == "true"
+        mock_confirm_fn.assert_called_once()
+
+    def test_ai_search_prompt_not_shown_when_no_api_key(self):
+        """When user skips TM API key, no AI search prompt is shown."""
+        from onemancompany.onboard import _step_optional, ENV_KEY_TALENT_MARKET
+
+        mock_console = MagicMock()
+
+        # Mock inquirer: all keys skipped
+        mock_secret = MagicMock()
+        mock_secret.execute = MagicMock(return_value="")
+
+        with patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.confirm") as mock_confirm_fn:
+            extras = _step_optional(mock_console)
+
+        assert ENV_KEY_TALENT_MARKET not in extras
+        assert "USE_AI_SEARCH" not in extras
+        mock_confirm_fn.assert_not_called()
+
+    def test_ai_search_false_when_user_declines(self):
+        """When user declines AI search, extras has USE_AI_SEARCH=false."""
+        from onemancompany.onboard import _step_optional, ENV_KEY_TALENT_MARKET
+
+        mock_console = MagicMock()
+
+        mock_secret = MagicMock()
+        mock_secret.execute = MagicMock(side_effect=["", "", "tm-key-456"])
+        mock_confirm = MagicMock()
+        mock_confirm.execute = MagicMock(return_value=False)
+
+        with patch("InquirerPy.inquirer.secret", return_value=mock_secret), \
+             patch("InquirerPy.inquirer.confirm", return_value=mock_confirm):
+            extras = _step_optional(mock_console)
+
+        assert extras[ENV_KEY_TALENT_MARKET] == "tm-key-456"
+        assert extras.get("USE_AI_SEARCH") == "false"

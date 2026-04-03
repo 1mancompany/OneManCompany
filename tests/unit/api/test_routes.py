@@ -6578,3 +6578,104 @@ class TestCeoTaskMode:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/ceo/qa", json={"question": "hello"})
         assert resp.status_code in (404, 405)
+
+
+class TestAiSearchSettings:
+    """GET/PUT /api/settings/api includes use_ai_search."""
+
+    @pytest.mark.asyncio
+    async def test_get_returns_use_ai_search(self, monkeypatch):
+        from onemancompany.api.routes import get_api_settings
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = ""
+        mock_settings.anthropic_api_key = ""
+        mock_settings.openrouter_base_url = ""
+        mock_settings.default_llm_model = ""
+        mock_settings.anthropic_auth_method = "api_key"
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(
+            config_mod, "load_app_config",
+            lambda: {"talent_market": {"api_key": "k", "use_ai_search": True}},
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_talent_market_connected", lambda: False,
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_local_talent_count", lambda: 0,
+        )
+
+        result = await get_api_settings()
+        assert result["talent_market"]["use_ai_search"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_returns_use_ai_search_default_false(self, monkeypatch):
+        from onemancompany.api.routes import get_api_settings
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = ""
+        mock_settings.anthropic_api_key = ""
+        mock_settings.openrouter_base_url = ""
+        mock_settings.default_llm_model = ""
+        mock_settings.anthropic_auth_method = "api_key"
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(
+            config_mod, "load_app_config",
+            lambda: {"talent_market": {"api_key": ""}},
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_talent_market_connected", lambda: False,
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_local_talent_count", lambda: 0,
+        )
+
+        result = await get_api_settings()
+        assert result["talent_market"]["use_ai_search"] is False
+
+    @pytest.mark.asyncio
+    async def test_put_updates_use_ai_search(self, monkeypatch, tmp_path):
+        import yaml
+        from onemancompany.api.routes import update_api_settings
+        from onemancompany.core import config as config_mod
+        from onemancompany.core.config import write_text_utf
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"talent_market": {"api_key": "k", "use_ai_search": False}}))
+
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", config_file)
+        monkeypatch.setattr(config_mod, "load_app_config", lambda: yaml.safe_load(config_file.read_text()))
+        monkeypatch.setattr(config_mod, "reload_app_config", lambda: None)
+        monkeypatch.setattr("onemancompany.api.routes.write_text_utf", lambda p, c: p.write_text(c))
+
+        result = await update_api_settings({"provider": "talent_market", "use_ai_search": True})
+        assert result["status"] == "updated"
+        assert result["talent_market"]["use_ai_search"] is True
+
+        saved = yaml.safe_load(config_file.read_text())
+        assert saved["talent_market"]["use_ai_search"] is True
+
+    @pytest.mark.asyncio
+    async def test_put_use_ai_search_only_without_api_key(self, monkeypatch, tmp_path):
+        """PUT with only use_ai_search (no api_key) should work."""
+        import yaml
+        from onemancompany.api.routes import update_api_settings
+        from onemancompany.core import config as config_mod
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"talent_market": {"api_key": "existing-key", "use_ai_search": False}}))
+
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", config_file)
+        monkeypatch.setattr(config_mod, "load_app_config", lambda: yaml.safe_load(config_file.read_text()))
+        monkeypatch.setattr(config_mod, "reload_app_config", lambda: None)
+        monkeypatch.setattr("onemancompany.api.routes.write_text_utf", lambda p, c: p.write_text(c))
+
+        result = await update_api_settings({"provider": "talent_market", "use_ai_search": True})
+        assert result["status"] == "updated"
+        assert result["talent_market"]["use_ai_search"] is True
+
+        # Verify existing api_key was not wiped
+        saved = yaml.safe_load(config_file.read_text())
+        assert saved["talent_market"]["api_key"] == "existing-key"
