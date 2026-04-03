@@ -3948,6 +3948,7 @@ class TestOAuthExchange:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_abc", "refresh_token": "ref_xyz"}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
@@ -4042,6 +4043,7 @@ class TestOAuthExchange:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={}), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4077,6 +4079,7 @@ class TestOAuthExchange:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"error": "Token exchange failed: Bad request"}), \
              patch("httpx.AsyncClient", return_value=mock_client):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4145,10 +4148,6 @@ class TestOAuthCallback:
             "redirect_uri": "http://localhost/api/oauth/callback",
         }
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"access_token": "tok", "refresh_token": "ref"}
-
         mock_key_resp = MagicMock()
         mock_key_resp.status_code = 200
         mock_key_resp.json.return_value = {"api_key": "sk-perm"}
@@ -4156,14 +4155,7 @@ class TestOAuthCallback:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        call_count = 0
-        async def mock_post(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 1:
-                return mock_resp
-            return mock_key_resp
-        mock_client.post = mock_post
+        mock_client.post = AsyncMock(return_value=mock_key_resp)
 
         mock_cfg = MagicMock()
         mock_cfg.api_key = ""
@@ -4176,6 +4168,7 @@ class TestOAuthCallback:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok", "refresh_token": "ref"}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
@@ -4202,15 +4195,10 @@ class TestOAuthCallback:
             "redirect_uri": "http://localhost",
         }
 
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=RuntimeError("net err"))
-
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", side_effect=RuntimeError("net err")):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/oauth/callback", params={
@@ -4272,15 +4260,6 @@ class TestOAuthRefreshTokenExchange:
         mock_cfg.api_key = "old_key"
         mock_cfg.api_provider = "anthropic"
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {"access_token": "new_tok", "refresh_token": "new_ref"}
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
@@ -4289,7 +4268,7 @@ class TestOAuthRefreshTokenExchange:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("httpx.AsyncClient", return_value=mock_client), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "new_tok", "refresh_token": "new_ref"}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4306,19 +4285,11 @@ class TestOAuthRefreshTokenExchange:
         mock_cfg.oauth_refresh_token = "ref_tok"
         mock_cfg.api_provider = "anthropic"
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_resp)
-
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"error": "Refresh failed: Unauthorized"}):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/oauth/refresh")
@@ -4334,16 +4305,11 @@ class TestOAuthRefreshTokenExchange:
         mock_cfg.oauth_refresh_token = "ref_tok"
         mock_cfg.api_provider = "anthropic"
 
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(side_effect=RuntimeError("timeout"))
-
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", side_effect=RuntimeError("timeout")):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/oauth/refresh")
@@ -5465,25 +5431,11 @@ class TestOAuthExchangeCreateKeyException:
         mock_cfg.api_key = ""
         mock_cfg.oauth_refresh_token = ""
 
-        # Token exchange succeeds
-        mock_token_resp = MagicMock()
-        mock_token_resp.status_code = 200
-        mock_token_resp.json.return_value = {"access_token": "tok_abc", "refresh_token": "ref_xyz"}
-
-        call_count = 0
-
-        async def mock_post(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 1:
-                return mock_token_resp
-            # Second call (create_api_key) raises exception
-            raise ConnectionError("Network failure")
-
+        # create_api_key call raises exception
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = mock_post
+        mock_client.post = AsyncMock(side_effect=ConnectionError("Network failure"))
 
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
@@ -5493,6 +5445,7 @@ class TestOAuthExchangeCreateKeyException:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_abc", "refresh_token": "ref_xyz"}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
@@ -5534,25 +5487,11 @@ class TestOAuthCallbackCreateKeyException:
         mock_cfg.api_key = ""
         mock_cfg.oauth_refresh_token = ""
 
-        # Token exchange succeeds
-        mock_token_resp = MagicMock()
-        mock_token_resp.status_code = 200
-        mock_token_resp.json.return_value = {"access_token": "tok_cb", "refresh_token": "ref_cb"}
-
-        call_count = 0
-
-        async def mock_post(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 1:
-                return mock_token_resp
-            # Second call (create_api_key) raises exception
-            raise ConnectionError("Network failure")
-
+        # create_api_key call raises exception
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = mock_post
+        mock_client.post = AsyncMock(side_effect=ConnectionError("Network failure"))
 
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
@@ -5561,6 +5500,7 @@ class TestOAuthCallbackCreateKeyException:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_cb", "refresh_token": "ref_cb"}), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
