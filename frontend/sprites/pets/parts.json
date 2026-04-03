@@ -1,0 +1,27 @@
+{
+  "cat": {
+    "body_colors": ["orange","black","white","gray","siamese","cream","ginger","chocolate"],
+    "patterns": ["solid","tabby","spotted","bicolor","calico","pointed"],
+    "ears": ["pointy","round","fold"],
+    "tails": ["long","curled","fluffy"],
+    "eye_colors": ["green","blue","gold","copper","aqua","yellow"],
+    "poses": ["sit","walk_a","walk_b","sleep","eat","play"]
+  },
+  "dog": {
+    "body_colors": ["golden","brown","black","white","husky","corgi","chocolate","red"],
+    "patterns": ["solid","spotted","masked","saddle","merle"],
+    "ears": ["floppy","pointy","half"],
+    "tails": ["up","down","curled"],
+    "eye_colors": ["brown","amber","blue","hazel","green","dark"],
+    "collar_colors": ["red","blue","green","gold","purple"],
+    "poses": ["sit","walk_a","walk_b","sleep","eat","play"]
+  },
+  "hamster": {
+    "body_colors": ["golden","white","gray","cinnamon","cream","panda"],
+    "patterns": ["solid","striped","panda","patched"],
+    "cheeks": ["normal","stuffed"],
+    "ears": ["round","pointed"],
+    "eye_colors": ["black","ruby","brown","blue","pink","dark"],
+    "poses": ["sit","walk_a","walk_b","sleep","eat","play"]
+  }
+}
