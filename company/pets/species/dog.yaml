@@ -1,0 +1,19 @@
+id: dog
+name: 狗
+size: [1, 1]
+sprite_sheet: dog.png
+animations:
+  idle: {row: 0, frames: 4, speed: 0.12}
+  walk: {row: 1, frames: 6, speed: 0.18}
+  sleep: {row: 2, frames: 2, speed: 0.05}
+  eat: {row: 3, frames: 4, speed: 0.15}
+  play: {row: 4, frames: 6, speed: 0.2}
+needs:
+  hunger: {decay_rate: 0.025, critical: 0.25}
+  happiness: {decay_rate: 0.015, critical: 0.35}
+  energy: {decay_rate: 0.01, critical: 0.2}
+behaviors:
+  wander_radius: 10
+  favorite_spots: [desk, furniture]
+  social: 0.8
+  speed: 0.7

@@ -1,0 +1,7 @@
+id: toy_ball
+name: 玩具球
+sprite: facility_toy_ball.png
+size: [1, 1]
+effect:
+  happiness: 0.35
+cooldown: 45

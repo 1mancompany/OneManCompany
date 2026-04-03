@@ -1,0 +1,7 @@
+id: pet_bed
+name: 宠物窝
+sprite: facility_pet_bed.png
+size: [1, 1]
+effect:
+  energy: 0.4
+cooldown: 30
