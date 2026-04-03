@@ -101,6 +101,19 @@ class AppController {
           employees, meeting_rooms: rooms, tools, office_layout,
         });
       }
+      // Initialize pet system if office_vibes enabled
+      if (data.office_vibes && window.PetRenderer && window.officeRenderer) {
+        if (!window.petRenderer) {
+          window.petRenderer = new PetRenderer(window.officeRenderer.tileAtlas);
+        }
+        window.petRenderer.setEnabled(true);
+        try {
+          const petData = await fetch('/api/pets').then(r => r.json());
+          window.petRenderer.updateState(petData);
+        } catch (e) {
+          console.debug('[pets] Failed to load pet state:', e);
+        }
+      }
       // Show version
       if (version) {
         document.getElementById('app-version').textContent = `v${version}`;
@@ -239,6 +252,9 @@ class AppController {
       if (c.includes('overhead') && !document.getElementById('dashboard-modal').classList.contains('hidden')) {
         clearTimeout(this._dashboardCostTimer);
         this._dashboardCostTimer = setTimeout(() => this._renderDashboard(), 2000);
+      }
+      if (c.includes('pets') && window.petRenderer?.isEnabled()) {
+        fetch('/api/pets').then(r => r.json()).then(d => window.petRenderer.updateState(d)).catch(() => {});
       }
       return;
     }
@@ -7771,6 +7787,75 @@ class AppController {
       const stopBtn = document.getElementById('bg-tasks-stop-btn');
       if (stopBtn) stopBtn.parentElement.remove();
     }
+  }
+
+  openPetDetail(pet) {
+    const isStray = !pet.owner;
+    const actions = isStray
+      ? `<button onclick="app._petAction('${pet.id}', 'adopt')">领养</button>`
+      : `<button onclick="app._petAction('${pet.id}', 'pet')">抚摸</button>
+         <button onclick="app._petAction('${pet.id}', 'feed')">喂食</button>
+         <button onclick="app._petRename('${pet.id}')">改名</button>`;
+    const sp = window.petRenderer?.species[pet.species];
+    const speciesName = sp ? sp.name : pet.species;
+    const name = pet.name || '???';
+    const html = `
+      <div style="text-align:center;padding:16px;">
+        <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[流浪]</span>' : ''}</h3>
+        <div style="margin:12px 0;font-size:13px;color:#aaa;">
+          饥饿: ${Math.round((pet.needs?.hunger || 0) * 100)}% &nbsp;
+          开心: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
+          精力: ${Math.round((pet.needs?.energy || 0) * 100)}%
+        </div>
+        <div style="margin-top:12px;">${actions}</div>
+      </div>`;
+    this._showPetModal(html);
+  }
+
+  async _petAction(petId, action) {
+    if (action === 'adopt') {
+      await fetch(`/api/pets/${petId}/adopt`, { method: 'POST' });
+    } else {
+      await fetch(`/api/pets/${petId}/interact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+    }
+    this._closePetModal();
+    const d = await fetch('/api/pets').then(r => r.json());
+    window.petRenderer?.updateState(d);
+  }
+
+  async _petRename(petId) {
+    const name = prompt('给宠物起个名字:');
+    if (!name) return;
+    await fetch(`/api/pets/${petId}/name`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    this._closePetModal();
+    const d = await fetch('/api/pets').then(r => r.json());
+    window.petRenderer?.updateState(d);
+  }
+
+  _showPetModal(html) {
+    let modal = document.getElementById('pet-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'pet-modal';
+      modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:1px solid #444;border-radius:8px;z-index:9999;min-width:240px;box-shadow:0 8px 32px rgba(0,0,0,0.6);';
+      document.body.appendChild(modal);
+    }
+    const close = `<button onclick="app._closePetModal()" style="position:absolute;top:4px;right:8px;background:none;border:none;color:#888;cursor:pointer;font-size:16px;">✕</button>`;
+    modal.innerHTML = close + html;
+    modal.style.display = 'block';
+  }
+
+  _closePetModal() {
+    const modal = document.getElementById('pet-modal');
+    if (modal) modal.style.display = 'none';
   }
 }
 
