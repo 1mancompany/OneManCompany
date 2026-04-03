@@ -226,6 +226,42 @@ class TestConsumableType:
 
 
 # ---------------------------------------------------------------------------
+# PetInstance speech fields
+# ---------------------------------------------------------------------------
+
+class TestPetInstanceSpeech:
+    def test_speech_fields_default_none(self):
+        from onemancompany.core.pet_models import PetInstance
+        pet = PetInstance(id="pet_001", species="cat", position=[5.0, 3.0])
+        assert pet.current_speech is None
+        assert pet.current_mood is None
+        assert pet.speech_translation is None
+        assert pet.speech_tick == 0
+
+    def test_speech_fields_set(self):
+        from onemancompany.core.pet_models import PetInstance
+        pet = PetInstance(
+            id="pet_001", species="cat", position=[5.0, 3.0],
+            current_speech="Mew naka~", current_mood="hungry",
+            speech_translation="I'm getting hungry...", speech_tick=42,
+        )
+        assert pet.current_speech == "Mew naka~"
+        assert pet.current_mood == "hungry"
+        assert pet.speech_translation == "I'm getting hungry..."
+        assert pet.speech_tick == 42
+
+    def test_to_dict_includes_speech_fields(self):
+        from onemancompany.core.pet_models import PetInstance
+        pet = PetInstance(
+            id="pet_001", species="cat", position=[5.0, 3.0],
+            current_speech="Purr mmm~", current_mood="content",
+        )
+        d = pet.to_dict()
+        assert d["current_speech"] == "Purr mmm~"
+        assert d["current_mood"] == "content"
+
+
+# ---------------------------------------------------------------------------
 # Task 2: Config constants
 # ---------------------------------------------------------------------------
 

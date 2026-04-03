@@ -21,10 +21,75 @@ MAX_PETS = 3
 STRAY_SPAWN_CHANCE = 0.05  # 5% per tick
 STRAY_TIMEOUT_SECONDS = 3600  # 1 hour
 TICK_INTERVAL_SECONDS = 10.0
+SPEECH_EXPIRE_TICKS = 6  # speech bubbles last ~60 seconds
+SPEECH_MIN_TICK = 3  # earliest tick to start generating speech
+SPEECH_MAX_TICK = 5  # latest tick window for speech chance
+SPEECH_CHANCE = 0.3  # 30% chance per eligible tick
 
 # Recovery rate per tick for sleeping/eating/playing
 _RECOVERY_RATE = 0.05
 _RECOVERY_THRESHOLD = 0.8
+
+# ---------------------------------------------------------------------------
+# Simlish speech data
+# ---------------------------------------------------------------------------
+
+SIMLISH_WORDS = {
+    "hungry": ["mew", "naka", "fud", "nom", "grr", "tum"],
+    "happy": ["purr", "yip", "woo", "nyan", "hehe", "boop"],
+    "tired": ["zzz", "muu", "yawn", "nuu", "sleepy", "ugh"],
+    "playful": ["zoom", "paw", "bap", "wee", "nya", "hop"],
+    "lonely": ["mew", "snif", "waa", "hmm", "sigh", "oof"],
+    "content": ["purr", "mmm", "ahh", "zen", "chu", "bliss"],
+}
+
+SIMLISH_CONNECTORS = ["~", "!", "...", " ", "-", "\u266a"]
+
+MOOD_TRANSLATIONS = {
+    "hungry": [
+        "I'm getting hungry...",
+        "Is it snack time yet?",
+        "My tummy is rumbling!",
+        "Could really use a treat right now.",
+    ],
+    "happy": [
+        "Life is great!",
+        "I love this office!",
+        "Best day ever!",
+        "Everything is wonderful~",
+    ],
+    "tired": [
+        "So sleepy...",
+        "I need a nap.",
+        "Can barely keep my eyes open...",
+        "Where's my bed?",
+    ],
+    "playful": [
+        "Let's play!",
+        "Chase me!",
+        "I want to run around!",
+        "Where's my toy?",
+    ],
+    "lonely": [
+        "Nobody wants to play with me...",
+        "I miss my friends.",
+        "Come pet me please?",
+        "It's quiet here...",
+    ],
+    "content": [
+        "Everything is perfect.",
+        "I'm so cozy right now.",
+        "This is the life.",
+        "Purr... I mean... I'm happy.",
+    ],
+}
+
+# Mapping from need name to mood when that need is critically low
+_NEED_TO_MOOD = {
+    "hunger": "hungry",
+    "energy": "tired",
+    "happiness": "lonely",
+}
 
 
 class PetEngine:
@@ -85,6 +150,7 @@ class PetEngine:
 
     def tick(self) -> bool:
         """Advance one simulation tick. Returns True if any state changed."""
+        self._tick_count += 1
         changed = False
 
         for pet_id, pet in list(self._pets.items()):
@@ -95,6 +161,7 @@ class PetEngine:
 
             old_state = pet.state
             old_pos = list(pet.position)
+            old_speech = pet.current_speech
 
             # 1. Decay needs
             self._decay_needs(pet, sp)
@@ -115,11 +182,15 @@ class PetEngine:
                 # IDLE — decide what to do
                 self._decide_behavior(pet, sp)
 
-            if pet.state != old_state or pet.position != old_pos:
+            # 3. Speech bubble lifecycle
+            self._expire_speech(pet)
+            self._maybe_generate_speech(pet, sp)
+
+            if pet.state != old_state or pet.position != old_pos or pet.current_speech != old_speech:
                 self._dirty_pets.add(pet_id)
                 changed = True
 
-        # 3. Stray lifecycle
+        # 4. Stray lifecycle
         if self._try_spawn_stray():
             changed = True
         if self._expire_strays():
@@ -475,6 +546,90 @@ class PetEngine:
         self._dirty_pets.add(pet_id)
         logger.debug("Consumable {} used on pet {} (effects: {})", consumable_id, pet_id, ctype.effect)
         return True
+
+    # ------------------------------------------------------------------
+    # Speech bubbles (Simlish)
+    # ------------------------------------------------------------------
+
+    def _determine_mood(self, pet: PetInstance) -> str:
+        """Determine pet's mood based on needs levels."""
+        # Find the lowest need
+        lowest_need = None
+        lowest_val = float("inf")
+        for need_name, val in pet.needs.items():
+            if val < lowest_val:
+                lowest_val = val
+                lowest_need = need_name
+
+        # If any need is critically low (< 0.3)
+        if lowest_val < 0.3 and lowest_need in _NEED_TO_MOOD:
+            return _NEED_TO_MOOD[lowest_need]
+
+        # All needs above 0.7 -> content
+        if all(v > 0.7 for v in pet.needs.values()):
+            return "content"
+
+        # Otherwise playful or happy
+        return random.choice(["playful", "happy"])
+
+    def _generate_speech(self, pet: PetInstance, species: SpeciesDefinition) -> dict:
+        """Generate a Simlish speech bubble for a pet.
+
+        Returns {text: str, mood: str, translation: str}.
+        """
+        mood = self._determine_mood(pet)
+        pool = SIMLISH_WORDS.get(mood, SIMLISH_WORDS["content"])
+
+        # Generate 2-4 words
+        word_count = random.randint(2, 4)
+        words = [random.choice(pool) for _ in range(word_count)]
+
+        # Capitalize first word
+        words[0] = words[0].capitalize()
+
+        # Join with random connectors
+        parts = []
+        for i, w in enumerate(words):
+            parts.append(w)
+            if i < len(words) - 1:
+                parts.append(random.choice(SIMLISH_CONNECTORS))
+
+        # Add a trailing connector for flavor
+        parts.append(random.choice(["!", "~", "..."]))
+        text = "".join(parts)
+
+        translation = random.choice(MOOD_TRANSLATIONS[mood])
+
+        return {"text": text, "mood": mood, "translation": translation}
+
+    def _maybe_generate_speech(self, pet: PetInstance, species: SpeciesDefinition) -> None:
+        """Possibly generate new speech for a pet during tick."""
+        # Don't generate if pet already has speech
+        if pet.current_speech is not None:
+            return
+        # Only generate after initial ticks and with probability
+        if self._tick_count < SPEECH_MIN_TICK:
+            return
+        if self._tick_count % SPEECH_MAX_TICK != 0 and random.random() >= SPEECH_CHANCE:
+            return
+
+        speech = self._generate_speech(pet, species)
+        pet.current_speech = speech["text"]
+        pet.current_mood = speech["mood"]
+        pet.speech_translation = speech["translation"]
+        pet.speech_tick = self._tick_count
+        logger.debug("Pet {} says: '{}' (mood={}, translation='{}')",
+                      pet.id, speech["text"], speech["mood"], speech["translation"])
+
+    def _expire_speech(self, pet: PetInstance) -> None:
+        """Clear speech bubble if it has been displayed for enough ticks."""
+        if pet.current_speech is None:
+            return
+        if self._tick_count - pet.speech_tick >= SPEECH_EXPIRE_TICKS:
+            pet.current_speech = None
+            pet.current_mood = None
+            pet.speech_translation = None
+            logger.debug("Pet {} speech expired", pet.id)
 
     def add_facility(self, facility: FacilityInstance) -> None:
         """Add a facility to the office."""

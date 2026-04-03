@@ -7809,6 +7809,16 @@ class AppController {
       }
     } catch (_e) { /* ignore */ }
 
+    // Speech bubble section
+    let speechHtml = '';
+    if (pet.current_speech) {
+      speechHtml = `
+        <div style="margin:8px 0;padding:8px;background:#2a2a3e;border-radius:6px;border:1px solid #555;">
+          <div style="font-size:13px;color:#eee;font-style:italic;">"${pet.current_speech}"</div>
+          <button onclick="app._translatePetSpeech('${pet.id}')" style="margin-top:6px;font-size:11px;padding:2px 8px;">Ask EA to translate</button>
+        </div>`;
+    }
+
     // Consumable items shop (only for owned pets)
     let shopHtml = '';
     if (!isStray) {
@@ -7838,6 +7848,7 @@ class AppController {
           Happiness: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
           Energy: ${Math.round((pet.needs?.energy || 0) * 100)}%
         </div>
+        ${speechHtml}
         ${shopHtml}
         <div style="margin-top:12px;">${actions}</div>
       </div>`;
@@ -7890,6 +7901,25 @@ class AppController {
       window.petRenderer?.updateState(d);
     } catch (err) {
       this._showToast('Error using item', 'error');
+    }
+  }
+
+  async _translatePetSpeech(petId) {
+    try {
+      const resp = await fetch('/api/pets/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pet_id: petId }),
+      });
+      const data = await resp.json();
+      if (data.translations && data.translations.length > 0) {
+        const t = data.translations[0];
+        this._showToast(`EA: "${t.pet_name} says: ${t.translation}"`, 'info', 5000);
+      } else {
+        this._showToast('EA: "The pet is not saying anything right now."', 'info');
+      }
+    } catch (err) {
+      this._showToast('Could not translate', 'error');
     }
   }
 

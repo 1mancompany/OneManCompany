@@ -538,3 +538,149 @@ class TestUseConsumable:
         assert "consumables" in state
         assert "premium_treat" in state["consumables"]
         assert state["consumables"]["premium_treat"]["cost"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Pet speech generation
+# ---------------------------------------------------------------------------
+
+class TestSpeechGeneration:
+    def test_determine_mood_hungry(self):
+        """Lowest need < 0.3 and it's hunger -> mood is hungry."""
+        from onemancompany.core.pet_engine import PetEngine
+        pet = _make_pet(needs={"energy": 0.8, "hunger": 0.1, "happiness": 0.8})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech is not None
+        assert speech["mood"] == "hungry"
+        assert isinstance(speech["text"], str)
+        assert len(speech["text"]) > 0
+        assert isinstance(speech["translation"], str)
+
+    def test_determine_mood_tired(self):
+        """Lowest need < 0.3 and it's energy -> mood is tired."""
+        pet = _make_pet(needs={"energy": 0.1, "hunger": 0.8, "happiness": 0.8})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech["mood"] == "tired"
+
+    def test_determine_mood_lonely(self):
+        """Lowest need < 0.3 and it's happiness -> mood is lonely."""
+        pet = _make_pet(needs={"energy": 0.8, "hunger": 0.8, "happiness": 0.1})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech["mood"] == "lonely"
+
+    def test_determine_mood_content(self):
+        """All needs > 0.7 -> content."""
+        pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech["mood"] == "content"
+
+    def test_determine_mood_playful_or_happy(self):
+        """Needs between 0.3-0.7 -> playful or happy."""
+        pet = _make_pet(needs={"energy": 0.5, "hunger": 0.5, "happiness": 0.5})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech["mood"] in ("playful", "happy")
+
+    def test_speech_text_contains_simlish_words(self):
+        """Speech text should contain words from SIMLISH_WORDS pools."""
+        from onemancompany.core.pet_engine import SIMLISH_WORDS
+        pet = _make_pet(needs={"energy": 0.1, "hunger": 0.8, "happiness": 0.8})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+        mood = speech["mood"]
+
+        # At least one word from the mood pool should appear
+        text_lower = speech["text"].lower()
+        pool = SIMLISH_WORDS[mood]
+        assert any(w in text_lower for w in pool), f"No simlish word from {pool} found in '{speech['text']}'"
+
+    def test_speech_translation_is_from_mood_pool(self):
+        """Translation should be from MOOD_TRANSLATIONS for the determined mood."""
+        from onemancompany.core.pet_engine import MOOD_TRANSLATIONS
+        pet = _make_pet(needs={"energy": 0.1, "hunger": 0.8, "happiness": 0.8})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        speech = engine._generate_speech(pet, species)
+
+        assert speech["translation"] in MOOD_TRANSLATIONS[speech["mood"]]
+
+
+class TestSpeechTiming:
+    """Test speech appears and expires during tick()."""
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    @patch("onemancompany.core.pet_engine.random")
+    def test_speech_generated_on_tick(self, mock_random, mock_save, mock_load):
+        """After enough ticks with lucky roll, pet should have speech."""
+        mock_load.return_value = {"tokens": 0, "projects_counted": 0, "tokens_spent": 0}
+        mock_random.random.return_value = 0.1
+        mock_random.uniform.side_effect = [1.0, 1.0] * 10
+        mock_random.choice.side_effect = lambda x: x[0]
+        mock_random.randint.return_value = 3
+        mock_random.sample = lambda x, k: x[:k]
+
+        pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        species = _make_species(social=0.0)
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        engine._tick_count = 4
+        speech = engine._generate_speech(pet, species)
+        assert speech is not None
+        assert "text" in speech
+
+    def test_speech_expires_after_ticks(self):
+        """Speech should be cleared after 6 ticks (60 seconds)."""
+        pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        pet.current_speech = "Purr mmm~"
+        pet.current_mood = "content"
+        pet.speech_translation = "I'm so cozy right now."
+        pet.speech_tick = 1
+
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+        engine._tick_count = 8  # 8 - 1 = 7 ticks since speech, > 6
+
+        engine._expire_speech(pet)
+
+        assert pet.current_speech is None
+        assert pet.current_mood is None
+        assert pet.speech_translation is None
+
+    def test_speech_not_expired_if_recent(self):
+        """Speech should NOT be cleared if fewer than 6 ticks have passed."""
+        pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        pet.current_speech = "Purr mmm~"
+        pet.current_mood = "content"
+        pet.speech_translation = "I'm so cozy right now."
+        pet.speech_tick = 5
+
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+        engine._tick_count = 8  # 8 - 5 = 3 ticks, < 6
+
+        engine._expire_speech(pet)
+
+        assert pet.current_speech == "Purr mmm~"

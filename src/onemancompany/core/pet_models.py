@@ -68,6 +68,11 @@ class PetInstance(BaseModel):
     needs: dict[str, float] = {"hunger": 1.0, "happiness": 1.0, "energy": 1.0}
     adopted_at: Optional[str] = None
     spawned_at: Optional[str] = None
+    # Speech bubble fields (Simlish)
+    current_speech: Optional[str] = None
+    current_mood: Optional[str] = None
+    speech_translation: Optional[str] = None
+    speech_tick: int = 0
 
     def to_dict(self) -> dict:
         """Serialize to dict with state as string."""

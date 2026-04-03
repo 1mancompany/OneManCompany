@@ -120,3 +120,66 @@ class TestUseItem:
             resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "catnip_toy"})
         assert resp.status_code == 400
         assert "compatible" in resp.json()["detail"].lower()
+
+
+class TestTranslate:
+    def test_translate_single_pet(self, client, mock_pet_engine):
+        mock_pet_engine.pets = {
+            "pet_001": MagicMock(
+                id="pet_001", name="Mochi", species="cat",
+                current_speech="Mew naka~", current_mood="hungry",
+                speech_translation="I'm getting hungry...",
+            ),
+        }
+        resp = client.post("/api/pets/translate", json={"pet_id": "pet_001"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["translations"]) == 1
+        assert data["translations"][0]["translation"] == "I'm getting hungry..."
+
+    def test_translate_all_pets(self, client, mock_pet_engine):
+        mock_pet_engine.pets = {
+            "pet_001": MagicMock(
+                id="pet_001", name="Mochi", species="cat",
+                current_speech="Mew naka~", current_mood="hungry",
+                speech_translation="I'm getting hungry...",
+            ),
+            "pet_002": MagicMock(
+                id="pet_002", name="Rex", species="dog",
+                current_speech=None, current_mood=None,
+                speech_translation=None,
+            ),
+        }
+        resp = client.post("/api/pets/translate", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        # Only pet_001 has speech
+        assert len(data["translations"]) == 1
+
+    def test_translate_no_speech(self, client, mock_pet_engine):
+        mock_pet_engine.pets = {
+            "pet_001": MagicMock(
+                id="pet_001", name="Mochi", species="cat",
+                current_speech=None, current_mood=None,
+                speech_translation=None,
+            ),
+        }
+        resp = client.post("/api/pets/translate", json={"pet_id": "pet_001"})
+        assert resp.status_code == 200
+        assert len(resp.json()["translations"]) == 0
+
+
+class TestGetPetsSpeech:
+    def test_speech_endpoint(self, client, mock_pet_engine):
+        mock_pet_engine.pets = {
+            "pet_001": MagicMock(
+                id="pet_001", name="Mochi", species="cat",
+                current_speech="Mew naka~", current_mood="hungry",
+                speech_translation="I'm getting hungry...",
+            ),
+        }
+        resp = client.get("/api/pets/speech")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["speeches"]) == 1
+        assert data["speeches"][0]["speech"] == "Mew naka~"

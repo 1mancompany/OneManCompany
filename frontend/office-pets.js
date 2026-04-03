@@ -179,6 +179,67 @@ class PetRenderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(pet.name || '???', cx, py + TILE - 2);
+
+    // ── Speech bubble ──
+    if (pet.current_speech) {
+      this._drawSpeechBubble(ctx, pet.current_speech, cx, cy - radius - 4, animFrame);
+    }
+  }
+
+  /**
+   * Draw a Simlish speech bubble above a pet.
+   */
+  _drawSpeechBubble(ctx, text, cx, bottomY, animFrame) {
+    ctx.save();
+
+    // Fade-in/out based on animation frame
+    const fadeAlpha = Math.min(1.0, Math.sin((animFrame % 120) * Math.PI / 120) * 1.5 + 0.5);
+    ctx.globalAlpha = Math.max(0.3, fadeAlpha);
+
+    ctx.font = '7px monospace';
+    const metrics = ctx.measureText(text);
+    const padX = 4;
+    const padY = 3;
+    const bubbleW = metrics.width + padX * 2;
+    const bubbleH = 12 + padY * 2;
+    const bubbleX = cx - bubbleW / 2;
+    const bubbleY = bottomY - bubbleH - 6;
+
+    // Rounded rectangle background
+    const r = 4;
+    ctx.fillStyle = 'rgba(255, 255, 240, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(bubbleX + r, bubbleY);
+    ctx.lineTo(bubbleX + bubbleW - r, bubbleY);
+    ctx.quadraticCurveTo(bubbleX + bubbleW, bubbleY, bubbleX + bubbleW, bubbleY + r);
+    ctx.lineTo(bubbleX + bubbleW, bubbleY + bubbleH - r);
+    ctx.quadraticCurveTo(bubbleX + bubbleW, bubbleY + bubbleH, bubbleX + bubbleW - r, bubbleY + bubbleH);
+    ctx.lineTo(bubbleX + r, bubbleY + bubbleH);
+    ctx.quadraticCurveTo(bubbleX, bubbleY + bubbleH, bubbleX, bubbleY + bubbleH - r);
+    ctx.lineTo(bubbleX, bubbleY + r);
+    ctx.quadraticCurveTo(bubbleX, bubbleY, bubbleX + r, bubbleY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    // Triangle pointer
+    ctx.fillStyle = 'rgba(255, 255, 240, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 3, bubbleY + bubbleH);
+    ctx.lineTo(cx, bubbleY + bubbleH + 4);
+    ctx.lineTo(cx + 3, bubbleY + bubbleH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#333';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, bubbleY + bubbleH / 2);
+
+    ctx.restore();
   }
 
   /**

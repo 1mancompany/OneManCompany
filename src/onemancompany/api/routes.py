@@ -6710,6 +6710,47 @@ async def use_item_on_pet(pet_id: str, body: dict):
     return {"ok": True}
 
 
+@router.get("/api/pets/speech")
+async def get_pet_speech():
+    gate = _pet_gate()
+    if gate:
+        return gate
+    speeches = []
+    for pet in _pet_engine.pets.values():
+        if pet.current_speech:
+            speeches.append({
+                "pet_id": pet.id,
+                "pet_name": pet.name,
+                "species": pet.species,
+                "speech": pet.current_speech,
+                "mood": pet.current_mood,
+                "translation": pet.speech_translation,
+            })
+    return {"speeches": speeches}
+
+
+@router.post("/api/pets/translate")
+async def translate_pet_speech(body: dict):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    pet_id = body.get("pet_id")
+    translations = []
+    for pid, pet in _pet_engine.pets.items():
+        if pet_id and pid != pet_id:
+            continue
+        if pet.current_speech and pet.speech_translation:
+            translations.append({
+                "pet_id": pet.id,
+                "pet_name": pet.name,
+                "species": pet.species,
+                "speech": pet.current_speech,
+                "mood": pet.current_mood,
+                "translation": pet.speech_translation,
+            })
+    return {"translations": translations}
+
+
 @router.delete("/api/pets/facilities/{facility_id}")
 async def remove_facility(facility_id: str):
     gate = _pet_gate()
