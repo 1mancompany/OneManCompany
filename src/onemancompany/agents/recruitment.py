@@ -21,6 +21,7 @@ from typing import Literal
 from loguru import logger
 
 from onemancompany.core import store as _store
+from onemancompany.core.config import load_app_config
 from onemancompany.core.models import EventType, HostingMode
 
 # --- Pydantic models (migrated from talent_market/boss_online.py) ---
@@ -393,7 +394,8 @@ class TalentMarketClient:
 
     async def search(self, job_description: str) -> dict:
         """Search for candidates matching a job description."""
-        return await self._call("search_candidates", job_description=job_description)
+        use_ai = load_app_config().get("talent_market", {}).get("use_ai_search", False)
+        return await self._call("search_candidates", job_description=job_description, use_ai=use_ai)
 
     async def list_available(self, role: str = "", skills: str = "", page: int = 1, page_size: int = 20) -> dict:
         """List available talents with optional filters."""
@@ -428,8 +430,6 @@ talent_market = TalentMarketClient()
 
 async def start_talent_market() -> None:
     """Connect to the Talent Market MCP server using config.yaml settings."""
-    from onemancompany.core.config import load_app_config
-
     tm_config = load_app_config().get("talent_market", {})
     logger.debug("[recruitment] talent_market config: {}", {k: v[:8] + "..." if k == "api_key" and v else v for k, v in tm_config.items()})
     url = tm_config.get("url", "https://api.one-man-company.com/mcp/sse")

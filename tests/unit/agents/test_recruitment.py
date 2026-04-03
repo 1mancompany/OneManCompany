@@ -208,7 +208,7 @@ class TestTalentMarketClient:
         client._call = AsyncMock(return_value={"roles": []})
 
         result = await client.search("python dev")
-        client._call.assert_awaited_once_with("search_candidates", job_description="python dev")
+        client._call.assert_awaited_once_with("search_candidates", job_description="python dev", use_ai=False)
         assert result == {"roles": []}
 
     @pytest.mark.asyncio
@@ -495,3 +495,49 @@ class TestPendingCandidates:
 
         # Cleanup
         pending_candidates.clear()
+
+
+class TestSearchPassesUseAi:
+    """TalentMarketClient.search() reads use_ai_search from config and passes it."""
+
+    @pytest.mark.asyncio
+    async def test_search_passes_use_ai_true(self, monkeypatch):
+        from onemancompany.agents import recruitment
+
+        captured_kwargs = {}
+
+        async def fake_call(self, tool_name, _retry=True, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"roles": [], "session_id": ""}
+
+        monkeypatch.setattr(recruitment.TalentMarketClient, "_call", fake_call)
+        monkeypatch.setattr(
+            "onemancompany.agents.recruitment.load_app_config",
+            lambda: {"talent_market": {"use_ai_search": True}},
+        )
+
+        client = recruitment.TalentMarketClient()
+        await client.search("need a python dev")
+
+        assert captured_kwargs.get("use_ai") is True
+
+    @pytest.mark.asyncio
+    async def test_search_passes_use_ai_false_by_default(self, monkeypatch):
+        from onemancompany.agents import recruitment
+
+        captured_kwargs = {}
+
+        async def fake_call(self, tool_name, _retry=True, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"roles": [], "session_id": ""}
+
+        monkeypatch.setattr(recruitment.TalentMarketClient, "_call", fake_call)
+        monkeypatch.setattr(
+            "onemancompany.agents.recruitment.load_app_config",
+            lambda: {"talent_market": {}},
+        )
+
+        client = recruitment.TalentMarketClient()
+        await client.search("need a python dev")
+
+        assert captured_kwargs.get("use_ai") is False
