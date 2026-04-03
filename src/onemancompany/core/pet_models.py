@@ -84,6 +84,7 @@ class FacilityType(BaseModel):
     size: list[int] = [1, 1]
     effect: dict[str, float]
     cooldown: int = 60
+    cost: int = 1
 
 
 class FacilityInstance(BaseModel):

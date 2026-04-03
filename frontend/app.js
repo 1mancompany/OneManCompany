@@ -7789,7 +7789,7 @@ class AppController {
     }
   }
 
-  openPetDetail(pet) {
+  async openPetDetail(pet) {
     const isStray = !pet.owner;
     const actions = isStray
       ? `<button onclick="app._petAction('${pet.id}', 'adopt')">Adopt</button>`
@@ -7799,9 +7799,19 @@ class AppController {
     const sp = window.petRenderer?.species[pet.species];
     const speciesName = sp ? sp.name : pet.species;
     const name = pet.name || '???';
+    // Fetch token balance
+    let tokenHtml = '';
+    try {
+      const tokenResp = await fetch('/api/pets/tokens');
+      if (tokenResp.ok) {
+        const tokenData = await tokenResp.json();
+        tokenHtml = `<div style="margin:8px 0;font-size:12px;color:#ffcc44;">Pet Tokens: ${tokenData.tokens} (next at ${tokenData.next_token_at} projects)</div>`;
+      }
+    } catch (_e) { /* ignore */ }
     const html = `
       <div style="text-align:center;padding:16px;">
         <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[Stray]</span>' : ''}</h3>
+        ${tokenHtml}
         <div style="margin:12px 0;font-size:13px;color:#aaa;">
           Hunger: ${Math.round((pet.needs?.hunger || 0) * 100)}% &nbsp;
           Happiness: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;

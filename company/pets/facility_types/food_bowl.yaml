@@ -5,3 +5,4 @@ size: [1, 1]
 effect:
   hunger: 0.3
 cooldown: 60
+cost: 1

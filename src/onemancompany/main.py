@@ -632,15 +632,27 @@ async def lifespan(app: FastAPI):
 
         _pet_engine = PetEngine(_species, _pet_instances, _ftypes, _fac_instances)
 
+        # Sync token wallet with completed projects at startup
+        from onemancompany.core.project_archive import list_projects as _list_projects
+        _all_projects = _list_projects()
+        _completed_count = sum(1 for p in _all_projects if p.get("status") in ("archived", "completed"))
+        _initial_balance = _pet_engine.sync_tokens(_completed_count)
+        logger.info("[startup] Pet wallet synced: {} completed projects, {} tokens available",
+                     _completed_count, _initial_balance)
+
         # Expose to routes module
         import onemancompany.api.routes as _routes_mod
         _routes_mod._pet_engine = _pet_engine
 
+        _pet_tick_counter = 0
+
         async def _pet_tick_loop():
+            nonlocal _pet_tick_counter
             logger.info("Pet engine started ({}s interval, {} species)", PET_TICK, len(_species))
             try:
                 while True:
                     await asyncio.sleep(PET_TICK)
+                    _pet_tick_counter += 1
                     try:
                         changed = _pet_engine.tick()
                         if changed:
@@ -654,6 +666,11 @@ async def lifespan(app: FastAPI):
                             mark_dirty(DirtyCategory.PETS)
                             _pet_engine.dirty_pets.clear()
                             _pet_engine.deleted_pets.clear()
+                        # Periodic token sync (~every 60s = 6 ticks at 10s interval)
+                        if _pet_tick_counter % 6 == 0:
+                            _projs = _list_projects()
+                            _cnt = sum(1 for p in _projs if p.get("status") in ("archived", "completed"))
+                            _pet_engine.sync_tokens(_cnt)
                     except Exception as _e:
                         logger.error("Pet tick error: {}", _e)
             except asyncio.CancelledError:

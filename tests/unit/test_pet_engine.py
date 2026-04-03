@@ -1,4 +1,4 @@
-"""Tests for PetEngine — behavior tree, needs decay, stray lifecycle."""
+"""Tests for PetEngine — behavior tree, needs decay, stray lifecycle, token economy."""
 from __future__ import annotations
 
 import math
@@ -328,3 +328,89 @@ class TestRecoveryStates:
         engine._handle_playing(pet)
 
         assert pet.needs["happiness"] == pytest.approx(0.55)
+
+
+# ---------------------------------------------------------------------------
+# Token economy
+# ---------------------------------------------------------------------------
+
+class TestTokenEconomy:
+    """Token economy: earn tokens from completed projects, spend on facilities."""
+
+    def _make_wallet(self, tokens=0, projects_counted=0, tokens_spent=0):
+        return {"tokens": tokens, "projects_counted": projects_counted, "tokens_spent": tokens_spent}
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_sync_tokens_grants_correct_amount(self, mock_save, mock_load):
+        """15 completed projects = 5 tokens."""
+        mock_load.return_value = self._make_wallet(tokens=0, projects_counted=0, tokens_spent=0)
+        engine = _make_engine()
+
+        result = engine.sync_tokens(15)
+
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens"] == 5
+        assert saved["projects_counted"] == 15
+        assert result == 5  # 5 tokens - 0 spent
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_sync_tokens_incremental(self, mock_save, mock_load):
+        """Going from 3 -> 6 projects grants 1 more token."""
+        mock_load.return_value = self._make_wallet(tokens=1, projects_counted=3, tokens_spent=0)
+        engine = _make_engine()
+
+        result = engine.sync_tokens(6)
+
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens"] == 2  # was 1, earned 1 more
+        assert saved["projects_counted"] == 6
+        assert result == 2  # 2 tokens - 0 spent
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_sync_tokens_no_grant_if_not_enough(self, mock_save, mock_load):
+        """Going from 3 -> 5 projects (still less than 6) grants 0."""
+        mock_load.return_value = self._make_wallet(tokens=1, projects_counted=3, tokens_spent=0)
+        engine = _make_engine()
+
+        result = engine.sync_tokens(5)
+
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens"] == 1  # unchanged
+        assert saved["projects_counted"] == 5
+        assert result == 1
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_spend_tokens_success(self, mock_save, mock_load):
+        """Spend when balance sufficient returns True."""
+        mock_load.return_value = self._make_wallet(tokens=5, projects_counted=15, tokens_spent=2)
+        engine = _make_engine()
+
+        result = engine.spend_tokens(2)
+
+        assert result is True
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens_spent"] == 4
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_spend_tokens_insufficient(self, mock_save, mock_load):
+        """Spend when balance insufficient returns False, no save."""
+        mock_load.return_value = self._make_wallet(tokens=5, projects_counted=15, tokens_spent=5)
+        engine = _make_engine()
+
+        result = engine.spend_tokens(1)
+
+        assert result is False
+        mock_save.assert_not_called()
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    def test_get_token_balance(self, mock_load):
+        """Balance = tokens - tokens_spent."""
+        mock_load.return_value = self._make_wallet(tokens=5, projects_counted=15, tokens_spent=2)
+        engine = _make_engine()
+
+        assert engine.get_token_balance() == 3

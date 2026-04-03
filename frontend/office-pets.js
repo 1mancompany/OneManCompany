@@ -61,6 +61,7 @@ class PetRenderer {
     this.pets       = data.pets       || [];
     this.facilities = data.facilities || [];
     this.species    = data.species    || {};
+    this.tokens     = data.tokens     ?? null;
 
     // Track current pet IDs
     const currentIds = new Set(this.pets.map(p => p.id));

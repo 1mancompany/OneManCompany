@@ -5,3 +5,4 @@ size: [1, 1]
 effect:
   happiness: 0.35
 cooldown: 45
+cost: 1

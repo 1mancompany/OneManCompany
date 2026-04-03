@@ -14,6 +14,7 @@ from onemancompany.core.pet_models import (
     PetState,
     SpeciesDefinition,
 )
+from onemancompany.core.store import load_pet_wallet, save_pet_wallet
 
 MAX_PETS = 3
 STRAY_SPAWN_CHANCE = 0.05  # 5% per tick
@@ -395,6 +396,44 @@ class PetEngine:
         self._dirty_pets.add(pet_id)
         return True
 
+    # ------------------------------------------------------------------
+    # Token economy
+    # ------------------------------------------------------------------
+
+    def sync_tokens(self, total_completed_projects: int) -> int:
+        """Sync token wallet with completed project count.
+
+        Every 3 completed projects earns 1 pet token.
+        Returns current available balance.
+        """
+        wallet = load_pet_wallet()
+        earned_now = total_completed_projects // 3
+        earned_before = wallet["projects_counted"] // 3
+        new_tokens = max(0, earned_now - earned_before)
+        if new_tokens > 0:
+            wallet["tokens"] += new_tokens
+            logger.info("Pet tokens: granted {} new (total={})", new_tokens, wallet["tokens"])
+        wallet["projects_counted"] = total_completed_projects
+        save_pet_wallet(wallet)
+        return wallet["tokens"] - wallet["tokens_spent"]
+
+    def get_token_balance(self) -> int:
+        """Return available token balance (tokens - tokens_spent)."""
+        wallet = load_pet_wallet()
+        return wallet["tokens"] - wallet["tokens_spent"]
+
+    def spend_tokens(self, amount: int) -> bool:
+        """Spend tokens. Returns True if successful, False if insufficient balance."""
+        wallet = load_pet_wallet()
+        available = wallet["tokens"] - wallet["tokens_spent"]
+        if available < amount:
+            logger.debug("spend_tokens: need {} but only {} available", amount, available)
+            return False
+        wallet["tokens_spent"] += amount
+        save_pet_wallet(wallet)
+        logger.info("Pet tokens: spent {} (remaining={})", amount, wallet["tokens"] - wallet["tokens_spent"])
+        return True
+
     def get_all_state(self) -> dict:
         """Return full pet state for frontend sync."""
         return {
@@ -403,6 +442,7 @@ class PetEngine:
             "species": {
                 sid: sp.model_dump() for sid, sp in self._species.items()
             },
+            "tokens": self.get_token_balance(),
         }
 
     def add_facility(self, facility: FacilityInstance) -> None:

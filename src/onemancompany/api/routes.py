@@ -6590,6 +6590,19 @@ async def get_pets():
     return _pet_engine.get_all_state()
 
 
+@router.get("/api/pets/tokens")
+async def get_pet_tokens():
+    gate = _pet_gate()
+    if gate:
+        return gate
+    from onemancompany.core.store import load_pet_wallet
+    wallet = load_pet_wallet()
+    balance = wallet["tokens"] - wallet["tokens_spent"]
+    projects_counted = wallet["projects_counted"]
+    next_token_at = ((projects_counted // 3) + 1) * 3
+    return {"tokens": balance, "next_token_at": next_token_at}
+
+
 @router.post("/api/pets/{pet_id}/adopt")
 async def adopt_pet(pet_id: str):
     gate = _pet_gate()
@@ -6649,9 +6662,15 @@ async def add_facility(body: dict):
     if gate:
         return gate
     from onemancompany.core.pet_models import FacilityInstance
+    from fastapi.responses import JSONResponse
     import uuid
     ftype = body.get("type", "")
     position = body.get("position", [0, 0])
+    # Look up cost from facility type definition
+    ft_def = _pet_engine._facility_types.get(ftype)
+    cost = ft_def.cost if ft_def else 1
+    if not _pet_engine.spend_tokens(cost):
+        return JSONResponse(status_code=400, content={"detail": "Not enough pet tokens"})
     facility_id = f"{ftype}_{uuid.uuid4().hex[:6]}"
     facility = FacilityInstance(
         id=facility_id, type=ftype, position=position,

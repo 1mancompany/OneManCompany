@@ -5,3 +5,4 @@ size: [1, 1]
 effect:
   energy: 0.4
 cooldown: 30
+cost: 2

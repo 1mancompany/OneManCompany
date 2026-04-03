@@ -895,3 +895,33 @@ def delete_facility_sync(facility_id: str) -> None:
     if path.exists():
         path.unlink()
         mark_dirty(DirtyCategory.PETS)
+
+
+# ---------------------------------------------------------------------------
+# Pet wallet (token economy)
+# ---------------------------------------------------------------------------
+
+_PET_WALLET_DEFAULT = {"tokens": 0, "projects_counted": 0, "tokens_spent": 0}
+
+
+def load_pet_wallet() -> dict:
+    """Read PETS_DIR/wallet.yaml, return default if missing."""
+    from onemancompany.core.config import PETS_DIR
+
+    path = PETS_DIR / "wallet.yaml"
+    data = _read_yaml(path)
+    if not data:
+        return dict(_PET_WALLET_DEFAULT)
+    # Ensure all keys present
+    for k, v in _PET_WALLET_DEFAULT.items():
+        data.setdefault(k, v)
+    return data
+
+
+def save_pet_wallet(data: dict) -> None:
+    """Write wallet to PETS_DIR/wallet.yaml."""
+    from onemancompany.core.config import PETS_DIR
+
+    path = PETS_DIR / "wallet.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_yaml(path, data)
