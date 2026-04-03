@@ -201,9 +201,11 @@ class TestTalentMarketClient:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_search(self):
+    async def test_search(self, monkeypatch):
+        from onemancompany.agents import recruitment
         from onemancompany.agents.recruitment import TalentMarketClient
 
+        monkeypatch.setattr(recruitment, "load_app_config", lambda: {"talent_market": {}})
         client = TalentMarketClient()
         client._call = AsyncMock(return_value={"roles": []})
 
