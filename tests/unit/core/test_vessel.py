@@ -405,9 +405,10 @@ class TestCeoConfirmation:
         return tree, tree_path
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._summarize_project_for_ceo", new_callable=AsyncMock, return_value="")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_root_complete_creates_confirm_node(self, mock_bus, mock_state, tmp_path):
+    async def test_root_complete_creates_confirm_node(self, mock_bus, mock_state, mock_summarize, tmp_path):
         """Root node completion should create a CEO_REQUEST confirm node, not call old path."""
         from onemancompany.core.task_lifecycle import NodeType
 
