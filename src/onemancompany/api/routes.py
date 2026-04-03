@@ -6684,6 +6684,32 @@ async def add_facility(body: dict):
     return {"ok": True, "id": facility_id}
 
 
+@router.post("/api/pets/{pet_id}/use-item")
+async def use_item_on_pet(pet_id: str, body: dict):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    from fastapi.responses import JSONResponse
+    item_id = body.get("item_id", "")
+    ctype = _pet_engine._consumable_types.get(item_id)
+    if not ctype:
+        return JSONResponse(status_code=400, content={"detail": "Unknown item"})
+    if not _pet_engine.spend_tokens(ctype.cost):
+        return JSONResponse(status_code=400, content={"detail": "Not enough tokens"})
+    ok = _pet_engine.use_consumable(pet_id, item_id)
+    if not ok:
+        # Refund tokens on species mismatch
+        from onemancompany.core.store import load_pet_wallet, save_pet_wallet
+        wallet = load_pet_wallet()
+        wallet["tokens_spent"] = max(0, wallet["tokens_spent"] - ctype.cost)
+        save_pet_wallet(wallet)
+        return JSONResponse(status_code=400, content={"detail": "Item not compatible with this pet"})
+    from onemancompany.core.store import mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
+
+
 @router.delete("/api/pets/facilities/{facility_id}")
 async def remove_facility(facility_id: str):
     gate = _pet_gate()

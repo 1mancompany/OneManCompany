@@ -19,8 +19,9 @@ def pet_dirs(tmp_path: Path):
     instances_dir = tmp_path / "instances"
     facilities_dir = tmp_path / "facilities"
     facility_types_dir = tmp_path / "facility_types"
+    consumables_dir = tmp_path / "consumables"
 
-    for d in (species_dir, instances_dir, facilities_dir, facility_types_dir):
+    for d in (species_dir, instances_dir, facilities_dir, facility_types_dir, consumables_dir):
         d.mkdir()
 
     patches = {
@@ -28,6 +29,7 @@ def pet_dirs(tmp_path: Path):
         "onemancompany.core.store.PET_INSTANCES_DIR": instances_dir,
         "onemancompany.core.store.PET_FACILITIES_DIR": facilities_dir,
         "onemancompany.core.store.PET_FACILITY_TYPES_DIR": facility_types_dir,
+        "onemancompany.core.store.PET_CONSUMABLES_DIR": consumables_dir,
     }
     with patch.dict("os.environ", {}, clear=False):
         stack = []
@@ -40,6 +42,7 @@ def pet_dirs(tmp_path: Path):
             "instances_dir": instances_dir,
             "facilities_dir": facilities_dir,
             "facility_types_dir": facility_types_dir,
+            "consumables_dir": consumables_dir,
         }
         for p in stack:
             p.stop()
@@ -224,3 +227,62 @@ class TestFacilityInstances:
         from onemancompany.core.store import load_facilities_sync
 
         assert load_facilities_sync() == {}
+
+
+# ---------------------------------------------------------------------------
+# Consumable types
+# ---------------------------------------------------------------------------
+
+VALID_CONSUMABLE = {
+    "id": "premium_treat",
+    "name": "Premium Treat",
+    "icon": "\U0001f356",
+    "cost": 1,
+    "effect": {"hunger": 0.4},
+    "target_species": "all",
+}
+
+VALID_CONSUMABLE_SPECIES = {
+    "id": "catnip_toy",
+    "name": "Catnip Toy",
+    "icon": "\U0001f9f8",
+    "cost": 1,
+    "effect": {"happiness": 0.5},
+    "target_species": ["cat"],
+}
+
+
+class TestLoadConsumableTypes:
+    def test_valid_consumable_loads(self, pet_dirs):
+        from onemancompany.core.store import load_consumable_types
+
+        _write_yaml(pet_dirs["consumables_dir"] / "premium_treat.yaml", VALID_CONSUMABLE)
+        result = load_consumable_types()
+        assert "premium_treat" in result
+        assert result["premium_treat"].name == "Premium Treat"
+        assert result["premium_treat"].effect == {"hunger": 0.4}
+        assert result["premium_treat"].target_species == "all"
+
+    def test_species_restricted_consumable(self, pet_dirs):
+        from onemancompany.core.store import load_consumable_types
+
+        _write_yaml(pet_dirs["consumables_dir"] / "catnip_toy.yaml", VALID_CONSUMABLE_SPECIES)
+        result = load_consumable_types()
+        assert "catnip_toy" in result
+        assert result["catnip_toy"].target_species == ["cat"]
+
+    def test_invalid_consumable_skipped(self, pet_dirs):
+        from onemancompany.core.store import load_consumable_types
+
+        _write_yaml(pet_dirs["consumables_dir"] / "premium_treat.yaml", VALID_CONSUMABLE)
+        # Missing required 'effect' field
+        _write_yaml(pet_dirs["consumables_dir"] / "broken.yaml", {"id": "broken", "name": "Broken"})
+        result = load_consumable_types()
+        assert "premium_treat" in result
+        assert "broken" not in result
+
+    def test_empty_dir(self, pet_dirs):
+        from onemancompany.core.store import load_consumable_types
+
+        result = load_consumable_types()
+        assert result == {}

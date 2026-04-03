@@ -7808,6 +7808,27 @@ class AppController {
         tokenHtml = `<div style="margin:8px 0;font-size:12px;color:#ffcc44;">Pet Tokens: ${tokenData.tokens} (next at ${tokenData.next_token_at} projects)</div>`;
       }
     } catch (_e) { /* ignore */ }
+
+    // Consumable items shop (only for owned pets)
+    let shopHtml = '';
+    if (!isStray) {
+      const consumables = window.petRenderer?._consumables || {};
+      const items = Object.values(consumables);
+      if (items.length > 0) {
+        const itemButtons = items
+          .filter(c => c.target_species === 'all' || (Array.isArray(c.target_species) && c.target_species.includes(pet.species)))
+          .map(c => `<button onclick="app._useItem('${pet.id}', '${c.id}')" style="margin:2px;font-size:11px;padding:3px 8px;" title="${c.name}">${c.icon} ${c.name} (${c.cost})</button>`)
+          .join('');
+        if (itemButtons) {
+          shopHtml = `
+            <div style="margin:10px 0;padding:8px;background:#1e1e30;border-radius:6px;border:1px solid #444;">
+              <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Items Shop:</div>
+              <div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">${itemButtons}</div>
+            </div>`;
+        }
+      }
+    }
+
     const html = `
       <div style="text-align:center;padding:16px;">
         <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[Stray]</span>' : ''}</h3>
@@ -7817,6 +7838,7 @@ class AppController {
           Happiness: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
           Energy: ${Math.round((pet.needs?.energy || 0) * 100)}%
         </div>
+        ${shopHtml}
         <div style="margin-top:12px;">${actions}</div>
       </div>`;
     this._showPetModal(html);
@@ -7848,6 +7870,48 @@ class AppController {
     this._closePetModal();
     const d = await fetch('/api/pets').then(r => r.json());
     window.petRenderer?.updateState(d);
+  }
+
+  async _useItem(petId, itemId) {
+    try {
+      const resp = await fetch(`/api/pets/${petId}/use-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        this._showToast(data.detail || 'Failed to use item', 'error');
+        return;
+      }
+      this._showToast('Item used!', 'success');
+      this._closePetModal();
+      const d = await fetch('/api/pets').then(r => r.json());
+      window.petRenderer?.updateState(d);
+    } catch (err) {
+      this._showToast('Error using item', 'error');
+    }
+  }
+
+  _showToast(message, type = 'info', duration = 3000) {
+    let container = document.getElementById('pet-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'pet-toast-container';
+      container.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;';
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    const colors = { info: '#334466', success: '#336644', error: '#663333' };
+    const borderColors = { info: '#5588bb', success: '#55aa66', error: '#bb5555' };
+    toast.style.cssText = `padding:10px 16px;background:${colors[type] || colors.info};border:1px solid ${borderColors[type] || borderColors.info};border-radius:6px;color:#eee;font-size:13px;max-width:300px;box-shadow:0 4px 12px rgba(0,0,0,0.4);opacity:0;transition:opacity 0.3s;`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
   }
 
   _showPetModal(html) {

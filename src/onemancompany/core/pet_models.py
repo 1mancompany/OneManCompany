@@ -76,6 +76,16 @@ class PetInstance(BaseModel):
         return d
 
 
+class ConsumableType(BaseModel):
+    """Definition of a consumable item (use-once) for pets."""
+    id: str
+    name: str
+    icon: str = "\U0001f381"
+    cost: int = 1
+    effect: dict[str, float]
+    target_species: list[str] | str = "all"  # "all" or list of species ids
+
+
 class FacilityType(BaseModel):
     """Definition of a pet facility type."""
     id: str

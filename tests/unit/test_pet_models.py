@@ -190,6 +190,42 @@ class TestFacilityInstance:
 
 
 # ---------------------------------------------------------------------------
+# ConsumableType
+# ---------------------------------------------------------------------------
+
+class TestConsumableType:
+    def test_basic_creation(self):
+        from onemancompany.core.pet_models import ConsumableType
+        ct = ConsumableType(id="premium_treat", name="Premium Treat", icon="\U0001f356", cost=1, effect={"hunger": 0.4})
+        assert ct.id == "premium_treat"
+        assert ct.cost == 1
+        assert ct.effect == {"hunger": 0.4}
+        assert ct.target_species == "all"
+
+    def test_defaults(self):
+        from onemancompany.core.pet_models import ConsumableType
+        ct = ConsumableType(id="x", name="X", effect={"hunger": 0.1})
+        assert ct.icon == "\U0001f381"  # default gift emoji
+        assert ct.cost == 1
+        assert ct.target_species == "all"
+
+    def test_species_list(self):
+        from onemancompany.core.pet_models import ConsumableType
+        ct = ConsumableType(id="catnip", name="Catnip", effect={"happiness": 0.5}, target_species=["cat"])
+        assert ct.target_species == ["cat"]
+
+    def test_multi_effect(self):
+        from onemancompany.core.pet_models import ConsumableType
+        ct = ConsumableType(id="cake", name="Cake", cost=3, effect={"hunger": 0.3, "happiness": 0.3, "energy": 0.3})
+        assert len(ct.effect) == 3
+
+    def test_missing_required_field_raises(self):
+        from onemancompany.core.pet_models import ConsumableType
+        with pytest.raises(ValidationError):
+            ConsumableType(id="x", name="X")  # missing effect
+
+
+# ---------------------------------------------------------------------------
 # Task 2: Config constants
 # ---------------------------------------------------------------------------
 
@@ -210,9 +246,11 @@ class TestPetConfig:
         from onemancompany.core.config import (
             COMPANY_DIR, PETS_DIR, PET_SPECIES_DIR,
             PET_INSTANCES_DIR, PET_FACILITIES_DIR, PET_FACILITY_TYPES_DIR,
+            PET_CONSUMABLES_DIR,
         )
         assert PETS_DIR == COMPANY_DIR / "pets"
         assert PET_SPECIES_DIR == PETS_DIR / "species"
         assert PET_INSTANCES_DIR == PETS_DIR / "instances"
         assert PET_FACILITIES_DIR == PETS_DIR / "facilities"
         assert PET_FACILITY_TYPES_DIR == PETS_DIR / "facility_types"
+        assert PET_CONSUMABLES_DIR == PETS_DIR / "consumables"

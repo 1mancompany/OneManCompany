@@ -609,6 +609,7 @@ async def lifespan(app: FastAPI):
     if os.getenv("OFFICE_VIBES", "0") == "1":
         from onemancompany.core.store import (
             load_pet_species, load_all_pets_sync, load_pet_facility_types, load_facilities_sync,
+            load_consumable_types,
         )
         from onemancompany.core.pet_models import PetInstance, FacilityInstance
         from onemancompany.core.pet_engine import PetEngine, TICK_INTERVAL_SECONDS as PET_TICK
@@ -630,7 +631,8 @@ async def lifespan(app: FastAPI):
             except Exception as _e:
                 logger.warning("Skipping invalid facility {}: {}", _fid, _e)
 
-        _pet_engine = PetEngine(_species, _pet_instances, _ftypes, _fac_instances)
+        _ctypes = load_consumable_types()
+        _pet_engine = PetEngine(_species, _pet_instances, _ftypes, _fac_instances, _ctypes)
 
         # Sync token wallet with completed projects at startup
         from onemancompany.core.project_archive import list_projects as _list_projects

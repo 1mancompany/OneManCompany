@@ -67,3 +67,56 @@ class TestRenamePet:
             resp = client.post("/api/pets/pet_001/name", json={"name": "Chonk"})
         assert resp.status_code == 200
         mock_pet_engine.rename_pet.assert_called_once_with("pet_001", "Chonk")
+
+
+class TestUseItem:
+    def test_use_item_success(self, client, mock_pet_engine):
+        from onemancompany.core.pet_models import ConsumableType
+        mock_pet_engine._consumable_types = {
+            "premium_treat": ConsumableType(
+                id="premium_treat", name="Premium Treat",
+                cost=1, effect={"hunger": 0.4},
+            )
+        }
+        mock_pet_engine.spend_tokens.return_value = True
+        mock_pet_engine.use_consumable.return_value = True
+        with patch("onemancompany.core.store.mark_dirty"):
+            resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "premium_treat"})
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        mock_pet_engine.spend_tokens.assert_called_once_with(1)
+        mock_pet_engine.use_consumable.assert_called_once_with("pet_001", "premium_treat")
+
+    def test_use_item_unknown(self, client, mock_pet_engine):
+        mock_pet_engine._consumable_types = {}
+        resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "nonexistent"})
+        assert resp.status_code == 400
+
+    def test_use_item_not_enough_tokens(self, client, mock_pet_engine):
+        from onemancompany.core.pet_models import ConsumableType
+        mock_pet_engine._consumable_types = {
+            "premium_treat": ConsumableType(
+                id="premium_treat", name="Premium Treat",
+                cost=1, effect={"hunger": 0.4},
+            )
+        }
+        mock_pet_engine.spend_tokens.return_value = False
+        resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "premium_treat"})
+        assert resp.status_code == 400
+        assert "tokens" in resp.json()["detail"].lower()
+
+    def test_use_item_species_mismatch(self, client, mock_pet_engine):
+        from onemancompany.core.pet_models import ConsumableType
+        mock_pet_engine._consumable_types = {
+            "catnip_toy": ConsumableType(
+                id="catnip_toy", name="Catnip Toy",
+                cost=1, effect={"happiness": 0.5}, target_species=["cat"],
+            )
+        }
+        mock_pet_engine.spend_tokens.return_value = True
+        mock_pet_engine.use_consumable.return_value = False  # species mismatch
+        with patch("onemancompany.core.store.load_pet_wallet", return_value={"tokens": 5, "projects_counted": 15, "tokens_spent": 1}), \
+             patch("onemancompany.core.store.save_pet_wallet"):
+            resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "catnip_toy"})
+        assert resp.status_code == 400
+        assert "compatible" in resp.json()["detail"].lower()

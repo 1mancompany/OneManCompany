@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from onemancompany.core.pet_models import (
+    ConsumableType,
     FacilityInstance,
     FacilityType,
     PetInstance,
@@ -39,6 +40,7 @@ class PetEngine:
         pets: dict[str, PetInstance],
         facility_types: dict[str, FacilityType],
         facilities: dict[str, FacilityInstance],
+        consumable_types: dict[str, ConsumableType] | None = None,
         office_cols: int = 20,
         office_rows: int = 18,
     ):
@@ -46,11 +48,13 @@ class PetEngine:
         self._pets = pets
         self._facility_types = facility_types
         self._facilities = facilities
+        self._consumable_types: dict[str, ConsumableType] = consumable_types or {}
         self._office_cols = office_cols
         self._office_rows = office_rows
 
         self._dirty_pets: set[str] = set()
         self._deleted_pets: set[str] = set()
+        self._tick_count: int = 0
 
         # Auto-increment pet ID from existing max
         max_id = 0
@@ -442,8 +446,35 @@ class PetEngine:
             "species": {
                 sid: sp.model_dump() for sid, sp in self._species.items()
             },
+            "consumables": {
+                cid: ct.model_dump() for cid, ct in self._consumable_types.items()
+            },
             "tokens": self.get_token_balance(),
         }
+
+    # ------------------------------------------------------------------
+    # Consumable items
+    # ------------------------------------------------------------------
+
+    def use_consumable(self, pet_id: str, consumable_id: str) -> bool:
+        """Use a consumable on a pet. Checks species compatibility.
+
+        Does NOT handle tokens (caller/routes does that).
+        """
+        pet = self._pets.get(pet_id)
+        ctype = self._consumable_types.get(consumable_id)
+        if not pet or not ctype:
+            return False
+        # Species check
+        if ctype.target_species != "all" and pet.species not in ctype.target_species:
+            return False
+        # Apply effects
+        for need, delta in ctype.effect.items():
+            if need in pet.needs:
+                pet.needs[need] = max(0.0, min(1.0, pet.needs[need] + delta))
+        self._dirty_pets.add(pet_id)
+        logger.debug("Consumable {} used on pet {} (effects: {})", consumable_id, pet_id, ctype.effect)
+        return True
 
     def add_facility(self, facility: FacilityInstance) -> None:
         """Add a facility to the office."""

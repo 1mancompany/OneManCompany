@@ -10,6 +10,7 @@ import pytest
 from onemancompany.core.pet_models import (
     AnimationDef,
     BehaviorConfig,
+    ConsumableType,
     FacilityInstance,
     FacilityType,
     NeedConfig,
@@ -65,18 +66,20 @@ def _make_pet(
     )
 
 
-def _make_engine(pets=None, species=None, facilities=None, facility_types=None):
+def _make_engine(pets=None, species=None, facilities=None, facility_types=None, consumable_types=None):
     from onemancompany.core.pet_engine import PetEngine
 
     sp = species or {"cat": _make_species()}
     p = pets or {}
     ft = facility_types or {}
     f = facilities or {}
+    ct = consumable_types or {}
     return PetEngine(
         species=sp,
         pets=p,
         facility_types=ft,
         facilities=f,
+        consumable_types=ct,
         office_cols=20,
         office_rows=18,
     )
@@ -414,3 +417,124 @@ class TestTokenEconomy:
         engine = _make_engine()
 
         assert engine.get_token_balance() == 3
+
+
+# ---------------------------------------------------------------------------
+# Consumable items
+# ---------------------------------------------------------------------------
+
+class TestUseConsumable:
+    def _make_treat(self):
+        return ConsumableType(
+            id="premium_treat", name="Premium Treat", icon="\U0001f356",
+            cost=1, effect={"hunger": 0.4}, target_species="all",
+        )
+
+    def _make_catnip(self):
+        return ConsumableType(
+            id="catnip_toy", name="Catnip Toy", icon="\U0001f9f8",
+            cost=1, effect={"happiness": 0.5}, target_species=["cat"],
+        )
+
+    def test_use_consumable_success(self):
+        """Using a treat on a pet should increase the target need."""
+        pet = _make_pet(needs={"energy": 1.0, "hunger": 0.5, "happiness": 1.0})
+        treat = self._make_treat()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"premium_treat": treat},
+        )
+
+        result = engine.use_consumable("pet_001", "premium_treat")
+
+        assert result is True
+        assert pet.needs["hunger"] == pytest.approx(0.9)
+        assert "pet_001" in engine.dirty_pets
+
+    def test_use_consumable_clamps_at_1(self):
+        """Need should not exceed 1.0."""
+        pet = _make_pet(needs={"energy": 1.0, "hunger": 0.8, "happiness": 1.0})
+        treat = self._make_treat()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"premium_treat": treat},
+        )
+
+        engine.use_consumable("pet_001", "premium_treat")
+
+        assert pet.needs["hunger"] == 1.0
+
+    def test_use_consumable_species_match(self):
+        """Cat-only item should work on a cat."""
+        pet = _make_pet(species="cat", needs={"energy": 1.0, "hunger": 1.0, "happiness": 0.3})
+        catnip = self._make_catnip()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"catnip_toy": catnip},
+        )
+
+        result = engine.use_consumable("pet_001", "catnip_toy")
+
+        assert result is True
+        assert pet.needs["happiness"] == pytest.approx(0.8)
+
+    def test_use_consumable_species_mismatch(self):
+        """Cat-only item should fail on a dog."""
+        pet = _make_pet(species="dog", needs={"energy": 1.0, "hunger": 1.0, "happiness": 0.3})
+        catnip = self._make_catnip()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            species={"dog": _make_species(sid="dog")},
+            consumable_types={"catnip_toy": catnip},
+        )
+
+        result = engine.use_consumable("pet_001", "catnip_toy")
+
+        assert result is False
+        assert pet.needs["happiness"] == pytest.approx(0.3)  # unchanged
+
+    def test_use_consumable_unknown_item(self):
+        """Unknown consumable ID returns False."""
+        pet = _make_pet()
+        engine = _make_engine(pets={"pet_001": pet})
+
+        result = engine.use_consumable("pet_001", "nonexistent")
+
+        assert result is False
+
+    def test_use_consumable_unknown_pet(self):
+        """Unknown pet ID returns False."""
+        treat = self._make_treat()
+        engine = _make_engine(consumable_types={"premium_treat": treat})
+
+        result = engine.use_consumable("nonexistent", "premium_treat")
+
+        assert result is False
+
+    def test_use_consumable_negative_effect(self):
+        """An item with negative effect (e.g. fetch ball energy -0.1)."""
+        pet = _make_pet(needs={"energy": 0.5, "hunger": 1.0, "happiness": 0.5})
+        ball = ConsumableType(
+            id="fetch_ball", name="Fetch Ball", cost=1,
+            effect={"happiness": 0.3, "energy": -0.1}, target_species="all",
+        )
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"fetch_ball": ball},
+        )
+
+        engine.use_consumable("pet_001", "fetch_ball")
+
+        assert pet.needs["happiness"] == pytest.approx(0.8)
+        assert pet.needs["energy"] == pytest.approx(0.4)
+
+    def test_consumables_in_get_all_state(self):
+        """get_all_state should include consumables."""
+        treat = self._make_treat()
+        engine = _make_engine(consumable_types={"premium_treat": treat})
+
+        state = engine.get_all_state()
+
+        assert "consumables" in state
+        assert "premium_treat" in state["consumables"]
+        assert state["consumables"]["premium_treat"]["cost"] == 1

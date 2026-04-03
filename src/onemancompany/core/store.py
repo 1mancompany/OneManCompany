@@ -31,6 +31,7 @@ from onemancompany.core.config import (
     EMPLOYEES_DIR,
     EX_EMPLOYEES_DIR,
     GUIDANCE_FILENAME,
+    PET_CONSUMABLES_DIR,
     PET_FACILITIES_DIR,
     PET_FACILITY_TYPES_DIR,
     PET_INSTANCES_DIR,
@@ -861,6 +862,30 @@ def load_pet_facility_types() -> dict:
             result[ft.id] = ft
         except Exception as exc:
             logger.warning("Skipping invalid facility type {}: {}", f.name, exc)
+    return result
+
+
+def load_consumable_types() -> dict:
+    """Load consumable type definitions from PET_CONSUMABLES_DIR.
+
+    Returns dict[consumable_id -> ConsumableType]. Invalid files are logged and skipped.
+    """
+    from onemancompany.core.pet_models import ConsumableType
+
+    result: dict = {}
+    if not PET_CONSUMABLES_DIR.exists():
+        return result
+    for f in sorted(PET_CONSUMABLES_DIR.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if not data:
+            continue
+        try:
+            ct = ConsumableType(**data)
+            result[ct.id] = ct
+        except Exception as exc:
+            logger.warning("Skipping invalid consumable type {}: {}", f.name, exc)
     return result
 
 
