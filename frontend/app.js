@@ -5305,6 +5305,13 @@ class AppController {
             </div>
             <label class="api-field-label">API Key (configure to use cloud service)</label>
             <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
+            ${tm.api_key_set ? `
+            <div style="margin:6px 0;display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="api-tm-use-ai" ${tm.use_ai_search ? 'checked' : ''} style="accent-color:var(--pixel-green);" />
+              <label for="api-tm-use-ai" style="font-size:6.5px;color:var(--pixel-yellow);cursor:pointer;">
+                AI-Powered Search (improves candidate quality)
+              </label>
+            </div>` : ''}
             <div class="api-card-actions">
               <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>
               <span id="api-tm-result" class="api-test-result"></span>
@@ -5334,6 +5341,8 @@ class AppController {
       const body = { provider, mode: 'remote' };
       const key = document.getElementById('api-tm-key').value.trim();
       if (key) body.api_key = key;
+      const aiCheckbox = document.getElementById('api-tm-use-ai');
+      if (aiCheckbox) body.use_ai_search = aiCheckbox.checked;
       try {
         const resp = await fetch('/api/settings/api', {
           method: 'PUT',
