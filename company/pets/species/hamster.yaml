@@ -1,5 +1,5 @@
 id: hamster
-name: 仓鼠
+name: Hamster
 size: [1, 1]
 sprite_sheet: hamster.png
 animations:

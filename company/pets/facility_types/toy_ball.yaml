@@ -1,5 +1,5 @@
 id: toy_ball
-name: 玩具球
+name: Toy Ball
 sprite: facility_toy_ball.png
 size: [1, 1]
 effect:

@@ -1,5 +1,5 @@
 id: dog
-name: 狗
+name: Dog
 size: [1, 1]
 sprite_sheet: dog.png
 animations:

@@ -1,5 +1,5 @@
 id: cat
-name: 猫
+name: Cat
 size: [1, 1]
 sprite_sheet: cat.png
 animations:

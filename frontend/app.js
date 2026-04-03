@@ -7792,20 +7792,20 @@ class AppController {
   openPetDetail(pet) {
     const isStray = !pet.owner;
     const actions = isStray
-      ? `<button onclick="app._petAction('${pet.id}', 'adopt')">领养</button>`
-      : `<button onclick="app._petAction('${pet.id}', 'pet')">抚摸</button>
-         <button onclick="app._petAction('${pet.id}', 'feed')">喂食</button>
-         <button onclick="app._petRename('${pet.id}')">改名</button>`;
+      ? `<button onclick="app._petAction('${pet.id}', 'adopt')">Adopt</button>`
+      : `<button onclick="app._petAction('${pet.id}', 'pet')">Pet</button>
+         <button onclick="app._petAction('${pet.id}', 'feed')">Feed</button>
+         <button onclick="app._petRename('${pet.id}')">Rename</button>`;
     const sp = window.petRenderer?.species[pet.species];
     const speciesName = sp ? sp.name : pet.species;
     const name = pet.name || '???';
     const html = `
       <div style="text-align:center;padding:16px;">
-        <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[流浪]</span>' : ''}</h3>
+        <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[Stray]</span>' : ''}</h3>
         <div style="margin:12px 0;font-size:13px;color:#aaa;">
-          饥饿: ${Math.round((pet.needs?.hunger || 0) * 100)}% &nbsp;
-          开心: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
-          精力: ${Math.round((pet.needs?.energy || 0) * 100)}%
+          Hunger: ${Math.round((pet.needs?.hunger || 0) * 100)}% &nbsp;
+          Happiness: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
+          Energy: ${Math.round((pet.needs?.energy || 0) * 100)}%
         </div>
         <div style="margin-top:12px;">${actions}</div>
       </div>`;
@@ -7828,7 +7828,7 @@ class AppController {
   }
 
   async _petRename(petId) {
-    const name = prompt('给宠物起个名字:');
+    const name = prompt('Name your pet:');
     if (!name) return;
     await fetch(`/api/pets/${petId}/name`, {
       method: 'POST',

@@ -1,5 +1,5 @@
 id: food_bowl
-name: 食盆
+name: Food Bowl
 sprite: facility_food_bowl.png
 size: [1, 1]
 effect:

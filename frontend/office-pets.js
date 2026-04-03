@@ -288,7 +288,7 @@ class PetRenderer {
   // ── Tooltip ──────────────────────────────────────────────────────────────
 
   /**
-   * Returns tooltip string: "名字 (种类) — 状态 [流浪]"
+   * Returns tooltip string: "Name (Species) — Status [Stray]"
    *
    * @param {object} pet
    * @returns {string}
@@ -297,7 +297,7 @@ class PetRenderer {
     const speciesInfo = this.species[pet.species] || {};
     const speciesName = speciesInfo.name || pet.species || '???';
     const stateLabel  = pet.state || 'idle';
-    const strayTag    = pet.owner ? '' : ' [流浪]';
+    const strayTag    = pet.owner ? '' : ' [Stray]';
     return `${pet.name} (${speciesName}) \u2014 ${stateLabel}${strayTag}`;
   }
 }

@@ -1,5 +1,5 @@
 id: pet_bed
-name: 宠物窝
+name: Pet Bed
 sprite: facility_pet_bed.png
 size: [1, 1]
 effect:
