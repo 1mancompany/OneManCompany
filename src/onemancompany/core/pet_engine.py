@@ -90,6 +90,73 @@ _NEED_TO_MOOD = {
 }
 
 
+_PARTS = {
+    "cat": {
+        "body_colors": ["orange", "black", "white", "gray", "siamese", "cream", "ginger", "chocolate"],
+        "patterns": ["solid", "tabby", "spotted", "bicolor", "calico", "pointed"],
+        "ears": ["pointy", "round", "fold"],
+        "tails": ["long", "curled", "fluffy"],
+        "eye_colors": ["green", "blue", "gold", "copper", "aqua", "yellow"],
+    },
+    "dog": {
+        "body_colors": ["golden", "brown", "black", "white", "husky", "corgi", "chocolate", "red"],
+        "patterns": ["solid", "spotted", "masked", "saddle", "merle"],
+        "ears": ["floppy", "pointy", "half"],
+        "tails": ["up", "down", "curled"],
+        "eye_colors": ["brown", "amber", "blue", "hazel", "green", "dark"],
+        "collar_colors": ["red", "blue", "green", "gold", "purple"],
+    },
+    "hamster": {
+        "body_colors": ["golden", "white", "gray", "cinnamon", "cream", "panda"],
+        "patterns": ["solid", "striped", "panda", "patched"],
+        "cheeks": ["normal", "stuffed"],
+        "ears": ["round", "pointed"],
+        "eye_colors": ["black", "ruby", "brown", "blue", "pink", "dark"],
+    },
+}
+
+
+def _generate_appearance(pet_id: str, species: str, parts: dict | None = None) -> dict:
+    """Generate deterministic appearance dict from pet_id seed."""
+    if parts is None:
+        parts = _PARTS
+    sp = parts.get(species)
+    if not sp:
+        return {}
+
+    h = 0
+    for ch in pet_id:
+        h = ((h << 5) - h + ord(ch)) & 0xFFFFFFFF
+    rng_state = h
+
+    def _next():
+        nonlocal rng_state
+        rng_state = (rng_state + 0x6D2B79F5) & 0xFFFFFFFF
+        t = ((rng_state ^ (rng_state >> 15)) * (1 | rng_state)) & 0xFFFFFFFF
+        t = (t + ((t ^ (t >> 7)) * (61 | t))) & 0xFFFFFFFF
+        return ((t ^ (t >> 14)) & 0xFFFFFFFF) / 4294967296
+
+    def _pick(lst):
+        return lst[int(_next() * len(lst))]
+
+    result = {}
+    if "body_colors" in sp:
+        result["body_color"] = _pick(sp["body_colors"])
+    if "patterns" in sp:
+        result["pattern"] = _pick(sp["patterns"])
+    if "ears" in sp:
+        result["ears"] = _pick(sp["ears"])
+    if "tails" in sp:
+        result["tail"] = _pick(sp["tails"])
+    if "cheeks" in sp:
+        result["cheeks"] = _pick(sp["cheeks"])
+    if "eye_colors" in sp:
+        result["eye_color"] = _pick(sp["eye_colors"])
+    if "collar_colors" in sp:
+        result["collar_color"] = _pick(sp["collar_colors"])
+    return result
+
+
 class PetEngine:
     """Core pet simulation engine.
 
@@ -361,6 +428,7 @@ class PetEngine:
             state=PetState.IDLE,
             needs={name: 1.0 for name in self._species[species_id].needs},
             spawned_at=now,
+            appearance=_generate_appearance(pet_id, species_id),
         )
         self._pets[pet_id] = pet
         self._dirty_pets.add(pet_id)

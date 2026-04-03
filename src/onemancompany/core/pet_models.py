@@ -73,6 +73,7 @@ class PetInstance(BaseModel):
     current_mood: Optional[str] = None
     speech_translation: Optional[str] = None
     speech_tick: int = 0
+    appearance: Optional[dict] = None
 
     def to_dict(self) -> dict:
         """Serialize to dict with state as string."""
