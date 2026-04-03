@@ -31,6 +31,10 @@ from onemancompany.core.config import (
     EMPLOYEES_DIR,
     EX_EMPLOYEES_DIR,
     GUIDANCE_FILENAME,
+    PET_FACILITIES_DIR,
+    PET_FACILITY_TYPES_DIR,
+    PET_INSTANCES_DIR,
+    PET_SPECIES_DIR,
     PROFILE_FILENAME,
     ROOMS_DIR,
     TASK_TREE_FILENAME,
@@ -768,3 +772,126 @@ async def aload_overhead() -> dict:
     """Async wrapper: offloads load_overhead() to thread pool."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, load_overhead)
+
+
+# ---------------------------------------------------------------------------
+# Pet species / instances
+# ---------------------------------------------------------------------------
+
+def load_pet_species() -> dict:
+    """Scan PET_SPECIES_DIR for *.yaml, validate with SpeciesDefinition.
+
+    Returns dict[species_id -> SpeciesDefinition]. Invalid files are logged
+    and skipped.
+    """
+    from onemancompany.core.pet_models import SpeciesDefinition
+
+    result: dict = {}
+    if not PET_SPECIES_DIR.exists():
+        return result
+    for f in sorted(PET_SPECIES_DIR.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if not data:
+            continue
+        try:
+            spec = SpeciesDefinition(**data)
+            result[spec.id] = spec
+        except Exception as exc:
+            logger.warning("Skipping invalid pet species {}: {}", f.name, exc)
+    return result
+
+
+def load_all_pets_sync() -> dict:
+    """Load all pet instance *.yaml from PET_INSTANCES_DIR.
+
+    Returns dict[pet_id -> dict].
+    """
+    result: dict = {}
+    if not PET_INSTANCES_DIR.exists():
+        return result
+    for f in sorted(PET_INSTANCES_DIR.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if data:
+            result[f.stem] = data
+    return result
+
+
+def save_pet_sync(pet_id: str, data: dict) -> None:
+    """Write pet instance to PET_INSTANCES_DIR/{pet_id}.yaml."""
+    path = PET_INSTANCES_DIR / f"{pet_id}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_yaml(path, data)
+    mark_dirty(DirtyCategory.PETS)
+
+
+def delete_pet_sync(pet_id: str) -> None:
+    """Delete PET_INSTANCES_DIR/{pet_id}.yaml if it exists."""
+    path = PET_INSTANCES_DIR / f"{pet_id}.yaml"
+    if path.exists():
+        path.unlink()
+        mark_dirty(DirtyCategory.PETS)
+
+
+# ---------------------------------------------------------------------------
+# Pet facility types / instances
+# ---------------------------------------------------------------------------
+
+def load_pet_facility_types() -> dict:
+    """Load facility type definitions from PET_FACILITY_TYPES_DIR.
+
+    Returns dict[type_id -> FacilityType]. Invalid files are logged and skipped.
+    """
+    from onemancompany.core.pet_models import FacilityType
+
+    result: dict = {}
+    if not PET_FACILITY_TYPES_DIR.exists():
+        return result
+    for f in sorted(PET_FACILITY_TYPES_DIR.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if not data:
+            continue
+        try:
+            ft = FacilityType(**data)
+            result[ft.id] = ft
+        except Exception as exc:
+            logger.warning("Skipping invalid facility type {}: {}", f.name, exc)
+    return result
+
+
+def load_facilities_sync() -> dict:
+    """Load all facility instances from PET_FACILITIES_DIR.
+
+    Returns dict[facility_id -> dict].
+    """
+    result: dict = {}
+    if not PET_FACILITIES_DIR.exists():
+        return result
+    for f in sorted(PET_FACILITIES_DIR.iterdir()):
+        if f.suffix not in (".yaml", ".yml"):
+            continue
+        data = _read_yaml(f)
+        if data:
+            result[f.stem] = data
+    return result
+
+
+def save_facility_sync(facility_id: str, data: dict) -> None:
+    """Write facility instance to PET_FACILITIES_DIR/{facility_id}.yaml."""
+    path = PET_FACILITIES_DIR / f"{facility_id}.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_yaml(path, data)
+    mark_dirty(DirtyCategory.PETS)
+
+
+def delete_facility_sync(facility_id: str) -> None:
+    """Delete PET_FACILITIES_DIR/{facility_id}.yaml if it exists."""
+    path = PET_FACILITIES_DIR / f"{facility_id}.yaml"
+    if path.exists():
+        path.unlink()
+        mark_dirty(DirtyCategory.PETS)
