@@ -6694,16 +6694,13 @@ async def use_item_on_pet(pet_id: str, body: dict):
     ctype = _pet_engine._consumable_types.get(item_id)
     if not ctype:
         return JSONResponse(status_code=400, content={"detail": "Unknown item"})
+    # Check species compatibility BEFORE spending tokens
+    if not _pet_engine.can_use_consumable(pet_id, item_id):
+        return JSONResponse(status_code=400, content={"detail": "Item not compatible with this pet"})
     if not _pet_engine.spend_tokens(ctype.cost):
         return JSONResponse(status_code=400, content={"detail": "Not enough tokens"})
-    ok = _pet_engine.use_consumable(pet_id, item_id)
-    if not ok:
-        # Refund tokens on species mismatch
-        from onemancompany.core.store import load_pet_wallet, save_pet_wallet
-        wallet = load_pet_wallet()
-        wallet["tokens_spent"] = max(0, wallet["tokens_spent"] - ctype.cost)
-        save_pet_wallet(wallet)
-        return JSONResponse(status_code=400, content={"detail": "Item not compatible with this pet"})
+    # Guaranteed to succeed now — species already validated
+    _pet_engine.use_consumable(pet_id, item_id)
     from onemancompany.core.store import mark_dirty
     from onemancompany.core.config import DirtyCategory
     mark_dirty(DirtyCategory.PETS)

@@ -541,6 +541,127 @@ class TestUseConsumable:
 
 
 # ---------------------------------------------------------------------------
+# can_use_consumable (pre-check without side effects)
+# ---------------------------------------------------------------------------
+
+class TestCanUseConsumable:
+    def _make_treat(self):
+        return ConsumableType(
+            id="premium_treat", name="Premium Treat", icon="\U0001f356",
+            cost=1, effect={"hunger": 0.4}, target_species="all",
+        )
+
+    def _make_catnip(self):
+        return ConsumableType(
+            id="catnip_toy", name="Catnip Toy", icon="\U0001f9f8",
+            cost=1, effect={"happiness": 0.5}, target_species=["cat"],
+        )
+
+    def test_can_use_universal_item(self):
+        """Universal item (target_species='all') passes for any pet."""
+        pet = _make_pet(species="dog")
+        treat = self._make_treat()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            species={"dog": _make_species(sid="dog")},
+            consumable_types={"premium_treat": treat},
+        )
+        assert engine.can_use_consumable("pet_001", "premium_treat") is True
+
+    def test_can_use_species_specific_match(self):
+        """Cat-only item passes for cat."""
+        pet = _make_pet(species="cat")
+        catnip = self._make_catnip()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"catnip_toy": catnip},
+        )
+        assert engine.can_use_consumable("pet_001", "catnip_toy") is True
+
+    def test_cannot_use_species_mismatch(self):
+        """Cat-only item fails for dog."""
+        pet = _make_pet(species="dog")
+        catnip = self._make_catnip()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            species={"dog": _make_species(sid="dog")},
+            consumable_types={"catnip_toy": catnip},
+        )
+        assert engine.can_use_consumable("pet_001", "catnip_toy") is False
+
+    def test_cannot_use_unknown_pet(self):
+        treat = self._make_treat()
+        engine = _make_engine(consumable_types={"premium_treat": treat})
+        assert engine.can_use_consumable("nonexistent", "premium_treat") is False
+
+    def test_cannot_use_unknown_item(self):
+        pet = _make_pet()
+        engine = _make_engine(pets={"pet_001": pet})
+        assert engine.can_use_consumable("pet_001", "nonexistent") is False
+
+    def test_does_not_apply_effects(self):
+        """can_use_consumable must not mutate pet needs."""
+        pet = _make_pet(needs={"energy": 1.0, "hunger": 0.5, "happiness": 1.0})
+        treat = self._make_treat()
+        engine = _make_engine(
+            pets={"pet_001": pet},
+            consumable_types={"premium_treat": treat},
+        )
+        engine.can_use_consumable("pet_001", "premium_treat")
+        assert pet.needs["hunger"] == pytest.approx(0.5)  # unchanged
+
+
+# ---------------------------------------------------------------------------
+# refund_tokens
+# ---------------------------------------------------------------------------
+
+class TestRefundTokens:
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_refund_decrements_tokens_spent(self, mock_save, mock_load):
+        mock_load.return_value = {"tokens": 5, "projects_counted": 15, "tokens_spent": 3}
+        engine = _make_engine()
+
+        engine.refund_tokens(2)
+
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens_spent"] == 1
+
+    @patch("onemancompany.core.pet_engine.load_pet_wallet")
+    @patch("onemancompany.core.pet_engine.save_pet_wallet")
+    def test_refund_clamps_at_zero(self, mock_save, mock_load):
+        """Refunding more than spent clamps tokens_spent at 0."""
+        mock_load.return_value = {"tokens": 5, "projects_counted": 15, "tokens_spent": 1}
+        engine = _make_engine()
+
+        engine.refund_tokens(5)
+
+        saved = mock_save.call_args[0][0]
+        assert saved["tokens_spent"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Speech cleared on engine init
+# ---------------------------------------------------------------------------
+
+class TestSpeechClearedOnInit:
+    def test_speech_fields_cleared_on_init(self):
+        """Engine constructor clears stale speech from loaded pets."""
+        pet = _make_pet()
+        pet.current_speech = "Stale speech"
+        pet.current_mood = "happy"
+        pet.speech_translation = "Old translation"
+        pet.speech_tick = 42
+
+        engine = _make_engine(pets={"pet_001": pet})
+
+        assert pet.current_speech is None
+        assert pet.current_mood is None
+        assert pet.speech_translation is None
+        assert pet.speech_tick == 0
+
+
+# ---------------------------------------------------------------------------
 # Pet speech generation
 # ---------------------------------------------------------------------------
 
@@ -654,13 +775,14 @@ class TestSpeechTiming:
     def test_speech_expires_after_ticks(self):
         """Speech should be cleared after 6 ticks (60 seconds)."""
         pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        # Set speech AFTER engine init (which clears speech fields)
         pet.current_speech = "Purr mmm~"
         pet.current_mood = "content"
         pet.speech_translation = "I'm so cozy right now."
         pet.speech_tick = 1
-
-        species = _make_species()
-        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
         engine._tick_count = 8  # 8 - 1 = 7 ticks since speech, > 6
 
         engine._expire_speech(pet)
@@ -672,13 +794,14 @@ class TestSpeechTiming:
     def test_speech_not_expired_if_recent(self):
         """Speech should NOT be cleared if fewer than 6 ticks have passed."""
         pet = _make_pet(needs={"energy": 0.9, "hunger": 0.9, "happiness": 0.9})
+        species = _make_species()
+        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
+
+        # Set speech AFTER engine init (which clears speech fields)
         pet.current_speech = "Purr mmm~"
         pet.current_mood = "content"
         pet.speech_translation = "I'm so cozy right now."
         pet.speech_tick = 5
-
-        species = _make_species()
-        engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
         engine._tick_count = 8  # 8 - 5 = 3 ticks, < 6
 
         engine._expire_speech(pet)

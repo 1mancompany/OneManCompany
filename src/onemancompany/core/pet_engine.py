@@ -22,9 +22,7 @@ STRAY_SPAWN_CHANCE = 0.05  # 5% per tick
 STRAY_TIMEOUT_SECONDS = 3600  # 1 hour
 TICK_INTERVAL_SECONDS = 10.0
 SPEECH_EXPIRE_TICKS = 6  # speech bubbles last ~60 seconds
-SPEECH_MIN_TICK = 3  # earliest tick to start generating speech
-SPEECH_MAX_TICK = 5  # latest tick window for speech chance
-SPEECH_CHANCE = 0.3  # 30% chance per eligible tick
+SPEECH_CHANCE = 0.10  # flat 10% chance per tick (~1 speech per 100s)
 
 # Recovery rate per tick for sleeping/eating/playing
 _RECOVERY_RATE = 0.05
@@ -37,9 +35,9 @@ _RECOVERY_THRESHOLD = 0.8
 SIMLISH_WORDS = {
     "hungry": ["mew", "naka", "fud", "nom", "grr", "tum"],
     "happy": ["purr", "yip", "woo", "nyan", "hehe", "boop"],
-    "tired": ["zzz", "muu", "yawn", "nuu", "sleepy", "ugh"],
+    "tired": ["zzz", "muu", "yawn", "nuu", "muuu", "bleh"],
     "playful": ["zoom", "paw", "bap", "wee", "nya", "hop"],
-    "lonely": ["mew", "snif", "waa", "hmm", "sigh", "oof"],
+    "lonely": ["mew", "snif", "waa", "hmm", "huu", "oof"],
     "content": ["purr", "mmm", "ahh", "zen", "chu", "bliss"],
 }
 
@@ -120,6 +118,13 @@ class PetEngine:
         self._dirty_pets: set[str] = set()
         self._deleted_pets: set[str] = set()
         self._tick_count: int = 0
+
+        # Clear transient speech fields so stale bubbles don't persist across restarts
+        for pet in self._pets.values():
+            pet.current_speech = None
+            pet.current_mood = None
+            pet.speech_translation = None
+            pet.speech_tick = 0
 
         # Auto-increment pet ID from existing max
         max_id = 0
@@ -527,6 +532,29 @@ class PetEngine:
     # Consumable items
     # ------------------------------------------------------------------
 
+    def can_use_consumable(self, pet_id: str, consumable_id: str) -> bool:
+        """Check if a consumable can be used on a pet WITHOUT applying effects.
+
+        Validates pet exists, consumable exists, and species is compatible.
+        """
+        pet = self._pets.get(pet_id)
+        ctype = self._consumable_types.get(consumable_id)
+        if not pet or not ctype:
+            return False
+        if ctype.target_species != "all" and pet.species not in ctype.target_species:
+            return False
+        return True
+
+    def refund_tokens(self, amount: int) -> None:
+        """Refund tokens by decrementing tokens_spent in the wallet.
+
+        All wallet mutations go through the engine.
+        """
+        wallet = load_pet_wallet()
+        wallet["tokens_spent"] = max(0, wallet["tokens_spent"] - amount)
+        save_pet_wallet(wallet)
+        logger.info("Pet tokens: refunded {} (remaining={})", amount, wallet["tokens"] - wallet["tokens_spent"])
+
     def use_consumable(self, pet_id: str, consumable_id: str) -> bool:
         """Use a consumable on a pet. Checks species compatibility.
 
@@ -553,10 +581,12 @@ class PetEngine:
 
     def _determine_mood(self, pet: PetInstance) -> str:
         """Determine pet's mood based on needs levels."""
-        # Find the lowest need
+        # Find the lowest need (shuffle to break ties randomly)
+        items = list(pet.needs.items())
+        random.shuffle(items)
         lowest_need = None
         lowest_val = float("inf")
-        for need_name, val in pet.needs.items():
+        for need_name, val in items:
             if val < lowest_val:
                 lowest_val = val
                 lowest_need = need_name
@@ -603,14 +633,16 @@ class PetEngine:
         return {"text": text, "mood": mood, "translation": translation}
 
     def _maybe_generate_speech(self, pet: PetInstance, species: SpeciesDefinition) -> None:
-        """Possibly generate new speech for a pet during tick."""
+        """Possibly generate new speech for a pet during tick.
+
+        Each tick, each pet has a flat SPEECH_CHANCE (10%) probability to
+        generate speech if they don't already have one. This gives roughly
+        one speech per 100 seconds on average.
+        """
         # Don't generate if pet already has speech
         if pet.current_speech is not None:
             return
-        # Only generate after initial ticks and with probability
-        if self._tick_count < SPEECH_MIN_TICK:
-            return
-        if self._tick_count % SPEECH_MAX_TICK != 0 and random.random() >= SPEECH_CHANCE:
+        if random.random() >= SPEECH_CHANCE:
             return
 
         speech = self._generate_speech(pet, species)

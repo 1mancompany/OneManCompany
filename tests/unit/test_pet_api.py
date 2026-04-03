@@ -78,12 +78,14 @@ class TestUseItem:
                 cost=1, effect={"hunger": 0.4},
             )
         }
+        mock_pet_engine.can_use_consumable.return_value = True
         mock_pet_engine.spend_tokens.return_value = True
         mock_pet_engine.use_consumable.return_value = True
         with patch("onemancompany.core.store.mark_dirty"):
             resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "premium_treat"})
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+        mock_pet_engine.can_use_consumable.assert_called_once_with("pet_001", "premium_treat")
         mock_pet_engine.spend_tokens.assert_called_once_with(1)
         mock_pet_engine.use_consumable.assert_called_once_with("pet_001", "premium_treat")
 
@@ -100,12 +102,14 @@ class TestUseItem:
                 cost=1, effect={"hunger": 0.4},
             )
         }
+        mock_pet_engine.can_use_consumable.return_value = True
         mock_pet_engine.spend_tokens.return_value = False
         resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "premium_treat"})
         assert resp.status_code == 400
         assert "tokens" in resp.json()["detail"].lower()
 
     def test_use_item_species_mismatch(self, client, mock_pet_engine):
+        """Species mismatch is caught before tokens are spent."""
         from onemancompany.core.pet_models import ConsumableType
         mock_pet_engine._consumable_types = {
             "catnip_toy": ConsumableType(
@@ -113,13 +117,12 @@ class TestUseItem:
                 cost=1, effect={"happiness": 0.5}, target_species=["cat"],
             )
         }
-        mock_pet_engine.spend_tokens.return_value = True
-        mock_pet_engine.use_consumable.return_value = False  # species mismatch
-        with patch("onemancompany.core.store.load_pet_wallet", return_value={"tokens": 5, "projects_counted": 15, "tokens_spent": 1}), \
-             patch("onemancompany.core.store.save_pet_wallet"):
-            resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "catnip_toy"})
+        mock_pet_engine.can_use_consumable.return_value = False  # species mismatch
+        resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "catnip_toy"})
         assert resp.status_code == 400
         assert "compatible" in resp.json()["detail"].lower()
+        # Tokens should never have been spent
+        mock_pet_engine.spend_tokens.assert_not_called()
 
 
 class TestTranslate:

@@ -39,7 +39,7 @@ class PetRenderer {
     this.pets = [];
     this.facilities = [];
     this.species = {};
-    this._consumables = {};  // consumable type definitions
+    this.consumables = {};  // consumable type definitions
     this._lerpState = {};   // pet_id → {x, y}
     this._animFrames = {};  // pet_id → frame counter
     this._enabled = false;
@@ -62,7 +62,7 @@ class PetRenderer {
     this.pets         = data.pets         || [];
     this.facilities   = data.facilities   || [];
     this.species      = data.species      || {};
-    this._consumables = data.consumables  || {};
+    this.consumables = data.consumables  || {};
     this.tokens       = data.tokens       ?? null;
 
     // Track current pet IDs

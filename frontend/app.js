@@ -7822,7 +7822,7 @@ class AppController {
     // Consumable items shop (only for owned pets)
     let shopHtml = '';
     if (!isStray) {
-      const consumables = window.petRenderer?._consumables || {};
+      const consumables = window.petRenderer?.consumables || {};
       const items = Object.values(consumables);
       if (items.length > 0) {
         const itemButtons = items
