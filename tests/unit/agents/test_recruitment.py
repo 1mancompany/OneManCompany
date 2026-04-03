@@ -300,7 +300,7 @@ class TestStartStopTalentMarket:
         from onemancompany.agents import recruitment
 
         monkeypatch.setattr(
-            "onemancompany.core.config.load_app_config",
+            recruitment, "load_app_config",
             lambda: {"talent_market": {"url": "http://test", "api_key": ""}},
         )
         # Reset singleton state
