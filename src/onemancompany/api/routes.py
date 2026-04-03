@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os as _os
 import re
 import shutil
 import uuid as _uuid
@@ -61,6 +62,9 @@ from onemancompany.core.background_tasks import background_task_manager
 # ---------------------------------------------------------------------------
 # Single-file constants
 # ---------------------------------------------------------------------------
+OFFICE_VIBES_ENABLED = _os.getenv("OFFICE_VIBES", "0") == "1"
+_pet_engine = None  # Set in main.py lifespan if OFFICE_VIBES enabled
+
 ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", "completed"]
 
 ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -417,6 +421,7 @@ async def get_bootstrap() -> dict:
         "version": app_version,
         "office_layout": company_state.office_layout,
         "company_tokens": overhead.get("company_tokens", 0),
+        "office_vibes": OFFICE_VIBES_ENABLED,
     }
 
 
@@ -6562,3 +6567,114 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
             )
         except Exception:
             logger.exception("[conversation] failed to send error message for {}", conv_id)
+
+
+# ---------------------------------------------------------------------------
+# Pet system endpoints (gated on OFFICE_VIBES)
+# ---------------------------------------------------------------------------
+
+def _pet_gate():
+    """Return JSONResponse 404 if pet system is disabled, else None."""
+    if not OFFICE_VIBES_ENABLED or _pet_engine is None:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"detail": "Pet system not enabled"})
+    return None
+
+
+@router.get("/api/pets")
+async def get_pets():
+    gate = _pet_gate()
+    if gate:
+        return gate
+    return _pet_engine.get_all_state()
+
+
+@router.post("/api/pets/{pet_id}/adopt")
+async def adopt_pet(pet_id: str):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    from onemancompany.core.config import CEO_ID, DirtyCategory
+    ok = _pet_engine.adopt_pet(pet_id, CEO_ID)
+    if not ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": "Cannot adopt this pet"})
+    from onemancompany.core.store import save_pet_sync, mark_dirty
+    pet = _pet_engine.pets[pet_id]
+    save_pet_sync(pet_id, pet.to_dict())
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
+
+
+@router.post("/api/pets/{pet_id}/interact")
+async def interact_pet(pet_id: str, body: dict):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    action = body.get("action", "")
+    ok = _pet_engine.interact_pet(pet_id, action)
+    if not ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": "Invalid interaction"})
+    from onemancompany.core.store import mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
+
+
+@router.post("/api/pets/{pet_id}/name")
+async def rename_pet(pet_id: str, body: dict):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    name = body.get("name", "").strip()
+    if not name:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": "Name required"})
+    ok = _pet_engine.rename_pet(pet_id, name)
+    if not ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": "Pet not found"})
+    from onemancompany.core.store import save_pet_sync, mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    save_pet_sync(pet_id, _pet_engine.pets[pet_id].to_dict())
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
+
+
+@router.post("/api/pets/facilities")
+async def add_facility(body: dict):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    from onemancompany.core.pet_models import FacilityInstance
+    import uuid
+    ftype = body.get("type", "")
+    position = body.get("position", [0, 0])
+    facility_id = f"{ftype}_{uuid.uuid4().hex[:6]}"
+    facility = FacilityInstance(
+        id=facility_id, type=ftype, position=position,
+        placed_by=body.get("placed_by", "00001"),
+    )
+    _pet_engine.add_facility(facility)
+    from onemancompany.core.store import save_facility_sync, mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    save_facility_sync(facility_id, facility.model_dump())
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True, "id": facility_id}
+
+
+@router.delete("/api/pets/facilities/{facility_id}")
+async def remove_facility(facility_id: str):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    ok = _pet_engine.remove_facility(facility_id)
+    if not ok:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"detail": "Facility not found"})
+    from onemancompany.core.store import delete_facility_sync, mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    delete_facility_sync(facility_id)
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
