@@ -363,6 +363,13 @@ class PetRenderer {
     this._animFrames = {};  // pet_id → frame counter
     this._spriteCache = new Map();  // pet_id → offscreen canvas
     this._enabled = false;
+
+    // Layered sprite composer (PNG layers + palette tinting)
+    this._composer = null;
+    if (window.PetSpriteComposer) {
+      this._composer = new PetSpriteComposer();
+      this._composer.init().catch(e => console.debug('[pets] SpriteComposer init failed:', e));
+    }
   }
 
   // ── Gate ──────────────────────────────────────────────────────────────────
@@ -402,6 +409,7 @@ class PetRenderer {
         delete this._lerpState[id];
         delete this._animFrames[id];
         this._spriteCache.delete(id);
+        if (this._composer) this._composer.clearPet(id);
       }
     }
   }
@@ -495,7 +503,33 @@ class PetRenderer {
     const cy = py + TILE / 2;
     const radius = TILE * 0.35;
 
-    // ── Body: procedural sprite or fallback circle ──
+    // ── Try layered sprite composition first ──
+    if (this._composer?.isReady() && pet.appearance) {
+      const composed = this._composer.getSprite(pet, animFrame);
+      if (composed) {
+        const savedSmoothing = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(composed, px, py, TILE, TILE);
+        ctx.imageSmoothingEnabled = savedSmoothing;
+
+        // Draw overlays and return early (skip procedural fallback)
+        this._drawStateOverlay(ctx, pet.state, cx, cy, radius, animFrame);
+
+        const isOwned = !!pet.owner;
+        ctx.fillStyle = isOwned ? '#44dd44' : '#ff8844';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(pet.name || '???', cx, py + TILE - 2);
+
+        if (pet.current_speech) {
+          this._drawSpeechBubble(ctx, pet.current_speech, cx, cy - radius - 4, animFrame);
+        }
+        return;
+      }
+    }
+
+    // ── Fallback: procedural sprite or colored circle ──
     const sprite = this._getSprite(pet);
     if (sprite) {
       // Center the 24×24 sprite within the 32×32 tile, draw with pixelated scaling
