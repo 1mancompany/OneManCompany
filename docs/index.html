@@ -1068,25 +1068,34 @@ document.querySelectorAll('.btn-secondary, .link-card, nav .links a').forEach(el
   el.addEventListener('click', SFX.click);
 });
 
-// ── Chiptune Background Music Engine ─────────────────────────
+// ── Ambient Background Music Engine ──────────────────────────
+// Designed to harmonize with one-man-company.com's BGM (A minor, 120 BPM).
+// This runs at 60 BPM (half-time) in A minor — sine pads + gentle arpeggio.
+// Together: main site provides rhythm/energy, this provides warmth/harmony.
+// Standalone: chill ambient chiptune, peaceful and complete on its own.
 const BGM = (() => {
   let ctx, playing = false, nodes = [];
 
-  // Pentatonic lo-fi chiptune loop
-  // Two layers: bass arpeggio + melody
-  const BPM = 90;
-  const beat = 60 / BPM;
+  // Half-time of main site (120 BPM) — creates dreamy interlock
+  const BPM = 60;
+  const beat = 60 / BPM; // 1 second per beat
 
-  // C minor pentatonic vibes
-  const bassLine = [
-    131, 131, 156, 156, 175, 175, 156, 156,  // C3 Eb3 F3 Eb3
-    131, 131, 175, 175, 208, 208, 175, 175,  // C3 F3 Ab3 F3
+  // A minor — same key as main site for perfect harmony
+  // Pad chords: Am(A-C-E) → C(C-E-G) → Dm(D-F-A) → Em(E-G-B)
+  const padChords = [
+    [110, 130.81, 164.81],  // Am: A2, C3, E3
+    [130.81, 164.81, 196],  // C:  C3, E3, G3
+    [146.83, 174.61, 220],  // Dm: D3, F3, A3
+    [164.81, 196, 246.94],  // Em: E3, G3, B3
   ];
-  const melody = [
-    523, 0, 622, 0, 523, 466, 0, 0,
-    698, 0, 622, 0, 523, 0, 466, 0,
-    523, 0, 698, 0, 831, 698, 0, 0,
-    622, 0, 523, 0, 466, 0, 523, 0,
+
+  // Gentle arpeggio — high register, sparse (lots of rests)
+  // A minor pentatonic: A, C, D, E, G in octave 4-5
+  const arpNotes = [
+    440, 0, 0, 0, 523.25, 0, 0, 0,   // A4 ... C5 ...
+    587.33, 0, 659.25, 0, 0, 0, 0, 0, // D5 . E5 . ...
+    783.99, 0, 0, 0, 659.25, 0, 0, 0, // G5 ... E5 ...
+    523.25, 0, 440, 0, 0, 0, 0, 0,    // C5 . A4 . ...
   ];
 
   function start() {
@@ -1094,68 +1103,97 @@ const BGM = (() => {
     playing = true;
     ctx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // Master volume
+    // Master volume — slightly quieter than main site so it sits underneath
     const master = ctx.createGain();
-    master.gain.value = 0.07;
+    master.gain.value = 0.06;
     master.connect(ctx.destination);
 
-    // Bass layer — triangle wave
-    const bassGain = ctx.createGain();
-    bassGain.gain.value = 0.6;
-    bassGain.connect(master);
+    // Pad layer — sine waves for warmth
+    const padGain = ctx.createGain();
+    padGain.gain.value = 0.5;
+    // Low-pass filter for dreamy quality
+    const padFilter = ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.value = 1200;
+    padGain.connect(padFilter);
+    padFilter.connect(master);
 
-    // Melody layer — square wave with slight detuning
-    const melGain = ctx.createGain();
-    melGain.gain.value = 0.3;
-    melGain.connect(master);
+    // Arpeggio layer — soft triangle wave
+    const arpGain = ctx.createGain();
+    arpGain.gain.value = 0.25;
+    const arpFilter = ctx.createBiquadFilter();
+    arpFilter.type = 'lowpass';
+    arpFilter.frequency.value = 3000;
+    arpGain.connect(arpFilter);
+    arpFilter.connect(master);
 
-    // Simple low-pass for warmth
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 2000;
-    melGain.connect(filter);
-    filter.connect(master);
+    // Sub bass layer — very low sine for body
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.4;
+    subGain.connect(master);
 
-    const loopDuration = bassLine.length * beat * 0.5;
+    // Each chord lasts 4 beats, full loop = 16 beats
+    const chordDuration = beat * 4;
+    const loopDuration = padChords.length * chordDuration;
 
     function scheduleLoop(startTime) {
-      // Bass
-      bassLine.forEach((freq, i) => {
+      // Pad chords — long sustained sine tones
+      padChords.forEach((chord, ci) => {
+        const t = startTime + ci * chordDuration;
+        chord.forEach(freq => {
+          const osc = ctx.createOscillator();
+          const env = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          // Slow attack, long sustain, gentle release
+          env.gain.setValueAtTime(0, t);
+          env.gain.linearRampToValueAtTime(0.4, t + 0.3);
+          env.gain.setValueAtTime(0.4, t + chordDuration - 0.4);
+          env.gain.linearRampToValueAtTime(0, t + chordDuration);
+          osc.connect(env);
+          env.connect(padGain);
+          osc.start(t);
+          osc.stop(t + chordDuration + 0.05);
+          nodes.push(osc);
+        });
+
+        // Sub bass — root note one octave lower
+        const subOsc = ctx.createOscillator();
+        const subEnv = ctx.createGain();
+        subOsc.type = 'sine';
+        subOsc.frequency.value = chord[0] / 2; // one octave down
+        subEnv.gain.setValueAtTime(0, t);
+        subEnv.gain.linearRampToValueAtTime(0.3, t + 0.2);
+        subEnv.gain.setValueAtTime(0.3, t + chordDuration - 0.3);
+        subEnv.gain.linearRampToValueAtTime(0, t + chordDuration);
+        subOsc.connect(subEnv);
+        subEnv.connect(subGain);
+        subOsc.start(t);
+        subOsc.stop(t + chordDuration + 0.05);
+        nodes.push(subOsc);
+      });
+
+      // Arpeggio — gentle triangle notes on 8th-note grid
+      arpNotes.forEach((freq, i) => {
         if (freq === 0) return;
         const t = startTime + i * beat * 0.5;
         const osc = ctx.createOscillator();
         const env = ctx.createGain();
         osc.type = 'triangle';
         osc.frequency.value = freq;
-        env.gain.setValueAtTime(0.5, t);
-        env.gain.exponentialRampToValueAtTime(0.01, t + beat * 0.45);
+        osc.detune.value = Math.random() * 4 - 2; // subtle drift
+        // Short pluck envelope
+        env.gain.setValueAtTime(0.3, t);
+        env.gain.exponentialRampToValueAtTime(0.01, t + beat * 0.4);
         osc.connect(env);
-        env.connect(bassGain);
+        env.connect(arpGain);
         osc.start(t);
         osc.stop(t + beat * 0.5);
         nodes.push(osc);
       });
-
-      // Melody
-      melody.forEach((freq, i) => {
-        if (freq === 0) return;
-        const t = startTime + i * beat * 0.25;
-        const osc = ctx.createOscillator();
-        const env = ctx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = freq;
-        osc.detune.value = Math.random() * 6 - 3; // slight drift
-        env.gain.setValueAtTime(0.3, t);
-        env.gain.exponentialRampToValueAtTime(0.01, t + beat * 0.2);
-        osc.connect(env);
-        env.connect(melGain);
-        osc.start(t);
-        osc.stop(t + beat * 0.25);
-        nodes.push(osc);
-      });
     }
 
-    // Schedule loops ahead
+    // Schedule first loop
     let nextLoop = ctx.currentTime + 0.1;
     scheduleLoop(nextLoop);
 
@@ -1164,7 +1202,7 @@ const BGM = (() => {
       if (!playing) { clearInterval(interval); return; }
       nextLoop += loopDuration;
       scheduleLoop(nextLoop);
-    }, loopDuration * 900); // schedule slightly early
+    }, loopDuration * 900);
 
     nodes.push({ stop() { clearInterval(interval); } });
   }
