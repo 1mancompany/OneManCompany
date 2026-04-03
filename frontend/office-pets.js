@@ -68,7 +68,7 @@ class PetRenderer {
     // Initialize lerp state for new pets
     for (const pet of this.pets) {
       if (!this._lerpState[pet.id]) {
-        this._lerpState[pet.id] = { x: pet.x, y: pet.y };
+        this._lerpState[pet.id] = { x: pet.position[0], y: pet.position[1] };
         this._animFrames[pet.id] = 0;
       }
     }
@@ -96,8 +96,8 @@ class PetRenderer {
       if (!ls) continue;
 
       // Lerp toward server position
-      ls.x += (pet.x - ls.x) * PET_LERP_FACTOR;
-      ls.y += (pet.y - ls.y) * PET_LERP_FACTOR;
+      ls.x += (pet.position[0] - ls.x) * PET_LERP_FACTOR;
+      ls.y += (pet.position[1] - ls.y) * PET_LERP_FACTOR;
 
       // Increment animation frame
       this._animFrames[pet.id] = (this._animFrames[pet.id] || 0) + 1;
@@ -170,7 +170,7 @@ class PetRenderer {
     this._drawStateOverlay(ctx, pet.state, cx, cy, radius, animFrame);
 
     // ── Name tag below pet ──
-    const isOwned = !!pet.owner_id;
+    const isOwned = !!pet.owner;
     ctx.fillStyle = isOwned ? '#44dd44' : '#ff8844';
     ctx.font = '8px monospace';
     ctx.textAlign = 'center';
@@ -234,8 +234,8 @@ class PetRenderer {
     if (!this._enabled) return;
 
     for (const fac of this.facilities) {
-      const px = fac.x * TILE;
-      const py = (fac.y + WALL_ROWS) * TILE;
+      const px = fac.position[0] * TILE;
+      const py = (fac.position[1] + WALL_ROWS) * TILE;
       const size = TILE * 0.7;
       const offset = (TILE - size) / 2;
 
@@ -297,7 +297,7 @@ class PetRenderer {
     const speciesInfo = this.species[pet.species] || {};
     const speciesName = speciesInfo.name || pet.species || '???';
     const stateLabel  = pet.state || 'idle';
-    const strayTag    = pet.owner_id ? '' : ' [流浪]';
+    const strayTag    = pet.owner ? '' : ' [流浪]';
     return `${pet.name} (${speciesName}) \u2014 ${stateLabel}${strayTag}`;
   }
 }

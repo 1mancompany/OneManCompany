@@ -605,6 +605,7 @@ async def lifespan(app: FastAPI):
     sync_tick_task = asyncio.create_task(start_sync_tick())
 
     # Start pet engine if OFFICE_VIBES enabled
+    _pet_tick_task = None
     if os.getenv("OFFICE_VIBES", "0") == "1":
         from onemancompany.core.store import (
             load_pet_species, load_all_pets_sync, load_pet_facility_types, load_facilities_sync,
@@ -723,8 +724,12 @@ async def lifespan(app: FastAPI):
     broadcaster_task.cancel()
     code_watcher_task.cancel()
     sync_tick_task.cancel()
+    _bg_tasks = [broadcaster_task, watcher_task, code_watcher_task, sync_tick_task]
+    if _pet_tick_task is not None:
+        _pet_tick_task.cancel()
+        _bg_tasks.append(_pet_tick_task)
     try:
-        await asyncio.gather(broadcaster_task, watcher_task, code_watcher_task, sync_tick_task, return_exceptions=True)
+        await asyncio.gather(*_bg_tasks, return_exceptions=True)
     except asyncio.CancelledError:
         print("[shutdown] Background tasks cancelled")
 

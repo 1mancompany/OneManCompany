@@ -62,6 +62,18 @@ class PetEngine:
                 logger.debug("Non-numeric pet ID suffix, skipping: {}", pid)
         self._next_pet_id = max_id + 1
 
+    @property
+    def pets(self) -> dict[str, PetInstance]:
+        return self._pets
+
+    @property
+    def dirty_pets(self) -> set[str]:
+        return self._dirty_pets
+
+    @property
+    def deleted_pets(self) -> set[str]:
+        return self._deleted_pets
+
     # ------------------------------------------------------------------
     # Main tick
     # ------------------------------------------------------------------
@@ -75,6 +87,9 @@ class PetEngine:
             if not sp:
                 logger.warning("Pet {} has unknown species '{}'", pet_id, pet.species)
                 continue
+
+            old_state = pet.state
+            old_pos = list(pet.position)
 
             # 1. Decay needs
             self._decay_needs(pet, sp)
@@ -95,8 +110,9 @@ class PetEngine:
                 # IDLE — decide what to do
                 self._decide_behavior(pet, sp)
 
-            self._dirty_pets.add(pet_id)
-            changed = True
+            if pet.state != old_state or pet.position != old_pos:
+                self._dirty_pets.add(pet_id)
+                changed = True
 
         # 3. Stray lifecycle
         if self._try_spawn_stray():
@@ -253,20 +269,21 @@ class PetEngine:
         self._next_pet_id += 1
 
         x = float(random.randint(0, self._office_cols - 1))
+        y = 0.0 if random.random() < 0.5 else float(self._office_rows - 1)
         now = datetime.now(timezone.utc).isoformat()
 
         pet = PetInstance(
             id=pet_id,
             species=species_id,
             owner=None,
-            position=[x, 0.0],
+            position=[x, y],
             state=PetState.IDLE,
             needs={name: 1.0 for name in self._species[species_id].needs},
             spawned_at=now,
         )
         self._pets[pet_id] = pet
         self._dirty_pets.add(pet_id)
-        logger.info("Stray {} ({}) spawned at ({}, 0)", pet_id, species_id, x)
+        logger.info("Stray {} ({}) spawned at ({}, {})", pet_id, species_id, x, y)
         return True
 
     def _expire_strays(self) -> bool:
@@ -381,10 +398,8 @@ class PetEngine:
     def get_all_state(self) -> dict:
         """Return full pet state for frontend sync."""
         return {
-            "pets": {pid: pet.to_dict() for pid, pet in self._pets.items()},
-            "facilities": {
-                fid: fac.model_dump() for fid, fac in self._facilities.items()
-            },
+            "pets": [pet.to_dict() for pet in self._pets.values()],
+            "facilities": [fac.model_dump() for fac in self._facilities.values()],
             "species": {
                 sid: sp.model_dump() for sid, sp in self._species.items()
             },
