@@ -652,6 +652,8 @@ async def lifespan(app: FastAPI):
                             for _pid in _pet_engine.deleted_pets:
                                 delete_pet_sync(_pid)
                             mark_dirty(DirtyCategory.PETS)
+                            _pet_engine.dirty_pets.clear()
+                            _pet_engine.deleted_pets.clear()
                     except Exception as _e:
                         logger.error("Pet tick error: {}", _e)
             except asyncio.CancelledError:
