@@ -15,3 +15,4 @@ tools:
 talent_market:
   url: "https://api.one-man-company.com/mcp/sse" # Centralized Talent Market endpoint
   api_key: "" # Set your API key in Settings or here
+  use_ai_search: false # Use AI-powered search for better candidate matching
