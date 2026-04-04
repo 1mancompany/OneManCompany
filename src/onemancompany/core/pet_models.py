@@ -18,7 +18,8 @@ class PetState(str, Enum):
 
 class AnimationDef(BaseModel):
     """Sprite-sheet animation definition."""
-    row: int
+    file: str = ""       # sprite sheet filename (e.g., "Idle.png")
+    row: int = 0         # legacy, kept for compat
     frames: int
     speed: float
 
@@ -42,7 +43,9 @@ class SpeciesDefinition(BaseModel):
     id: str
     name: str
     size: list[int] = [1, 1]
-    sprite_sheet: str
+    sprite_sheet: str = ""   # legacy, kept for compat
+    sprite_dir: str = ""     # directory name under sprites/street-animals/
+    sprite_size: int = 48    # pixel size per frame
     animations: dict[str, AnimationDef]
     needs: dict[str, NeedConfig]
     behaviors: BehaviorConfig

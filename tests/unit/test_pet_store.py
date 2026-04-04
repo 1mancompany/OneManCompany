@@ -59,10 +59,11 @@ def _write_yaml(path: Path, data: dict) -> None:
 VALID_SPECIES = {
     "id": "cat",
     "name": "Office Cat",
-    "sprite_sheet": "cat.png",
+    "sprite_dir": "3 Cat",
+    "sprite_size": 48,
     "animations": {
-        "idle": {"row": 0, "frames": 4, "speed": 0.2},
-        "walking": {"row": 1, "frames": 6, "speed": 0.15},
+        "idle": {"file": "Idle.png", "frames": 4, "speed": 0.2},
+        "walking": {"file": "Walk.png", "frames": 6, "speed": 0.15},
     },
     "needs": {
         "hunger": {"decay_rate": 0.1, "critical": 0.2},
@@ -73,9 +74,9 @@ VALID_SPECIES = {
 INVALID_SPECIES_NO_IDLE = {
     "id": "broken",
     "name": "Broken Pet",
-    "sprite_sheet": "broken.png",
+    "sprite_dir": "99 Broken",
     "animations": {
-        "walking": {"row": 1, "frames": 6, "speed": 0.15},
+        "walking": {"file": "Walk.png", "frames": 6, "speed": 0.15},
     },
     "needs": {
         "hunger": {"decay_rate": 0.1, "critical": 0.2},

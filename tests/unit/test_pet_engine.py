@@ -39,8 +39,9 @@ def _make_species(
     return SpeciesDefinition(
         id=sid,
         name=sid.title(),
-        sprite_sheet=f"{sid}.png",
-        animations={"idle": AnimationDef(row=0, frames=4, speed=0.2)},
+        sprite_dir=f"1 {sid.title()}",
+        sprite_size=48,
+        animations={"idle": AnimationDef(file="Idle.png", frames=4, speed=0.2)},
         needs=needs or default_needs,
         behaviors=BehaviorConfig(speed=speed, wander_radius=wander_radius, social=social),
     )

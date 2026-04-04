@@ -1,6 +1,6 @@
-id: dog
+id: dog2
 name: Dog
-sprite_dir: "1 Dog"
+sprite_dir: "2 Dog 2"
 sprite_size: 48
 animations:
   idle: {file: Idle.png, frames: 4, speed: 0.12}

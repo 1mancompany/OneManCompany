@@ -1,6 +1,6 @@
-id: cat
+id: cat2
 name: Cat
-sprite_dir: "3 Cat"
+sprite_dir: "4 Cat 2"
 sprite_size: 48
 animations:
   idle: {file: Idle.png, frames: 4, speed: 0.1}

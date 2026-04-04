@@ -1,0 +1,16 @@
+id: bird2
+name: Bird
+sprite_dir: "8 Bird 2"
+sprite_size: 32
+animations:
+  idle: {file: Idle.png, frames: 4, speed: 0.1}
+  walk: {file: Walk.png, frames: 4, speed: 0.15}
+needs:
+  hunger: {decay_rate: 0.02, critical: 0.2}
+  happiness: {decay_rate: 0.012, critical: 0.3}
+  energy: {decay_rate: 0.01, critical: 0.2}
+behaviors:
+  wander_radius: 12
+  favorite_spots: [window]
+  social: 0.4
+  speed: 0.6

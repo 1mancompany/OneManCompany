@@ -30,10 +30,17 @@ class TestPetState:
 class TestAnimationDef:
     def test_basic_creation(self):
         from onemancompany.core.pet_models import AnimationDef
-        anim = AnimationDef(row=0, frames=4, speed=0.2)
-        assert anim.row == 0
+        anim = AnimationDef(file="Idle.png", frames=4, speed=0.2)
+        assert anim.file == "Idle.png"
+        assert anim.row == 0  # default
         assert anim.frames == 4
         assert anim.speed == 0.2
+
+    def test_legacy_row_field(self):
+        from onemancompany.core.pet_models import AnimationDef
+        anim = AnimationDef(row=2, frames=4, speed=0.2)
+        assert anim.row == 2
+        assert anim.file == ""
 
     def test_missing_field_raises(self):
         from onemancompany.core.pet_models import AnimationDef
@@ -88,10 +95,11 @@ class TestSpeciesDefinition:
         return dict(
             id="cat",
             name="Office Cat",
-            sprite_sheet="cat.png",
+            sprite_dir="3 Cat",
+            sprite_size=48,
             animations={
-                "idle": AnimationDef(row=0, frames=4, speed=0.2),
-                "walking": AnimationDef(row=1, frames=6, speed=0.15),
+                "idle": AnimationDef(file="Idle.png", frames=4, speed=0.2),
+                "walking": AnimationDef(file="Walk.png", frames=6, speed=0.15),
             },
             needs={"hunger": NeedConfig(decay_rate=0.01, critical=0.2)},
             behaviors=BehaviorConfig(),
@@ -106,7 +114,7 @@ class TestSpeciesDefinition:
     def test_missing_idle_animation_raises(self):
         from onemancompany.core.pet_models import SpeciesDefinition, AnimationDef
         kwargs = self._make_valid_kwargs()
-        kwargs["animations"] = {"walking": AnimationDef(row=1, frames=6, speed=0.15)}
+        kwargs["animations"] = {"walking": AnimationDef(file="Walk.png", frames=6, speed=0.15)}
         with pytest.raises(ValidationError, match="idle"):
             SpeciesDefinition(**kwargs)
 
