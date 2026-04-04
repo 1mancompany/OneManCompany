@@ -113,6 +113,9 @@ class AppController {
         } catch (e) {
           console.debug('[pets] Failed to load pet state:', e);
         }
+        // Show pet panel button
+        const petBtn = document.getElementById('pet-panel-btn');
+        if (petBtn) petBtn.style.display = 'block';
       }
       // Show version
       if (version) {
@@ -7789,83 +7792,158 @@ class AppController {
     }
   }
 
-  async openPetDetail(pet) {
-    const isStray = !pet.owner;
-    const actions = isStray
-      ? `<button onclick="app._petAction('${pet.id}', 'adopt')">Adopt</button>`
-      : `<button onclick="app._petAction('${pet.id}', 'pet')">Pet</button>
-         <button onclick="app._petAction('${pet.id}', 'feed')">Feed</button>
-         <button onclick="app._petRename('${pet.id}')">Rename</button>`;
-    const sp = window.petRenderer?.species[pet.species];
-    const speciesName = sp ? sp.name : pet.species;
-    const name = pet.name || '???';
-    // Fetch token balance
-    let tokenHtml = '';
-    try {
-      const tokenResp = await fetch('/api/pets/tokens');
-      if (tokenResp.ok) {
-        const tokenData = await tokenResp.json();
-        tokenHtml = `<div style="margin:8px 0;font-size:12px;color:#ffcc44;">Pet Tokens: ${tokenData.tokens} (next at ${tokenData.next_token_at} projects)</div>`;
-      }
-    } catch (_e) { /* ignore */ }
+  // ===== Pet Panel =====
+  togglePetPanel() {
+    const panel = document.getElementById('pet-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+      this._refreshPetPanel();
+    }
+  }
 
-    // Speech bubble section
-    let speechHtml = '';
-    if (pet.current_speech) {
-      speechHtml = `
-        <div style="margin:8px 0;padding:8px;background:#2a2a3e;border-radius:6px;border:1px solid #555;">
-          <div style="font-size:13px;color:#eee;font-style:italic;">"${pet.current_speech}"</div>
-          <button onclick="app._translatePetSpeech('${pet.id}')" style="margin-top:6px;font-size:11px;padding:2px 8px;">Ask EA to translate</button>
+  switchPetTab(tabName) {
+    document.querySelectorAll('.pet-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabName));
+    document.querySelectorAll('.pet-tab-content').forEach(c => c.classList.toggle('active', c.id === `pet-tab-${tabName}`));
+  }
+
+  async _refreshPetPanel() {
+    const data = await fetch('/api/pets').then(r => r.json()).catch(() => null);
+    if (!data) return;
+
+    this._renderPetsTab(data);
+    this._renderShopTab(data);
+    this._renderFacilitiesTab(data);
+  }
+
+  _renderPetsTab(data) {
+    const container = document.getElementById('pet-tab-pets');
+    const pets = data.pets || [];
+
+    let html = '';
+    for (const pet of pets) {
+      const sp = data.species?.[pet.species];
+      const isStray = !pet.owner;
+      const needsHtml = Object.entries(pet.needs || {}).map(([k, v]) => {
+        const pct = Math.round(v * 100);
+        const color = k === 'hunger' ? '#ff9944' : k === 'happiness' ? '#ff66aa' : '#44aaff';
+        return `<div class="pet-need-bar"><span style="width:50px">${k}</span><div class="pet-need-bg"><div class="pet-need-fill" style="width:${pct}%;background:${color}"></div></div><span>${pct}%</span></div>`;
+      }).join('');
+
+      const sadWarning = (pet.sad_ticks && pet.sad_ticks > 0)
+        ? `<div class="sad-warning">⚠ ${pet.name || '???'} is unhappy and may leave!</div>` : '';
+
+      const actions = isStray
+        ? `<button onclick="app._petAdopt('${pet.id}')">Adopt</button>`
+        : `<button onclick="app._petAction('${pet.id}','pet')">Pet</button>
+           <button onclick="app._petAction('${pet.id}','feed')">Feed</button>
+           <button onclick="app._petRename('${pet.id}')">Rename</button>
+           <button onclick="app._petRelease('${pet.id}')" style="color:#ff6666;border-color:#ff6666">Release</button>`;
+
+      // Speech
+      const speechHtml = pet.current_speech
+        ? `<div style="font-size:6px;color:#ddd;background:#2a2a4e;padding:2px 6px;border-radius:3px;margin-top:3px">"${pet.current_speech}" <button onclick="app._translatePetSpeech('${pet.id}')" style="font-size:6px;background:none;border:none;color:var(--pixel-green);cursor:pointer;text-decoration:underline;font-family:inherit">translate</button></div>`
+        : '';
+
+      html += `
+        <div class="pet-card-item">
+          <div class="pet-card-info">
+            <div class="name">${pet.name || '???'} ${isStray ? '<span class="stray">[Stray]</span>' : ''}</div>
+            <div class="species">${sp?.name || pet.species}</div>
+            <div class="pet-card-needs">${needsHtml}</div>
+            ${sadWarning}
+            ${speechHtml}
+            <div class="pet-card-actions">${actions}</div>
+          </div>
         </div>`;
     }
 
-    // Consumable items shop (only for owned pets)
-    let shopHtml = '';
-    if (!isStray) {
-      const consumables = window.petRenderer?.consumables || {};
-      const items = Object.values(consumables);
-      if (items.length > 0) {
-        const itemButtons = items
-          .filter(c => c.target_species === 'all' || (Array.isArray(c.target_species) && c.target_species.includes(pet.species)))
-          .map(c => `<button onclick="app._useItem('${pet.id}', '${c.id}')" style="margin:2px;font-size:11px;padding:3px 8px;" title="${c.name}">${c.icon} ${c.name} (${c.cost})</button>`)
-          .join('');
-        if (itemButtons) {
-          shopHtml = `
-            <div style="margin:10px 0;padding:8px;background:#1e1e30;border-radius:6px;border:1px solid #444;">
-              <div style="font-size:11px;color:#aaa;margin-bottom:4px;">Items Shop:</div>
-              <div style="display:flex;flex-wrap:wrap;gap:2px;justify-content:center;">${itemButtons}</div>
-            </div>`;
+    if (pets.length === 0) {
+      html = '<div style="color:#666;font-size:7px;text-align:center;padding:20px">No pets yet. They will appear on their own...</div>';
+    }
+
+    container.innerHTML = html;
+  }
+
+  _renderShopTab(data) {
+    const container = document.getElementById('pet-tab-shop');
+    const tokens = data.tokens || 0;
+    const consumables = data.consumables || {};
+
+    let html = `<div class="pet-token-bar"><span>Pet Tokens</span><span class="balance">${tokens}</span></div>`;
+
+    // Consumables
+    html += '<div style="font-size:7px;color:#888;margin:6px 0">Consumables (use once)</div>';
+    for (const [id, item] of Object.entries(consumables)) {
+      html += `<div class="shop-item">
+        <span class="icon">${item.icon || '?'}</span>
+        <div class="info"><div class="name">${item.name}</div><div class="desc">${Object.entries(item.effect||{}).map(([k,v])=>`${k} ${v>0?'+':''}${Math.round(v*100)}%`).join(', ')}</div></div>
+        <span class="cost">${item.cost}</span>
+        <button onclick="app._buyConsumable('${id}')">Use</button>
+      </div>`;
+    }
+
+    container.innerHTML = html;
+  }
+
+  _renderFacilitiesTab(data) {
+    const container = document.getElementById('pet-tab-facilities');
+    const facilities = data.facilities || [];
+
+    let html = '<div style="font-size:7px;color:#888;margin-bottom:6px">Placed Facilities</div>';
+
+    if (facilities.length === 0) {
+      html += '<div style="color:#555;font-size:7px;text-align:center;padding:12px">No facilities placed yet</div>';
+    }
+    for (const f of facilities) {
+      const icon = f.type === 'food_bowl' ? '&#127830;' : f.type === 'pet_bed' ? '&#128716;' : '&#9918;';
+      html += `<div class="shop-item">
+        <span class="icon">${icon}</span>
+        <div class="info"><div class="name">${f.type.replace('_',' ')}</div></div>
+        <button onclick="app._removeFacility('${f.id}')" style="color:#ff6666;border-color:#ff6666">Remove</button>
+      </div>`;
+    }
+
+    // Place new
+    html += '<div style="font-size:7px;color:#888;margin:8px 0">Place New</div>';
+    for (const [type, icon, cost] of [['food_bowl','&#127830;',1],['pet_bed','&#128716;',2],['toy_ball','&#9918;',1]]) {
+      html += `<div class="shop-item">
+        <span class="icon">${icon}</span>
+        <div class="info"><div class="name">${type.replace('_',' ')}</div></div>
+        <span class="cost">${cost}</span>
+        <button onclick="app._placeFacility('${type}')">Place</button>
+      </div>`;
+    }
+
+    container.innerHTML = html;
+  }
+
+  // Pet actions
+  async _petAdopt(petId) {
+    const resp = await fetch(`/api/pets/${petId}/adopt`, {method:'POST'});
+    const data = await resp.json();
+    if (data.error === 'max_pets') {
+      const names = (data.pets||[]).map(p => p.name || p.id).join(', ');
+      const releaseId = prompt(`Max pets reached. Release one first.\nCurrent: ${names}\nEnter pet name to release:`);
+      if (releaseId) {
+        const pet = (data.pets||[]).find(p => (p.name||p.id) === releaseId);
+        if (pet) {
+          await fetch(`/api/pets/${pet.id}/release`, {method:'POST'});
+          await fetch(`/api/pets/${petId}/adopt`, {method:'POST'});
         }
       }
     }
-
-    const html = `
-      <div style="text-align:center;padding:16px;">
-        <h3 style="color:#eee;margin:0 0 8px;">${name} (${speciesName})${isStray ? ' <span style="color:#ffaa00">[Stray]</span>' : ''}</h3>
-        ${tokenHtml}
-        <div style="margin:12px 0;font-size:13px;color:#aaa;">
-          Hunger: ${Math.round((pet.needs?.hunger || 0) * 100)}% &nbsp;
-          Happiness: ${Math.round((pet.needs?.happiness || 0) * 100)}% &nbsp;
-          Energy: ${Math.round((pet.needs?.energy || 0) * 100)}%
-        </div>
-        ${speechHtml}
-        ${shopHtml}
-        <div style="margin-top:12px;">${actions}</div>
-      </div>`;
-    this._showPetModal(html);
+    this._refreshPetPanel();
+    const d = await fetch('/api/pets').then(r=>r.json());
+    window.petRenderer?.updateState(d);
   }
 
   async _petAction(petId, action) {
-    if (action === 'adopt') {
-      await fetch(`/api/pets/${petId}/adopt`, { method: 'POST' });
-    } else {
-      await fetch(`/api/pets/${petId}/interact`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
-      });
-    }
-    this._closePetModal();
+    await fetch(`/api/pets/${petId}/interact`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    });
+    this._refreshPetPanel();
     const d = await fetch('/api/pets').then(r => r.json());
     window.petRenderer?.updateState(d);
   }
@@ -7878,30 +7956,55 @@ class AppController {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
-    this._closePetModal();
+    this._refreshPetPanel();
     const d = await fetch('/api/pets').then(r => r.json());
     window.petRenderer?.updateState(d);
   }
 
-  async _useItem(petId, itemId) {
-    try {
-      const resp = await fetch(`/api/pets/${petId}/use-item`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        this._showToast(data.detail || 'Failed to use item', 'error');
-        return;
-      }
-      this._showToast('Item used!', 'success');
-      this._closePetModal();
-      const d = await fetch('/api/pets').then(r => r.json());
-      window.petRenderer?.updateState(d);
-    } catch (err) {
-      this._showToast('Error using item', 'error');
-    }
+  async _petRelease(petId) {
+    if (!confirm('Release this pet? They will leave the office.')) return;
+    await fetch(`/api/pets/${petId}/release`, {method:'POST'});
+    this._refreshPetPanel();
+    const d = await fetch('/api/pets').then(r=>r.json());
+    window.petRenderer?.updateState(d);
+  }
+
+  async _buyConsumable(itemId) {
+    const petsData = await fetch('/api/pets').then(r=>r.json());
+    const owned = (petsData.pets||[]).filter(p => p.owner);
+    if (owned.length === 0) { alert('No adopted pets to use items on'); return; }
+
+    const petName = owned.length === 1 ? owned[0].name || owned[0].id
+      : prompt(`Use on which pet?\n${owned.map(p => p.name || p.id).join(', ')}`);
+    if (!petName) return;
+
+    const pet = owned.find(p => (p.name||p.id) === petName);
+    if (!pet) { alert('Pet not found'); return; }
+
+    const resp = await fetch(`/api/pets/${pet.id}/use-item`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({item_id: itemId})
+    });
+    const data = await resp.json();
+    if (!data.ok) this._showToast(data.detail || 'Failed', 'error');
+    else this._showToast('Item used!', 'success');
+    this._refreshPetPanel();
+  }
+
+  async _placeFacility(type) {
+    const pos = [Math.floor(3 + Math.random()*14), Math.floor(8 + Math.random()*3)];
+    const resp = await fetch('/api/pets/facilities', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({type, position: pos})
+    });
+    const data = await resp.json();
+    if (!data.ok) this._showToast(data.detail || 'Failed', 'error');
+    this._refreshPetPanel();
+  }
+
+  async _removeFacility(facilityId) {
+    await fetch(`/api/pets/facilities/${facilityId}`, {method:'DELETE'});
+    this._refreshPetPanel();
   }
 
   async _translatePetSpeech(petId) {
@@ -7942,24 +8045,6 @@ class AppController {
       toast.style.opacity = '0';
       setTimeout(() => toast.remove(), 300);
     }, duration);
-  }
-
-  _showPetModal(html) {
-    let modal = document.getElementById('pet-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'pet-modal';
-      modal.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a1a2e;border:1px solid #444;border-radius:8px;z-index:9999;min-width:240px;box-shadow:0 8px 32px rgba(0,0,0,0.6);';
-      document.body.appendChild(modal);
-    }
-    const close = `<button onclick="app._closePetModal()" style="position:absolute;top:4px;right:8px;background:none;border:none;color:#888;cursor:pointer;font-size:16px;">✕</button>`;
-    modal.innerHTML = close + html;
-    modal.style.display = 'block';
-  }
-
-  _closePetModal() {
-    const modal = document.getElementById('pet-modal');
-    if (modal) modal.style.display = 'none';
   }
 }
 

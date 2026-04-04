@@ -279,7 +279,12 @@ class OfficeRenderer {
     if (window.petRenderer?.isEnabled()) {
       const pet = window.petRenderer.hitTest(tx, ty, WALL_ROWS);
       if (pet) {
-        if (window.app?.openPetDetail) window.app.openPetDetail(pet);
+        if (window.app?.togglePetPanel) {
+          const panel = document.getElementById('pet-panel');
+          if (panel?.classList.contains('hidden')) {
+            window.app.togglePetPanel();
+          }
+        }
         return;
       }
     }
