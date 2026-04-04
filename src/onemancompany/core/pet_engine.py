@@ -22,7 +22,14 @@ STRAY_SPAWN_CHANCE = 0.05  # 5% per tick
 STRAY_TIMEOUT_SECONDS = 3600  # 1 hour
 TICK_INTERVAL_SECONDS = 10.0
 SPEECH_EXPIRE_TICKS = 6  # speech bubbles last ~60 seconds
-SPEECH_CHANCE = 0.10  # flat 10% chance per tick (~1 speech per 100s)
+SPEECH_CHANCE = 0.05  # flat 5% chance per tick (~1 speech per 200s)
+
+# Departure mechanic — pets leave if all needs stay at zero too long
+DEPARTURE_THRESHOLD = 0.01  # needs below this count as "zero"
+DEPARTURE_TICKS = 2160      # 6 hours at 10s/tick = 6*60*6 = 2160 ticks
+
+# Stray overflow — allow strays to spawn beyond MAX_PETS (up to +2)
+STRAY_OVERFLOW = 2
 
 # Recovery rate per tick for sleeping/eating/playing
 _RECOVERY_RATE = 0.05
@@ -262,7 +269,25 @@ class PetEngine:
                 self._dirty_pets.add(pet_id)
                 changed = True
 
-        # 4. Stray lifecycle
+        # 4. Departure check — pets leave if all needs at zero too long
+        to_remove = []
+        for pet_id, pet in self._pets.items():
+            all_zero = all(v <= DEPARTURE_THRESHOLD for v in pet.needs.values())
+            if all_zero:
+                pet.sad_ticks += 1
+                if pet.sad_ticks >= DEPARTURE_TICKS:
+                    logger.info("Pet {} ({}) left the office sadly after being neglected", pet.id, pet.species)
+                    to_remove.append(pet_id)
+            else:
+                pet.sad_ticks = 0  # reset if any need recovers
+
+        for pet_id in to_remove:
+            del self._pets[pet_id]
+            self._dirty_pets.discard(pet_id)
+            self._deleted_pets.add(pet_id)
+            changed = True
+
+        # 5. Stray lifecycle
         if self._try_spawn_stray():
             changed = True
         if self._expire_strays():
@@ -288,6 +313,10 @@ class PetEngine:
         """Priority-based behavior selection."""
         needs = pet.needs
         beh = species.behaviors
+
+        # 0. 70% chance to do nothing (pets are lazy)
+        if pet.state == PetState.IDLE and random.random() < 0.7:
+            return  # stay idle, do nothing
 
         # 1. Energy critical -> sleep
         energy_cfg = species.needs.get("energy")
@@ -404,8 +433,12 @@ class PetEngine:
     # ------------------------------------------------------------------
 
     def _try_spawn_stray(self) -> bool:
-        """Attempt to spawn a stray pet at the office edge."""
-        if len(self._pets) >= MAX_PETS:
+        """Attempt to spawn a stray pet at the office edge.
+
+        Strays can spawn even at MAX_PETS (up to MAX_PETS + STRAY_OVERFLOW)
+        so the CEO always has a chance to discover new pets.
+        """
+        if len(self._pets) >= MAX_PETS + STRAY_OVERFLOW:
             return False
         if random.random() >= STRAY_SPAWN_CHANCE:
             return False
@@ -517,6 +550,21 @@ class PetEngine:
         self._dirty_pets.add(pet_id)
         logger.info("Pet {} adopted by {}", pet_id, owner_id)
         return pet
+
+    def release_pet(self, pet_id: str) -> bool:
+        """Release an owned pet (send them away). Returns True on success."""
+        pet = self._pets.get(pet_id)
+        if not pet:
+            logger.warning("release_pet: pet {} not found", pet_id)
+            return False
+        if pet.owner is None:
+            logger.warning("release_pet: pet {} is a stray, cannot release", pet_id)
+            return False
+        del self._pets[pet_id]
+        self._dirty_pets.discard(pet_id)
+        self._deleted_pets.add(pet_id)
+        logger.info("Pet {} ({}) released by owner {}", pet_id, pet.species, pet.owner)
+        return True
 
     def interact_pet(self, pet_id: str, action: str) -> bool:
         """Interact with a pet (pet, feed, play)."""

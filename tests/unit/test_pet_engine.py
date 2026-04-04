@@ -119,8 +119,10 @@ class TestNeedsDecay:
 # ---------------------------------------------------------------------------
 
 class TestBehaviorTree:
-    def test_low_energy_triggers_sleep(self):
+    @patch("onemancompany.core.pet_engine.random")
+    def test_low_energy_triggers_sleep(self, mock_random):
         """Energy below critical -> SLEEPING."""
+        mock_random.random.return_value = 0.99  # bypass 70% lazy check
         pet = _make_pet(needs={"energy": 0.1, "hunger": 1.0, "happiness": 1.0})
         species = _make_species()
         engine = _make_engine(pets={"pet_001": pet}, species={"cat": species})
@@ -129,8 +131,10 @@ class TestBehaviorTree:
 
         assert pet.state == PetState.SLEEPING
 
-    def test_low_hunger_with_food_bowl_triggers_eat(self):
+    @patch("onemancompany.core.pet_engine.random")
+    def test_low_hunger_with_food_bowl_triggers_eat(self, mock_random):
         """Hunger below critical + food_bowl facility -> walk to bowl -> eat."""
+        mock_random.random.return_value = 0.99  # bypass 70% lazy check
         pet = _make_pet(needs={"energy": 1.0, "hunger": 0.1, "happiness": 1.0})
         species = _make_species()
         bowl_type = FacilityType(
@@ -153,8 +157,10 @@ class TestBehaviorTree:
         if pet.state == PetState.WALKING:
             assert pet.target_position is not None
 
-    def test_low_happiness_with_toy_triggers_play(self):
+    @patch("onemancompany.core.pet_engine.random")
+    def test_low_happiness_with_toy_triggers_play(self, mock_random):
         """Happiness below critical + toy_ball -> walk to toy -> play."""
+        mock_random.random.return_value = 0.99  # bypass 70% lazy check
         pet = _make_pet(needs={"energy": 1.0, "hunger": 1.0, "happiness": 0.1})
         species = _make_species()
         toy_type = FacilityType(
@@ -244,9 +250,11 @@ class TestStraySpawn:
         assert pet.position[1] == 0.0  # spawns at top edge
 
     @patch("onemancompany.core.pet_engine.random")
-    def test_no_spawn_at_cap(self, mock_random):
-        """At MAX_PETS -> no spawn regardless of random."""
+    def test_spawn_allowed_at_max_pets(self, mock_random):
+        """At MAX_PETS, strays can still spawn (overflow up to MAX_PETS + STRAY_OVERFLOW)."""
         mock_random.random.return_value = 0.01
+        mock_random.choice.return_value = "cat"
+        mock_random.randint.return_value = 5
         species = _make_species()
         pets = {
             f"pet_{i:03d}": _make_pet(pid=f"pet_{i:03d}")
@@ -256,7 +264,22 @@ class TestStraySpawn:
 
         engine._try_spawn_stray()
 
-        assert len(engine._pets) == 3  # unchanged
+        assert len(engine._pets) == 4  # overflow stray spawned
+
+    @patch("onemancompany.core.pet_engine.random")
+    def test_no_spawn_at_overflow_cap(self, mock_random):
+        """At MAX_PETS + STRAY_OVERFLOW -> no spawn."""
+        mock_random.random.return_value = 0.01
+        species = _make_species()
+        pets = {
+            f"pet_{i:03d}": _make_pet(pid=f"pet_{i:03d}")
+            for i in range(5)  # MAX_PETS(3) + STRAY_OVERFLOW(2)
+        }
+        engine = _make_engine(pets=pets, species={"cat": species})
+
+        engine._try_spawn_stray()
+
+        assert len(engine._pets) == 5  # unchanged
 
 
 # ---------------------------------------------------------------------------
@@ -808,3 +831,109 @@ class TestSpeechTiming:
         engine._expire_speech(pet)
 
         assert pet.current_speech == "Purr mmm~"
+
+
+# ---------------------------------------------------------------------------
+# Departure mechanic
+# ---------------------------------------------------------------------------
+
+class TestDeparture:
+    def test_pet_leaves_after_sustained_zero_needs(self):
+        """Pet departs after sad_ticks reaches DEPARTURE_TICKS."""
+        from onemancompany.core.pet_engine import DEPARTURE_TICKS
+        pet = _make_pet(
+            pid="pet_sad", owner="00001",
+            needs={"hunger": 0.0, "happiness": 0.0, "energy": 0.0},
+        )
+        pet.sad_ticks = DEPARTURE_TICKS - 1
+        engine = _make_engine(pets={"pet_sad": pet})
+
+        with patch("onemancompany.core.pet_engine.load_pet_wallet", return_value={"tokens": 0, "projects_counted": 0, "tokens_spent": 0}), \
+             patch("onemancompany.core.pet_engine.save_pet_wallet"), \
+             patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.return_value = 0.99  # no speech, no lazy skip
+            mock_random.uniform.side_effect = [1.0, 1.0] * 10
+            mock_random.choice.side_effect = lambda x: x[0]
+            mock_random.randint.return_value = 3
+            mock_random.shuffle = lambda x: None
+            mock_random.sample = lambda x, k: x[:k]
+            engine.tick()
+
+        assert "pet_sad" not in engine._pets
+        assert "pet_sad" in engine._deleted_pets
+
+    def test_pet_stays_if_any_need_nonzero(self):
+        """If any need is above threshold, sad_ticks resets."""
+        from onemancompany.core.pet_engine import DEPARTURE_TICKS
+        pet = _make_pet(
+            pid="pet_ok", owner="00001",
+            needs={"hunger": 0.0, "happiness": 0.5, "energy": 0.0},
+        )
+        pet.sad_ticks = DEPARTURE_TICKS - 1
+        engine = _make_engine(pets={"pet_ok": pet})
+
+        with patch("onemancompany.core.pet_engine.load_pet_wallet", return_value={"tokens": 0, "projects_counted": 0, "tokens_spent": 0}), \
+             patch("onemancompany.core.pet_engine.save_pet_wallet"), \
+             patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.return_value = 0.99
+            mock_random.uniform.side_effect = [1.0, 1.0] * 10
+            mock_random.choice.side_effect = lambda x: x[0]
+            mock_random.randint.return_value = 3
+            mock_random.shuffle = lambda x: None
+            mock_random.sample = lambda x, k: x[:k]
+            engine.tick()
+
+        assert "pet_ok" in engine._pets
+        assert pet.sad_ticks == 0  # reset
+
+    def test_sad_ticks_increment(self):
+        """sad_ticks increments each tick when all needs are zero."""
+        pet = _make_pet(
+            pid="pet_sad2", owner="00001",
+            needs={"hunger": 0.0, "happiness": 0.0, "energy": 0.0},
+        )
+        pet.sad_ticks = 0
+        engine = _make_engine(pets={"pet_sad2": pet})
+
+        with patch("onemancompany.core.pet_engine.load_pet_wallet", return_value={"tokens": 0, "projects_counted": 0, "tokens_spent": 0}), \
+             patch("onemancompany.core.pet_engine.save_pet_wallet"), \
+             patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.return_value = 0.99
+            mock_random.uniform.side_effect = [1.0, 1.0] * 10
+            mock_random.choice.side_effect = lambda x: x[0]
+            mock_random.randint.return_value = 3
+            mock_random.shuffle = lambda x: None
+            mock_random.sample = lambda x, k: x[:k]
+            engine.tick()
+
+        assert pet.sad_ticks == 1
+        assert "pet_sad2" in engine._pets  # not departed yet
+
+
+# ---------------------------------------------------------------------------
+# Release pet
+# ---------------------------------------------------------------------------
+
+class TestReleasePet:
+    def test_release_owned_pet(self):
+        """Releasing an owned pet removes it from the engine."""
+        pet = _make_pet(pid="pet_rel", owner="00001")
+        engine = _make_engine(pets={"pet_rel": pet})
+        result = engine.release_pet("pet_rel")
+        assert result is True
+        assert "pet_rel" not in engine._pets
+        assert "pet_rel" in engine._deleted_pets
+
+    def test_release_stray_fails(self):
+        """Cannot release a stray (unowned) pet."""
+        pet = _make_pet(pid="pet_stray", owner=None)
+        engine = _make_engine(pets={"pet_stray": pet})
+        result = engine.release_pet("pet_stray")
+        assert result is False
+        assert "pet_stray" in engine._pets
+
+    def test_release_nonexistent_fails(self):
+        """Releasing a nonexistent pet returns False."""
+        engine = _make_engine()
+        result = engine.release_pet("nope")
+        assert result is False

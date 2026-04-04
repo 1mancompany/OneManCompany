@@ -77,6 +77,7 @@ class PetInstance(BaseModel):
     speech_translation: Optional[str] = None
     speech_tick: int = 0
     appearance: Optional[dict] = None
+    sad_ticks: int = 0  # how many ticks all needs have been at zero
 
     def to_dict(self) -> dict:
         """Serialize to dict with state as string."""

@@ -14,4 +14,4 @@ behaviors:
   wander_radius: 8
   favorite_spots: [desk, window]
   social: 0.6
-  speed: 0.5
+  speed: 0.25

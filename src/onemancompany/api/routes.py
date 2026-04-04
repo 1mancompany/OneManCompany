@@ -6609,13 +6609,38 @@ async def adopt_pet(pet_id: str):
     if gate:
         return gate
     from onemancompany.core.config import CEO_ID, DirtyCategory
+    from onemancompany.core.pet_engine import MAX_PETS
+    from fastapi.responses import JSONResponse
+    # Check if at max owned pets
+    owned = [p for p in _pet_engine.pets.values() if p.owner is not None]
+    if len(owned) >= MAX_PETS:
+        return JSONResponse(status_code=400, content={
+            "error": "max_pets",
+            "detail": "Maximum pets reached. Release one first.",
+            "pets": [p.to_dict() for p in owned],
+        })
     ok = _pet_engine.adopt_pet(pet_id, CEO_ID)
     if not ok:
-        from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400, content={"detail": "Cannot adopt this pet"})
     from onemancompany.core.store import save_pet_sync, mark_dirty
     pet = _pet_engine.pets[pet_id]
     save_pet_sync(pet_id, pet.to_dict())
+    mark_dirty(DirtyCategory.PETS)
+    return {"ok": True}
+
+
+@router.post("/api/pets/{pet_id}/release")
+async def release_pet(pet_id: str):
+    gate = _pet_gate()
+    if gate:
+        return gate
+    from fastapi.responses import JSONResponse
+    ok = _pet_engine.release_pet(pet_id)
+    if not ok:
+        return JSONResponse(status_code=400, content={"detail": "Cannot release this pet"})
+    from onemancompany.core.store import delete_pet_sync, mark_dirty
+    from onemancompany.core.config import DirtyCategory
+    delete_pet_sync(pet_id)
     mark_dirty(DirtyCategory.PETS)
     return {"ok": True}
 
