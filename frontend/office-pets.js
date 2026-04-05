@@ -293,6 +293,7 @@ class PetRenderer {
           if (pet.current_speech) {
             this._drawSpeechBubble(ctx, pet.current_speech, cx, cy - radius - 4, animFrame);
           }
+          ctx.restore();
           return; // sprite sheet rendered successfully
         }
       }

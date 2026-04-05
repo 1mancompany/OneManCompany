@@ -459,6 +459,14 @@ class PetEngine:
     # Stray lifecycle
     # ------------------------------------------------------------------
 
+    def _pick_unique_name(self) -> str:
+        """Pick a name not currently used by any living pet."""
+        used = {p.name for p in self._pets.values() if p.name}
+        available = [n for n in _STRAY_NAMES if n not in used]
+        if available:
+            return random.choice(available)
+        return f"Stray-{self._next_pet_id}"
+
     def _try_spawn_stray(self) -> bool:
         """Attempt to spawn a stray pet at the office edge.
 
@@ -485,7 +493,7 @@ class PetEngine:
         pet = PetInstance(
             id=pet_id,
             species=species_id,
-            name=random.choice(_STRAY_NAMES),
+            name=self._pick_unique_name(),
             owner=None,
             position=[x, y],
             state=PetState.IDLE,
