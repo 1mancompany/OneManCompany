@@ -97,29 +97,35 @@ _NEED_TO_MOOD = {
 }
 
 
+_CAT_PARTS = {
+    "body_colors": ["orange", "black", "white", "gray", "siamese", "cream", "ginger", "chocolate"],
+    "patterns": ["solid", "tabby", "spotted", "bicolor", "calico", "pointed"],
+    "ears": ["pointy", "round", "fold"],
+    "tails": ["long", "curled", "fluffy"],
+    "eye_colors": ["green", "blue", "gold", "copper", "aqua", "yellow"],
+}
+_DOG_PARTS = {
+    "body_colors": ["golden", "brown", "black", "white", "husky", "corgi", "chocolate", "red"],
+    "patterns": ["solid", "spotted", "masked", "saddle", "merle"],
+    "ears": ["floppy", "pointy", "half"],
+    "tails": ["up", "down", "curled"],
+    "eye_colors": ["brown", "amber", "blue", "hazel", "green", "dark"],
+    "collar_colors": ["red", "blue", "green", "gold", "purple"],
+}
+_RAT_PARTS = {
+    "body_colors": ["golden", "white", "gray", "cinnamon", "cream", "panda"],
+    "patterns": ["solid", "striped", "panda", "patched"],
+    "ears": ["round", "pointed"],
+    "eye_colors": ["black", "ruby", "brown", "blue", "pink", "dark"],
+}
+
 _PARTS = {
-    "cat": {
-        "body_colors": ["orange", "black", "white", "gray", "siamese", "cream", "ginger", "chocolate"],
-        "patterns": ["solid", "tabby", "spotted", "bicolor", "calico", "pointed"],
-        "ears": ["pointy", "round", "fold"],
-        "tails": ["long", "curled", "fluffy"],
-        "eye_colors": ["green", "blue", "gold", "copper", "aqua", "yellow"],
-    },
-    "dog": {
-        "body_colors": ["golden", "brown", "black", "white", "husky", "corgi", "chocolate", "red"],
-        "patterns": ["solid", "spotted", "masked", "saddle", "merle"],
-        "ears": ["floppy", "pointy", "half"],
-        "tails": ["up", "down", "curled"],
-        "eye_colors": ["brown", "amber", "blue", "hazel", "green", "dark"],
-        "collar_colors": ["red", "blue", "green", "gold", "purple"],
-    },
-    "hamster": {
-        "body_colors": ["golden", "white", "gray", "cinnamon", "cream", "panda"],
-        "patterns": ["solid", "striped", "panda", "patched"],
-        "cheeks": ["normal", "stuffed"],
-        "ears": ["round", "pointed"],
-        "eye_colors": ["black", "ruby", "brown", "blue", "pink", "dark"],
-    },
+    "cat": _CAT_PARTS,
+    "cat2": _CAT_PARTS,
+    "dog": _DOG_PARTS,
+    "dog2": _DOG_PARTS,
+    "rat": _RAT_PARTS,
+    "rat2": _RAT_PARTS,
 }
 
 
@@ -214,6 +220,18 @@ class PetEngine:
     @property
     def pets(self) -> dict[str, PetInstance]:
         return self._pets
+
+    @property
+    def facilities(self) -> dict[str, FacilityInstance]:
+        return self._facilities
+
+    @property
+    def facility_types(self) -> dict[str, FacilityType]:
+        return self._facility_types
+
+    @property
+    def consumable_types(self) -> dict[str, ConsumableType]:
+        return self._consumable_types
 
     @property
     def dirty_pets(self) -> set[str]:
@@ -751,9 +769,9 @@ class PetEngine:
     def _maybe_generate_speech(self, pet: PetInstance, species: SpeciesDefinition) -> None:
         """Possibly generate new speech for a pet during tick.
 
-        Each tick, each pet has a flat SPEECH_CHANCE (10%) probability to
+        Each tick, each pet has a flat SPEECH_CHANCE (5%) probability to
         generate speech if they don't already have one. This gives roughly
-        one speech per 100 seconds on average.
+        one speech per 200 seconds on average.
         """
         # Don't generate if pet already has speech
         if pet.current_speech is not None:

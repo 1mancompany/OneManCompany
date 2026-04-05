@@ -7830,7 +7830,7 @@ class AppController {
       }).join('');
 
       const sadWarning = (pet.sad_ticks && pet.sad_ticks > 0)
-        ? `<div class="sad-warning">⚠ ${pet.name || '???'} is unhappy and may leave!</div>` : '';
+        ? `<div class="sad-warning">⚠ ${this._escHtml(pet.name || '???')} is unhappy and may leave!</div>` : '';
 
       const actions = isStray
         ? `<button onclick="app._petAdopt('${pet.id}')">Adopt</button>`
@@ -7841,14 +7841,14 @@ class AppController {
 
       // Speech
       const speechHtml = pet.current_speech
-        ? `<div style="font-size:6px;color:#ddd;background:#2a2a4e;padding:2px 6px;border-radius:3px;margin-top:3px">"${pet.current_speech}" <button onclick="app._translatePetSpeech('${pet.id}')" style="font-size:6px;background:none;border:none;color:var(--pixel-green);cursor:pointer;text-decoration:underline;font-family:inherit">translate</button></div>`
+        ? `<div style="font-size:6px;color:#ddd;background:#2a2a4e;padding:2px 6px;border-radius:3px;margin-top:3px">"${this._escHtml(pet.current_speech)}" <button onclick="app._translatePetSpeech('${pet.id}')" style="font-size:6px;background:none;border:none;color:var(--pixel-green);cursor:pointer;text-decoration:underline;font-family:inherit">translate</button></div>`
         : '';
 
       html += `
         <div class="pet-card-item">
           <div class="pet-card-info">
-            <div class="name">${pet.name || '???'} ${isStray ? '<span class="stray">[Stray]</span>' : ''}</div>
-            <div class="species">${sp?.name || pet.species}</div>
+            <div class="name">${this._escHtml(pet.name || '???')} ${isStray ? '<span class="stray">[Stray]</span>' : ''}</div>
+            <div class="species">${this._escHtml(sp?.name || pet.species)}</div>
             <div class="pet-card-needs">${needsHtml}</div>
             ${sadWarning}
             ${speechHtml}
@@ -7876,7 +7876,7 @@ class AppController {
     for (const [id, item] of Object.entries(consumables)) {
       html += `<div class="shop-item">
         <span class="icon">${item.icon || '?'}</span>
-        <div class="info"><div class="name">${item.name}</div><div class="desc">${Object.entries(item.effect||{}).map(([k,v])=>`${k} ${v>0?'+':''}${Math.round(v*100)}%`).join(', ')}</div></div>
+        <div class="info"><div class="name">${this._escHtml(item.name)}</div><div class="desc">${Object.entries(item.effect||{}).map(([k,v])=>`${k} ${v>0?'+':''}${Math.round(v*100)}%`).join(', ')}</div></div>
         <span class="cost">${item.cost}</span>
         <button onclick="app._buyConsumable('${id}')">Use</button>
       </div>`;

@@ -6,3 +6,4 @@ effect:
   happiness: 0.4
 target_species:
   - dog
+  - dog2

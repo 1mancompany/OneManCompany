@@ -72,7 +72,7 @@ class TestRenamePet:
 class TestUseItem:
     def test_use_item_success(self, client, mock_pet_engine):
         from onemancompany.core.pet_models import ConsumableType
-        mock_pet_engine._consumable_types = {
+        mock_pet_engine.consumable_types = {
             "premium_treat": ConsumableType(
                 id="premium_treat", name="Premium Treat",
                 cost=1, effect={"hunger": 0.4},
@@ -90,13 +90,13 @@ class TestUseItem:
         mock_pet_engine.use_consumable.assert_called_once_with("pet_001", "premium_treat")
 
     def test_use_item_unknown(self, client, mock_pet_engine):
-        mock_pet_engine._consumable_types = {}
+        mock_pet_engine.consumable_types = {}
         resp = client.post("/api/pets/pet_001/use-item", json={"item_id": "nonexistent"})
         assert resp.status_code == 400
 
     def test_use_item_not_enough_tokens(self, client, mock_pet_engine):
         from onemancompany.core.pet_models import ConsumableType
-        mock_pet_engine._consumable_types = {
+        mock_pet_engine.consumable_types = {
             "premium_treat": ConsumableType(
                 id="premium_treat", name="Premium Treat",
                 cost=1, effect={"hunger": 0.4},
@@ -111,7 +111,7 @@ class TestUseItem:
     def test_use_item_species_mismatch(self, client, mock_pet_engine):
         """Species mismatch is caught before tokens are spent."""
         from onemancompany.core.pet_models import ConsumableType
-        mock_pet_engine._consumable_types = {
+        mock_pet_engine.consumable_types = {
             "catnip_toy": ConsumableType(
                 id="catnip_toy", name="Catnip Toy",
                 cost=1, effect={"happiness": 0.5}, target_species=["cat"],

@@ -6,3 +6,4 @@ effect:
   happiness: 0.5
 target_species:
   - cat
+  - cat2
