@@ -462,6 +462,35 @@ def _step_agent_family(console: Console) -> dict[str, str]:
     return founders
 
 
+def _step_office_vibes(console: Console) -> bool:
+    """Ask whether to enable office vibes (pet system). Default: OFF."""
+    console.print()
+    _print_step(console, "1.5", "OFFICE VIBES", "Something Extra")
+    console.print(
+        "\n  [dim italic]\"Turn this on and explore your office...\n"
+        "   you might find some unexpected visitors.\"[/dim italic]\n"
+    )
+    from InquirerPy import inquirer as _inq
+    result = _inq.confirm(
+        message="Enable office vibes?",
+        default=False,
+        style=INQ_STYLE,
+    ).execute()
+    if result:
+        console.print("  [bright_green]▸ VIBES ON[/bright_green] [dim]— keep an eye on the office...[/dim]\n")
+    else:
+        console.print("  [dim]▸ Skipped[/dim]\n")
+    return result
+
+
+def _append_office_vibes_to_env(env_path: Path, enabled: bool) -> None:
+    """Append OFFICE_VIBES setting to .env file if enabled."""
+    if not enabled:
+        return
+    with open(env_path, "a", encoding="utf-8") as f:
+        f.write("OFFICE_VIBES=1\n")
+
+
 def _step_sandbox(console: Console) -> bool:
     """Ask whether to install sandbox tools (Docker-based code execution)."""
     console.print()
@@ -922,12 +951,14 @@ def run_wizard() -> None:
             return
 
     founder_families = _step_agent_family(console)      # Step 1: Agent Family
+    office_vibes = _step_office_vibes(console)           # Step 1.5: Office Vibes
     provider, api_key, model = _step_llm(console)       # Step 2: LLM Provider & Key
     extras = _step_optional(console)                     # Step 3: External Integrations
     sandbox_enabled = _step_sandbox(console)             # Step 4: Sandbox
     host, port = _step_server(console)                   # Step 5: Server
     _step_execute(console, provider, api_key, model, host, port, extras,
                   sandbox_enabled=sandbox_enabled, founder_families=founder_families)
+    _append_office_vibes_to_env(DATA_ROOT / DOT_ENV_FILENAME, office_vibes)
     _step_done(console, host, port)
 
 

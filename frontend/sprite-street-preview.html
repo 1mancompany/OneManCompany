@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Street Animals Sprite Preview</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#1a1a2e;color:#ccc;font-family:'Courier New',monospace;padding:24px}
+  h1{color:#44ddaa;font-size:15px;margin-bottom:16px}
+  .note{font-size:11px;color:#666;margin-bottom:20px}
+  .section{margin-bottom:32px}
+  .stitle{color:#aaa;font-size:13px;margin-bottom:12px;border-bottom:1px solid #333;padding-bottom:4px}
+  .anim-row{display:flex;gap:24px;margin-bottom:16px;flex-wrap:wrap}
+  .anim-card{background:#0a0a1a;border:1px solid #333;border-radius:6px;padding:12px;text-align:center}
+  .anim-card canvas{image-rendering:pixelated;image-rendering:crisp-edges;background:#2a2a3e;border-radius:4px;display:block;margin:0 auto 6px}
+  .anim-label{font-size:10px;color:#aaa;margin-top:4px}
+  .anim-info{font-size:9px;color:#555}
+  .office-preview{background:#2a2a3e;border:2px solid #333;border-radius:8px;padding:16px;margin-top:16px}
+  .office-preview canvas{image-rendering:pixelated;image-rendering:crisp-edges}
+</style>
+</head>
+<body>
+<h1>▸ FREE STREET ANIMALS — ANIMATED SPRITE PREVIEW</h1>
+<p class="note">48×48 sprites scaled to fit office tiles · animated at runtime frame rate</p>
+
+<div id="gallery"></div>
+
+<div class="section">
+  <div class="stitle">🏢 Office Scene Preview (32px tiles, pets at scale)</div>
+  <div class="office-preview">
+    <canvas id="office" width="480" height="320"></canvas>
+  </div>
+</div>
+
+<script>
+const animals = [
+  {name:'Dog',     dir:'1 Dog',    size:48, anims:['Idle','Walk','Attack','Hurt','Death']},
+  {name:'Dog 2',   dir:'2 Dog 2',  size:48, anims:['Idle','Walk','Attack','Hurt','Death']},
+  {name:'Cat',     dir:'3 Cat',    size:48, anims:['Idle','Walk','Attack','Hurt','Death']},
+  {name:'Cat 2',   dir:'4 Cat 2',  size:48, anims:['Idle','Walk','Attack','Hurt','Death']},
+  {name:'Rat',     dir:'5 Rat',    size:32, anims:['Idle','Walk','Hurt','Death']},
+  {name:'Rat 2',   dir:'6 Rat 2',  size:32, anims:['Idle','Walk','Hurt','Death']},
+  {name:'Bird',    dir:'7 Bird',   size:32, anims:['Idle','Walk','Hurt','Death']},
+  {name:'Bird 2',  dir:'8 Bird 2', size:32, anims:['Idle','Walk','Hurt','Death']},
+];
+
+const SCALE = 2;
+const BASE = 'sprites/street-animals';
+let allCanvases = []; // {canvas, img, frameCount, frameSize, speed}
+let frame = 0;
+
+async function loadImg(path) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = path;
+  });
+}
+
+async function buildGallery() {
+  const gallery = document.getElementById('gallery');
+
+  for (const animal of animals) {
+    const sec = document.createElement('div');
+    sec.className = 'section';
+    sec.innerHTML = `<div class="stitle">${animal.name} (${animal.size}×${animal.size}px per frame)</div>`;
+    const row = document.createElement('div');
+    row.className = 'anim-row';
+
+    for (const anim of animal.anims) {
+      const img = await loadImg(`${BASE}/${animal.dir}/${anim}.png`);
+      if (!img) continue;
+
+      const frameSize = animal.size;
+      const frameCount = Math.round(img.width / frameSize);
+      const displaySize = frameSize * SCALE;
+
+      const card = document.createElement('div');
+      card.className = 'anim-card';
+
+      const cv = document.createElement('canvas');
+      cv.width = displaySize;
+      cv.height = displaySize;
+      cv.style.width = displaySize + 'px';
+      cv.style.height = displaySize + 'px';
+      card.appendChild(cv);
+
+      const lbl = document.createElement('div');
+      lbl.className = 'anim-label';
+      lbl.textContent = anim;
+      card.appendChild(lbl);
+
+      const info = document.createElement('div');
+      info.className = 'anim-info';
+      info.textContent = `${frameCount} frames · ${img.width}×${img.height}`;
+      card.appendChild(info);
+
+      row.appendChild(card);
+
+      allCanvases.push({
+        canvas: cv,
+        img: img,
+        frameCount: frameCount,
+        frameSize: frameSize,
+        displaySize: displaySize,
+        speed: anim === 'Idle' ? 8 : anim === 'Walk' ? 6 : 5,
+      });
+    }
+
+    sec.appendChild(row);
+    gallery.appendChild(sec);
+  }
+}
+
+function animate() {
+  frame++;
+  for (const item of allCanvases) {
+    const ctx = item.canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, item.displaySize, item.displaySize);
+    const f = Math.floor(frame / item.speed) % item.frameCount;
+    ctx.drawImage(
+      item.img,
+      f * item.frameSize, 0, item.frameSize, item.frameSize,
+      0, 0, item.displaySize, item.displaySize
+    );
+  }
+
+  // Office scene
+  drawOffice();
+
+  requestAnimationFrame(animate);
+}
+
+// ── Office scene with pets ──
+const officeCanvas = document.getElementById('office');
+const octx = officeCanvas.getContext('2d');
+octx.imageSmoothingEnabled = false;
+const T = 32; // tile size
+
+const petSprites = {};
+async function loadPetSprites() {
+  petSprites.dog = await loadImg(`${BASE}/1 Dog/Idle.png`);
+  petSprites.dogWalk = await loadImg(`${BASE}/1 Dog/Walk.png`);
+  petSprites.cat = await loadImg(`${BASE}/3 Cat/Idle.png`);
+  petSprites.catWalk = await loadImg(`${BASE}/3 Cat/Walk.png`);
+  petSprites.rat = await loadImg(`${BASE}/5 Rat/Idle.png`);
+  petSprites.ratWalk = await loadImg(`${BASE}/5 Rat/Walk.png`);
+  petSprites.bird = await loadImg(`${BASE}/7 Bird/Idle.png`);
+}
+
+const officePets = [
+  {sprite:'dog', walkSprite:'dogWalk', x:3, y:4, size:48, walking:false, name:'Rex'},
+  {sprite:'cat', walkSprite:'catWalk', x:8, y:5, size:48, walking:true, dx:0.02, name:'Mochi'},
+  {sprite:'rat', walkSprite:'ratWalk', x:12, y:6, size:32, walking:false, name:'Nibbles'},
+  {sprite:'bird', walkSprite:null, x:6, y:2, size:32, walking:false, name:'Pip'},
+];
+
+function drawOffice() {
+  const W = officeCanvas.width, H = officeCanvas.height;
+  octx.clearRect(0, 0, W, H);
+
+  // Floor
+  for (let y = 0; y < H/T; y++) {
+    for (let x = 0; x < W/T; x++) {
+      octx.fillStyle = (x+y)%2===0 ? '#2a2a3e' : '#282840';
+      octx.fillRect(x*T, y*T, T, T);
+    }
+  }
+
+  // Wall
+  octx.fillStyle = '#161428';
+  octx.fillRect(0, 0, W, T*2);
+  octx.fillStyle = '#333355';
+  octx.fillRect(0, T*2-2, W, 2);
+
+  // Simple desks
+  for (let i = 0; i < 4; i++) {
+    const dx = 1 + i*3.5, dy = 3;
+    octx.fillStyle = '#554433';
+    octx.fillRect(dx*T, dy*T+8, T*2, T-8);
+    octx.fillRect(dx*T, (dy+1)*T, T, T-4);
+    // Screen
+    octx.fillStyle = '#222';
+    octx.fillRect((dx+1)*T+6, dy*T+2, T-12, T-6);
+    octx.fillStyle = `rgba(34,221,255,${0.5+Math.sin(frame*0.02+i)*0.15})`;
+    octx.fillRect((dx+1)*T+8, dy*T+4, T-16, T-10);
+  }
+
+  // Draw pets
+  for (const pet of officePets) {
+    if (pet.walking && pet.dx) {
+      pet.x += pet.dx;
+      if (pet.x > 12 || pet.x < 2) pet.dx = -pet.dx;
+    }
+
+    const sprKey = pet.walking ? pet.walkSprite : pet.sprite;
+    const img = petSprites[sprKey || pet.sprite];
+    if (!img) continue;
+
+    const frameCount = Math.round(img.width / pet.size);
+    const f = Math.floor(frame / (pet.walking ? 6 : 8)) % frameCount;
+    const drawSize = pet.size === 48 ? T * 1.2 : T * 0.9;
+    const px = pet.x * T + T/2 - drawSize/2;
+    const py = pet.y * T + T - drawSize;
+
+    // Flip if walking left
+    octx.save();
+    if (pet.dx && pet.dx < 0) {
+      octx.translate(px + drawSize, 0);
+      octx.scale(-1, 1);
+      octx.drawImage(img, f*pet.size, 0, pet.size, pet.size, 0, py, drawSize, drawSize);
+    } else {
+      octx.drawImage(img, f*pet.size, 0, pet.size, pet.size, px, py, drawSize, drawSize);
+    }
+    octx.restore();
+
+    // Name tag
+    octx.font = '8px monospace';
+    octx.textAlign = 'center';
+    octx.fillStyle = 'rgba(0,0,0,0.6)';
+    const tw = octx.measureText(pet.name).width;
+    octx.fillRect(pet.x*T+T/2-tw/2-2, py+drawSize+1, tw+4, 10);
+    octx.fillStyle = '#aaffaa';
+    octx.fillText(pet.name, pet.x*T+T/2, py+drawSize+9);
+  }
+
+  // Scanlines
+  octx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (let y = 0; y < H; y += 2) octx.fillRect(0, y, W, 1);
+}
+
+async function init() {
+  await buildGallery();
+  await loadPetSprites();
+  animate();
+}
+init();
+</script>
+</body>
+</html>

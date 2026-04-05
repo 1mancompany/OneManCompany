@@ -1,0 +1,8 @@
+id: pet_bed
+name: Pet Bed
+sprite: facility_pet_bed.png
+size: [1, 1]
+effect:
+  energy: 0.4
+cooldown: 30
+cost: 2

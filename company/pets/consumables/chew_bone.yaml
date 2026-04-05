@@ -1,0 +1,9 @@
+id: chew_bone
+name: Chew Bone
+icon: "\U0001F9B4"
+cost: 1
+effect:
+  happiness: 0.4
+target_species:
+  - dog
+  - dog2

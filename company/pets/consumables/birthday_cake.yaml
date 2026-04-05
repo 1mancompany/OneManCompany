@@ -1,0 +1,9 @@
+id: birthday_cake
+name: Birthday Cake
+icon: "\U0001F370"
+cost: 3
+effect:
+  hunger: 0.3
+  happiness: 0.3
+  energy: 0.3
+target_species: all

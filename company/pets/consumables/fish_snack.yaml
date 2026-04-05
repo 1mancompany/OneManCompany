@@ -1,0 +1,8 @@
+id: fish_snack
+name: Fish Snack
+icon: "\U0001F41F"
+cost: 1
+effect:
+  hunger: 0.3
+  happiness: 0.1
+target_species: all

@@ -275,6 +275,20 @@ class OfficeRenderer {
       }
     }
 
+    // Pets
+    if (window.petRenderer?.isEnabled()) {
+      const pet = window.petRenderer.hitTest(tx, ty, WALL_ROWS);
+      if (pet) {
+        if (window.app?.togglePetPanel) {
+          const panel = document.getElementById('pet-panel');
+          if (panel?.classList.contains('hidden')) {
+            window.app.togglePetPanel();
+          }
+        }
+        return;
+      }
+    }
+
     // Employees — character is 1 tile right of desk_position
     for (const emp of (this.state.employees || [])) {
       const [ex, ey] = emp.desk_position || [0, 0];
@@ -1193,6 +1207,15 @@ class OfficeRenderer {
       this.drawCharacter(pos.x, pos.y, { id: 'ceo_boss', name: 'CEO', role: 'CEO' }, true);
     }
 
+    // Pets
+    if (window.petRenderer?.isEnabled()) {
+      window.petRenderer.tick(this.animFrame);
+      window.petRenderer.drawFacilities(ctx, TILE, WALL_ROWS, this.animFrame);
+      for (const entity of window.petRenderer.getEntities()) {
+        window.petRenderer.drawPet(ctx, entity, TILE, WALL_ROWS);
+      }
+    }
+
     // ── Desk clutter (files) — drawn last so nothing covers them ──
     this._drawDeskFiles(9, execRowCanvas);
     for (const emp of (this.state.employees || [])) {
@@ -1220,6 +1243,14 @@ class OfficeRenderer {
     const ceoCanvasRow = ((this.state.office_layout || {}).executive_row || 0) + WALL_ROWS;
     if (x === 10 && (y === ceoCanvasRow - 1 || y === ceoCanvasRow || y === ceoCanvasRow + 1)) {
       tooltipText = 'CEO (You)\nRole: Chief Executive\nInput tasks below';
+    }
+
+    // Pet tooltip
+    if (window.petRenderer?.isEnabled()) {
+      const pet = window.petRenderer.hitTest(x, y, WALL_ROWS);
+      if (pet) {
+        tooltipText = window.petRenderer.tooltipText(pet);
+      }
     }
 
     const LEVEL_NAMES = { 1: 'Junior', 2: 'Mid', 3: 'Senior', 4: 'Founding', 5: 'CEO' };

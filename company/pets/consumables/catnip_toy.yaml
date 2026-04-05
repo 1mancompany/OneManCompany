@@ -1,0 +1,9 @@
+id: catnip_toy
+name: Catnip Toy
+icon: "\U0001F9F8"
+cost: 1
+effect:
+  happiness: 0.5
+target_species:
+  - cat
+  - cat2

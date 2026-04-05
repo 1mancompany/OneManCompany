@@ -1,0 +1,7 @@
+id: premium_treat
+name: Premium Treat
+icon: "\U0001F356"
+cost: 1
+effect:
+  hunger: 0.4
+target_species: all

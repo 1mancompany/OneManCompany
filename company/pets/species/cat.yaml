@@ -1,0 +1,17 @@
+id: cat
+name: Cat
+sprite_dir: "3 Cat"
+sprite_size: 48
+animations:
+  idle: {file: Idle.png, frames: 4, speed: 0.1}
+  walk: {file: Walk.png, frames: 6, speed: 0.15}
+  play: {file: Attack.png, frames: 4, speed: 0.15}
+needs:
+  hunger: {decay_rate: 0.02, critical: 0.2}
+  happiness: {decay_rate: 0.01, critical: 0.3}
+  energy: {decay_rate: 0.015, critical: 0.2}
+behaviors:
+  wander_radius: 8
+  favorite_spots: [desk, window]
+  social: 0.6
+  speed: 0.25
