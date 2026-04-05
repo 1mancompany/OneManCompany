@@ -2158,9 +2158,10 @@ class TestProjectCompletionBottomUp:
     tree is resolved (bottom-up propagation via is_project_complete)."""
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._summarize_project_for_ceo", new_callable=AsyncMock, return_value="")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_flat_tree_all_children_accepted_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
+    async def test_flat_tree_all_children_accepted_triggers_retrospective(self, mock_bus, mock_state, mock_summarize, tmp_path):
         """CEO → EA → [c1(accepted), c2(accepted)]
         Last review node completes → EA auto-completes → project complete → CEO confirm node created.
         """
@@ -2246,9 +2247,10 @@ class TestProjectCompletionBottomUp:
         mock_schedule.assert_not_called()
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._summarize_project_for_ceo", new_callable=AsyncMock, return_value="")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_mixed_terminal_states_still_triggers_retrospective(self, mock_bus, mock_state, tmp_path):
+    async def test_mixed_terminal_states_still_triggers_retrospective(self, mock_bus, mock_state, mock_summarize, tmp_path):
         """CEO → EA(completed) → [c1(accepted), c2(failed), c3(cancelled), review(finished)]
         EA already completed by prior review cycle. All children are RESOLVED
         (even though not all succeeded) → project complete → retrospective.
@@ -2295,9 +2297,10 @@ class TestProjectCompletionBottomUp:
 
 
     @pytest.mark.asyncio
+    @patch("onemancompany.core.vessel._summarize_project_for_ceo", new_callable=AsyncMock, return_value="")
     @patch("onemancompany.core.vessel.company_state")
     @patch("onemancompany.core.vessel.event_bus")
-    async def test_completed_parent_auto_promotes_when_children_all_accepted(self, mock_bus, mock_state, tmp_path):
+    async def test_completed_parent_auto_promotes_when_children_all_accepted(self, mock_bus, mock_state, mock_summarize, tmp_path):
         """CEO → EA(completed) → [c1(accepted), c2(just accepted)]
         EA is COMPLETED (early completion). When last child becomes ACCEPTED,
         EA should auto-promote COMPLETED → ACCEPTED → FINISHED, then project completes.

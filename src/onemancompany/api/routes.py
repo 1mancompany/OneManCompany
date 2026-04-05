@@ -2038,9 +2038,10 @@ async def get_api_settings() -> dict:
         "talent_market": {
             "api_key_set": bool(tm_key),
             "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
-            "mode": "cloud" if bool(tm_key) else "local",
+            "mode": tm.get("mode", "local"),
             "connected": _get_talent_market_connected(),
             "local_talent_count": _get_local_talent_count(),
+            "use_ai_search": tm.get("use_ai_search", False),
         },
     }
 
@@ -2057,27 +2058,36 @@ async def update_api_settings(body: dict) -> dict:
         import yaml
         from onemancompany.core.config import APP_CONFIG_PATH, load_app_config, reload_app_config
         api_key = body.get("api_key", "")
-        if not api_key:
-            return {"error": "API key is required"}
+        has_toggle = "use_ai_search" in body or "mode" in body
+        if not api_key and not has_toggle:
+            return {"error": "API key, use_ai_search, or mode is required"}
         config = load_app_config()
         tm = config.setdefault("talent_market", {})
-        tm["api_key"] = api_key
+        if api_key:
+            tm["api_key"] = api_key
+        if "use_ai_search" in body:
+            tm["use_ai_search"] = bool(body["use_ai_search"])
+        if "mode" in body and body["mode"] in ("local", "remote"):
+            tm["mode"] = body["mode"]
         write_text_utf(APP_CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         reload_app_config()
 
-        # Reconnect Talent Market with new API key
-        try:
-            from onemancompany.agents.recruitment import stop_talent_market, start_talent_market
-            await stop_talent_market()
-            await start_talent_market()
-        except Exception as e:
-            logger.error("Failed to reconnect Talent Market: {}", e)
+        # Reconnect Talent Market only if API key was actually changed
+        if api_key:
+            try:
+                from onemancompany.agents.recruitment import stop_talent_market, start_talent_market
+                await stop_talent_market()
+                await start_talent_market()
+            except Exception as e:
+                logger.error("Failed to reconnect Talent Market: {}", e)
 
         return {
             "status": "updated",
             "talent_market": {
-                "api_key_set": True,
-                "api_key_preview": "..." + api_key[-4:] if len(api_key) >= 4 else "",
+                "api_key_set": bool(tm.get("api_key", "")),
+                "api_key_preview": ("..." + api_key[-4:]) if api_key and len(api_key) >= 4 else "",
+                "use_ai_search": tm.get("use_ai_search", False),
+                "mode": tm.get("mode", "local"),
             },
         }
 

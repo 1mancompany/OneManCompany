@@ -27,7 +27,12 @@ uv venv && uv pip install -e ".[dev]"
 
 # Start the server (dev mode)
 .venv/bin/python -m onemancompany.main
+
+# Install gstack (Claude Code skills for browsing, QA, code review, etc.)
+git clone --single-branch --depth 1 https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
 ```
+
+> **Note:** gstack requires [bun](https://bun.sh). If not installed, run `curl -fsSL https://bun.sh/install | bash` first.
 
 ## Development Workflow
 

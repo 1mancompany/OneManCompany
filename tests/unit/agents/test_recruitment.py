@@ -201,14 +201,16 @@ class TestTalentMarketClient:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_search(self):
+    async def test_search(self, monkeypatch):
+        from onemancompany.agents import recruitment
         from onemancompany.agents.recruitment import TalentMarketClient
 
+        monkeypatch.setattr(recruitment, "load_app_config", lambda: {"talent_market": {}})
         client = TalentMarketClient()
         client._call = AsyncMock(return_value={"roles": []})
 
         result = await client.search("python dev")
-        client._call.assert_awaited_once_with("search_candidates", job_description="python dev")
+        client._call.assert_awaited_once_with("search_candidates", job_description="python dev", use_ai=False)
         assert result == {"roles": []}
 
     @pytest.mark.asyncio
@@ -298,7 +300,7 @@ class TestStartStopTalentMarket:
         from onemancompany.agents import recruitment
 
         monkeypatch.setattr(
-            "onemancompany.core.config.load_app_config",
+            recruitment, "load_app_config",
             lambda: {"talent_market": {"url": "http://test", "api_key": ""}},
         )
         # Reset singleton state
@@ -327,6 +329,11 @@ class TestSearchCandidates:
     @pytest.mark.asyncio
     async def test_returns_candidates_from_talent_market(self, monkeypatch):
         from onemancompany.agents import recruitment
+
+        monkeypatch.setattr(
+            recruitment, "load_app_config",
+            lambda: {"talent_market": {"mode": "remote"}},
+        )
 
         fake_result = {
             "type": "individual",
@@ -422,6 +429,11 @@ class TestSessionIdTracking:
         """search_candidates stashes session_id from API response."""
         from onemancompany.agents import recruitment
 
+        monkeypatch.setattr(
+            recruitment, "load_app_config",
+            lambda: {"talent_market": {"mode": "remote"}},
+        )
+
         fake_result = {
             "type": "individual",
             "summary": "Test",
@@ -495,3 +507,49 @@ class TestPendingCandidates:
 
         # Cleanup
         pending_candidates.clear()
+
+
+class TestSearchPassesUseAi:
+    """TalentMarketClient.search() reads use_ai_search from config and passes it."""
+
+    @pytest.mark.asyncio
+    async def test_search_passes_use_ai_true(self, monkeypatch):
+        from onemancompany.agents import recruitment
+
+        captured_kwargs = {}
+
+        async def fake_call(self, tool_name, _retry=True, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"roles": [], "session_id": ""}
+
+        monkeypatch.setattr(recruitment.TalentMarketClient, "_call", fake_call)
+        monkeypatch.setattr(
+            "onemancompany.agents.recruitment.load_app_config",
+            lambda: {"talent_market": {"use_ai_search": True}},
+        )
+
+        client = recruitment.TalentMarketClient()
+        await client.search("need a python dev")
+
+        assert captured_kwargs.get("use_ai") is True
+
+    @pytest.mark.asyncio
+    async def test_search_passes_use_ai_false_by_default(self, monkeypatch):
+        from onemancompany.agents import recruitment
+
+        captured_kwargs = {}
+
+        async def fake_call(self, tool_name, _retry=True, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"roles": [], "session_id": ""}
+
+        monkeypatch.setattr(recruitment.TalentMarketClient, "_call", fake_call)
+        monkeypatch.setattr(
+            "onemancompany.agents.recruitment.load_app_config",
+            lambda: {"talent_market": {}},
+        )
+
+        client = recruitment.TalentMarketClient()
+        await client.search("need a python dev")
+
+        assert captured_kwargs.get("use_ai") is False

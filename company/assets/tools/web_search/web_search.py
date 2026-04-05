@@ -64,25 +64,20 @@ def _resolve_anthropic_auth() -> tuple[str, dict]:
     """Resolve Anthropic API authentication — supports both API key and OAuth.
 
     Returns (key_or_token, auth_headers_dict). Empty dict if no auth available.
+    For OAuth, returns the stored token WITHOUT refreshing — refresh only on 401.
     """
     auth_method = _load_env_var("ANTHROPIC_AUTH_METHOD")
 
     if auth_method == "oauth":
-        # OAuth PKCE: refresh token if needed, use Bearer header
         access_token = _load_env_var(_ENV_KEY_NAME)
+        if access_token:
+            return access_token, {"Authorization": f"Bearer {access_token}"}
+        # No access token — try refresh as last resort
         refresh_token = _load_env_var("ANTHROPIC_REFRESH_TOKEN")
-        if not access_token and not refresh_token:
-            return "", {}
-
-        # Try refreshing via Anthropic PKCE (no client_secret needed)
         if refresh_token:
             fresh = _refresh_anthropic_token(refresh_token)
             if fresh:
                 return fresh, {"Authorization": f"Bearer {fresh}"}
-
-        # Fallback: use the stored access token directly (may be expired)
-        if access_token:
-            return access_token, {"Authorization": f"Bearer {access_token}"}
         return "", {}
 
     # Default: API key auth
@@ -102,7 +97,9 @@ def _refresh_anthropic_token(refresh_token: str) -> str:
     On success, updates .env with the new access token and returns it.
     Returns empty string on failure.
     """
-    payload = json.dumps({
+    import urllib.parse
+
+    payload = urllib.parse.urlencode({
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
         "client_id": _ANTHROPIC_CLIENT_ID,
@@ -111,7 +108,7 @@ def _refresh_anthropic_token(refresh_token: str) -> str:
     req = urllib.request.Request(
         _ANTHROPIC_TOKEN_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
     try:
@@ -226,6 +223,22 @@ def web_search(query: str, max_results: int = 5) -> dict:
     }
 
     resp_json, err = _post_json(_API_URL, headers, payload, timeout=60)
+
+    # On 401 (expired OAuth token), refresh once and retry
+    if err and "HTTP 401" in err and _load_env_var("ANTHROPIC_AUTH_METHOD") == "oauth":
+        refresh_token = _load_env_var("ANTHROPIC_REFRESH_TOKEN")
+        if refresh_token:
+            logger.debug("[web_search] Got 401, refreshing OAuth token")
+            fresh = _refresh_anthropic_token(refresh_token)
+            if fresh:
+                headers = {
+                    "Authorization": f"Bearer {fresh}",
+                    "anthropic-version": _API_VERSION,
+                    "content-type": "application/json",
+                    "User-Agent": _USER_AGENT,
+                }
+                resp_json, err = _post_json(_API_URL, headers, payload, timeout=60)
+
     if err or resp_json is None:
         return {"status": "error", "message": err or "empty response from API"}
 

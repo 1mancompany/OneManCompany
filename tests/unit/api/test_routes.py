@@ -3928,27 +3928,22 @@ class TestOAuthExchange:
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
-        call_count = 0
-
-        async def mock_post(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 1:
-                return mock_resp
-            return mock_key_resp
-
-        mock_client.post = mock_post
+        # httpx.AsyncClient.post is only used for step 2 (create API key)
+        mock_client.post = AsyncMock(return_value=mock_key_resp)
 
         # Create profile.yaml so the persist path works
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
 
+        # _curl_token_exchange handles step 1 (token exchange via curl subprocess)
+        curl_return = {"access_token": "tok_abc", "refresh_token": "ref_xyz"}
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_abc", "refresh_token": "ref_xyz"}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
@@ -4031,20 +4026,13 @@ class TestOAuthExchange:
             "redirect_uri": "http://localhost",
         }
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {}
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_resp)
+        # _curl_token_exchange returns response without access_token
+        curl_return = {}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={}), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/oauth/exchange", json={
@@ -4055,7 +4043,7 @@ class TestOAuthExchange:
         assert "No access_token" in resp.json()["error"]
 
     async def test_oauth_exchange_token_failed_status(self):
-        """Token exchange returns non-200 status after both form and json attempts."""
+        """Token exchange returns error from curl."""
         from onemancompany.api.routes import _oauth_sessions
 
         state = _make_state()
@@ -4067,20 +4055,13 @@ class TestOAuthExchange:
             "redirect_uri": "http://localhost",
         }
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 400
-        mock_resp.text = "Bad request"
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_resp)
+        # _curl_token_exchange returns an error dict
+        curl_return = {"error": "Token exchange failed: Bad request"}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"error": "Token exchange failed: Bad request"}), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/oauth/exchange", json={
@@ -4148,6 +4129,10 @@ class TestOAuthCallback:
             "redirect_uri": "http://localhost/api/oauth/callback",
         }
 
+        # _curl_token_exchange handles step 1 (token exchange)
+        curl_return = {"access_token": "tok", "refresh_token": "ref"}
+
+        # httpx.AsyncClient handles step 2 (create API key)
         mock_key_resp = MagicMock()
         mock_key_resp.status_code = 200
         mock_key_resp.json.return_value = {"api_key": "sk-perm"}
@@ -4168,7 +4153,7 @@ class TestOAuthCallback:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok", "refresh_token": "ref"}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
@@ -4209,7 +4194,7 @@ class TestOAuthCallback:
         assert "Token exchange error" in resp.text
 
     async def test_callback_token_failed_status(self):
-        """Token exchange returns non-200."""
+        """Token exchange returns error."""
         from onemancompany.api.routes import _oauth_sessions
 
         state = _make_state()
@@ -4221,19 +4206,12 @@ class TestOAuthCallback:
             "redirect_uri": "http://localhost",
         }
 
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_resp.text = "Unauthorized"
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_resp)
+        curl_return = {"error": "Token exchange failed: Unauthorized"}
 
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("httpx.AsyncClient", return_value=mock_client):
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.get("/api/oauth/callback", params={
@@ -4260,6 +4238,8 @@ class TestOAuthRefreshTokenExchange:
         mock_cfg.api_key = "old_key"
         mock_cfg.api_provider = "anthropic"
 
+        curl_return = {"access_token": "new_tok", "refresh_token": "new_ref"}
+
         emp_dir = tmp_path / "00010"
         emp_dir.mkdir()
         (emp_dir / "profile.yaml").write_text("api_key: old\n")
@@ -4268,7 +4248,7 @@ class TestOAuthRefreshTokenExchange:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "new_tok", "refresh_token": "new_ref"}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
@@ -4277,7 +4257,7 @@ class TestOAuthRefreshTokenExchange:
         assert resp.json()["status"] == "refreshed"
 
     async def test_refresh_failed_status(self):
-        """Refresh returns non-200."""
+        """Refresh returns error from curl."""
         state = _make_state()
         bus = EventBus()
 
@@ -4285,11 +4265,13 @@ class TestOAuthRefreshTokenExchange:
         mock_cfg.oauth_refresh_token = "ref_tok"
         mock_cfg.api_provider = "anthropic"
 
+        curl_return = {"error": "Refresh failed: Unauthorized"}
+
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"error": "Refresh failed: Unauthorized"}):
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return):
             app = _make_test_app()
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/employee/00010/oauth/refresh")
@@ -5431,7 +5413,10 @@ class TestOAuthExchangeCreateKeyException:
         mock_cfg.api_key = ""
         mock_cfg.oauth_refresh_token = ""
 
-        # create_api_key call raises exception
+        # Step 1: _curl_token_exchange succeeds
+        curl_return = {"access_token": "tok_abc", "refresh_token": "ref_xyz"}
+
+        # Step 2: httpx create_api_key raises exception
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -5445,7 +5430,7 @@ class TestOAuthExchangeCreateKeyException:
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_abc", "refresh_token": "ref_xyz"}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
             app = _make_test_app()
@@ -5487,7 +5472,10 @@ class TestOAuthCallbackCreateKeyException:
         mock_cfg.api_key = ""
         mock_cfg.oauth_refresh_token = ""
 
-        # create_api_key call raises exception
+        # Step 1: _curl_token_exchange succeeds
+        curl_return = {"access_token": "tok_cb", "refresh_token": "ref_cb"}
+
+        # Step 2: httpx create_api_key raises exception
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -5500,7 +5488,7 @@ class TestOAuthCallbackCreateKeyException:
         with patch("onemancompany.api.routes.company_state", state), \
              _store_patches(state), \
              patch("onemancompany.api.routes.event_bus", bus), \
-             patch("onemancompany.api.routes._curl_token_exchange", return_value={"access_token": "tok_cb", "refresh_token": "ref_cb"}), \
+             patch("onemancompany.api.routes._curl_token_exchange", return_value=curl_return), \
              patch("httpx.AsyncClient", return_value=mock_client), \
              patch("onemancompany.core.config.employee_configs", {"00010": mock_cfg}), \
              patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path):
@@ -6590,3 +6578,104 @@ class TestCeoTaskMode:
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
                 resp = await c.post("/api/ceo/qa", json={"question": "hello"})
         assert resp.status_code in (404, 405)
+
+
+class TestAiSearchSettings:
+    """GET/PUT /api/settings/api includes use_ai_search."""
+
+    @pytest.mark.asyncio
+    async def test_get_returns_use_ai_search(self, monkeypatch):
+        from onemancompany.api.routes import get_api_settings
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = ""
+        mock_settings.anthropic_api_key = ""
+        mock_settings.openrouter_base_url = ""
+        mock_settings.default_llm_model = ""
+        mock_settings.anthropic_auth_method = "api_key"
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(
+            config_mod, "load_app_config",
+            lambda: {"talent_market": {"api_key": "k", "use_ai_search": True}},
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_talent_market_connected", lambda: False,
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_local_talent_count", lambda: 0,
+        )
+
+        result = await get_api_settings()
+        assert result["talent_market"]["use_ai_search"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_returns_use_ai_search_default_false(self, monkeypatch):
+        from onemancompany.api.routes import get_api_settings
+        from onemancompany.core import config as config_mod
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = ""
+        mock_settings.anthropic_api_key = ""
+        mock_settings.openrouter_base_url = ""
+        mock_settings.default_llm_model = ""
+        mock_settings.anthropic_auth_method = "api_key"
+        monkeypatch.setattr(config_mod, "settings", mock_settings)
+        monkeypatch.setattr(
+            config_mod, "load_app_config",
+            lambda: {"talent_market": {"api_key": ""}},
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_talent_market_connected", lambda: False,
+        )
+        monkeypatch.setattr(
+            "onemancompany.api.routes._get_local_talent_count", lambda: 0,
+        )
+
+        result = await get_api_settings()
+        assert result["talent_market"]["use_ai_search"] is False
+
+    @pytest.mark.asyncio
+    async def test_put_updates_use_ai_search(self, monkeypatch, tmp_path):
+        import yaml
+        from onemancompany.api.routes import update_api_settings
+        from onemancompany.core import config as config_mod
+        from onemancompany.core.config import write_text_utf
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"talent_market": {"api_key": "k", "use_ai_search": False}}))
+
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", config_file)
+        monkeypatch.setattr(config_mod, "load_app_config", lambda: yaml.safe_load(config_file.read_text()))
+        monkeypatch.setattr(config_mod, "reload_app_config", lambda: None)
+        monkeypatch.setattr("onemancompany.api.routes.write_text_utf", lambda p, c: p.write_text(c))
+
+        result = await update_api_settings({"provider": "talent_market", "use_ai_search": True})
+        assert result["status"] == "updated"
+        assert result["talent_market"]["use_ai_search"] is True
+
+        saved = yaml.safe_load(config_file.read_text())
+        assert saved["talent_market"]["use_ai_search"] is True
+
+    @pytest.mark.asyncio
+    async def test_put_use_ai_search_only_without_api_key(self, monkeypatch, tmp_path):
+        """PUT with only use_ai_search (no api_key) should work."""
+        import yaml
+        from onemancompany.api.routes import update_api_settings
+        from onemancompany.core import config as config_mod
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(yaml.dump({"talent_market": {"api_key": "existing-key", "use_ai_search": False}}))
+
+        monkeypatch.setattr(config_mod, "APP_CONFIG_PATH", config_file)
+        monkeypatch.setattr(config_mod, "load_app_config", lambda: yaml.safe_load(config_file.read_text()))
+        monkeypatch.setattr(config_mod, "reload_app_config", lambda: None)
+        monkeypatch.setattr("onemancompany.api.routes.write_text_utf", lambda p, c: p.write_text(c))
+
+        result = await update_api_settings({"provider": "talent_market", "use_ai_search": True})
+        assert result["status"] == "updated"
+        assert result["talent_market"]["use_ai_search"] is True
+
+        # Verify existing api_key was not wiped
+        saved = yaml.safe_load(config_file.read_text())
+        assert saved["talent_market"]["api_key"] == "existing-key"
