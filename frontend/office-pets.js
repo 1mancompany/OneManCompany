@@ -231,6 +231,7 @@ class PetRenderer {
    * @param {number} WALL_ROWS — wall row offset (3)
    */
   drawPet(ctx, entity, TILE, WALL_ROWS) {
+    ctx.save();
     const { pet, x, y, animFrame } = entity;
     const px = x * TILE;
     const py = (y + WALL_ROWS) * TILE;
@@ -292,6 +293,7 @@ class PetRenderer {
           if (pet.current_speech) {
             this._drawSpeechBubble(ctx, pet.current_speech, cx, cy - radius - 4, animFrame);
           }
+          ctx.restore();
           return; // sprite sheet rendered successfully
         }
       }
@@ -325,18 +327,21 @@ class PetRenderer {
     if (pet.current_speech) {
       this._drawSpeechBubble(ctx, pet.current_speech, cx, cy - radius - 4, animFrame);
     }
+    ctx.restore();
   }
 
   /**
    * Draw pet name tag below the sprite.
    */
   _drawNameTag(ctx, pet, cx, py, TILE) {
+    ctx.save();
     const isOwned = !!pet.owner;
     ctx.fillStyle = isOwned ? '#44dd44' : '#ff8844';
     ctx.font = '8px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(pet.name || '???', cx, py + TILE - 2);
+    ctx.restore();
   }
 
   /**
@@ -399,6 +404,7 @@ class PetRenderer {
    * Draw state-specific overlays (sleeping Z's, eating sparkle, playing heart).
    */
   _drawStateOverlay(ctx, state, cx, cy, radius, animFrame) {
+    ctx.save();
     const t = animFrame * 0.06;
 
     if (state === 'sleeping') {
@@ -435,6 +441,7 @@ class PetRenderer {
       ctx.textBaseline = 'middle';
       ctx.fillText('\u2764', cx, heartY);  // ❤
     }
+    ctx.restore();
   }
 
   // ── Draw facilities ──────────────────────────────────────────────────────
@@ -449,6 +456,7 @@ class PetRenderer {
    */
   drawFacilities(ctx, TILE, WALL_ROWS, animFrame) {
     if (!this._enabled) return;
+    ctx.save();
 
     for (const fac of this.facilities) {
       const px = fac.position[0] * TILE;
@@ -475,6 +483,7 @@ class PetRenderer {
       ctx.fillStyle = '#fff';
       ctx.fillText(icon, px + TILE / 2, py + TILE / 2);
     }
+    ctx.restore();
   }
 
   // ── Hit test ─────────────────────────────────────────────────────────────

@@ -18,7 +18,8 @@ from onemancompany.core.pet_models import (
 from onemancompany.core.store import load_pet_wallet, save_pet_wallet
 
 MAX_PETS = 3
-STRAY_SPAWN_CHANCE = 0.05  # 5% per tick
+STRAY_SPAWN_CHANCE_FIRST = 0.20   # 20% per tick — first pet arrives quickly (~50s)
+STRAY_SPAWN_CHANCE_LATER = 0.001  # 0.1% per tick — subsequent pets: ~2.8 hours apart
 STRAY_TIMEOUT_SECONDS = 3600  # 1 hour
 TICK_INTERVAL_SECONDS = 10.0
 SPEECH_EXPIRE_TICKS = 6  # speech bubbles last ~60 seconds
@@ -30,6 +31,14 @@ DEPARTURE_TICKS = 2160      # 6 hours at 10s/tick = 6*60*6 = 2160 ticks
 
 # Stray overflow — allow strays to spawn beyond MAX_PETS (up to +2)
 STRAY_OVERFLOW = 2
+
+# Pool of auto-generated names for stray pets
+_STRAY_NAMES = [
+    "Biscuit", "Shadow", "Pepper", "Sunny", "Maple", "Dusty",
+    "Pebble", "Cocoa", "Rusty", "Misty", "Ginger", "Smoky",
+    "Patches", "Lucky", "Scout", "Bandit", "Whiskers", "Nibbles",
+    "Mittens", "Noodle", "Muffin", "Pickle", "Waffles", "Toffee",
+]
 
 # Recovery rate per tick for sleeping/eating/playing
 _RECOVERY_RATE = 0.05
@@ -450,6 +459,14 @@ class PetEngine:
     # Stray lifecycle
     # ------------------------------------------------------------------
 
+    def _pick_unique_name(self) -> str:
+        """Pick a name not currently used by any living pet."""
+        used = {p.name for p in self._pets.values() if p.name}
+        available = [n for n in _STRAY_NAMES if n not in used]
+        if available:
+            return random.choice(available)
+        return f"Stray-{self._next_pet_id}"
+
     def _try_spawn_stray(self) -> bool:
         """Attempt to spawn a stray pet at the office edge.
 
@@ -458,7 +475,9 @@ class PetEngine:
         """
         if len(self._pets) >= MAX_PETS + STRAY_OVERFLOW:
             return False
-        if random.random() >= STRAY_SPAWN_CHANCE:
+        # First pet arrives quickly, subsequent ones take hours
+        chance = STRAY_SPAWN_CHANCE_FIRST if len(self._pets) == 0 else STRAY_SPAWN_CHANCE_LATER
+        if random.random() >= chance:
             return False
         if not self._species:
             return False
@@ -474,6 +493,7 @@ class PetEngine:
         pet = PetInstance(
             id=pet_id,
             species=species_id,
+            name=self._pick_unique_name(),
             owner=None,
             position=[x, y],
             state=PetState.IDLE,

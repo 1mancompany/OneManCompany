@@ -235,9 +235,9 @@ class TestMovement:
 class TestStraySpawn:
     @patch("onemancompany.core.pet_engine.random")
     def test_spawns_stray_under_cap(self, mock_random):
-        """Random < STRAY_SPAWN_CHANCE and under MAX_PETS -> spawn."""
-        mock_random.random.return_value = 0.01  # below 0.05
-        mock_random.choice.return_value = "cat"
+        """First stray spawns with STRAY_SPAWN_CHANCE_FIRST (20%)."""
+        mock_random.random.side_effect = [0.10, 0.3]  # < 0.20 FIRST chance, y edge
+        mock_random.choice.side_effect = ["cat", "Biscuit"]  # species, name
         mock_random.randint.return_value = 5  # x position on edge
         species = _make_species()
         engine = _make_engine(species={"cat": species})
@@ -247,13 +247,13 @@ class TestStraySpawn:
         assert len(engine._pets) == 1
         pet = list(engine._pets.values())[0]
         assert pet.owner is None
-        assert pet.position[1] == 0.0  # spawns at top edge
+        assert pet.name == "Biscuit"
 
     @patch("onemancompany.core.pet_engine.random")
     def test_spawn_allowed_at_max_pets(self, mock_random):
         """At MAX_PETS, strays can still spawn (overflow up to MAX_PETS + STRAY_OVERFLOW)."""
-        mock_random.random.return_value = 0.01
-        mock_random.choice.return_value = "cat"
+        mock_random.random.side_effect = [0.0005, 0.3]  # < 0.001 LATER chance, y edge
+        mock_random.choice.side_effect = ["cat", "Lucky"]
         mock_random.randint.return_value = 5
         species = _make_species()
         pets = {
@@ -269,7 +269,7 @@ class TestStraySpawn:
     @patch("onemancompany.core.pet_engine.random")
     def test_no_spawn_at_overflow_cap(self, mock_random):
         """At MAX_PETS + STRAY_OVERFLOW -> no spawn."""
-        mock_random.random.return_value = 0.01
+        mock_random.random.return_value = 0.0001
         species = _make_species()
         pets = {
             f"pet_{i:03d}": _make_pet(pid=f"pet_{i:03d}")
@@ -937,3 +937,83 @@ class TestReleasePet:
         engine = _make_engine()
         result = engine.release_pet("nope")
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Stray spawn delay
+# ---------------------------------------------------------------------------
+
+class TestStraySpawnRate:
+    def test_first_pet_uses_high_chance(self):
+        """First stray uses STRAY_SPAWN_CHANCE_FIRST (20%)."""
+        engine = _make_engine()
+        assert len(engine._pets) == 0
+
+        with patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.side_effect = [
+                0.15,  # < 0.20 (FIRST chance) → should spawn
+                0.3,   # y edge
+            ]
+            mock_random.choice.side_effect = ["cat", "Biscuit"]
+            mock_random.randint.return_value = 5
+            result = engine._try_spawn_stray()
+
+        assert result is True
+
+    def test_later_pets_use_low_chance(self):
+        """After first pet, uses STRAY_SPAWN_CHANCE_LATER (0.1%)."""
+        engine = _make_engine()
+        # Add an existing pet
+        engine._pets["existing"] = PetInstance(id="existing", species="cat", position=[5, 5])
+
+        with patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.return_value = 0.01  # > 0.001 → should NOT spawn
+            result = engine._try_spawn_stray()
+
+        assert result is False
+
+    def test_later_pets_can_spawn_with_very_low_roll(self):
+        """Later pets spawn with very low random value."""
+        engine = _make_engine()
+        engine._pets["existing"] = PetInstance(id="existing", species="cat", position=[5, 5])
+
+        with patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.side_effect = [
+                0.0005,  # < 0.001 → should spawn
+                0.3,     # y edge
+            ]
+            mock_random.choice.side_effect = ["cat", "Lucky"]
+            mock_random.randint.return_value = 5
+            result = engine._try_spawn_stray()
+
+        assert result is True
+
+
+# ---------------------------------------------------------------------------
+# Stray auto-name
+# ---------------------------------------------------------------------------
+
+class TestStrayAutoName:
+    def test_stray_gets_random_name(self):
+        """Spawned strays should have a name from _STRAY_NAMES, not None."""
+        from onemancompany.core.pet_engine import _STRAY_NAMES
+
+        engine = _make_engine()
+
+        with patch("onemancompany.core.pet_engine.random") as mock_random:
+            mock_random.random.side_effect = [
+                0.10,  # _try_spawn_stray FIRST chance (< 0.20)
+                0.3,   # y edge selection
+            ]
+            mock_random.choice.side_effect = [
+                "cat",       # species_id
+                "Noodle",    # name from _STRAY_NAMES
+            ]
+            mock_random.randint.return_value = 5
+
+            engine._try_spawn_stray()
+
+        new_pets = [p for p in engine._pets.values() if p.owner is None]
+        assert len(new_pets) == 1
+        assert new_pets[0].name == "Noodle"
+        assert new_pets[0].name in _STRAY_NAMES
