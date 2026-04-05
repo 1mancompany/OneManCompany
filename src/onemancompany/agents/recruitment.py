@@ -392,9 +392,15 @@ class TalentMarketClient:
             await self.connect(url, api_key)
             logger.info("[TalentMarket] auto-reconnected")
 
-    async def search(self, job_description: str) -> dict:
-        """Search for candidates matching a job description."""
-        use_ai = load_app_config().get("talent_market", {}).get("use_ai_search", False)
+    async def search(self, job_description: str, *, use_ai: bool | None = None) -> dict:
+        """Search for candidates matching a job description.
+
+        Args:
+            job_description: The job requirements text.
+            use_ai: Override AI search setting. None = read from config.
+        """
+        if use_ai is None:
+            use_ai = load_app_config().get("talent_market", {}).get("use_ai_search", False)
         return await self._call("search_candidates", job_description=job_description, use_ai=use_ai)
 
     async def list_available(self, role: str = "", skills: str = "", page: int = 1, page_size: int = 20) -> dict:
@@ -463,10 +469,20 @@ def _local_fallback_search(job_description: str) -> dict:
     }
 
 
+def _is_error_response(grouped: dict) -> str:
+    """Check if a Talent Market response is an error. Returns error message or empty string."""
+    if "error" in grouped:
+        err = grouped["error"]
+        return err.get("message", str(err)) if isinstance(err, dict) else str(err)
+    if grouped.get("status") == "error":
+        return grouped.get("message", "Unknown error")
+    return ""
+
+
 @tool
 async def search_candidates(job_description: str) -> dict:
     """Search for candidates matching a job description.
-    Uses Talent Market API when connected, falls back to local talent packages.
+    Uses Talent Market API when connected (and mode=remote), falls back to local talent packages.
 
     Args:
         job_description: The job requirements / description text.
@@ -476,31 +492,62 @@ async def search_candidates(job_description: str) -> dict:
     """
     global _last_session_id
 
-    logger.debug("[recruitment] search_candidates called, talent_market.connected={}", talent_market.connected)
+    tm_config = load_app_config().get("talent_market", {})
+    tm_mode = tm_config.get("mode", "local")
+
+    logger.debug("[recruitment] search_candidates called, mode={}, talent_market.connected={}", tm_mode, talent_market.connected)
     from_market = False
-    if talent_market.connected:
+    market_warning = ""
+
+    if tm_mode == "remote" and talent_market.connected:
         try:
             logger.debug("[recruitment] Calling Talent Market API for JD: {}", job_description[:80])
             grouped = await talent_market.search(job_description)
-            total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
-            logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
-                        total, len(grouped.get("roles", [])), job_description[:80])
-            # Enumerate all returned talents for debugging
-            for role_group in grouped.get("roles", []):
-                for idx, candidate in enumerate(role_group.get("candidates", [])):
-                    talent_data = candidate.get("talent", {}) if isinstance(candidate.get("talent"), dict) else {}
-                    profile = talent_data.get("profile", {}) if isinstance(talent_data, dict) else {}
-                    talent_id = profile.get("id", "") or candidate.get("id", "") or candidate.get("talent_id", "")
-                    talent_name = profile.get("name", "") or candidate.get("name", "")
-                    talent_role = role_group.get("role", "")
-                    logger.debug("[recruitment] Talent Market candidate #{}: id={}, name={}, role={}",
-                                 idx + 1, talent_id, talent_name, talent_role)
-            from_market = True
+
+            # Check for error response (e.g. insufficient credits)
+            err_msg = _is_error_response(grouped)
+            if err_msg:
+                logger.warning("[recruitment] Talent Market returned error: {}", err_msg)
+                # Fallback: retry without AI search if it was enabled
+                use_ai = tm_config.get("use_ai_search", False)
+                if use_ai:
+                    logger.info("[recruitment] Retrying without AI search...")
+                    grouped = await talent_market.search(job_description, use_ai=False)
+                    err_msg2 = _is_error_response(grouped)
+                    if err_msg2:
+                        logger.warning("[recruitment] Non-AI search also failed: {}, falling back to local", err_msg2)
+                        market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
+                        grouped = _local_fallback_search(job_description)
+                    else:
+                        market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
+                        from_market = True
+                else:
+                    market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
+                    grouped = _local_fallback_search(job_description)
+            else:
+                total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
+                logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
+                            total, len(grouped.get("roles", [])), job_description[:80])
+                for role_group in grouped.get("roles", []):
+                    for idx, candidate in enumerate(role_group.get("candidates", [])):
+                        talent_data = candidate.get("talent", {}) if isinstance(candidate.get("talent"), dict) else {}
+                        profile = talent_data.get("profile", {}) if isinstance(talent_data, dict) else {}
+                        talent_id = profile.get("id", "") or candidate.get("id", "") or candidate.get("talent_id", "")
+                        talent_name = profile.get("name", "") or candidate.get("name", "")
+                        talent_role = role_group.get("role", "")
+                        logger.debug("[recruitment] Talent Market candidate #{}: id={}, name={}, role={}",
+                                     idx + 1, talent_id, talent_name, talent_role)
+                from_market = True
         except Exception as e:
             logger.opt(exception=e).error("Talent Market search failed, falling back to local: {!r}", e)
+            market_warning = f"Cloud connection error. Using local talent pool instead."
             grouped = _local_fallback_search(job_description)
     else:
-        logger.info("[recruitment] Talent Market not connected, using local talent pool")
+        if tm_mode == "remote" and not talent_market.connected:
+            logger.info("[recruitment] Talent Market not connected, falling back to local")
+            market_warning = "Cloud Talent Market not connected. Using local talent pool."
+        else:
+            logger.info("[recruitment] Using local talent pool (mode=local)")
         grouped = _local_fallback_search(job_description)
 
     _last_session_id = grouped.get("session_id", "")
@@ -527,13 +574,18 @@ async def search_candidates(job_description: str) -> dict:
         all_ids = list(_last_search_results.keys())
         logger.info("[recruitment] Auto-submitting {} Talent Market candidates as shortlist", len(all_ids))
         result = await _auto_submit_shortlist(job_description, all_ids, grouped.get("roles", []))
-        return {
+        resp = {
             "type": grouped.get("type", "market"),
             "summary": result,
             "roles": grouped.get("roles", []),
             "auto_shortlisted": True,
         }
+        if market_warning:
+            resp["warning"] = market_warning
+        return resp
 
+    if market_warning:
+        grouped["warning"] = market_warning
     return grouped
 
 

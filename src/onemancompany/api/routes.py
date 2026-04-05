@@ -2033,7 +2033,7 @@ async def get_api_settings() -> dict:
         "talent_market": {
             "api_key_set": bool(tm_key),
             "api_key_preview": ("..." + tm_key[-4:]) if len(tm_key) >= 4 else "",
-            "mode": "cloud" if bool(tm_key) else "local",
+            "mode": tm.get("mode", "local"),
             "connected": _get_talent_market_connected(),
             "local_talent_count": _get_local_talent_count(),
             "use_ai_search": tm.get("use_ai_search", False),
@@ -2053,14 +2053,17 @@ async def update_api_settings(body: dict) -> dict:
         import yaml
         from onemancompany.core.config import APP_CONFIG_PATH, load_app_config, reload_app_config
         api_key = body.get("api_key", "")
-        if not api_key and "use_ai_search" not in body:
-            return {"error": "API key or use_ai_search is required"}
+        has_toggle = "use_ai_search" in body or "mode" in body
+        if not api_key and not has_toggle:
+            return {"error": "API key, use_ai_search, or mode is required"}
         config = load_app_config()
         tm = config.setdefault("talent_market", {})
         if api_key:
             tm["api_key"] = api_key
         if "use_ai_search" in body:
             tm["use_ai_search"] = bool(body["use_ai_search"])
+        if "mode" in body and body["mode"] in ("local", "remote"):
+            tm["mode"] = body["mode"]
         write_text_utf(APP_CONFIG_PATH, yaml.dump(config, default_flow_style=False, allow_unicode=True))
         reload_app_config()
 
@@ -2079,6 +2082,7 @@ async def update_api_settings(body: dict) -> dict:
                 "api_key_set": bool(tm.get("api_key", "")),
                 "api_key_preview": ("..." + api_key[-4:]) if api_key and len(api_key) >= 4 else "",
                 "use_ai_search": tm.get("use_ai_search", False),
+                "mode": tm.get("mode", "local"),
             },
         }
 

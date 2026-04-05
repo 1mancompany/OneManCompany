@@ -682,14 +682,18 @@ def _step_execute(
         cfg = yaml.safe_load(read_text_utf(dst_config)) or {}
         # Sandbox toggle
         cfg.setdefault("tools", {}).setdefault("sandbox", {})["enabled"] = sandbox_enabled
-        # Talent Market API key
+        # Talent Market API key + mode
         tm_key = extras.get(ENV_KEY_TALENT_MARKET, "")
+        tm_cfg = cfg.setdefault("talent_market", {})
         if tm_key:
-            cfg.setdefault("talent_market", {})["api_key"] = tm_key
+            tm_cfg["api_key"] = tm_key
+            tm_cfg["mode"] = "remote"  # API key provided → default to remote
+        else:
+            tm_cfg["mode"] = "local"   # No API key → local mode
         # AI Search toggle
         use_ai_val = extras.get("USE_AI_SEARCH", "")
         if use_ai_val:
-            cfg.setdefault("talent_market", {})["use_ai_search"] = use_ai_val == "true"
+            tm_cfg["use_ai_search"] = use_ai_val == "true"
         write_text_utf(dst_config, yaml.dump(cfg, default_flow_style=False, allow_unicode=True))
         if sandbox_enabled:
             console.print("  [green]\u2714[/green] Sandbox tools enabled")
