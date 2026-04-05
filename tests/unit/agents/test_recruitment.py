@@ -330,6 +330,11 @@ class TestSearchCandidates:
     async def test_returns_candidates_from_talent_market(self, monkeypatch):
         from onemancompany.agents import recruitment
 
+        monkeypatch.setattr(
+            recruitment, "load_app_config",
+            lambda: {"talent_market": {"mode": "remote"}},
+        )
+
         fake_result = {
             "type": "individual",
             "summary": "Test",
@@ -423,6 +428,11 @@ class TestSessionIdTracking:
     async def test_session_id_stashed_from_search(self, monkeypatch):
         """search_candidates stashes session_id from API response."""
         from onemancompany.agents import recruitment
+
+        monkeypatch.setattr(
+            recruitment, "load_app_config",
+            lambda: {"talent_market": {"mode": "remote"}},
+        )
 
         fake_result = {
             "type": "individual",

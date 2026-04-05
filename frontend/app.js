@@ -5297,13 +5297,25 @@ class AppController {
           </div>
           <div id="api-tm-body" class="api-card-body collapsed">
             <div class="tm-status-info" style="font-size:6.5px;margin-bottom:4px;color:var(--text-dim);">
-              ${tm.connected
-                ? '✅ Connected to Cloud Talent Market'
-                : tm.api_key_set
-                  ? '❌ Cloud connection failed, using Local Talent Market'
-                  : 'API Key not configured, using Local Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
+              ${tm.mode === 'remote'
+                ? (tm.connected
+                  ? '✅ Connected to Cloud Talent Market'
+                  : tm.api_key_set
+                    ? '❌ Cloud connection failed'
+                    : '⚠️ API Key not configured')
+                : '💾 Using Local Talent Market (' + (tm.local_talent_count || 0) + ' talents)'}
             </div>
-            <label class="api-field-label">API Key (configure to use cloud service)</label>
+            <div style="margin:6px 0;display:flex;align-items:center;gap:6px;">
+              <label style="font-size:6.5px;color:var(--text-dim);margin-right:2px;">Mode:</label>
+              <input type="hidden" id="api-tm-mode-val" value="${tm.mode || 'local'}" />
+              <button class="pixel-btn small" id="api-tm-mode-local"
+                onclick="document.getElementById('api-tm-mode-val').value='local';this.style.borderColor='var(--pixel-green)';this.style.color='var(--pixel-green)';document.getElementById('api-tm-mode-remote').style.borderColor='';document.getElementById('api-tm-mode-remote').style.color=''"
+                style="font-size:5.5px;padding:2px 6px;${tm.mode === 'local' ? 'border-color:var(--pixel-green);color:var(--pixel-green);' : ''}">💾 Local</button>
+              <button class="pixel-btn small" id="api-tm-mode-remote"
+                onclick="document.getElementById('api-tm-mode-val').value='remote';this.style.borderColor='var(--pixel-cyan)';this.style.color='var(--pixel-cyan)';document.getElementById('api-tm-mode-local').style.borderColor='';document.getElementById('api-tm-mode-local').style.color=''"
+                style="font-size:5.5px;padding:2px 6px;${tm.mode === 'remote' ? 'border-color:var(--pixel-cyan);color:var(--pixel-cyan);' : ''}">☁️ Remote</button>
+            </div>
+            <label class="api-field-label">API Key (required for remote mode)</label>
             <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
             ${tm.api_key_set ? `
             <div style="margin:6px 0;display:flex;align-items:center;gap:6px;">
@@ -5338,11 +5350,13 @@ class AppController {
 
   async _saveApiSettings(provider) {
     if (provider === 'talent_market') {
-      const body = { provider, mode: 'remote' };
+      const body = { provider };
       const key = document.getElementById('api-tm-key').value.trim();
       if (key) body.api_key = key;
       const aiCheckbox = document.getElementById('api-tm-use-ai');
       if (aiCheckbox) body.use_ai_search = aiCheckbox.checked;
+      const modeVal = document.getElementById('api-tm-mode-val');
+      if (modeVal) body.mode = modeVal.value;
       try {
         const resp = await fetch('/api/settings/api', {
           method: 'PUT',
