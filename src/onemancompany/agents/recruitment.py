@@ -392,9 +392,15 @@ class TalentMarketClient:
             await self.connect(url, api_key)
             logger.info("[TalentMarket] auto-reconnected")
 
-    async def search(self, job_description: str) -> dict:
-        """Search for candidates matching a job description."""
-        use_ai = load_app_config().get("talent_market", {}).get("use_ai_search", False)
+    async def search(self, job_description: str, *, use_ai: bool | None = None) -> dict:
+        """Search for candidates matching a job description.
+
+        Args:
+            job_description: The job requirements text.
+            use_ai: Override AI search setting. None = read from config.
+        """
+        if use_ai is None:
+            use_ai = load_app_config().get("talent_market", {}).get("use_ai_search", False)
         return await self._call("search_candidates", job_description=job_description, use_ai=use_ai)
 
     async def list_available(self, role: str = "", skills: str = "", page: int = 1, page_size: int = 20) -> dict:
@@ -506,7 +512,7 @@ async def search_candidates(job_description: str) -> dict:
                 use_ai = tm_config.get("use_ai_search", False)
                 if use_ai:
                     logger.info("[recruitment] Retrying without AI search...")
-                    grouped = await talent_market._call("search_candidates", job_description=job_description, use_ai=False)
+                    grouped = await talent_market.search(job_description, use_ai=False)
                     err_msg2 = _is_error_response(grouped)
                     if err_msg2:
                         logger.warning("[recruitment] Non-AI search also failed: {}, falling back to local", err_msg2)

@@ -5309,21 +5309,23 @@ class AppController {
               <label style="font-size:6.5px;color:var(--text-dim);margin-right:2px;">Mode:</label>
               <input type="hidden" id="api-tm-mode-val" value="${tm.mode || 'local'}" />
               <button class="pixel-btn small" id="api-tm-mode-local"
-                onclick="document.getElementById('api-tm-mode-val').value='local';this.style.borderColor='var(--pixel-green)';this.style.color='var(--pixel-green)';document.getElementById('api-tm-mode-remote').style.borderColor='';document.getElementById('api-tm-mode-remote').style.color=''"
+                onclick="document.getElementById('api-tm-mode-val').value='local';this.style.borderColor='var(--pixel-green)';this.style.color='var(--pixel-green)';document.getElementById('api-tm-mode-remote').style.borderColor='';document.getElementById('api-tm-mode-remote').style.color='';document.getElementById('api-tm-remote-opts').style.display='none'"
                 style="font-size:5.5px;padding:2px 6px;${tm.mode === 'local' ? 'border-color:var(--pixel-green);color:var(--pixel-green);' : ''}">💾 Local</button>
               <button class="pixel-btn small" id="api-tm-mode-remote"
-                onclick="document.getElementById('api-tm-mode-val').value='remote';this.style.borderColor='var(--pixel-cyan)';this.style.color='var(--pixel-cyan)';document.getElementById('api-tm-mode-local').style.borderColor='';document.getElementById('api-tm-mode-local').style.color=''"
+                onclick="document.getElementById('api-tm-mode-val').value='remote';this.style.borderColor='var(--pixel-cyan)';this.style.color='var(--pixel-cyan)';document.getElementById('api-tm-mode-local').style.borderColor='';document.getElementById('api-tm-mode-local').style.color='';document.getElementById('api-tm-remote-opts').style.display='block'"
                 style="font-size:5.5px;padding:2px 6px;${tm.mode === 'remote' ? 'border-color:var(--pixel-cyan);color:var(--pixel-cyan);' : ''}">☁️ Remote</button>
             </div>
-            <label class="api-field-label">API Key (required for remote mode)</label>
-            <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
-            ${tm.api_key_set ? `
-            <div style="margin:6px 0;display:flex;align-items:center;gap:6px;">
-              <input type="checkbox" id="api-tm-use-ai" ${tm.use_ai_search ? 'checked' : ''} style="accent-color:var(--pixel-green);" />
-              <label for="api-tm-use-ai" style="font-size:6.5px;color:var(--pixel-yellow);cursor:pointer;">
-                AI-Powered Search (improves candidate quality)
-              </label>
-            </div>` : ''}
+            <div id="api-tm-remote-opts" style="${tm.mode === 'remote' ? '' : 'display:none;'}">
+              <label class="api-field-label">API Key</label>
+              <input type="password" id="api-tm-key" class="api-key-input" placeholder="${tm.api_key_set ? tm.api_key_preview : '(none)'}" />
+              ${tm.api_key_set ? `
+              <div style="margin:6px 0;display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" id="api-tm-use-ai" ${tm.use_ai_search ? 'checked' : ''} style="accent-color:var(--pixel-green);" />
+                <label for="api-tm-use-ai" style="font-size:6.5px;color:var(--pixel-yellow);cursor:pointer;">
+                  AI-Powered Search (improves candidate quality)
+                </label>
+              </div>` : ''}
+            </div>
             <div class="api-card-actions">
               <button class="pixel-btn small" onclick="app._saveApiSettings('talent_market')">Save</button>
               <span id="api-tm-result" class="api-test-result"></span>
