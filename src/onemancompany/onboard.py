@@ -118,7 +118,7 @@ def _print_step(console: Console, num: int, codename: str, subtitle: str) -> Non
     console.print()
     console.print(Panel(
         f"[bold bright_cyan]{codename}[/bold bright_cyan] [dim]// {subtitle}[/dim]",
-        title=f"[bright_magenta]⚡ STEP {num:02d}/{TOTAL_STEPS:02d} ⚡[/bright_magenta]",
+        title=f"[bright_magenta]⚡ STEP {num if isinstance(num, str) else f'{num:02d}'}/{TOTAL_STEPS:02d} ⚡[/bright_magenta]",
         border_style="bright_magenta",
         expand=True,
         padding=(0, 1),
