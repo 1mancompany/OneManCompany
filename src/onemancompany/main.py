@@ -604,85 +604,6 @@ async def lifespan(app: FastAPI):
     from onemancompany.core.sync_tick import start_sync_tick
     sync_tick_task = asyncio.create_task(start_sync_tick())
 
-    # Start pet engine if OFFICE_VIBES enabled
-    _pet_tick_task = None
-    if os.getenv("OFFICE_VIBES", "0") == "1":
-        from onemancompany.core.store import (
-            load_pet_species, load_all_pets_sync, load_pet_facility_types, load_facilities_sync,
-            load_consumable_types,
-        )
-        from onemancompany.core.pet_models import PetInstance, FacilityInstance
-        from onemancompany.core.pet_engine import PetEngine, TICK_INTERVAL_SECONDS as PET_TICK
-
-        _species = load_pet_species()
-        _pet_raw = load_all_pets_sync()
-        _pet_instances = {}
-        for _pid, _raw in _pet_raw.items():
-            try:
-                _pet_instances[_pid] = PetInstance(**_raw)
-            except Exception as _e:
-                logger.warning("Skipping invalid pet {}: {}", _pid, _e)
-        _ftypes = load_pet_facility_types()
-        _fac_raw = load_facilities_sync()
-        _fac_instances = {}
-        for _fid, _raw in _fac_raw.items():
-            try:
-                _fac_instances[_fid] = FacilityInstance(**_raw)
-            except Exception as _e:
-                logger.warning("Skipping invalid facility {}: {}", _fid, _e)
-
-        _ctypes = load_consumable_types()
-        _pet_engine = PetEngine(_species, _pet_instances, _ftypes, _fac_instances, _ctypes)
-
-        # Sync token wallet with completed projects at startup
-        from onemancompany.core.project_archive import list_projects as _list_projects
-        _all_projects = _list_projects()
-        _completed_count = sum(1 for p in _all_projects if p.get("status") in ("archived", "completed"))
-        _initial_balance = _pet_engine.sync_tokens(_completed_count)
-        logger.info("[startup] Pet wallet synced: {} completed projects, {} tokens available",
-                     _completed_count, _initial_balance)
-
-        # Expose to routes module
-        import onemancompany.api.routes as _routes_mod
-        _routes_mod._pet_engine = _pet_engine
-
-        _pet_tick_counter = 0
-
-        async def _pet_tick_loop():
-            nonlocal _pet_tick_counter
-            logger.info("Pet engine started ({}s interval, {} species)", PET_TICK, len(_species))
-            try:
-                while True:
-                    await asyncio.sleep(PET_TICK)
-                    _pet_tick_counter += 1
-                    try:
-                        changed = _pet_engine.tick()
-                        if changed:
-                            from onemancompany.core.store import save_pet_sync, delete_pet_sync, mark_dirty
-                            from onemancompany.core.config import DirtyCategory
-                            for _pid in _pet_engine.dirty_pets:
-                                if _pid in _pet_engine.pets:
-                                    save_pet_sync(_pid, _pet_engine.pets[_pid].to_dict())
-                            for _pid in _pet_engine.deleted_pets:
-                                delete_pet_sync(_pid)
-                            mark_dirty(DirtyCategory.PETS)
-                            _pet_engine.dirty_pets.clear()
-                            _pet_engine.deleted_pets.clear()
-                        # Periodic token sync (~every 60s = 6 ticks at 10s interval)
-                        if _pet_tick_counter % 6 == 0:
-                            _projs = _list_projects()
-                            _cnt = sum(1 for p in _projs if p.get("status") in ("archived", "completed"))
-                            _pet_engine.sync_tokens(_cnt)
-                    except Exception as _e:
-                        logger.error("Pet tick error: {}", _e)
-            except asyncio.CancelledError:
-                logger.info("Pet engine stopped")
-                raise
-
-        _pet_tick_task = asyncio.create_task(_pet_tick_loop())
-        logger.info("[startup] Pet system enabled — {} species, {} pets, {} facilities",
-                     len(_species), len(_pet_instances), len(_fac_instances))
-
     # Restore persisted automations (crons + webhooks)
     from onemancompany.core.automation import restore_all_crons, restore_all_webhooks
     _crons_restored = restore_all_crons()
@@ -745,12 +666,8 @@ async def lifespan(app: FastAPI):
     broadcaster_task.cancel()
     code_watcher_task.cancel()
     sync_tick_task.cancel()
-    _bg_tasks = [broadcaster_task, watcher_task, code_watcher_task, sync_tick_task]
-    if _pet_tick_task is not None:
-        _pet_tick_task.cancel()
-        _bg_tasks.append(_pet_tick_task)
     try:
-        await asyncio.gather(*_bg_tasks, return_exceptions=True)
+        await asyncio.gather(broadcaster_task, watcher_task, code_watcher_task, sync_tick_task, return_exceptions=True)
     except asyncio.CancelledError:
         print("[shutdown] Background tasks cancelled")
 

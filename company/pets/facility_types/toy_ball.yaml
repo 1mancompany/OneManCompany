@@ -1,8 +1,0 @@
-id: toy_ball
-name: Toy Ball
-sprite: facility_toy_ball.png
-size: [1, 1]
-effect:
-  happiness: 0.35
-cooldown: 45
-cost: 1

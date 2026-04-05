@@ -1,8 +1,0 @@
-id: fetch_ball
-name: Fetch Ball
-icon: "\U0001F3BE"
-cost: 1
-effect:
-  happiness: 0.3
-  energy: -0.1
-target_species: all

@@ -1,7 +1,0 @@
-id: energy_drink
-name: Energy Drink
-icon: "\u2615"
-cost: 2
-effect:
-  energy: 0.5
-target_species: all

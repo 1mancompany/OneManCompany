@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os as _os
 import re
 import shutil
 import uuid as _uuid
@@ -62,9 +61,6 @@ from onemancompany.core.background_tasks import background_task_manager
 # ---------------------------------------------------------------------------
 # Single-file constants
 # ---------------------------------------------------------------------------
-OFFICE_VIBES_ENABLED = _os.getenv("OFFICE_VIBES", "0") == "1"
-_pet_engine = None  # Set in main.py lifespan if OFFICE_VIBES enabled
-
 ONBOARDING_STEP_ORDER = ["assigning_id", "copying_skills", "registering_agent", "completed"]
 
 ANTHROPIC_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -452,7 +448,6 @@ async def get_bootstrap() -> dict:
         "version": app_version,
         "office_layout": company_state.office_layout,
         "company_tokens": overhead.get("company_tokens", 0),
-        "office_vibes": OFFICE_VIBES_ENABLED,
     }
 
 
@@ -6578,209 +6573,3 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
             )
         except Exception:
             logger.exception("[conversation] failed to send error message for {}", conv_id)
-
-
-# ---------------------------------------------------------------------------
-# Pet system endpoints (gated on OFFICE_VIBES)
-# ---------------------------------------------------------------------------
-
-def _pet_gate():
-    """Raise HTTPException 404 if pet system is disabled."""
-    if not OFFICE_VIBES_ENABLED or _pet_engine is None:
-        raise HTTPException(status_code=404, detail="Pet system not enabled")
-
-
-@router.get("/api/pets")
-async def get_pets():
-    _pet_gate()
-    return _pet_engine.get_all_state()
-
-
-@router.get("/api/pets/tokens")
-async def get_pet_tokens():
-    _pet_gate()
-    from onemancompany.core.store import load_pet_wallet
-    wallet = load_pet_wallet()
-    balance = wallet["tokens"] - wallet["tokens_spent"]
-    projects_counted = wallet["projects_counted"]
-    next_token_at = ((projects_counted // 3) + 1) * 3
-    return {"tokens": balance, "next_token_at": next_token_at}
-
-
-@router.post("/api/pets/{pet_id}/adopt")
-async def adopt_pet(pet_id: str):
-    _pet_gate()
-    from onemancompany.core.config import CEO_ID, DirtyCategory
-    from onemancompany.core.pet_engine import MAX_PETS
-    from fastapi.responses import JSONResponse
-    # Check if at max owned pets
-    owned = [p for p in _pet_engine.pets.values() if p.owner is not None]
-    if len(owned) >= MAX_PETS:
-        return JSONResponse(status_code=400, content={
-            "error": "max_pets",
-            "detail": "Maximum pets reached. Release one first.",
-            "pets": [p.to_dict() for p in owned],
-        })
-    ok = _pet_engine.adopt_pet(pet_id, CEO_ID)
-    if not ok:
-        return JSONResponse(status_code=400, content={"detail": "Cannot adopt this pet"})
-    from onemancompany.core.store import save_pet_sync, mark_dirty
-    pet = _pet_engine.pets[pet_id]
-    save_pet_sync(pet_id, pet.to_dict())
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}
-
-
-@router.post("/api/pets/{pet_id}/release")
-async def release_pet(pet_id: str):
-    _pet_gate()
-    from fastapi.responses import JSONResponse
-    ok = _pet_engine.release_pet(pet_id)
-    if not ok:
-        return JSONResponse(status_code=400, content={"detail": "Cannot release this pet"})
-    from onemancompany.core.store import delete_pet_sync, mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    delete_pet_sync(pet_id)
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}
-
-
-@router.post("/api/pets/{pet_id}/interact")
-async def interact_pet(pet_id: str, body: dict):
-    _pet_gate()
-    action = body.get("action", "")
-    ok = _pet_engine.interact_pet(pet_id, action)
-    if not ok:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=400, content={"detail": "Invalid interaction"})
-    from onemancompany.core.store import mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}
-
-
-@router.post("/api/pets/{pet_id}/name")
-async def rename_pet(pet_id: str, body: dict):
-    _pet_gate()
-    name = body.get("name", "").strip()
-    if not name or len(name) > 20:
-        raise HTTPException(status_code=400, detail="Name must be 1-20 characters")
-    if "<" in name or ">" in name:
-        raise HTTPException(status_code=400, detail="Invalid characters in name")
-    ok = _pet_engine.rename_pet(pet_id, name)
-    if not ok:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=400, content={"detail": "Pet not found"})
-    from onemancompany.core.store import save_pet_sync, mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    save_pet_sync(pet_id, _pet_engine.pets[pet_id].to_dict())
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}
-
-
-@router.post("/api/pets/facilities")
-async def add_facility(body: dict):
-    _pet_gate()
-    from onemancompany.core.pet_models import FacilityInstance
-    from fastapi.responses import JSONResponse
-    import uuid
-    ftype = body.get("type", "")
-    position = body.get("position", [0, 0])
-    # Look up cost from facility type definition
-    ft_def = _pet_engine.facility_types.get(ftype)
-    cost = ft_def.cost if ft_def else 1
-    if not _pet_engine.spend_tokens(cost):
-        return JSONResponse(status_code=400, content={"detail": "Not enough pet tokens"})
-    facility_id = f"{ftype}_{uuid.uuid4().hex[:6]}"
-    facility = FacilityInstance(
-        id=facility_id, type=ftype, position=position,
-        placed_by=body.get("placed_by", "00001"),
-    )
-    _pet_engine.add_facility(facility)
-    from onemancompany.core.store import save_facility_sync, mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    save_facility_sync(facility_id, facility.model_dump())
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True, "id": facility_id}
-
-
-@router.post("/api/pets/{pet_id}/use-item")
-async def use_item_on_pet(pet_id: str, body: dict):
-    _pet_gate()
-    from fastapi.responses import JSONResponse
-    item_id = body.get("item_id", "")
-    ctype = _pet_engine.consumable_types.get(item_id)
-    if not ctype:
-        return JSONResponse(status_code=400, content={"detail": "Unknown item"})
-    # Check species compatibility BEFORE spending tokens
-    if not _pet_engine.can_use_consumable(pet_id, item_id):
-        return JSONResponse(status_code=400, content={"detail": "Item not compatible with this pet"})
-    if not _pet_engine.spend_tokens(ctype.cost):
-        return JSONResponse(status_code=400, content={"detail": "Not enough tokens"})
-    # Guaranteed to succeed now — species already validated
-    _pet_engine.use_consumable(pet_id, item_id)
-    from onemancompany.core.store import mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}
-
-
-@router.get("/api/pets/speech")
-async def get_pet_speech():
-    _pet_gate()
-    speeches = []
-    for pet in _pet_engine.pets.values():
-        if pet.current_speech:
-            speeches.append({
-                "pet_id": pet.id,
-                "pet_name": pet.name,
-                "species": pet.species,
-                "speech": pet.current_speech,
-                "mood": pet.current_mood,
-                "translation": pet.speech_translation,
-            })
-    return {"speeches": speeches}
-
-
-@router.post("/api/pets/translate")
-async def translate_pet_speech(body: dict):
-    _pet_gate()
-    pet_id = body.get("pet_id")
-    translations = []
-    for pid, pet in _pet_engine.pets.items():
-        if pet_id and pid != pet_id:
-            continue
-        if pet.current_speech and pet.speech_translation:
-            translations.append({
-                "pet_id": pet.id,
-                "pet_name": pet.name,
-                "species": pet.species,
-                "speech": pet.current_speech,
-                "mood": pet.current_mood,
-                "translation": pet.speech_translation,
-            })
-    return {"translations": translations}
-
-
-@router.delete("/api/pets/facilities/{facility_id}")
-async def remove_facility(facility_id: str):
-    _pet_gate()
-    # Look up facility to get its type before removing
-    fac = _pet_engine.facilities.get(facility_id)
-    if not fac:
-        raise HTTPException(status_code=400, detail="Facility not found")
-    # Get cost from facility type definition
-    ftype = _pet_engine.facility_types.get(fac.type)
-    cost = ftype.cost if ftype else 0
-    # Remove facility
-    ok = _pet_engine.remove_facility(facility_id)
-    if not ok:
-        raise HTTPException(status_code=400, detail="Facility not found")
-    # Refund tokens
-    if cost > 0:
-        _pet_engine.refund_tokens(cost)
-    from onemancompany.core.store import delete_facility_sync, mark_dirty
-    from onemancompany.core.config import DirtyCategory
-    delete_facility_sync(facility_id)
-    mark_dirty(DirtyCategory.PETS)
-    return {"ok": True}

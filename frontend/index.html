@@ -57,23 +57,6 @@
       </div>
       <canvas id="office-canvas" width="640" height="480"></canvas>
       <div id="tooltip" class="tooltip hidden"></div>
-      <!-- Pet System Button + Panel -->
-      <button id="pet-panel-btn" class="pet-btn" onclick="app.togglePetPanel()" style="display:none" title="Pets">&#128062;</button>
-      <div id="pet-panel" class="pet-panel hidden">
-        <div class="pet-panel-header">
-          <div class="pet-panel-tabs">
-            <button class="pet-tab active" data-tab="pets" onclick="app.switchPetTab('pets')">&#128062; Pets</button>
-            <button class="pet-tab" data-tab="shop" onclick="app.switchPetTab('shop')">&#128722; Shop</button>
-            <button class="pet-tab" data-tab="facilities" onclick="app.switchPetTab('facilities')">&#127968; Facilities</button>
-          </div>
-          <button class="pet-panel-close" onclick="app.togglePetPanel()">&#10005;</button>
-        </div>
-        <div class="pet-panel-body">
-          <div id="pet-tab-pets" class="pet-tab-content active"></div>
-          <div id="pet-tab-shop" class="pet-tab-content"></div>
-          <div id="pet-tab-facilities" class="pet-tab-content"></div>
-        </div>
-      </div>
     </div>
 
     <!-- Right top: Team Roster -->
@@ -663,7 +646,6 @@
   <script src="office-camera.js?v=4"></script>
   <script src="office-map.js?v=3"></script>
   <script src="office-minimap.js?v=2"></script>
-  <script src="office-pets.js"></script>
   <script src="office.js?v=29"></script>
   <script src="task-tree.js"></script>
   <link rel="stylesheet" href="trace-viewer.css">
