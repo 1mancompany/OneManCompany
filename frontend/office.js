@@ -1210,9 +1210,9 @@ class OfficeRenderer {
     // Pets
     if (window.petRenderer?.isEnabled()) {
       window.petRenderer.tick(this.animFrame);
-      window.petRenderer.drawFacilities(ctx, TILE, WALL_ROWS, this.animFrame);
+      window.petRenderer.drawFacilities(this.ctx, TILE, WALL_ROWS, this.animFrame);
       for (const entity of window.petRenderer.getEntities()) {
-        window.petRenderer.drawPet(ctx, entity, TILE, WALL_ROWS);
+        window.petRenderer.drawPet(this.ctx, entity, TILE, WALL_ROWS);
       }
     }
 
