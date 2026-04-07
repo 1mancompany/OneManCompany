@@ -225,6 +225,9 @@ class CeoTerminal {
       // Tool call from history — render as done card
       this._renderHistoryToolCall(msg);
       return;
+    } else if (msg.type === 'tool_result') {
+      // Tool results are displayed within tool_call cards, skip standalone rendering
+      return;
     } else {
       const src = msg.source || 'system';
       const cls = src === 'ea_auto_reply' ? 'ceo-msg--system' : 'ceo-msg--agent';
