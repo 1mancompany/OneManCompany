@@ -41,6 +41,7 @@ from onemancompany.core.config import (
     PF_PERFORMANCE_HISTORY,
     PF_ROLE,
     PF_WORK_PRINCIPLES,
+    TL_ACTION_EMPLOYEE_FEEDBACK,
     TL_ACTION_IMPROVEMENT,
     TL_ACTION_OPS_REPORT,
     TL_ACTION_SELF_EVAL,
@@ -1242,6 +1243,8 @@ async def run_post_task_routine(
                 append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, ctx.coo_report[:MAX_SUMMARY_LEN])
             for ai in ctx.action_items:
                 append_action(project_id, ai.get(CTX_KEY_SOURCE, ""), TL_ACTION_IMPROVEMENT, ai.get(CTX_KEY_DESCRIPTION, "")[:MAX_SUMMARY_LEN])
+            for fb in ctx.employee_feedback:
+                append_action(project_id, fb.get("employee_id", ""), TL_ACTION_EMPLOYEE_FEEDBACK, fb.get("feedback", "")[:MAX_SUMMARY_LEN])
 
     finally:
         # Release meeting room
@@ -1586,6 +1589,8 @@ async def _run_post_task_routine_fallback(task_summary: str, participants: list[
                 append_action(project_id, COO_ID, TL_ACTION_OPS_REPORT, coo_report[:MAX_SUMMARY_LEN])
             for ai in action_items:
                 append_action(project_id, ai.get(CTX_KEY_SOURCE, ""), TL_ACTION_IMPROVEMENT, ai.get(CTX_KEY_DESCRIPTION, "")[:MAX_SUMMARY_LEN])
+            for fb in phase2_result.get("employee_feedback", []):
+                append_action(project_id, fb.get("employee_id", ""), TL_ACTION_EMPLOYEE_FEEDBACK, fb.get("feedback", "")[:MAX_SUMMARY_LEN])
 
     finally:
         await _set_participants_status(room.participants, STATUS_IDLE)
