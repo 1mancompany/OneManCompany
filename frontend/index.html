@@ -145,11 +145,12 @@
       </div>
       <div id="settings-display-body" class="settings-section-body collapsed">
         <div style="padding: 8px;">
-          <label style="color: #aaa; font-size: 10px; display: block; margin-bottom: 6px;">UI Scale</label>
-          <div style="display: flex; gap: 6px;">
-            <button class="ui-scale-btn" data-scale="0.9" title="Small">A-</button>
-            <button class="ui-scale-btn" data-scale="1.0" title="Medium">A</button>
-            <button class="ui-scale-btn active" data-scale="1.15" title="Large (default)">A+</button>
+          <label style="color: #aaa; font-size: 10px; display: block; margin-bottom: 6px;">Text Size</label>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #888; font-size: 8px;">A</span>
+            <input type="range" id="font-boost-slider" min="0" max="9" value="2" step="1" style="flex: 1; accent-color: var(--pixel-cyan);" />
+            <span style="color: #888; font-size: 14px; font-weight: bold;">A</span>
+            <span id="font-boost-label" style="color: var(--pixel-cyan); font-size: 10px; min-width: 30px;">+2px</span>
           </div>
         </div>
       </div>
