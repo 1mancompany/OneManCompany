@@ -5397,7 +5397,7 @@ body.resize-dragging {
 #ceo-conv-messages {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 #ceo-conv-input-area {

@@ -2575,6 +2575,17 @@ class AppController {
         await this._startMeetingInConsole('discussion', arg);
       }},
       { cmd: '/attach', desc: 'Attach file or image', action: () => document.getElementById('ceo-file-input')?.click() },
+      { cmd: '/clear', desc: 'Clear EA chat history', action: async () => {
+        if (this._currentCeoProject !== this._EA_CHAT) {
+          this._ceoTerm?.appendMessage({ role: 'system', text: '/clear only works in EA chat.', source: 'system' });
+          return;
+        }
+        // Forget old conversation and create a new one
+        this._eaChatConvId = null;
+        localStorage.removeItem('ea-chat-conv-id');
+        await this._ensureEaChatConversation();
+        this._ceoTerm?.showChat(this._EA_CHAT, []);
+      }},
     ];
   }
 
