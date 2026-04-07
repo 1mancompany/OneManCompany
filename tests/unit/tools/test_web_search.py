@@ -1,4 +1,4 @@
-"""Unit tests for web_search tool — OAuth auth resolution and 401 retry."""
+"""Unit tests for web_search tool — DuckDuckGo-based implementation."""
 
 from __future__ import annotations
 
@@ -7,197 +7,109 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 
-# All patches target the web_search module where names are looked up
 _MOD = "company.assets.tools.web_search.web_search"
 
 
-class TestResolveAnthropicAuth:
-    """_resolve_anthropic_auth should use stored token first, only refresh when needed."""
+class TestWebSearchBasic:
+    """Basic web_search behavior."""
 
-    def test_api_key_auth(self):
-        """Non-OAuth: returns x-api-key header."""
-        from company.assets.tools.web_search.web_search import _resolve_anthropic_auth
-
-        with patch(f"{_MOD}._load_env_var") as mock_env:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "api_key",
-                "ANTHROPIC_API_KEY": "sk-test-key",
-            }.get(name, "")
-            token, headers = _resolve_anthropic_auth()
-
-        assert token == "sk-test-key"
-        assert headers == {"x-api-key": "sk-test-key"}
-
-    def test_oauth_uses_stored_token_without_refresh(self):
-        """OAuth with valid access token should NOT call _refresh_anthropic_token."""
-        from company.assets.tools.web_search.web_search import _resolve_anthropic_auth
-
-        with patch(f"{_MOD}._load_env_var") as mock_env, \
-             patch(f"{_MOD}._refresh_anthropic_token") as mock_refresh:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "oauth",
-                "ANTHROPIC_API_KEY": "stored-access-token",
-                "ANTHROPIC_REFRESH_TOKEN": "some-refresh-token",
-            }.get(name, "")
-            token, headers = _resolve_anthropic_auth()
-
-        assert token == "stored-access-token"
-        assert headers == {"Authorization": "Bearer stored-access-token"}
-        mock_refresh.assert_not_called()
-
-    def test_oauth_no_access_token_tries_refresh(self):
-        """OAuth with no access token but refresh token should try to refresh."""
-        from company.assets.tools.web_search.web_search import _resolve_anthropic_auth
-
-        with patch(f"{_MOD}._load_env_var") as mock_env, \
-             patch(f"{_MOD}._refresh_anthropic_token", return_value="fresh-token") as mock_refresh:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "oauth",
-                "ANTHROPIC_API_KEY": "",
-                "ANTHROPIC_REFRESH_TOKEN": "my-refresh-token",
-            }.get(name, "")
-            token, headers = _resolve_anthropic_auth()
-
-        assert token == "fresh-token"
-        assert headers == {"Authorization": "Bearer fresh-token"}
-        mock_refresh.assert_called_once_with("my-refresh-token")
-
-    def test_oauth_no_tokens_returns_empty(self):
-        """OAuth with no tokens at all returns empty."""
-        from company.assets.tools.web_search.web_search import _resolve_anthropic_auth
-
-        with patch(f"{_MOD}._load_env_var", return_value="") as mock_env:
-            # First call for auth_method returns "oauth", rest return ""
-            mock_env.side_effect = lambda name: "oauth" if name == "ANTHROPIC_AUTH_METHOD" else ""
-            token, headers = _resolve_anthropic_auth()
-
-        assert token == ""
-        assert headers == {}
-
-
-class TestWebSearch401Retry:
-    """web_search should retry once on 401 with refreshed token."""
-
-    def test_401_triggers_refresh_and_retry(self):
-        """On 401, web_search should refresh token and retry the API call."""
+    def test_empty_query_returns_error(self):
+        """Empty query should return error status."""
         from company.assets.tools.web_search.web_search import web_search
 
-        success_response = {
-            "content": [
-                {"type": "text", "text": "Search results here"},
-            ]
-        }
+        result = web_search.invoke({"query": ""})
+        assert result["status"] == "error"
+        assert "empty" in result["message"]
 
-        call_count = 0
+    def test_whitespace_query_returns_error(self):
+        """Whitespace-only query should return error status."""
+        from company.assets.tools.web_search.web_search import web_search
 
-        def mock_post_json(url, headers, payload, timeout=30):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                # First call: 401 expired token
-                return None, "HTTP 401: Unauthorized"
-            # Second call: success with fresh token
-            return success_response, None
+        result = web_search.invoke({"query": "   "})
+        assert result["status"] == "error"
 
-        with patch(f"{_MOD}._resolve_anthropic_auth", return_value=("old-token", {"Authorization": "Bearer old-token"})), \
-             patch(f"{_MOD}._post_json", side_effect=mock_post_json), \
-             patch(f"{_MOD}._load_env_var") as mock_env, \
-             patch(f"{_MOD}._refresh_anthropic_token", return_value="fresh-token") as mock_refresh:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "oauth",
-                "ANTHROPIC_REFRESH_TOKEN": "my-refresh",
-            }.get(name, "")
+    def test_successful_search(self):
+        """Mocked DDGS.text should return structured results."""
+        from company.assets.tools.web_search.web_search import web_search
 
-            result = web_search.invoke({"query": "test query"})
+        mock_results = [
+            {"title": "Python.org", "href": "https://python.org", "body": "Welcome to Python"},
+            {"title": "Python Tutorial", "href": "https://docs.python.org", "body": "Learn Python"},
+        ]
+
+        mock_ddgs = MagicMock()
+        mock_ddgs.__enter__ = lambda s: mock_ddgs
+        mock_ddgs.__exit__ = MagicMock(return_value=False)
+        mock_ddgs.text.return_value = mock_results
+
+        with patch(f"{_MOD}.DDGS", return_value=mock_ddgs):
+            result = web_search.invoke({"query": "Python programming"})
 
         assert result["status"] == "ok"
-        assert result["answer"] == "Search results here"
-        mock_refresh.assert_called_once_with("my-refresh")
-        assert call_count == 2
+        assert result["source_count"] == 2
+        assert len(result["sources"]) == 2
+        assert result["sources"][0]["title"] == "Python.org"
+        assert result["sources"][0]["url"] == "https://python.org"
+        assert "Python.org" in result["answer"]
 
-    def test_401_no_refresh_token_returns_error(self):
-        """On 401 without refresh token, returns the original error."""
+    def test_max_results_clamped(self):
+        """max_results should be clamped between 1 and 20."""
         from company.assets.tools.web_search.web_search import web_search
 
-        with patch(f"{_MOD}._resolve_anthropic_auth", return_value=("old-token", {"Authorization": "Bearer old-token"})), \
-             patch(f"{_MOD}._post_json", return_value=(None, "HTTP 401: Unauthorized")), \
-             patch(f"{_MOD}._load_env_var") as mock_env:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "oauth",
-                "ANTHROPIC_REFRESH_TOKEN": "",
-            }.get(name, "")
+        mock_ddgs = MagicMock()
+        mock_ddgs.__enter__ = lambda s: mock_ddgs
+        mock_ddgs.__exit__ = MagicMock(return_value=False)
+        mock_ddgs.text.return_value = []
 
-            result = web_search.invoke({"query": "test query"})
+        with patch(f"{_MOD}.DDGS", return_value=mock_ddgs):
+            web_search.invoke({"query": "test", "max_results": 50})
+            mock_ddgs.text.assert_called_with("test", max_results=20)
 
-        assert result["status"] == "error"
-        assert "401" in result["message"]
+        with patch(f"{_MOD}.DDGS", return_value=mock_ddgs):
+            web_search.invoke({"query": "test", "max_results": 0})
+            mock_ddgs.text.assert_called_with("test", max_results=1)
 
-    def test_non_401_error_no_retry(self):
-        """Non-401 errors should not trigger refresh/retry."""
+    def test_no_results_returns_ok_with_empty(self):
+        """Zero results should still return ok status with 'No results found'."""
         from company.assets.tools.web_search.web_search import web_search
 
-        with patch(f"{_MOD}._resolve_anthropic_auth", return_value=("token", {"Authorization": "Bearer token"})), \
-             patch(f"{_MOD}._post_json", return_value=(None, "HTTP 500: Internal Server Error")), \
-             patch(f"{_MOD}._refresh_anthropic_token") as mock_refresh:
+        mock_ddgs = MagicMock()
+        mock_ddgs.__enter__ = lambda s: mock_ddgs
+        mock_ddgs.__exit__ = MagicMock(return_value=False)
+        mock_ddgs.text.return_value = []
 
-            result = web_search.invoke({"query": "test query"})
+        with patch(f"{_MOD}.DDGS", return_value=mock_ddgs):
+            result = web_search.invoke({"query": "xyznonexistent12345"})
 
-        assert result["status"] == "error"
-        assert "500" in result["message"]
-        mock_refresh.assert_not_called()
+        assert result["status"] == "ok"
+        assert result["source_count"] == 0
+        assert "No results found" in result["answer"]
 
-    def test_api_key_401_no_retry(self):
-        """API key auth with 401 should not attempt OAuth refresh."""
+
+class TestWebSearchErrors:
+    """Error handling in web_search."""
+
+    def test_ddgs_exception_returns_error(self):
+        """Network/API failure should return error status."""
         from company.assets.tools.web_search.web_search import web_search
 
-        with patch(f"{_MOD}._resolve_anthropic_auth", return_value=("bad-key", {"x-api-key": "bad-key"})), \
-             patch(f"{_MOD}._post_json", return_value=(None, "HTTP 401: Invalid API key")), \
-             patch(f"{_MOD}._load_env_var") as mock_env, \
-             patch(f"{_MOD}._refresh_anthropic_token") as mock_refresh:
-            mock_env.side_effect = lambda name: {
-                "ANTHROPIC_AUTH_METHOD": "api_key",
-            }.get(name, "")
+        mock_ddgs = MagicMock()
+        mock_ddgs.__enter__ = lambda s: mock_ddgs
+        mock_ddgs.__exit__ = MagicMock(return_value=False)
+        mock_ddgs.text.side_effect = Exception("Connection timeout")
 
-            result = web_search.invoke({"query": "test query"})
+        with patch(f"{_MOD}.DDGS", return_value=mock_ddgs):
+            result = web_search.invoke({"query": "test"})
 
         assert result["status"] == "error"
-        mock_refresh.assert_not_called()
+        assert "Connection timeout" in result["message"]
 
+    def test_import_error_returns_error(self):
+        """Missing ddgs package should return helpful error."""
+        from company.assets.tools.web_search.web_search import web_search
 
-class TestRefreshTokenFormat:
-    """_refresh_anthropic_token should use form-urlencoded, not JSON."""
+        with patch(f"{_MOD}.DDGS", side_effect=ImportError("No module named 'ddgs'")):
+            # The ImportError is caught in the except block
+            result = web_search.invoke({"query": "test"})
 
-    def test_refresh_sends_form_urlencoded(self):
-        """Token refresh request must use application/x-www-form-urlencoded."""
-        from company.assets.tools.web_search.web_search import _refresh_anthropic_token
-
-        captured_req = {}
-
-        def mock_urlopen(req, timeout=None):
-            captured_req["content_type"] = req.get_header("Content-type")
-            captured_req["data"] = req.data.decode("utf-8")
-            captured_req["url"] = req.full_url
-
-            resp = MagicMock()
-            resp.read.return_value = b'{"access_token": "new-tok", "refresh_token": "new-ref"}'
-            resp.__enter__ = lambda s: resp
-            resp.__exit__ = MagicMock(return_value=False)
-            return resp
-
-        with patch("urllib.request.urlopen", side_effect=mock_urlopen), \
-             patch("onemancompany.core.config.update_env_var"):
-            result = _refresh_anthropic_token("my-refresh-token")
-
-        assert result == "new-tok"
-        assert captured_req["content_type"] == "application/x-www-form-urlencoded"
-        assert "grant_type=refresh_token" in captured_req["data"]
-        assert "refresh_token=my-refresh-token" in captured_req["data"]
-
-    def test_refresh_failure_returns_empty(self):
-        """On network error, returns empty string."""
-        from company.assets.tools.web_search.web_search import _refresh_anthropic_token
-
-        with patch("urllib.request.urlopen", side_effect=Exception("network error")):
-            result = _refresh_anthropic_token("some-token")
-
-        assert result == ""
+        assert result["status"] == "error"
