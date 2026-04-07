@@ -153,41 +153,18 @@ class CeoTerminal {
     const pending = this._pendingToolCalls.get(pendingKey);
     let card;
 
-    if (pending) {
-      card = pending.element;
-      const durationMs = Date.now() - pending.startTime;
-      const durationStr = durationMs < 1000
-        ? `${durationMs}ms`
-        : `${(durationMs / 1000).toFixed(1)}s`;
-      card.querySelector('.ceo-tool-duration').textContent = durationStr;
-      this._pendingToolCalls.delete(pendingKey);
-    } else {
-      // No pending match — render as standalone done element
-      card = document.createElement('div');
-      card.className = 'ceo-tool-call';
-      card.dataset.employee = employeeId;
-      card.dataset.toolName = toolName;
-
-      const headerEl = document.createElement('div');
-      headerEl.className = 'ceo-tool-call-header';
-      headerEl.innerHTML = `
-        <span class="ceo-tool-icon">\u2699</span>
-        <span class="ceo-tool-name">${this._esc(toolName)}</span>
-        <span class="ceo-tool-status"></span>
-        <span class="ceo-tool-duration"></span>
-      `;
-      card.appendChild(headerEl);
-
-      const details = document.createElement('div');
-      details.className = 'ceo-tool-call-details';
-      const resultDiv = document.createElement('div');
-      resultDiv.className = 'ceo-tool-result';
-      details.appendChild(resultDiv);
-      card.appendChild(details);
-
-      headerEl.addEventListener('click', () => card.classList.toggle('expanded'));
-      this._container.appendChild(card);
+    if (!pending) {
+      // No pending match — skip. The tool_call card already shows the tool name.
+      return;
     }
+
+    card = pending.element;
+    const durationMs = Date.now() - pending.startTime;
+    const durationStr = durationMs < 1000
+      ? `${durationMs}ms`
+      : `${(durationMs / 1000).toFixed(1)}s`;
+    card.querySelector('.ceo-tool-duration').textContent = durationStr;
+    this._pendingToolCalls.delete(pendingKey);
 
     // Update status
     if (error) {
