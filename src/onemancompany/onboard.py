@@ -315,9 +315,33 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             break
         console.print("  [red]API key is required — your employees can't think without it.[/red]")
 
-    # 3. Optional custom base URL (for non-OpenRouter providers)
+    # 3. Custom provider: ask for API compatibility and base URL
     base_url = ""
-    if provider != PROVIDER_OPENROUTER:
+    if provider == "custom":
+        # Custom provider must map to a real API format
+        compat = _inq.select(
+            message="API compatibility:",
+            choices=[
+                {"name": "OpenAI-compatible (most providers)", "value": "openai"},
+                {"name": "Anthropic-compatible", "value": "anthropic"},
+            ],
+            default="openai",
+            style=INQ_STYLE,
+        ).execute()
+        provider = compat  # Remap to real provider for make_llm
+        console.print(
+            f"\n  [dim]Enter your API base URL.[/dim]\n"
+            f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
+        )
+        base_url = _inq.text(
+            message="Base URL:",
+            default="",
+            style=INQ_STYLE,
+        ).execute().strip()
+        if not base_url:
+            console.print("  [red]Base URL is required for custom providers.[/red]")
+            base_url = _inq.text(message="Base URL:", style=INQ_STYLE).execute().strip()
+    elif provider != PROVIDER_OPENROUTER:
         console.print(
             f"  [dim]Custom API base URL (press Enter to keep default).[/dim]\n"
             f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
