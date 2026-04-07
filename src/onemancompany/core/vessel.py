@@ -659,11 +659,18 @@ def _append_progress(employee_id: str, entry: str) -> None:
 # Per-employee summary logs are no longer written. See _append_node_execution_log.
 
 
-def _append_node_execution_log(project_dir: str, node_id: str, log_type: str, content: str) -> None:
-    """Append full-content log entry to node-level execution log (JSONL)."""
+def _append_node_execution_log(project_dir: str, node_id: str, log_type: str, content: str | dict) -> None:
+    """Append full-content log entry to node-level execution log (JSONL).
+
+    content can be a string (backward compat) or a dict with structured tool data.
+    For dict content, the JSONL disk write uses content["content"] (string) to keep
+    the trace viewer's single-source-of-truth format unchanged.
+    """
     if not project_dir:
         return
     import json as _json
+    # Extract string for JSONL disk write; structured dicts go to WS only
+    content_str = content["content"] if isinstance(content, dict) else content
     log_dir = Path(project_dir) / "nodes" / node_id
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / "execution.log"
@@ -671,7 +678,7 @@ def _append_node_execution_log(project_dir: str, node_id: str, log_type: str, co
         entry = _json.dumps({
             "ts": datetime.now().isoformat(),
             "type": log_type,
-            "content": content,
+            "content": content_str,
         }, ensure_ascii=False) + "\n"
         with open(path, "a", encoding=ENCODING_UTF8) as f:
             f.write(entry)
@@ -1394,7 +1401,7 @@ class EmployeeManager:
                          employee_id, entry.node_id, project_id or "none",
                          _trunc(task_with_ctx))
 
-            def _on_log(log_type: str, content: str) -> None:
+            def _on_log(log_type: str, content: str | dict) -> None:
                 self._log_node(employee_id, entry.node_id, log_type, content)
                 # Also write to project-level LLM trace JSONL
                 if project_id:
@@ -1405,13 +1412,15 @@ class EmployeeManager:
                                  "tool_call": "assistant", "tool_result": "tool", "result": "system"}
                     _type_map = {"llm_input": "prompt", "llm_output": "text",
                                  "tool_call": "tool_use", "tool_result": "tool_result", "result": "result"}
+                    # Extract string content for trace (dict has .content key)
+                    trace_content = content["content"] if isinstance(content, dict) else content
                     write_llm_trace(project_id, {
                         "ts": datetime.now(_tz.utc).isoformat(),
                         "employee_id": employee_id,
                         "source": "vessel",
                         "role": _role_map.get(log_type, "system"),
                         "type": _type_map.get(log_type, log_type),
-                        "content": content,
+                        "content": trace_content,
                     })
 
             # 5. Execute via launcher with retry
@@ -3176,31 +3185,38 @@ class EmployeeManager:
         except RuntimeError:
             logger.warning("No event loop for runtime persist of {}", employee_id)
 
-    def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str) -> None:
+    def _log_node(self, employee_id: str, node_id: str, log_type: str, content: str | dict) -> None:
         """Log an event for a node.
 
-        Single source of truth: writes to nodes/{node_id}/execution.log (JSONL on disk).
-        Also publishes via WebSocket for real-time frontend updates.
+        content can be a string (backward compat) or a dict with structured tool data.
+        For dict content, the JSONL disk write uses content["content"] (string).
+        The WebSocket event gets the full structured dict for rich frontend rendering.
         """
+        # Extract string for disk write, keep structured for WS
+        content_str = content["content"] if isinstance(content, dict) else content
+
         entry = {
             "timestamp": datetime.now().isoformat(),
             "type": log_type,
-            "content": content,
+            "content": content if isinstance(content, dict) else content_str,
         }
-        # 1. Disk (SSOT): node-level execution log (JSONL)
+
+        # 1. Disk (SSOT): node-level execution log (JSONL) — always string
+        project_id = ""
         current_entry = self._current_entries.get(employee_id)
         if current_entry:
             from onemancompany.core.task_tree import get_tree
             tree = get_tree(current_entry.tree_path)
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
-            _append_node_execution_log(_project_dir, node_id, log_type, content)
+            project_id = (node.project_id if node else "") or ""
+            _append_node_execution_log(_project_dir, node_id, log_type, content_str)
         else:
             logger.warning("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
-        # 2. WebSocket: real-time push to frontend
-        self._publish_log_event(employee_id, node_id, entry)
+        # 2. WebSocket: real-time push to frontend (pass project_id to avoid duplicate tree lookup)
+        self._publish_log_event(employee_id, node_id, entry, project_id=project_id)
 
-    def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
+    def _publish_log_event(self, employee_id: str, task_id: str, entry: dict, *, project_id: str = "") -> None:
         """Publish a log event via event bus."""
         try:
             role = self._get_role(employee_id)
@@ -3211,6 +3227,7 @@ class EmployeeManager:
                     payload={
                         "employee_id": employee_id,
                         "task_id": task_id,
+                        "project_id": project_id,
                         "log": entry,
                     },
                     agent=role,

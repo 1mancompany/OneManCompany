@@ -5457,3 +5457,85 @@ body.resize-dragging {
 }
 .slash-cmd { color: #44aaff; margin-right: 6px; }
 .slash-desc { color: #666; }
+
+/* ===== CEO Conversation — DOM renderer ===== */
+.ceo-conv-scroll {
+  background: #0a0a0a;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #d4d4d4;
+  overflow-y: auto;
+  padding: 8px 12px;
+  height: 100%;
+}
+.ceo-conv-header {
+  color: #22d3ee;
+  font-weight: bold;
+  padding: 4px 0;
+}
+.ceo-msg { padding: 4px 0; }
+.ceo-msg-sender {
+  font-weight: bold;
+  margin-right: 4px;
+}
+.ceo-msg--ceo .ceo-msg-sender { color: #4ade80; }
+.ceo-msg--agent .ceo-msg-sender { color: #22d3ee; }
+.ceo-msg--system .ceo-msg-sender { color: #facc15; }
+.ceo-msg-arrow {
+  color: #555;
+  margin-right: 4px;
+}
+.ceo-msg-text {
+  color: #e5e5e5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ceo-msg-divider {
+  border-bottom: 1px solid #222;
+  margin: 4px 0;
+}
+
+/* Tool call cards */
+.ceo-tool-call {
+  margin: 4px 0 4px 16px;
+  border-left: 2px solid #333;
+  padding: 2px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.ceo-tool-call.running { border-left-color: #f59e0b; }
+.ceo-tool-call.done    { border-left-color: #22c55e; }
+.ceo-tool-call.error   { border-left-color: #ef4444; }
+
+.ceo-tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a1a1aa;
+  font-size: 10px;
+}
+.ceo-tool-icon { font-size: 11px; }
+.ceo-tool-name { color: #d4d4d4; font-weight: bold; }
+.ceo-tool-status { margin-left: auto; }
+.ceo-tool-call.running .ceo-tool-status { color: #f59e0b; }
+.ceo-tool-call.done    .ceo-tool-status { color: #22c55e; }
+.ceo-tool-call.error   .ceo-tool-status { color: #ef4444; }
+.ceo-tool-duration { color: #71717a; }
+
+.ceo-tool-call-details {
+  display: none;
+  margin-top: 4px;
+  padding: 4px 0;
+  font-size: 10px;
+  color: #a1a1aa;
+}
+.ceo-tool-call.expanded .ceo-tool-call-details { display: block; }
+.ceo-tool-args { color: #71717a; }
+.ceo-tool-args div { padding-left: 8px; }
+.ceo-tool-result {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #222;
+  color: #a1a1aa;
+}
