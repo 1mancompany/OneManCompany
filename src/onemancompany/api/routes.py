@@ -45,6 +45,7 @@ from onemancompany.core.config import (
     TL_FIELD_DETAIL,
     TL_FIELD_EMPLOYEE_ID,
     read_text_utf,
+    settings,
     write_text_utf,
 )
 from onemancompany.core.events import CompanyEvent, event_bus
@@ -1320,13 +1321,13 @@ async def list_available_models() -> dict:
 @router.get("/api/employee/{employee_id}")
 async def get_employee_detail(employee_id: str) -> dict:
     """Get full employee details including work principles, model config, and manifest."""
-    from onemancompany.core.config import employee_configs, load_manifest
+    from onemancompany.core.config import employee_configs, load_manifest, settings as _cfg_settings
 
     emp = _require_employee(employee_id)
 
     cfg = employee_configs.get(employee_id)
     llm_model = cfg.llm_model if cfg else ""
-    api_provider = cfg.api_provider if cfg else "openrouter"
+    api_provider = cfg.api_provider if cfg else (_cfg_settings.default_api_provider or "openrouter")
     api_key = cfg.api_key if cfg else ""
 
     result = dict(emp)  # emp is already a dict from _require_employee
@@ -1795,7 +1796,7 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
     """Update the LLM model for a specific employee. Saves to profile.yaml."""
     import yaml
 
-    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs
+    from onemancompany.core.config import EMPLOYEES_DIR, employee_configs, settings as _cfg_settings
 
     model_id = body.get("model", "")
     if not model_id:
@@ -1803,11 +1804,12 @@ async def update_employee_model(employee_id: str, body: dict) -> dict:
 
     emp = _require_employee(employee_id)
 
-    # Compute new salary — skip OpenRouter pricing for self-hosted or non-openrouter providers
+    # Compute new salary — skip pricing for self-hosted or non-default providers
     cfg = employee_configs.get(employee_id)
     hosting = cfg.hosting if cfg else emp.get("hosting", "company")
-    api_provider = cfg.api_provider if cfg else "openrouter"
-    if hosting == "self" or api_provider != "openrouter":
+    _default_prov = _cfg_settings.default_api_provider or "openrouter"
+    api_provider = cfg.api_provider if cfg else _default_prov
+    if hosting == "self" or api_provider != _default_prov:
         new_salary = cfg.salary_per_1m_tokens if cfg else 0.0
     else:
         from onemancompany.core.model_costs import compute_salary
@@ -2086,19 +2088,25 @@ async def update_api_settings(body: dict) -> dict:
             },
         }
 
-    if provider != "openrouter":
-        return {"error": "Only 'openrouter' and 'talent_market' providers are supported. "
-                "Anthropic auth is managed via OAuth flow, not API key."}
+    # Look up provider in registry — supports all registered providers
+    from onemancompany.core.config import PROVIDER_REGISTRY
+    prov_cfg = PROVIDER_REGISTRY.get(provider)
+    if not prov_cfg:
+        return {"error": f"Unknown provider '{provider}'. "
+                f"Supported: {', '.join(PROVIDER_REGISTRY.keys())}"}
 
     api_key = body.get("api_key", "")
     if api_key:
-        update_env_var("OPENROUTER_API_KEY", api_key)
+        # Write to the provider's env key (e.g. OPENAI_API_KEY, OPENROUTER_API_KEY)
+        update_env_var(prov_cfg.env_key.upper(), api_key)
     base_url = body.get("base_url", "")
-    if base_url:
+    if base_url and provider == "openrouter":
         update_env_var("OPENROUTER_BASE_URL", base_url)
     default_model = body.get("default_model", "")
     if default_model:
         update_env_var("DEFAULT_LLM_MODEL", default_model)
+    # Also update DEFAULT_API_PROVIDER so make_llm fallback uses the right provider
+    update_env_var("DEFAULT_API_PROVIDER", provider)
 
     # Return refreshed status
     from onemancompany.core.config import settings as refreshed
@@ -4114,13 +4122,13 @@ def _fill_talent_defaults(talent_data: dict) -> None:
     hosting = talent_data.get("hosting", "")
     if hosting in ("self", HostingMode.SELF):
         return
+    from onemancompany.core.config import settings as _settings
     if not talent_data.get("llm_model"):
-        from onemancompany.core.config import settings as _settings
         talent_data["llm_model"] = _settings.default_llm_model
         logger.info("[hiring] Talent missing llm_model — using company default: {}", _settings.default_llm_model)
     if not talent_data.get("api_provider"):
-        talent_data["api_provider"] = "openrouter"
-        logger.info("[hiring] Talent missing api_provider — using default: openrouter")
+        talent_data["api_provider"] = _settings.default_api_provider or "openrouter"
+        logger.info("[hiring] Talent missing api_provider — using default: {}", talent_data["api_provider"])
     if not talent_data.get("auth_method"):
         talent_data["auth_method"] = "api_key"
 
@@ -4305,7 +4313,7 @@ async def _do_hire_single(
             llm_model="" if is_self else talent_data.get("llm_model", ""),
             temperature=float(talent_data.get("temperature", 0.7)),
             image_model=candidate.get("image_model", ""),
-            api_provider="" if is_self else talent_data.get("api_provider", "openrouter"),
+            api_provider="" if is_self else talent_data.get("api_provider", settings.default_api_provider or "openrouter"),
             hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
             auth_method=talent_data.get("auth_method", "api_key"),
             sprite=candidate.get("sprite", "employee_default"),
@@ -4460,7 +4468,7 @@ async def hire_from_cv(body: dict) -> dict:
                 talent_id=talent_id,
                 llm_model="" if is_self else cv.get("llm_model", ""),
                 temperature=temperature,
-                api_provider="" if is_self else cv.get("api_provider", "openrouter"),
+                api_provider="" if is_self else cv.get("api_provider", settings.default_api_provider or "openrouter"),
                 hosting=hosting,
                 auth_method=cv.get("auth_method", "api_key"),
                 remote=False,
@@ -4743,7 +4751,7 @@ async def _do_batch_hire(
                     llm_model="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("llm_model", ""),
                     temperature=float(talent_data.get("temperature", 0.7)),
                     image_model=candidate.get("image_model", ""),
-                    api_provider="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("api_provider", "openrouter"),
+                    api_provider="" if talent_data.get("hosting") == HostingMode.SELF else talent_data.get("api_provider", settings.default_api_provider or "openrouter"),
                     hosting=talent_data.get("hosting", HostingMode.COMPANY.value),
                     auth_method=talent_data.get("auth_method", "api_key"),
                     sprite=candidate.get("sprite", "employee_default"),

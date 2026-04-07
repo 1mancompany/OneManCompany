@@ -533,7 +533,8 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     minimax_api_key: str = ""
 
-    # Default model
+    # Default provider & model
+    default_api_provider: str = "openrouter"
     default_llm_model: str = "google/gemini-3.1-flash-lite-preview"
 
     # FastSkills MCP

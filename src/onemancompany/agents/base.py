@@ -155,7 +155,7 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
     """
     model = settings.default_llm_model
     effective_temp = 0.7
-    api_provider = "openrouter"
+    api_provider = settings.default_api_provider or "openrouter"
     api_key = ""
 
     if employee_id and employee_id in employee_configs:
