@@ -205,9 +205,11 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
         effective_key = _resolve_provider_key(api_provider, api_key)
         if effective_key:
             base_url = prov.base_url
-            # OpenRouter allows custom base_url override from settings
+            # Allow custom base_url override: provider-specific or global
             if api_provider == "openrouter":
                 base_url = settings.openrouter_base_url
+            elif settings.default_api_base_url and api_provider == settings.default_api_provider:
+                base_url = settings.default_api_base_url
             return ChatOpenAI(
                 model=model,
                 api_key=effective_key,

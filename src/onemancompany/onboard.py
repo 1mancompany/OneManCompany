@@ -342,7 +342,6 @@ def _step_llm(console: Console) -> tuple[str, str, str, str]:
             console.print("  [red]Base URL is required for custom providers.[/red]")
             base_url = _inq.text(message="Base URL:", style=INQ_STYLE).execute().strip()
     elif provider != PROVIDER_OPENROUTER:
-        # Non-OpenRouter known providers: optional base URL override
         console.print(
             f"  [dim]Custom API base URL (press Enter to keep default).[/dim]\n"
             f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
