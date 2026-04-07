@@ -1126,23 +1126,22 @@ class AppController {
       });
     });
 
-    // UI Scale buttons
-    document.querySelectorAll('.ui-scale-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const scale = btn.dataset.scale;
-        document.documentElement.style.setProperty('--ui-zoom', scale);
-        localStorage.setItem('ui-scale', scale);
-        document.querySelectorAll('.ui-scale-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      });
-    });
-    // Restore saved scale
-    const savedScale = localStorage.getItem('ui-scale');
-    if (savedScale) {
-      document.documentElement.style.setProperty('--ui-zoom', savedScale);
-      document.querySelectorAll('.ui-scale-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.scale === savedScale);
-      });
+    // Font size slider (0-9px boost, 10 levels)
+    const slider = document.getElementById('font-boost-slider');
+    const label = document.getElementById('font-boost-label');
+    if (slider) {
+      const applyBoost = (val) => {
+        document.documentElement.style.setProperty('--font-boost', `${val}px`);
+        localStorage.setItem('font-boost', val);
+        if (label) label.textContent = val > 0 ? `+${val}px` : '0px';
+      };
+      slider.addEventListener('input', () => applyBoost(slider.value));
+      // Restore saved
+      const saved = localStorage.getItem('font-boost');
+      if (saved !== null) {
+        slider.value = saved;
+        applyBoost(saved);
+      }
     }
 
     // Listen for OAuth popup completion (company-level)
