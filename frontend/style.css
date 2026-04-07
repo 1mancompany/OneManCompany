@@ -15,6 +15,7 @@
   --pixel-white: #e0e0f0;
   --pixel-gray: #888899;
   --text-dim: #6666aa;
+  --ui-zoom: 1.15;  /* UI scale: 0.9 (small), 1.0 (medium), 1.15 (large, default) */
 }
 
 * {
@@ -40,9 +41,12 @@ body {
   grid-template-areas:
     "left-top    canvas   roster"
     "left-bottom console  console";
-  height: 100vh;
+  height: calc(100vh / var(--ui-zoom));
+  width: calc(100vw / var(--ui-zoom));
   gap: 4px;
   padding: 4px;
+  zoom: var(--ui-zoom);
+  transform-origin: top left;
 }
 
 /* During resize drag: prevent canvas/iframes from stealing pointer events */
@@ -3021,6 +3025,22 @@ body.resize-dragging {
 }
 .settings-section-body.collapsed {
   display: none;
+}
+
+.ui-scale-btn {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  color: var(--pixel-white);
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+}
+.ui-scale-btn:hover { border-color: var(--pixel-cyan); }
+.ui-scale-btn.active {
+  background: var(--pixel-cyan);
+  color: #000;
+  border-color: var(--pixel-cyan);
 }
 
 .api-provider-card {
