@@ -6625,6 +6625,22 @@ async def list_conversations(type: str | None = None, phase: str | None = None) 
     return {"conversations": [c.to_dict() for c in convs]}
 
 
+def _format_llm_error(exc: Exception) -> str:
+    """Convert LLM API exceptions into friendly CEO-facing error messages."""
+    msg = str(exc).lower()
+    if "insufficient balance" in msg or "exceeded_current_quota" in msg or "quota" in msg:
+        return "LLM API quota exceeded or insufficient balance. Please check your billing at your provider's dashboard."
+    if "401" in msg or "authentication" in msg or "invalid" in msg and "key" in msg:
+        return "LLM API authentication failed. Please check your API key in Settings."
+    if "429" in msg or "rate_limit" in msg or "rate limit" in msg:
+        return "LLM API rate limit reached. Please wait a moment and try again."
+    if "timeout" in msg or "timed out" in msg:
+        return "LLM API request timed out. The model may be overloaded, please try again."
+    if "connection" in msg or "network" in msg:
+        return "Could not connect to LLM API. Please check your network and API settings."
+    return f"Agent error: {type(exc).__name__}: {str(exc)[:200]}"
+
+
 async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) -> None:
     """Background task: dispatch CEO message to adapter, persist reply."""
     try:
@@ -6666,12 +6682,14 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
             text=reply_text,
             attachments=attachment_urls,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("[conversation] adapter dispatch failed for {}", conv_id)
+        # Surface a friendly error message to the CEO console
+        error_text = _format_llm_error(exc)
         try:
             await _conversation_service.send_message(
                 conv_id, sender=SYSTEM_SENDER, role="System",
-                text="Agent is not responding. Please try again.",
+                text=error_text,
             )
         except Exception:
             logger.exception("[conversation] failed to send error message for {}", conv_id)
