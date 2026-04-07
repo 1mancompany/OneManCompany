@@ -5392,6 +5392,7 @@ body.resize-dragging {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 #ceo-conv-messages {
