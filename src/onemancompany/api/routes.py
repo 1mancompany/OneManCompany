@@ -2030,6 +2030,7 @@ async def get_api_settings() -> dict:
         "anthropic": {
             "api_key_set": bool(ant_key),
             "api_key_preview": ("..." + ant_key[-4:]) if len(ant_key) >= 4 else "",
+            "oauth_token_set": bool(settings.anthropic_oauth_token),
             "auth_method": settings.anthropic_auth_method,
         },
         "talent_market": {
@@ -2223,9 +2224,9 @@ async def company_oauth_exchange(body: dict) -> dict:
     if not access_token:
         return {"error": "No access_token in response"}
 
-    # Save to .env (company level)
+    # Save to .env (company level) — OAuth token stored separately from API key
     from onemancompany.core.config import update_env_var
-    update_env_var("ANTHROPIC_API_KEY", access_token)
+    update_env_var("ANTHROPIC_OAUTH_TOKEN", access_token)
     update_env_var("ANTHROPIC_AUTH_METHOD", "oauth")
     if refresh_token:
         update_env_var("ANTHROPIC_REFRESH_TOKEN", refresh_token)
@@ -2434,7 +2435,7 @@ async def oauth_callback(code: str = "", state: str = "", error: str = ""):
     # Company-level OAuth: save to .env instead of employee profile
     if employee_id == "__company__":
         from onemancompany.core.config import update_env_var
-        update_env_var("ANTHROPIC_API_KEY", api_key)
+        update_env_var("ANTHROPIC_OAUTH_TOKEN", api_key)
         update_env_var("ANTHROPIC_AUTH_METHOD", "oauth")
         if refresh_token:
             update_env_var("ANTHROPIC_REFRESH_TOKEN", refresh_token)

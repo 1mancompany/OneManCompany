@@ -522,6 +522,7 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    anthropic_oauth_token: str = ""  # OAuth access token (separate from API key to avoid overwriting)
     anthropic_auth_method: str = "api_key"  # "api_key" | "oauth"
     anthropic_refresh_token: str = ""
     kimi_api_key: str = ""

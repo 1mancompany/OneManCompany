@@ -173,16 +173,21 @@ def make_llm(employee_id: str = "", temperature: float | None = None) -> BaseCha
 
     # --- Anthropic (non-OpenAI-compatible) ---
     if prov and prov.chat_class == CHAT_CLASS_ANTHROPIC:
-        effective_key = _resolve_provider_key(api_provider, api_key)
+        from langchain_anthropic import ChatAnthropic
+
+        auth_method = ""
+        if employee_id and employee_id in employee_configs:
+            auth_method = employee_configs[employee_id].auth_method
+        if not auth_method:
+            auth_method = settings.anthropic_auth_method
+
+        # Use OAuth token if auth_method is oauth, otherwise use API key
+        if auth_method == AuthMethod.OAUTH:
+            effective_key = api_key or settings.anthropic_oauth_token or settings.anthropic_api_key
+        else:
+            effective_key = _resolve_provider_key(api_provider, api_key)
+
         if effective_key:
-            from langchain_anthropic import ChatAnthropic
-
-            auth_method = ""
-            if employee_id and employee_id in employee_configs:
-                auth_method = employee_configs[employee_id].auth_method
-            if not auth_method:
-                auth_method = settings.anthropic_auth_method
-
             extra_headers = {}
             if auth_method == AuthMethod.OAUTH or effective_key.startswith("sk-ant-oat"):
                 extra_headers["anthropic-beta"] = "oauth-2025-04-20"
