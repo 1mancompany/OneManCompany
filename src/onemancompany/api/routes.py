@@ -2101,8 +2101,11 @@ async def update_api_settings(body: dict) -> dict:
         # Write to the provider's env key (e.g. OPENAI_API_KEY, OPENROUTER_API_KEY)
         update_env_var(prov_cfg.env_key.upper(), api_key)
     base_url = body.get("base_url", "")
-    if base_url and provider == "openrouter":
-        update_env_var("OPENROUTER_BASE_URL", base_url)
+    if base_url:
+        if provider == "openrouter":
+            update_env_var("OPENROUTER_BASE_URL", base_url)
+        else:
+            update_env_var("DEFAULT_API_BASE_URL", base_url)
     default_model = body.get("default_model", "")
     if default_model:
         update_env_var("DEFAULT_LLM_MODEL", default_model)

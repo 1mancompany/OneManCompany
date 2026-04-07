@@ -267,7 +267,7 @@ def _select_model_interactive(console: Console, all_models: list[dict]) -> str:
     return model
 
 
-def _step_llm(console: Console) -> tuple[str, str, str]:
+def _step_llm(console: Console) -> tuple[str, str, str, str]:
     """Select provider, enter API key, choose model. Returns (provider, api_key, model)."""
     from onemancompany.core.auth_choices import AUTH_CHOICE_GROUPS
     from onemancompany.core.config import PROVIDER_REGISTRY
@@ -315,7 +315,23 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             break
         console.print("  [red]API key is required — your employees can't think without it.[/red]")
 
-    # 3. Select model
+    # 3. Optional custom base URL (for non-OpenRouter providers)
+    base_url = ""
+    if provider != PROVIDER_OPENROUTER:
+        console.print(
+            f"  [dim]Custom API base URL (press Enter to keep default).[/dim]\n"
+            f"  [dim]Examples: https://api.openai.com/v1, https://your-server.com/v1[/dim]"
+        )
+        from onemancompany.core.config import PROVIDER_REGISTRY
+        default_url = PROVIDER_REGISTRY.get(provider, None)
+        default_url = default_url.base_url if default_url else ""
+        base_url = _inq.text(
+            message="Base URL:",
+            default=default_url,
+            style=INQ_STYLE,
+        ).execute().strip()
+
+    # 4. Select model
     console.print()
     if provider == PROVIDER_OPENROUTER:
         all_models = _fetch_openrouter_models(console)
@@ -331,7 +347,7 @@ def _step_llm(console: Console) -> tuple[str, str, str]:
             style=INQ_STYLE,
         ).execute().strip()
 
-    return provider, api_key.strip(), model
+    return provider, api_key.strip(), model, base_url
 
 
 def _step_server(console: Console) -> tuple[str, int]:
@@ -608,6 +624,7 @@ def _step_execute(
     extras: dict[str, str],
     sandbox_enabled: bool = False,
     founder_families: dict[str, str] | None = None,
+    base_url: str = "",
 ) -> None:
     console.print()
     _print_step(console, 6, "GENESIS", "Company Initialization")
@@ -657,6 +674,9 @@ def _step_execute(
         f"{ENV_KEY_HOST}={host}",
         f"{ENV_KEY_PORT}={port}",
     ]
+    # Custom base URL (for non-default provider endpoints)
+    if base_url and prov_cfg and base_url != prov_cfg.base_url:
+        env_lines.append(f"DEFAULT_API_BASE_URL={base_url}")
     # Also write base_url for OpenRouter (needed by existing code)
     if provider == PROVIDER_OPENROUTER:
         env_lines.append("OPENROUTER_BASE_URL=https://openrouter.ai/api/v1")
@@ -932,12 +952,13 @@ def run_wizard() -> None:
             return
 
     founder_families = _step_agent_family(console)      # Step 1: Agent Family
-    provider, api_key, model = _step_llm(console)       # Step 2: LLM Provider & Key
+    provider, api_key, model, base_url = _step_llm(console)  # Step 2: LLM Provider & Key
     extras = _step_optional(console)                     # Step 3: External Integrations
     sandbox_enabled = _step_sandbox(console)             # Step 4: Sandbox
     host, port = _step_server(console)                   # Step 5: Server
     _step_execute(console, provider, api_key, model, host, port, extras,
-                  sandbox_enabled=sandbox_enabled, founder_families=founder_families)
+                  sandbox_enabled=sandbox_enabled, founder_families=founder_families,
+                  base_url=base_url)
     _step_done(console, host, port)
 
 
