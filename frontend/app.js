@@ -1126,6 +1126,25 @@ class AppController {
       });
     });
 
+    // UI Scale buttons
+    document.querySelectorAll('.ui-scale-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const scale = btn.dataset.scale;
+        document.documentElement.style.setProperty('--ui-zoom', scale);
+        localStorage.setItem('ui-scale', scale);
+        document.querySelectorAll('.ui-scale-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+    // Restore saved scale
+    const savedScale = localStorage.getItem('ui-scale');
+    if (savedScale) {
+      document.documentElement.style.setProperty('--ui-zoom', savedScale);
+      document.querySelectorAll('.ui-scale-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.scale === savedScale);
+      });
+    }
+
     // Listen for OAuth popup completion (company-level)
     window.addEventListener('message', (e) => {
       if (e.data === 'oauth_done' && this._settingsLoaded) {
