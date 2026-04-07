@@ -136,8 +136,8 @@ class CeoTerminal {
     this._container.appendChild(card);
     this._scrollToBottom();
 
-    // Track pending
-    this._pendingToolCalls.set(employeeId, {
+    // Track pending — keyed by employeeId:toolName to handle parallel tool calls
+    this._pendingToolCalls.set(`${employeeId}:${toolName}`, {
       element: card,
       toolName,
       startTime: Date.now(),
@@ -149,17 +149,18 @@ class CeoTerminal {
    * Called when AGENT_LOG with type=tool_result arrives.
    */
   updateToolCall(employeeId, { toolName, toolResult, error }) {
-    const pending = this._pendingToolCalls.get(employeeId);
+    const pendingKey = `${employeeId}:${toolName}`;
+    const pending = this._pendingToolCalls.get(pendingKey);
     let card;
 
-    if (pending && pending.toolName === toolName) {
+    if (pending) {
       card = pending.element;
       const durationMs = Date.now() - pending.startTime;
       const durationStr = durationMs < 1000
         ? `${durationMs}ms`
         : `${(durationMs / 1000).toFixed(1)}s`;
       card.querySelector('.ceo-tool-duration').textContent = durationStr;
-      this._pendingToolCalls.delete(employeeId);
+      this._pendingToolCalls.delete(pendingKey);
     } else {
       // No pending match — render as standalone done element
       card = document.createElement('div');

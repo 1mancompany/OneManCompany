@@ -6094,12 +6094,15 @@ async def get_ceo_session(project_id: str, include_tools: bool = False):
     history = session.history
 
     if include_tools and session.project_dir:
+        import asyncio
         from onemancompany.core.config import TASK_TREE_FILENAME
         from onemancompany.core.task_tree import get_tree
         tree_path = Path(session.project_dir) / TASK_TREE_FILENAME
         if tree_path.exists():
             tree = get_tree(str(tree_path))
-            history = _merge_tool_calls_into_history(history, tree, str(session.project_dir))
+            history = await asyncio.to_thread(
+                _merge_tool_calls_into_history, history, tree, str(session.project_dir)
+            )
 
     return {
         "project_id": project_id,

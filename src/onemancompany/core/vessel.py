@@ -3202,33 +3202,24 @@ class EmployeeManager:
         }
 
         # 1. Disk (SSOT): node-level execution log (JSONL) — always string
+        project_id = ""
         current_entry = self._current_entries.get(employee_id)
         if current_entry:
             from onemancompany.core.task_tree import get_tree
             tree = get_tree(current_entry.tree_path)
             node = tree.get_node(current_entry.node_id) if tree else None
             _project_dir = (node.project_dir if node else "") or str(Path(current_entry.tree_path).parent)
+            project_id = (node.project_id if node else "") or ""
             _append_node_execution_log(_project_dir, node_id, log_type, content_str)
         else:
             logger.warning("[_log_node] No _current_entries for {} — log not written to disk (node={})", employee_id, node_id)
-        # 2. WebSocket: real-time push to frontend
-        self._publish_log_event(employee_id, node_id, entry)
+        # 2. WebSocket: real-time push to frontend (pass project_id to avoid duplicate tree lookup)
+        self._publish_log_event(employee_id, node_id, entry, project_id=project_id)
 
-    def _publish_log_event(self, employee_id: str, task_id: str, entry: dict) -> None:
+    def _publish_log_event(self, employee_id: str, task_id: str, entry: dict, *, project_id: str = "") -> None:
         """Publish a log event via event bus."""
         try:
             role = self._get_role(employee_id)
-
-            # Enrich with project_id for CEO console routing
-            project_id = ""
-            current_entry = self._current_entries.get(employee_id)
-            if current_entry:
-                from onemancompany.core.task_tree import get_tree
-                tree = get_tree(current_entry.tree_path)
-                node = tree.get_node(current_entry.node_id) if tree else None
-                if node:
-                    project_id = node.project_id or ""
-
             loop = asyncio.get_running_loop()
             loop.create_task(event_bus.publish(
                 CompanyEvent(

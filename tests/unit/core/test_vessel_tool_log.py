@@ -64,7 +64,7 @@ class TestLogNodeDictContent:
         v._current_entries["emp_001"] = entry
 
         publish_calls = []
-        v._publish_log_event = lambda emp_id, task_id, entry: publish_calls.append((emp_id, task_id, entry))
+        v._publish_log_event = lambda emp_id, task_id, entry, **kw: publish_calls.append((emp_id, task_id, entry))
 
         with patch("onemancompany.core.task_tree.get_tree") as mock_get_tree, \
              patch("onemancompany.core.vessel._append_node_execution_log") as mock_append:
