@@ -660,9 +660,13 @@ def _step_execute(
     # Also write base_url for OpenRouter (needed by existing code)
     if provider == PROVIDER_OPENROUTER:
         env_lines.append("OPENROUTER_BASE_URL=https://openrouter.ai/api/v1")
+    # Write auth method when Anthropic is the primary or extra provider
+    if provider == PROVIDER_ANTHROPIC:
+        env_lines.append(f"{ENV_KEY_ANTHROPIC_AUTH}={AuthMethod.API_KEY.value}")
     if ENV_KEY_ANTHROPIC in extras:
         env_lines.append(f"{ENV_KEY_ANTHROPIC}={extras[ENV_KEY_ANTHROPIC]}")
-        env_lines.append(f"{ENV_KEY_ANTHROPIC_AUTH}={AuthMethod.API_KEY}")
+        if provider != PROVIDER_ANTHROPIC:  # Don't duplicate if already written above
+            env_lines.append(f"{ENV_KEY_ANTHROPIC_AUTH}={AuthMethod.API_KEY.value}")
     if ENV_KEY_SKILLSMP in extras:
         env_lines.append(f"{ENV_KEY_SKILLSMP}={extras[ENV_KEY_SKILLSMP]}")
 
