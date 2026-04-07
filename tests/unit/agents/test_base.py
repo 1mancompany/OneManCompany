@@ -1481,3 +1481,70 @@ class TestLoadManifestPromptSectionsException:
         runner._load_agent_prompt_sections(pb)
         # The broken section should not be added
         assert not pb.has("broken")
+
+
+# ---------------------------------------------------------------------------
+# on_log structured tool call output
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_streamed_sends_structured_tool_call(monkeypatch):
+    """run_streamed should send dict (not string) for tool_call and tool_result."""
+    from onemancompany.agents.base import BaseAgentRunner
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    # Create a minimal executor
+    executor = BaseAgentRunner.__new__(BaseAgentRunner)
+    executor.employee_id = "test_emp"
+    executor._tools = []
+    executor._agent = MagicMock()
+    executor._status = "idle"
+
+    # Build fake streaming events
+    tool_call_msg = AIMessage(
+        content="",
+        tool_calls=[{"name": "list_colleagues", "args": {"department": "eng"}, "id": "tc_1"}],
+    )
+    tool_result_output = "Found 3 colleagues"
+
+    events = [
+        {"event": "on_chat_model_end", "data": {"output": tool_call_msg}},
+        {"event": "on_tool_end", "data": {"output": tool_result_output}, "name": "list_colleagues"},
+        # Final AI message
+        {"event": "on_chat_model_end", "data": {"output": AIMessage(content="Done checking.")}},
+    ]
+
+    async def fake_astream_events(*args, **kwargs):
+        for e in events:
+            yield e
+
+    executor._agent.astream_events = fake_astream_events
+
+    # Patch _build_full_prompt, _set_status, _publish, _get_model_name
+    executor._build_full_prompt = lambda: "You are a test agent."
+    executor._set_status = lambda s: None
+    executor._publish = AsyncMock()
+    executor._get_model_name = lambda: "test-model"
+
+    logged = []
+    def on_log(log_type, content):
+        logged.append((log_type, content))
+
+    await executor.run_streamed("do something", on_log=on_log)
+
+    # Find tool_call entry
+    tool_calls = [(t, c) for t, c in logged if t == "tool_call"]
+    assert len(tool_calls) == 1
+    tc_type, tc_content = tool_calls[0]
+    assert isinstance(tc_content, dict), f"Expected dict, got {type(tc_content)}"
+    assert tc_content["tool_name"] == "list_colleagues"
+    assert tc_content["tool_args"] == {"department": "eng"}
+    assert "content" in tc_content  # backward compat string
+
+    # Find tool_result entry
+    tool_results = [(t, c) for t, c in logged if t == "tool_result"]
+    assert len(tool_results) == 1
+    tr_type, tr_content = tool_results[0]
+    assert isinstance(tr_content, dict), f"Expected dict, got {type(tr_content)}"
+    assert tr_content["tool_name"] == "list_colleagues"
+    assert "tool_result" in tr_content

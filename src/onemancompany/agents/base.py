@@ -659,15 +659,24 @@ class BaseAgentRunner:
                             last_tool_results = []
                             for tc in tool_calls:
                                 name = tc.get("name", "?")
-                                args = str(tc.get("args", {}))
+                                args_dict = tc.get("args", {})
+                                args = str(args_dict)
                                 last_tool_calls.append(name)
-                                on_log("tool_call", f"{name}({args})")
+                                on_log("tool_call", {
+                                    "tool_name": name,
+                                    "tool_args": args_dict,
+                                    "content": f"{name}({args})",
+                                })
             elif kind == "on_tool_end":
                 output = data.get("output", "")
                 name = event.get("name", "tool")
                 result_str = str(output)
                 last_tool_results.append(f"{name} → {result_str}")
-                on_log("tool_result", f"{name} → {result_str}")
+                on_log("tool_result", {
+                    "tool_name": name,
+                    "tool_result": result_str,
+                    "content": f"{name} → {result_str}",
+                })
                 # Capture ToolMessage for Debug trace
                 raw_output = data.get("output")
                 if raw_output and hasattr(raw_output, "content"):
