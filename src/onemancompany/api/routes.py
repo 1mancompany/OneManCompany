@@ -6066,8 +6066,25 @@ def _merge_tool_calls_into_history(
     if not tool_entries:
         return history
 
+    # Pair tool_call with its subsequent tool_result (same tool_name, same node)
+    # so the frontend can render one card with both args and result.
+    paired: list[dict] = []
+    pending_calls: dict[str, dict] = {}  # tool_name → tool_call entry
+    for entry in tool_entries:
+        if entry["type"] == "tool_call":
+            key = f"{entry.get('employee_id', '')}:{entry['tool_name']}"
+            pending_calls[key] = entry
+            paired.append(entry)
+        elif entry["type"] == "tool_result":
+            key = f"{entry.get('employee_id', '')}:{entry['tool_name']}"
+            call = pending_calls.pop(key, None)
+            if call:
+                # Merge result into the tool_call entry
+                call["tool_result"] = entry.get("tool_result", "")
+            # Skip standalone tool_result — it's merged into its tool_call
+
     # Merge by timestamp
-    merged = list(history) + tool_entries
+    merged = list(history) + paired
     merged.sort(key=lambda x: x.get("timestamp") or x.get("ts") or "")
     return merged
 

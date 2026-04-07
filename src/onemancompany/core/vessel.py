@@ -2370,7 +2370,12 @@ class EmployeeManager:
                         logger.debug("[TASK LIFECYCLE] parent={} → PROCESSING (auto-complete prep)", parent_node.id)
                     parent_node.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] parent={} → COMPLETED (all children resolved)", parent_node.id)
-                    parent_node.result = "All child tasks accepted."
+                    # Propagate CEO response if a CEO_REQUEST child has a result
+                    ceo_responses = [
+                        c.result for c in children
+                        if c.node_type == NodeType.CEO_REQUEST.value and c.result
+                    ]
+                    parent_node.result = ceo_responses[0] if ceo_responses else "All child tasks accepted."
                     save_tree_async(entry.tree_path)
                     self._publish_node_update(parent_node.employee_id, parent_node)
                 if parent_node.status == TaskPhase.COMPLETED.value:

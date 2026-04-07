@@ -5465,9 +5465,7 @@ body.resize-dragging {
   font-size: 11px;
   line-height: 1.6;
   color: #d4d4d4;
-  overflow-y: auto;
   padding: 8px 12px;
-  height: 100%;
 }
 .ceo-conv-header {
   color: #22d3ee;

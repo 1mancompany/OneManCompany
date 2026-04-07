@@ -47,14 +47,14 @@ def test_merge_tool_calls_into_history(tmp_path):
 
     merged = _merge_tool_calls_into_history(history, mock_tree, str(project_dir))
 
-    # Should have 4 entries: ceo msg, tool_call, tool_result, system msg (sorted by timestamp)
-    assert len(merged) == 4
+    # Should have 3 entries: ceo msg, tool_call (with result merged in), system msg
+    # tool_result is paired into its tool_call, not a separate entry
+    assert len(merged) == 3
     assert merged[0]["role"] == "ceo"
     assert merged[1]["type"] == "tool_call"
     assert merged[1]["tool_name"] == "dispatch_child"
-    assert merged[2]["type"] == "tool_result"
-    assert merged[2]["tool_name"] == "dispatch_child"
-    assert merged[3]["role"] == "system"
+    assert merged[1]["tool_result"] == "Task dispatched to 张三"  # result merged in
+    assert merged[2]["role"] == "system"
 
 
 def test_merge_empty_execution_log(tmp_path):
