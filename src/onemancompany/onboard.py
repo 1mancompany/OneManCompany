@@ -700,7 +700,7 @@ def _step_execute(
         if tm_key:
             console.print("  [green]\u2714[/green] Talent Market API key saved")
 
-    # 4. Sync founding employees' llm_model to user-selected default
+    # 4. Sync founding employees' llm_model and api_provider to user-selected defaults
     import yaml as _yaml
     from onemancompany.core.config import FOUNDING_IDS, EMPLOYEES_DIR
     _synced = 0
@@ -708,12 +708,18 @@ def _step_execute(
         _profile = EMPLOYEES_DIR / _fid / "profile.yaml"
         if _profile.exists():
             _pdata = _yaml.safe_load(read_text_utf(_profile)) or {}
+            _changed = False
             if _pdata.get("llm_model") != model:
                 _pdata["llm_model"] = model
+                _changed = True
+            if _pdata.get("api_provider") != provider:
+                _pdata["api_provider"] = provider
+                _changed = True
+            if _changed:
                 write_text_utf(_profile, _yaml.dump(_pdata, default_flow_style=False, allow_unicode=True))
                 _synced += 1
     if _synced:
-        console.print(f"  [green]\u2714[/green] Founding employees model set to {model}")
+        console.print(f"  [green]\u2714[/green] Founding employees set to {provider}/{model}")
 
     # 5. Assign random default avatars to founding employees
     _assign_default_avatars(console)
