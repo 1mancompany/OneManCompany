@@ -6,7 +6,7 @@
 
 <h1 align="center">OneManCompany</h1>
 
-<p align="center"><b>The Agent Operating System for One-Person Companies</b></p>
+<p align="center"><b>The Agent Operating System for One Man Companies</b></p>
 
 <p align="center">
   <a href="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml"><img src="https://github.com/1mancompany/OneManCompany/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
@@ -375,7 +375,7 @@ You're not just using AI — you're leading a continuously growing, dynamically 
 
 ## Vision & Roadmap
 
-**Near-term:** Enable 100 AI one-person companies within one year.
+**Near-term:** Enable 100 AI one man companies within one year.
 
 **Long-term:** Redefine the relationship between AI, humans, and organizations.
 
