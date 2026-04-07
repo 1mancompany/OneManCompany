@@ -509,9 +509,41 @@ class AppController {
           // Skip if REST fetch is in-flight (renderLogs will do a full refresh)
           if (this._logFetchInFlight) return null;
           if (this._empXterm) {
-            this._empXterm.appendLog(p.log);
+            // Employee xterm still receives string content
+            const xtermLog = { ...p.log };
+            if (typeof xtermLog.content === 'object' && xtermLog.content !== null) {
+              xtermLog.content = xtermLog.content.content || JSON.stringify(xtermLog.content);
+            }
+            this._empXterm.appendLog(xtermLog);
           }
         }
+
+        // CEO conversation: route tool_call / tool_result events
+        if (p.project_id && this._ceoTerm && this._currentCeoProject) {
+          const currentBase = this._currentCeoProject.split('/')[0];
+          const eventBase = p.project_id.split('/')[0];
+          if (currentBase === eventBase) {
+            if (p.log?.type === 'tool_call') {
+              const content = p.log.content;
+              if (typeof content === 'object' && content !== null) {
+                this._ceoTerm.appendToolCall({
+                  employeeId: p.employee_id,
+                  toolName: content.tool_name || '?',
+                  toolArgs: content.tool_args || {},
+                });
+              }
+            } else if (p.log?.type === 'tool_result') {
+              const content = p.log.content;
+              if (typeof content === 'object' && content !== null) {
+                this._ceoTerm.updateToolCall(p.employee_id, {
+                  toolName: content.tool_name || '?',
+                  toolResult: content.tool_result || '',
+                });
+              }
+            }
+          }
+        }
+
         return null;  // don't spam the activity log
       },
     };
