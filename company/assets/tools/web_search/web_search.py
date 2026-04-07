@@ -1,179 +1,16 @@
-"""Web search tool via Anthropic Claude API with built-in web search.
+"""Web search tool via DuckDuckGo.
 
 Provides one LangChain @tool:
 - web_search(query, max_results=5)
+
+No API key required. Uses duckduckgo-search package.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import urllib.error
-import urllib.request
-
+from ddgs import DDGS
 from langchain_core.tools import tool
 from loguru import logger
-
-
-
-
-_ENV_KEY_NAME = "ANTHROPIC_API_KEY"
-_API_URL = "https://api.anthropic.com/v1/messages"
-_MODEL = "claude-sonnet-4-20250514"
-_API_VERSION = "2025-01-01"
-_USER_AGENT = "OneManCompany-WebSearch/1.0"
-_TOOL_TYPE = "web_search_20250305"
-
-# Claude API response block types
-_BLOCK_TYPE_SEARCH_RESULT = "web_search_tool_result"
-_BLOCK_TYPE_RESULT_ITEM = "web_search_result"
-_BLOCK_TYPE_TEXT = "text"
-
-# Response field keys
-_FIELD_CONTENT = "content"
-_FIELD_TYPE = "type"
-_FIELD_TEXT = "text"
-_FIELD_TITLE = "title"
-_FIELD_URL = "url"
-_FIELD_PAGE_SNIPPET = "page_snippet"
-
-
-def _load_env_var(name: str) -> str:
-    """Load an env var, falling back to company .env file."""
-    val = os.environ.get(name, "").strip()
-    if val:
-        return val
-    try:
-        from onemancompany.core.config import DATA_ROOT, DOT_ENV_FILENAME
-        env_path = DATA_ROOT / DOT_ENV_FILENAME
-        if not env_path.exists():
-            return ""
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("#") or "=" not in line:
-                continue
-            key, _, v = line.partition("=")
-            if key.strip() == name:
-                return v.strip().strip("\"'")
-    except Exception:
-        pass
-    return ""
-
-
-def _resolve_anthropic_auth() -> tuple[str, dict]:
-    """Resolve Anthropic API authentication — supports both API key and OAuth.
-
-    Returns (key_or_token, auth_headers_dict). Empty dict if no auth available.
-    For OAuth, returns the stored token WITHOUT refreshing — refresh only on 401.
-    """
-    auth_method = _load_env_var("ANTHROPIC_AUTH_METHOD")
-
-    if auth_method == "oauth":
-        access_token = _load_env_var(_ENV_KEY_NAME)
-        if access_token:
-            return access_token, {"Authorization": f"Bearer {access_token}"}
-        # No access token — try refresh as last resort
-        refresh_token = _load_env_var("ANTHROPIC_REFRESH_TOKEN")
-        if refresh_token:
-            fresh = _refresh_anthropic_token(refresh_token)
-            if fresh:
-                return fresh, {"Authorization": f"Bearer {fresh}"}
-        return "", {}
-
-    # Default: API key auth
-    api_key = _load_env_var(_ENV_KEY_NAME)
-    if not api_key:
-        return "", {}
-    return api_key, {"x-api-key": api_key}
-
-
-_ANTHROPIC_TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
-_ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-
-
-def _refresh_anthropic_token(refresh_token: str) -> str:
-    """Refresh an Anthropic OAuth access token using PKCE (no client_secret).
-
-    On success, updates .env with the new access token and returns it.
-    Returns empty string on failure.
-    """
-    import urllib.parse
-
-    payload = urllib.parse.urlencode({
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": _ANTHROPIC_CLIENT_ID,
-    }).encode("utf-8")
-
-    req = urllib.request.Request(
-        _ANTHROPIC_TOKEN_URL,
-        data=payload,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        new_token = body.get("access_token", "")
-        new_refresh = body.get("refresh_token", "")
-        if new_token:
-            # Update .env so subsequent calls use the fresh token
-            try:
-                from onemancompany.core.config import update_env_var
-                update_env_var(_ENV_KEY_NAME, new_token)
-                if new_refresh:
-                    update_env_var("ANTHROPIC_REFRESH_TOKEN", new_refresh)
-            except Exception as exc:
-                logger.debug("[web_search] Failed to persist refreshed token: {}", exc)
-            return new_token
-    except Exception as exc:
-        logger.debug("[web_search] Anthropic token refresh failed: {}", exc)
-    return ""
-
-
-def _post_json(url: str, headers: dict, payload: dict, timeout: int = 30) -> tuple[dict | None, str | None]:
-    """POST JSON and return (json_body, error)."""
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", errors="replace")
-        return json.loads(raw), None
-    except urllib.error.HTTPError as e:
-        body_text = e.read().decode("utf-8", errors="replace") if e.fp else ""
-        return None, f"HTTP {e.code}: {body_text[:800]}"
-    except json.JSONDecodeError as e:
-        return None, f"Invalid JSON response: {e}"
-    except Exception as e:
-        return None, str(e)
-
-
-def _extract_search_results(response: dict) -> list[dict]:
-    """Extract web search results from Claude API response content blocks."""
-    results = []
-    for block in response.get(_FIELD_CONTENT, []):
-        if block.get(_FIELD_TYPE) == _BLOCK_TYPE_SEARCH_RESULT:
-            for item in block.get(_FIELD_CONTENT, []):
-                if item.get(_FIELD_TYPE) == _BLOCK_TYPE_RESULT_ITEM:
-                    results.append({
-                        _FIELD_TITLE: item.get(_FIELD_TITLE, ""),
-                        _FIELD_URL: item.get(_FIELD_URL, ""),
-                        _FIELD_PAGE_SNIPPET: item.get(_FIELD_PAGE_SNIPPET, ""),
-                    })
-    return results
-
-
-def _extract_text_answer(response: dict) -> str:
-    """Extract the text summary from Claude's response."""
-    parts = []
-    for block in response.get(_FIELD_CONTENT, []):
-        if block.get(_FIELD_TYPE) == _BLOCK_TYPE_TEXT:
-            parts.append(block.get(_FIELD_TEXT, ""))
-    return "\n".join(parts).strip()
 
 
 @tool
@@ -191,64 +28,34 @@ def web_search(query: str, max_results: int = 5) -> dict:
     if not query:
         return {"status": "error", "message": "query is empty"}
 
-    api_key, auth_header = _resolve_anthropic_auth()
-    if not auth_header:
-        return {"status": "error", "message": f"{_ENV_KEY_NAME} not configured in .env"}
-
     max_results = max(1, min(int(max_results), 20))
 
-    headers = {
-        **auth_header,
-        "anthropic-version": _API_VERSION,
-        "content-type": "application/json",
-        "User-Agent": _USER_AGENT,
-    }
+    try:
+        with DDGS() as ddgs:
+            raw_results = list(ddgs.text(query, max_results=max_results))
 
-    payload = {
-        "model": _MODEL,
-        "max_tokens": 4096,
-        "tools": [
+        sources = [
             {
-                "type": _TOOL_TYPE,
-                "name": "web_search",
-                "max_uses": max_results,
+                "title": r.get("title", ""),
+                "url": r.get("href", ""),
+                "page_snippet": r.get("body", ""),
             }
-        ],
-        "messages": [
-            {
-                "role": "user",
-                "content": f"Search the web and provide a comprehensive answer: {query}",
-            }
-        ],
-    }
+            for r in raw_results
+        ]
 
-    resp_json, err = _post_json(_API_URL, headers, payload, timeout=60)
+        # Build a text answer from snippets
+        answer_parts = []
+        for i, s in enumerate(sources, 1):
+            answer_parts.append(f"{i}. **{s['title']}**\n   {s['page_snippet']}\n   Source: {s['url']}")
+        answer = "\n\n".join(answer_parts) if answer_parts else "No results found."
 
-    # On 401 (expired OAuth token), refresh once and retry
-    if err and "HTTP 401" in err and _load_env_var("ANTHROPIC_AUTH_METHOD") == "oauth":
-        refresh_token = _load_env_var("ANTHROPIC_REFRESH_TOKEN")
-        if refresh_token:
-            logger.debug("[web_search] Got 401, refreshing OAuth token")
-            fresh = _refresh_anthropic_token(refresh_token)
-            if fresh:
-                headers = {
-                    "Authorization": f"Bearer {fresh}",
-                    "anthropic-version": _API_VERSION,
-                    "content-type": "application/json",
-                    "User-Agent": _USER_AGENT,
-                }
-                resp_json, err = _post_json(_API_URL, headers, payload, timeout=60)
-
-    if err or resp_json is None:
-        return {"status": "error", "message": err or "empty response from API"}
-
-    answer = _extract_text_answer(resp_json)
-    sources = _extract_search_results(resp_json)
-
-    return {
-        "status": "ok",
-        "query": query,
-        "answer": answer,
-        "sources": sources[:max_results],
-        "source_count": len(sources),
-    }
+        return {
+            "status": "ok",
+            "query": query,
+            "answer": answer,
+            "sources": sources,
+            "source_count": len(sources),
+        }
+    except Exception as exc:
+        logger.debug("[web_search] DuckDuckGo search failed: {}", exc)
+        return {"status": "error", "message": f"Search failed: {exc}"}
