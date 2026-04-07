@@ -2909,7 +2909,7 @@ class AppController {
     }
 
     try {
-      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}`);
+      const resp = await fetch(`/api/ceo/sessions/${encodeURIComponent(projectId)}?include_tools=true`);
       if (!resp.ok) {
         this._ceoTerm?.showChat(projectId, []);
         return;

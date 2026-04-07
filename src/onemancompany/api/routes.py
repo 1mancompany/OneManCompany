@@ -6013,6 +6013,65 @@ async def get_activity_log():
 # ── Unified CEO Session endpoints ────────────────────────────────────────────
 
 
+def _merge_tool_calls_into_history(
+    history: list[dict],
+    tree,
+    project_dir: str,
+) -> list[dict]:
+    """Merge tool_call/tool_result entries from execution.log into conversation history.
+
+    Single source of truth: tool call data lives only in execution.log JSONL.
+    This function reads and interleaves them by timestamp for display.
+    """
+    import json as _json
+    tool_entries = []
+
+    for node in tree.all_nodes():
+        node_dir = node.project_dir or project_dir
+        log_path = Path(node_dir) / "nodes" / node.id / "execution.log"
+        if not log_path.exists():
+            continue
+        try:
+            for line in log_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                entry = _json.loads(line)
+                entry_type = entry.get("type", "")
+                if entry_type not in ("tool_call", "tool_result"):
+                    continue
+                # Parse tool name from content string
+                content = entry.get("content", "")
+                if entry_type == "tool_call":
+                    name, _, args_str = content.partition("(")
+                    tool_entries.append({
+                        "type": "tool_call",
+                        "tool_name": name,
+                        "tool_args_raw": args_str.rstrip(")"),
+                        "employee_id": getattr(node, "owner", "") or "",
+                        "timestamp": entry.get("ts", ""),
+                    })
+                elif entry_type == "tool_result":
+                    name, _, result = content.partition(" \u2192 ")
+                    tool_entries.append({
+                        "type": "tool_result",
+                        "tool_name": name,
+                        "tool_result": result,
+                        "employee_id": getattr(node, "owner", "") or "",
+                        "timestamp": entry.get("ts", ""),
+                    })
+        except Exception as exc:
+            logger.debug("[_merge_tool_calls_into_history] skipping node {}: {}", node.id, exc)
+            continue
+
+    if not tool_entries:
+        return history
+
+    # Merge by timestamp
+    merged = list(history) + tool_entries
+    merged.sort(key=lambda x: x.get("timestamp") or x.get("ts") or "")
+    return merged
+
+
 @router.get("/api/ceo/sessions")
 async def list_ceo_sessions():
     """List all CEO sessions, sorted by pending-first."""
@@ -6023,7 +6082,7 @@ async def list_ceo_sessions():
 
 
 @router.get("/api/ceo/sessions/{project_id:path}")
-async def get_ceo_session(project_id: str):
+async def get_ceo_session(project_id: str, include_tools: bool = False):
     """Get a specific CEO session's history and pending status."""
     from onemancompany.core.ceo_broker import get_ceo_broker
 
@@ -6031,9 +6090,20 @@ async def get_ceo_session(project_id: str):
     session = broker.get_session(project_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    history = session.history
+
+    if include_tools and session.project_dir:
+        from onemancompany.core.config import TASK_TREE_FILENAME
+        from onemancompany.core.task_tree import get_tree
+        tree_path = Path(session.project_dir) / TASK_TREE_FILENAME
+        if tree_path.exists():
+            tree = get_tree(str(tree_path))
+            history = _merge_tool_calls_into_history(history, tree, str(session.project_dir))
+
     return {
         "project_id": project_id,
-        "history": session.history,
+        "history": history,
         "has_pending": session.has_pending,
         "pending_count": session.pending_count,
     }
