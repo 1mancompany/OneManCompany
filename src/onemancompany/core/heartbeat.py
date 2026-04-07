@@ -243,7 +243,8 @@ async def run_heartbeat_cycle() -> list[str]:
             if provider == PROVIDER_ANTHROPIC:
                 auth_method = cfg.auth_method if cfg.auth_method == AuthMethod.OAUTH else settings.anthropic_auth_method
                 if auth_method == AuthMethod.OAUTH:
-                    _update_online(emp_id, bool(key), changed)
+                    oauth_key = cfg.api_key or settings.anthropic_oauth_token
+                    _update_online(emp_id, bool(oauth_key), changed)
                     continue
 
             # Employee has own key → per-employee check
