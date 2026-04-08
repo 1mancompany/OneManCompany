@@ -547,6 +547,9 @@ async def search_candidates(job_description: str) -> dict:
                             logger.warning("[recruitment] Non-AI search returned no roles (keys={}), falling back to local", list(grouped.keys())[:10])
                             market_warning = f"AI search unavailable ({err_msg}). Standard search returned no results. Using local talent pool."
                             grouped = _local_fallback_search(job_description)
+                        else:
+                            market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
+                            from_market = True
                     else:
                         market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
                         from_market = True
