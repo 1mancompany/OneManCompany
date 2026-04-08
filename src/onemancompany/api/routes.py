@@ -3684,10 +3684,13 @@ async def download_project_files(project_id: str):
     buf.seek(0)
 
     slug = project_id.split("/")[0]
+    from urllib.parse import quote as _quote_url
+    _safe = slug.encode("ascii", "ignore").decode() or "project"
+    _enc = _quote_url(f"{slug}-files.zip", safe="")
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{slug}-files.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{_safe}-files.zip"; filename*=UTF-8\'\'{_enc}'},
     )
 
 
@@ -3773,10 +3776,13 @@ async def download_employee_workspace(employee_id: str):
 
     _dl_emp = _load_emp(employee_id)
     name = _dl_emp.get("nickname", employee_id) if _dl_emp else employee_id
+    from urllib.parse import quote as _quote_url
+    _safe = name.encode("ascii", "ignore").decode() or employee_id
+    _enc = _quote_url(f"{name}_workspace.zip", safe="")
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}_workspace.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{_safe}_workspace.zip"; filename*=UTF-8\'\'{_enc}'},
     )
 
 
@@ -3814,10 +3820,14 @@ async def download_project_workspace(project_id: str):
                 zf.write(fpath, fpath.relative_to(pdir))
     buf.seek(0)
 
+    # RFC 5987: use filename* for non-ASCII project names, fallback ASCII filename for old clients
+    from urllib.parse import quote
+    safe_name = project_id.encode("ascii", "ignore").decode() or "workspace"
+    encoded_name = quote(f"{project_id}_workspace.zip", safe="")
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{project_id}_workspace.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_workspace.zip"; filename*=UTF-8\'\'{encoded_name}'},
     )
 
 
