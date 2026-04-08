@@ -521,6 +521,11 @@ async def search_candidates(job_description: str) -> dict:
                     else:
                         market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
                         from_market = True
+                        # Debug: log the actual data structure returned by non-AI search
+                        for _rg in grouped.get("roles", []):
+                            for _ci, _cc in enumerate(_rg.get("candidates", [])[:2]):
+                                logger.debug("[recruitment] non-AI candidate sample #{}: keys={}, id={}, talent_id={}, name={}",
+                                             _ci, list(_cc.keys())[:8], _cc.get("id", ""), _cc.get("talent_id", ""), _cc.get("name", ""))
                 else:
                     market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
                     grouped = _local_fallback_search(job_description)
@@ -564,8 +569,12 @@ async def search_candidates(job_description: str) -> dict:
             cid = _extract_candidate_id(c)
             if cid:
                 _last_search_results[cid] = c
+            else:
+                logger.warning("[recruitment] Candidate has no extractable ID, keys={}, skipping from shortlist cache", list(c.keys())[:10])
             normalized.append(c)
         role_group["candidates"] = normalized
+    logger.debug("[recruitment] Normalized {} candidates into _last_search_results (from {} roles)",
+                 len(_last_search_results), len(grouped.get("roles", [])))
     _persist_candidates()  # persist search cache to survive restarts
 
     # Talent Market results are pre-screened — auto-submit all as shortlist,
