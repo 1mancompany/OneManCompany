@@ -2414,14 +2414,12 @@ class EmployeeManager:
                     c for c in non_review_children
                     if c.status == TaskPhase.FAILED.value
                 )
-                # Check for cancelled children when parent is HOLDING — resume parent
+                # Check if the CURRENT completing node was cancelled — resume parent
                 # so it can reassess (e.g. cancelled CEO_REQUEST should unblock parent).
-                # Check ALL children (including system nodes like CEO_REQUEST) because
-                # a cancelled system node should also unblock the parent.
-                has_cancelled_child = any(
-                    c for c in children
-                    if c.status == TaskPhase.CANCELLED.value
-                )
+                # Only trigger on the node that just completed, NOT on stale cancelled
+                # siblings — otherwise WATCHDOG_NUDGE completions re-trigger the cancelled
+                # branch in an infinite loop.
+                has_cancelled_child = node.status == TaskPhase.CANCELLED.value
                 if has_failed_child and parent_node.status in (TaskPhase.HOLDING.value, TaskPhase.PROCESSING.value):
                     failed_children = [
                         c for c in non_review_children
