@@ -619,6 +619,11 @@ async def lifespan(app: FastAPI):
         _app_ver = "dev"
     print(f"🏢 One Man Company HQ v{_app_ver} is running!")
     print(f"   Frontend: http://localhost:{_settings.port}")
+
+    # Background update checker
+    from onemancompany.core.update_checker import start_update_checker
+    asyncio.create_task(start_update_checker())
+
     yield
 
     # Stop agent loops
