@@ -374,6 +374,7 @@ class TalentMarketClient:
                 logger.debug("Skipping unparseable MCP content block: {}", getattr(item, 'text', '')[:200])
                 continue
             if isinstance(parsed, dict):
+                logger.debug("[TalentMarket] parsed response keys={}, roles_count={}", list(parsed.keys())[:10], len(parsed.get("roles", [])))
                 return parsed
         logger.warning("[TalentMarket] No dict found in response, raw content: {}",
                       [getattr(item, 'text', '')[:200] for item in result.content])
