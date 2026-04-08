@@ -519,14 +519,14 @@ async def search_candidates(job_description: str) -> dict:
                         logger.warning("[recruitment] Non-AI search also failed: {}, falling back to local", err_msg2)
                         market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
                         grouped = _local_fallback_search(job_description)
+                    elif not grouped.get("roles"):
+                        # Non-AI search returned no roles — treat as empty result, fall back to local
+                        logger.warning("[recruitment] Non-AI search returned no roles (keys={}), falling back to local", list(grouped.keys())[:10])
+                        market_warning = f"AI search unavailable ({err_msg}). Standard search returned no results. Using local talent pool."
+                        grouped = _local_fallback_search(job_description)
                     else:
                         market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
                         from_market = True
-                        # Debug: log the actual data structure returned by non-AI search
-                        for _rg in grouped.get("roles", []):
-                            for _ci, _cc in enumerate(_rg.get("candidates", [])[:2]):
-                                logger.debug("[recruitment] non-AI candidate sample #{}: keys={}, id={}, talent_id={}, name={}",
-                                             _ci, list(_cc.keys())[:8], _cc.get("id", ""), _cc.get("talent_id", ""), _cc.get("name", ""))
                 else:
                     market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
                     grouped = _local_fallback_search(job_description)
