@@ -470,6 +470,27 @@ def _local_fallback_search(job_description: str) -> dict:
     }
 
 
+def _normalize_api_response(resp: dict) -> dict:
+    """Normalize Talent Market API response to expected format.
+
+    The API may return {results: [...]} instead of {roles: [...]}.
+    Convert to {roles: [{role: "...", candidates: [...]}]} format.
+    """
+    if resp.get("roles"):
+        return resp  # Already in expected format
+    results = resp.get("results")
+    if isinstance(results, list) and results:
+        # "results" is a flat list of candidates or a list of role groups
+        if results and isinstance(results[0], dict) and "candidates" in results[0]:
+            # Already role-grouped: [{role: ..., candidates: [...]}, ...]
+            resp["roles"] = results
+        else:
+            # Flat candidate list — wrap in a single role group
+            resp["roles"] = [{"role": "General", "candidates": results}]
+        logger.debug("[recruitment] Normalized API response: 'results' → 'roles' ({} entries)", len(resp["roles"]))
+    return resp
+
+
 def _is_error_response(grouped: dict) -> str:
     """Check if a Talent Market response is an error. Returns error message or empty string."""
     if "error" in grouped:
@@ -520,10 +541,12 @@ async def search_candidates(job_description: str) -> dict:
                         market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
                         grouped = _local_fallback_search(job_description)
                     elif not grouped.get("roles"):
-                        # Non-AI search returned no roles — treat as empty result, fall back to local
-                        logger.warning("[recruitment] Non-AI search returned no roles (keys={}), falling back to local", list(grouped.keys())[:10])
-                        market_warning = f"AI search unavailable ({err_msg}). Standard search returned no results. Using local talent pool."
-                        grouped = _local_fallback_search(job_description)
+                        # Talent Market API may return "results" instead of "roles" (format change)
+                        grouped = _normalize_api_response(grouped)
+                        if not grouped.get("roles"):
+                            logger.warning("[recruitment] Non-AI search returned no roles (keys={}), falling back to local", list(grouped.keys())[:10])
+                            market_warning = f"AI search unavailable ({err_msg}). Standard search returned no results. Using local talent pool."
+                            grouped = _local_fallback_search(job_description)
                     else:
                         market_warning = f"AI search unavailable ({err_msg}). Showing standard search results."
                         from_market = True
@@ -531,6 +554,7 @@ async def search_candidates(job_description: str) -> dict:
                     market_warning = f"Cloud search failed ({err_msg}). Using local talent pool instead."
                     grouped = _local_fallback_search(job_description)
             else:
+                grouped = _normalize_api_response(grouped)
                 total = sum(len(r.get("candidates", [])) for r in grouped.get("roles", []))
                 logger.info("Talent Market returned {} candidates in {} roles for JD: {}",
                             total, len(grouped.get("roles", [])), job_description[:80])
