@@ -5617,3 +5617,14 @@ body.resize-dragging {
 .completion-card-body div {
   padding: 1px 0;
 }
+
+/* ===== Message Collapse/Expand ===== */
+.ceo-msg-toggle {
+  display: inline-block;
+  color: var(--pixel-cyan);
+  font-size: calc(9px + var(--font-boost));
+  cursor: pointer;
+  margin-top: 4px;
+  user-select: none;
+}
+.ceo-msg-toggle:hover { text-decoration: underline; }

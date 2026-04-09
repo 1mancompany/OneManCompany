@@ -213,8 +213,20 @@ class CeoTerminal {
       const src = msg.source || 'system';
       const cls = src === 'ea_auto_reply' ? 'ceo-msg--system' : 'ceo-msg--agent';
       el.className = `ceo-msg ${cls}`;
-      el.innerHTML = `<span class="ceo-msg-sender">[${this._esc(src)}]</span>`
-        + `<span class="ceo-msg-text">${this._esc(msg.text || '')}</span>`;
+      const text = msg.text || '';
+      const lines = text.split('\n');
+      const COLLAPSE_THRESHOLD = 5;
+      if (lines.length > COLLAPSE_THRESHOLD) {
+        const preview = lines.slice(0, COLLAPSE_THRESHOLD).join('\n');
+        const full = text;
+        el.innerHTML = `<span class="ceo-msg-sender">[${this._esc(src)}]</span>`
+          + `<span class="ceo-msg-text ceo-msg-collapsed">${this._esc(preview)}</span>`
+          + `<span class="ceo-msg-text ceo-msg-full" style="display:none">${this._esc(full)}</span>`
+          + `<span class="ceo-msg-toggle" onclick="this.parentElement.querySelector('.ceo-msg-collapsed').style.display=this.parentElement.querySelector('.ceo-msg-collapsed').style.display==='none'?'':'none';this.parentElement.querySelector('.ceo-msg-full').style.display=this.parentElement.querySelector('.ceo-msg-full').style.display==='none'?'':'none';this.textContent=this.textContent==='▼ Show more'?'▲ Show less':'▼ Show more'">▼ Show more</span>`;
+      } else {
+        el.innerHTML = `<span class="ceo-msg-sender">[${this._esc(src)}]</span>`
+          + `<span class="ceo-msg-text">${this._esc(text)}</span>`;
+      }
     }
 
     this._container.appendChild(el);

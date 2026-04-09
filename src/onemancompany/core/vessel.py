@@ -1632,10 +1632,10 @@ class EmployeeManager:
                 self._append_history_from_node(employee_id, node)
                 summary = node.result or ""
                 _append_progress(employee_id, f"Completed: {node.description_preview} → {summary}")
-                # Push result to CEO session
-                result_first_line = (node.result or "").strip().split("\n")[0]
-                if result_first_line:
-                    self._push_to_ceo_session(node, f"✓ {result_first_line}")
+                # Push full result to CEO session
+                result_text = (node.result or "").strip()
+                if result_text:
+                    self._push_to_ceo_session(node, f"✓ {result_text}")
 
             # Post-task hook
             post_task_hook = self._hooks.get(employee_id, {}).get("post_task")
@@ -2531,7 +2531,7 @@ class EmployeeManager:
         # --- CEO confirm node completed → trigger cleanup ---
         # When a CEO_REQUEST confirm node (created below) finishes, run
         # _full_cleanup to archive the project and optionally run retrospective.
-        from onemancompany.core.config import CEO_ID as _CEO_ID
+        from onemancompany.core.config import CEO_ID as _CEO_ID, EA_ID
         if (node.node_type in (NodeType.CEO_REQUEST, NodeType.CEO_REQUEST.value)
             and node.employee_id == _CEO_ID
             and tree.is_project_complete()):
@@ -2560,7 +2560,17 @@ class EmployeeManager:
         # EA done executing + all child subtrees RESOLVED → trigger CEO confirmation.
         # Skip non-project node types (see _SKIP_COMPLETION_TYPES).
         if node.node_type not in SKIP_COMPLETION_TYPES and tree.is_project_complete():
-            ea_node = tree.get_ea_node()
+            # Find the EA node relevant to this completion:
+            # For followup tasks, use the followup's EA child (not the original EA).
+            ea_node = tree.get_ea_node()  # default: first EA
+            # Walk up from completing node to find the closest EA ancestor
+            _walk = node
+            while _walk:
+                if _walk.employee_id == EA_ID and _walk.node_type == NodeType.TASK:
+                    ea_node = _walk
+                    break
+                _walk = tree.get_node(_walk.parent_id) if _walk.parent_id else None
+
             logger.info(
                 "[PROJECT COMPLETE] EA node {} done + all subtrees resolved — scheduling CEO confirmation",
                 ea_node.id,
@@ -2574,7 +2584,7 @@ class EmployeeManager:
                     ea_parent.set_status(TaskPhase.COMPLETED)
                     logger.debug("[TASK LIFECYCLE] CEO parent={} → COMPLETED", ea_parent.id)
 
-            # Guard: don't create duplicate confirm nodes
+            # Guard: don't create duplicate confirm nodes for THIS specific EA
             existing_confirm = any(
                 c for c in tree.get_children(ea_node.id)
                 if (c.node_type == NodeType.CEO_REQUEST.value or c.node_type == NodeType.CEO_REQUEST)
