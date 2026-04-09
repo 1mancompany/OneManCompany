@@ -396,7 +396,7 @@ class ProviderConfig(BaseModel):
     chat_class: str = "openai"     # "openai" | "anthropic"
     env_key: str = ""              # Settings field name for company-level API key
     health_url: str = ""           # Zero-token health check endpoint
-    health_auth: str = "bearer"    # "bearer" | "anthropic"
+    health_auth: str = "bearer"    # "bearer" | "anthropic" | "query_param"
 
 
 PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
@@ -451,6 +451,7 @@ PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         env_key="google_api_key",
         health_url="https://generativelanguage.googleapis.com/v1beta/models",
+        health_auth="query_param",
     ),
     "minimax": ProviderConfig(
         base_url="https://api.minimax.chat/v1",

@@ -280,6 +280,13 @@ async def verify_auth(body: dict) -> dict:
     base_url = body.get("base_url", "")
     chat_class = body.get("chat_class", "")
 
+    # If no key provided, use the saved company-level key
+    if not api_key and body.get("use_saved"):
+        from onemancompany.core.config import get_provider, settings
+        prov_cfg = get_provider(provider)
+        if prov_cfg and prov_cfg.env_key:
+            api_key = getattr(settings, prov_cfg.env_key, "")
+
     if not provider or not api_key:
         return {"ok": False, "error": "provider and api_key are required"}
 

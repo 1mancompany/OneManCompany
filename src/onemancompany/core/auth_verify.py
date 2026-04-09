@@ -45,15 +45,18 @@ async def probe_health(
     import httpx
 
     headers: dict[str, str] = {}
+    params: dict[str, str] = {}
     if provider_cfg.health_auth == "anthropic":
         headers["x-api-key"] = api_key
         headers["anthropic-version"] = "2023-06-01"
+    elif provider_cfg.health_auth == "query_param":
+        params["key"] = api_key
     else:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(provider_cfg.health_url, headers=headers)
+            resp = await client.get(provider_cfg.health_url, headers=headers, params=params)
             if resp.status_code in (200, 201):
                 logger.debug("probe_health OK for {}", provider)
                 return True, ""

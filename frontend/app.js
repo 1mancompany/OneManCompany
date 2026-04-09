@@ -5567,12 +5567,8 @@ class AppController {
     const resultEl = document.getElementById(`api-${providerId}-result`);
     if (resultEl) { resultEl.textContent = '...'; resultEl.className = 'api-test-result'; }
 
-    // Get the API key from input or use existing
+    // Use input value, or omit to let backend test the saved key
     const apiKey = keyInput ? keyInput.value.trim() : '';
-    if (!apiKey) {
-      if (resultEl) { resultEl.textContent = 'No key'; resultEl.className = 'api-test-result fail'; }
-      return;
-    }
 
     try {
       const resp = await fetch('/api/auth/verify', {
@@ -5580,8 +5576,7 @@ class AppController {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: providerId,
-          api_key: apiKey,
-          model: 'test',  // minimal model name for probe
+          ...(apiKey ? { api_key: apiKey } : { use_saved: true }),
         }),
       });
       const data = await resp.json();
