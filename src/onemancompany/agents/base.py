@@ -525,11 +525,15 @@ def get_employee_tools_prompt(employee_id: str) -> str:
         "| Assign work to a colleague | dispatch_child() | Email/Gmail |\n"
         "| Learn about colleagues | list_colleagues() | Reading profile files directly |\n"
         "| Discuss with colleagues | pull_meeting() | dispatch_child with chat-like messages |\n"
-        "| View task details | read_node_detail() | Reading task_tree.yaml directly |\n\n"
+        "| View task details | read_node_detail() | Reading task_tree.yaml directly |\n"
+        "| Current news/events/prices/data | web_search() | Using training data (likely outdated) |\n\n"
         "IMPORTANT:\n"
         "- Always prefer dedicated tools over generic file operations.\n"
         "- After modifying a file, verify the change: read() the file to confirm.\n"
-        "- If a tool returns an error, read the message — it tells you what to do next."
+        "- If a tool returns an error, read the message — it tells you what to do next.\n"
+        "- **CRITICAL: If the task requires current/recent information (news, events, prices, "
+        "market data, today's date-specific content), you MUST call web_search() BEFORE answering. "
+        "Your training data is outdated — do NOT rely on it for anything time-sensitive.**"
     )
 
     parts.append("\n### Tool Usage Rules — Internal vs External")
