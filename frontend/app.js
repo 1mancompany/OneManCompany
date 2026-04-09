@@ -546,6 +546,7 @@ class AppController {
 
         return null;  // don't spam the activity log
       },
+      'activity':            (p) => ({ text: p.message || '', cls: 'system', agent: 'SYSTEM' }),
     };
 
     const formatter = formatters[msg.type];
