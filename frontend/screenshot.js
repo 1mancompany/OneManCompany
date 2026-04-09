@@ -217,9 +217,12 @@ function _panelToForeignObject(el, appRect) {
   const w = Math.round(r.width);
   const h = Math.round(r.height);
 
-  const clone = _sanitizeClone(el.cloneNode(true));
+  // Clone first, inline styles + images while indices still align with original,
+  // THEN sanitize (removing scripts/iframes may shift child indices)
+  const clone = el.cloneNode(true);
   _inlineComputedStyles(el, clone);
   _inlineImages(el, clone);
+  _sanitizeClone(clone);
   // Ensure all transparent backgrounds get the panel dark bg
   _fillTransparentBg(clone, '#0d0d1a');
   const html = new XMLSerializer().serializeToString(clone);
@@ -245,8 +248,8 @@ function _inlineImages(original, clone) {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       cloneImgs[i].setAttribute('src', canvas.toDataURL('image/png'));
-    } catch (_) {
-      // CORS-tainted images can't be read — keep original src
+    } catch (e) {
+      console.warn('[SVG export] Cannot inline image:', img.src, e.message);
     }
   }
 }
@@ -254,10 +257,12 @@ function _inlineImages(original, clone) {
 /** Fill transparent/rgba(0,0,0,0) backgrounds with a fallback color. */
 function _fillTransparentBg(clone, fallback) {
   const style = clone.getAttribute('style') || '';
-  // Check if background-color is transparent or rgba(0,0,0,0)
-  if (style.includes('background-color:rgba(0, 0, 0, 0)') ||
+  // Match transparent backgrounds regardless of browser formatting
+  const isTransparent = /background-color:\s*rgba\(\s*0[\s,]+0[\s,]+0[\s,]+0\s*\)/.test(style) ||
       style.includes('background-color:transparent') ||
-      (!style.includes('background-color') && !style.includes('background:'))) {
+      style.includes('background-color: transparent') ||
+      (!style.includes('background-color') && !style.includes('background:'));
+  if (isTransparent) {
     clone.setAttribute('style', style + `background-color:${fallback};`);
   }
   for (const child of clone.children) {
