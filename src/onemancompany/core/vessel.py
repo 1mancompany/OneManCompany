@@ -2601,34 +2601,71 @@ class EmployeeManager:
                 failed = sum(1 for n in work_nodes if n.status == TaskPhase.FAILED.value)
                 total = succeeded + failed
 
-                lines = [f"✅ {project_name} — complete", ""]
-                lines.append(f"{succeeded}/{total} subtasks succeeded" + (f", {failed} failed" if failed else ""))
-
                 # Deliverable files in project directory
                 deliverables = _list_deliverables(_pdir)
-                if deliverables:
-                    lines.append("")
-                    lines.append("Deliverables:")
-                    for fname in deliverables:
-                        lines.append(f"  {fname}")
+
+                # Calculate project cost
+                _proj_cost = 0.0
+                for wn in work_nodes:
+                    _proj_cost += getattr(wn, "cost_usd", 0.0) or 0.0
+
+                # Calculate elapsed time
+                _ea_created = getattr(ea_node, "created_at", "")
+                _elapsed = ""
+                if _ea_created:
+                    try:
+                        from datetime import datetime as _dt
+                        _start = _dt.fromisoformat(_ea_created.replace("Z", "+00:00"))
+                        _elapsed_s = (datetime.now(_start.tzinfo or None) - _start).total_seconds()
+                        if _elapsed_s < 60:
+                            _elapsed = f"{int(_elapsed_s)}s"
+                        elif _elapsed_s < 3600:
+                            _elapsed = f"{int(_elapsed_s // 60)}m"
+                        else:
+                            _elapsed = f"{_elapsed_s / 3600:.1f}h"
+                    except Exception as _te:
+                        logger.debug("[PROJECT COMPLETE] elapsed time calc failed: {}", _te)
 
                 # EA-written summary of work results for CEO
                 ea_summary = await _summarize_project_for_ceo(
                     project_name, work_nodes, deliverables,
                 )
-                if ea_summary:
-                    lines.append("")
-                    lines.append(ea_summary)
 
-                lines.append("")
-                lines.append("Reply to confirm, or provide feedback for a new iteration.")
+                # Build clear text message for the conversation
+                lines = [f"✅ Project Complete: {project_name}", ""]
+                lines.append(f"📊 Results: {succeeded}/{total} tasks succeeded" + (f", {failed} failed" if failed else ""))
+                if _elapsed:
+                    lines.append(f"⏱ Time: {_elapsed}")
+                if _proj_cost > 0:
+                    lines.append(f"💰 Cost: ${_proj_cost:.2f}")
+                if deliverables:
+                    lines.append(f"\n📁 Deliverables ({len(deliverables)} files):")
+                    for fname in deliverables[:10]:
+                        lines.append(f"  • {fname}")
+                    if len(deliverables) > 10:
+                        lines.append(f"  ... and {len(deliverables) - 10} more")
+                if ea_summary:
+                    lines.append(f"\n📝 Summary:\n{ea_summary}")
+                lines.append("\n👉 Reply to confirm completion, or describe changes for a new iteration.")
                 confirm_desc = "\n".join(lines)
 
-                # Create confirm node assigned to CEO
+                # Push structured completion card to CEO session for rich frontend rendering
+                _base_pid = project_id.split("/")[0] if project_id else ""
+                from onemancompany.core.ceo_broker import get_ceo_broker as _get_broker
+                _broker = _get_broker()
+                _session = _broker.get_session(project_id) or _broker.get_session(_base_pid)
+                if _session:
+                    _session.push_system_message(
+                        text=confirm_desc,
+                        source="project_complete",
+                    )
+
+                # Create confirm node — short prompt only (full details already in the completion card above)
+                _confirm_prompt = f"✅ {project_name} is complete. Reply to confirm, or describe changes for a new iteration."
                 confirm_node = tree.add_child(
                     parent_id=ea_node.id,
                     employee_id=_CEO_ID,
-                    description=confirm_desc,
+                    description=_confirm_prompt,
                     acceptance_criteria=[],
                 )
                 confirm_node.node_type = NodeType.CEO_REQUEST

@@ -205,6 +205,10 @@ class CeoTerminal {
     } else if (msg.type === 'tool_result') {
       // Tool results are displayed within tool_call cards, skip standalone rendering
       return;
+    } else if (msg.source === 'project_complete') {
+      // Render as a styled completion card
+      this._renderCompletionCard(msg);
+      return;
     } else {
       const src = msg.source || 'system';
       const cls = src === 'ea_auto_reply' ? 'ceo-msg--system' : 'ceo-msg--agent';
@@ -260,6 +264,33 @@ class CeoTerminal {
 
     card.appendChild(details);
     headerEl.addEventListener('click', () => card.classList.toggle('expanded'));
+    this._container.appendChild(card);
+  }
+
+  /**
+   * Render a project completion card with structured info.
+   */
+  _renderCompletionCard(msg) {
+    const card = document.createElement('div');
+    card.className = 'ceo-completion-card';
+    // Parse the text into sections
+    const text = msg.text || '';
+    const lines = text.split('\n');
+    let title = '', sections = [];
+    for (const line of lines) {
+      if (line.startsWith('✅')) title = line;
+      else if (line.startsWith('📊') || line.startsWith('⏱') || line.startsWith('💰') || line.startsWith('📁') || line.startsWith('📝') || line.startsWith('👉')) {
+        sections.push(line);
+      } else if (line.startsWith('  •')) {
+        sections.push(line);
+      } else if (line.trim() && sections.length > 0) {
+        sections.push(line);
+      }
+    }
+    card.innerHTML = `
+      <div class="completion-card-header">${this._esc(title || 'Project Complete')}</div>
+      <div class="completion-card-body">${sections.map(s => `<div>${this._esc(s)}</div>`).join('')}</div>
+    `;
     this._container.appendChild(card);
   }
 
