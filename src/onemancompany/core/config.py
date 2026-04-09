@@ -577,6 +577,33 @@ def reload_settings() -> None:
     settings = Settings()
 
 
+def sync_founding_defaults(provider: str, model: str) -> int:
+    """Sync founding employees' api_provider and llm_model to company defaults.
+
+    Returns the number of profiles updated.
+    """
+    import yaml
+
+    synced = 0
+    for fid in FOUNDING_IDS:
+        profile_path = EMPLOYEES_DIR / fid / "profile.yaml"
+        if not profile_path.exists():
+            continue
+        data = yaml.safe_load(read_text_utf(profile_path)) or {}
+        changed = False
+        if provider and data.get("api_provider") != provider:
+            data["api_provider"] = provider
+            changed = True
+        if model and data.get("llm_model") != model:
+            data["llm_model"] = model
+            changed = True
+        if changed:
+            write_text_utf(profile_path, yaml.dump(data, default_flow_style=False, allow_unicode=True))
+            synced += 1
+            logger.debug("sync_founding_defaults: updated {} → provider={}, model={}", fid, provider, model)
+    return synced
+
+
 # ---------------------------------------------------------------------------
 # Application config (config.yaml at project root)
 # ---------------------------------------------------------------------------

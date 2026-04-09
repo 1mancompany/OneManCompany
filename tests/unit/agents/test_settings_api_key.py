@@ -130,3 +130,56 @@ async def test_get_api_settings_returns_all_providers():
             f"Provider '{provider_name}' missing from GET /api/settings/api response. "
             f"Only hardcoded providers are returned."
         )
+
+
+# ---------------------------------------------------------------------------
+# Founding employee sync — single source of truth
+# ---------------------------------------------------------------------------
+
+
+def test_sync_founding_defaults_updates_profiles(tmp_path):
+    """sync_founding_defaults writes provider/model to founding employee profiles."""
+    import yaml
+    from unittest.mock import patch as _patch
+
+    # Create a fake founding employee profile
+    emp_dir = tmp_path / "00001"
+    emp_dir.mkdir()
+    profile = emp_dir / "profile.yaml"
+    profile.write_text(yaml.dump({
+        "name": "HR",
+        "api_provider": "openrouter",
+        "llm_model": "old-model",
+    }))
+
+    with _patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
+         _patch("onemancompany.core.config.FOUNDING_IDS", frozenset({"00001"})):
+        from onemancompany.core.config import sync_founding_defaults
+        count = sync_founding_defaults(provider="deepseek", model="deepseek-chat")
+
+    assert count == 1
+    updated = yaml.safe_load(profile.read_text())
+    assert updated["api_provider"] == "deepseek"
+    assert updated["llm_model"] == "deepseek-chat"
+
+
+def test_sync_founding_defaults_skips_unchanged(tmp_path):
+    """sync_founding_defaults doesn't rewrite profiles that already match."""
+    import yaml
+    from unittest.mock import patch as _patch
+
+    emp_dir = tmp_path / "00001"
+    emp_dir.mkdir()
+    profile = emp_dir / "profile.yaml"
+    profile.write_text(yaml.dump({
+        "name": "HR",
+        "api_provider": "openrouter",
+        "llm_model": "gpt-4",
+    }))
+
+    with _patch("onemancompany.core.config.EMPLOYEES_DIR", tmp_path), \
+         _patch("onemancompany.core.config.FOUNDING_IDS", frozenset({"00001"})):
+        from onemancompany.core.config import sync_founding_defaults
+        count = sync_founding_defaults(provider="openrouter", model="gpt-4")
+
+    assert count == 0

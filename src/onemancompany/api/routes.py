@@ -2124,8 +2124,14 @@ async def update_api_settings(body: dict) -> dict:
     # Also update DEFAULT_API_PROVIDER so make_llm fallback uses the right provider
     update_env_var("DEFAULT_API_PROVIDER", provider)
 
+    # Sync founding employees to new defaults (same as onboarding does)
+    from onemancompany.core.config import settings as refreshed, sync_founding_defaults
+    sync_founding_defaults(
+        provider=refreshed.default_api_provider,
+        model=refreshed.default_llm_model,
+    )
+
     # Return refreshed status
-    from onemancompany.core.config import settings as refreshed
     or_key = refreshed.openrouter_api_key
     ant_key = refreshed.anthropic_api_key
     return {
