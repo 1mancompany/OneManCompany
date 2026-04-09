@@ -4,12 +4,26 @@
  * Exports the entire OneManCompany UI as a single SVG file.
  * - Canvas office scene → pure vector via canvas2svg (C2S)
  * - HTML panels → foreignObject with inline styles
+ *
+ * Known limitation: drawImage sprites are embedded as base64 data URIs
+ * in the SVG. This makes the file self-contained but larger.
  */
 
 function exportSVG() {
   const renderer = window.officeRenderer;
   if (!renderer) { alert('Office renderer not ready'); return; }
 
+  const btn = document.getElementById('screenshot-toolbar-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    _doExport(renderer);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _doExport(renderer) {
   const app = document.getElementById('app');
   const appRect = app.getBoundingClientRect();
   const W = Math.round(appRect.width);
@@ -36,7 +50,8 @@ function exportSVG() {
     renderer.dpr = origDpr;
   }
 
-  const canvasSvgStr = svgCtx.getSerializedSvg(true);
+  // Extract inner SVG content (strip outer <svg> wrapper to avoid nested viewport)
+  const canvasInner = _extractSvgInner(svgCtx.getSerializedSvg(true));
 
   // ── 2. Collect styles for foreignObject ────────────────────────────────
   const styles = _collectStyles();
@@ -77,7 +92,7 @@ ${styles}
   <rect width="${W}" height="${H}" fill="#0d1117"/>
   <!-- Canvas (vector) -->
   <g transform="translate(${canvasOffX},${canvasOffY})">
-    ${canvasSvgStr}
+    ${canvasInner}
   </g>
   <!-- HTML panels -->
   ${foreignObjects}
@@ -93,10 +108,22 @@ ${styles}
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Strip outer <svg> wrapper, return only inner content (defs + groups). */
+function _extractSvgInner(svgStr) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgStr, 'image/svg+xml');
+  const root = doc.documentElement;
+  let inner = '';
+  for (const child of root.children) {
+    inner += new XMLSerializer().serializeToString(child);
+  }
+  return inner;
+}
 
 /** Collect all stylesheet rules as a string for embedding in SVG. */
 function _collectStyles() {
@@ -106,12 +133,32 @@ function _collectStyles() {
       for (const rule of sheet.cssRules) {
         lines.push(rule.cssText);
       }
-    } catch (_) {
-      // cross-origin stylesheets (e.g. Google Fonts) can't be read;
-      // we'll inline the font-family references instead
+    } catch (e) {
+      // Cross-origin stylesheets (e.g. Google Fonts) can't be read.
+      // Font references in the SVG will use fallbacks.
+      console.warn('[SVG export] Cannot read cross-origin stylesheet:', sheet.href, e.message);
     }
   }
   return lines.join('\n');
+}
+
+/** Sanitize a cloned DOM tree for safe embedding in SVG foreignObject. */
+function _sanitizeClone(clone) {
+  // Remove dangerous elements
+  for (const el of clone.querySelectorAll('script,iframe,embed,object,base,meta,link[rel="import"]')) {
+    el.remove();
+  }
+  // Remove event handlers and javascript: URIs
+  for (const el of clone.querySelectorAll('*')) {
+    for (const attr of [...el.attributes]) {
+      if (attr.name.startsWith('on') ||
+          (attr.name === 'href' && attr.value.trim().toLowerCase().startsWith('javascript:')) ||
+          (attr.name === 'src' && attr.value.trim().toLowerCase().startsWith('javascript:'))) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+  return clone;
 }
 
 /** Serialize a DOM panel into a <foreignObject> positioned at its layout offset. */
@@ -122,12 +169,7 @@ function _panelToForeignObject(el, appRect) {
   const w = Math.round(r.width);
   const h = Math.round(r.height);
 
-  // Clone and inline computed styles on top-level element
-  const clone = el.cloneNode(true);
-
-  // Remove script tags from clone
-  for (const s of clone.querySelectorAll('script')) s.remove();
-
+  const clone = _sanitizeClone(el.cloneNode(true));
   const html = new XMLSerializer().serializeToString(clone);
 
   return `<foreignObject x="${x}" y="${y}" width="${w}" height="${h}">
@@ -138,3 +180,8 @@ function _panelToForeignObject(el, appRect) {
 }
 
 window.exportSVG = exportSVG;
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('screenshot-toolbar-btn');
+  if (btn) btn.addEventListener('click', exportSVG);
+});

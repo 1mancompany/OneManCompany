@@ -1286,8 +1286,8 @@ class OfficeRenderer {
     const cssW = isSvgExport ? ctx.width : this.canvas.width  / dpr;
     const cssH = isSvgExport ? ctx.height : this.canvas.height / dpr;
 
-    // Clear buffer
-    ctx.clearRect(0, 0, cssW, cssH);
+    // Clear buffer (skip for SVG — C2S clearRect draws a white rect)
+    if (!isSvgExport) ctx.clearRect(0, 0, cssW, cssH);
 
     // Base DPR scaling (maps CSS pixels → physical pixels)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

@@ -234,14 +234,11 @@
     ctx.prototype.translate = function(x, y) { this.__addTransform(format("translate({x},{y})",{x:x,y:y})); };
     ctx.prototype.transform = function(a, b, c, d, e, f) { this.__addTransform(format("matrix({a},{b},{c},{d},{e},{f})",{a:a,b:b,c:c,d:d,e:e,f:f})); };
 
-    // Patched: setTransform support for OMC
+    // Patched: setTransform support for OMC (respects save/restore group scope)
     ctx.prototype.setTransform = function(a, b, c, d, e, f) {
-        // Reset to identity by wrapping in a new group, then apply the matrix
         var parent = this.__closestGroupOrSvg();
         var group = this.__createElement("g");
-        // Find the root content group (second child of svg root)
-        var rootGroup = this.__root.childNodes[1];
-        rootGroup.appendChild(group);
+        parent.appendChild(group);
         this.__currentElement = group;
         if (a !== 1 || b !== 0 || c !== 0 || d !== 1 || e !== 0 || f !== 0) {
             this.__currentElement.setAttribute("transform",
