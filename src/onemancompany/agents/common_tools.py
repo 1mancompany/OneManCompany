@@ -1250,7 +1250,7 @@ def manage_tool_access(employee_id: str, tool_name: str, action: str, manager_id
 # ---------------------------------------------------------------------------
 
 @tool
-def set_cron(cron_name: str, interval: str, task_description: str, employee_id: str = "") -> dict:
+async def set_cron(cron_name: str, interval: str, task_description: str, employee_id: str = "") -> dict:
     """Schedule a recurring task that runs automatically at a fixed interval.
 
     The task is dispatched to YOU (the caller) each interval. Use this for
@@ -1271,7 +1271,7 @@ def set_cron(cron_name: str, interval: str, task_description: str, employee_id: 
 
 
 @tool
-def stop_cron_job(cron_name: str, employee_id: str = "") -> dict:
+async def stop_cron_job(cron_name: str, employee_id: str = "") -> dict:
     """Stop a recurring cron job by name.
 
     Use list_automations() first to see your active cron jobs and their names.

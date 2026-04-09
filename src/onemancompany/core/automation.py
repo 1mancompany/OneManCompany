@@ -67,8 +67,8 @@ def _broadcast_cron_status(employee_id: str, cron_name: str, running: bool) -> N
     try:
         from onemancompany.core.events import event_bus, CompanyEvent
         from onemancompany.core.models import EventType
-        from onemancompany.core.async_utils import spawn_background
-        spawn_background(event_bus.publish(CompanyEvent(
+
+        coro = event_bus.publish(CompanyEvent(
             type=EventType.CRON_STATUS_CHANGE,
             payload={
                 "employee_id": employee_id,
@@ -76,7 +76,15 @@ def _broadcast_cron_status(employee_id: str, cron_name: str, running: bool) -> N
                 "running": running,
             },
             agent="SYSTEM",
-        )))
+        ))
+        try:
+            asyncio.get_running_loop()
+            from onemancompany.core.async_utils import spawn_background
+            spawn_background(coro)
+        except RuntimeError:
+            # No running event loop (called from thread or startup) — skip broadcast
+            coro.close()
+            logger.debug("[cron] Skipped broadcast (no event loop): {}:{}", employee_id, cron_name)
     except Exception as e:
         logger.warning("[cron] Broadcast cron_status_change failed: {}", e)
 
