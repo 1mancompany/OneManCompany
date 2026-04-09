@@ -447,6 +447,7 @@ async def get_bootstrap() -> dict:
         "tools": tools,
         "activity_log": activity_log[-50:],
         "version": app_version,
+        "onboarding_timestamp": settings.onboarding_timestamp,
         "office_layout": company_state.office_layout,
         "company_tokens": overhead.get("company_tokens", 0),
     }
@@ -6703,3 +6704,19 @@ async def _dispatch_conversation_to_adapter(conv_id: str, ceo_message: Message) 
             )
         except Exception:
             logger.exception("[conversation] failed to send error message for {}", conv_id)
+
+
+# ── Announcements ────────────────────────────────────────────────────────────
+
+
+@router.get("/api/announcements")
+async def get_announcements(since: str = "") -> dict:
+    """Fetch announcements from GitHub Discussions.
+
+    Args:
+        since: ISO 8601 timestamp. Only return announcements after this time.
+              Frontend passes the onboarding timestamp.
+    """
+    from onemancompany.core.announcements import fetch_announcements
+    items = await fetch_announcements(since=since)
+    return {"announcements": items}

@@ -49,6 +49,7 @@
           <button id="company-direction-toolbar-btn" class="toolbar-icon-btn" title="Company Direction">&#127919;</button>
           <button id="dashboard-toolbar-btn" class="toolbar-icon-btn" title="Dashboard">&#128202;</button>
           <button id="bg-tasks-toolbar-btn" class="toolbar-icon-btn" title="Background Tasks">&#9641;</button>
+          <button id="announcements-toolbar-btn" class="toolbar-icon-btn" title="Announcements" style="position:relative;">&#128276;<span id="announcements-badge" class="announcement-badge hidden"></span></button>
           <button id="settings-toolbar-btn" class="toolbar-icon-btn" title="Settings">&#9881;</button>
           <button id="abort-all-toolbar-btn" class="toolbar-icon-btn" title="Stop All Tasks" style="color: #ff4444;">&#9888;</button>
           <span class="status-item" id="connection-status">&#9679; OFFLINE</span>
@@ -154,6 +155,17 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Announcements Panel -->
+  <div id="announcements-panel" class="floating-panel hidden" style="right: 120px; top: 36px; left: auto; width: 380px; max-height: 480px;">
+    <div class="floating-panel-header">
+      <span>&#128276; Announcements</span>
+      <button class="floating-panel-close" onclick="document.getElementById('announcements-panel').classList.add('hidden')">&#10005;</button>
+    </div>
+    <div class="floating-panel-body" id="announcements-list" style="overflow-y: auto; max-height: 420px; padding: 8px;">
+      <div style="color: #666; font-size: 10px; text-align: center; padding: 20px 0;">Loading...</div>
     </div>
   </div>
 

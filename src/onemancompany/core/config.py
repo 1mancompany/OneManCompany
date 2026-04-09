@@ -546,6 +546,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     hr_review_interval_seconds: int = 300
+    onboarding_timestamp: str = ""  # ISO 8601 timestamp of initial onboarding
 
 
 settings = Settings()
