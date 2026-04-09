@@ -2029,7 +2029,10 @@ async def get_api_settings() -> dict:
     """Return current global API configuration status for all providers."""
     from onemancompany.core.config import PROVIDER_REGISTRY, settings
 
-    result: dict = {}
+    result: dict = {
+        "default_provider": settings.default_api_provider or "openrouter",
+        "default_model": settings.default_llm_model,
+    }
 
     # Build status for every registered provider
     for name, prov in PROVIDER_REGISTRY.items():
@@ -2041,7 +2044,6 @@ async def get_api_settings() -> dict:
         # Provider-specific extras
         if name == "openrouter":
             entry["base_url"] = settings.openrouter_base_url
-            entry["default_model"] = settings.default_llm_model
         elif name == "anthropic":
             entry["oauth_token_set"] = bool(settings.anthropic_oauth_token)
             entry["auth_method"] = settings.anthropic_auth_method

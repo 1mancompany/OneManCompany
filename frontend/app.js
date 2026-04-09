@@ -5391,6 +5391,9 @@ class AppController {
       const groups = await groupsResp.json();
       const tm = settings.talent_market || {};
 
+      const defaultProvider = settings.default_provider || 'openrouter';
+      const defaultModel = settings.default_model || '';
+
       let html = '';
       // Dynamic LLM provider cards
       for (const group of groups) {
@@ -5399,6 +5402,7 @@ class AppController {
         // Check if this provider has a key set from settings
         const providerSettings = settings[providerId] || {};
         const isConfigured = providerSettings.api_key_set || false;
+        const isDefault = providerId === defaultProvider;
 
         // Anthropic: show Setup Token (OAuth) as primary, API Key as fallback
         const hasSetupToken = group.choices && group.choices.some(c => c.auth_method === 'setup_token' && c.available);
@@ -5422,10 +5426,11 @@ class AppController {
               </div>` : '';
 
         html += `
-          <div class="api-provider-card">
+          <div class="api-provider-card${isDefault ? ' is-default' : ''}">
             <div class="api-card-header api-card-toggle" data-target="${bodyId}">
               <span class="api-status-dot ${isConfigured ? 'online' : 'offline'}"></span>
               <span class="api-card-title">${group.label}</span>
+              ${isDefault ? '<span style="font-size:5px;color:var(--pixel-green);margin-left:4px;">DEFAULT</span>' : ''}
               <span class="api-card-hint" style="font-size:5.5px;color:var(--text-dim);margin-left:4px;">${group.hint}</span>
               <span class="api-card-arrow">&#9660;</span>
             </div>
@@ -5437,6 +5442,17 @@ class AppController {
                 <button class="pixel-btn small api-test-btn" onclick="app._testProviderKey('${providerId}')">Test</button>
                 <button class="pixel-btn small" onclick="app._saveProviderKey('${providerId}')">Save</button>
                 <span id="api-${providerId}-result" class="api-test-result"></span>
+              </div>
+              <div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+                <label class="api-field-label">Default Model</label>
+                <input type="text" id="api-${providerId}-model" class="api-key-input" style="font-size:6px;"
+                  placeholder="${isDefault ? (defaultModel || 'e.g. gpt-4o') : 'e.g. deepseek-chat'}"
+                  value="${isDefault ? this._escAttr(defaultModel) : ''}" />
+                <div class="api-card-actions" style="margin-top:4px;">
+                  <button class="pixel-btn small${isDefault ? '' : ' api-test-btn'}" onclick="app._setDefaultProvider('${providerId}')"
+                    ${!isConfigured ? 'disabled title="Save API key first"' : ''}>${isDefault ? '✓ Default' : 'Set as Default'}</button>
+                  <span id="api-${providerId}-default-result" class="api-test-result"></span>
+                </div>
               </div>
             </div>
           </div>
@@ -5587,6 +5603,35 @@ class AppController {
       }
     } catch (e) {
       if (resultEl) { resultEl.textContent = 'ERR'; resultEl.className = 'api-test-result fail'; }
+    }
+  }
+
+  async _setDefaultProvider(providerId) {
+    const modelInput = document.getElementById(`api-${providerId}-model`);
+    const resultEl = document.getElementById(`api-${providerId}-default-result`);
+    const model = modelInput ? modelInput.value.trim() : '';
+
+    if (!model) {
+      if (resultEl) { resultEl.textContent = 'Enter model'; resultEl.className = 'api-test-result fail'; }
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/settings/api', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: providerId, default_model: model }),
+      });
+      const data = await resp.json();
+      if (data.status === 'updated') {
+        if (resultEl) { resultEl.textContent = 'OK'; resultEl.className = 'api-test-result success'; }
+        this._settingsLoaded = false;
+        this._renderApiSettings();
+      } else {
+        if (resultEl) { resultEl.textContent = data.error || 'Error'; resultEl.className = 'api-test-result fail'; }
+      }
+    } catch (e) {
+      if (resultEl) { resultEl.textContent = 'Error'; resultEl.className = 'api-test-result fail'; }
     }
   }
 
