@@ -5592,3 +5592,28 @@ body.resize-dragging {
   font-size: 12px;
 }
 .announcement-dismiss:hover { color: var(--pixel-red); }
+
+/* ===== Project Completion Card ===== */
+.ceo-completion-card {
+  margin: 8px 0;
+  border: 1px solid #22c55e;
+  border-radius: 6px;
+  background: #0a1a0f;
+  padding: 10px 12px;
+}
+.completion-card-header {
+  color: #4ade80;
+  font-weight: bold;
+  font-size: calc(12px + var(--font-boost));
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #1a3a20;
+}
+.completion-card-body {
+  color: #d4d4d4;
+  font-size: calc(10px + var(--font-boost));
+  line-height: 1.6;
+}
+.completion-card-body div {
+  padding: 1px 0;
+}

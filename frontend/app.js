@@ -2703,12 +2703,13 @@ class AppController {
       if (s.project_id === this._EA_CHAT) continue;
       const item = document.createElement('div');
       const hasPending = s.has_pending;
+      const isComplete = s.is_complete;
       item.className = 'ceo-proj-item' + (this._currentCeoProject === s.project_id ? ' active' : '') + (hasPending ? ' has-pending' : '');
       const basePid = (s.project_id || '').split('/')[0];
       const name = projectNames[basePid] || basePid;
       const display = name.length > 14 ? name.substring(0, 14) + '\u2026' : name;
-      const badge = hasPending ? '<span class="ceo-proj-pending">●</span>' : '';
-      item.innerHTML = badge + this._escHtml(display);
+      const statusIcon = isComplete ? '✅ ' : hasPending ? '<span class="ceo-proj-pending">●</span>' : '⏳ ';
+      item.innerHTML = statusIcon + this._escHtml(display);
       item.addEventListener('click', () => {
         chatBtn?.classList.remove('active');
         this._selectCeoProject(s.project_id);

@@ -173,12 +173,15 @@ class CeoSession:
 
     def to_summary(self) -> dict:
         """Return a serializable summary for API responses."""
+        # Detect project status from conversation history
+        is_complete = any(m.get("source") == "project_complete" for m in self.history)
         return {
             "project_id": self.project_id,
             "has_pending": self.has_pending,
             "pending_count": self.pending_count,
             "message_count": len(self.history),
             "last_message": self.history[-1] if self.history else None,
+            "is_complete": is_complete,
         }
 
 
